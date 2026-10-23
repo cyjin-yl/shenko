@@ -1,0 +1,73 @@
+//! 存储 trait 接口 — SPEC §41.2
+
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
+
+use crate::commit::{CommitReceipt, DurabilityProfile};
+use crate::error::ShenkoError;
+use crate::ids::{EntityId, LedgerSeq};
+use crate::object::Digest;
+use crate::task::TaskRecord;
+use crate::operation::{AttemptRecord, OperationRecord};
+use crate::evidence::EvidenceReceipt;
+
+/// 存储能力探测结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoreCapabilities {
+    pub sqlite_version: String,
+    pub wal_mode: bool,
+    pub fts5_available: bool,
+    pub synchronous: String,
+    pub journal_mode: String,
+    pub incarnation: EntityId,
+    pub durability_profile: DurabilityProfile,
+}
+
+/// 写入批次
+#[derive(Debug, Default)]
+pub struct WriteBatch {
+    pub task_upserts: Vec<TaskRecord>,
+    pub operation_upserts: Vec<OperationRecord>,
+    pub attempt_upserts: Vec<AttemptRecord>,
+    pub evidence_upserts: Vec<EvidenceReceipt>,
+    pub raw_objects: Vec<RawObject>,
+}
+
+impl WriteBatch {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.task_upserts.is_empty()
+            && self.operation_upserts.is_empty()
+            && self.attempt_upserts.is_empty()
+            && self.evidence_upserts.is_empty()
+            && self.raw_objects.is_empty()
+    }
+}
+
+/// 原始对象写入
+#[derive(Debug)]
+pub struct RawObject {
+    pub data: bytes::Bytes,
+    pub media_type: String,
+    pub namespace: String,
+    pub codec_name: String,
+    pub codec_major: u32,
+}
+
+/// 存储 watch 事件
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchEvent {
+    pub commit_ref: crate::commit::CommitRef,
+    pub updated_entity_ids: Vec<EntityId>,
+}
+
+/// 读取水位
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ReadWatermark {
+    pub ledger_id: EntityId,
+    pub through_seq: LedgerSeq,
+}
