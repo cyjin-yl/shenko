@@ -154,7 +154,7 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
 }
 
 /// Build the message list from recent events + carried thought.
-fn build_messages(state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenko_broker::request::InferenceMessage> {
+fn build_messages(_state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenko_broker::request::InferenceMessage> {
     let mut messages = vec![];
 
     for ev in events.iter().take(10) {
@@ -247,7 +247,6 @@ async fn execute_step(
                     system_prompt: build_system_prompt(state, in_semantic_wait),
                     messages: build_messages(state, events),
                     max_tokens: Some(state.max_tokens),
-                    temperature: Some(0.7),
                     tools: vec![],
                 },
                 result_tx: tx,
