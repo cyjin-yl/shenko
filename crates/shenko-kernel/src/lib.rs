@@ -6,9 +6,13 @@ pub mod service;
 pub mod capability;
 pub mod lifecycle;
 pub mod supervisor;
+pub mod hooks;
+pub mod effect_contract;
 
 pub use plugin::*;
 pub use service::*;
 pub use capability::*;
 pub use lifecycle::*;
 pub use supervisor::*;
+pub use hooks::*;
+pub use effect_contract::*;
