@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 use tracing::{info, warn, debug};
 use shenko_types::ids::{EntityId, BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
-use shenko_types::subject::{SubjectStep, SubjectStepState, SemanticWait, DelegationIntent};
+use shenko_types::subject::{SubjectStep, SubjectStepState, SemanticWait, DelegationIntent, InboxCursor};
 use shenko_types::commit::CommitRef;
 use shenko_types::object::{ObjectRef, SchemaRef, Digest};
 use crate::inbox::{Inbox, InboxEvent};
@@ -28,6 +28,8 @@ pub struct SubjectLoopState {
     pub last_thought: Option<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
+    /// Monotonically increasing count of inbox events consumed across steps — used for InboxCursor.
+    pub last_inbox_cursor: u64,
 }
 
 impl SubjectLoopState {
@@ -46,6 +48,7 @@ impl SubjectLoopState {
             max_tokens: 4096,
             last_thought: None,
             goals: vec![],
+            last_inbox_cursor: 0,
         }
     }
 
@@ -201,6 +204,37 @@ async fn execute_step(
         seq: shenko_types::ids::LedgerSeq(0),
     });
 
+    // S0: seal input plan — SPEC §41.5
+    // Build a content-addressed input plan from the step seq + event ids so each
+    // step fixes its attention context version before the model is called.
+    let mut plan_buf: Vec<u8> = Vec::new();
+    plan_buf.extend_from_slice(seq.to_le_bytes().as_slice());
+    for ev in events {
+        let id_bytes = ev.event_id.as_uuid().as_bytes();
+        plan_buf.extend_from_slice(id_bytes);
+    }
+    let plan_digest = Digest::blake3(&plan_buf);
+    let input_plan_ref = ObjectRef {
+        digest: plan_digest.clone(),
+        bytes: plan_buf.len() as u64,
+        media_type: "application/octet-stream".into(),
+        store_namespace: "input_plans".into(),
+        locator: String::new(),
+        codec: SchemaRef {
+            name: "input_plan".into(),
+            major: 1,
+            digest: Digest::blake3(b"input_plan"),
+        },
+    };
+
+    // Advance the inbox cursor to the last event consumed by this step.
+    let last_event_id = events.last().map(|ev| ev.event_id.clone());
+    state.last_inbox_cursor = state.last_inbox_cursor.saturating_add(events.len() as u64);
+    let _inbox_cursor = InboxCursor {
+        through_event_id: last_event_id,
+        consumed_count: state.last_inbox_cursor,
+    };
+
     // S0: Planned → Preparing — seal input plan
     let mut step = SubjectStep {
         step_id,
@@ -210,7 +244,7 @@ async fn execute_step(
         controller_epoch: ControllerEpoch(1),
         software_generation: RuntimeGeneration::default(),
         state: SubjectStepState::Preparing,
-        input_plan_ref: None,
+        input_plan_ref: Some(input_plan_ref),
         context_revision: Some(seq),
         active_request_id: None,
         active_attempt_id: None,
@@ -291,28 +325,6 @@ async fn execute_step(
         state.last_thought = Some(output.clone());
     }
 
-    // Delegation heuristic — SPEC §5.2/§5.3
-    // If the model output signals a delegation ("委派" or "delegate"), synthesise a
-    // minimal DelegationIntent and hand it to the dispatcher.  A real seat adapter
-    // will drain the dispatcher channel and spawn an actual child.
-    if let Some(output) = &model_output {
-        let lower = output.to_lowercase();
-        if output.contains("委派") || lower.contains("delegate") {
-            let intent = DelegationIntent {
-                intent_id: EntityId::new(),
-                goal: output.lines().next().unwrap_or("delegated task").to_string(),
-                system_prompt: String::new(),
-                model: None,
-                capabilities: vec![],
-                budget_hint: None,
-                reply_grant: None,
-            };
-            if let Err(e) = state.dispatcher.dispatch(intent).await {
-                warn!(seq, err=%e, "delegation dispatch failed");
-            }
-        }
-    }
-
     // S1: Committed — atomic commit of step + advance branch head in one TX. SPEC §41.2.1/§44.6
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(1);
@@ -346,6 +358,31 @@ async fn execute_step(
                     "S1 committed"
                 );
             }
+
+            // Delegation heuristic — SPEC §5.2/§5.3. Fire after S1 so the
+            // intent is only dispatched once the step is durably committed.
+            // Triggers: "委派", "[delegate]", "dispatch:" in model output.
+            if let Some(output) = &model_output {
+                let lower = output.to_lowercase();
+                if output.contains("委派")
+                    || lower.contains("[delegate]")
+                    || lower.contains("dispatch:")
+                {
+                    let intent = DelegationIntent {
+                        intent_id: EntityId::new(),
+                        goal: output.lines().next().unwrap_or("delegated task").to_string(),
+                        system_prompt: output.clone(),
+                        model: None,
+                        capabilities: vec![],
+                        budget_hint: None,
+                        reply_grant: None,
+                    };
+                    if let Err(e) = state.dispatcher.dispatch(intent).await {
+                        warn!(seq, err=%e, "delegation dispatch failed");
+                    }
+                }
+            }
+
             Some(receipt.commit_ref)
         }
         Err(e) => {

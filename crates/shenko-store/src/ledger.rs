@@ -6,7 +6,7 @@ use anyhow::Result;
 use tracing::instrument;
 
 use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
-use shenko_types::ids::{EntityId, LedgerSeq};
+use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
 use shenko_types::store::WriteBatch;
 use shenko_types::error::ShenkoError;
 
@@ -121,6 +121,24 @@ impl Ledger {
                     seq.0 as i64,
                 ],
             ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        }
+
+        for ie in &batch.inbox_event_upserts {
+            tx.execute(
+                "INSERT OR IGNORE INTO inbox_events (event_id, agent_id, kind, source, consumed, data)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+                params![
+                    ie.event_id.to_string(),
+                    ie.agent_id.to_string(),
+                    ie.kind,
+                    ie.source,
+                    ie.payload_json,
+                ],
+            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            updated.push(UpdatedEntity {
+                entity_id: ie.event_id,
+                record_revision: shenko_types::ids::RecordRevision(0),
+            });
         }
 
         // record commit in ledger log
