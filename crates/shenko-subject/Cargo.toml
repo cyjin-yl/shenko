@@ -1,0 +1,27 @@
+[package]
+name = "shenko-subject"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+shenko-kernel = { path = "../shenko-kernel" }
+shenko-store = { path = "../shenko-store" }
+shenko-broker = { path = "../shenko-broker" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"

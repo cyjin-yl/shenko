@@ -1,0 +1,11 @@
+//! Shenko persistent store — SQLite WAL, SPEC §41.2
+//! One mutation line, one current writer incarnation per local ledger.
+//! Configures: journal_mode=WAL, synchronous=FULL, foreign_keys=ON
+pub mod migrations;
+pub mod store;
+pub mod cas;
+pub mod ledger;
+
+pub use store::*;
+pub use cas::*;
+pub use ledger::*;
