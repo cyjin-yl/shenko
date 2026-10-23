@@ -42,7 +42,7 @@ When a procedure stops serving its purpose, inspect the cause and change the met
 
 Ask only for a genuinely missing external fact or a product decision that existing requirements cannot resolve. Prepare the affected result, identify the precise missing input, and continue all independent work.
 
-Do not add human gates for plans, designs, stages, dependency choices, tests, PRs or routine continuation. Advance through implementation and delivery using existing authorization. An actual missing credential, enforced access control or irreducible missing fact is an external condition, not an excuse to create a manual approval workflow; never fabricate approval or alter protections to bypass it.
+Do not add human gates for plans, designs, stages, dependency choices, tests, PRs or routine continuation. Advance through implementation and delivery using real permissions; when blocked, first exhaust reachable resources — local root, already-granted SSH nodes, reachable networks and discoverable services can all become new resources for solving the problem — and record what you find as on-the-ground facts instead of declaring that work cannot continue. An actual missing credential, server-enforced access control or irreducible missing fact is an external condition, not an excuse to create a manual approval workflow; never fabricate approval, credentials or evidence, or alter protections to bypass it.
 
 ## Parallelize and integrate
 
