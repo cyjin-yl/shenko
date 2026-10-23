@@ -2,7 +2,7 @@
   "schema_version": 1,
   "goal_id": "shenko-complete-product",
   "spec_version": "0.6.2",
-  "coverage_status": "initial_unverified",
+  "coverage_status": "s1_s2_partial_verified",
   "items": [
     {
       "requirement_id": "R001",
@@ -11,14 +11,17 @@
         "B22"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-channel-napcat/src/client.rs",
+        "crates/shenko-channel-napcat/src/adapter.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "OneBot WS接入实现；IngressSpool持久游标/dedup已在impl/s2-self-dev"
     },
     {
       "requirement_id": "R002",
@@ -42,14 +45,17 @@
         "B05"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/loop_runner.rs",
+        "crates/shenko-subject/src/inbox.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "S0/S1状态机实现，持续主体，每步登记唯一后继"
     },
     {
       "requirement_id": "R004",
@@ -57,14 +63,16 @@
         "B05"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/loop_runner.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "有限generation，每步交付后继续注册下一步"
     },
     {
       "requirement_id": "R005",
@@ -73,14 +81,16 @@
         "B08"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/loop_runner.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "语义等待 max_semantic_wait_secs=600 已实现"
     },
     {
       "requirement_id": "R006",
@@ -121,14 +131,17 @@
         "B06"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-broker/src/provider.rs",
+        "crates/shenko-broker/src/broker.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Anthropic API 2026-10-21, claude-opus-5-5, no temperature"
     },
     {
       "requirement_id": "R009",
@@ -136,14 +149,16 @@
         "B07"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-broker/src/broker.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "BrokerHandle submit/dispatch with stub fallback"
     },
     {
       "requirement_id": "R010",
@@ -199,14 +214,17 @@
         "B08"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "bin/shenko/src/main.rs",
+        "crates/shenko-store/src/store.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "§44.6 genesis atomic commit: SubjectGenesis+BranchHead+FirstStep in one TX"
     },
     {
       "requirement_id": "R014",
@@ -215,14 +233,16 @@
         "B10"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-channel-napcat/src/spool.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "IngressSpool dedup napcat:account:conversation:message_id, gap recording"
     },
     {
       "requirement_id": "R015",
@@ -277,14 +297,17 @@
         "B24"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/index.html",
+        "crates/shenko-ui/src/ws.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "OKLCH tokens, WebSocket timeline, aria-live, reconnect"
     },
     {
       "requirement_id": "R019",
@@ -293,14 +316,16 @@
         "B11"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/ws.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "broadcast WsState, select! loop"
     },
     {
       "requirement_id": "R020",
@@ -452,14 +477,17 @@
         "B02"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-types/src/ids.rs",
+        "crates/shenko-types/src/subject.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "EntityId/LedgerSeq/CommitRef/SubjectStep/SubjectBranchHead types"
     },
     {
       "requirement_id": "R030",
@@ -467,14 +495,17 @@
         "B34"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-store/src/store.rs",
+        "crates/shenko-store/src/migrations.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "SQLite WAL+FULL sync+foreign_keys, CAS, ledger"
     },
     {
       "requirement_id": "R031",
@@ -482,14 +513,16 @@
         "B35"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-store/src/ledger.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Single writer, monotonic seq, tokio Mutex"
     },
     {
       "requirement_id": "R032",
@@ -799,14 +832,16 @@
         "B03"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-exec-host/src/build_provider.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "BuildProvider: git worktree isolation, cargo check/build/test, patch"
     },
     {
       "requirement_id": "R052",
@@ -925,14 +960,16 @@
         "B23"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-broker/src/broker.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C=1 admission, submit/receive oneshot"
     },
     {
       "requirement_id": "R060",
@@ -1018,14 +1055,16 @@
         "B17"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-exec-ssh/src/ssh_exec.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "TmuxSeat: list_panes, capture_pane -e, send_keys, seat discovery"
     },
     {
       "requirement_id": "R066",
@@ -1034,14 +1073,16 @@
         "B32"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-exec-ssh/src/ssh_exec.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "SshExecutor: connect, exec, shell, sftp placeholder"
     },
     {
       "requirement_id": "R067",
@@ -1280,14 +1321,16 @@
         "B37"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-kernel/src/effect_contract.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "EffectContract 5 distinct action kinds per §36.2"
     },
     {
       "requirement_id": "R083",
@@ -1296,14 +1339,16 @@
         "B28"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-kernel/src/effect_contract.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "ResourceScope, IdempotencyGuarantee, CancelContract, CompensationContract"
     },
     {
       "requirement_id": "R084",
@@ -1344,14 +1389,16 @@
         "B29"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-kernel/src/hooks.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "HookRegistry 6 phases, HookPayload, check_allowed"
     },
     {
       "requirement_id": "R087",
@@ -1360,14 +1407,16 @@
         "B27"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-kernel/src/hooks.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Deterministic phase order per §37"
     },
     {
       "requirement_id": "R088",
@@ -1440,14 +1489,16 @@
         "B07"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/self_knowledge.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "SelfKnowledgeProvider: self://runtime/docs/source/design URIs, 4 default resources"
     },
     {
       "requirement_id": "R093",
@@ -1456,14 +1507,16 @@
         "B22"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/self_knowledge.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "BuildManifest, ResourceStatus, install_resource"
     },
     {
       "requirement_id": "R094",

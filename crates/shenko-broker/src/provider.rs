@@ -1,5 +1,5 @@
 //! Anthropic Claude API provider — SPEC §47 PV01/PV02
-//! Wire contract: Anthropic Messages API 2023-06-01
+//! Wire contract: Anthropic Messages API 2026-10-21 (no temperature/top_p/top_k)
 use anyhow::{anyhow, Result};
 use tracing::{info, instrument};
 
