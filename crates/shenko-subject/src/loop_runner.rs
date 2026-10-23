@@ -352,16 +352,6 @@ async fn execute_step(
     // Carry thought forward
     if let Some(output) = &model_output {
         state.last_thought = Some(output.clone());
-
-        // Outbound path — publish the completed model output to the UI and any
-        // other subscribed transport. SPEC §5.1, §21.12.
-        if let Some(tx) = &state.outbox_tx {
-            let _ = tx.send(OutboxMessage {
-                kind: "thought".into(),
-                step: seq,
-                content: output.clone(),
-            });
-        }
     }
 
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
@@ -472,6 +462,20 @@ async fn execute_step(
         RecordRevision(0),
     ) {
         Ok(receipt) => {
+            // Outbound path — publish ONLY after the S1 commit succeeded.
+            // SPEC §41.2.3 committed-only publication: never show a thought
+            // that is not durably recorded, or a retried step could show a
+            // different one.
+            if let Some(output) = &model_output {
+                if let Some(tx) = &state.outbox_tx {
+                    let _ = tx.send(OutboxMessage {
+                        kind: "thought".into(),
+                        step: seq,
+                        content: output.clone(),
+                    });
+                }
+            }
+
             if seq % 50 == 0 || !events.is_empty() {
                 debug!(
                     seq,

@@ -2,7 +2,7 @@
 
 **更新时间：2026-10-23**
 **当前分支：`impl/s2-self-dev`**
-**HEAD：pending commit**
+**HEAD：e4010a0**
 **upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)**
 
 ## 立即可继续的工作
@@ -58,7 +58,7 @@ cargo test -p shenko-store    # 运行测试
 - main.rs：HookRegistry 创建并传入 subject loop
 
 ### Batch-6 gap 修复
-_工作树改动尚未提交（HEAD：pending commit）。_
+_Batch-6 提交后工作树干净（HEAD：e4010a0）。_
 
 - shenko-wasm：wasmtime 45 Engine + Module 实例化 + call_func，`WasmRuntime` 真实执行 §8/§29
   - checkpoint/restore 目前只写/读 `.wasm_checkpoint` 标记；WASI/VFS/宿主挂载未实现
