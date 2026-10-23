@@ -274,6 +274,29 @@ impl Store {
             None => Ok(None),
         }
     }
+
+    /// Read the latest committed OperationRecord by id. SPEC §41.4 X03.
+    pub fn get_operation(
+        &self,
+        operation_id: shenko_types::ids::EntityId,
+    ) -> Result<Option<shenko_types::operation::OperationRecord>, shenko_types::error::ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM operations WHERE operation_id = ?1",
+                [operation_id.to_string()],
+                |r| r.get(0),
+            )
+            .ok();
+        drop(conn);
+        match data {
+            Some(json) => serde_json::from_str(&json)
+                .map(Some)
+                .map_err(|e| shenko_types::error::ShenkoError::storage(format!("bad operation record: {e}"))),
+            None => Ok(None),
+        }
+    }
+
 }
 
 /// Apply required SQLite settings. SPEC §41.2.1

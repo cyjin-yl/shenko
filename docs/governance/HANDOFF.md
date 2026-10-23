@@ -1,9 +1,9 @@
 # Shenko 开发交接状态
 
 **更新时间：2026-10-23**
-**当前分支：`impl/s2-self-dev`**
-**HEAD：e4010a0**
-**upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)**
+**当前分支：`main`**
+**HEAD：pending（由本 Round-2 提交确定）**
+**upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)（已合并）**
 
 ## 立即可继续的工作
 
@@ -68,14 +68,20 @@ _Batch-6 提交后工作树干净（HEAD：e4010a0）。_
 - main.rs / shenko-ui：同一 outbox broadcast 共享给 subject loop 与 UI；UI 输入经 inbox 回主体
   - outbox 为内存 broadcast，尚无持久 operation ledger / 投递回执 §15.2
 
+### Round-2 主线（直接提交到 main）
+- §35.7 自升级：新增 `shenko-update` crate — `UpdateCoordinator` A/B 槽位、rusqlite 一致性备份复制、Prepare→CatchUp→Smoke→Handoff→Observe→Retire 状态机；smoke 仅做本地离线检查（db 完整性 + artifact 存在），不触碰 QQ/席位/网络。`crates/shenko-update/src/lib.rs`
+- §35.6 QQ 出站：`OutboundLedger` intent→ack→unknown→reconcile；echo 关联响应 15 秒超时判定为 Unknown，绝不盲重发；模型回复约定 `[reply:group:id]` / `[reply:private:id]` 在 `bin/shenko/src/main.rs` 路由。`crates/shenko-channel-napcat/src/outbound.rs`
+- §43 Playground：`/playground` CRUD、原子写、`artifact_changed` inbox 事件；后端目前是 canned echo，已标 `TODO(§43)` 等待真实进程后端。`crates/shenko-ui/src/playground.rs`
+- 说明：本段 HEAD 在提交前记为 pending，提交/推送后以实际 main 提交为准。
+
 ## 仍存在的主要差距（按优先级）
 
 | # | SPEC 条款 | 状态 | 说明 |
 |---|---|---|---|
 | 1 | §8/§29 WASM 家园 | 部分实现（engine+module+call 可用；WASI/VFS 未实现） | wasmtime 45 Engine/Module/call_func 已接通；checkpoint 仅标记文件 |
-| 2 | §35.7 自升级 A/B | 未实现 | prepare/copy/catch_up/smoke/handoff 流程缺失 |
-| 3 | §43 Playground UI | 未实现 | 整章缺失 |
-| 4 | §5.1 outbox/回复 | 部分实现（UI broadcast 已通） | subject→UI 时间线 broadcast 已接通；出站 QQ operation ledger/回执仍缺 |
+| 2 | §35.7 自升级 A/B | 部分实现 | `shenko-update` 状态机+一致性备份已具备；runtime 接线（quiesce/catch-up/epoch 切换）待做 |
+| 3 | §43 Playground UI | 部分实现 | `/playground` CRUD+原子写+artifact_changed 已具备；真实进程后端仍为 canned echo |
+| 4 | §5.1 outbox/回复 | 部分实现（UI broadcast + QQ ledger） | subject→UI broadcast 已通；QQ 出站 intent/ack/unknown/reconcile 已具备，真实 QQ 端到端回执待验 |
 | 5 | §44 真实 seed bootstrap | 部分实现（真实 CAS 对象） | genesis ref 经 CAS seal_object 封存；完整 seed 装配/WASM 家园/首启 probe 未完成 |
 
 ## 下一步推荐工作（按因果链）
@@ -95,5 +101,6 @@ _Batch-6 提交后工作树干净（HEAD：e4010a0）。_
 - 已实现 R 项（partial）：R001 R003 R004 R005 R008 R009 R013 R014 R018 R019 R029 R030 R031 R051 R059 R065 R066 R082 R083 R086 R087 R092 R093 R132 R135（共 25/147）
   - Batch-5 新增覆盖：§7 cordis-rs 对齐、§37 hook 调用点、§41.5 S1 决策记录
   - Batch-6 新增覆盖：§8/§29 wasmtime runtime、§44.6 CAS genesis、§5.1/§21.12 subject outbox → UI
-- 测试：5/5 store roundtrip 通过
+  - Round-2 新增覆盖：§35.7 自升级状态机（R120/R009）、§35.6 QQ 出站 ledger（R001）、§43 Playground（R134）
+- 测试：store roundtrip 5/5、shenko-update 2/2、shenko-channel-napcat 2/2、shenko-ui 1/1 通过
 - 待验收：V1-01~V1-15 均未执行

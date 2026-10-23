@@ -122,25 +122,41 @@ async fn main() -> Result<()> {
             tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
             info!("subject loop started");
 
-            // 5. Start NapCat if configured — SPEC §16
+            // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
+                use shenko_channel_napcat::outbound::{
+                    OutboundKind, OutboundLedger, OutboundOperation,
+                };
+
                 let napcat_config = shenko_channel_napcat::config::NapCatConfig {
                     ws_url,
                     ..Default::default()
                 };
-                let (napcat_client, _event_rx, _action_rx) = shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
-                let spool = napcat_client.spool.clone();
+                let (napcat_client, mut napcat_event_rx, napcat_action_rx) =
+                    shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
+                let client = Arc::new(napcat_client);
+                let spool = client.spool.clone();
+                let event_tx = client.event_sender();
+                let pending_actions = client.pending_actions.clone();
                 let cancel_napcat = cancel.clone();
+
+                // WebSocket reader/writer loop.
+                tokio::spawn(shenko_channel_napcat::client::NapCatClient::run_connection_loop(
+                    napcat_config.clone(),
+                    event_tx,
+                    napcat_action_rx,
+                    pending_actions,
+                    spool,
+                    cancel_napcat.clone(),
+                ));
+
+                // Route NapCat events to the subject inbox; spool provides dedup
+                // and gap recording.
                 let inbox_tx = subject_inbox.sender();
+                let cancel_events = cancel_napcat.clone();
                 tokio::spawn(async move {
-                    // Route NapCat events to subject inbox; spool provides dedup and gap recording
-                    let (event_tx_inner, mut event_rx_inner) = tokio::sync::mpsc::channel(256);
-                    let (_action_tx_inner, action_rx_inner) = tokio::sync::mpsc::channel(256);
-                    tokio::spawn(shenko_channel_napcat::client::NapCatClient::run_connection_loop(
-                        napcat_config, event_tx_inner, action_rx_inner, spool, cancel_napcat.clone(),
-                    ));
-                    while let Some(ev) = event_rx_inner.recv().await {
-                        if cancel_napcat.is_cancelled() { break; }
+                    while let Some(ev) = napcat_event_rx.recv().await {
+                        if cancel_events.is_cancelled() { break; }
                         let inbox_ev = shenko_subject::inbox::InboxEvent {
                             event_id: shenko_types::ids::EntityId::new(),
                             kind: shenko_subject::inbox::InboxEventKind::Message,
@@ -151,13 +167,92 @@ async fn main() -> Result<()> {
                         let _ = inbox_tx.send(inbox_ev).await;
                     }
                 });
+
+                // Outbound replies: the model emits an explicit target so we
+                // never guess who to answer. Every send is recorded in the
+                // durable operation ledger *before* it is written, and a
+                // missing echo is recorded as unknown for reconciliation.
+                // SPEC §35.6, §41.4 X03.
+                let ledger = Arc::new(
+                    OutboundLedger::with_store(Arc::clone(&store))
+                        .with_account(napcat_config.bot_qq),
+                );
+                let mut outbox_rx = outbox_tx.subscribe();
+                let reply_client = Arc::clone(&client);
+                let cancel_replies = cancel_napcat.clone();
+                tokio::spawn(async move {
+                    loop {
+                        let msg = tokio::select! {
+                            msg = outbox_rx.recv() => msg,
+                            _ = cancel_replies.cancelled() => break,
+                        };
+                        let msg = match msg {
+                            Ok(msg) => msg,
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                tracing::warn!(skipped=n, "outbox lagged — replies skipped");
+                                continue;
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        };
+
+                        let Some((kind, target, text)) = parse_reply_directive(&msg.content) else {
+                            continue;
+                        };
+
+                        let op = OutboundOperation::new(kind, target, text);
+                        let op_id = op.operation_id;
+                        if let Err(e) = ledger.record_intent(&op) {
+                            tracing::warn!(err=%e, "outbound intent not durable — message not sent");
+                            continue;
+                        }
+
+                        let send_result = match kind {
+                            OutboundKind::SendGroup => {
+                                reply_client
+                                    .send_group_message_with_echo(target, &op.message, op.echo_token.clone())
+                                    .await
+                            }
+                            OutboundKind::SendPrivate => {
+                                reply_client
+                                    .send_private_message_with_echo(target, &op.message, op.echo_token.clone())
+                                    .await
+                            }
+                        };
+
+                        match send_result {
+                            Ok(receipt) => {
+                                if let Err(e) = ledger.record_ack(op_id, receipt.retcode) {
+                                    tracing::warn!(err=%e, op=%op_id, "failed to record outbound ack");
+                                }
+                                if receipt.is_success() {
+                                    tracing::info!(op=%op_id, target, kind=kind.as_str(), "QQ reply sent");
+                                } else {
+                                    tracing::warn!(
+                                        op=%op_id, status=%receipt.status, retcode=receipt.retcode,
+                                        "NapCat rejected QQ reply"
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                // The request may have been executed. Record the
+                                // unknown effect and leave resolution to
+                                // reconciliation; never blind-resend.
+                                tracing::warn!(err=%e, op=%op_id, "QQ reply outcome unknown");
+                                if let Err(e) = ledger.record_unknown(op_id) {
+                                    tracing::warn!(err=%e, op=%op_id, "failed to record unknown outcome");
+                                }
+                            }
+                        }
+                    }
+                });
                 info!("NapCat connector started");
             }
 
             // 6. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
                 .with_inbox(subject_inbox.sender())
-                .with_outbox(outbox_tx);
+                .with_outbox(outbox_tx)
+                .with_data_dir(data_dir.clone());
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
             println!("  Inference: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "claude-opus-5-5" } else { "stub (no ANTHROPIC_API_KEY)" });
@@ -178,6 +273,40 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Parse an explicit QQ reply directive emitted by the subject:
+/// `[reply:group:<group_id>] text` or `[reply:private:<user_id>] text`.
+/// Continuation lines are included until the next directive.
+fn parse_reply_directive(
+    content: &str,
+) -> Option<(shenko_channel_napcat::outbound::OutboundKind, u64, String)> {
+    use shenko_channel_napcat::outbound::OutboundKind;
+
+    let lines: Vec<&str> = content.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("[reply:") else { continue };
+        let Some((head, tail)) = rest.split_once(']') else { continue };
+        let Some((kind, target)) = head.split_once(':') else { continue };
+        let Ok(target) = target.trim().parse::<u64>() else { continue };
+        let kind = match kind.trim() {
+            "group" => OutboundKind::SendGroup,
+            "private" => OutboundKind::SendPrivate,
+            _ => continue,
+        };
+
+        let mut body = String::from(tail.trim());
+        for next in &lines[i + 1..] {
+            if next.trim_start().starts_with("[reply:") { break; }
+            if !body.is_empty() { body.push('\n'); }
+            body.push_str(next.trim_end());
+        }
+        let body = body.trim().to_string();
+        if body.is_empty() { continue; }
+        return Some((kind, target, body));
+    }
+    None
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6

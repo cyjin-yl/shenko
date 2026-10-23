@@ -2211,6 +2211,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
@@ -2403,6 +2404,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bytes",
  "chrono",
  "futures",
  "parking_lot",
@@ -2419,6 +2421,18 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "shenko-update"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "rusqlite",
+ "serde",
+ "shenko-types",
+ "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]

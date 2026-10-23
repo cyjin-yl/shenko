@@ -17,6 +17,7 @@ members = [
     "crates/shenko-awareness-core",
     "crates/shenko-ui",
     "crates/shenko-seed",
+    "crates/shenko-update",
     "bin/shenko",
 ]
 

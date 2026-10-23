@@ -1,0 +1,17 @@
+[package]
+name = "shenko-update"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+rusqlite = { workspace = true, features = ["backup"] }
+serde = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"

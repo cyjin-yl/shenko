@@ -16,12 +16,13 @@
       "acceptance_case_ids": [],
       "implementation_refs": [
         "crates/shenko-channel-napcat/src/client.rs",
-        "crates/shenko-channel-napcat/src/adapter.rs"
+        "crates/shenko-channel-napcat/src/adapter.rs",
+        "crates/shenko-channel-napcat/src/outbound.rs"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "OneBot WS接入实现；IngressSpool持久游标/dedup已在impl/s2-self-dev"
+      "note": "OneBot WS接入 + IngressSpool持久游标/dedup + QQ出站OutboundLedger(intent→ack→unknown→reconcile，15s超时=Unknown，不盲重发)"
     },
     {
       "requirement_id": "R002",
@@ -153,12 +154,13 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-broker/src/broker.rs"
+        "crates/shenko-broker/src/broker.rs",
+        "crates/shenko-update/src/lib.rs"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "BrokerHandle submit/dispatch with stub fallback"
+      "note": "BrokerHandle submit/dispatch + shenko-update A/B 自升级/回滚状态机（runtime 接线待做）"
     },
     {
       "requirement_id": "R010",
@@ -1929,14 +1931,17 @@
         "B36"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-update/src/lib.rs",
+        "bin/shenko/src/main.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "自升级 A/B 状态机与一致性 SQLite 备份已实现(crates/shenko-update)；runtime quiesce/catch-up/epoch 切换与真实端到端升级待做"
     },
     {
       "requirement_id": "R121",
@@ -2162,14 +2167,17 @@
         "B37"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-ui/src/playground.rs",
+        "crates/shenko-ui/src/server.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Playground /playground CRUD、原子写、artifact_changed inbox 事件；真实进程后端仍为 canned echo(TODO §43)"
     },
     {
       "requirement_id": "R135",

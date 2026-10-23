@@ -20,6 +20,8 @@ pub enum InboxEventKind {
     MemoryResult,
     SemanticWaitCheck,
     SystemEvent,
+    /// A Playground artifact changed (PUT or backend action). SPEC §43.2.
+    ArtifactChanged,
 }
 
 /// Subject inbox — uses tokio::sync::Mutex so the guard is Send across .await.
