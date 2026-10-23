@@ -5,10 +5,12 @@ use axum::{
     response::Response,
 };
 use tracing::{info, warn, debug};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc::Sender};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::Utc;
+use shenko_subject::inbox::{InboxEvent, InboxEventKind};
+use shenko_types::ids::EntityId;
 
 /// Message on the subject timeline
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,12 +27,23 @@ pub struct TimelineMessage {
 #[derive(Clone)]
 pub struct WsState {
     pub subject_tx: std::sync::Arc<broadcast::Sender<TimelineMessage>>,
+    /// Forward UI messages into the subject inbox.
+    /// TODO(main.rs): wire by passing UiServer::new_with_inbox(inbox.sender()) after S2 subject loop init.
+    pub inbox_tx: Option<std::sync::Arc<Sender<InboxEvent>>>,
 }
 
 impl WsState {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(256);
-        Self { subject_tx: std::sync::Arc::new(tx) }
+        Self { subject_tx: std::sync::Arc::new(tx), inbox_tx: None }
+    }
+
+    pub fn new_with_inbox(inbox_tx: Sender<InboxEvent>) -> Self {
+        let (tx, _) = broadcast::channel(256);
+        Self {
+            subject_tx: std::sync::Arc::new(tx),
+            inbox_tx: Some(std::sync::Arc::new(inbox_tx)),
+        }
     }
 
     pub fn broadcast(&self, msg: TimelineMessage) {
@@ -87,7 +100,23 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                     Some(Ok(Message::Text(text))) => {
                         debug!("ws recv {} bytes", text.len());
                         if let Ok(user_msg) = serde_json::from_str::<TimelineMessage>(&text) {
-                            // Echo acknowledgement from subject (stub: real impl routes to inbox)
+                            // Route the user message into the subject inbox (SPEC §5.1).
+                            let event = InboxEvent {
+                                event_id: EntityId::new(),
+                                kind: InboxEventKind::Message,
+                                payload: serde_json::json!({
+                                    "content": user_msg.content,
+                                    "message_id": user_msg.message_id,
+                                    "role": user_msg.role,
+                                }),
+                                created_at: Utc::now(),
+                                source: "web_ui".to_string(),
+                            };
+                            if let Some(tx) = &state.inbox_tx {
+                                let _ = tx.try_send(event);
+                            }
+
+                            // Brief echo back to the sender only.
                             let reply = TimelineMessage {
                                 role: "subject".to_string(),
                                 content: format!("收到。"),
@@ -95,7 +124,9 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                 timestamp: Utc::now().to_rfc3339(),
                                 stream: None,
                             };
-                            state.broadcast(reply);
+                            if let Ok(json) = serde_json::to_string(&reply) {
+                                let _ = socket.send(Message::Text(json.into())).await;
+                            }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => { info!("ws disconnected"); break; }

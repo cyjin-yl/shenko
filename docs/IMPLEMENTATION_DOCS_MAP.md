@@ -77,12 +77,13 @@
   - docs/requirements/requirements.json (R028, R088)
 
 - **Memory (proactive, search, decay)**:
-  - SPEC.md §19 (Memory)
+  - SPEC.md §12 (会话真相源和记忆)
   - docs/research/archive/research_proactive_memory.md
   - docs/requirements/requirements.json (R039, R040, R041)
 
 - **Compact (Budget + Snap)**:
-  - SPEC.md §24, §25, §26 (三种压缩)
+  - SPEC.md §12.3 (历史切窗)
+  - SPEC.md §35.3 (首版默认插件闭包)
   - docs/requirements/requirements.json (R050, R055, R056, R057)
 
 - **Self-upgrade handoff**:
@@ -96,7 +97,7 @@
   - docs/requirements/requirements.json (R096, R097)
 
 - **Computer Use (full scope)**:
-  - SPEC.md §12 (Computer use capability)
+  - SPEC.md §24 (Computer Use 与完整操作系统节点)
   - docs/requirements/requirements.json (R032, R033, R034)
 
 - **REPL (Node/Bun)**:

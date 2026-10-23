@@ -2,8 +2,6 @@
 //! Built-in, replaceable self-explanation plugin.
 //! Provides self:// resources: runtime, docs, source, design.
 //! Binds running artifact → source revision → docs → design philosophy.
-use std::sync::Arc;
-use std::path::PathBuf;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tracing::{info, debug};
@@ -121,8 +119,10 @@ impl SelfKnowledgeProvider {
                 title: "当前能力清单".into(),
                 content: "Store (SQLite WAL), CAS (blake3), Broker (Anthropic API), \
                          Subject loop (S0/S1), NapCat (OneBot v11 WS), \
-                         WebUI (axum), Tmux seat, SSH exec, WASM runtime (wasmtime-45), \
-                         Memory, Awareness, Budget/Snap compact".into(),
+                         WebUI (axum), Tmux seat, SSH exec (localhost only for now), \
+                         WASM runtime (stub — not yet implemented), \
+                         Memory, Awareness, Budget/Snap compact; \
+                         SelfKnowledge: capabilities are partially hardcoded; runtime probing not yet implemented".into(),
                 source_revision: Some(revision.clone()),
                 artifact_digest: None,
                 doc_revision: None,

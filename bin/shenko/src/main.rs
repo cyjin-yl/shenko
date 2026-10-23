@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
             let agent_id = bootstrap_genesis(&store, name.as_deref())?;
 
             // 3. Start inference broker
-            let (broker, _broker_handle) = shenko_broker::broker::Broker::new();
+            let (broker, broker_handle) = shenko_broker::broker::Broker::new();
             tokio::spawn(broker.run());
 
             // 4. Start subject loop — the continuous main agent. SPEC §5.1
@@ -108,7 +108,8 @@ async fn main() -> Result<()> {
                 agent_id,
                 Arc::clone(&subject_inbox),
                 Arc::clone(&dispatcher),
-            ).with_store(Arc::clone(&store));
+            ).with_store(Arc::clone(&store))
+            .with_broker(broker_handle);
 
             let cancel_subject = cancel.clone();
             tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));

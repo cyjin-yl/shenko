@@ -1834,6 +1834,7 @@ dependencies = [
  "serde_json",
  "shenko-kernel",
  "shenko-store",
+ "shenko-subject",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",

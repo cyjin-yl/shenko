@@ -3,7 +3,6 @@
 
 use shenko_store::store::Store;
 use shenko_types::store::WriteBatch;
-use shenko_types::ids::EntityId;
 use std::path::PathBuf;
 
 fn tmp_dir() -> PathBuf {
@@ -61,10 +60,110 @@ fn empty_batch_commit_returns_receipt() {
 }
 
 #[test]
+fn s1_commit_advances_branch_head() {
+    use shenko_types::subject::{
+        SubjectGenesis, SubjectBranchHead, SubjectStep, SubjectStepState,
+        SubjectMode, GenesisRef,
+    };
+    use shenko_types::ids::*;
+    use shenko_types::object::{ObjectRef, SchemaRef, Digest};
+    use shenko_types::commit::CommitRef;
+
+    let dir = tmp_dir();
+    let db = dir.join("head.db");
+    let cas = dir.join("cas");
+    let store = Store::open(db, cas).unwrap();
+
+    let agent_id = EntityId::new();
+    let branch_id = BranchId::new();
+    let genesis_id = EntityId::new();
+    let bootstrap_id = EntityId::new();
+    let launch_id = EntityId::new();
+    let first_step_id = EntityId::new();
+    let second_step_id = EntityId::new();
+    let ledger_id = store.ledger.ledger_id();
+
+    let codec = SchemaRef { name: "raw".into(), major: 1, digest: Digest::blake3(b"raw") };
+    let dummy_ref = ObjectRef {
+        digest: Digest::blake3(b"seed"), bytes: 4,
+        media_type: "application/json".into(),
+        store_namespace: "test".into(), locator: "".into(), codec: codec.clone(),
+    };
+    let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
+
+    let genesis = SubjectGenesis {
+        genesis_id, subject_id: agent_id, bootstrap_id, launch_id,
+        seed_manifest_ref: dummy_ref.clone(),
+        initial_profile_ref: dummy_ref.clone(),
+        home_manifest_ref: dummy_ref.clone(),
+        bootstrap_event_ref: dummy_ref.clone(),
+        created_commit: genesis_commit,
+    };
+
+    let head = SubjectBranchHead {
+        agent_id, branch_id: branch_id.clone(),
+        subject_root_task_id: EntityId::new(),
+        controller_epoch: ControllerEpoch(1),
+        software_generation: RuntimeGeneration::default(),
+        genesis_ref: GenesisRef { ledger_id, genesis_id },
+        committed_step_no: 0,
+        committed_step_id: None,
+        committed_at: genesis_commit,
+        next_step_id: first_step_id,
+        mode: SubjectMode::Active,
+        mode_reason_ref: None,
+        record_revision: RecordRevision(0),
+    };
+
+    let first_step = SubjectStep {
+        step_id: first_step_id,
+        branch_id: branch_id.clone(),
+        step_no: 1,
+        expected_parent_commit: genesis_commit,
+        controller_epoch: ControllerEpoch(1),
+        software_generation: RuntimeGeneration::default(),
+        state: SubjectStepState::Planned,
+        input_plan_ref: None,
+        context_revision: None,
+        active_request_id: None,
+        active_attempt_id: None,
+        model_result_ref: None,
+        decision_ref: None,
+        commit_ref: None,
+        retry_reason_ref: None,
+        record_revision: RecordRevision(0),
+        created_by_step_id: None,
+    };
+
+    // Initialize genesis atomically
+    let receipt = store.initialize_genesis(&genesis, &head, &first_step).unwrap();
+    assert_eq!(receipt.updated.len(), 3);
+
+    // Now simulate S1: commit step 1 and advance head to point at step 2
+    let mut committed_step = first_step.clone();
+    committed_step.state = SubjectStepState::Committed;
+    committed_step.record_revision = RecordRevision(1);
+
+    let receipt2 = store.commit_step_and_advance_head(
+        &committed_step,
+        agent_id,
+        branch_id.clone(),
+        second_step_id,
+        RecordRevision(0),
+    ).unwrap();
+
+    // Receipt should have 2 updated entities (step + head)
+    assert_eq!(receipt2.updated.len(), 2);
+    // head entity_id == agent_id
+    let head_update = receipt2.updated.iter().find(|u| u.entity_id == agent_id).unwrap();
+    assert_eq!(head_update.record_revision, RecordRevision(1));
+}
+
+#[test]
 fn task_roundtrip() {
     use shenko_types::task::{TaskRecord, TaskOwner, TaskState, ImplementationRef, DispatchEligibility};
     use shenko_types::ids::*;
-    use shenko_types::commit::{CommitRef, DurabilityProfile};
+    use shenko_types::commit::CommitRef;
     use shenko_types::object::{ObjectRef, SchemaRef, Digest};
 
     let dir = tmp_dir();

@@ -26,7 +26,7 @@ version = "0.1.0"
 authors = ["Shenko Contributors"]
 license = "Apache-2.0"
 repository = "https://github.com/cyjin-yl/shenko"
-rust-version = "1.82"
+rust-version = "1.85"
 
 [workspace.dependencies]
 # Async runtime
