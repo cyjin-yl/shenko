@@ -22,7 +22,6 @@ pub struct InferencePayload {
     pub system_prompt: String,
     pub messages: Vec<InferenceMessage>,
     pub max_tokens: Option<u64>,
-    pub temperature: Option<f32>,
     pub tools: Vec<serde_json::Value>,
 }
 

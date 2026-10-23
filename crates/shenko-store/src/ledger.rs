@@ -123,6 +123,43 @@ impl Ledger {
             ).map_err(|e| ShenkoError::storage(e.to_string()))?;
         }
 
+        for ie in &batch.inbox_event_upserts {
+            tx.execute(
+                "INSERT OR IGNORE INTO inbox_events (event_id, agent_id, kind, source, consumed, data)
+                 VALUES (?1, ?2, ?3, ?4, 0, ?5)",
+                params![
+                    ie.event_id.to_string(),
+                    ie.agent_id.to_string(),
+                    ie.kind,
+                    ie.source,
+                    ie.payload_json,
+                ],
+            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            updated.push(UpdatedEntity {
+                entity_id: ie.event_id,
+                record_revision: shenko_types::ids::RecordRevision(0),
+            });
+        }
+
+        for se in &batch.session_event_upserts {
+            tx.execute(
+                "INSERT OR IGNORE INTO session_events (event_id, session_id, seq, event_type, role, data)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    se.event_id.to_string(),
+                    se.session_id.to_string(),
+                    se.seq,
+                    se.event_type,
+                    se.role,
+                    se.data,
+                ],
+            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            updated.push(UpdatedEntity {
+                entity_id: se.event_id,
+                record_revision: shenko_types::ids::RecordRevision(0),
+            });
+        }
+
         // record commit in ledger log
         tx.execute(
             "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)

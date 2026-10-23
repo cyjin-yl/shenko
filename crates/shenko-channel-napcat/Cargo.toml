@@ -20,5 +20,6 @@ tokio-tungstenite = { workspace = true }
 tokio-util = { workspace = true }
 futures = { workspace = true }
 url = { workspace = true }
+parking_lot = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

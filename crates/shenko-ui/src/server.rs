@@ -19,6 +19,24 @@ impl UiServer {
 
     pub fn ws_state(&self) -> WsState { self.state.clone() }
 
+    /// Wire the subject inbox so UI messages reach the loop. SPEC §5.1.
+    pub fn with_inbox(
+        mut self,
+        inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    ) -> Self {
+        self.state = self.state.with_inbox(inbox_tx);
+        self
+    }
+
+    /// Wire the subject outbox so model output reaches the timeline. SPEC §21.12.
+    pub fn with_outbox(
+        mut self,
+        outbox_tx: tokio::sync::broadcast::Sender<shenko_subject::outbox::OutboxMessage>,
+    ) -> Self {
+        self.state = self.state.with_outbox(outbox_tx);
+        self
+    }
+
     pub async fn run(self) -> Result<()> {
         let app = Router::new()
             .route("/", get(index_handler))

@@ -1,12 +1,11 @@
 //! Anthropic Claude API provider — SPEC §47 PV01/PV02
-//! Wire contract: Anthropic Messages API 2023-06-01
+//! Wire contract: Anthropic Messages API 2026-10-21 (no temperature/top_p/top_k)
 use anyhow::{anyhow, Result};
-use tracing::{info, warn, instrument};
-use serde::Deserialize;
+use tracing::{info, instrument};
 
 use crate::request::{InferencePayload, InferenceResponse, TokenUsage};
 
-const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+const ANTHROPIC_API_VERSION: &str = "2026-10-21";
 const DEFAULT_MODEL: &str = "claude-opus-5-5";
 
 #[derive(Debug, Clone)]
@@ -52,10 +51,6 @@ impl AnthropicProvider {
         if !payload.tools.is_empty() {
             body["tools"] = serde_json::Value::Array(payload.tools.clone());
         }
-        if let Some(temp) = payload.temperature {
-            body["temperature"] = serde_json::json!(temp);
-        }
-
         let resp = client
             .post(format!("{}/v1/messages", self.base_url))
             .header("x-api-key", &self.api_key)

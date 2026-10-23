@@ -21,6 +21,29 @@ pub struct StoreCapabilities {
     pub durability_profile: DurabilityProfile,
 }
 
+/// 原始收件箱事件写入 — SPEC §12.1
+#[derive(Debug)]
+pub struct RawInboxEvent {
+    pub event_id: EntityId,
+    pub agent_id: EntityId,
+    pub source: String,
+    pub kind: String,
+    pub payload_json: String,
+    pub received_at_ms: i64,
+}
+
+/// 原始会话事件写入 — SPEC §12.1
+#[derive(Debug)]
+pub struct RawSessionEvent {
+    pub event_id: EntityId,
+    pub session_id: EntityId,
+    pub seq: i64,
+    pub event_type: String,
+    pub role: String,
+    /// JSON-serialised event payload
+    pub data: String,
+}
+
 /// 写入批次
 #[derive(Debug, Default)]
 pub struct WriteBatch {
@@ -29,6 +52,8 @@ pub struct WriteBatch {
     pub attempt_upserts: Vec<AttemptRecord>,
     pub evidence_upserts: Vec<EvidenceReceipt>,
     pub raw_objects: Vec<RawObject>,
+    pub inbox_event_upserts: Vec<RawInboxEvent>,
+    pub session_event_upserts: Vec<RawSessionEvent>,
 }
 
 impl WriteBatch {
@@ -42,6 +67,8 @@ impl WriteBatch {
             && self.attempt_upserts.is_empty()
             && self.evidence_upserts.is_empty()
             && self.raw_objects.is_empty()
+            && self.inbox_event_upserts.is_empty()
+            && self.session_event_upserts.is_empty()
     }
 }
 

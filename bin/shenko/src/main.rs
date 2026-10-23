@@ -97,18 +97,26 @@ async fn main() -> Result<()> {
             let agent_id = bootstrap_genesis(&store, name.as_deref())?;
 
             // 3. Start inference broker
-            let (broker, _broker_handle) = shenko_broker::broker::Broker::new();
+            let (broker, broker_handle) = shenko_broker::broker::Broker::new();
             tokio::spawn(broker.run());
 
             // 4. Start subject loop — the continuous main agent. SPEC §5.1
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
-            let dispatcher = Arc::new(shenko_subject::dispatch::ChildDispatcher::new(agent_id));
+            let (dispatcher_inner, _dispatch_rx) = shenko_subject::dispatch::ChildDispatcher::new(agent_id);
+            let dispatcher = Arc::new(dispatcher_inner);
+            let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
+            // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
+            let (outbox_tx, _outbox_rx) =
+                tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
             let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
                 agent_id,
                 Arc::clone(&subject_inbox),
                 Arc::clone(&dispatcher),
-            ).with_store(Arc::clone(&store));
+            ).with_store(Arc::clone(&store))
+            .with_broker(broker_handle)
+            .with_hooks(Arc::clone(&hook_registry))
+            .with_outbox(outbox_tx.clone());
 
             let cancel_subject = cancel.clone();
             tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
@@ -120,15 +128,16 @@ async fn main() -> Result<()> {
                     ws_url,
                     ..Default::default()
                 };
-                let (_, _event_rx, _action_rx) = shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
+                let (napcat_client, _event_rx, _action_rx) = shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
+                let spool = napcat_client.spool.clone();
                 let cancel_napcat = cancel.clone();
                 let inbox_tx = subject_inbox.sender();
                 tokio::spawn(async move {
-                    // Route NapCat events to subject inbox
+                    // Route NapCat events to subject inbox; spool provides dedup and gap recording
                     let (event_tx_inner, mut event_rx_inner) = tokio::sync::mpsc::channel(256);
                     let (_action_tx_inner, action_rx_inner) = tokio::sync::mpsc::channel(256);
                     tokio::spawn(shenko_channel_napcat::client::NapCatClient::run_connection_loop(
-                        napcat_config, event_tx_inner, action_rx_inner, cancel_napcat.clone(),
+                        napcat_config, event_tx_inner, action_rx_inner, spool, cancel_napcat.clone(),
                     ));
                     while let Some(ev) = event_rx_inner.recv().await {
                         if cancel_napcat.is_cancelled() { break; }
@@ -146,7 +155,9 @@ async fn main() -> Result<()> {
             }
 
             // 6. Start WebUI
-            let ui = shenko_ui::server::UiServer::new(port);
+            let ui = shenko_ui::server::UiServer::new(port)
+                .with_inbox(subject_inbox.sender())
+                .with_outbox(outbox_tx);
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
             println!("  Inference: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "claude-opus-5-5" } else { "stub (no ANTHROPIC_API_KEY)" });
@@ -177,7 +188,7 @@ fn bootstrap_genesis(
     use shenko_types::ids::*;
     use shenko_types::subject::*;
     use shenko_types::commit::CommitRef;
-    use shenko_types::object::{ObjectRef, SchemaRef, Digest};
+    use shenko_types::object::ObjectRef;
 
     // Check if genesis exists already
     let existing_agent_id = store.get_existing_agent_id()?;
@@ -194,22 +205,50 @@ fn bootstrap_genesis(
     let genesis_id = EntityId::new();
     let ledger_id = store.ledger.ledger_id();
 
-    // Stub object refs (real impls would seal actual manifests)
-    let stub_codec = SchemaRef { name: "json".into(), major: 1, digest: Digest::blake3(b"json") };
-    let stub_obj = |data: &[u8]| {
-        let d = Digest::blake3(data);
-        ObjectRef { digest: d, bytes: data.len() as u64, media_type: "application/json".into(), store_namespace: "bootstrap".into(), locator: String::new(), codec: stub_codec.clone() }
+    // Seal the real seed artifacts into the CAS so the genesis object closure is
+    // materialized and re-readable. SPEC §44.6.
+    let seal_json = |value: &serde_json::Value| -> Result<ObjectRef> {
+        let bytes = serde_json::to_vec(value)?;
+        Ok(store
+            .cas
+            .seal_object(&bytes, "application/json", "seed", "json", 1)?
+            .object)
     };
+
+    let seed_manifest = seal_json(&serde_json::json!({
+        "seed_version": env!("CARGO_PKG_VERSION"),
+        "platform": std::env::consts::OS,
+        "created": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "spec_version": "0.6.2",
+    }))?;
+    let initial_profile = seal_json(&serde_json::json!({
+        "model": "claude-opus-5-5",
+        "max_tokens": 4096,
+        "source": "default",
+    }))?;
+    let home_dir = std::env::var("SHENKO_HOME")
+        .map(|h| format!("{h}/home"))
+        .unwrap_or_else(|_| "$SHENKO_HOME/home".to_string());
+    let home_manifest = seal_json(&serde_json::json!({
+        "home": home_dir,
+        "wasm": true,
+        "mounts": [],
+    }))?;
+    let bootstrap_event = seal_json(&serde_json::json!({
+        "event": "bootstrap",
+        "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "kind": "genesis",
+    }))?;
 
     let genesis = SubjectGenesis {
         genesis_id,
         subject_id: agent_id,
         bootstrap_id,
         launch_id,
-        seed_manifest_ref: stub_obj(b"seed_manifest"),
-        initial_profile_ref: stub_obj(b"initial_profile"),
-        home_manifest_ref: stub_obj(b"home_manifest"),
-        bootstrap_event_ref: stub_obj(b"bootstrap_event"),
+        seed_manifest_ref: seed_manifest,
+        initial_profile_ref: initial_profile,
+        home_manifest_ref: home_manifest,
+        bootstrap_event_ref: bootstrap_event,
         created_commit: CommitRef { ledger_id, seq: LedgerSeq(0) },
     };
 
