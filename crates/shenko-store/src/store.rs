@@ -2,16 +2,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use parking_lot::Mutex;
-use rusqlite::{Connection, params};
-use tracing::{info, error};
+use rusqlite::Connection;
+use tracing::info;
 use anyhow::Result;
-use serde_json;
 
-use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile};
-use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
-use shenko_types::store::{StoreCapabilities, WriteBatch, WatchEvent, ReadWatermark};
+use shenko_types::commit::{CommitReceipt, DurabilityProfile};
+use shenko_types::ids::EntityId;
+use shenko_types::store::{StoreCapabilities, WriteBatch};
 use shenko_types::error::ShenkoError;
-use shenko_types::task::TaskRecord;
 
 use crate::ledger::Ledger;
 use crate::cas::ContentStore;
@@ -71,6 +69,119 @@ impl Store {
 
     pub fn capabilities(&self) -> &StoreCapabilities {
         &self.capabilities
+    }
+
+    /// Initialize genesis + branch head + first step atomically. SPEC §44.6
+    pub fn initialize_genesis(
+        &self,
+        genesis: &shenko_types::subject::SubjectGenesis,
+        head: &shenko_types::subject::SubjectBranchHead,
+        first_step: &shenko_types::subject::SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        use rusqlite::params;
+        use shenko_types::commit::{CommitRef, UpdatedEntity};
+
+        let genesis_json = serde_json::to_string(genesis).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let head_json = serde_json::to_string(head).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let step_json = serde_json::to_string(first_step).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        let seq = {
+            let mut s = self.ledger.next_seq.lock();
+            let cur = *s;
+            *s = s.next();
+            cur
+        };
+        let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+
+        let conn = self.ledger.conn.lock();
+        let tx = conn.unchecked_transaction().map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT OR IGNORE INTO subject_genesis (genesis_id, subject_id, bootstrap_id, data, created_commit_seq) VALUES (?1,?2,?3,?4,?5)",
+            params![genesis.genesis_id.to_string(), genesis.subject_id.to_string(), genesis.bootstrap_id.to_string(), genesis_json, seq.0 as i64],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO subject_branch_heads (agent_id, branch_id, committed_step_no, committed_step_id, next_step_id, mode, record_revision, data, updated_commit_seq) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![head.agent_id.to_string(), head.branch_id.0.to_string(), head.committed_step_no as i64, head.committed_step_id.map(|id| id.to_string()), head.next_step_id.to_string(), "active", head.record_revision.0 as i64, head_json, seq.0 as i64],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT OR IGNORE INTO subject_steps (step_id, branch_id, step_no, state, record_revision, data, updated_commit_seq) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![first_step.step_id.to_string(), first_step.branch_id.0.to_string(), first_step.step_no as i64, "planned", first_step.record_revision.0 as i64, step_json, seq.0 as i64],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count) VALUES (?1,?2,?3,3)",
+            params![self.ledger.ledger_id().to_string(), seq.0 as i64, self.capabilities.incarnation.to_string()],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.commit().map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        Ok(CommitReceipt {
+            commit_ref,
+            durability_profile: DurabilityProfile::PowerLossLocal,
+            store_incarnation: self.capabilities.incarnation,
+            updated: vec![
+                UpdatedEntity { entity_id: genesis.genesis_id, record_revision: shenko_types::ids::RecordRevision(0) },
+                UpdatedEntity { entity_id: head.agent_id, record_revision: head.record_revision },
+                UpdatedEntity { entity_id: first_step.step_id, record_revision: first_step.record_revision },
+            ],
+        })
+    }
+
+    /// Persist a subject step state transition (S0 → S1). SPEC §41.5
+    pub fn upsert_step(
+        &self,
+        step: &shenko_types::subject::SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        use rusqlite::params;
+        use shenko_types::commit::{CommitRef, UpdatedEntity};
+
+        let json = serde_json::to_string(step).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let state_str = format!("{:?}", step.state).to_lowercase();
+
+        let seq = {
+            let mut s = self.ledger.next_seq.lock();
+            let cur = *s;
+            *s = s.next();
+            cur
+        };
+
+        let conn = self.ledger.conn.lock();
+        let tx = conn.unchecked_transaction().map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT OR REPLACE INTO subject_steps (step_id, branch_id, step_no, state, record_revision, data, updated_commit_seq) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![step.step_id.to_string(), step.branch_id.0.to_string(), step.step_no as i64, state_str, step.record_revision.0 as i64, json, seq.0 as i64],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count) VALUES (?1,?2,?3,1)",
+            params![self.ledger.ledger_id().to_string(), seq.0 as i64, self.capabilities.incarnation.to_string()],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.commit().map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        Ok(CommitReceipt {
+            commit_ref: CommitRef::new(self.ledger.ledger_id(), seq),
+            durability_profile: DurabilityProfile::PowerLossLocal,
+            store_incarnation: self.capabilities.incarnation,
+            updated: vec![UpdatedEntity { entity_id: step.step_id, record_revision: step.record_revision }],
+        })
+    }
+
+    /// Retrieve an existing agent_id from genesis, or None on first run. SPEC §44.6
+    pub fn get_existing_agent_id(&self) -> Result<Option<shenko_types::ids::EntityId>, shenko_types::error::ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let result: Option<String> = conn.query_row(
+            "SELECT subject_id FROM subject_genesis LIMIT 1", [], |r| r.get(0)
+        ).ok();
+        drop(conn);
+        match result {
+            Some(s) => s.parse().map(Some).map_err(|_| shenko_types::error::ShenkoError::storage("invalid stored agent_id")),
+            None => Ok(None),
+        }
     }
 }
 

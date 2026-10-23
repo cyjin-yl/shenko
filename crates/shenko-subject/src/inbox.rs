@@ -1,6 +1,5 @@
 //! Persistent subject inbox — SPEC §5.1
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use shenko_types::ids::EntityId;
 use serde::{Deserialize, Serialize};
 
@@ -23,33 +22,28 @@ pub enum InboxEventKind {
     SystemEvent,
 }
 
-/// Subject inbox — buffered event stream.
+/// Subject inbox — uses tokio::sync::Mutex so the guard is Send across .await.
 pub struct Inbox {
     tx: mpsc::Sender<InboxEvent>,
-    rx: parking_lot::Mutex<mpsc::Receiver<InboxEvent>>,
+    rx: Mutex<mpsc::Receiver<InboxEvent>>,
 }
 
 impl Inbox {
     pub fn new(capacity: usize) -> Self {
         let (tx, rx) = mpsc::channel(capacity);
-        Self { tx, rx: parking_lot::Mutex::new(rx) }
+        Self { tx, rx: Mutex::new(rx) }
     }
 
-    pub fn sender(&self) -> mpsc::Sender<InboxEvent> {
-        self.tx.clone()
-    }
+    pub fn sender(&self) -> mpsc::Sender<InboxEvent> { self.tx.clone() }
 
     pub async fn recv_batch(&self, max: usize, timeout_ms: u64) -> Vec<InboxEvent> {
         let mut events = vec![];
-        let mut rx = self.rx.lock();
+        let mut rx = self.rx.lock().await;
         let deadline = tokio::time::Instant::now()
             + tokio::time::Duration::from_millis(timeout_ms);
         loop {
             match tokio::time::timeout_at(deadline, rx.recv()).await {
-                Ok(Some(ev)) => {
-                    events.push(ev);
-                    if events.len() >= max { break; }
-                }
+                Ok(Some(ev)) => { events.push(ev); if events.len() >= max { break; } }
                 _ => break,
             }
         }

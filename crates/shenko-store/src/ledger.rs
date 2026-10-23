@@ -6,15 +6,15 @@ use anyhow::Result;
 use tracing::instrument;
 
 use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
-use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
+use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::store::WriteBatch;
 use shenko_types::error::ShenkoError;
 
 pub struct Ledger {
-    conn: Arc<Mutex<Connection>>,
+    pub(crate) conn: Arc<Mutex<Connection>>,
     incarnation: EntityId,
     ledger_id: EntityId,
-    next_seq: Mutex<LedgerSeq>,
+    pub(crate) next_seq: Mutex<LedgerSeq>,
 }
 
 impl Ledger {

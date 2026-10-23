@@ -4,7 +4,6 @@ use shenko_types::subject::InboxCursor;
 use shenko_types::commit::CommitRef;
 use shenko_types::object::ObjectRef;
 use serde::{Deserialize, Serialize};
-use anyhow::Result;
 
 /// Minimal attention context for one step.
 #[derive(Debug, Clone, Serialize, Deserialize)]

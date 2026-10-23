@@ -1,4 +1,4 @@
-use axum::{response::{Html, Json}, http::StatusCode};
+use axum::response::{Html, Json};
 use serde_json::json;
 
 pub async fn index_handler() -> Html<&'static str> {

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::ids::{EntityId, RecordRevision};
+use crate::ids::RecordRevision;
 
 /// 内容摘要，含算法名。
 /// 格式: "algo:hexdigest"
