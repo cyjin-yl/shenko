@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 use tracing::{info, warn, debug};
 use shenko_types::ids::{EntityId, BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
-use shenko_types::subject::{SubjectStep, SubjectStepState, SubjectStepDecision, SemanticWait, DelegationIntent, InboxCursor, EventDisposition, Disposition};
+use shenko_types::subject::{SubjectStep, SubjectStepState, SubjectStepDecision, SemanticWait, DelegationIntent, InboxCursor, EventDisposition, Disposition, MemoryIntent, MemoryIntentKind};
 use shenko_types::commit::CommitRef;
 use shenko_types::object::{ObjectRef, SchemaRef, Digest};
 use shenko_kernel::hooks::{HookRegistry, HookPayload};
@@ -176,14 +176,20 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
 }
 
 /// Build the message list from recent events + carried thought.
+///
+/// Event text may arrive under different keys depending on the source:
+/// OneBot/NapCat uses `raw_message`, other channels use `message`, and the
+/// WebUI sends `content` (see `shenko-ui/src/ws.rs`). Non-text payloads and
+/// text-less system events are skipped rather than crashing the step.
 fn build_messages(_state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenko_broker::request::InferenceMessage> {
     let mut messages = vec![];
 
     for ev in events.iter().take(10) {
-        // OneBot message events carry the text under raw_message
-        let text = ev.payload.get("raw_message")
-            .or_else(|| ev.payload.get("message"))
-            .and_then(|v| v.as_str());
+        let text = ["raw_message", "message", "content", "text"]
+            .iter()
+            .find_map(|key| ev.payload.get(*key).and_then(|v| v.as_str()))
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
         if let Some(text) = text {
             let who = ev.payload.get("nickname")
                 .and_then(|v| v.as_str()).unwrap_or(&ev.source);
@@ -203,6 +209,66 @@ fn build_messages(_state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenk
     }
 
     messages
+}
+
+/// Seal step-artifact bytes into the store CAS and return the durable
+/// `ObjectRef`. SPEC §41.2.2.
+///
+/// Explicit degradation: when sealing fails (e.g. no writable CAS), the step
+/// still proceeds with an `ObjectRef` whose digest matches the bytes but whose
+/// locator is empty — honest, though the bytes cannot be read back.
+fn seal_step_object(
+    store: &shenko_store::store::Store,
+    seq: u64,
+    data: &[u8],
+    media_type: &str,
+    namespace: &str,
+    codec_name: &str,
+    codec_major: u32,
+) -> ObjectRef {
+    match store.cas.seal_object(data, media_type, namespace, codec_name, codec_major) {
+        Ok(sealed) => sealed.object,
+        Err(e) => {
+            warn!(seq, err=%e, namespace, "CAS seal failed — degrading to unlocated ObjectRef");
+            ObjectRef {
+                digest: Digest::blake3(data),
+                bytes: data.len() as u64,
+                media_type: media_type.to_string(),
+                store_namespace: namespace.to_string(),
+                locator: String::new(),
+                codec: SchemaRef {
+                    name: codec_name.to_string(),
+                    major: codec_major,
+                    digest: Digest::blake3(codec_name.as_bytes()),
+                },
+            }
+        }
+    }
+}
+
+/// Extract explicitly tagged memory content from model output. SPEC §12.2.
+///
+/// Recognises `记住`, `[remember]` and `[memory]`; honours at most one marker
+/// per step and returns the rest of that marker's line, trimmed.
+fn extract_memory_content(output: &str) -> Option<String> {
+    const MARKERS: [&str; 3] = ["记住", "[remember]", "[memory]"];
+    // ASCII-only lowercasing keeps byte offsets valid for the original text.
+    let lower = output.to_ascii_lowercase();
+    let mut content_start: Option<usize> = None;
+    for marker in MARKERS {
+        let haystack = if marker.is_ascii() { lower.as_str() } else { output };
+        if let Some(pos) = haystack.find(marker) {
+            let end = pos + marker.len();
+            content_start = Some(content_start.map_or(end, |cur| cur.min(end)));
+        }
+    }
+    let rest = &output[content_start?..];
+    let content = rest.lines().next().unwrap_or("").trim();
+    if content.is_empty() {
+        None
+    } else {
+        Some(content.to_string())
+    }
 }
 
 /// Execute one subject step: S0 (Planned→Preparing) → AwaitingModel → S1 (Committed).
@@ -227,25 +293,22 @@ async fn execute_step(
     // S0: seal input plan — SPEC §41.5
     // Build a content-addressed input plan from the step seq + event ids so each
     // step fixes its attention context version before the model is called.
+    // The bytes are sealed into CAS so the ref is actually readable back.
     let mut plan_buf: Vec<u8> = Vec::new();
     plan_buf.extend_from_slice(seq.to_le_bytes().as_slice());
     for ev in events {
         let id_bytes = ev.event_id.as_uuid().as_bytes();
         plan_buf.extend_from_slice(id_bytes);
     }
-    let plan_digest = Digest::blake3(&plan_buf);
-    let input_plan_ref = ObjectRef {
-        digest: plan_digest.clone(),
-        bytes: plan_buf.len() as u64,
-        media_type: "application/octet-stream".into(),
-        store_namespace: "input_plans".into(),
-        locator: String::new(),
-        codec: SchemaRef {
-            name: "input_plan".into(),
-            major: 1,
-            digest: Digest::blake3(b"input_plan"),
-        },
-    };
+    let input_plan_ref = seal_step_object(
+        store,
+        seq,
+        &plan_buf,
+        "application/octet-stream",
+        "input_plans",
+        "input_plan",
+        1,
+    );
 
     // Advance the inbox cursor to the last event consumed by this step.
     let last_event_id = events.last().map(|ev| ev.event_id.clone());
@@ -369,15 +432,17 @@ async fn execute_step(
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(1);
     if let Some(output) = &model_output {
-        let digest = Digest::blake3(output.as_bytes());
-        step.model_result_ref = Some(ObjectRef {
-            digest,
-            bytes: output.len() as u64,
-            media_type: "text/plain".into(),
-            store_namespace: "model_results".into(),
-            locator: String::new(),
-            codec: SchemaRef { name: "text".into(), major: 1, digest: Digest::blake3(b"text") },
-        });
+        // Seal the actual model bytes before the S1 commit so the ref points
+        // at durable, readable content. SPEC §41.2.2.
+        step.model_result_ref = Some(seal_step_object(
+            store,
+            seq,
+            output.as_bytes(),
+            "text/plain",
+            "model_results",
+            "text",
+            1,
+        ));
     }
 
     // Hook: PreEffect — SPEC §37. Fires before S1 commit is written to the ledger.
@@ -416,6 +481,36 @@ async fn execute_step(
         disposition: Disposition::Acknowledged,
     }).collect();
 
+    // Memory intent — SPEC §12.2. At most one save intent per step, extracted
+    // only from an explicit marker in the model output. The tagged content is
+    // sealed into CAS and the intent is recorded in the S1 decision; the entry
+    // itself is committed after the S1 commit succeeds.
+    let memory_candidate: Option<(MemoryIntent, String)> = model_output
+        .as_deref()
+        .and_then(extract_memory_content)
+        .map(|content| {
+            let content_ref = seal_step_object(
+                store,
+                seq,
+                content.as_bytes(),
+                "text/plain",
+                "memory_intents",
+                "text",
+                1,
+            );
+            let intent = MemoryIntent {
+                intent_id: EntityId::new(),
+                kind: MemoryIntentKind::Save,
+                scope: "personal".into(),
+                content_ref: Some(content_ref),
+            };
+            (intent, content)
+        });
+    let decision_memory_intents: Vec<MemoryIntent> = memory_candidate
+        .iter()
+        .map(|(intent, _)| intent.clone())
+        .collect();
+
     // Build a placeholder ObjectRef for the self-referential decision_ref field,
     // then digest the whole struct to produce the real CAS ref.
     let placeholder_codec = shenko_types::object::SchemaRef {
@@ -436,7 +531,7 @@ async fn execute_step(
         },
         event_dispositions,
         delegation_intents: decision_delegation_intents.clone(),
-        memory_intents: vec![],
+        memory_intents: decision_memory_intents.clone(),
         successor_request_id: next_step_id,
         semantic_wait: None,
         decided_commit: state.parent_commit.unwrap_or_else(|| CommitRef {
@@ -445,15 +540,18 @@ async fn execute_step(
         }),
     };
     let decision_bytes = serde_json::to_vec(&decision).unwrap_or_default();
-    let decision_digest = Digest::blake3(&decision_bytes);
-    step.decision_ref = Some(ObjectRef {
-        digest: decision_digest,
-        bytes: decision_bytes.len() as u64,
-        media_type: "application/json".into(),
-        store_namespace: "decisions".into(),
-        locator: String::new(),
-        codec: placeholder_codec,
-    });
+    // Seal the decision bytes themselves; the ref stored on the step points at
+    // durable content. The struct's inner decision_ref stays a clearly marked
+    // placeholder because a ref cannot contain its own digest.
+    step.decision_ref = Some(seal_step_object(
+        store,
+        seq,
+        &decision_bytes,
+        "application/json",
+        "decisions",
+        "SubjectStepDecision",
+        1,
+    ));
 
     match store.commit_step_and_advance_head(
         &step,
@@ -474,6 +572,34 @@ async fn execute_step(
                         step: seq,
                         content: output.clone(),
                     });
+                }
+            }
+
+            // Memory pipeline — SPEC §12.2: accept the intent then commit its
+            // entry. Runs only after the S1 commit is durable and at most once
+            // per step.
+            if let Some((intent, content)) = &memory_candidate {
+                let record = shenko_store::memory::MemoryIntentRecord::accepted(
+                    intent.intent_id,
+                    state.agent_id,
+                    "note",
+                    intent.scope.clone(),
+                    content.clone(),
+                    intent.content_ref.as_ref().map(|r| r.locator.clone()),
+                    None,
+                );
+                match store.insert_memory_intent(&record) {
+                    Ok(()) => {
+                        let entry = shenko_store::memory::MemoryEntry::new(
+                            state.agent_id,
+                            content.clone(),
+                        );
+                        if let Err(e) = store.commit_memory_intent(&entry, intent.intent_id) {
+                            warn!(seq, err=%e, "memory intent commit failed");
+                            let _ = store.fail_memory_intent(intent.intent_id, &e.to_string());
+                        }
+                    }
+                    Err(e) => warn!(seq, err=%e, "memory intent insert failed"),
                 }
             }
 

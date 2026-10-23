@@ -2,105 +2,83 @@
 
 **更新时间：2026-10-23**
 **当前分支：`main`**
-**HEAD：pending（由本 Round-2 提交确定）**
+**HEAD：`fa74614`（本文件编写时可见的最后提交）**
 **upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)（已合并）**
 
 ## 立即可继续的工作
 
 ```bash
 cd /tank/shared/projects/shenko/shenko
-git log --oneline -8          # 查看最近提交
+git log --oneline -5          # 查看最近提交
 cargo check --workspace       # 验证编译
-cargo test -p shenko-store    # 运行测试
+cargo test --workspace        # 当前 26 passed / 0 failed
 ```
 
-## 已完成（impl/s2-self-dev，等待合并到 main）
+## 工作区事实（已核对）
 
-### S2 核心实现（原始提交）
-- TmuxSeat §35.5：list_panes, capture-pane -e, send_keys, new_window
-- BuildProvider §35.3/§35.4：git worktree 隔离, cargo check/build/test, apply_patch
-- NapCat IngressSpool §35.6：dedup key=provider:account:conversation:message_id, gap recording
-- HookRegistry §37：6 phases, deterministic order, check_allowed()
-- EffectContract §36.2：5 distinct action kinds (Reset/Restore/Replay/Cancel/Compensate)
-- SelfKnowledgeProvider §38：self://runtime/docs/source/design URIs
+- 18 个 workspace package：`crates/` 下 17 个库 crate + `bin/shenko`（binary）。
+  库：types、kernel、store、broker、subject、memory、channel-napcat、
+  channel-napcat-link、exec-host、exec-ssh、wasm、compact-budget、compact-snap、
+  awareness-core、ui、seed、update。
+- Rust **2024 edition**（workspace `rust-version = "1.85"`），wasmtime 45。
+- 测试：`cargo test --workspace` = **26 passed, 0 failed, 0 ignored**，分布：
+  store 11（内联 3 + memory_search 3 + store_roundtrip 5）、wasm 3、
+  awareness-core 3、types 2、channel-napcat 2、memory 2、update 2、ui 1。
+  其余 9 个 crate 尚无测试。
+- `docs/state/coverage.json`：147 项 R 中 **27 partial / 120 not_assessed / 0 satisfied**；
+  `coverage_status = s1_s2_partial_verified`。
 
-### Batch-1 关键断链修复（b825638）
-- main.rs：BrokerHandle 接入 SubjectLoopState → 主体调用真实 Anthropic API
-- ws.rs：WebSocket 用户消息路由到 subject inbox
-- self_knowledge.rs：虚假 WASM 能力声明已修正
-- IMPLEMENTATION_DOCS_MAP.md：章节号纠正（§12 记忆、§24 CU、§12.3 compact）
-- Cargo.toml：rust-version 1.82→1.85（edition 2024 需 ≥1.85）
+## 已具备的能力（真实状态）
 
-### Batch-2 gap 修复（10004da）
-- IngressSpool 接入 NapCat client（dedup + gap recording 生效）
-- Broker：BinaryHeap 优先级队列（Urgent>Subject>Normal>Low per §13.1）
-- ChildDispatcher：真实 tokio channel dispatch，DelegationIntent 转发 §5.2
-- MemoryStore：accept_intent() channel + stub worker §12.2
+- Store §41.2：SQLite WAL + CAS + ledger + FTS5（CJK 走 LIKE 回退）。
+- Subject §5.1/§41.5：连续 S0/S1 loop、S1 决策记录、genesis CAS 封存、outbox broadcast。
+- Inference §13/§47：Anthropic broker 优先级队列；本地 Qwen3.8-27B OpenAI-compat provider。
+- Channels §16：NapCat OneBot WS 接入、IngressSpool dedup/gap、OutboundLedger
+  intent→ack→unknown→reconcile（15s 超时=Unknown，不盲重发）。
+- WASM §8/§29：wasmtime 45 Engine/Module/call_func，WASI p1 command 执行，
+  `/home` 持久 home preopen；checkpoint 目前只写 `.wasm_checkpoint` 标记。
+- Self-dev §35.3–§35.6：BuildProvider（worktree + cargo）、TmuxSeat/SeatObservation、
+  HookRegistry 4 阶段、EffectContract 5 种动作、SelfKnowledgeProvider。
+- Self-upgrade §35.7：`shenko-update` A/B 槽位 + rusqlite 一致性备份 +
+  Prepare→CatchUp→Smoke→Handoff→Observe→Retire 状态机（smoke 为本地离线检查）。
+- Playground §43：`/playground` CRUD、原子写、`artifact_changed` inbox 事件。
+- Awareness §45/§38：独立 awareness 单元安装/启用/停用 + SelfKnowledge。
+- Plugin §7：Plugin trait 按 cordis-rs rev 1754062 的
+  Plugin/Context/Service/effect-cleanup 形状设计；`cordis-core` 已在 Cargo.toml
+  声明但尚未在 runtime 绑定，也无 crate 使用 cordis 类型。
 
-### Batch-3 gap 修复（12372a2）
-- S0 封口 input_plan_ref（blake3 of event IDs）per §41.5
-- BudgetCompact：真实 should_compact/compact_messages §12.3/§35.3
-- SnapCompact：真实 snapshot triggers，与 BudgetCompact 独立 §35.3
-- inbox_events 表写入通过 WriteBatch §12.1
-
-### Batch-4 gap 修复（d5dc750）
-- LocalModelProvider：Qwen3.8-27B via Tailnet，OpenAI-compat §22.1
-  - env: SHENKO_USE_LOCAL_MODEL=1, SHENKO_LOCAL_MODEL_URL (optional)
-  - 端点：https://doesvm.icefish-exponential.ts.net:8446（私有 Tailnet，无真实 key）
-- TmuxSeat：parse_ansi_to_plain() + extract_question_lines()，SeatObservation §17.5
-- session_events 持久化通过 WriteBatch §12.1
-- PR #3 描述已更新
-
-### Batch-5 gap 修复（4f2509f）
-- shenko-kernel：Plugin trait 对齐 cordis-rs rev 1754062（Context/Service/generation/effect_cleanup）§7
-- shenko-subject：HookRegistry 接入 SubjectLoopState，4 个阶段触发点 §37
-- shenko-subject：S1 记录 SubjectStepDecision（action+reasoning+delegations）§41.5
-- main.rs：HookRegistry 创建并传入 subject loop
-
-### Batch-6 gap 修复
-_Batch-6 提交后工作树干净（HEAD：e4010a0）。_
-
-- shenko-wasm：wasmtime 45 Engine + Module 实例化 + call_func，`WasmRuntime` 真实执行 §8/§29
-  - checkpoint/restore 目前只写/读 `.wasm_checkpoint` 标记；WASI/VFS/宿主挂载未实现
-- bin/shenko：bootstrap_genesis 经 `cas.seal_object` 封存真实 seed_manifest/profile/home/bootstrap_event 对象 §44.6
-  - 仍是最小 genesis；seed 内容装配、WASM 家园与首启 probe 未完成
-- shenko-subject：outbox 模块 + broadcast 通道，主体每步模型输出发布到时间线 §5.1/§21.12
-- main.rs / shenko-ui：同一 outbox broadcast 共享给 subject loop 与 UI；UI 输入经 inbox 回主体
-  - outbox 为内存 broadcast，尚无持久 operation ledger / 投递回执 §15.2
-
-### Round-2 主线（直接提交到 main）
-- §35.7 自升级：新增 `shenko-update` crate — `UpdateCoordinator` A/B 槽位、rusqlite 一致性备份复制、Prepare→CatchUp→Smoke→Handoff→Observe→Retire 状态机；smoke 仅做本地离线检查（db 完整性 + artifact 存在），不触碰 QQ/席位/网络。`crates/shenko-update/src/lib.rs`
-- §35.6 QQ 出站：`OutboundLedger` intent→ack→unknown→reconcile；echo 关联响应 15 秒超时判定为 Unknown，绝不盲重发；模型回复约定 `[reply:group:id]` / `[reply:private:id]` 在 `bin/shenko/src/main.rs` 路由。`crates/shenko-channel-napcat/src/outbound.rs`
-- §43 Playground：`/playground` CRUD、原子写、`artifact_changed` inbox 事件；后端目前是 canned echo，已标 `TODO(§43)` 等待真实进程后端。`crates/shenko-ui/src/playground.rs`
-- 说明：本段 HEAD 在提交前记为 pending，提交/推送后以实际 main 提交为准。
-
-## 仍存在的主要差距（按优先级）
+## 仍存在的主要差距（按审计真实现状）
 
 | # | SPEC 条款 | 状态 | 说明 |
 |---|---|---|---|
-| 1 | §8/§29 WASM 家园 | 部分实现（engine+module+call 可用；WASI/VFS 未实现） | wasmtime 45 Engine/Module/call_func 已接通；checkpoint 仅标记文件 |
-| 2 | §35.7 自升级 A/B | 部分实现 | `shenko-update` 状态机+一致性备份已具备；runtime 接线（quiesce/catch-up/epoch 切换）待做 |
-| 3 | §43 Playground UI | 部分实现 | `/playground` CRUD+原子写+artifact_changed 已具备；真实进程后端仍为 canned echo |
-| 4 | §5.1 outbox/回复 | 部分实现（UI broadcast + QQ ledger） | subject→UI broadcast 已通；QQ 出站 intent/ack/unknown/reconcile 已具备，真实 QQ 端到端回执待验 |
-| 5 | §44 真实 seed bootstrap | 部分实现（真实 CAS 对象） | genesis ref 经 CAS seal_object 封存；完整 seed 装配/WASM 家园/首启 probe 未完成 |
+| 1 | §7 cordis 插件主干 | 未接 runtime | trait 为 Shenko 自有 facade；`cordis-core` 已声明但零引用；TODO 在真实 cordis 生命周期上托管插件 |
+| 2 | §8/§29 WASM 家园 | 部分实现 | engine + WASI p1 + home preopen 可用；`MountSpec` VFS 未接线，真实家园/首启未接，checkpoint 仅标记文件；`WasmRuntime` 在 crate 外无调用者 |
+| 3 | §35.7 自升级 A/B | 部分实现 | 状态机与一致性备份已具备；`shenko-update` 不是 `bin/shenko` 依赖，quiesce/catch-up/epoch 切换未接线 |
+| 4 | §43 Playground | 部分实现 | CRUD + 原子写 + `artifact_changed` 已具备；`POST /playground/{id}/backend` 仅回显，真实进程后端未做 |
+| 5 | §12 记忆循环 | 部分实现 | FTS5/LIKE 搜索与 intents 存储已具备；已提交 HEAD 中 `spawn_worker` 无调用者，thought loop 未消费 intents |
+| 6 | §35.3 Compact | 部分实现 | Budget/Snap 为独立 crate，未注册为插件、未进入默认插件闭包 |
+| 7 | §35.4/§35.5 seat | 部分实现 | `TmuxSeat`/`SeatObservation` 位于 `shenko-exec-ssh`；`main.rs` 仍是 TODO，未绑定 |
+| 8 | §5.1/§15.2 QQ 出站 | 部分实现 | UI broadcast + QQ ledger 已具备；真实 QQ 端到端回执未验证 |
+| 9 | §44.6 seed/bootstrap | 部分实现 | genesis 经 `cas.seal_object` 封存；seed 内容装配、WASM 家园、首启 probe 未完成 |
+| 10 | §16 NapCatLink backend | 可选实现 | `shenko-channel-napcat-link` 的 `napcat-link` feature 默认关闭，非 bin 依赖，未接入 |
 
 ## 下一步推荐工作（按因果链）
 
-1. **Batch-7**：WASI/VFS 最小 runtime + checkpoint 真实状态快照（§8/§29）
-2. **Batch-8**：seed manifest/profile 装配与首启 probe（§44），outbox 持久 ledger + 回执（§5.1/§15.2）
-3. **Batch-9**：自升级 A/B handoff §35.7
+1. **§7**：把 `cordis-core` 真正绑定到 Plugin 生命周期；删除或落实 facade 的 TODO。
+2. **§8/§29**：`MountSpec` VFS 接线 + 真实 checkpoint 快照 + 首启 WASM 家园。
+3. **§35.4/§35.7**：TmuxSeat 接入 main；`shenko-update` 接入 runtime 完成 A/B handoff。
+4. **§12/§35.3**：memory intents 由 thought loop 消费；Compact 注册为插件。
+5. **§44.6**：完整 seed 装配与首启 probe。
+6. **验收**：V1-01~V1-15 尚未执行。
 
 ## 资源
 
 - Qwen3.8-27B 端点：https://doesvm.icefish-exponential.ts.net:8446（Tailnet，无需真实 key）
 - SPEC §22.1 基线模型：`swift-qwen3.8-27b-nvfp4`，262144 token 上下文
-- PR #3：https://github.com/cyjin-yl/shenko/pull/3
+- PR #3：https://github.com/cyjin-yl/shenko/pull/3（已合并）
 
-## 验收计数（当前 impl/s2-self-dev）
+## 验收计数
 
-- 已实现 R 项（partial）：R001 R003 R004 R005 R008 R009 R013 R014 R018 R019 R029 R030 R031 R051 R059 R065 R066 R082 R083 R086 R087 R092 R093 R132 R135（共 25/147）
-  - Batch-5 新增覆盖：§7 cordis-rs 对齐、§37 hook 调用点、§41.5 S1 决策记录
-  - Batch-6 新增覆盖：§8/§29 wasmtime runtime、§44.6 CAS genesis、§5.1/§21.12 subject outbox → UI
-  - Round-2 新增覆盖：§35.7 自升级状态机（R120/R009）、§35.6 QQ 出站 ledger（R001）、§43 Playground（R134）
-- 测试：store roundtrip 5/5、shenko-update 2/2、shenko-channel-napcat 2/2、shenko-ui 1/1 通过
+- R：27/147 partial，0 satisfied（以 `docs/state/coverage.json` 为准）
+- 测试：26 passed / 0 failed（见上）
 - 待验收：V1-01~V1-15 均未执行

@@ -37,13 +37,17 @@
   - SPEC.md §16 (QQ channel)
   - docs/requirements/requirements.json (R001, R014)
 
+- **NapCat Link (可选 backend)** — shenko-channel-napcat-link 提供可选 feature backend（`napcat-link` feature，默认关闭，非 bin 依赖）:
+  - SPEC.md §16 (QQ channel)
+  - crates/shenko-channel-napcat-link/README.md
+
 - **WebUI (timeline, websocket)**:
   - SPEC.md §21 (Web UI)
   - docs/requirements/requirements.json (R018, R019)
   - docs/requirements/acceptance-cases.json (UI-01~08)
 
-## S2 Self-Dev Loop (当前分支 impl/s2-self-dev)
-- **TmuxSeat + SSH exec**:
+## S2 Self-Dev Loop (已合并 main)
+- **TmuxSeat + SSH exec** — 部分实现：TmuxSeat/SeatObservation 在 shenko-exec-ssh，未接 runtime（main.rs TODO §35.4）:
   - SPEC.md §35.5 (三条 seat 路径)
   - SPEC.md §11, §17 (Host execution)
   - docs/requirements/requirements.json (R065, R066)
@@ -70,28 +74,28 @@
   - SPEC.md §36 (插件副作用、重置与恢复边界)
   - docs/requirements/requirements.json (R082, R083)
 
-## S3 Remaining (未开始)
-- **WASM runtime (wasmtime 45)**:
+## S3 (部分实现 / 未开始)
+- **WASM runtime (wasmtime 45)** — 部分实现：engine + WASI p1 + home preopen 已接通；VFS/MountSpec 与真实家园未接，checkpoint 仅标记文件:
   - SPEC.md §9, §10 (WASM provider)
   - docs/research/archive/external_review_wasm.md
   - docs/requirements/requirements.json (R028, R088)
 
-- **Memory (proactive, search, decay)**:
+- **Memory (proactive, search, decay)** — 部分实现：FTS5（含 LIKE 回退）与 intents 存储已具备；thought loop 未消费 intents（spawn_worker 未接线）:
   - SPEC.md §12 (会话真相源和记忆)
   - docs/research/archive/research_proactive_memory.md
   - docs/requirements/requirements.json (R039, R040, R041)
 
-- **Compact (Budget + Snap)**:
+- **Compact (Budget + Snap)** — 部分实现：独立 crate（shenko-compact-budget/snap），未注册为插件:
   - SPEC.md §12.3 (历史切窗)
   - SPEC.md §35.3 (首版默认插件闭包)
   - docs/requirements/requirements.json (R050, R055, R056, R057)
 
-- **Self-upgrade handoff**:
+- **Self-upgrade handoff** — 部分实现：shenko-update 状态机与一致性备份已具备，未接 runtime:
   - SPEC.md §35.7 (自升级交接)
   - docs/requirements/requirements.json (R071)
   - docs/requirements/acceptance-cases.json (V1-05, V1-06, V1-13)
 
-- **Playground UI (shadcn + config)**:
+- **Playground UI (shadcn + config)** — 部分实现：CRUD + 原子写 + artifact_changed 事件已具备，后端为回显:
   - SPEC.md §43 (Conversation config + Playground)
   - docs/research/archive/shenko_u42_u43_ui_config_playground.md
   - docs/requirements/requirements.json (R096, R097)

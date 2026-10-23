@@ -103,8 +103,47 @@ async fn main() -> Result<()> {
             // 4. Start subject loop — the continuous main agent. SPEC §5.1
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
-            let (dispatcher_inner, _dispatch_rx) = shenko_subject::dispatch::ChildDispatcher::new(agent_id);
+            let (dispatcher_inner, mut dispatch_rx) =
+                shenko_subject::dispatch::ChildDispatcher::new(agent_id);
             let dispatcher = Arc::new(dispatcher_inner);
+
+            // Delegation consumer — the child side of the dispatcher. SPEC §5.2/§5.3.
+            // Delegated intents used to be dropped together with the receiver; now
+            // each one is durably recorded as a Pending TaskRecord so a committed
+            // decision is never silently lost.
+            let dispatch_store = Arc::clone(&store);
+            let dispatch_cancel = cancel.clone();
+            tokio::spawn(async move {
+                loop {
+                    let received = tokio::select! {
+                        received = dispatch_rx.recv() => received,
+                        _ = dispatch_cancel.cancelled() => break,
+                    };
+                    let Some((task_id, intent)) = received else { break };
+                    let kind = "delegation";
+                    match persist_delegation(&dispatch_store, agent_id, task_id, &intent, kind) {
+                        Ok(commit) => info!(
+                            task_id = %task_id,
+                            intent_id = %intent.intent_id,
+                            kind,
+                            commit = %commit,
+                            goal = %intent.goal,
+                            "delegation received — child task recorded (Pending)"
+                        ),
+                        Err(e) => tracing::error!(
+                            task_id = %task_id,
+                            intent_id = %intent.intent_id,
+                            kind,
+                            err = %e,
+                            "delegation received but could not be recorded — intent not executed"
+                        ),
+                    }
+                    // TODO(§35.4): seat execution (BuildProvider / AgentSeat)
+                    // attaches here. This round records the delegated intent; it
+                    // does not run a coding agent or advance the task state.
+                }
+            });
+            info!("delegation consumer started");
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
@@ -273,6 +312,75 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Durably record a delegated child task as `Pending`. Returns the commit that
+/// inserted it. The intent itself is sealed into the CAS, so the child's input
+/// is re-readable later. SPEC §41.4 X02, §5.2.
+///
+/// `agent_id` is used as the conversation/owner placeholder, matching the
+/// store's existing single-subject convention (`loop_runner` uses the same value
+/// as `conversation_id` for inference requests).
+fn persist_delegation(
+    store: &shenko_store::store::Store,
+    agent_id: shenko_types::ids::EntityId,
+    task_id: shenko_types::ids::EntityId,
+    intent: &shenko_types::subject::DelegationIntent,
+    kind: &str,
+) -> Result<shenko_types::commit::CommitRef> {
+    use shenko_types::commit::CommitRef;
+    use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision, TaskRevision};
+    use shenko_types::object::Digest;
+    use shenko_types::store::WriteBatch;
+    use shenko_types::task::{
+        DispatchEligibility, ImplementationRef, TaskOwner, TaskRecord, TaskState,
+    };
+
+    let input_bytes = serde_json::to_vec(intent)?;
+    let input_ref = store
+        .cas
+        .seal_object(&input_bytes, "application/json", "delegation", "json", 1)?
+        .object;
+
+    // Pre-commit placeholder, same convention as genesis: the ledger commit that
+    // inserts this row is returned below and is the authoritative provenance.
+    let pre_commit = CommitRef::new(store.ledger.ledger_id(), LedgerSeq(0));
+
+    let task = TaskRecord {
+        record_schema_version: 1,
+        task_id,
+        task_revision: TaskRevision(0),
+        record_revision: RecordRevision(0),
+        agent_id,
+        conversation_id: agent_id,
+        owner: TaskOwner::Conversation { id: agent_id },
+        background: false,
+        kind: kind.to_string(),
+        definition_version: 1,
+        // No seat implementation is bound yet. TODO(§35.4).
+        implementation_ref: ImplementationRef {
+            plugin_id: EntityId::nil(),
+            artifact_digest: Digest::blake3(b""),
+            registry_revision: 0,
+        },
+        input_ref,
+        state: TaskState::Pending { checkpoint_ref: None },
+        abort_request: None,
+        memos: Default::default(),
+        residual_case_ids: Vec::new(),
+        created_by_step_id: None,
+        dispatch_eligibility: DispatchEligibility::Ready,
+        no_progress_crashes: 0,
+        first_run_at: None,
+        terminal_at: None,
+        created_commit: pre_commit,
+        updated_commit: pre_commit,
+    };
+
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(task);
+    let receipt = store.commit(batch)?;
+    Ok(receipt.commit_ref)
 }
 
 /// Parse an explicit QQ reply directive emitted by the subject:

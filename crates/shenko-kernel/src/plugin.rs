@@ -1,11 +1,16 @@
-//! Plugin trait and registry — wraps cordis-rs generation model.
+//! Plugin trait and registry — shaped after the cordis-rs generation model.
 //! SPEC §7: "plugin化要有真实依赖和生命周期边界"
 //!
-//! Aligned with cordis-rs rev 1754062 Plugin/Context/Service pattern:
+//! Plugin trait shaped after cordis-rs rev 1754062
+//! (Plugin/Context/Service/effect-cleanup):
 //!   - Config/Input/PrepareError/ApplyError associated types on the cordis trait
 //!   - prepare (sync validation) + apply (async, non-blocking poll) lifecycle
 //!   - Context: cheap immutable runtime view, generation identity, fiber owner
 //!   - generation-owned effect cleanup obligations; drain in reverse-commit order
+//!
+//! `cordis-core` is declared in Cargo.toml but not yet bound at runtime — no
+//! crate currently uses cordis types, so this module is a Shenko-native facade,
+//! not a wrapper. TODO(§7): host plugins on the real cordis lifecycle.
 //!
 //! The shenko Plugin trait keeps meta/start/stop for backward compatibility with
 //! existing impls. generation() and effect_cleanup() carry default no-ops so
@@ -39,7 +44,7 @@ pub struct PluginMeta {
 
 /// Cheap, clone-on-copy view into a plugin's runtime context.
 ///
-/// Mirrors cordis-rs Context: carries a generation counter and a
+/// Shaped after cordis-rs Context: carries a generation counter and a
 /// cancellation-aware fiber identity. Passed to start/apply so plugins
 /// can register generation-owned cleanup obligations.
 #[derive(Debug, Clone)]
@@ -57,7 +62,7 @@ impl PluginContext {
     }
 }
 
-/// Service interface marker — mirrors cordis-rs Service.
+/// Service interface marker — shaped after cordis-rs Service.
 ///
 /// A service is a named, optionally configurable capability a plugin
 /// declares it needs (via PluginMeta::capabilities_required) or provides
@@ -68,8 +73,8 @@ pub trait PluginService: Send + Sync + 'static {
     const NAME: &'static str;
 }
 
-/// Plugin lifecycle trait — backward-compatible shenko facade over
-/// the cordis-rs Plugin/Context/Service pattern.
+/// Plugin lifecycle trait — backward-compatible Shenko facade shaped after
+/// the cordis-rs Plugin/Context/Service pattern (not yet a runtime binding).
 ///
 /// Existing impls only need meta/start/stop. The new methods carry
 /// default no-op implementations so they are non-breaking.
@@ -83,7 +88,7 @@ pub trait Plugin: Send + Sync + 'static {
 
     /// Return the current generation counter for this plugin instance.
     ///
-    /// Mirrors cordis-rs Context's generation identity: increments each
+    /// Shaped after cordis-rs Context's generation identity: increments each
     /// time the plugin is restarted or receives a new Input via update.
     /// Used by the supervisor to detect stale effect registrations.
     fn generation(&self) -> u64 {
@@ -94,7 +99,7 @@ pub trait Plugin: Send + Sync + 'static {
 
     /// Run generation-owned cleanup obligations in reverse-commit order.
     ///
-    /// Mirrors cordis-rs effect.rs: called by the supervisor when this
+    /// Shaped after cordis-rs effect.rs: called by the supervisor when this
     /// generation closes (stop, restart, update, or failure). Each
     /// registered side effect (listener, service publication, task,
     /// resource handle) should be cleaned up here exactly once.
@@ -110,7 +115,7 @@ pub trait Plugin: Send + Sync + 'static {
 
     /// Start the plugin in the given context.
     ///
-    /// Equivalent to cordis-rs apply: keep each poll non-blocking.
+    /// Shaped after cordis-rs apply: keep each poll non-blocking.
     /// Move blocking work to spawn_blocking. Registers generation-owned
     /// effects that will be drained by effect_cleanup when the
     /// generation closes.
@@ -118,7 +123,7 @@ pub trait Plugin: Send + Sync + 'static {
 
     /// Stop the plugin, draining generation-owned effects.
     ///
-    /// Called by the supervisor in reverse-registration order, mirroring
+    /// Called by the supervisor in reverse-registration order, following the
     /// cordis-rs generation drain on unload/dispose.
     async fn stop(&self) -> Result<()>;
 }
