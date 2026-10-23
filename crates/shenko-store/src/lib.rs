@@ -5,7 +5,9 @@ pub mod migrations;
 pub mod store;
 pub mod cas;
 pub mod ledger;
+pub mod memory;
 
 pub use store::*;
 pub use cas::*;
 pub use ledger::*;
+pub use memory::*;

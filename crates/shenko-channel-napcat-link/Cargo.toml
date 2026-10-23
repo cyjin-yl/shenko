@@ -1,0 +1,26 @@
+[package]
+name = "shenko-channel-napcat-link"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Optional NapCatQQ OneBot 11 transport backend for Shenko, built on the napcat-link SDK"
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+# Optional upstream SDK. Alpha quality; enabled only through the `napcat-link` feature.
+napcat-link = { version = "0.1.0-alpha.2", optional = true }
+
+[features]
+default = []
+# Enables the real NapCatLinkTransport implementation. Off by default so CI and
+# normal builds never pull the alpha SDK and its ~140 transitive dependencies.
+napcat-link = ["dep:napcat-link"]
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"

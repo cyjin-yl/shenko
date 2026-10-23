@@ -9,6 +9,7 @@ members = [
     "crates/shenko-subject",
     "crates/shenko-memory",
     "crates/shenko-channel-napcat",
+    "crates/shenko-channel-napcat-link",
     "crates/shenko-exec-host",
     "crates/shenko-exec-ssh",
     "crates/shenko-wasm",
@@ -68,7 +69,7 @@ hyper = { version = "1", features = ["full"] }
 
 # WASM runtime
 wasmtime = { version = "45", features = ["component-model", "async", "cache"] }
-wasmtime-wasi = { version = "45", features = ["tokio"] }
+wasmtime-wasi = { version = "45", features = ["p1", "p2"] }
 wit-component = "0.221"
 
 # SSH

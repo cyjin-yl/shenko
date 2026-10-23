@@ -1,9 +1,21 @@
-use serde::{Deserialize, Serialize};
-use shenko_types::ids::EntityId;
-use shenko_types::subject::MemoryIntent;
+//! Memory acceptance and persistence — SPEC §12.2 (intent → committed).
+//!
+//! An intent is accepted immediately and made durable as an `accepted` row in
+//! `memory_intents`. Processing an intent turns it into a searchable memory
+//! entry and marks the intent `committed`, or marks it `failed` with a reason.
+//! The legacy channel-based constructor is kept for callers that only need
+//! acceptance notifications; persistence requires [`MemoryStore::with_store`].
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
+
 use chrono::{DateTime, Utc};
-use tokio::sync::mpsc::{self, UnboundedSender, UnboundedReceiver};
+use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tracing::info;
+
+use shenko_store::{MemoryEntry as StoredMemoryEntry, MemoryIntentRecord, Store};
+use shenko_types::ids::EntityId;
+use shenko_types::subject::{MemoryIntent, MemoryIntentKind};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
@@ -39,42 +51,312 @@ impl MemoryEntry {
     }
 }
 
-/// Stable reference returned to callers after an intent is enqueued.
+/// Stable reference returned to callers after an intent is accepted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcceptedRef {
     pub intent_id: EntityId,
     pub status: &'static str,
 }
 
-/// Acceptance channel for memory save intents (SPEC §12.2).
+/// An accepted intent held in process memory until processed.
+#[derive(Debug, Clone)]
+pub struct QueuedIntent {
+    pub intent: MemoryIntent,
+    pub entry_id: EntityId,
+    pub content: String,
+    pub scope: String,
+}
+
+/// Result of processing one intent.
+#[derive(Debug, Clone)]
+pub enum ProcessOutcome {
+    /// The intent became a persisted memory entry.
+    Committed(StoredMemoryEntry),
+    /// Persistence was refused; the durable intent row records the reason.
+    Failed(String),
+    /// The intent had already reached a terminal state.
+    AlreadyProcessed(String),
+    /// No queued or durable intent with that id exists.
+    NotFound,
+}
+
+/// Acceptance and processing surface for memory intents (SPEC §12.2).
 pub struct MemoryStore {
-    memory_intent_tx: UnboundedSender<MemoryIntent>,
+    agent_id: EntityId,
+    store: Option<Arc<Store>>,
+    queue: Mutex<VecDeque<QueuedIntent>>,
+    legacy_tx: Option<UnboundedSender<MemoryIntent>>,
 }
 
 impl MemoryStore {
-    /// Create a new store and return it together with the receiver end.
-    /// Call `spawn_worker` on the receiver to start processing.
+    /// Legacy constructor: acceptance notifications only, no persistence.
+    /// Prefer [`MemoryStore::with_store`] when a store is available.
     pub fn new() -> (Self, UnboundedReceiver<MemoryIntent>) {
         let (tx, rx) = mpsc::unbounded_channel();
-        (Self { memory_intent_tx: tx }, rx)
+        (
+            Self {
+                agent_id: EntityId::new(),
+                store: None,
+                queue: Mutex::new(VecDeque::new()),
+                legacy_tx: Some(tx),
+            },
+            rx,
+        )
     }
 
-    /// Enqueue a memory intent; returns a stable `AcceptedRef` with status "pending".
+    /// Store-backed constructor. Accepted intents are persisted immediately
+    /// and processed against this handle.
+    pub fn with_store(agent_id: EntityId, store: Arc<Store>) -> Self {
+        Self {
+            agent_id,
+            store: Some(store),
+            queue: Mutex::new(VecDeque::new()),
+            legacy_tx: None,
+        }
+    }
+
+    pub fn agent_id(&self) -> EntityId {
+        self.agent_id
+    }
+
+    /// Queue an intent with optional explicit content. When content is absent,
+    /// processing reads it from the CAS object named by `content_ref`.
     pub fn accept_intent(&self, intent: MemoryIntent) -> Result<AcceptedRef, anyhow::Error> {
-        let intent_id = intent.intent_id.clone();
-        self.memory_intent_tx
-            .send(intent)
-            .map_err(|e| anyhow::anyhow!("memory intent channel closed: {}", e))?;
-        Ok(AcceptedRef { intent_id, status: "pending" })
+        self.accept_intent_with_content(intent, None)
     }
 
-    /// Spawn a Tokio task that drains the intent receiver and logs each arrival.
-    /// Real persistence is wired here in a later phase.
+    /// Queue an intent together with its payload text.
+    pub fn accept_intent_with_content(
+        &self,
+        intent: MemoryIntent,
+        content: Option<String>,
+    ) -> Result<AcceptedRef, anyhow::Error> {
+        let intent_id = intent.intent_id;
+        let entry_id = EntityId::new();
+        let content = content.unwrap_or_default();
+        let scope = if intent.scope.is_empty() {
+            "personal".to_string()
+        } else {
+            intent.scope.clone()
+        };
+        let content_ref = intent
+            .content_ref
+            .as_ref()
+            .map(|object| object.locator.clone());
+
+        if let Some(store) = &self.store {
+            let record = MemoryIntentRecord::accepted(
+                intent_id,
+                self.agent_id,
+                kind_str(intent.kind),
+                scope.clone(),
+                content.clone(),
+                content_ref,
+                Some(entry_id),
+            );
+            store
+                .insert_memory_intent(&record)
+                .map_err(|e| anyhow::anyhow!("persist accepted memory intent: {e}"))?;
+        }
+
+        self.queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push_back(QueuedIntent {
+                intent: intent.clone(),
+                entry_id,
+                content,
+                scope,
+            });
+
+        if let Some(tx) = &self.legacy_tx {
+            tx.send(intent)
+                .map_err(|e| anyhow::anyhow!("memory intent channel closed: {e}"))?;
+        }
+
+        Ok(AcceptedRef { intent_id, status: "accepted" })
+    }
+
+    /// Snapshot of intents accepted but not yet processed.
+    pub fn pending_intents(&self) -> Vec<QueuedIntent> {
+        self.queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    /// Process one intent: insert its memory entry and mark the intent
+    /// committed, or mark it failed with a reason.
+    pub fn process_intent(
+        &self,
+        intent_id: EntityId,
+    ) -> Result<ProcessOutcome, anyhow::Error> {
+        let Some(store) = self.store.clone() else {
+            return Err(anyhow::anyhow!(
+                "memory store has no persistence backend; use with_store()"
+            ));
+        };
+
+        if let Some(state) = store
+            .memory_intent_state(intent_id)
+            .map_err(|e| anyhow::anyhow!("read intent state: {e}"))?
+        {
+            if state == "committed" || state == "failed" {
+                self.remove_queued(intent_id);
+                return Ok(ProcessOutcome::AlreadyProcessed(state));
+            }
+        }
+
+        let queued = self
+            .queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|q| q.intent.intent_id == intent_id)
+            .cloned();
+        let Some(queued) = queued else {
+            return Ok(ProcessOutcome::NotFound);
+        };
+
+        match self.commit_queued(&store, &queued) {
+            Ok(entry) => {
+                self.remove_queued(intent_id);
+                Ok(ProcessOutcome::Committed(entry))
+            }
+            Err(e) => {
+                let reason = e.to_string();
+                store
+                    .fail_memory_intent(intent_id, &reason)
+                    .map_err(|e| anyhow::anyhow!("mark intent failed: {e}"))?;
+                self.remove_queued(intent_id);
+                Ok(ProcessOutcome::Failed(reason))
+            }
+        }
+    }
+
+    /// Process every queued intent; returns how many were committed.
+    pub fn process_all(&self) -> Result<usize, anyhow::Error> {
+        let ids: Vec<EntityId> = self
+            .pending_intents()
+            .iter()
+            .map(|q| q.intent.intent_id)
+            .collect();
+        let mut committed = 0;
+        for id in ids {
+            if matches!(self.process_intent(id)?, ProcessOutcome::Committed(_)) {
+                committed += 1;
+            }
+        }
+        Ok(committed)
+    }
+
+    /// Search persisted memory (SPEC §12.3). Delegates to the store, which
+    /// selects FTS5 or a LIKE substring scan.
+    pub fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<StoredMemoryEntry>, anyhow::Error> {
+        let store = self.store.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("memory store has no persistence backend; use with_store()")
+        })?;
+        store
+            .search_memory(query, limit)
+            .map_err(|e| anyhow::anyhow!("search memory: {e}"))
+    }
+
+    /// Recent persisted memory entries.
+    pub fn list(&self, limit: usize) -> Result<Vec<StoredMemoryEntry>, anyhow::Error> {
+        let store = self.store.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("memory store has no persistence backend; use with_store()")
+        })?;
+        store
+            .list_memory(limit)
+            .map_err(|e| anyhow::anyhow!("list memory: {e}"))
+    }
+
+    fn commit_queued(
+        &self,
+        store: &Store,
+        queued: &QueuedIntent,
+    ) -> Result<StoredMemoryEntry, anyhow::Error> {
+        match queued.intent.kind {
+            MemoryIntentKind::Save | MemoryIntentKind::Correct => {}
+            MemoryIntentKind::Forget => {
+                return Err(anyhow::anyhow!(
+                    "forget requires a resolved target entry; not supported yet"
+                ));
+            }
+            MemoryIntentKind::Recall => {
+                return Err(anyhow::anyhow!(
+                    "recall is a query; use search() instead of process_intent()"
+                ));
+            }
+        }
+
+        let content = if !queued.content.is_empty() {
+            queued.content.clone()
+        } else if let Some(content_ref) = &queued.intent.content_ref {
+            let bytes = store
+                .cas
+                .read_object(&content_ref.digest)
+                .map_err(|e| anyhow::anyhow!("read memory content from CAS: {e}"))?;
+            String::from_utf8_lossy(&bytes).into_owned()
+        } else {
+            String::new()
+        };
+
+        if content.is_empty() {
+            return Err(anyhow::anyhow!("memory intent has no content"));
+        }
+
+        let mut entry = StoredMemoryEntry::new(self.agent_id, content);
+        entry.entry_id = queued.entry_id;
+        entry.scope = queued.scope.clone();
+        entry.kind = kind_str(queued.intent.kind).to_string();
+        entry.source_ref = queued
+            .intent
+            .content_ref
+            .as_ref()
+            .map(|object| object.locator.clone());
+
+        store
+            .commit_memory_intent(&entry, queued.intent.intent_id)
+            .map_err(|e| anyhow::anyhow!("commit memory intent: {e}"))?;
+        Ok(entry)
+    }
+
+    fn remove_queued(&self, intent_id: EntityId) {
+        self.queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .retain(|q| q.intent.intent_id != intent_id);
+    }
+
+    /// Legacy worker: drain acceptance notifications and log them.
+    /// Persistence happens through [`MemoryStore::process_intent`].
     pub fn spawn_worker(mut rx: UnboundedReceiver<MemoryIntent>) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             while let Some(intent) = rx.recv().await {
                 info!("memory intent accepted: {}", intent.intent_id);
             }
         })
+    }
+}
+
+impl Default for MemoryStore {
+    fn default() -> Self {
+        Self::new().0
+    }
+}
+
+fn kind_str(kind: MemoryIntentKind) -> &'static str {
+    match kind {
+        MemoryIntentKind::Save => "save",
+        MemoryIntentKind::Correct => "correct",
+        MemoryIntentKind::Forget => "forget",
+        MemoryIntentKind::Recall => "recall",
     }
 }

@@ -297,6 +297,59 @@ impl Store {
         }
     }
 
+    /// Newest tasks for the WebUI 任务 page. Read-only; no schema change.
+    ///
+    /// `kind` and `state` are lifted from the stored `TaskRecord` JSON; `state`
+    /// is the serde tag of `TaskState` (e.g. `running`). A row whose JSON is
+    /// unreadable keeps its id/created_at and reports `unknown` rather than
+    /// failing the whole list.
+    pub fn list_recent_tasks(&self, limit: usize) -> Result<Vec<RecentTask>, ShenkoError> {
+        let limit = limit.clamp(1, 500) as i64;
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT task_id, data, created_at FROM tasks \
+                 ORDER BY created_at DESC, task_id DESC LIMIT ?1",
+            )
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let rows = stmt
+            .query_map([limit], |r| {
+                let task_id: String = r.get(0)?;
+                let data: String = r.get(1)?;
+                let created_at: String = r.get(2)?;
+                Ok((task_id, data, created_at))
+            })
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            let (task_id, data, created_at) =
+                row.map_err(|e| ShenkoError::storage(e.to_string()))?;
+            let v: serde_json::Value = serde_json::from_str(&data).unwrap_or_default();
+            let kind = v
+                .get("kind")
+                .and_then(|k| k.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let state = v
+                .get("state")
+                .and_then(|s| s.get("status"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            out.push(RecentTask { task_id, kind, state, created_at });
+        }
+        Ok(out)
+    }
+}
+
+/// One row of the WebUI task list. SPEC §21, §41.4 X02.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RecentTask {
+    pub task_id: String,
+    pub kind: String,
+    pub state: String,
+    pub created_at: String,
 }
 
 /// Apply required SQLite settings. SPEC §41.2.1
