@@ -105,12 +105,14 @@ async fn main() -> Result<()> {
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
             let (dispatcher_inner, _dispatch_rx) = shenko_subject::dispatch::ChildDispatcher::new(agent_id);
             let dispatcher = Arc::new(dispatcher_inner);
+            let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
                 agent_id,
                 Arc::clone(&subject_inbox),
                 Arc::clone(&dispatcher),
             ).with_store(Arc::clone(&store))
-            .with_broker(broker_handle);
+            .with_broker(broker_handle)
+            .with_hooks(Arc::clone(&hook_registry));
 
             let cancel_subject = cancel.clone();
             tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));

@@ -6,9 +6,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 use tracing::{info, warn, debug};
 use shenko_types::ids::{EntityId, BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
-use shenko_types::subject::{SubjectStep, SubjectStepState, SemanticWait, DelegationIntent, InboxCursor};
+use shenko_types::subject::{SubjectStep, SubjectStepState, SubjectStepDecision, SemanticWait, DelegationIntent, InboxCursor, EventDisposition, Disposition};
 use shenko_types::commit::CommitRef;
 use shenko_types::object::{ObjectRef, SchemaRef, Digest};
+use shenko_kernel::hooks::{HookRegistry, HookPayload};
 use crate::inbox::{Inbox, InboxEvent};
 use crate::dispatch::ChildDispatcher;
 
@@ -22,6 +23,7 @@ pub struct SubjectLoopState {
     pub parent_commit: Option<CommitRef>,
     pub store: Option<Arc<shenko_store::store::Store>>,
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
+    pub hooks: Option<Arc<HookRegistry>>,
     pub model: String,
     pub max_tokens: u64,
     /// Last model output — feeds the next step's attention context.
@@ -44,6 +46,7 @@ impl SubjectLoopState {
             parent_commit: None,
             store: None,
             broker: None,
+            hooks: None,
             model: "claude-opus-5-5".to_string(),
             max_tokens: 4096,
             last_thought: None,
@@ -59,6 +62,11 @@ impl SubjectLoopState {
 
     pub fn with_broker(mut self, broker: shenko_broker::broker::BrokerHandle) -> Self {
         self.broker = Some(broker);
+        self
+    }
+
+    pub fn with_hooks(mut self, registry: Arc<HookRegistry>) -> Self {
+        self.hooks = Some(registry);
         self
     }
 
@@ -195,6 +203,7 @@ async fn execute_step(
     in_semantic_wait: bool,
 ) -> Option<CommitRef> {
     let store = state.store.as_ref()?;
+    let hooks_ref = state.hooks.clone(); // Option<Arc<HookRegistry>> — cloned to avoid reborrow
 
     let step_id = EntityId::new();
     let next_step_id = EntityId::new();
@@ -261,6 +270,16 @@ async fn execute_step(
         return None;
     }
 
+    // Hook: PreIngress — SPEC §37. Fires before messages are built and inference begins.
+    if let Some(reg) = &hooks_ref {
+        let results = reg.run_phase(&HookPayload::BeforeInference {
+            request_id: step_id,
+            agent_id: state.agent_id,
+            model: state.model.clone(),
+        }).await;
+        debug!(seq, hooks=%results.len(), "PreIngress hooks ran");
+    }
+
     // AwaitingModel: real inference via broker
     let model_output = match &state.broker {
         Some(broker) => {
@@ -325,6 +344,16 @@ async fn execute_step(
         state.last_thought = Some(output.clone());
     }
 
+    // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
+    if let Some(reg) = &hooks_ref {
+        let results = reg.run_phase(&HookPayload::AfterInference {
+            request_id: step_id,
+            stop_reason: model_output.as_ref().map(|_| "stop").unwrap_or("none").to_string(),
+            output_tokens: model_output.as_ref().map(|o| o.len() as u64).unwrap_or(0),
+        }).await;
+        debug!(seq, hooks=%results.len(), "PostModel hooks ran");
+    }
+
     // S1: Committed — atomic commit of step + advance branch head in one TX. SPEC §41.2.1/§44.6
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(1);
@@ -339,6 +368,81 @@ async fn execute_step(
             codec: SchemaRef { name: "text".into(), major: 1, digest: Digest::blake3(b"text") },
         });
     }
+
+    // Hook: PreEffect — SPEC §37. Fires before S1 commit is written to the ledger.
+    if let Some(reg) = &hooks_ref {
+        let results = reg.run_phase(&HookPayload::BeforeOperation {
+            operation_id: step_id,
+            operation_name: format!("commit_step/{seq}"),
+        }).await;
+        debug!(seq, hooks=%results.len(), "PreEffect hooks ran");
+    }
+
+    // S1 decision — SPEC §41.5: commit decision + event disposition +
+    // delegation intent + unique successor before the ledger write.
+    let output_text = model_output.as_deref().unwrap_or("");
+    let lower_out = output_text.to_lowercase();
+    let delegation_trigger = output_text.contains("委派")
+        || output_text.contains("delegate")
+        || lower_out.contains("[delegate]")
+        || lower_out.contains("dispatch:");
+
+    let mut decision_delegation_intents: Vec<DelegationIntent> = vec![];
+    if delegation_trigger {
+        decision_delegation_intents.push(DelegationIntent {
+            intent_id: EntityId::new(),
+            goal: output_text.lines().next().unwrap_or("delegated task").to_string(),
+            system_prompt: output_text.to_string(),
+            model: None,
+            capabilities: vec![],
+            budget_hint: None,
+            reply_grant: None,
+        });
+    }
+
+    let event_dispositions: Vec<EventDisposition> = events.iter().map(|ev| EventDisposition {
+        event_id: ev.event_id.clone(),
+        disposition: Disposition::Acknowledged,
+    }).collect();
+
+    // Build a placeholder ObjectRef for the self-referential decision_ref field,
+    // then digest the whole struct to produce the real CAS ref.
+    let placeholder_codec = shenko_types::object::SchemaRef {
+        name: "SubjectStepDecision".into(),
+        major: 1,
+        digest: Digest::blake3(b"SubjectStepDecision"),
+    };
+    let decision = SubjectStepDecision {
+        step_id,
+        decided_at: chrono::Utc::now(),
+        decision_ref: ObjectRef {
+            digest: Digest::blake3(b"_placeholder_"),
+            bytes: 0,
+            media_type: "application/json".into(),
+            store_namespace: "decisions".into(),
+            locator: String::new(),
+            codec: placeholder_codec.clone(),
+        },
+        event_dispositions,
+        delegation_intents: decision_delegation_intents.clone(),
+        memory_intents: vec![],
+        successor_request_id: next_step_id,
+        semantic_wait: None,
+        decided_commit: state.parent_commit.unwrap_or_else(|| CommitRef {
+            ledger_id: store.ledger.ledger_id(),
+            seq: shenko_types::ids::LedgerSeq(0),
+        }),
+    };
+    let decision_bytes = serde_json::to_vec(&decision).unwrap_or_default();
+    let decision_digest = Digest::blake3(&decision_bytes);
+    step.decision_ref = Some(ObjectRef {
+        digest: decision_digest,
+        bytes: decision_bytes.len() as u64,
+        media_type: "application/json".into(),
+        store_namespace: "decisions".into(),
+        locator: String::new(),
+        codec: placeholder_codec,
+    });
 
     match store.commit_step_and_advance_head(
         &step,
@@ -359,27 +463,21 @@ async fn execute_step(
                 );
             }
 
-            // Delegation heuristic — SPEC §5.2/§5.3. Fire after S1 so the
-            // intent is only dispatched once the step is durably committed.
-            // Triggers: "委派", "[delegate]", "dispatch:" in model output.
-            if let Some(output) = &model_output {
-                let lower = output.to_lowercase();
-                if output.contains("委派")
-                    || lower.contains("[delegate]")
-                    || lower.contains("dispatch:")
-                {
-                    let intent = DelegationIntent {
-                        intent_id: EntityId::new(),
-                        goal: output.lines().next().unwrap_or("delegated task").to_string(),
-                        system_prompt: output.clone(),
-                        model: None,
-                        capabilities: vec![],
-                        budget_hint: None,
-                        reply_grant: None,
-                    };
-                    if let Err(e) = state.dispatcher.dispatch(intent).await {
-                        warn!(seq, err=%e, "delegation dispatch failed");
-                    }
+            // Hook: PostEffect — SPEC §37. Fires after S1 is durably committed.
+            if let Some(reg) = &hooks_ref {
+                let results = reg.run_phase(&HookPayload::AfterOperation {
+                    operation_id: step_id,
+                    outcome: "committed".to_string(),
+                    effect_status: format!("commit/{seq}"),
+                }).await;
+                debug!(seq, hooks=%results.len(), "PostEffect hooks ran");
+            }
+
+            // Dispatch delegation intents sealed into the S1 decision. SPEC §5.2/§5.3.
+            // Fire after commit so intent is only dispatched once durably committed.
+            for intent in decision_delegation_intents {
+                if let Err(e) = state.dispatcher.dispatch(intent).await {
+                    warn!(seq, err=%e, "delegation dispatch failed");
                 }
             }
 

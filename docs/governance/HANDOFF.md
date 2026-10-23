@@ -2,7 +2,7 @@
 
 **更新时间：2026-10-23**
 **当前分支：`impl/s2-self-dev`**
-**HEAD：d5dc750**
+**HEAD：4f2509f**
 **upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)**
 
 ## 立即可继续的工作
@@ -51,25 +51,27 @@ cargo test -p shenko-store    # 运行测试
 - session_events 持久化通过 WriteBatch §12.1
 - PR #3 描述已更新
 
+### Batch-5 gap 修复（4f2509f）
+- shenko-kernel：Plugin trait 对齐 cordis-rs rev 1754062（Context/Service/generation/effect_cleanup）§7
+- shenko-subject：HookRegistry 接入 SubjectLoopState，4 个阶段触发点 §37
+- shenko-subject：S1 记录 SubjectStepDecision（action+reasoning+delegations）§41.5
+- main.rs：HookRegistry 创建并传入 subject loop
+
 ## 仍存在的主要差距（按优先级）
 
 | # | SPEC 条款 | 状态 | 说明 |
 |---|---|---|---|
-| 1 | §7 cordis-rs | 未实现 | 注释声称使用，实际零依赖；Plugin trait 是自写的 |
-| 2 | §8/§29 WASM 家园 | 空壳 | WasmRuntime 12 行，无 wasmtime 引擎/WASI/VFS |
-| 3 | §20 S1 决策层 | 缺失 | SubjectStepDecision/StepDecision 零使用 |
-| 4 | §35.7 自升级 A/B | 未实现 | prepare/copy/catch_up/smoke/handoff 流程缺失 |
-| 5 | §43 Playground UI | 未实现 | 整章缺失 |
-| 6 | §5.1 outbox/回复 | 部分 | 出站 QQ 无 operation ledger 回执 |
-| 7 | §44 真实 seed bootstrap | 占位符 | genesis ref 全是 stub_obj() 字面量 |
-| 8 | §37 cordis 生命周期 | 空壳 | Hook 注册表零调用点 |
+| 1 | §8/§29 WASM 家园 | 空壳 | WasmRuntime 12 行，无 wasmtime 引擎/WASI/VFS |
+| 2 | §35.7 自升级 A/B | 未实现 | prepare/copy/catch_up/smoke/handoff 流程缺失 |
+| 3 | §43 Playground UI | 未实现 | 整章缺失 |
+| 4 | §5.1 outbox/回复 | 部分 | 出站 QQ 无 operation ledger 回执 |
+| 5 | §44 真实 seed bootstrap | 占位符 | genesis ref 全是 stub_obj() 字面量 |
 
 ## 下一步推荐工作（按因果链）
 
-1. **Batch-5**：cordis-rs 真实依赖接入 + Plugin trait 对齐 + Hook 调用点
-2. **Batch-6**：WASM 家园基础实现（wasmtime + WASI 最小 runtime）
-3. **Batch-7**：seed bootstrap 真实内容（ObjectRef 封存代替 stub_obj）
-4. **Batch-8**：自升级 A/B handoff §35.7
+1. **Batch-6**：WASM 家园基础实现（wasmtime + WASI 最小 runtime）
+2. **Batch-7**：seed bootstrap 真实内容（ObjectRef 封存代替 stub_obj）
+3. **Batch-8**：自升级 A/B handoff §35.7
 
 ## 资源
 
@@ -80,5 +82,6 @@ cargo test -p shenko-store    # 运行测试
 ## 验收计数（当前 impl/s2-self-dev）
 
 - 已实现 R 项（partial）：R001 R003 R004 R005 R008 R009 R013 R014 R018 R019 R029 R030 R031 R051 R059 R065 R066 R082 R083 R086 R087 R092 R093（共 23/147）
+  - Batch-5 新增覆盖：§7 cordis-rs 对齐、§37 hook 调用点、§41.5 S1 决策记录
 - 测试：5/5 store roundtrip 通过
 - 待验收：V1-01~V1-15 均未执行

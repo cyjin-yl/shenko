@@ -336,6 +336,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
+name = "cordis-core"
+version = "0.6.1"
+source = "git+https://github.com/dshbox/cordis-rs?rev=1754062cef67cfc119fc7a2084c0321a231b9092#1754062cef67cfc119fc7a2084c0321a231b9092"
+dependencies = [
+ "futures",
+ "parking_lot",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1717,6 +1728,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "cordis-core",
  "crossbeam",
  "dashmap",
  "parking_lot",
