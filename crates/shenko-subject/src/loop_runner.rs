@@ -194,7 +194,7 @@ async fn execute_step(
     let store = state.store.as_ref()?;
 
     let step_id = EntityId::new();
-    let _next_step_id = EntityId::new();
+    let next_step_id = EntityId::new();
 
     let parent_commit = state.parent_commit.unwrap_or_else(|| CommitRef {
         ledger_id: store.ledger.ledger_id(),
@@ -291,7 +291,7 @@ async fn execute_step(
         state.last_thought = Some(output.clone());
     }
 
-    // S1: Committed — atomic commit of decision + successor. SPEC §41.5
+    // S1: Committed — atomic commit of step + advance branch head in one TX. SPEC §41.2.1/§44.6
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(1);
     if let Some(output) = &model_output {
@@ -306,7 +306,13 @@ async fn execute_step(
         });
     }
 
-    match store.upsert_step(&step) {
+    match store.commit_step_and_advance_head(
+        &step,
+        state.agent_id,
+        state.branch_id.clone(),
+        next_step_id,
+        RecordRevision(0),
+    ) {
         Ok(receipt) => {
             if seq % 50 == 0 || !events.is_empty() {
                 debug!(

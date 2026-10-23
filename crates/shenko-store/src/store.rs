@@ -171,6 +171,97 @@ impl Store {
         })
     }
 
+    /// Atomically commit a step AND advance the branch head in one SQL transaction.
+    /// SPEC §41.2.1 (single mutation line), §44.6 (head tracks committed step + next step).
+    pub fn commit_step_and_advance_head(
+        &self,
+        step: &shenko_types::subject::SubjectStep,
+        head_agent_id: shenko_types::ids::EntityId,
+        head_branch_id: shenko_types::ids::BranchId,
+        next_step_id: shenko_types::ids::EntityId,
+        head_record_revision: shenko_types::ids::RecordRevision,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        use rusqlite::params;
+        use shenko_types::commit::{CommitRef, UpdatedEntity};
+
+        let step_json = serde_json::to_string(step).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let state_str = format!("{:?}", step.state).to_lowercase();
+
+        let seq = {
+            let mut s = self.ledger.next_seq.lock();
+            let cur = *s;
+            *s = s.next();
+            cur
+        };
+        let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+
+        let conn = self.ledger.conn.lock();
+        let tx = conn.unchecked_transaction().map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        // Upsert the step
+        tx.execute(
+            "INSERT OR REPLACE INTO subject_steps (step_id, branch_id, step_no, state, record_revision, data, updated_commit_seq) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![step.step_id.to_string(), step.branch_id.0.to_string(), step.step_no as i64, state_str, step.record_revision.0 as i64, step_json, seq.0 as i64],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        // Advance the branch head: committed_step_id/no → this step, next_step_id → successor
+        let new_rev = shenko_types::ids::RecordRevision(head_record_revision.0 + 1);
+        // Read the existing head to preserve immutable fields (genesis_ref, root_task_id, etc.)
+        let existing_head_json: Option<String> = {
+            let c = &*conn;
+            c.query_row(
+                "SELECT data FROM subject_branch_heads WHERE agent_id=?1 LIMIT 1",
+                [head_agent_id.to_string()],
+                |r| r.get(0),
+            ).ok()
+        };
+        // Parse existing head or build a minimal placeholder preserving required fields
+        let head_row: shenko_types::subject::SubjectBranchHead = if let Some(json) = existing_head_json {
+            let mut h: shenko_types::subject::SubjectBranchHead =
+                serde_json::from_str(&json).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            h.committed_step_no = step.step_no;
+            h.committed_step_id = Some(step.step_id);
+            h.committed_at = commit_ref;
+            h.next_step_id = next_step_id;
+            h.record_revision = new_rev;
+            h
+        } else {
+            return Err(ShenkoError::storage("branch head not found; call initialize_genesis first"));
+        };
+        let head_json = serde_json::to_string(&head_row).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        tx.execute(
+            "INSERT OR REPLACE INTO subject_branch_heads (agent_id, branch_id, committed_step_no, committed_step_id, next_step_id, mode, record_revision, data, updated_commit_seq) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![
+                head_agent_id.to_string(),
+                head_branch_id.0.to_string(),
+                step.step_no as i64,
+                step.step_id.to_string(),
+                next_step_id.to_string(),
+                "active",
+                new_rev.0 as i64,
+                head_json,
+                seq.0 as i64
+            ],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.execute(
+            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count) VALUES (?1,?2,?3,2)",
+            params![self.ledger.ledger_id().to_string(), seq.0 as i64, self.capabilities.incarnation.to_string()],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.commit().map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        Ok(CommitReceipt {
+            commit_ref,
+            durability_profile: DurabilityProfile::PowerLossLocal,
+            store_incarnation: self.capabilities.incarnation,
+            updated: vec![
+                UpdatedEntity { entity_id: step.step_id, record_revision: step.record_revision },
+                UpdatedEntity { entity_id: head_agent_id, record_revision: new_rev },
+            ],
+        })
+    }
+
     /// Retrieve an existing agent_id from genesis, or None on first run. SPEC §44.6
     pub fn get_existing_agent_id(&self) -> Result<Option<shenko_types::ids::EntityId>, shenko_types::error::ShenkoError> {
         let conn = self.ledger.conn.lock();
