@@ -170,6 +170,19 @@ impl Store {
             updated: vec![UpdatedEntity { entity_id: step.step_id, record_revision: step.record_revision }],
         })
     }
+
+    /// Retrieve an existing agent_id from genesis, or None on first run. SPEC §44.6
+    pub fn get_existing_agent_id(&self) -> Result<Option<shenko_types::ids::EntityId>, shenko_types::error::ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let result: Option<String> = conn.query_row(
+            "SELECT subject_id FROM subject_genesis LIMIT 1", [], |r| r.get(0)
+        ).ok();
+        drop(conn);
+        match result {
+            Some(s) => s.parse().map(Some).map_err(|_| shenko_types::error::ShenkoError::storage("invalid stored agent_id")),
+            None => Ok(None),
+        }
+    }
 }
 
 /// Apply required SQLite settings. SPEC §41.2.1
