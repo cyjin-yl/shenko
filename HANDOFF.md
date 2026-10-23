@@ -4,42 +4,53 @@
 
 所有接手者先完整读 [shenko-dev](.agents/skills/shenko-dev/SKILL.md)，包括写入子 Agent；八个开发原子按需调用。根 `CLAUDE.md` 是 `AGENTS.md` 的符号链接。自主开发不设人工 gate，验证按实际问题收敛，小改不堆测试。
 
-## 当前开发状态（2026-10-23）
+## 当前开发状态（2026-10-23，S2 进行中）
 
-**开发已开始。** 接手者先读本节再续接，不要重新初始化。
+**S1 已合并 main，S2 关键路径已合并。** 当前在 `impl/s2-self-dev` 分支继续 S2 自开发闭环。
 
-### 已完成
-- Cargo workspace 骨架（edition=2024，16 crates）
-- `shenko-types`：完整协议类型（SPEC §41.3）— ids, commit, object, error, task, operation, evidence, store, agent, subject
-- `docs/state/goal.json` 和 `docs/state/coverage.json` 确认产品尚未实现，规格完整
-- 工具链：rustc nightly，wasm32-wasip2 + wasm32-unknown-unknown targets，wasm-tools，wasmtime-cli 45
-- 文档完整性检查通过（147 R / 55 B / 216 case）
+### 已完成并合并到 main
+- Cargo workspace（edition=2024，16 crates），`cargo check --workspace` 零 error
+- shenko-types：完整 §41.3 协议类型（IDs, CommitRef, TaskRecord X02, OperationRecord X03, EvidenceReceipt X04, AgentProfile, SubjectStep, SubjectBranchHead, SubjectGenesis, StepDecision, TaskWait 等全部 §41.5/§44.6 类型）
+- shenko-store：SQLite WAL + FTS5 检测 + CAS（blake3）+ ledger 单 mutation line + 5 张新表（subject_branch_heads, subject_steps, subject_genesis, bootstrap_records, inbox_events）+ initialize_genesis()/upsert_step()/get_existing_agent_id()
+- shenko-broker：真实 Anthropic Messages API 2023-06-01（claude-opus-5-5, rustls-tls, usage accounting）+ 4-flow admission + stub fallback
+- shenko-subject：真实 S0/S1 状态机（Preparing→Committed）+ 语义等待 600s + tokio::sync::Mutex inbox（Send 安全）
+- shenko-channel-napcat：真实 OneBot v11 WebSocket（tokio-tungstenite, 重连, send_private/group_message）
+- shenko-ui：完整单主体时间线 WebUI（OKLCH dark/light tokens, system font + PingFang SC, native-feel cursor/selection/hover 约定, 稳定 scroll anchor, aria-live, WCAG-AA, reduced-motion, mobile 44px, WsState broadcast）
+- bin/shenko：start 命令完整接线（store → bootstrap_genesis → broker → subject loop → 可选 NapCat → UI）
+- S1 store round-trip 测试 4/4 通过
 
-### 进行中（Workflow wf_b7e1a935-e44）
-并行实现所有 crate：
-- shenko-store（SQLite WAL），shenko-kernel，shenko-broker，shenko-subject
-- shenko-memory，shenko-channel-napcat，shenko-exec-host/ssh，shenko-wasm
-- shenko-compact-budget（独立于 snapcompact），shenko-compact-snap（独立于 budget）
-- shenko-awareness-core，shenko-ui（axum），shenko-seed，bin/shenko
-- 编译错误修复，初始提交，PR 创建
+### PR 历史
+- PR #1: `impl/s1-core-workspace` → 已合并 main（`a50267f`）
+- PR #2: `impl/s2-critical-path` → 已合并 main（`f536d7c`）
 
-### 待做（workflow 完成后）
-1. cargo check 清零 — 修复所有 error
-2. S1 验证：SQLite WAL round-trip，subject loop liveness，store CAS
-3. NapCat WebSocket 真实连接（S2 关键路径，SPEC §16）
-4. Claude API binding（§47 wire contract PV01–PV08）
-5. tmux seat 控制（§17/§35 自开发闭环）
-6. Proto-UI 集成（§21，shadcn + compiler seam）
-7. 两个独立 compact 插件真实实现
-8. 持续主体语义等待验证（max 600s per §5.1/U55）
+### 进行中（impl/s2-self-dev 分支）
+按 SPEC §35 首版开发者发行自开发闭环：
+
+1. **§35.4 自开发任务流程** — 需要：SelfDevelopment/PluginManager child, BuildProvider/VerificationProvider
+2. **§35.5 三条 Seat 路径** — 需要：tmux 前台 TUI 观察（capture-pane -e 保留高亮）、托管 OMP JSONL RPC、托管 Claude Code SDK
+3. **§35.6 NapCat 消息连续性** — 需要：持久 ingress spool, 消息去重 cursor, 断线 gap 记录
+4. **§35.7 自升级交接** — 需要：prepare/copy → catch_up → smoke → handoff → observe/retire, A/B 副本
+5. **§38 自解释插件** — 需要：SelfKnowledgeProvider, self:// runtime/docs/source/design 资源入口, build manifest 绑定
+6. **§36 effect 合同** — 需要：插件操作声明（reset/restore/replay/cancel/compensate 五种区分）, 调用时实际绑定
+7. **§47 provider wire contract** — 需要：PV01–PV08 conformance 测试
+
+### 待做优先级
+- tmux seat adapter（§35.5 第一条路径：已有 tmux TUI 观察 + 交互）— 这是 V1-01/V1-02 验收的前置
+- SelfKnowledgeProvider（§38）— 让主体能解释自身并指导插件开发
+- BuildProvider/VerificationProvider（§35.3）— 自开发闭环的构建+验证
+- NapCat 消息连续性（§35.6）— ingress spool + cursor
+- 自升级交接（§35.7）— A/B 副本 + 事实对账
 
 ### 恢复命令
 ```bash
 cd /tank/shared/projects/shenko/shenko
-git status
-# 切换到实现分支（workflow 完成后创建）
-git branch -a | grep impl
-claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions
+git checkout main && git pull origin main
+# 当前工作分支
+git checkout impl/s2-self-dev  # 或创建新分支
+cargo check --workspace
+cargo test -p shenko-store  # S1 验证
+# 运行
+ANTHROPIC_API_KEY=sk-... cargo run --bin shenko -- start --port 7860
 ```
 
 ---
