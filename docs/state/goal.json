@@ -8,7 +8,7 @@
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
   "branch": "main",
-  "head_commit": "fa74614",
+  "head_commit": "093b417",
   "pr_url": "https://github.com/cyjin-yl/shenko/pull/3",
   "claude_session_id": null,
   "active_workers": [],

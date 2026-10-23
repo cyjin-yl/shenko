@@ -2,7 +2,7 @@
 
 **更新时间：2026-10-23**
 **当前分支：`main`**
-**HEAD：`fa74614`（本文件编写时可见的最后提交）**
+**HEAD：`093b417`（本文件编写时可见的最后提交）**
 **upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)（已合并）**
 
 ## 立即可继续的工作
@@ -55,7 +55,7 @@ cargo test --workspace        # 当前 26 passed / 0 failed
 | 2 | §8/§29 WASM 家园 | 部分实现 | engine + WASI p1 + home preopen 可用；`MountSpec` VFS 未接线，真实家园/首启未接，checkpoint 仅标记文件；`WasmRuntime` 在 crate 外无调用者 |
 | 3 | §35.7 自升级 A/B | 部分实现 | 状态机与一致性备份已具备；`shenko-update` 不是 `bin/shenko` 依赖，quiesce/catch-up/epoch 切换未接线 |
 | 4 | §43 Playground | 部分实现 | CRUD + 原子写 + `artifact_changed` 已具备；`POST /playground/{id}/backend` 仅回显，真实进程后端未做 |
-| 5 | §12 记忆循环 | 部分实现 | FTS5/LIKE 搜索与 intents 存储已具备；已提交 HEAD 中 `spawn_worker` 无调用者，thought loop 未消费 intents |
+| 5 | §12 记忆循环 | 部分实现 | FTS5/LIKE 搜索与 intents 存储已具备；thought loop 已于 S1 后消费标记内容并提交 intent（093b417），`spawn_worker` 仍无调用者 |
 | 6 | §35.3 Compact | 部分实现 | Budget/Snap 为独立 crate，未注册为插件、未进入默认插件闭包 |
 | 7 | §35.4/§35.5 seat | 部分实现 | `TmuxSeat`/`SeatObservation` 位于 `shenko-exec-ssh`；`main.rs` 仍是 TODO，未绑定 |
 | 8 | §5.1/§15.2 QQ 出站 | 部分实现 | UI broadcast + QQ ledger 已具备；真实 QQ 端到端回执未验证 |

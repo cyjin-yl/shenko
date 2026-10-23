@@ -80,7 +80,7 @@
   - docs/research/archive/external_review_wasm.md
   - docs/requirements/requirements.json (R028, R088)
 
-- **Memory (proactive, search, decay)** — 部分实现：FTS5（含 LIKE 回退）与 intents 存储已具备；thought loop 未消费 intents（spawn_worker 未接线）:
+- **Memory (proactive, search, decay)** — 部分实现：FTS5（含 LIKE 回退）与 intents 存储已具备；thought loop 已在 S1 后消费标记内容并提交 intent（093b417）；`spawn_worker` 仍无调用者:
   - SPEC.md §12 (会话真相源和记忆)
   - docs/research/archive/research_proactive_memory.md
   - docs/requirements/requirements.json (R039, R040, R041)
