@@ -1,5 +1,8 @@
 //! WebSocket handler — routes UI messages to subject inbox, streams subject output.
 //! SPEC §21: single subject timeline, real-time streaming.
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
+use std::sync::Arc;
+
 use axum::{
     extract::{ws::{WebSocket, WebSocketUpgrade, Message}, Extension},
     response::Response,
@@ -24,6 +27,92 @@ pub struct TimelineMessage {
     pub stream: Option<bool>,
 }
 
+/// Live facts shared by the WS layer and the read-only `/api/self` endpoint.
+///
+/// Every value is recorded from a real event (a client socket opening, a
+/// subject outbox message). Unknown values keep their sentinel until observed,
+/// so `/api/self` can answer `null` instead of guessing.
+#[derive(Debug)]
+pub struct LiveStatus {
+    connections: AtomicUsize,
+    wired: AtomicBool,
+    /// Unix seconds of the last observed subject outbox message; -1 = never.
+    last_outbox_unix: AtomicI64,
+    /// Step number carried by the last observed outbox message; -1 = unknown.
+    last_step: AtomicI64,
+}
+
+impl LiveStatus {
+    pub fn new() -> Self {
+        Self {
+            connections: AtomicUsize::new(0),
+            wired: AtomicBool::new(false),
+            last_outbox_unix: AtomicI64::new(-1),
+            last_step: AtomicI64::new(-1),
+        }
+    }
+
+    /// True once the subject outbox is attached, i.e. the loop can be observed.
+    pub fn set_wired(&self, wired: bool) {
+        self.wired.store(wired, Ordering::Relaxed);
+    }
+
+    pub fn is_wired(&self) -> bool {
+        self.wired.load(Ordering::Relaxed)
+    }
+
+    /// Register a live WebSocket client. The returned guard decrements the
+    /// counter when the socket closes (including every early-exit path).
+    pub fn connection_added(self: &Arc<Self>) -> ConnectionGuard {
+        self.connections.fetch_add(1, Ordering::Relaxed);
+        ConnectionGuard { live: Arc::clone(self) }
+    }
+
+    pub fn connections(&self) -> usize {
+        self.connections.load(Ordering::Relaxed)
+    }
+
+    /// Record one committed thought published on the subject outbox.
+    pub fn record_outbox(&self, step: u64) {
+        self.last_step.store(step as i64, Ordering::Relaxed);
+        self.last_outbox_unix
+            .store(Utc::now().timestamp(), Ordering::Relaxed);
+    }
+
+    pub fn last_step(&self) -> Option<u64> {
+        match self.last_step.load(Ordering::Relaxed) {
+            s if s < 0 => None,
+            s => Some(s as u64),
+        }
+    }
+
+    /// Seconds since the last observed outbox message; None = never observed.
+    pub fn seconds_since_activity(&self) -> Option<i64> {
+        match self.last_outbox_unix.load(Ordering::Relaxed) {
+            t if t < 0 => None,
+            t => Some(Utc::now().timestamp().saturating_sub(t)),
+        }
+    }
+}
+
+impl Default for LiveStatus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Decrements the live connection count when a WS socket task ends.
+#[derive(Debug)]
+pub struct ConnectionGuard {
+    live: Arc<LiveStatus>,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.live.connections.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// Shared broadcast state
 #[derive(Clone)]
 pub struct WsState {
@@ -34,12 +123,19 @@ pub struct WsState {
     /// Subject outbound output. Each connected client subscribes here so model
     /// output reaches every open timeline. SPEC §5.1, §21.12.
     pub outbox_tx: Option<std::sync::Arc<broadcast::Sender<OutboxMessage>>>,
+    /// Live connection/subject facts shared with `/api/self`.
+    pub live: Arc<LiveStatus>,
 }
 
 impl WsState {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(256);
-        Self { subject_tx: std::sync::Arc::new(tx), inbox_tx: None, outbox_tx: None }
+        Self {
+            subject_tx: std::sync::Arc::new(tx),
+            inbox_tx: None,
+            outbox_tx: None,
+            live: Arc::new(LiveStatus::new()),
+        }
     }
 
     pub fn new_with_inbox(inbox_tx: Sender<InboxEvent>) -> Self {
@@ -48,6 +144,7 @@ impl WsState {
             subject_tx: std::sync::Arc::new(tx),
             inbox_tx: Some(std::sync::Arc::new(inbox_tx)),
             outbox_tx: None,
+            live: Arc::new(LiveStatus::new()),
         }
     }
 
@@ -80,6 +177,8 @@ pub async fn ws_handler(
 
 async fn handle_socket(mut socket: WebSocket, state: WsState) {
     info!("ws client connected");
+    // Counted for `/api/self`; dropped on every exit path from this task.
+    let _connection = state.live.connection_added();
     let mut rx = state.subject_tx.subscribe();
     let mut outbox_rx = state.outbox_tx.as_ref().map(|tx| tx.subscribe());
 
