@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "goal_id": "shenko-complete-product",
+  "goal_path": "GOAL.md",
+  "spec_version": "0.6.2",
+  "product_status": "not_started",
+  "harness_status": "not_started",
+  "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
+  "upstream_verified": true,
+  "branch": null,
+  "head_commit": null,
+  "pr_url": null,
+  "claude_session_id": null,
+  "active_workers": [],
+  "blockers": [],
+  "next_actions": [
+    "Read HANDOFF.md and configure the receiving developer’s own GitHub/Claude identity.",
+    "Fork cyjin-yl/shenko, clone the fork and verify origin/upstream.",
+    "Read AGENTS.md, the mandatory .agents/skills/shenko-dev/SKILL.md, WHY.md, GOAL.md and the document index; use atomic development Skills as needed and begin the complete implementation."
+  ],
+  "last_checkpoint": "docs/state/README.md",
+  "upstream": "cyjin-yl/shenko",
+  "upstream_url": "https://github.com/cyjin-yl/shenko",
+  "upstream_visibility": "public",
+  "upstream_default_branch": "main",
+  "upstream_verified_at": "2026-10-22"
+}

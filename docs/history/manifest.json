@@ -1,0 +1,384 @@
+{
+  "schema_version": 1,
+  "purpose": "Exact pre-handoff artifacts retained for provenance; not current instructions.",
+  "source_page": {
+    "url": "https://chatgpt.com/space/page_6f0008254bfc81918c585077f4c500a5",
+    "sequence": 8,
+    "title": "Shenko 产品 SPEC v0.5.1"
+  },
+  "source_snapshot": {
+    "file": "docs/history/spec-v0.5.1.md",
+    "sha256": "9e2f17fb8475f31534f479f249995be3ed53513a41207fdc807466ec237627a0"
+  },
+  "archived_file_count": 46,
+  "files": [
+    {
+      "file": "docs/research/archive/agent_bot_spec_v0_1.md",
+      "original_file": "agent_bot_spec_v0_1.md",
+      "sha256": "5ba3c53e60eca7f86cc350c29a749f97870f76cd2cce88c77ac46a23d770d2d8",
+      "bytes": 205807,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "1 文档状态与产品定义"
+    },
+    {
+      "file": "docs/research/archive/external_review_channels.md",
+      "original_file": "external_review_channels.md",
+      "sha256": "e0ecaafb94a7a599566bad06ae8644eeb457228a76164b7a79a0f271e2559119",
+      "bytes": 20157,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "外部建议复审：竞品、Proto、远程 Agent 与媒体"
+    },
+    {
+      "file": "docs/research/archive/external_review_inference.md",
+      "original_file": "external_review_inference.md",
+      "sha256": "01b768d76372df2ccd05233c5a3ea0067c83f1ad4ccd778e07ed1fa3c8fbf3fa",
+      "bytes": 24066,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "外部建议审查：主体 Harness、Memory、KV 与 27B 插件认知"
+    },
+    {
+      "file": "docs/research/archive/external_review_wasm.md",
+      "original_file": "external_review_wasm.md",
+      "sha256": "344b87d2e60a6e93977270634b64a57ae9a9ad0c65f683338eb1f4caa36b6426",
+      "bytes": 20817,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "外部建议审查：WASM、文件系统、恢复与核心自改"
+    },
+    {
+      "file": "docs/research/archive/kv_policy_spec.md",
+      "original_file": "kv_policy_spec.md",
+      "sha256": "59292f867f2f09a76fff20efc87abc3df44117e6bbe94de42f96b4db404f1ec6",
+      "bytes": 30577,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "多上下文驻留与 KV 调度规格"
+    },
+    {
+      "file": "docs/research/archive/personal_agent_scope_audit.md",
+      "original_file": "personal_agent_scope_audit.md",
+      "sha256": "a9e52915d9ca7f58d63812ac5678191049278f8c0860740a58461af8e192c5b8",
+      "bytes": 8176,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "个人 Agent 最小框架定位与需求覆盖审查"
+    },
+    {
+      "file": "docs/research/archive/personal_agent_spec_v0_2_0.md",
+      "original_file": "personal_agent_spec_v0_2_0.md",
+      "sha256": "ecbac62b9695baa6747aed27a425299aba53b037009ea5bc72c42f512d65d38c",
+      "bytes": 279964,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Personal Agent 最小框架 · 产品 SPEC v0.2.0（研究与裁决稿）"
+    },
+    {
+      "file": "docs/research/archive/personal_agent_spec_v0_3_0.md",
+      "original_file": "personal_agent_spec_v0_3_0.md",
+      "sha256": "843243af26cba76df944fd30b35922180e248af0aa56fe0637391e257eba1a6d",
+      "bytes": 345125,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Personal Agent 最小框架 · 产品 SPEC v0.3.0（研究与裁决稿）"
+    },
+    {
+      "file": "docs/research/archive/remote_agent_spec.md",
+      "original_file": "remote_agent_spec.md",
+      "sha256": "5f3c4c8727e5166270f16bee3cf81924e8322a9d08949baad146fcc830cac9ef",
+      "bytes": 37606,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "远程 Agent Seat 插件：研究与产品规格补充"
+    },
+    {
+      "file": "docs/research/archive/requirements_audit.md",
+      "original_file": "requirements_audit.md",
+      "sha256": "1fcadb704e566b05d5c578250dbed60acb095f872038c2df308d8e32bf697aa4",
+      "bytes": 58282,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "产品 SPEC 需求覆盖审查"
+    },
+    {
+      "file": "docs/research/archive/requirements_traceability.md",
+      "original_file": "requirements_traceability.md",
+      "sha256": "cbd9c449f6a42a760addc7168bed70554166d29db71891210f0a461886cdda74",
+      "bytes": 10810,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "需求追踪附录"
+    },
+    {
+      "file": "docs/research/archive/research_boxlite_integration.md",
+      "original_file": "research_boxlite_integration.md",
+      "sha256": "8c89638c3c71391834053d0e13ed3b2fcc924b37f8366df63ef798bd978bb7e7",
+      "bytes": 19034,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "BoxLite 插件集成核验"
+    },
+    {
+      "file": "docs/research/archive/research_boxlite_runtime.md",
+      "original_file": "research_boxlite_runtime.md",
+      "sha256": "59c8256d39941b433d308285afd07e15c669ffc96c450ddee65456440414bf6b",
+      "bytes": 24341,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "BoxLite：运行时、持久化与接入边界核验"
+    },
+    {
+      "file": "docs/research/archive/research_compaction_codex_omp.md",
+      "original_file": "research_compaction_codex_omp.md",
+      "sha256": "b0a153e582fb4542b63c25398ed045023e125edb4d2c6beb0dc08dea9250c0a8",
+      "bytes": 13847,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Codex budget compact 与 OMP snapcompact：源码核验增量"
+    },
+    {
+      "file": "docs/research/archive/research_competitors.md",
+      "original_file": "research_competitors.md",
+      "sha256": "04ff3d15b348bf3c9bc930bd76a78ebc356c27eb3ab5f70a9b149f2aff871b68",
+      "bytes": 22812,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "竞品与通信接入研究（中间研究笔记）"
+    },
+    {
+      "file": "docs/research/archive/research_dynamic_ui.md",
+      "original_file": "research_dynamic_ui.md",
+      "sha256": "b35905bfc3cf1245af2327424d81e507ef69bce329cc7bd9eba5c86d9cf135e1",
+      "bytes": 25992,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Dynamic Response / Intelligent UI：官方核验与个人 Agent 动态界面规格补充"
+    },
+    {
+      "file": "docs/research/archive/research_forgetting.md",
+      "original_file": "research_forgetting.md",
+      "sha256": "4a6de4348bc51a2228acea95bf23008f56e4a51cd375adf621425f4aadabe1e6",
+      "bytes": 17473,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "研究补充：Scaling Discovery Requires Forgetting 与研究子 agent 的可控重启"
+    },
+    {
+      "file": "docs/research/archive/research_harness.md",
+      "original_file": "research_harness.md",
+      "sha256": "7e918292785050c74c1217214e04e53b47d51262db4a70381a1171c97465160a",
+      "bytes": 22371,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Harness、历史与本地推理调度研究笔记"
+    },
+    {
+      "file": "docs/research/archive/research_interrupt_dnd_d3.md",
+      "original_file": "research_interrupt_dnd_d3.md",
+      "sha256": "ed46b8b6f6cd0f6ab622a0d0faa7992a6086a3d177e0f28bd18b388167cecd13",
+      "bytes": 11339,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "D3 增量：外部打断、主体决定免打扰、误过滤自主修复"
+    },
+    {
+      "file": "docs/research/archive/research_layerfs_vm_self_port.md",
+      "original_file": "research_layerfs_vm_self_port.md",
+      "sha256": "6a772aafe03373fc67411c96a456bdc5754db2dd4efa0628809ca81b8bf136ac",
+      "bytes": 23066,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "LayerFS 原版进入 Linux VM；WASM 独立状态层与自主移植闭环"
+    },
+    {
+      "file": "docs/research/archive/research_migration_retention_election.md",
+      "original_file": "research_migration_retention_election.md",
+      "sha256": "9c3049dd6b1ccb92104d3d0f58699db4ce5e2eb10612a9bae0106cc9cc65d7e4",
+      "bytes": 17454,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "D7 / D8 / D9 / D11 增量协议建议"
+    },
+    {
+      "file": "docs/research/archive/research_native_inference_vllm.md",
+      "original_file": "research_native_inference_vllm.md",
+      "sha256": "526d73db0fb09a02f982d187a141a2fa0340b5f884ea52214d9806004cd2fdca",
+      "bytes": 24222,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "原生推理后端接入研究：vLLM、1Cat-vLLM、NInfer、Strata"
+    },
+    {
+      "file": "docs/research/archive/research_omp_delivery_d2.md",
+      "original_file": "research_omp_delivery_d2.md",
+      "sha256": "58f70da0b0ac9ee52b381d094fbc492782d99cd6c3153227d465384aa15f090c",
+      "bytes": 12577,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "OMP D2：子 Agent 的有限直接发布核验"
+    },
+    {
+      "file": "docs/research/archive/research_pi_durable_capability.md",
+      "original_file": "research_pi_durable_capability.md",
+      "sha256": "f5084613647bf01f8eb07c669a315928feeca8381f918d7df750fea2559ed746",
+      "bytes": 19470,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Pi Durable 与工具能力自改进核验"
+    },
+    {
+      "file": "docs/research/archive/research_plugin_cognition.md",
+      "original_file": "research_plugin_cognition.md",
+      "sha256": "984cd68e60cbdc12213f1a57a7e5b732378b698c900eee29f995233530441454",
+      "bytes": 32166,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "插件发现、正确使用与本地 27B 模型的认知负担"
+    },
+    {
+      "file": "docs/research/archive/research_proactive_memory.md",
+      "original_file": "research_proactive_memory.md",
+      "sha256": "64cb5ed891a237b178b25a1a8f86dde255f6bc43fff4cf227b5b61115746e002",
+      "bytes": 27715,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Proactive Memory Agent：论文、代码核验与产品规格建议"
+    },
+    {
+      "file": "docs/research/archive/research_repl.md",
+      "original_file": "research_repl.md",
+      "sha256": "4594ed7da4cef4a1dbac4577d30b58bc84a3ded15f8f5b0201641f5b4a5a1d23",
+      "bytes": 18572,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Python / Bun / Node：WASM 内可恢复 REPL 规格研究"
+    },
+    {
+      "file": "docs/research/archive/research_wasm.md",
+      "original_file": "research_wasm.md",
+      "sha256": "c551ae8d532779ad08238eb3cbc6deff5c421afb70fa324f5034ee26de098e87",
+      "bytes": 19198,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "WASM、持久化与可恢复 Agent：研究记录"
+    },
+    {
+      "file": "docs/research/archive/scheduler_audit.md",
+      "original_file": "scheduler_audit.md",
+      "sha256": "1e67b0859ae799f84af6bbe507535f3f34cd7c2c655439dbe174f7cbb078d117",
+      "bytes": 48340,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "调度与历史规格审核清单"
+    },
+    {
+      "file": "docs/research/archive/shenko_awareness_dependencies_draft.md",
+      "original_file": "shenko_awareness_dependencies_draft.md",
+      "sha256": "ae3e3c62708562629624608a04921d53d281767d13aa50e57dabab9437d1eb62",
+      "bytes": 12139,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "§45 增量：可安装单元与依赖装配"
+    },
+    {
+      "file": "docs/research/archive/shenko_awareness_draft.md",
+      "original_file": "shenko_awareness_draft.md",
+      "sha256": "69837abbf1dd93058ad47f4b5de6caa47afbbf50288376b8075c9bab11a4229d",
+      "bytes": 18160,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "§45 可安装的 Awareness：给 Agent 补上该想到的事"
+    },
+    {
+      "file": "docs/research/archive/shenko_bootstrap_draft.md",
+      "original_file": "shenko_bootstrap_draft.md",
+      "sha256": "13e55cd653f900e44a89f43429f50e63025be6ca197d918d3b8ee8286d1d2694",
+      "bytes": 23999,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Shenko 首次启动与种子发行规范草案"
+    },
+    {
+      "file": "docs/research/archive/shenko_runtime_contracts_v0_4.md",
+      "original_file": "shenko_runtime_contracts_v0_4.md",
+      "sha256": "b23768502ca5bd6d07d105df0b3a6795c821eff495e33437758fc01ad1788168",
+      "bytes": 57767,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Shenko 运行合同增量：主体、事件、推理、Seat 与升级交接"
+    },
+    {
+      "file": "docs/research/archive/shenko_section41_merged.md",
+      "original_file": "shenko_section41_merged.md",
+      "sha256": "f2c48edd49115849ae384a71ea52fad02a3ce5caf20c3a516cca8e35e98a0220",
+      "bytes": 133731,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "41 首版规范执行合同"
+    },
+    {
+      "file": "docs/research/archive/shenko_section41_plugin_protocols_draft.md",
+      "original_file": "shenko_section41_plugin_protocols_draft.md",
+      "sha256": "2ed08e6e1fb1fc6c3e34d5184e20cf3e1205e2dc3b62e3c639bb34357c93d7c2",
+      "bytes": 37776,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "§41 规范接口补充：插件操作、注入、自解释与版本交接"
+    },
+    {
+      "file": "docs/research/archive/shenko_section42_provider_quota_draft.md",
+      "original_file": "shenko_section42_provider_quota_draft.md",
+      "sha256": "d0fe36e7b374c51f4fb76f17153ff06854e58253fb45ffa21f9bb341bacc57ec",
+      "bytes": 18468,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "§42 后期增量：Provider 周期额度与自适应模型预算"
+    },
+    {
+      "file": "docs/research/archive/shenko_spec_v0_4_0_additions.md",
+      "original_file": "shenko_spec_v0_4_0_additions.md",
+      "sha256": "7cfd50147403e15aea27748fbef4b4506dd1478db3c3c0e1d8b8e5086a95e341",
+      "bytes": 59676,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "21.10 Magpie 视觉参照与比较方法"
+    },
+    {
+      "file": "docs/research/archive/shenko_streaming_ui_contract.md",
+      "original_file": "shenko_streaming_ui_contract.md",
+      "sha256": "ee83cf88f9362f87b62f020dad4a18544667507e2738b568adf8de9ea8d15d65",
+      "bytes": 14290,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照"
+    },
+    {
+      "file": "docs/research/archive/shenko_u42_u43_ui_config_playground.md",
+      "original_file": "shenko_u42_u43_ui_config_playground.md",
+      "sha256": "ae06ae89f5769486a8e130785ab477f3be038e806cb2c3dfb942f1c1b42bc14c",
+      "bytes": 24429,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "U42 / U43 规范增量：主体 Web 输入、对话配置与持久 Playground"
+    },
+    {
+      "file": "docs/research/archive/shenko_v1_durable_contract_draft.md",
+      "original_file": "shenko_v1_durable_contract_draft.md",
+      "sha256": "d2d4915f346659e061f4350b843b6c1b7e2e1af44a0d9d9c1034ac054a3ec72c",
+      "bytes": 33574,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Shenko V1：持久执行与自升级合同草案"
+    },
+    {
+      "file": "docs/research/archive/shenko_v1_protocol_preface.md",
+      "original_file": "shenko_v1_protocol_preface.md",
+      "sha256": "eae7d6d9ddd0bd84f05c3419f0d51953ce708bff2822db73b701f81efeaa8dac",
+      "bytes": 9242,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "41 首版规范执行合同"
+    },
+    {
+      "file": "docs/research/archive/spec_questions.md",
+      "original_file": "spec_questions.md",
+      "sha256": "4de3ab719ba658a5ae641d1353a9ea8e328d0e408bd024c61a2614e5100720be",
+      "bytes": 15106,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "第二轮产品规格追问"
+    },
+    {
+      "file": "docs/research/archive/spec_v020_review.md",
+      "original_file": "spec_v020_review.md",
+      "sha256": "c918e431840be249fc0d219b39af6904f531b95253c1f25bfc87f6d6ae9f4d83",
+      "bytes": 275484,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "Personal Agent 最小框架 · 产品 SPEC v0.2.0（研究与裁决稿）"
+    },
+    {
+      "file": "docs/research/archive/thought_loop_spec.md",
+      "original_file": "thought_loop_spec.md",
+      "sha256": "8c648371bca669dfea0870567ff8a38b8e78cf55cf46cc41f8e709ebcc258bed",
+      "bytes": 24621,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "唯一主体的持续 Thought Loop 规格补充"
+    },
+    {
+      "file": "docs/research/archive/thought_ui_notes.md",
+      "original_file": "thought_ui_notes.md",
+      "sha256": "b6ac5d6590260f51f8fdadc47797700a1520947fc1195e616ea86033ba3e75ea",
+      "bytes": 14935,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "单一持续 Thought Loop：产品语义、界面与新增规格矛盾"
+    },
+    {
+      "file": "docs/research/archive/user_requirements_verbatim.md",
+      "original_file": "user_requirements_verbatim.md",
+      "sha256": "d54e17179e3fdfac92c6d05a26c5c509c103bdb0d1f105067317ff17a17fe4b2",
+      "bytes": 13956,
+      "status": "historical_or_merged_draft_not_current_spec",
+      "title": "33 用户需求原文与追加澄清"
+    }
+  ]
+}

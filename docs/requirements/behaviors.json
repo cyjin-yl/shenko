@@ -1,0 +1,836 @@
+{
+  "schema_version": 1,
+  "spec_version": "0.6.2",
+  "spec_path": "SPEC.md",
+  "count": 55,
+  "items": [
+    {
+      "id": "B01",
+      "title": "个人框架与持续生活",
+      "refs": "U01/U11/U20；REF-PI、REF-DOTS、REF-DUET、REF-MUSE",
+      "contract": "采用最小 harness、持续任务/成果/共享经历的启发；本地所有权、统一个人知识、真正永续主体是用户目标与本产品组合，不以竞品宣传作性能证据。",
+      "verification": "§1、3–4；A24；卸载 coding 插件后仍完成个人对话、承诺与主动任务。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R001",
+        "R024",
+        "R025",
+        "R026",
+        "R089"
+      ]
+    },
+    {
+      "id": "B02",
+      "title": "小核心与可替换主干",
+      "refs": "U01/U08/U09/U15/U35/U45/U59；REF-DSH、REF-CORDIS",
+      "contract": "采用 Rust edition 2024 与已确认的 dshbox/cordis-rs 主干，比较 model/tools/session/loop 装配、服务生命周期、事件订阅与清理。core/rescue 可改；生命周期不冒充持久事务。执行插件、能力合同和独立 awareness 保持各自装配粒度。",
+      "verification": "§2/7/9/40.4；A18/A21；真实构建声明 edition 2024，坏插件、卸载、强杀和核心迁移分别验收；记录 kernel+默认插件总成本。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R011",
+        "R021",
+        "R029",
+        "R034",
+        "R042",
+        "R087",
+        "R088",
+        "R123",
+        "R137"
+      ]
+    },
+    {
+      "id": "B03",
+      "title": "唯一主体与主子协作",
+      "refs": "U40；U02/U15/U19/U20；REF-OMP、REF-PI、REF-DESIGN",
+      "contract": "永续串行、主体不直接 I/O、任意 child prompt/model 来自用户。OMP executor.ts、async-job-delivery.ts、irc/bus.ts 提供结果归属/epoch/有限跟进参考；扩展为 durable 双向讨论与有限直接渠道回复。",
+      "verification": "§5–6、41；A01/A02/A03/A31/A36/A37；主子等待不占彼此必需推理许可，进展不吞最终结果，取消/迟到不重复外发。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R006",
+        "R024",
+        "R042",
+        "R046",
+        "R047",
+        "R048",
+        "R050",
+        "R051",
+        "R052",
+        "R053",
+        "R054",
+        "R055",
+        "R085",
+        "R097",
+        "R106",
+        "R107",
+        "R129",
+        "R132",
+        "R135",
+        "R143"
+      ]
+    },
+    {
+      "id": "B04",
+      "title": "持久任务和调用恢复",
+      "refs": "U40；U19/U33；REF-DURABLE、REF-STORAGE",
+      "contract": "采用 task/checkpoint、调用日志、提交后发布、intent/effect/outcome、durable cancel/compensate；新增 Rust/provider 跨进程与跨版本恢复、QQ/SSH/GUI 外部事实对账。",
+      "verification": "§10.6、35–36、41；A33、E01–E10；在 intent、外部完成、receipt 前后故障，不把 unknown 当失败重试或成功。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R003",
+        "R099",
+        "R129",
+        "R147"
+      ]
+    },
+    {
+      "id": "B05",
+      "title": "持久 WASM 家园与挂载",
+      "refs": "U01/U19；REF-WASI、REF-RUNTIME、REF-STORAGE",
+      "contract": "逐项比较 ABI/imports、网络、进程、文件锁、异步、AOT/JIT、目标设备；自有状态树、任意可访问挂载、RO/direct RW/COW 与恢复是本产品实现。",
+      "verification": "§8、10、22；A07/A08/A17；同一包逐 runtime/profile 测试，重启与 factory 恢复保留身份/原始事实。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R003",
+        "R004",
+        "R005",
+        "R007",
+        "R010",
+        "R011",
+        "R012",
+        "R021",
+        "R044",
+        "R147"
+      ]
+    },
+    {
+      "id": "B06",
+      "title": "WASM 工具安装和自主移植",
+      "refs": "U01/U19；REF-PORTS、REF-WASI、REF-NIX",
+      "contract": "toybox/gcc-wasm/gh/tea/SSH 均是具名目标；上游 port 是线索，记录 hosted/target、imports、host shim、包功能子集。主体能发现缺口并委派移植，不用 host wrapper 勾选 WASM 完成。",
+      "verification": "§8.2、18.8；A09 与逐包 conformance；安装、运行、认证、取消、卸载/恢复及原阻塞任务实际通过。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R007",
+        "R008",
+        "R014",
+        "R019",
+        "R101"
+      ]
+    },
+    {
+      "id": "B07",
+      "title": "包 generation 与自主更新",
+      "refs": "U01/U09/U15/U17/U20；REF-NIX、REF-DSH、REF-CORDIS、REF-DURABLE",
+      "contract": "采用闭包、锁定、异机构建和 generation；Agent 自选更新/代理/延后；A 继续服务、复制迁移 B、烟测、交接与携带新事实的恢复属于本产品合同。允许 breaking change 与核心/救援器替换。",
+      "verification": "§9、35；A21/A27/A28/A39；无需用户在线；更新失败可继续工作，回退不丢 B 的新事实。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R009",
+        "R020",
+        "R024",
+        "R049",
+        "R083",
+        "R088",
+        "R092",
+        "R093",
+        "R094",
+        "R110",
+        "R133"
+      ]
+    },
+    {
+      "id": "B08",
+      "title": "WASM 二进制状态与快照",
+      "refs": "U01/U14/U19/U33；REF-STORAGE、REF-DESIGN",
+      "contract": "CAS/目录树、分支、对象可达性/GC、原子 ref 与一致 checkpoint 为本产品设计；Git LFS、SQLite durability 仅提供各自原语。只读 wasi-vfs 路线明确排除，LWW 仅对声明的类型成立。",
+      "verification": "§10.1–10.5、36；A07/A08/A11、E01/E05/E06；大对象、满盘、提交/GC 并发、direct 挂载及旧格式恢复分别验证。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R005",
+        "R012",
+        "R013",
+        "R038"
+      ]
+    },
+    {
+      "id": "B09",
+      "title": "原版 LayerFS 与真实 VM",
+      "refs": "U18/U19；REF-LAYERFS、REF-BOXLITE",
+      "contract": "直接复用原版 LayerFS，分别比较 Store/fs/branch 与 workspace mount/exec/commit；同 Linux kernel、本地 FS、Docker/FUSE 条件保留。BoxLite 可选；product_durable 是额外发表协议。",
+      "verification": "§10.2.1、34；A29/A34；发行版与主线、本地与 REST、磁盘/进程快照分开；guest 组合和断电承诺实测。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R023",
+        "R095",
+        "R100"
+      ]
+    },
+    {
+      "id": "B10",
+      "title": "私有 Git 记忆与二进制引用",
+      "refs": "U01；REF-NIX、REF-STORAGE、REF-GIT-WORKTREE、REF-PORTS",
+      "contract": "默认 host-mounted Git；文本版本与二进制对象引用分开。采用 Git/LFS 的已定义部分，自定义指针另有格式；worker 工作树隔离不冒充权限隔离，认证/密钥不进入普通记忆。",
+      "verification": "§10.3–10.5、35；A09/A11；GitHub/Gitea 私库认证，先有对象闭包再发表引用，冲突不静默覆盖。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R006",
+        "R014",
+        "R015",
+        "R026",
+        "R050"
+      ]
+    },
+    {
+      "id": "B11",
+      "title": "SSH 身份和小模型远端工具",
+      "refs": "U01/U04；REF-SSH、REF-OMP、REF-PORTS",
+      "contract": "采用结构化资源/exec 思路，比较 keygen、公钥展示、host identity、读/搜索/patch/原子写/传输、流式/取消/连接复用。内容 hash 防陈旧修改是产品工具合同；WASM 签名桥、多跳等需分别实证。",
+      "verification": "§11、17；A09/A14；路径含空格/中文、变更冲突、远端退出/断线/unknown、身份轮换和恢复均保持真实。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R016",
+        "R017",
+        "R018",
+        "R019",
+        "R026",
+        "R041",
+        "R145"
+      ]
+    },
+    {
+      "id": "B12",
+      "title": "原始会话与全文回忆",
+      "refs": "U01/U21；REF-PI、REF-FTS、REF-STORAGE、REF-CODEX",
+      "contract": "原始事件与检索/摘要投影分离；FTS 可重建、返回出处与修订。中文单/双字、混合代码、已删除/旧事实处理是额外产品要求；不将摘要作为唯一真相。",
+      "verification": "§12.1–12.3；A10/A11/A44；切窗后按 ID 重读、检索失败原文、索引损坏重建与一致备份。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R022",
+        "R026",
+        "R043",
+        "R050"
+      ]
+    },
+    {
+      "id": "B13",
+      "title": "budget compact 独立插件",
+      "refs": "U21/U22；REF-CODEX、REF-OMP、REF-DURABLE",
+      "contract": "对照 compact_token_budget.rs 的无模型摘要切窗与 history-notes 工具；OMP notes 路线另作比较。扩展本地窗口/任务恢复包、原文寻址与插件生命周期；保留不同 backend 的一致性差异。",
+      "verification": "§12.3.1–12.3.2；A44/A45、H04；多次切窗/卸载/切换时不丢未完成调用、原文与消息，不重复执行。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R022",
+        "R115",
+        "R116"
+      ]
+    },
+    {
+      "id": "B14",
+      "title": "snapcompact 独立插件",
+      "refs": "U21/U22；REF-OMP",
+      "contract": "精确对照 packages/snapcompact 的有界 Archive.text、截断/规范化、文字头尾+中段 PNG、再次 compact，以及 session-maintenance 的运行中处理。WASM 移植和本地视觉适配是增量；PNG 不是无损档案或 KV snapshot。",
+      "verification": "§12.3；A44/A45；CJK/数字/路径/代码、视觉支持、图像 token/准确率/预填充成本及真实插件可替换性。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R115",
+        "R116"
+      ]
+    },
+    {
+      "id": "B15",
+      "title": "可替换 memory backend",
+      "refs": "U01/U06；REF-OMP、REF-QMD、REF-OPENVIKING、REF-HINDSIGHT",
+      "contract": "以 retain/recall/reflect/update/forget/flush/health 与 provenance 适配；QMD 的 typed混合检索/取证/索引分离，以及OpenViking目录层次/当前全局检索/异步记忆分别对照。各backend额外模型可选；Hindsight尚为候选，不要求全搬上游。",
+      "verification": "§3.2、12.3；A10/A11/A13；来源可追、索引变更/删除/重建、混合中文、模型费用、降级与冷启动。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R006",
+        "R010",
+        "R041",
+        "R070"
+      ]
+    },
+    {
+      "id": "B16",
+      "title": "主动记忆与选择性提醒",
+      "refs": "U03；REF-PMA、REF-DURABLE",
+      "contract": "采用 bank update 与选择提醒/No-op 两阶段。k=8 观察窗、触发频率、user_turn 历史行为分别记录；严格 transient 后续投影、本地节奏、统一 broker 属扩展，真实注入仍入档。",
+      "verification": "§14.4、37；A12/A20、H04/H06；比较 silent/passive/always/selective，计全部成本和漏/误提醒。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R067",
+        "R068"
+      ]
+    },
+    {
+      "id": "B17",
+      "title": "探索遗忘与从 best 重启",
+      "refs": "U03；REF-RESET、REF-LAYERFS、REF-DESIGN",
+      "contract": "仅对探索 worker 重建可见 session/search state，从验证 best seed 继续；失败笔记为单独可选策略。原始档案、有效现实约束、外部效果保留；个人主体不整体失忆。",
+      "verification": "§14.1–14.3；A12/A20；同预算多次比较、独立 judge、旧叙事确实不可见、最佳产物可复现。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R065",
+        "R066"
+      ]
+    },
+    {
+      "id": "B18",
+      "title": "递归研究和长期兴趣",
+      "refs": "U01/U20；REF-PI、REF-RESET、REF-LAYERFS、REF-DESIGN",
+      "contract": "低成本子任务 DAG、去重、有限工作单元与比较/交付份额属本产品策略；不是无限 spawn。主体可无限续配自发兴趣，不设置必须与用户有关或统一寿命上限。",
+      "verification": "§5、13、14.5–14.6；A03/A20/A41；递归不新增物理预算，阶段交付和长期目标在重启/接管后延续。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R037",
+        "R038",
+        "R048",
+        "R112"
+      ]
+    },
+    {
+      "id": "B19",
+      "title": "原生模型后端与部署基线",
+      "refs": "U01/U19/U21；REF-NINFER、REF-STRATA、REF-VLLM、REF-1CAT、REF-LIFE、REF-LLAMACPP、REF-DYNAMO",
+      "contract": "以各版本/传输/配置透传原生能力；NInfer Snapshot/Replay、Strata Host/GPU/decode、vLLM hints、1Cat fork 分别对照。llama.cpp/Dynamo 为附加参考；用户四流128K、133120冗余优先。",
+      "verification": "§13.6–13.7、22.1、25–27；A05/A32/A43；未知/忽略字段和失败回执可见，中英文教程由同一实际能力资料生成。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R026",
+        "R027",
+        "R039",
+        "R040",
+        "R058",
+        "R061",
+        "R064",
+        "R098",
+        "R114",
+        "R130",
+        "R142"
+      ]
+    },
+    {
+      "id": "B20",
+      "title": "全局推理和自动 KV 分配",
+      "refs": "U40；U01/U03/U16/U19；REF-NINFER、REF-STRATA、REF-VLLM、REF-DESIGN",
+      "contract": "物理模型域统一 admission；计算/驻留/Host backing 分开。C=1 有限 generation 轮转可工作，抢占为可选优化；50/50 是适合负载下自动算法结果，非固定比例或后端已提供保证。",
+      "verification": "§13.1–13.7、41；A03–A05/A32/A43；主/child/memory/judge/远端 seat 均计账，alias不超限，缺 K 保守估计，负载变化可调整。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R027",
+        "R028",
+        "R038",
+        "R039",
+        "R047",
+        "R048",
+        "R061",
+        "R062",
+        "R063",
+        "R064",
+        "R068",
+        "R094",
+        "R114",
+        "R129",
+        "R130",
+        "R135"
+      ]
+    },
+    {
+      "id": "B21",
+      "title": "急消息、免打扰与过滤自修复",
+      "refs": "U20；REF-OPENCLAW、REF-DURABLE、REF-DESIGN",
+      "contract": "用户来信默认最高紧急，可打断 child；饥饿证据触达主体，由主体决定临时 DND，结束处理积压。垃圾规则可自设，独立 ingress/健康证据发现误屏蔽；不将未知后端取消当已释放槽。",
+      "verification": "§13.8、15；A06/A38；高频打断、队列恢复、通配符误屏蔽、DND 到期与取消失联。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R055",
+        "R108",
+        "R109"
+      ]
+    },
+    {
+      "id": "B22",
+      "title": "消息 provider 与开放渠道",
+      "refs": "U01/U03/U04；REF-ASTRBOT、REF-OPENCLAW、REF-NAPCAT、REF-QQ、REF-ILINK、REF-FEISHU",
+      "contract": "采用统一封套、渠道插件与异步入口。分别枚举接收/去重/附件/发送/编辑/回执/重连/缺口/账号；开放对话与手动 admin 为用户裁决。上游没有的 replay/幂等不自行承诺。",
+      "verification": "§15–16、35.6；A06/A14；QQ/飞书/iLink 各自适配，消息到durable到主体到回复完整走通；unknown与平台限制保留。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R001",
+        "R035",
+        "R036",
+        "R055",
+        "R056",
+        "R057",
+        "R072",
+        "R093"
+      ]
+    },
+    {
+      "id": "B23",
+      "title": "联系人、声纹与 Life",
+      "refs": "U03/U07/U19/U20；REF-LIFE、REF-DESIGN",
+      "contract": "复用稳定 person ID、录音内 rank、候选关联/确认/修订；跨渠道关系由经历与模型判断演进，不写死亲密度。声纹提供线索，不自动授予 admin。",
+      "verification": "§6、15.2、20；A10/A35/A36；误识别拆分/更正、未知人、来源可回看；不复制真实私密样本作公开测试。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R059",
+        "R060",
+        "R086",
+        "R102",
+        "R104"
+      ]
+    },
+    {
+      "id": "B24",
+      "title": "远端 Agent Seat 与终端语义",
+      "refs": "U40；U04/U19/U32；REF-OMP、REF-CLAUDE、REF-TMUX",
+      "contract": "OMP structured RPC、Claude SDK/CLI、现有 TUI 三路线分别枚举 submit/accept/result/settled/question/respond/interrupt/resume。保留属性、cursor、buffer、revision；capture文字不等于选中态。有限自主选择与多渠道求助为产品扩展。",
+      "verification": "§17、35.5、41；A14/A30、V1 对应项、E04；相同文字不同高亮、resize/重连、旧问题、人工竞争输入、后台任务未settled、问答超时。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R018",
+        "R069",
+        "R070",
+        "R071",
+        "R072",
+        "R129"
+      ]
+    },
+    {
+      "id": "B25",
+      "title": "自主发现与补足能力",
+      "refs": "U06/U09/U19/U32；REF-OMP、REF-DSH、REF-SKILLS-MCP、REF-DESIGN",
+      "contract": "运行失败/观察缺口触发定位、查文档、配置/安装/编写插件或外部程序、验证后回到原任务。不是只生成代码；主子共享 registry、按 role 使用，所有模型子调用受broker。",
+      "verification": "§18.7–18.8、35.8、38；A13/A30/A31；tmux高亮原任务实际完成，新插件可发现、会用、卸载/恢复正确。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R049",
+        "R075",
+        "R086",
+        "R096",
+        "R097",
+        "R101",
+        "R138"
+      ]
+    },
+    {
+      "id": "B26",
+      "title": "插件认知和 27B 知识补偿",
+      "refs": "U06；REF-TOOL-RESEARCH、REF-SKILLS-MCP、REF-QWEN、REF-OMP",
+      "contract": "分别处理事实知识、候选召回、选择、构参、执行和长程状态；渐进披露、版本帮助、正反例与审计可替换。27B画像是用户假设，不能冒称五篇工具论文证明所有27B。",
+      "verification": "§18.2–18.6；A13/A20；中英自然任务/干扰插件/旧版本/近似反例，记录真实完成、prefill/时延与全模型成本。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R041",
+        "R042",
+        "R075",
+        "R076",
+        "R077",
+        "R078",
+        "R136",
+        "R138",
+        "R139"
+      ]
+    },
+    {
+      "id": "B27",
+      "title": "原生插件与 Skill MCP 生态",
+      "refs": "U01/U04/U08；REF-CORDIS、REF-DSH、REF-SKILLS-MCP",
+      "contract": "默认原生语义插件，兼容传统 Skill/MCP/市场；包格式、协议版本、能力/认证/取消/更新逐项声明。安装、健康、索引、教学、执行与结果核验构成闭环；市场声明不自动变权限。",
+      "verification": "§7、18.1、36–38；A13/A18；安装后下一轮可发现，更新旧schema失效、卸载释放资源；不要求常用任务先安装大量MCP。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R042",
+        "R057",
+        "R058",
+        "R073",
+        "R074",
+        "R078",
+        "R087",
+        "R116",
+        "R138"
+      ]
+    },
+    {
+      "id": "B28",
+      "title": "可恢复 Python Node Bun REPL",
+      "refs": "U05；REF-REPL、REF-NIX、REF-DURABLE",
+      "contract": "Python/WASI与Pyodide分开；Node/Bun in WASM仍是各自目标，不能以普通JS替代。代码/对象/VM恢复等级、包锁/ABI与外部副作用重放为本产品合同。",
+      "verification": "§19；A15；重启/动态装包/依赖变化、不能序列化对象、已发生外部效果分别验收；逐实现标真实恢复等级。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R079",
+        "R080",
+        "R081",
+        "R082",
+        "R083"
+      ]
+    },
+    {
+      "id": "B29",
+      "title": "电话、课堂和持续媒体",
+      "refs": "U07；REF-LIFE、REF-DESIGN",
+      "contract": "原始流、转写revision、热事件/语义片段、录音与声纹插件槽位由用户要求推导；具体媒体栈尚未选定，不虚构已有完整上游。完整工具委派和单主体继续成立。",
+      "verification": "§20；A16；旁听中提问/工具调用/插话、丢帧/转写修订、录音和长期资料可追；选定媒体实现后登记协议来源。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R060",
+        "R084",
+        "R085",
+        "R086"
+      ]
+    },
+    {
+      "id": "B30",
+      "title": "多 OS Computer Use",
+      "refs": "U10/U18；REF-BOXLITE、REF-OS、REF-DESIGN",
+      "contract": "真实桌面 provider、结构化观察+screen、输入lease和结果核验；Linux/Windows/macOS的平台条件分别表达，不以Windows container冒充桌面。后续选定RDP/RFB/CDP/AX实现再锁协议。",
+      "verification": "§24、34；A22/A23/A29；过期坐标/DPI/焦点、竞争输入/人工接管、截图前后与实际效果、断线unknown。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R090",
+        "R095",
+        "R145"
+      ]
+    },
+    {
+      "id": "B31",
+      "title": "在线优先与多节点汇合",
+      "refs": "U20/U57/U60/U61；REF-RAFT、REF-DURABLE、REF-DESIGN",
+      "contract": "每个实际连通域一个主节点，具备可访问 LLM 的孤岛可独立演进；全局 quorum 与临时分支协调分开。真实成员投票/目标端 fencing、停止落选主体及记忆/任务/效果汇合保留，模型/provider 与凭据不强制同步。",
+      "verification": "§5.4/22；A42/A47；递归接管、分区重连、旧主恢复、重复/未知效果与共享 Engine 容量真实。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R044",
+        "R046",
+        "R113",
+        "R145"
+      ]
+    },
+    {
+      "id": "B32",
+      "title": "永久默认与自主归档遗忘",
+      "refs": "U20；REF-STORAGE、REF-DURABLE、REF-DESIGN",
+      "contract": "原始文字/录音/帧默认永久；主体自主选择归档、自有网盘迁移或真正erase。研究reset、语义forget、对象移动与删除分开；墓碑/副本/回滚后的删除一致性为产品合同。",
+      "verification": "§12.4；A40；半上传、配额不足、索引/缓存/派生物、备份恢复与分支汇合不复活被删对象。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R066",
+        "R111"
+      ]
+    },
+    {
+      "id": "B33",
+      "title": "动态生成 UI 与能力降级",
+      "refs": "U13；REF-DYNAMIC-UI、REF-SKILLS-MCP、REF-DESIGN",
+      "contract": "采用生成式交互方向、widgets/actions/bridge原语；自有DSL/工具入口、surface能力、流式验证、跨渠道动作身份与降级是扩展。官方产品UI不能当公开compiler/DSL API。",
+      "verification": "§21.4–21.9；A25/A26；Web/卡片/文本/语音均可完成意图，半成品动作不启用，过期/重复回答不重复效果。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R091",
+        "R131",
+        "R134"
+      ]
+    },
+    {
+      "id": "B34",
+      "title": "Proto UI shadcn 与 compiler 接缝",
+      "refs": "U01；REF-PROTO、REF-SHADCN、REF-DESIGN",
+      "contract": "采用真实主线adapter与组件/token；每开发任务核验bump并pin。领域/状态/事件与renderer分离，compiler adapter可替换，不假设private compiler已稳定或必然更快。",
+      "verification": "§21.2–21.3；A19/A26；升级/回退、焦点/草稿/无障碍/离线资源/插件UI与布局保持真实语义。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R030",
+        "R032",
+        "R033"
+      ]
+    },
+    {
+      "id": "B35",
+      "title": "单主体首页与稳定流式体验",
+      "refs": "U30/U37/U41/U42；REF-MAGPIE、REF-ALMA、REF-DUET、REF-DOTS、REF-DESIGN",
+      "contract": "默认仅主体时间线与输入，append/steer进入同一Inbox；详情按需展开。Magpie静态图支持布局参照，Alma官方资料支持功能/修复参照；无抖动是用户目标与Shenko可测合同，不冒称已测上游。",
+      "verification": "§21.1/21.10–12、§41.18；A19、N07、UI-S01–10/UI01–04；稳定身份、committed chunks、锚点/选区/表单保持、局部失败与真实输入回执；无slogan、无默认监控大屏。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R017",
+        "R031",
+        "R103",
+        "R119",
+        "R127",
+        "R131",
+        "R132"
+      ]
+    },
+    {
+      "id": "B36",
+      "title": "首版自开发自迁移闭环",
+      "refs": "U32；REF-NAPCAT、REF-OMP、REF-CLAUDE、REF-TMUX、REF-NIX、REF-DURABLE、REF-GIT-WORKTREE、REF-DESIGN",
+      "contract": "组合现有NapCat→找回现有seat→开发自己→候选验证→迁移/接管→继续任务；源/工件/运行身份绑定、A/B与外部控制独立是增量。允许host构建/执行但保留实际WASM家园。",
+      "verification": "§35；V1-01–V1-15；普通任务、自主补插件、核心替换、失败恢复、消息与模型资源约束组合验收；产出patch不算完成。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R049",
+        "R088",
+        "R120"
+      ]
+    },
+    {
+      "id": "B37",
+      "title": "操作级副作用与恢复合同",
+      "refs": "U40；U33；REF-CORDIS、REF-DURABLE、REF-STORAGE、REF-BOXLITE、REF-DESIGN",
+      "contract": "静态operation声明→运行时实际mount/target/epoch绑定→intent/receipt→恢复计划。reset/restore/resume/cancel/compensate独立；不能把插件整体标rollback=true就覆盖外部副作用。",
+      "verification": "§36、41；E01–E10；边界变化、迟到事实、新格式receipt、原生shell未知范围、补偿再次失败均可解释。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R082",
+        "R110",
+        "R121",
+        "R129",
+        "R134",
+        "R147"
+      ]
+    },
+    {
+      "id": "B38",
+      "title": "注入时序与 hook 兼容",
+      "refs": "U40/U45；U34/U35；REF-FABRIC、REF-CORDIS、REF-DSH、REF-DURABLE、REF-DESIGN",
+      "contract": "借鉴类型化事件、phase 和相对顺序，定义同版本 hook 图的 DAG、候选环拒绝、event/context/hook 版本分离、每请求封口及在途旧 schema 绑定。Cordis 是已确认主干；hook 约束不扩张成所有业务统一五阶段。",
+      "verification": "§37、41；H01–H10；同phase/缺依赖/环、compact后装配、C=1 hook模型调用、热替换/卸载、迟到receipt与旧窗口。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R122",
+        "R123",
+        "R129",
+        "R132",
+        "R136",
+        "R137",
+        "R142"
+      ]
+    },
+    {
+      "id": "B39",
+      "title": "内置自解释与设计追溯",
+      "refs": "U40；U36/U37；REF-OMP、REF-DESIGN",
+      "contract": "对照 omp://入口、omp-protocol.ts、docs-index.ts与Philosophy；扩展运行build→源码→手册→哲学→refs/parity→当前能力。允许能力缺口/自开发自主触发，非永久提示塞满源码。",
+      "verification": "§38、39、41；K01–K09；回答自身问题有版本出处、离线最小索引、候选/实装/启用分开、不泄密，主循环仍不直接文件I/O。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R124",
+        "R125",
+        "R129",
+        "R139",
+        "R144",
+        "R145"
+      ]
+    },
+    {
+      "id": "B40",
+      "title": "人格、灵魂与产品命名",
+      "refs": "U02/U20/U23–U31/U38/U39；REF-USER、REF-DOTS、REF-DUET、REF-MUSE、REF-NAME",
+      "contract": "人格/可自改灵魂与统一知识来自用户；产品/实例名分开，无slogan。正式框架/产品名为 Shenko（深刻）；Always Online 的命名来源、shen1-kʻo4 与 ㄕㄣ ㄎㄜˋ 按 U39 记录。旧候选和重名研究仅留历史，不产生当前命名待批项。",
+      "verification": "§1、6、21；A36/A46；改名/升级/接管不换identity；人格不损坏工具schema或替代当前用户产品合同。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R053",
+        "R054",
+        "R104",
+        "R105",
+        "R106",
+        "R117",
+        "R118",
+        "R119",
+        "R128"
+      ]
+    },
+    {
+      "id": "B41",
+      "title": "自主开发规范与完整度证据",
+      "refs": "U40；U01/U12/U37；REF-USER、REF-DESIGN",
+      "contract": "开发任务获授权后自主分解、实现、验证、修复、提交和在目标范围内集成/迁移；无逐PR/阶段人类gate。每项idea保存来源、采用差异、行为用例与证据，未实现如实标明。 规范给出记录、状态、提交边界、错误、恢复和失败交错，不能只靠功能清单或类型名声称可实施。",
+      "verification": "§29、39–40、41；N01–N08；用例映射全、证据可复查、不中途缩成demo，真实权限不足仅阻断相关动作。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R002",
+        "R045",
+        "R125",
+        "R126",
+        "R129",
+        "R133",
+        "R139",
+        "R140",
+        "R141",
+        "R146"
+      ]
+    },
+    {
+      "id": "B42",
+      "title": "Provider 周期额度与自主用量调优",
+      "refs": "U41；REF-QUOTA、REF-USER、REF-DESIGN",
+      "contract": "以带来源/时效/误差的多窗口快照预测剩余量，选模型/effort/任务份额及主体平均准入次数；quota_policy_wait与真实耗尽/容量等待分开，后继持续存在。周期接近用完是目标而非精确保证；本地优先，云额度后期插件。",
+      "verification": "§42；QA01–06；订阅/API/上下文/KV不混，未知/共享成本如实记录，seal/KV一致、C=1不超限，周期回放报告质量和误差。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R130",
+        "R142"
+      ]
+    },
+    {
+      "id": "B43",
+      "title": "对话配置、查看面板与确定性恢复",
+      "refs": "U43/U44/U46/U47；REF-USER、REF-DURABLE、REF-DESIGN",
+      "contract": "所有配置可发现、解释和修改；未参数化行为可委派改代码。对话与面板共用 intent、操作与消费者实际采用事实；检查/应用/观测/恢复为独立能力。相关 awareness 帮助想到依赖和后果，计划可替换，无固定 validated→apply 门槛；恢复覆盖按真实工件记录。",
+      "verification": "§43.1/43.3、§45；CFG01–03/AW01–06；实际采用与健康分开，C=1未知探测不清槽；无旧端点首启返回设置入口；管理员按明确人类决定。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R133",
+        "R136"
+      ]
+    },
+    {
+      "id": "B44",
+      "title": "长期 Playground 与可感知交互作品",
+      "refs": "U43；REF-USER、REF-DYNAMIC-UI、REF-DURABLE、REF-DESIGN",
+      "contract": "作品可有源码、依赖、前端、后端、持久状态和runtime；独立版本/恢复/effects。真实业务事务写action去重/receipt/outbox，持久导入同一主体Inbox；非合作后端明确unknown，不伪造恰一次。",
+      "verification": "§43.2/43.3；PG01–05；关页面/compact/重启不丢作品，动作重发和旧页面revision正确，主体能感知真实变化，反馈不风暴，代码回退保留新用户数据。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R134"
+      ]
+    },
+    {
+      "id": "B45",
+      "title": "独立可安装的直觉与意识",
+      "refs": "U44/U46/U47/U54/U56；REF-USER、REF-CORDIS、REF-SKILLS-MCP、REF-OMP、REF-DESIGN",
+      "contract": "持久复用的 awareness 是可独立安装/演进的直觉与意识，补充世界知识不足造成的没想到；即时领悟不以安装为前提。不同意识分包，不设全包含总插件。轻量知识/例子可成立，按情境渐进加载、共享主子目录；行动组合 Skill/工具/委派，五步骤只是一种可替换计划。",
+      "verification": "§45；AW01–09；小单元安装/选择/卸载、正反例与开放来源、主子共享、多个意识冲突、C=1注入/重复反馈、实际执行与恢复独立。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R133",
+        "R136",
+        "R138",
+        "R139",
+        "R144"
+      ]
+    },
+    {
+      "id": "B46",
+      "title": "最少首启与唯一主体 Genesis",
+      "refs": "U44/U45；REF-USER、REF-CORDIS、REF-DURABLE、REF-DESIGN",
+      "contract": "可替换 seed 在无模型时装配真实 WASM、持久存储/记忆、broker 和确定性配置入口。最少输入为推理绑定与明确管理员初始化；复用部署 profile。首启 probe 同账本；无旧模型不虚构回退；genesis/selector/root/head/firstStep 原子落 L，恢复不再生主体。",
+      "verification": "§44；BOOT01–06；无网络首启、认领竞争、未知探测/C=1、并发 launch/断电、真实四流128K、持续主体与 NapCat/tmux 后接入。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R135"
+      ]
+    },
+    {
+      "id": "B47",
+      "title": "感知与认知单元的自动依赖装配",
+      "refs": "U48；REF-USER、REF-NIX、REF-CORDIS、REF-SKILLS-MCP、REF-DESIGN",
+      "contract": "感知状态、直觉关联、Skill 步骤及插件代码均有独立可安装/查阅身份。provider 自动带入版本化依赖闭包；直觉依赖可泛能力/主题或精确包/合同/版本，必需程度另行表达。解析后锁定真实选择，保留反向依赖和在途绑定，不把安装当已连接。",
+      "verification": "§9/18/45；DEP01–03；NapCat 安装自动装所需内容，官方 QQ 不误套 NapCat 直觉，广义依赖明确解析，版本冲突/卸载/在途效果可解释。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R138",
+        "R142",
+        "R144"
+      ]
+    },
+    {
+      "id": "B48",
+      "title": "以目的和理由支持自主判断",
+      "refs": "U49；REF-USER、REF-DESIGN；关联 REF-OMP 与现有自解释入口",
+      "contract": "能力/规则给出目标、因果依据、适用假设和可观察效果。awareness 帮助想到原因，Skill 说明方法为何有用；工具或前提变化时可自主选替代、调查与更新，不设逐动作 rationale 或审批 gate。",
+      "verification": "§18.2/38.4/40.9/45.2–45.5；N09/N10/AW07；环境变化的迁移任务，结果证据与真实资源/效果合同保持一致。",
+      "status": "已规定；待实现与目标环境验证",
+      "requirements": [
+        "R139",
+        "R140"
+      ]
+    },
+    {
+      "id": "B49",
+      "title": "完整目标的自主开发交接",
+      "refs": "U50–U51；REF-USER、REF-DESIGN、REF-DEV-GOV",
+      "contract": "仓库为现行规范与事实入口；朋友以本人 GitHub/Claude 身份在自己的 fork 中使用 bypassPermissions、真实 /goal/ultracode 和隔离子 Agent，持续自主开发、合并、重构并实现全部 S1–S5。PR 持续更新，完整目标由真实行为、完整证据及 ready PR 判定。",
+      "verification": "§40/46；G01–G12；重启/压缩/PR等待下继续，完整 R/B/case 从需求端审计；运行与恢复实际采用 --dangerously-skip-permissions，fork 真实权限可查。",
+      "status": "交接已规定；实际开发与工作流运行尚未验证",
+      "requirements": [
+        "R140",
+        "R141",
+        "R146"
+      ]
+    },
+    {
+      "id": "B50",
+      "title": "Provider 版本合同与自主迁移",
+      "refs": "U53；REF-CLAUDE-API、REF-DESIGN",
+      "contract": "按 provider/model/API/SDK/gateway 的实际组合形成能力与 wire profile，发送端校验、历史只投影不改原文，鉴权与管理字段分别迁移；协议漂移感知、awareness、诊断 Skill 和代码可独立安装。保持真实本地采样/KV能力与两个 compact 插件。",
+      "verification": "§47；PV01–PV08；旧/新版本、默认值注入、嵌套消息、代理鉴权、SDK升级、quota解析与在途切换分别验证。",
+      "status": "设计已规定；真实API和迁移未执行",
+      "requirements": [
+        "R142"
+      ]
+    },
+    {
+      "id": "B51",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "持续主体与有界语义等待",
+      "refs": "U55；REF-USER、REF-DURABLE、REF-DESIGN",
+      "contract": "等待由主体自主选择，沿同一主模型串行步轮询前文与新增上下文；最多 600 秒，条件成立/改变判断/到期退出，deadline 不作唤醒。持久期限不因轮询、重启或迁移重设；child sleep 和真实容量/OS 等待分开。",
+      "verification": "§5.1/41.5；A01/RT16；正常接续、条件/到期退出、恢复与真实资源限制分别可见。",
+      "requirements": [
+        "R143"
+      ]
+    },
+    {
+      "id": "B52",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "开放来源的原子察觉与即时领悟",
+      "refs": "U54/U56；REF-USER、REF-SKILLS-MCP、REF-DESIGN",
+      "contract": "时间/承诺、未竟目标、重复/无聊、项目、社交与邮件由独立感知/awareness 组合；无固定流水线，dreaming 仅社区可选。任何输入可形成即时直觉，有用才自主沉淀/改写/停用；原文、推断和实际权限保持来源，不因摘要升格。",
+      "verification": "§18/38/45；AW08/AW09；自然场景、未安装 dreaming、目录外输入、修正与权限出处可判定。",
+      "requirements": [
+        "R136",
+        "R144"
+      ]
+    },
+    {
+      "id": "B53",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "同一自我的异构设备与自主维护",
+      "refs": "U57/U60/U61；REF-USER、REF-SSH、REF-OS、REF-RAFT、REF-DESIGN",
+      "contract": "可信较早身份作为新节点加入来源，当前主节点另依实际可达智能能力选择；已授权 SSH/内网/Tailnet/ZeroTier、Android root 与桌面能力按真实权限使用。provider/凭据无需同构复制；隐私与数据去向参与路由。有限 child 自主检测修复环境，旧主 fencing 和经历/unknown 保留。",
+      "verification": "§5.4/9.4/11/22/38/44.1；A42/A47/A48；身份迁移、异构派发/递归接管、设备操作与修复证据。",
+      "requirements": [
+        "R090",
+        "R113",
+        "R145"
+      ]
+    },
+    {
+      "id": "B54",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "必读哲学与可移植原子开发 Skill",
+      "refs": "U55/U58；REF-USER、REF-AGENT-SKILLS、REF-DEV-GOV、REF-DESIGN",
+      "contract": "必读 shenko-dev 由 AGENTS.md 入口明确，CLAUDE.md 符号链接共享正文；原子开发 Skill 以兼容的 SKILL.md/name/description 和单源目录供两宿主发现。按需组合、完全自主、无新增人类 gate；一个增量不新增十个或更多测试，完整验收义务不转为每步测试清单。",
+      "verification": "§40.5/46；N06/G13；入口读取、symlink/共同内容、实际发现状态与相称验证分别核验。",
+      "requirements": [
+        "R146"
+      ]
+    },
+    {
+      "id": "B55",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "无智能时可提取的记忆与离线复活",
+      "refs": "U62；REF-USER、REF-STORAGE、REF-DURABLE、REF-DESIGN",
+      "contract": "可工作的 OS/控制/存储继续确定性日志与授权导出，读取原始经历无需 LLM；磁盘镜像与版本化读取材料可在其他节点恢复合并。密钥缺失/介质损坏/未复制事实如实，未知效果保留而不盲重放。",
+      "verification": "§22.2/5.4/10/38/44；A49；全模型故障、credential 导出、离线镜像和缺口均可复查。",
+      "requirements": [
+        "R147"
+      ]
+    }
+  ]
+}

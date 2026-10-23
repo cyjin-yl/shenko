@@ -1,0 +1,1609 @@
+{
+  "schema_version": 1,
+  "spec_version": "0.6.2",
+  "spec_path": "SPEC.md",
+  "count": 147,
+  "items": [
+    {
+      "id": "R001",
+      "description": "面向个人聊天与群聊的 Agent Bot，具备多说话人和会话边界。",
+      "spec_locations": "§1、§4、§15–16",
+      "user_source": "U01",
+      "behaviors": [
+        "B01",
+        "B22"
+      ],
+      "source_row": "| R001 | 面向个人聊天与群聊的 Agent Bot，具备多说话人和会话边界。 | §1、§4、§15–16 | U01；B01/B22 |"
+    },
+    {
+      "id": "R002",
+      "description": "以 2026 年 10 月最新可验证技术为研究依据，标明版本和未知状态。",
+      "spec_locations": "§1、§3、§8.1–8.2、§21.2；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B41"
+      ],
+      "source_row": "| R002 | 以 2026 年 10 月最新可验证技术为研究依据，标明版本和未知状态。 | §1、§3、§8.1–8.2、§21.2；§41 | U01；B41 |"
+    },
+    {
+      "id": "R003",
+      "description": "Agent 拥有跨重启、崩溃和升级延续的持久运行环境。",
+      "spec_locations": "§5.4、§8、§10；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B04",
+        "B05"
+      ],
+      "source_row": "| R003 | Agent 拥有跨重启、崩溃和升级延续的持久运行环境。 | §5.4、§8、§10；§41 | U01；B04/B05 |"
+    },
+    {
+      "id": "R004",
+      "description": "基础执行环境采用具有实用 Linux/POSIX 兼容目标的 WASM 沙箱。",
+      "spec_locations": "§8.1–8.2",
+      "user_source": "U01",
+      "behaviors": [
+        "B05"
+      ],
+      "source_row": "| R004 | 基础执行环境采用具有实用 Linux/POSIX 兼容目标的 WASM 沙箱。 | §8.1–8.2 | U01；B05 |"
+    },
+    {
+      "id": "R005",
+      "description": "沙箱可挂载任意宿主进程有权访问的路径，明确 RO/RW/COW 等语义。",
+      "spec_locations": "§8.3、§10.1",
+      "user_source": "U01",
+      "behaviors": [
+        "B05",
+        "B08"
+      ],
+      "source_row": "| R005 | 沙箱可挂载任意宿主进程有权访问的路径，明确 RO/RW/COW 等语义。 | §8.3、§10.1 | U01；B05/B08 |"
+    },
+    {
+      "id": "R006",
+      "description": "Agent 可以自主记录、整理和检索文件化文档与记忆。",
+      "spec_locations": "§5.2、§10.3、§12.2–12.3；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B03",
+        "B10",
+        "B15"
+      ],
+      "source_row": "| R006 | Agent 可以自主记录、整理和检索文件化文档与记忆。 | §5.2、§10.3、§12.2–12.3；§41 | U01；B03/B10/B15 |"
+    },
+    {
+      "id": "R007",
+      "description": "沙箱实际执行工具，提供输入输出、取消、超时和任务生命周期。",
+      "spec_locations": "§8.2–8.3",
+      "user_source": "U01",
+      "behaviors": [
+        "B05",
+        "B06"
+      ],
+      "source_row": "| R007 | 沙箱实际执行工具，提供输入输出、取消、超时和任务生命周期。 | §8.2–8.3 | U01；B05/B06 |"
+    },
+    {
+      "id": "R008",
+      "description": "通过通用接口安装基础或大型工具，保留 toybox、gcc-wasm 等具名目标。",
+      "spec_locations": "§8.2、§9",
+      "user_source": "U01",
+      "behaviors": [
+        "B06"
+      ],
+      "source_row": "| R008 | 通过通用接口安装基础或大型工具，保留 toybox、gcc-wasm 等具名目标。 | §8.2、§9 | U01；B06 |"
+    },
+    {
+      "id": "R009",
+      "description": "Agent 可以自行安装、配置、升级和回滚工具。",
+      "spec_locations": "§5.2、§9",
+      "user_source": "U01",
+      "behaviors": [
+        "B07"
+      ],
+      "source_row": "| R009 | Agent 可以自行安装、配置、升级和回滚工具。 | §5.2、§9 | U01；B07 |"
+    },
+    {
+      "id": "R010",
+      "description": "兼容外部本地记忆系统，明确依赖、移植和替代后端边界。",
+      "spec_locations": "§3.2、§8.1–8.2、§12.3",
+      "user_source": "U01",
+      "behaviors": [
+        "B05",
+        "B15"
+      ],
+      "source_row": "| R010 | 兼容外部本地记忆系统，明确依赖、移植和替代后端边界。 | §3.2、§8.1–8.2、§12.3 | U01；B05/B15 |"
+    },
+    {
+      "id": "R011",
+      "description": "沙箱之外的 Rust 2024 控制框架保持最小，故障范围和常驻负担可测。",
+      "spec_locations": "§1、§2、§7、§22/40.4",
+      "user_source": "U01/U59",
+      "behaviors": [
+        "B02",
+        "B05"
+      ],
+      "source_row": "| R011 | 沙箱之外的 Rust 2024 控制框架保持最小，故障范围和常驻负担可测。 | §1、§2、§7、§22/40.4 | U01/U59；B02/B05 |"
+    },
+    {
+      "id": "R012",
+      "description": "沙箱损坏后自动恢复，最终能回到初始可启动环境。",
+      "spec_locations": "§7、§10.4、§23",
+      "user_source": "U01",
+      "behaviors": [
+        "B05",
+        "B08"
+      ],
+      "source_row": "| R012 | 沙箱损坏后自动恢复，最终能回到初始可启动环境。 | §7、§10.4、§23 | U01；B05/B08 |"
+    },
+    {
+      "id": "R013",
+      "description": "提供对二进制友好的版本、快照、分支、比较和恢复机制。",
+      "spec_locations": "§10.1–10.2",
+      "user_source": "U01",
+      "behaviors": [
+        "B08"
+      ],
+      "source_row": "| R013 | 提供对二进制友好的版本、快照、分支、比较和恢复机制。 | §10.1–10.2 | U01；B08 |"
+    },
+    {
+      "id": "R014",
+      "description": "支持认证的私有 Git 记忆/知识库，保留 gh/tea WASM 兼容目标。",
+      "spec_locations": "§8.2、§10.3",
+      "user_source": "U01",
+      "behaviors": [
+        "B06",
+        "B10"
+      ],
+      "source_row": "| R014 | 支持认证的私有 Git 记忆/知识库，保留 gh/tea WASM 兼容目标。 | §8.2、§10.3 | U01；B06/B10 |"
+    },
+    {
+      "id": "R015",
+      "description": "默认记忆是宿主目录挂载进初始 WASM 环境后初始化的本地 Git 仓库。",
+      "spec_locations": "§2、§10.3–10.4",
+      "user_source": "U01",
+      "behaviors": [
+        "B10"
+      ],
+      "source_row": "| R015 | 默认记忆是宿主目录挂载进初始 WASM 环境后初始化的本地 Git 仓库。 | §2、§10.3–10.4 | U01；B10 |"
+    },
+    {
+      "id": "R016",
+      "description": "Agent 按需要创建并维护自己的 SSH 身份密钥。",
+      "spec_locations": "§11",
+      "user_source": "U01",
+      "behaviors": [
+        "B11"
+      ],
+      "source_row": "| R016 | Agent 按需要创建并维护自己的 SSH 身份密钥。 | §11 | U01；B11 |"
+    },
+    {
+      "id": "R017",
+      "description": "人类操作界面能展示和复制 Agent 的 SSH 公钥与指纹。",
+      "spec_locations": "§11、§21.1",
+      "user_source": "U01",
+      "behaviors": [
+        "B11",
+        "B35"
+      ],
+      "source_row": "| R017 | 人类操作界面能展示和复制 Agent 的 SSH 公钥与指纹。 | §11、§21.1 | U01；B11/B35 |"
+    },
+    {
+      "id": "R018",
+      "description": "SSH 可连接人类机器、未来完整容器及 Agent 自有节点。",
+      "spec_locations": "§11、§17、§22；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B11",
+        "B24"
+      ],
+      "source_row": "| R018 | SSH 可连接人类机器、未来完整容器及 Agent 自有节点。 | §11、§17、§22；§41 | U01；B11/B24 |"
+    },
+    {
+      "id": "R019",
+      "description": "实际支持 SSH WASM，不能以宿主 SSH 接口代替该具名目标。",
+      "spec_locations": "§8.2、§11、§23",
+      "user_source": "U01",
+      "behaviors": [
+        "B06",
+        "B11"
+      ],
+      "source_row": "| R019 | 实际支持 SSH WASM，不能以宿主 SSH 接口代替该具名目标。 | §8.2、§11、§23 | U01；B06/B11 |"
+    },
+    {
+      "id": "R020",
+      "description": "包管理采用 Nix 或 Nix-like 的声明式闭包、锁定和 generation 回滚语义。",
+      "spec_locations": "§9",
+      "user_source": "U01",
+      "behaviors": [
+        "B07"
+      ],
+      "source_row": "| R020 | 包管理采用 Nix 或 Nix-like 的声明式闭包、锁定和 generation 回滚语义。 | §9 | U01；B07 |"
+    },
+    {
+      "id": "R021",
+      "description": "长期运行开销低，包含可核验的路由器部署目标。",
+      "spec_locations": "§7、§22、§23",
+      "user_source": "U01",
+      "behaviors": [
+        "B02",
+        "B05"
+      ],
+      "source_row": "| R021 | 长期运行开销低，包含可核验的路由器部署目标。 | §7、§22、§23 | U01；B02/B05 |"
+    },
+    {
+      "id": "R022",
+      "description": "原始 session 是真相源，预算切窗或 compact 后仍能检索并重读证据。",
+      "spec_locations": "§12.1–12.3",
+      "user_source": "U01",
+      "behaviors": [
+        "B12",
+        "B13"
+      ],
+      "source_row": "| R022 | 原始 session 是真相源，预算切窗或 compact 后仍能检索并重读证据。 | §12.1–12.3 | U01；B12/B13 |"
+    },
+    {
+      "id": "R023",
+      "description": "研究 LayerFS 并按最新决定在真实 Linux VM 直接用原版；WASM 状态独立实现。",
+      "spec_locations": "§3.3、§10.2.1、§34",
+      "user_source": "U01/U19",
+      "behaviors": [
+        "B09"
+      ],
+      "source_row": "| R023 | 研究 LayerFS 并按最新决定在真实 Linux VM 直接用原版；WASM 状态独立实现。 | §3.3、§10.2.1、§34 | U01/U19；B09 |"
+    },
+    {
+      "id": "R024",
+      "description": "人不在时仍持续自主思考、维护自己并推进事情。",
+      "spec_locations": "§4、§5.1、§5.4、§9；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B01",
+        "B03",
+        "B07"
+      ],
+      "source_row": "| R024 | 人不在时仍持续自主思考、维护自己并推进事情。 | §4、§5.1、§5.4、§9；§41 | U01；B01/B03/B07 |"
+    },
+    {
+      "id": "R025",
+      "description": "详细研究 OpenAI Dot、Claude Duet、Meta Muse 并说明自主性差异。",
+      "spec_locations": "§3.1",
+      "user_source": "U01",
+      "behaviors": [
+        "B01"
+      ],
+      "source_row": "| R025 | 详细研究 OpenAI Dot、Claude Duet、Meta Muse 并说明自主性差异。 | §3.1 | U01；B01 |"
+    },
+    {
+      "id": "R026",
+      "description": "极致隐私与本地 AI 优先，数据、凭据、模型和遥测边界明确。",
+      "spec_locations": "§1、§6、§10–13、§21.3、§22",
+      "user_source": "U01",
+      "behaviors": [
+        "B01",
+        "B10",
+        "B11",
+        "B12",
+        "B19"
+      ],
+      "source_row": "| R026 | 极致隐私与本地 AI 优先，数据、凭据、模型和遥测边界明确。 | §1、§6、§10–13、§21.3、§22 | U01；B01/B10/B11/B12/B19 |"
+    },
+    {
+      "id": "R027",
+      "description": "可详细配置 API 的并发、上下文及真实共享资源预算。",
+      "spec_locations": "§13.1、§13.3、§13.6；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "source_row": "| R027 | 可详细配置 API 的并发、上下文及真实共享资源预算。 | §13.1、§13.3、§13.6；§41 | U01；B19/B20 |"
+    },
+    {
+      "id": "R028",
+      "description": "所有受控推理进入按紧急程度和公平性调度的全局资源入口。",
+      "spec_locations": "§13.1、§13.4；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B20"
+      ],
+      "source_row": "| R028 | 所有受控推理进入按紧急程度和公平性调度的全局资源入口。 | §13.1、§13.4；§41 | U01；B20 |"
+    },
+    {
+      "id": "R029",
+      "description": "用 Rust edition 2024 实现最小核心控制功能，实际工具链另行锁定。",
+      "spec_locations": "§2、§7、§22/40.4",
+      "user_source": "U01/U59",
+      "behaviors": [
+        "B02"
+      ],
+      "source_row": "| R029 | 用 Rust edition 2024 实现最小核心控制功能，实际工具链另行锁定。 | §2、§7、§22/40.4 | U01/U59；B02 |"
+    },
+    {
+      "id": "R030",
+      "description": "提供 Webserver 和基于 Proto-UI 的正式操作界面。",
+      "spec_locations": "§7、§21",
+      "user_source": "U01",
+      "behaviors": [
+        "B34"
+      ],
+      "source_row": "| R030 | 提供 Webserver 和基于 Proto-UI 的正式操作界面。 | §7、§21 | U01；B34 |"
+    },
+    {
+      "id": "R031",
+      "description": "界面活跃鲜明，用布局表达状态，遵循当期设计、响应式和无障碍要求。",
+      "spec_locations": "§21.1",
+      "user_source": "U01",
+      "behaviors": [
+        "B35"
+      ],
+      "source_row": "| R031 | 界面活跃鲜明，用布局表达状态，遵循当期设计、响应式和无障碍要求。 | §21.1 | U01；B35 |"
+    },
+    {
+      "id": "R032",
+      "description": "使用 Proto-UI 当前主线与 shadcn，每轮开发核验并 bump 最新主线。",
+      "spec_locations": "§21.2",
+      "user_source": "U01",
+      "behaviors": [
+        "B34"
+      ],
+      "source_row": "| R032 | 使用 Proto-UI 当前主线与 shadcn，每轮开发核验并 bump 最新主线。 | §21.2 | U01；B34 |"
+    },
+    {
+      "id": "R033",
+      "description": "预留迁移至 Proto-UI compiler 的适配与插桩边界。",
+      "spec_locations": "§21.2",
+      "user_source": "U01",
+      "behaviors": [
+        "B34"
+      ],
+      "source_row": "| R033 | 预留迁移至 Proto-UI compiler 的适配与插桩边界。 | §21.2 | U01；B34 |"
+    },
+    {
+      "id": "R034",
+      "description": "将 DeepSeek Harness 作为执行及扩展设计的重要研究对象。",
+      "spec_locations": "§3.2、§7",
+      "user_source": "U01",
+      "behaviors": [
+        "B02"
+      ],
+      "source_row": "| R034 | 将 DeepSeek Harness 作为执行及扩展设计的重要研究对象。 | §3.2、§7 | U01；B02 |"
+    },
+    {
+      "id": "R035",
+      "description": "接入 iLinkBot、QQ 官方机器人、NapCat/napcat-cli、飞书等渠道。",
+      "spec_locations": "§15.3、§16",
+      "user_source": "U01",
+      "behaviors": [
+        "B22"
+      ],
+      "source_row": "| R035 | 接入 iLinkBot、QQ 官方机器人、NapCat/napcat-cli、飞书等渠道。 | §15.3、§16 | U01；B22 |"
+    },
+    {
+      "id": "R036",
+      "description": "默认所有可达用户均可对话，管理员权限由人类明确设置。",
+      "spec_locations": "§2、§16",
+      "user_source": "U01",
+      "behaviors": [
+        "B22"
+      ],
+      "source_row": "| R036 | 默认所有可达用户均可对话，管理员权限由人类明确设置。 | §2、§16 | U01；B22 |"
+    },
+    {
+      "id": "R037",
+      "description": "子 Agent 能低开销递归搜索和深研，并在合适时收敛。",
+      "spec_locations": "§5、§13、§14.5",
+      "user_source": "U01",
+      "behaviors": [
+        "B18"
+      ],
+      "source_row": "| R037 | 子 Agent 能低开销递归搜索和深研，并在合适时收敛。 | §5、§13、§14.5 | U01；B18 |"
+    },
+    {
+      "id": "R038",
+      "description": "多方案分支探索与全局并发上限同时成立，不发生父子资源死锁。",
+      "spec_locations": "§10.2、§13.4、§14.3–14.5；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B08",
+        "B18",
+        "B20"
+      ],
+      "source_row": "| R038 | 多方案分支探索与全局并发上限同时成立，不发生父子资源死锁。 | §10.2、§13.4、§14.3–14.5；§41 | U01；B08/B18/B20 |"
+    },
+    {
+      "id": "R039",
+      "description": "透传真实 backend KV slot/affinity 能力，减少多上下文切换的重复 prefill。",
+      "spec_locations": "§13.2–13.6；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "source_row": "| R039 | 透传真实 backend KV slot/affinity 能力，减少多上下文切换的重复 prefill。 | §13.2–13.6；§41 | U01；B19/B20 |"
+    },
+    {
+      "id": "R040",
+      "description": "提供 NInfer 和 Strata 各自的中英文接入、KV 配置及排障教程。",
+      "spec_locations": "§25、§26、§27",
+      "user_source": "U01",
+      "behaviors": [
+        "B19"
+      ],
+      "source_row": "| R040 | 提供 NInfer 和 Strata 各自的中英文接入、KV 配置及排障教程。 | §25、§26、§27 | U01；B19 |"
+    },
+    {
+      "id": "R041",
+      "description": "用高质量 SSH 文件、执行和 memory 工具减少本地模型的操作负担。",
+      "spec_locations": "§11、§12.2–12.3、§18.2、§18.4",
+      "user_source": "U01",
+      "behaviors": [
+        "B11",
+        "B15",
+        "B26"
+      ],
+      "source_row": "| R041 | 用高质量 SSH 文件、执行和 memory 工具减少本地模型的操作负担。 | §11、§12.2–12.3、§18.2、§18.4 | U01；B11/B15/B26 |"
+    },
+    {
+      "id": "R042",
+      "description": "深入参考 oh-my-pi、pi、DeepSeek Harness 与 cordis-rs 的可扩展性。",
+      "spec_locations": "§3.2、§7、§18；§41",
+      "user_source": "U01",
+      "behaviors": [
+        "B02",
+        "B03",
+        "B26",
+        "B27"
+      ],
+      "source_row": "| R042 | 深入参考 oh-my-pi、pi、DeepSeek Harness 与 cordis-rs 的可扩展性。 | §3.2、§7、§18；§41 | U01；B02/B03/B26/B27 |"
+    },
+    {
+      "id": "R043",
+      "description": "用 SQLite FTS5 类设计保存原始会话及可重建全文索引，支持中文检索。",
+      "spec_locations": "§12.1、§12.3",
+      "user_source": "U01",
+      "behaviors": [
+        "B12"
+      ],
+      "source_row": "| R043 | 用 SQLite FTS5 类设计保存原始会话及可重建全文索引，支持中文检索。 | §12.1、§12.3 | U01；B12 |"
+    },
+    {
+      "id": "R044",
+      "description": "核心适配多设备，保留 Android 本地运行而非仅手机访问网页。",
+      "spec_locations": "§22、§23",
+      "user_source": "U01",
+      "behaviors": [
+        "B05",
+        "B31"
+      ],
+      "source_row": "| R044 | 核心适配多设备，保留 Android 本地运行而非仅手机访问网页。 | §22、§23 | U01；B05/B31 |"
+    },
+    {
+      "id": "R045",
+      "description": "完成逐字复述、深入研究、规格追问和完整 SPEC，当前不开发。",
+      "spec_locations": "§1、§3、§28、§29；原文附录与研究材料；§41",
+      "user_source": "U01/U12",
+      "behaviors": [
+        "B41"
+      ],
+      "source_row": "| R045 | 完成逐字复述、深入研究、规格追问和完整 SPEC，当前不开发。 | §1、§3、§28、§29；原文附录与研究材料；§41 | U01/U12；B41 |"
+    },
+    {
+      "id": "R046",
+      "description": "正常选主后的同一身份只有一条顺序决策流；D11 故障分支各自串行并最终选主汇合。",
+      "spec_locations": "§5.1、§5.4；§41",
+      "user_source": "U02/U20",
+      "behaviors": [
+        "B03",
+        "B31"
+      ],
+      "source_row": "| R046 | 正常选主后的同一身份只有一条顺序决策流；D11 故障分支各自串行并最终选主汇合。 | §5.1、§5.4；§41 | U02/U20；B03/B31 |"
+    },
+    {
+      "id": "R047",
+      "description": "主体持续思考下一步，不能以无新消息为由退成被动 Bot。",
+      "spec_locations": "§5.1、§13.4、§22；§41",
+      "user_source": "U02/U15",
+      "behaviors": [
+        "B03",
+        "B20"
+      ],
+      "source_row": "| R047 | 主体持续思考下一步，不能以无新消息为由退成被动 Bot。 | §5.1、§13.4、§22；§41 | U02/U15；B03/B20 |"
+    },
+    {
+      "id": "R048",
+      "description": "主体积极 handoff 探索任务，委派和等待不阻塞全局资源。",
+      "spec_locations": "§5.2–5.3、§13.4；§41",
+      "user_source": "U02",
+      "behaviors": [
+        "B03",
+        "B18",
+        "B20"
+      ],
+      "source_row": "| R048 | 主体积极 handoff 探索任务，委派和等待不阻塞全局资源。 | §5.2–5.3、§13.4；§41 | U02；B03/B18/B20 |"
+    },
+    {
+      "id": "R049",
+      "description": "子 Agent 能实际开展自我改进，产出、验证和提升候选。",
+      "spec_locations": "§9.1–9.2、§18.5",
+      "user_source": "U02",
+      "behaviors": [
+        "B07",
+        "B25",
+        "B36"
+      ],
+      "source_row": "| R049 | 子 Agent 能实际开展自我改进，产出、验证和提升候选。 | §9.1–9.2、§18.5 | U02；B07/B25/B36 |"
+    },
+    {
+      "id": "R050",
+      "description": "版本、任务进度材料和实际记忆维护由子 Agent 执行。",
+      "spec_locations": "§5.2、§9、§10、§12.2；§41",
+      "user_source": "U02",
+      "behaviors": [
+        "B03",
+        "B10",
+        "B12"
+      ],
+      "source_row": "| R050 | 版本、任务进度材料和实际记忆维护由子 Agent 执行。 | §5.2、§9、§10、§12.2；§41 | U02；B03/B10/B12 |"
+    },
+    {
+      "id": "R051",
+      "description": "主体仅有思考、语义 memory 和委派等极窄能力集合。",
+      "spec_locations": "§5.2–5.3；§41",
+      "user_source": "U02",
+      "behaviors": [
+        "B03"
+      ],
+      "source_row": "| R051 | 主体仅有思考、语义 memory 和委派等极窄能力集合。 | §5.2–5.3；§41 | U02；B03 |"
+    },
+    {
+      "id": "R052",
+      "description": "主体不直接操作文件、shell、SSH、Git 或 REPL，runtime 仍可持久化状态。",
+      "spec_locations": "§5.2、§19、§23；§41",
+      "user_source": "U02",
+      "behaviors": [
+        "B03"
+      ],
+      "source_row": "| R052 | 主体不直接操作文件、shell、SSH、Git 或 REPL，runtime 仍可持久化状态。 | §5.2、§19、§23；§41 | U02；B03 |"
+    },
+    {
+      "id": "R053",
+      "description": "人格附加在稳定核心 system 之后，并按版本及轮次边界生效。",
+      "spec_locations": "§6、§13.5；§41",
+      "user_source": "U02/U20",
+      "behaviors": [
+        "B03",
+        "B40"
+      ],
+      "source_row": "| R053 | 人格附加在稳定核心 system 之后，并按版本及轮次边界生效。 | §6、§13.5；§41 | U02/U20；B03/B40 |"
+    },
+    {
+      "id": "R054",
+      "description": "人格不改变工具协议、权限、恢复和资源合同。",
+      "spec_locations": "§6、§7、§9.2；§41",
+      "user_source": "U02",
+      "behaviors": [
+        "B03",
+        "B40"
+      ],
+      "source_row": "| R054 | 人格不改变工具协议、权限、恢复和资源合同。 | §6、§7、§9.2；§41 | U02；B03/B40 |"
+    },
+    {
+      "id": "R055",
+      "description": "外部消息几乎总是进入同一主体序列，不另起自主主循环。",
+      "spec_locations": "§5.1、§15.1；§41",
+      "user_source": "U03",
+      "behaviors": [
+        "B03",
+        "B21",
+        "B22"
+      ],
+      "source_row": "| R055 | 外部消息几乎总是进入同一主体序列，不另起自主主循环。 | §5.1、§15.1；§41 | U03；B03/B21/B22 |"
+    },
+    {
+      "id": "R056",
+      "description": "消息封套包含 provider、别名、稳定 ID、内容和附件来源。",
+      "spec_locations": "§15.1",
+      "user_source": "U03",
+      "behaviors": [
+        "B22"
+      ],
+      "source_row": "| R056 | 消息封套包含 provider、别名、稳定 ID、内容和附件来源。 | §15.1 | U03；B22 |"
+    },
+    {
+      "id": "R057",
+      "description": "消息 provider 是可独立扩展和替换的插件。",
+      "spec_locations": "§7、§15.3",
+      "user_source": "U03",
+      "behaviors": [
+        "B22",
+        "B27"
+      ],
+      "source_row": "| R057 | 消息 provider 是可独立扩展和替换的插件。 | §7、§15.3 | U03；B22/B27 |"
+    },
+    {
+      "id": "R058",
+      "description": "模型/API provider 插件化，并参与统一能力协商与资源管理。",
+      "spec_locations": "§7、§13.1、§13.6",
+      "user_source": "U03",
+      "behaviors": [
+        "B19",
+        "B27"
+      ],
+      "source_row": "| R058 | 模型/API provider 插件化，并参与统一能力协商与资源管理。 | §7、§13.1、§13.6 | U03；B19/B27 |"
+    },
+    {
+      "id": "R059",
+      "description": "通过联系人编号和身份插件持续认识人、维护别名及跨平台映射。",
+      "spec_locations": "§15.2",
+      "user_source": "U03",
+      "behaviors": [
+        "B23"
+      ],
+      "source_row": "| R059 | 通过联系人编号和身份插件持续认识人、维护别名及跨平台映射。 | §15.2 | U03；B23 |"
+    },
+    {
+      "id": "R060",
+      "description": "声纹作为可选身份线索插件，保留置信、未知和误识别语义。",
+      "spec_locations": "§15.2、§20",
+      "user_source": "U03",
+      "behaviors": [
+        "B23",
+        "B29"
+      ],
+      "source_row": "| R060 | 声纹作为可选身份线索插件，保留置信、未知和误识别语义。 | §15.2、§20 | U03；B23/B29 |"
+    },
+    {
+      "id": "R061",
+      "description": "C=1 时仍可保留多份上下文，计算与 KV 驻留分别管理。",
+      "spec_locations": "§13.1–13.2；§41",
+      "user_source": "U03",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "source_row": "| R061 | C=1 时仍可保留多份上下文，计算与 KV 驻留分别管理。 | §13.1–13.2；§41 | U03；B19/B20 |"
+    },
+    {
+      "id": "R062",
+      "description": "自动算法在需求和成本适合均分时自行形成主/子集体约各半，并随负载变化适应；手动设 50/50 跑通不足。",
+      "spec_locations": "§13.2–13.3、§23 A04；§41",
+      "user_source": "U03/U16",
+      "behaviors": [
+        "B20"
+      ],
+      "source_row": "| R062 | 自动算法在需求和成本适合均分时自行形成主/子集体约各半，并随负载变化适应；手动设 50/50 跑通不足。 | §13.2–13.3、§23 A04；§41 | U03/U16；B20 |"
+    },
+    {
+      "id": "R063",
+      "description": "支持自动 KV 分配及主体通过语义意图调整策略。",
+      "spec_locations": "§5.2、§13.3；§41",
+      "user_source": "U03",
+      "behaviors": [
+        "B20"
+      ],
+      "source_row": "| R063 | 支持自动 KV 分配及主体通过语义意图调整策略。 | §5.2、§13.3；§41 | U03；B20 |"
+    },
+    {
+      "id": "R064",
+      "description": "尽可能自动发现容量，无法确认时如实显示 estimated/unknown。",
+      "spec_locations": "§13.3、§13.6；§41",
+      "user_source": "U03",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "source_row": "| R064 | 尽可能自动发现容量，无法确认时如实显示 estimated/unknown。 | §13.3、§13.6；§41 | U03；B19/B20 |"
+    },
+    {
+      "id": "R065",
+      "description": "研究主动遗忘论文并支持研究 worker 从有限已验证种子重新开始。",
+      "spec_locations": "§14.1、§14.3",
+      "user_source": "U03",
+      "behaviors": [
+        "B17"
+      ],
+      "source_row": "| R065 | 研究主动遗忘论文并支持研究 worker 从有限已验证种子重新开始。 | §14.1、§14.3 | U03；B17 |"
+    },
+    {
+      "id": "R066",
+      "description": "research reset/semantic forget 保留原始历史，owner 或主体空间处置的真正 erase 另有协议。",
+      "spec_locations": "§12.4、§14.2–14.3",
+      "user_source": "U03/U20",
+      "behaviors": [
+        "B17",
+        "B32"
+      ],
+      "source_row": "| R066 | research reset/semantic forget 保留原始历史，owner 或主体空间处置的真正 erase 另有协议。 | §12.4、§14.2–14.3 | U03/U20；B17/B32 |"
+    },
+    {
+      "id": "R067",
+      "description": "核验 PMA 论文的方法、触发、成本、消融和局限，不夸大收益。",
+      "spec_locations": "§14.1、§14.4",
+      "user_source": "U03",
+      "behaviors": [
+        "B16"
+      ],
+      "source_row": "| R067 | 核验 PMA 论文的方法、触发、成本、消融和局限，不夸大收益。 | §14.1、§14.4 | U03；B16 |"
+    },
+    {
+      "id": "R068",
+      "description": "主动 memory worker 按需要提醒主体或孩子，也可保持沉默且不绕 broker。",
+      "spec_locations": "§13.1、§14.4；§41",
+      "user_source": "U03",
+      "behaviors": [
+        "B16",
+        "B20"
+      ],
+      "source_row": "| R068 | 主动 memory worker 按需要提醒主体或孩子，也可保持沉默且不绕 broker。 | §13.1、§14.4；§41 | U03；B16/B20 |"
+    },
+    {
+      "id": "R069",
+      "description": "通过正式插件控制 SSH/其他 runtime 上的 Claude Code、omp、tmux 等 Agent seats。",
+      "spec_locations": "§17.1；§41",
+      "user_source": "U04",
+      "behaviors": [
+        "B24"
+      ],
+      "source_row": "| R069 | 通过正式插件控制 SSH/其他 runtime 上的 Claude Code、omp、tmux 等 Agent seats。 | §17.1；§41 | U04；B24 |"
+    },
+    {
+      "id": "R070",
+      "description": "能根据记忆找回已有远程任务与工作位，并现场确认身份和进度。",
+      "spec_locations": "§17.1；§41",
+      "user_source": "U04",
+      "behaviors": [
+        "B15",
+        "B24"
+      ],
+      "source_row": "| R070 | 能根据记忆找回已有远程任务与工作位，并现场确认身份和进度。 | §17.1；§41 | U04；B15/B24 |"
+    },
+    {
+      "id": "R071",
+      "description": "在既有授权内自主回答远程选项和 permission，不逐项等待人类。",
+      "spec_locations": "§17.2；§41",
+      "user_source": "U04",
+      "behaviors": [
+        "B24"
+      ],
+      "source_row": "| R071 | 在既有授权内自主回答远程选项和 permission，不逐项等待人类。 | §17.2；§41 | U04；B24 |"
+    },
+    {
+      "id": "R072",
+      "description": "不确定时按人格和情境主动寻找可达用户渠道，再继续原任务。",
+      "spec_locations": "§17.3；§41",
+      "user_source": "U04",
+      "behaviors": [
+        "B22",
+        "B24"
+      ],
+      "source_row": "| R072 | 不确定时按人格和情境主动寻找可达用户渠道，再继续原任务。 | §17.3；§41 | U04；B22/B24 |"
+    },
+    {
+      "id": "R073",
+      "description": "支持传统 Skills、MCP 和市场生态，说明真实兼容范围。",
+      "spec_locations": "§18.1",
+      "user_source": "U04",
+      "behaviors": [
+        "B27"
+      ],
+      "source_row": "| R073 | 支持传统 Skills、MCP 和市场生态，说明真实兼容范围。 | §18.1 | U04；B27 |"
+    },
+    {
+      "id": "R074",
+      "description": "常用能力优先提供本产品原生语义插件，同时兼容 Skills/MCP。",
+      "spec_locations": "§7、§18.1",
+      "user_source": "U04",
+      "behaviors": [
+        "B27"
+      ],
+      "source_row": "| R074 | 常用能力优先提供本产品原生语义插件，同时兼容 Skills/MCP。 | §7、§18.1 | U04；B27 |"
+    },
+    {
+      "id": "R075",
+      "description": "插件不仅可安装，还应被发现、学会并在合适任务中正确使用。",
+      "spec_locations": "§18.2、§18.5",
+      "user_source": "U06",
+      "behaviors": [
+        "B25",
+        "B26"
+      ],
+      "source_row": "| R075 | 插件不仅可安装，还应被发现、学会并在合适任务中正确使用。 | §18.2、§18.5 | U06；B25/B26 |"
+    },
+    {
+      "id": "R076",
+      "description": "研究过程知识、工具检索和渐进披露，以任务评测验证设计。",
+      "spec_locations": "§18.3、§18.5",
+      "user_source": "U06",
+      "behaviors": [
+        "B26"
+      ],
+      "source_row": "| R076 | 研究过程知识、工具检索和渐进披露，以任务评测验证设计。 | §18.3、§18.5 | U06；B26 |"
+    },
+    {
+      "id": "R077",
+      "description": "针对本地约 27B 模型的知识、推理、工具选择和状态维持分别优化。",
+      "spec_locations": "§18.4",
+      "user_source": "U06",
+      "behaviors": [
+        "B26"
+      ],
+      "source_row": "| R077 | 针对本地约 27B 模型的知识、推理、工具选择和状态维持分别优化。 | §18.4 | U06；B26 |"
+    },
+    {
+      "id": "R078",
+      "description": "为未来更强模型保留替换或简化当前发现、教学和上下文机制的路径。",
+      "spec_locations": "§7、§18.3",
+      "user_source": "U06",
+      "behaviors": [
+        "B26",
+        "B27"
+      ],
+      "source_row": "| R078 | 为未来更强模型保留替换或简化当前发现、教学和上下文机制的路径。 | §7、§18.3 | U06；B26/B27 |"
+    },
+    {
+      "id": "R079",
+      "description": "Python in WASM REPL 是独立真实目标，区分 WASI 与 Pyodide 路线。",
+      "spec_locations": "§19",
+      "user_source": "U05",
+      "behaviors": [
+        "B28"
+      ],
+      "source_row": "| R079 | Python in WASM REPL 是独立真实目标，区分 WASI 与 Pyodide 路线。 | §19 | U05；B28 |"
+    },
+    {
+      "id": "R080",
+      "description": "Bun in WASM REPL 是独立具名目标，不以普通 JS 或转译器替代。",
+      "spec_locations": "§19",
+      "user_source": "U05",
+      "behaviors": [
+        "B28"
+      ],
+      "source_row": "| R080 | Bun in WASM REPL 是独立具名目标，不以普通 JS 或转译器替代。 | §19 | U05；B28 |"
+    },
+    {
+      "id": "R081",
+      "description": "Node in WASM REPL 是独立具名目标，不混淆 Node 执行 WASM 与自身运行于 WASM。",
+      "spec_locations": "§19",
+      "user_source": "U05",
+      "behaviors": [
+        "B28"
+      ],
+      "source_row": "| R081 | Node in WASM REPL 是独立具名目标，不混淆 Node 执行 WASM 与自身运行于 WASM。 | §19 | U05；B28 |"
+    },
+    {
+      "id": "R082",
+      "description": "REPL 可恢复，明确日志、对象与 VM 状态级别及副作用重放边界。",
+      "spec_locations": "§19、§23；§41",
+      "user_source": "U05",
+      "behaviors": [
+        "B28",
+        "B37"
+      ],
+      "source_row": "| R082 | REPL 可恢复，明确日志、对象与 VM 状态级别及副作用重放边界。 | §19、§23；§41 | U05；B28/B37 |"
+    },
+    {
+      "id": "R083",
+      "description": "REPL 通过插件动态安装依赖，维护 ABI、锁和环境 generation。",
+      "spec_locations": "§9、§19",
+      "user_source": "U05",
+      "behaviors": [
+        "B07",
+        "B28"
+      ],
+      "source_row": "| R083 | REPL 通过插件动态安装依赖，维护 ABI、锁和环境 generation。 | §9、§19 | U05；B07/B28 |"
+    },
+    {
+      "id": "R084",
+      "description": "原生预留实时通话、旁听课堂和持续媒体输入的插件接口。",
+      "spec_locations": "§20",
+      "user_source": "U07",
+      "behaviors": [
+        "B29"
+      ],
+      "source_row": "| R084 | 原生预留实时通话、旁听课堂和持续媒体输入的插件接口。 | §20 | U07；B29 |"
+    },
+    {
+      "id": "R085",
+      "description": "媒体输入仍进入同一主体，通话和听课时保留完整工具委派能力。",
+      "spec_locations": "§5、§20；§41",
+      "user_source": "U07",
+      "behaviors": [
+        "B03",
+        "B29"
+      ],
+      "source_row": "| R085 | 媒体输入仍进入同一主体，通话和听课时保留完整工具委派能力。 | §5、§20；§41 | U07；B03/B29 |"
+    },
+    {
+      "id": "R086",
+      "description": "Agent 可自主组织录音、声纹及相关媒体插件的开发和改善。",
+      "spec_locations": "§9、§15.2、§20",
+      "user_source": "U07",
+      "behaviors": [
+        "B23",
+        "B25",
+        "B29"
+      ],
+      "source_row": "| R086 | Agent 可自主组织录音、声纹及相关媒体插件的开发和改善。 | §9、§15.2、§20 | U07；B23/B25/B29 |"
+    },
+    {
+      "id": "R087",
+      "description": "保持极小核心，一切业务能力插件化，并合计默认插件的实际常驻成本。",
+      "spec_locations": "§7、§22",
+      "user_source": "U08",
+      "behaviors": [
+        "B02",
+        "B27"
+      ],
+      "source_row": "| R087 | 保持极小核心，一切业务能力插件化，并合计默认插件的实际常驻成本。 | §7、§22 | U08；B02/B27 |"
+    },
+    {
+      "id": "R088",
+      "description": "Agent 可通过子 Agent 自主重写任何部分，包括 kernel/rescue，按代际协议交接恢复。",
+      "spec_locations": "§2、§7、§9.1–9.2、§23",
+      "user_source": "U09/U15",
+      "behaviors": [
+        "B02",
+        "B07",
+        "B36"
+      ],
+      "source_row": "| R088 | Agent 可通过子 Agent 自主重写任何部分，包括 kernel/rescue，按代际协议交接恢复。 | §2、§7、§9.1–9.2、§23 | U09/U15；B02/B07/B36 |"
+    },
+    {
+      "id": "R089",
+      "description": "产品是面向 personal agent 的最小框架，持续个人主体与临时 coding workers 分离。",
+      "spec_locations": "§1、§5、§7、§17、§29",
+      "user_source": "U11",
+      "behaviors": [
+        "B01"
+      ],
+      "source_row": "| R089 | 产品是面向 personal agent 的最小框架，持续个人主体与临时 coding workers 分离。 | §1、§5、§7、§17、§29 | U11；B01 |"
+    },
+    {
+      "id": "R090",
+      "description": "WASM 是基础，获给的 root Android、Linux/Windows/macOS 屏幕、shell、应用与文件能力由正式 Computer Use/执行插件扩展，按实际权限使用。",
+      "spec_locations": "§11/22/24；§7/23",
+      "user_source": "U10/U57",
+      "behaviors": [
+        "B30",
+        "B53"
+      ],
+      "source_row": "| R090 | WASM 是基础，获给的 root Android、Linux/Windows/macOS 屏幕、shell、应用与文件能力由正式 Computer Use/执行插件扩展，按实际权限使用。 | §11/22/24；§7/23 | U10/U57；B30/B53 |"
+    },
+    {
+      "id": "R091",
+      "description": "参考用户称为 OpenAI Dynamic Response、官方公开资料称为 Intelligent UI 的方向，通过目标 DSL/元素说明或 UI 工具发现界面能力，生成并按需降级动态 UI。",
+      "spec_locations": "§21.4–21.9、§23 A25/A26",
+      "user_source": "U13",
+      "behaviors": [
+        "B33"
+      ],
+      "source_row": "| R091 | 参考用户称为 OpenAI Dynamic Response、官方公开资料称为 Intelligent UI 的方向，通过目标 DSL/元素说明或 UI 工具发现界面能力，生成并按需降级动态 UI。 | §21.4–21.9、§23 A25/A26 | U13；B33 |"
+    },
+    {
+      "id": "R092",
+      "description": "Agent 自主决定是否启用自动更新、是否安装具体版本及何时更新，可调整策略，无需默认询问用户。",
+      "spec_locations": "§2.27、§9.4、§23 A27",
+      "user_source": "U17",
+      "behaviors": [
+        "B07"
+      ],
+      "source_row": "| R092 | Agent 自主决定是否启用自动更新、是否安装具体版本及何时更新，可调整策略，无需默认询问用户。 | §2.27、§9.4、§23 A27 | U17；B07 |"
+    },
+    {
+      "id": "R093",
+      "description": "配置问题、版本通知和网络/代理状态可作为消息进入同一主体，由 Agent 自主选择并委派处理。",
+      "spec_locations": "§9.4、§15.1、§23 A27–A28",
+      "user_source": "U17",
+      "behaviors": [
+        "B07",
+        "B22"
+      ],
+      "source_row": "| R093 | 配置问题、版本通知和网络/代理状态可作为消息进入同一主体，由 Agent 自主选择并委派处理。 | §9.4、§15.1、§23 A27–A28 | U17；B07/B22 |"
+    },
+    {
+      "id": "R094",
+      "description": "联网直连/代理及可用路由由 Agent 自主选择；子 Agent 执行、验证与恢复，切换不绕过全局推理记账。",
+      "spec_locations": "§9.4、§13、§23 A28；§41",
+      "user_source": "U17",
+      "behaviors": [
+        "B07",
+        "B20"
+      ],
+      "source_row": "| R094 | 联网直连/代理及可用路由由 Agent 自主选择；子 Agent 执行、验证与恢复，切换不绕过全局推理记账。 | §9.4、§13、§23 A28；§41 | U17；B07/B20 |"
+    },
+    {
+      "id": "R095",
+      "description": "研究 BoxLite 作为完整 Linux runtime、持久工作区与 Computer Use 插件候选的适用性，不自动替换 WASM 基线或决定采用。",
+      "spec_locations": "§8.1、§19、§24.1、§34",
+      "user_source": "U18",
+      "behaviors": [
+        "B09",
+        "B30"
+      ],
+      "source_row": "| R095 | 研究 BoxLite 作为完整 Linux runtime、持久工作区与 Computer Use 插件候选的适用性，不自动替换 WASM 基线或决定采用。 | §8.1、§19、§24.1、§34 | U18；B09/B30 |"
+    },
+    {
+      "id": "R096",
+      "description": "能发现自身能力缺口，自主配置、安装、编写插件/外部应用并验证原阻塞任务。",
+      "spec_locations": "§18.7、§17.5",
+      "user_source": "U19",
+      "behaviors": [
+        "B25"
+      ],
+      "source_row": "| R096 | 能发现自身能力缺口，自主配置、安装、编写插件/外部应用并验证原阻塞任务。 | §18.7、§17.5 | U19；B25 |"
+    },
+    {
+      "id": "R097",
+      "description": "主/child 共享能力全集，可持久双向对话，实际执行入口按 role 区分。",
+      "spec_locations": "§5.2、§5.5；§41",
+      "user_source": "U19",
+      "behaviors": [
+        "B03",
+        "B25"
+      ],
+      "source_row": "| R097 | 主/child 共享能力全集，可持久双向对话，实际执行入口按 role 区分。 | §5.2、§5.5；§41 | U19；B03/B25 |"
+    },
+    {
+      "id": "R098",
+      "description": "NInfer/Strata/vLLM/1Cat 原生 API 与能力真实透传，按版本/传输/配置协商。",
+      "spec_locations": "§13.6–13.7",
+      "user_source": "U19",
+      "behaviors": [
+        "B19"
+      ],
+      "source_row": "| R098 | NInfer/Strata/vLLM/1Cat 原生 API 与能力真实透传，按版本/传输/配置协商。 | §13.6–13.7 | U19；B19 |"
+    },
+    {
+      "id": "R099",
+      "description": "参考 Pi Durable 设计持久任务、取消、补偿和调用重放，不止进程内 cleanup。",
+      "spec_locations": "§10.6；§41",
+      "user_source": "U19",
+      "behaviors": [
+        "B04"
+      ],
+      "source_row": "| R099 | 参考 Pi Durable 设计持久任务、取消、补偿和调用重放，不止进程内 cleanup。 | §10.6；§41 | U19；B04 |"
+    },
+    {
+      "id": "R100",
+      "description": "原版 LayerFS 放入合格真实 Linux VM，WASM 状态独立；提交与持久保证分层。",
+      "spec_locations": "§10.2.1、§34",
+      "user_source": "U19",
+      "behaviors": [
+        "B09"
+      ],
+      "source_row": "| R100 | 原版 LayerFS 放入合格真实 Linux VM，WASM 状态独立；提交与持久保证分层。 | §10.2.1、§34 | U19；B09 |"
+    },
+    {
+      "id": "R101",
+      "description": "Agent 可在有限空间内自主移植/安装 WASM 能力，记录真实目标与验证。",
+      "spec_locations": "§18.8",
+      "user_source": "U19",
+      "behaviors": [
+        "B06",
+        "B25"
+      ],
+      "source_row": "| R101 | Agent 可在有限空间内自主移植/安装 WASM 能力，记录真实目标与验证。 | §18.8 | U19；B06/B25 |"
+    },
+    {
+      "id": "R102",
+      "description": "复用 Life 身份/声纹材料，保留录音范围、候选、修订和手动管理员边界。",
+      "spec_locations": "§15.2.1",
+      "user_source": "U19",
+      "behaviors": [
+        "B23"
+      ],
+      "source_row": "| R102 | 复用 Life 身份/声纹材料，保留录音范围、候选、修订和手动管理员边界。 | §15.2.1 | U19；B23 |"
+    },
+    {
+      "id": "R103",
+      "description": "UI 提供功能与体验 brief 给 Claude Opus；细节按需展开，不强制监控大屏布局。",
+      "spec_locations": "§21.1",
+      "user_source": "U19",
+      "behaviors": [
+        "B35"
+      ],
+      "source_row": "| R103 | UI 提供功能与体验 brief 给 Claude Opus；细节按需展开，不强制监控大屏布局。 | §21.1 | U19；B35 |"
+    },
+    {
+      "id": "R104",
+      "description": "主体统一知道个人经历并自主选择保密或披露，不按受众屏蔽记忆或硬设亲密度。",
+      "spec_locations": "§6、§12.3",
+      "user_source": "U20",
+      "behaviors": [
+        "B23",
+        "B40"
+      ],
+      "source_row": "| R104 | 主体统一知道个人经历并自主选择保密或披露，不按受众屏蔽记忆或硬设亲密度。 | §6、§12.3 | U20；B23/B40 |"
+    },
+    {
+      "id": "R105",
+      "description": "灵魂可用一句或数句话表达处事哲学与自我认知，由 Agent 自主修改。",
+      "spec_locations": "§6、§9",
+      "user_source": "U20",
+      "behaviors": [
+        "B40"
+      ],
+      "source_row": "| R105 | 灵魂可用一句或数句话表达处事哲学与自我认知，由 Agent 自主修改。 | §6、§9 | U20；B40 |"
+    },
+    {
+      "id": "R106",
+      "description": "每次委派可任意编写 child system prompt 并选择不同模型，保留角色与资源合同。",
+      "spec_locations": "§5.2、§6；§41",
+      "user_source": "U20",
+      "behaviors": [
+        "B03",
+        "B40"
+      ],
+      "source_row": "| R106 | 每次委派可任意编写 child system prompt 并选择不同模型，保留角色与资源合同。 | §5.2、§6；§41 | U20；B03/B40 |"
+    },
+    {
+      "id": "R107",
+      "description": "对话 child 有限情况下可直接发送，借鉴 OMP 的归属/成果/防重复机制。",
+      "spec_locations": "§5.3；§41",
+      "user_source": "U20",
+      "behaviors": [
+        "B03"
+      ],
+      "source_row": "| R107 | 对话 child 有限情况下可直接发送，借鉴 OMP 的归属/成果/防重复机制。 | §5.3；§41 | U20；B03 |"
+    },
+    {
+      "id": "R108",
+      "description": "外部消息默认最高紧急可打断 child；停滞时询问主体决定临时免打扰并在结束后处理队列。",
+      "spec_locations": "§13.8",
+      "user_source": "U20",
+      "behaviors": [
+        "B21"
+      ],
+      "source_row": "| R108 | 外部消息默认最高紧急可打断 child；停滞时询问主体决定临时免打扰并在结束后处理队列。 | §13.8 | U20；B21 |"
+    },
+    {
+      "id": "R109",
+      "description": "Agent 自设垃圾过滤，通配符误屏蔽所有消息时可从独立健康证据自主发现修复。",
+      "spec_locations": "§13.8",
+      "user_source": "U20",
+      "behaviors": [
+        "B21"
+      ],
+      "source_row": "| R109 | Agent 自设垃圾过滤，通配符误屏蔽所有消息时可从独立健康证据自主发现修复。 | §13.8 | U20；B21 |"
+    },
+    {
+      "id": "R110",
+      "description": "更新优先承担磁盘成本、允许 break change；旧副本运行，迁移烟测后最后交接自身，插件化。",
+      "spec_locations": "§9.5；§41",
+      "user_source": "U20",
+      "behaviors": [
+        "B07",
+        "B37"
+      ],
+      "source_row": "| R110 | 更新优先承担磁盘成本、允许 break change；旧副本运行，迁移烟测后最后交接自身，插件化。 | §9.5；§41 | U20；B07/B37 |"
+    },
+    {
+      "id": "R111",
+      "description": "文字/录音/屏幕帧默认永久；空间压力下主体可自主归档自有存储或遗忘，插件化。",
+      "spec_locations": "§12.4",
+      "user_source": "U20",
+      "behaviors": [
+        "B32"
+      ],
+      "source_row": "| R111 | 文字/录音/屏幕帧默认永久；空间压力下主体可自主归档自有存储或遗忘，插件化。 | §12.4 | U20；B32 |"
+    },
+    {
+      "id": "R112",
+      "description": "无人时可长期持续投入自主兴趣，有限 child/阶段不构成兴趣的统一寿命上限。",
+      "spec_locations": "§14.6",
+      "user_source": "U20",
+      "behaviors": [
+        "B18"
+      ],
+      "source_row": "| R112 | 无人时可长期持续投入自主兴趣，有限 child/阶段不构成兴趣的统一寿命上限。 | §14.6 | U20；B18 |"
+    },
+    {
+      "id": "R113",
+      "description": "在线优先，每个连通域一个统筹主节点；可访问 LLM 的孤岛独立演进，恢复连通后选主、停止旧主体并合并记忆任务与真实效果。",
+      "spec_locations": "§5.4、§22",
+      "user_source": "U20/U60/U61",
+      "behaviors": [
+        "B31",
+        "B53"
+      ],
+      "source_row": "| R113 | 在线优先，每个连通域一个统筹主节点；可访问 LLM 的孤岛独立演进，恢复连通后选主、停止旧主体并合并记忆任务与真实效果。 | §5.4、§22 | U20/U60/U61；B31/B53 |"
+    },
+    {
+      "id": "R114",
+      "description": "首个实机基线为用户 Tailnet Qwen3.8-27B 四流 128K，133120 是冗余。",
+      "spec_locations": "§22.1；§41",
+      "user_source": "U20/U21",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "source_row": "| R114 | 首个实机基线为用户 Tailnet Qwen3.8-27B 四流 128K，133120 是冗余。 | §22.1；§41 | U20/U21；B19/B20 |"
+    },
+    {
+      "id": "R115",
+      "description": "深入参考 Codex budget compact 与 OMP snapcompact，原始历史、任务续接和 KV 成本分别处理。",
+      "spec_locations": "§12.3.1–12.3.2",
+      "user_source": "U21",
+      "behaviors": [
+        "B13",
+        "B14"
+      ],
+      "source_row": "| R115 | 深入参考 Codex budget compact 与 OMP snapcompact，原始历史、任务续接和 KV 成本分别处理。 | §12.3.1–12.3.2 | U21；B13/B14 |"
+    },
+    {
+      "id": "R116",
+      "description": "budget compact 与 snapcompact 均须正式实现为独立可安装/更新/卸载/替换插件，视觉能力限制影响启用而非交付范围。",
+      "spec_locations": "§12.3.1–12.3.2、A45",
+      "user_source": "U22",
+      "behaviors": [
+        "B13",
+        "B14",
+        "B27"
+      ],
+      "source_row": "| R116 | budget compact 与 snapcompact 均须正式实现为独立可安装/更新/卸载/替换插件，视觉能力限制影响启用而非交付范围。 | §12.3.1–12.3.2、A45 | U22；B13/B14/B27 |"
+    },
+    {
+      "id": "R117",
+      "description": "框架／产品名与实例姓名分离；初始化时由用户命名或让 Agent 自主取名，不强制统一称呼。",
+      "spec_locations": "§1、§6、§21、A46",
+      "user_source": "U24",
+      "behaviors": [
+        "B40"
+      ],
+      "source_row": "| R117 | 框架／产品名与实例姓名分离；初始化时由用户命名或让 Agent 自主取名，不强制统一称呼。 | §1、§6、§21、A46 | U24；B40 |"
+    },
+    {
+      "id": "R118",
+      "description": "框架名应有亲切的中文意象、参考 dots/Duet/Muse；最终正式定名 Shenko（深刻），旧候选仅保留历史。",
+      "spec_locations": "§1、§21、§39；原文 U25–U31/U39",
+      "user_source": "U25–U31/U38/U39",
+      "behaviors": [
+        "B40"
+      ],
+      "source_row": "| R118 | 框架名应有亲切的中文意象、参考 dots/Duet/Muse；最终正式定名 Shenko（深刻），旧候选仅保留历史。 | §1、§21、§39；原文 U25–U31/U39 | U25–U31/U38/U39；B40 |"
+    },
+    {
+      "id": "R119",
+      "description": "不要 slogan 或解释性品牌副标题，让布局与设计表达。",
+      "spec_locations": "§2、§21",
+      "user_source": "U30",
+      "behaviors": [
+        "B35",
+        "B40"
+      ],
+      "source_row": "| R119 | 不要 slogan 或解释性品牌副标题，让布局与设计表达。 | §2、§21 | U30；B35/B40 |"
+    },
+    {
+      "id": "R120",
+      "description": "第一版部署开发者机器即能接 NapCat，控制现有 tmux 中 Claude Code/OMP/其他已适配 Agent，继续开发、验证并升级自身。",
+      "spec_locations": "§9、§17、§29、§35",
+      "user_source": "U32",
+      "behaviors": [
+        "B36"
+      ],
+      "source_row": "| R120 | 第一版部署开发者机器即能接 NapCat，控制现有 tmux 中 Claude Code/OMP/其他已适配 Agent，继续开发、验证并升级自身。 | §9、§17、§29、§35 | U32；B36 |"
+    },
+    {
+      "id": "R121",
+      "description": "插件明确标示沙箱重置/回退/恢复范围和外部副作用，真实调用绑定具体边界。",
+      "spec_locations": "§10、§36；§41",
+      "user_source": "U33",
+      "behaviors": [
+        "B37"
+      ],
+      "source_row": "| R121 | 插件明确标示沙箱重置/回退/恢复范围和外部副作用，真实调用绑定具体边界。 | §10、§36；§41 | U33；B37 |"
+    },
+    {
+      "id": "R122",
+      "description": "大量消息及插件注入需要明确时序、可新增 hook 与 API 先后兼容，可参考 Fabric。",
+      "spec_locations": "§37；§41",
+      "user_source": "U34",
+      "behaviors": [
+        "B38"
+      ],
+      "source_row": "| R122 | 大量消息及插件注入需要明确时序、可新增 hook 与 API 先后兼容，可参考 Fabric。 | §37；§41 | U34；B38 |"
+    },
+    {
+      "id": "R123",
+      "description": "cordis-rs（dshbox/cordis-rs）为指定插件主干；注入设计只扩展 API 兼容与时序；U45 已纠正此前拼写。",
+      "spec_locations": "§7、§37.1；§41",
+      "user_source": "U35/U45",
+      "behaviors": [
+        "B02",
+        "B38"
+      ],
+      "source_row": "| R123 | cordis-rs（dshbox/cordis-rs）为指定插件主干；注入设计只扩展 API 兼容与时序；U45 已纠正此前拼写。 | §7、§37.1；§41 | U35/U45；B02/B38 |"
+    },
+    {
+      "id": "R124",
+      "description": "参考 OMP 让 Agent 查自身代码/手册/设计哲学，回答自身问题并辅助写插件；自解释作为默认内置、可替换插件。",
+      "spec_locations": "§18、§35.3、§38；§41",
+      "user_source": "U36",
+      "behaviors": [
+        "B39"
+      ],
+      "source_row": "| R124 | 参考 OMP 让 Agent 查自身代码/手册/设计哲学，回答自身问题并辅助写插件；自解释作为默认内置、可替换插件。 | §18、§35.3、§38；§41 | U36；B39 |"
+    },
+    {
+      "id": "R125",
+      "description": "所有想法有来源 Ref，并用于比较所采用上游行为的完整程度，不能只致谢或列项目名。",
+      "spec_locations": "§31–32、§38–39",
+      "user_source": "U37",
+      "behaviors": [
+        "B41",
+        "B39"
+      ],
+      "source_row": "| R125 | 所有想法有来源 Ref，并用于比较所采用上游行为的完整程度，不能只致谢或列项目名。 | §31–32、§38–39 | U37；B41/B39 |"
+    },
+    {
+      "id": "R126",
+      "description": "开发 Agent 高度自主，合理默认、实现、验证、修复和范围内集成连续推进，不默认留人类 gate。",
+      "spec_locations": "§29、§40",
+      "user_source": "U37",
+      "behaviors": [
+        "B41"
+      ],
+      "source_row": "| R126 | 开发 Agent 高度自主，合理默认、实现、验证、修复和范围内集成连续推进，不默认留人类 gate。 | §29、§40 | U37；B41 |"
+    },
+    {
+      "id": "R127",
+      "description": "界面风格与美观参考 Magpie，用具体来源画面、状态与交互质量比较。",
+      "spec_locations": "§21.10、§39–40",
+      "user_source": "U37",
+      "behaviors": [
+        "B35"
+      ],
+      "source_row": "| R127 | 界面风格与美观参考 Magpie，用具体来源画面、状态与交互质量比较。 | §21.10、§39–40 | U37；B35 |"
+    },
+    {
+      "id": "R128",
+      "description": "正式产品/框架名 Shenko（深刻），记录用户给出的命名来源和读音，无 slogan，实例名称独立。",
+      "spec_locations": "§1、§6、§21、§39",
+      "user_source": "U39",
+      "behaviors": [
+        "B40"
+      ],
+      "source_row": "| R128 | 正式产品/框架名 Shenko（深刻），记录用户给出的命名来源和读音，无 slogan，实例名称独立。 | §1、§6、§21、§39 | U39；B40 |"
+    },
+    {
+      "id": "R129",
+      "description": "以 Pi Durable 固定 SPEC 为参照提高具体程度，给出实现可据以执行的状态、接口、原子边界、失败交错与验收；真正未定的产品问题可继续问。",
+      "spec_locations": "§41；关联 §5/9/10/13/17/35–40",
+      "user_source": "U40",
+      "behaviors": [
+        "B03",
+        "B04",
+        "B20",
+        "B24",
+        "B37",
+        "B38",
+        "B39",
+        "B41"
+      ],
+      "source_row": "| R129 | 以 Pi Durable 固定 SPEC 为参照提高具体程度，给出实现可据以执行的状态、接口、原子边界、失败交错与验收；真正未定的产品问题可继续问。 | §41；关联 §5/9/10/13/17/35–40 | U40；B03/B04/B20/B24/B37/B38/B39/B41 |"
+    },
+    {
+      "id": "R130",
+      "description": "以插件观测/估计供应商周期额度，影响模型、effort、主体平均准入次数与任务预算，让主体感知余额；追求跨周期接近用完，本地 AI 优先，云额度后排。",
+      "spec_locations": "§42；§13/41",
+      "user_source": "U41",
+      "behaviors": [
+        "B42",
+        "B19",
+        "B20"
+      ],
+      "source_row": "| R130 | 以插件观测/估计供应商周期额度，影响模型、effort、主体平均准入次数与任务预算，让主体感知余额；追求跨周期接近用完，本地 AI 优先，云额度后排。 | §42；§13/41 | U41；B42/B19/B20 |"
+    },
+    {
+      "id": "R131",
+      "description": "以 Magpie 和 Alma 的流式体验为参照，正文/滚动/选区/表单稳定，真实流与恢复不抖动、不重复、不串 attempt。",
+      "spec_locations": "§21.11、§39–40",
+      "user_source": "U41",
+      "behaviors": [
+        "B35",
+        "B33"
+      ],
+      "source_row": "| R131 | 以 Magpie 和 Alma 的流式体验为参照，正文/滚动/选区/表单稳定，真实流与恢复不抖动、不重复、不串 attempt。 | §21.11、§39–40 | U41；B35/B33 |"
+    },
+    {
+      "id": "R132",
+      "description": "默认 WebUI 仅主体时间线与输入，append/steer 进入同一持久 thought loop；其他能力按需打开，不另建 chat agent。",
+      "spec_locations": "§21.12、§41.18",
+      "user_source": "U42",
+      "behaviors": [
+        "B35",
+        "B03",
+        "B38"
+      ],
+      "source_row": "| R132 | 默认 WebUI 仅主体时间线与输入，append/steer 进入同一持久 thought loop；其他能力按需打开，不另建 chat agent。 | §21.12、§41.18 | U42；B35/B03/B38 |"
+    },
+    {
+      "id": "R133",
+      "description": "所有配置可经对话发现和修改并有查看/编辑面板；通过可组合能力和真实执行/观测/恢复实现可靠改变，不强制五阶段。",
+      "spec_locations": "§43.1/43.3、§45；§9/41",
+      "user_source": "U43/U44/U46/U47",
+      "behaviors": [
+        "B43",
+        "B07",
+        "B41",
+        "B45"
+      ],
+      "source_row": "| R133 | 所有配置可经对话发现和修改并有查看/编辑面板；通过可组合能力和真实执行/观测/恢复实现可靠改变，不强制五阶段。 | §43.1/43.3、§45；§9/41 | U43/U44/U46/U47；B43/B07/B41/B45 |"
+    },
+    {
+      "id": "R134",
+      "description": "持久 Playground 容纳兴趣/交流产生的 artifacts 和有后端、界面、数据的 Intelligent UI；真实状态变化能被主体感知，支持版本、恢复与长期运行。",
+      "spec_locations": "§43.2/43.3；§21",
+      "user_source": "U43",
+      "behaviors": [
+        "B44",
+        "B33",
+        "B37"
+      ],
+      "source_row": "| R134 | 持久 Playground 容纳兴趣/交流产生的 artifacts 和有后端、界面、数据的 Intelligent UI；真实状态变化能被主体感知，支持版本、恢复与长期运行。 | §43.2/43.3；§21 | U43；B44/B33/B37 |"
+    },
+    {
+      "id": "R135",
+      "description": "定义第一次打开需要什么；以最少推理/管理员输入和可用默认完成真实 WASM、存储、资源与唯一持续主体的 bootstrap，失败可恢复。",
+      "spec_locations": "§44；§7/41",
+      "user_source": "U44",
+      "behaviors": [
+        "B46",
+        "B03",
+        "B20"
+      ],
+      "source_row": "| R135 | 定义第一次打开需要什么；以最少推理/管理员输入和可用默认完成真实 WASM、存储、资源与唯一持续主体的 bootstrap，失败可恢复。 | §44；§7/41 | U44；B46/B03/B20 |"
+    },
+    {
+      "id": "R136",
+      "description": "不同直觉/意识可以原子化安装，弥补没想到；thought loop 也从任意输入即时产生 awareness，有价值再自主沉淀，不能只限静态目录或全塞总插件。",
+      "spec_locations": "§45；§18/37/38/43–44",
+      "user_source": "U44/U46/U47/U54/U56",
+      "behaviors": [
+        "B45",
+        "B52",
+        "B26",
+        "B38",
+        "B43"
+      ],
+      "source_row": "| R136 | 不同直觉/意识可以原子化安装，弥补没想到；thought loop 也从任意输入即时产生 awareness，有价值再自主沉淀，不能只限静态目录或全塞总插件。 | §45；§18/37/38/43–44 | U44/U46/U47/U54/U56；B45/B52/B26/B38/B43 |"
+    },
+    {
+      "id": "R137",
+      "description": "将 colibri-rs 笔误统一更正为 dshbox/cordis-rs，保留历史原话、撤去错误身份待确认项。",
+      "spec_locations": "§2/7/37/39；§33 U45",
+      "user_source": "U45",
+      "behaviors": [
+        "B02",
+        "B38"
+      ],
+      "source_row": "| R137 | 将 colibri-rs 笔误统一更正为 dshbox/cordis-rs，保留历史原话、撤去错误身份待确认项。 | §2/7/37/39；§33 U45 | U45；B02/B38 |"
+    },
+    {
+      "id": "R138",
+      "description": "感知、直觉、Skill 与插件代码均能原子化安装/查阅；NapCat 等 provider 自动安装所依赖单元，插件含版本依赖，直觉依赖可笼统或精确。",
+      "spec_locations": "§9/18/45",
+      "user_source": "U48",
+      "behaviors": [
+        "B47",
+        "B25",
+        "B26",
+        "B27",
+        "B45"
+      ],
+      "source_row": "| R138 | 感知、直觉、Skill 与插件代码均能原子化安装/查阅；NapCat 等 provider 自动安装所依赖单元，插件含版本依赖，直觉依赖可笼统或精确。 | §9/18/45 | U48；B47/B25/B26/B27/B45 |"
+    },
+    {
+      "id": "R139",
+      "description": "说明能力/规则/流程的顶层 Why、目标与适用条件，帮助模型在工具失败或特殊情况中自主调整；awareness、Skill、自解释及开发规范均体现，避免生成新的固定说明手续。",
+      "spec_locations": "§18.2/38.4/40.9/45.2–45.5",
+      "user_source": "U49",
+      "behaviors": [
+        "B48",
+        "B26",
+        "B39",
+        "B41",
+        "B45"
+      ],
+      "source_row": "| R139 | 说明能力/规则/流程的顶层 Why、目标与适用条件，帮助模型在工具失败或特殊情况中自主调整；awareness、Skill、自解释及开发规范均体现，避免生成新的固定说明手续。 | §18.2/38.4/40.9/45.2–45.5 | U49；B48/B26/B39/B41/B45 |"
+    },
+    {
+      "id": "R140",
+      "description": "整理并建立包含完整 SPEC、WHY、README、AGENTS.md 的仓库；研究近期上游治理，交接朋友的 Claude Opus 5.5 通过真实 /goal、ultracode 与并行子 Agent 完整实施，自主配置本人 GitHub/gh、持续提交更新 PR，不等待 review 才继续，以完整证据定义结束。",
+      "spec_locations": "§40/46；GOAL.md 与 docs/governance",
+      "user_source": "U50",
+      "behaviors": [
+        "B49",
+        "B41",
+        "B48"
+      ],
+      "source_row": "| R140 | 整理并建立包含完整 SPEC、WHY、README、AGENTS.md 的仓库；研究近期上游治理，交接朋友的 Claude Opus 5.5 通过真实 /goal、ultracode 与并行子 Agent 完整实施，自主配置本人 GitHub/gh、持续提交更新 PR，不等待 review 才继续，以完整证据定义结束。 | §40/46；GOAL.md 与 docs/governance | U50；B49/B41/B48 |"
+    },
+    {
+      "id": "R141",
+      "description": "朋友的开发 Agent 使用实际 bypassPermissions 启动参数，在自己的 fork 自主开发、合并、重构、配置工具和 CI、并行委派与持续验证，向上游提交和更新 PR；上游由实际 GitHub 权限处理，交接以目标、Why、证据和接续为主。",
+      "spec_locations": "§46；AGENTS.md、GOAL.md 与 docs/governance/CLAUDE.md",
+      "user_source": "U51",
+      "behaviors": [
+        "B49",
+        "B41"
+      ],
+      "source_row": "| R141 | 朋友的开发 Agent 使用实际 bypassPermissions 启动参数，在自己的 fork 自主开发、合并、重构、配置工具和 CI、并行委派与持续验证，向上游提交和更新 PR；上游由实际 GitHub 权限处理，交接以目标、Why、证据和接续为主。 | §46；AGENTS.md、GOAL.md 与 docs/governance/CLAUDE.md | U51；B49/B41 |"
+    },
+    {
+      "id": "R142",
+      "description": "跟进 Claude API 2026-10-21 等真实版本变化，以插件化的 provider/model/API/SDK/gateway 合同处理采样、消息格式、鉴权、额度字段与升级；主体能感知变化并自主迁移，保留本地原生能力、原始历史与在途请求事实。",
+      "spec_locations": "§13/41.8/42/45/47；docs/research/claude-api-2026-10-21.md",
+      "user_source": "U53",
+      "behaviors": [
+        "B50",
+        "B19",
+        "B38",
+        "B42",
+        "B47"
+      ],
+      "source_row": "| R142 | 跟进 Claude API 2026-10-21 等真实版本变化，以插件化的 provider/model/API/SDK/gateway 合同处理采样、消息格式、鉴权、额度字段与升级；主体能感知变化并自主迁移，保留本地原生能力、原始历史与在途请求事实。 | §13/41.8/42/45/47；docs/research/claude-api-2026-10-21.md | U53；B50/B19/B38/B42/B47 |"
+    },
+    {
+      "id": "R143",
+      "description": "主体默认持续接续；只由自己主动选择最多 600 秒的语义等待，同一主模型不断根据前文与新增上下文轮询退出，期限不是时间唤醒；child 可 sleep，真实资源/挂起状态另记。",
+      "spec_locations": "§5.1/41.5",
+      "user_source": "U55",
+      "behaviors": [
+        "B51",
+        "B03"
+      ],
+      "source_row": "| R143 | 主体默认持续接续；只由自己主动选择最多 600 秒的语义等待，同一主模型不断根据前文与新增上下文轮询退出，期限不是时间唤醒；child 可 sleep，真实资源/挂起状态另记。 | §5.1/41.5 | U55；B51/B03 |"
+    },
+    {
+      "id": "R144",
+      "description": "时间、未竟义务、重复/无聊、维护项目、SNS/IM 与邮件察觉各自原子化并可自解释组合；dreaming 仅社区可选；任意输入形成的 awareness 可即时采用、沉淀、改写或停用，来源与权限不升格。",
+      "spec_locations": "§18/38/45",
+      "user_source": "U54/U56",
+      "behaviors": [
+        "B52",
+        "B45",
+        "B47",
+        "B39"
+      ],
+      "source_row": "| R144 | 时间、未竟义务、重复/无聊、维护项目、SNS/IM 与邮件察觉各自原子化并可自解释组合；dreaming 仅社区可选；任意输入形成的 awareness 可即时采用、沉淀、改写或停用，来源与权限不升格。 | §18/38/45 | U54/U56；B52/B45/B47/B39 |"
+    },
+    {
+      "id": "R145",
+      "description": "多设备同步同一自我，较晚新节点撤销独立身份并加入可信既有身份；使用已授权 SSH Key/内网/Tailnet/ZeroTier 与真实设备能力，自主修复环境；异构模型/provider/隐私与实际可达能力决定 child 放置及递归选主，分区经历保留。",
+      "spec_locations": "§5.4/9.4/11/22/38/44.1",
+      "user_source": "U57/U60/U61",
+      "behaviors": [
+        "B53",
+        "B31",
+        "B11",
+        "B30",
+        "B39"
+      ],
+      "source_row": "| R145 | 多设备同步同一自我，较晚新节点撤销独立身份并加入可信既有身份；使用已授权 SSH Key/内网/Tailnet/ZeroTier 与真实设备能力，自主修复环境；异构模型/provider/隐私与实际可达能力决定 child 放置及递归选主，分区经历保留。 | §5.4/9.4/11/22/38/44.1 | U57/U60/U61；B53/B31/B11/B30/B39 |"
+    },
+    {
+      "id": "R146",
+      "description": "所有开发者必读 shenko-dev 哲学 Skill，按需采用兼容 OpenAI/Anthropic 的原子开发 Skill；CLAUDE.md 符号链接到 AGENTS.md，正文单源；完全自主开发、无额外人类 gate，一个增量不新增十个或更多测试。",
+      "spec_locations": "§40.5/46",
+      "user_source": "U55/U58",
+      "behaviors": [
+        "B54",
+        "B41",
+        "B49"
+      ],
+      "source_row": "| R146 | 所有开发者必读 shenko-dev 哲学 Skill，按需采用兼容 OpenAI/Anthropic 的原子开发 Skill；CLAUDE.md 符号链接到 AGENTS.md，正文单源；完全自主开发、无额外人类 gate，一个增量不新增十个或更多测试。 | §40.5/46 | U55/U58；B54/B41/B49 |"
+    },
+    {
+      "id": "R147",
+      "description": "智能完全失效时仍以确定性控制记录系统日志，并供持有 credentials 的外部工具提取原始记忆/经历；可从磁盘镜像在其他节点恢复或合并，准确保留解密、介质和未决副作用边界。",
+      "spec_locations": "§22.2；§5.4/10/38/44",
+      "user_source": "U62",
+      "behaviors": [
+        "B55",
+        "B04",
+        "B05",
+        "B37"
+      ],
+      "source_row": "| R147 | 智能完全失效时仍以确定性控制记录系统日志，并供持有 credentials 的外部工具提取原始记忆/经历；可从磁盘镜像在其他节点恢复或合并，准确保留解密、介质和未决副作用边界。 | §22.2；§5.4/10/38/44 | U62；B55/B04/B05/B37 |"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko · 核对上游"
+  short_description: "核对一项上游接口或行为的版本证据，明确采用范围和实际差异"
+  default_prompt: "使用 $shenko-dev-check-upstream 核对这项上游能力及其适用版本。"

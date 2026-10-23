@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko · 修复根因"
+  short_description: "沿实际症状定位失败根因并修复，保存最短可复查的因果证据"
+  default_prompt: "使用 $shenko-dev-debug 定位这个失败的根因并完成修复。"

@@ -1,0 +1,29 @@
+{
+  "kind": "documentation_integrity_only",
+  "product_tested": false,
+  "requirements": 147,
+  "behaviors": 55,
+  "source_records": 59,
+  "acceptance_definitions": 216,
+  "archived_sources": 46,
+  "development_skills": 9,
+  "errors": [],
+  "spec_version": "0.6.2",
+  "verified_at": "2026-10-23T00:02:22.302559+00:00",
+  "checks": [
+    "R/B/Ref/case agreement",
+    "original user archive preserved",
+    "historical SHA-256 agreement",
+    "local document links",
+    "native GOAL condition length",
+    "mandatory philosophy and shared symbolic links",
+    "nine Skill authoring validations"
+  ],
+  "skill_application_review": {
+    "mode": "independent_read_only",
+    "scope": "continuous waiting, new awareness, partitioned devices and no-model recovery",
+    "result": "consistent_with_current_contracts",
+    "product_executed": false
+  },
+  "client_discovery_tested": false
+}

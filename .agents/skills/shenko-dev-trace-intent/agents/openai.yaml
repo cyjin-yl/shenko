@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko · 理解意图"
+  short_description: "查清现行需求的目的、来源与实现差距，保留最新用户意图并继续开发"
+  default_prompt: "使用 $shenko-dev-trace-intent 查清这次改动要保留和改变的实际行为。"

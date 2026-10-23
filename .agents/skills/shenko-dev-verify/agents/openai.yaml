@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko · 适量验证"
+  short_description: "用零项或少量直接检查回答具体风险，复用证据并及时结束验证"
+  default_prompt: "使用 $shenko-dev-verify 用最少的有效证据判断此次改动。"

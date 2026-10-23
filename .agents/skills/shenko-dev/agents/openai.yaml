@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko Development Philosophy"
+  short_description: "Build Shenko as one continuous autonomous self"
+  default_prompt: "Use $shenko-dev to develop Shenko from its current intent and atomic capabilities."

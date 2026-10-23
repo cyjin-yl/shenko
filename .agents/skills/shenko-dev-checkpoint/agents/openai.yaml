@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko · 保存接续"
+  short_description: "保存足以跨会话接续的代码、决定与在途工作，避免重复外部操作"
+  default_prompt: "使用 $shenko-dev-checkpoint 保存足够接着工作的真实状态。"

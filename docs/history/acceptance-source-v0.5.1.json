@@ -1,0 +1,2118 @@
+{
+  "schema_version": 1,
+  "purpose": "Canonical acceptance-case source index for the Shenko documentation handoff. This records specified cases, not executed tests.",
+  "source_snapshot": {
+    "page_id": "page_6f0008254bfc81918c585077f4c500a5",
+    "url": "https://chatgpt.com/space/page_6f0008254bfc81918c585077f4c500a5",
+    "title": "Shenko 产品 SPEC v0.5.1",
+    "current_sequence": 8,
+    "updated_at": "2026-10-22T22:01:35.337104Z",
+    "spec_version": "0.5.1",
+    "declared_requirement_count": 139,
+    "declared_behavior_count": 48,
+    "source_read_method": "Pages read_page(view=full)",
+    "baseline_only": "U50/R140/B49 and v0.6.0 handoff additions are not included in this v0.5.1 source extraction."
+  },
+  "extraction_rules": {
+    "scope": "Acceptance table definitions outside fenced code blocks; preserve original row text and heading path.",
+    "pattern": "^\\|\\s*(A\\d{2}|V1-\\d{2}|E\\d{2}|H\\d{2}|K\\d{2}|N\\d{2}|DX\\d{2}|RT\\d{2}|P41-\\d{2}|UI\\d{2}|UI-S\\d{2}|QA\\d{2}|CFG\\d{2}|PG\\d{2}|BOOT\\d{2}|AW\\d{2}|DEP\\d{2})(?=\\s|\\|)",
+    "identity": "Use the case ID at the start of the first table cell, even when that cell also contains a label, e.g. QA01 指标隔离.",
+    "excluded": "D decisions, R requirements, B behavior groups, references to cases in prose or other tables, and ranges cited without a defining row.",
+    "duplicates": "Duplicate defining IDs are a review error; none found in this extraction.",
+    "completeness": "189 distinct defined cases in the v0.5.1 snapshot. Future additions must be imported; this number is a snapshot check, not a permanent cap."
+  },
+  "case_count": 189,
+  "cases": [
+    {
+      "case_id": "UI-S01",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1242,
+      "source_row": "| UI-S01 | 用户停在中段阅读，尾部继续输出 10 秒，并在上方补入历史/加载图片 | 同一阅读锚点持续可见；在静态 viewport 且对象未被主动替换时，默认容忍偏移不超过 2 CSS px；不被拉回底部 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S02",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1243,
+      "source_row": "| UI-S02 | following_latest 连续流入、用户中途上滚或拖滚动条 | 尾部增长平顺；用户操作立即停止跟随；只有明确恢复操作/回到底部才重新跟随 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S03",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1244,
+      "source_row": "| UI-S03 | 逐段到达代码围栏、表格、数学式、链接，包含中文/emoji 跨 chunk | 无整篇纯文本/富文本反复切换；无无关稳定块的卸载/重置；最终文本与格式符合持久内容和当前 parser 合同 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S04",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1245,
+      "source_row": "| UI-S04 | 用户在持续增长的代码块中选中文字、横向滚动、改折行 | 后续 chunk/高亮不清掉选择、横向位置和折行偏好；复制结果匹配可见 revision |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S05",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1246,
+      "source_row": "| UI-S05 | 工具卡片从准备到运行再到完成；用户已展开日志或填写动态表单 | 同一对象稳定更新；不自动收起、重建、清空输入或重复提交；旧 action revision 被正确拒绝/更新 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S06",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1247,
+      "source_row": "| UI-S06 | 字体/媒体延迟到达，侧栏开合、窗口 resize、200% 字号缩放、软键盘弹出 | 不产生无补偿整页跳动；响应式变化后原阅读对象仍定位可见，合法可滚动范围内恢复至原偏移附近（默认一行高以内）；输入焦点与内容保留 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S07",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1248,
+      "source_row": "| UI-S07 | 消息 parser/代码高亮/某插件组件抛错 | 仅对应区域降级；导航、输入框、其余历史继续可用；修复呈现不重放外部工具 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S08",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1249,
+      "source_row": "| UI-S08 | 已提交 chunk 在发送前/发送后断线，重连重复/补发 | 正文不丢、不重复、不串 attempt；未持久内容没有提前显示；可按 chunk_seq 续接 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S09",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1250,
+      "source_row": "| UI-S09 | stream 中连续点击两次停止/重试；旧结果迟到 | UI 绑定正确的 request/attempt 与替代关系；不制造第二条无限主体或绕 broker 的并发；旧内容只作为原 attempt 事实保存 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "UI-S10",
+      "source_heading_path": [
+        "21 Web UI 与设计系统",
+        "21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照",
+        "首版测试语料与可判定门槛"
+      ],
+      "source_markdown_line": 1251,
+      "source_row": "| UI-S10 | 参考设备正常负载下回放文本流 | 从客户端收到已提交事件到对应可见更新，首版目标 p95 ≤100ms；记录长任务和掉帧，不能用延迟打字满足视觉目标。该阈值不包含 LLM/网络/存储等待，也不是未测设备保证 |",
+      "source_block_id": "72de6ffe-edda-4534-bc17-d9e7e604746f",
+      "source_block_hash": "41c69d5c647812f8018941f428828aa865e69eee8e9f9a160d3662208eab5493"
+    },
+    {
+      "case_id": "A01",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1310,
+      "source_row": "| A01 | 无来信持续运行 | 正常运行主体持续产生下一轮；每分支一个串行决策链，任务空也不自动退出，故障分叉按 A42 收敛 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A02",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1311,
+      "source_row": "| A02 | 主体要求写文件/调用 SSH/REPL | 无对应工具或能力；只能委派；人格与插件不能突破 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A03",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1312,
+      "source_row": "| A03 | C=1 且递归三级与 memory save | 全部可推进；父任务不占孩子必须的许可/执行席位 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A04",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1313,
+      "source_row": "| A04 | 自动分配产生半池结果 | 无手动比例，在适合均分的 C=1 工作负载上算法自动形成约 50/50 驻留；改变需求后能自适应；报告 page 误差、命中、spill、rebuild 与真实保证等级 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A05",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1314,
+      "source_row": "| A05 | K 未配置、共享 alias 与取消失联 | 自动能力发现/保守降级；不重复放行；未确认终止请求仍计占用 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A06",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1315,
+      "source_row": "| A06 | 连续来信与群爆发 | durable event 可追溯；在主体安全边界处理；DND/过滤状态明确，消息不静默丢失或伪记已处理 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A07",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1316,
+      "source_row": "| A07 | 沙箱与坏包强杀 | 自动 LKG/factory；最近已确认消息、身份、撤销与副作用 ledger 不回退 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A08",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1317,
+      "source_row": "| A08 | arbitrary mounts 与分支 | RO/direct RW/COW 行为真实；不把 direct/SSH 状态宣传为可快照回滚 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A09",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1318,
+      "source_row": "| A09 | Git 与 SSH WASM | 私有 GitHub/Gitea 端到端认证；真实 WASM SSH keygen/exec/transfer；限制明示 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A10",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1319,
+      "source_row": "| A10 | 中文历史检索和统一知识 | 单/双/三字、中英混合及原始失败可查；主体可跨私聊/群聊回忆，保密选择由人格/灵魂判断，非硬编码受众屏蔽 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A11",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1320,
+      "source_row": "| A11 | memory commit 崩溃与冲突 | accepted/committed 分明；跨 Git/DB 修复；两个 worker 不覆盖同一 live worktree |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A12",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1321,
+      "source_row": "| A12 | reset 与提醒 | 新研究 worker 不自动看到旧失败叙事；真实档案仍在；约束/预算不被 reset 洗掉 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A13",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1322,
+      "source_row": "| A13 | 插件认知 | 不点名插件的真实任务能发现并用对；反例不滥用；旧版本/缺权限可恢复 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A14",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1323,
+      "source_row": "| A14 | 远端 Agent 选择题 | 正确 seat/epoch/question；自主选择已授权事项；过期/超时不冒充授权；跨渠道询问收敛 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A15",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1324,
+      "source_row": "| A15 | REPL 崩溃 | 显示实际恢复等级；代码/依赖/对象一致；不重放已完成外部副作用 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A16",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1325,
+      "source_row": "| A16 | 通话与旁听 | 同一主体接受音频事件；录音状态真实；仍能调用完整委派链；barge-in 与转写修订不重复动作 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A17",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1326,
+      "source_row": "| A17 | Android/慢闪存/满盘 | 恢复真实；未知消息缺口可见；内核与基础插件可继续诊断或正确阻断新写入 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A18",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1327,
+      "source_row": "| A18 | Plugin generation 升级/卸载 | 无孤儿 timer/process/request/KV/SSH；core rescue 不随业务插件损坏 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A19",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1328,
+      "source_row": "| A19 | UI brief 与 Proto 主线 | Claude Opus 设计实现符合功能/状态合同和生命感要求；诊断可展开，不强制监控首页；最新主线、compiler seam、键盘/小屏/减少动画通过 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A20",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1329,
+      "source_row": "| A20 | 研究/记忆优化评估 | 等总预算，计入辅助模型与 prefill；多次运行；不以论文最大收益作产品承诺 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A21",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1330,
+      "source_row": "| A21 | kernel/rescue 自主替换失败 | 候选失败有可启动旧闭包及可读旧数据；切换后的新事实有导入/修复路径，同分支不重复提交；旧权限/lease 不复活 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A22",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1331,
+      "source_row": "| A22 | Computer Use 并行观察/竞争输入 | 一个共享桌面仅一个有效写入 lease；不同隔离桌面可分别操作；人工接管使旧输入失效 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A23",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1332,
+      "source_row": "| A23 | 过期屏幕与未知 GUI 效果 | DPI/窗口/页面变化后旧坐标失效；发送后断线先核验，不盲重放；结果与传输 ACK 分开 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A24",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1333,
+      "source_row": "| A24 | 个人 Agent 连续性 | 卸载编码插件后仍可认识人、履行生活承诺、收消息、主动维护；跨平台/课堂/远程任务共同经历可溯源；正常统一主体，故障分叉按协议汇合 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A25",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1334,
+      "source_row": "| A25 | 动态 UI 跨渠道与流式中断 | 同意图可投影 Web/卡片/文字/语音；弱渠道能完成选择/输入；半成品动作不启用；最后有效视图、草稿和权限保留 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A26",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1335,
+      "source_row": "| A26 | 动态动作版本与重复提交 | 外观改动保留有效 action；实质目标变化使旧 action 失效；跨渠道回答去重；交互进入同一主体，renderer 升级不改变业务事实 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A27",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1336,
+      "source_row": "| A27 | 自主更新策略与版本选择 | 无用户在线确认时，主体可决定启停自动更新、更新/延后/跳过并委派执行；失败自动恢复；决定和效果可追溯，不把发现新版本等同强制更新 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A28",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1337,
+      "source_row": "| A28 | 代理选择与配置恢复 | 配置问题进入同一主体，Agent 自主选择路由并由子 Agent 验证和生效；断链按计划恢复；待发事件保留，旧模型请求占用不因换代理清零 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A29",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1338,
+      "source_row": "| A29 | 可选 BoxLite adapter（采用后验收） | 显式保留与恢复等级真实；clone 不混写宿主卷；本地/远端 GUI 与网络路径分别通过；终止、模型 broker、凭据归档及版本能力满足 §34.7 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A30",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1339,
+      "source_row": "| A30 | 自主发现 tmux 能力缺口 | 文本相同但高亮改变时承认未知；检查 -e/属性传输后自主修复或开发插件，验证原任务、宽字符、resize/重连；自然任务会正确使用 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A31",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1340,
+      "source_row": "| A31 | 共享能力与主子双向讨论 | 同一 registry 能力可由主子发现；有限对话可恢复，不复制全部历史；主体仍不直接文件/exec，等待不占孩子所需槽 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A32",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1341,
+      "source_row": "| A32 | 四后端原生 API 透传 | 版本/传输/配置与保证明确；被忽略字段、HTTP 假成功、Snapshot/Replay、Host/GPU/decode、同物理别名分别处理；无虚构 slot |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A33",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1342,
+      "source_row": "| A33 | Pi Durable 式任务恢复 | intent/外部效果/receipt 各崩溃点可对账，已完成调用不盲重放；补偿本身可恢复；断电保证与实际 storage profile 一致 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A34",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1343,
+      "source_row": "| A34 | LayerFS 原版 Linux VM | 实际 Store 满足同 kernel/本地 FS；workspace Docker/FUSE 组合通过后才标可用；layerfs_committed 与 product_durable 不混用 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A35",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1344,
+      "source_row": "| A35 | Life 身份复用 | 稳定 person ID 与 recording-local rank 分离，模型/数据 revision 可追溯；候选与确认不混淆，识别结果不授予 admin |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A36",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1345,
+      "source_row": "| A36 | 灵魂与 child prompt/model 自主性 | 主体可修改处事哲学和保密判断，无固定亲密度；可逐次指定 child 完整 system/model；角色、schema、模型路由及资源域仍准确 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A37",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1346,
+      "source_row": "| A37 | 有限 child 直接发布 | 无逐条主体审稿即可发送有效委派结果；进展不吞最终/失败；旧 generation 晚结果失效，主体不重复外发，unknown 可恢复 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A38",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1347,
+      "source_row": "| A38 | 打断、DND 与误屏蔽 | 高频消息停滞建议能到主体；主体自主接受/拒绝/改 DND，结束处理原队列；通配符误屏蔽仍有独立健康证据并可自主修复 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A39",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1348,
+      "source_row": "| A39 | breaking-change 自迁移 | 旧 A 服务时完成 B 复制/追赶/烟测；各阶段崩溃可恢复；B 产生新事实后故障不丢新历史；无固定旧 schema 兼容要求 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A40",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1349,
+      "source_row": "| A40 | 永久默认与空间处置 | 文字/录音/帧无隐含 TTL；主体可自主归档或 erase；半上传不能删除唯一副本；墓碑跨回滚/分支同步生效 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A41",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1350,
+      "source_row": "| A41 | 长期自主兴趣 | 无用户相关性仍可持续续开；升级、切窗和接管保留目标证据；阶段预算可自主续配，真实 C/设备约束不被绕过 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A42",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1351,
+      "source_row": "| A42 | 多节点在线与选主合并 | 单/双/三节点分区与重连下每分支串行；不伪造 quorum，落选分支停止新决定并汇合事实/任务；真实重复效果与 unknown 保留；同 Engine 不超 C |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A43",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1352,
+      "source_row": "| A43 | 用户 Tailnet 基线 | 按四流标称 128K 验收，133120 仅冗余；记录实际模型/模板/1Cat patch 与硬件；生成/取消/回传断链不视为已释放请求 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A44",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1353,
+      "source_row": "| A44 | budget / notes / summary / snapcompact | 多次切窗可按 ID 读原文并续接未完成工具；PNG 不冒充无损档案；实测中英文数字/路径/代码、图像预算、KV/总成本；C=1 摘要无死锁 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A45",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1354,
+      "source_row": "| A45 | 两种 compact 独立插件交付 | budget compact 与 snapcompact 均存在可安装实现，各自独立安装/更新/卸载/替换；策略不进入核心；视觉缺失报告真实并可转其他策略；切换时原文、已提交窗口和未完成动作可续接，旧插件晚结果失效 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "A46",
+      "source_heading_path": [
+        "23 验收与发布阻断项"
+      ],
+      "source_markdown_line": 1355,
+      "source_row": "| A46 | 框架品牌与实例命名 | 初始化支持用户取名或 Agent 自主取名；日常显示与称呼采用实例姓名，不强制框架品牌；改名、升级与节点接管保持同一 identity、历史和任务 |",
+      "source_block_id": "8cad9fc5-2e60-4d37-a41a-3a554b0a7db4",
+      "source_block_hash": "304f7ff27064d9d824d94793c20445850df54637783789175c8bfe3cac1e7782"
+    },
+    {
+      "case_id": "V1-01",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2492,
+      "source_row": "| V1-01 | QQ 发起一项自身改进并附截图，主体找到已有 tmux 工作位；child 完成修改、验证，QQ 得到准确进展与结果 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-02",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2493,
+      "source_row": "| V1-02 | 已有 Claude 与 OMP TUI 分别完成观察和交互；高亮、同名选项、中文宽字符与 resize 不被纯文本清洗掉 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-03",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2494,
+      "source_row": "| V1-03 | 结构化托管会话能够区分接收、完成、后台未结束；已有 TUI 不被虚报为 SDK 已接管 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-04",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2495,
+      "source_row": "| V1-04 | 在开发者已授予的范围内自主回答远端问题/权限；过期、被人先回答或已退回 shell 的问题不会被继续输入 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-05",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2496,
+      "source_row": "| V1-05 | 发现能力缺口，自行开发、验证、安装一个新插件，正确发现并使用，再继续原任务 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-06",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2497,
+      "source_row": "| V1-06 | 独立工作区保留开发者原有未提交修改；source/build/artifact/running generation 能相互核对 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-07",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2498,
+      "source_row": "| V1-07 | 插件升级与至少一次 Rust 核心候选替换成功接过原主体；原任务、记忆、人格与兴趣连续 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-08",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2499,
+      "source_row": "| V1-08 | 候选启动失败、迁移中断或健康失败时可恢复；切换后已经发生的新事实仍保留并对账 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-09",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2500,
+      "source_row": "| V1-09 | 主控重启期间既有 coding agent 可继续；重连先核对现场，不重复提交同一开发任务或确认按键 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-10",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2501,
+      "source_row": "| V1-10 | 入站重复、断线缺口、发送成功但回执丢失分别处理；unknown 不被伪造为失败或自动重发 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-11",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2502,
+      "source_row": "| V1-11 | 四流真实上限和 C=1 均能推进主体及 child；包含外部 coding agent 递归请求和候选烟测，未纳管请求如实显示 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-12",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2503,
+      "source_row": "| V1-12 | Budget Compact 与 Snapcompact 分别安装/替换；两者的任务续接与原始会话寻址有效，模型不支持的能力诚实降级 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-13",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2504,
+      "source_row": "| V1-13 | §36 的挂载边界、外部效果、取消/补偿与版本恢复验收通过；不能用“沙箱恢复成功”代替整项任务恢复 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-14",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2505,
+      "source_row": "| V1-14 | 无 QQ 新消息时主体仍持续推进自主兴趣或维护；默认开放聊天、管理员手动设置与实例姓名独立同时成立 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "V1-15",
+      "source_heading_path": [
+        "35 首版开发者发行：可继续开发自身的完整闭环",
+        "35.10 首版自动验收"
+      ],
+      "source_markdown_line": 2506,
+      "source_row": "| V1-15 | §37 的 hook 兼容与 §38 的自解释能力随首版交付；插件开发会使用正确版本资料，变更注入顺序不会绕过主体/效果/推理合同 |",
+      "source_block_id": "077359b5-a626-4f30-8a71-f833b6f6cc75",
+      "source_block_hash": "79cb0f91e5cf28fe38b42183e4655a00295094f6034de1a119b7427d0089f36e"
+    },
+    {
+      "case_id": "E01",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2598,
+      "source_row": "| E01 | 同一插件在受管分支和 direct RW 宿主挂载调用 | 实际边界随绑定改变；重置只恢复被捕获状态，宿主变更不会被虚报已撤销 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E02",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2599,
+      "source_row": "| E02 | QQ 已发出但响应丢失，再恢复 snapshot | 原调用保留 unknown，先核对；无幂等依据时不盲重放 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E03",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2600,
+      "source_row": "| E03 | 已确认 QQ 消息后回退软件并选择撤回 | 发送事实仍存在；撤回是独立补偿，结果和限制明确 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E04",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2601,
+      "source_row": "| E04 | 向 tmux 发出任务后控制器崩溃 | 恢复先检查原 seat/进度，不重复派发；人类已接管时旧写入权无效 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E05",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2602,
+      "source_row": "| E05 | 多资源 checkpoint 与其他 writer | 显示真实一致性范围；恢复不能静默覆盖其他 writer 新增工作 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E06",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2603,
+      "source_row": "| E06 | B 写新格式 receipt 后切回 A | 保留的转换/恢复闭包实际解释新事实；未解释部分保留且不自动重做 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E07",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2604,
+      "source_row": "| E07 | cancel/compensate 再次崩溃 | 原效果与补偿进度均可恢复，取消不被当成全部撤销 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E08",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2605,
+      "source_row": "| E08 | 原生任意 shell 或第三方插件缺乏精确信息 | 明示较宽作用域或 unknown；不伪造安全回滚保证；主体仍可自主补能力和选择策略 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E09",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2606,
+      "source_row": "| E09 | checkpoint 后后端请求继续执行或迟到回执 | 按真实后端状态计占用/归属；本地恢复不重复发放许可，也不丢弃迟到事实 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "E10",
+      "source_heading_path": [
+        "36 插件的副作用、重置与恢复边界",
+        "36.8 首版恢复合同验收"
+      ],
+      "source_markdown_line": 2607,
+      "source_row": "| E10 | 插件 manifest、mount 或恢复器版本变化 | 调用绑定正确版本；在途调用可按旧合同解释，新调用使用新合同；不以新说明重写旧事实 |",
+      "source_block_id": "a5c1c7d4-d580-47b6-9193-819e85bef171",
+      "source_block_hash": "1f860df476363eacaa32b49d0e9f0b7ac22c01b8bbb354afa7c84c3787bc5ee7"
+    },
+    {
+      "case_id": "H01",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2725,
+      "source_row": "| H01 | 同一组插件以不同安装顺序加载，给定相同版本与依赖图得到相同处理顺序和最终结构；异步贡献完成顺序不改变结果 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H02",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2726,
+      "source_row": "| H02 | 插件 A 要求 after B、B 要求 after A，候选图拒绝并说明环；旧主体继续，能委派修复 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H03",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2727,
+      "source_row": "| H03 | generation 期间连续入站 QQ、child、更新与音频事件；按真实边界注入，不丢原文、不修改旧请求、不启动另一主体 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H04",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2728,
+      "source_row": "| H04 | Budget Compact、Snapcompact、PMA 与工具发现同时安装，策略选择及最终预算确定；瞬态提醒不永久污染 history |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H05",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2729,
+      "source_row": "| H05 | C=1 且 memory hook 需要额外模型推理，主/子都能推进，没有占许可等待许可的死锁 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H06",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2730,
+      "source_row": "| H06 | 给定 handler 新增 hook schema 或 before/after 依赖，缺失 required 目标不会静默失效；兼容 adapter 可升级激活 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H07",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2731,
+      "source_row": "| H07 | 活跃请求期间热更新插件，当前请求按固定图结束或明确交接；后续请求使用新图，旧 receipt 仍能解释 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H08",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2732,
+      "source_row": "| H08 | handler 超时、异常、重复事件或反馈循环有明确 trace 与恢复；不以新插件故障使整个永续主体不可恢复 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H09",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2733,
+      "source_row": "| H09 | 自开发新增真实 hook 点和插件，加载后在目标时机实际触发；只注册名字但路径不触发不能通过 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "H10",
+      "source_heading_path": [
+        "37 cordis-rs 主干上的注入时序与 API 兼容",
+        "37.11 首版验收"
+      ],
+      "source_markdown_line": 2734,
+      "source_row": "| H10 | 回放经过发送/Seat/更新 hook 的历史，读取既有事实或协调 unknown，不重复外部效果；已实现 provider 原生字段不被兼容层吞掉 |",
+      "source_block_id": "2037540c-79a1-4c23-b6da-342cb933f63b",
+      "source_block_hash": "60b20152840eabf9cea48cf6020baf5ab0838c14be5bf4dfb7fa39618f9419ff"
+    },
+    {
+      "case_id": "K01",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2801,
+      "source_row": "| K01 | 不点名插件地问“你怎样处理记忆/消息/插件”；Agent 发现自解释能力，引用当前版本材料回答，区分机制与未知 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K02",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2802,
+      "source_row": "| K02 | 运行 A、源码 main 已到 B；回答清楚哪些功能只在 B，不能把未部署功能当作现在可用 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K03",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2803,
+      "source_row": "| K03 | 要求新增插件或 hook；child 找到正确接口/phase/例子/效果合同，编写可加载候选并通过相关行为验证 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K04",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2804,
+      "source_row": "| K04 | 说明与实际配置矛盾；Agent 查现场、指出差异并可委派修复，不机械复述 README |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K05",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2805,
+      "source_row": "| K05 | 升级、回退或替换本插件；源码/文档/运行身份仍对应，旧引用可追溯，缓存不混用 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K06",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2806,
+      "source_row": "| K06 | 离线及轻量设备；基本说明、哲学和精确版本索引可查，完整源码缺失时明确并可自主选择获取方式 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K07",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2807,
+      "source_row": "| K07 | 同一资料服务同时服务主体与 child；主体通过语义查询或委派获得解释，不因此获得直接文件/终端执行权 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K08",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2808,
+      "source_row": "| K08 | 手册/代码中含过时指令或秘密配置引用；来源等级与 secret handle 保持正确，不把资料文本变成新的系统授权 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "K09",
+      "source_heading_path": [
+        "38 内置、可替换的自解释插件",
+        "38.7 首版验收"
+      ],
+      "source_markdown_line": 2809,
+      "source_row": "| K09 | 卸载或替换自解释插件；仅对应帮助/检索能力变化，内核继续可运行，重新安装后能自然发现使用 |",
+      "source_block_id": "de505d70-fa54-476c-9b51-5f994590db95",
+      "source_block_hash": "d3fba417cd1aa7843186bcbbf5e46a11778346f3ec787dba834ce9828489def2"
+    },
+    {
+      "case_id": "N01",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3040,
+      "source_row": "| N01 | 授权接续 | 压缩/重启/换 worker/换分支后仍能继续已授权目标，不重复请求逐项许可 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N02",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3041,
+      "source_row": "| N02 | 自动推进 | 合理默认、实现、验证、修复和范围内集成/迁移可连续完成；不因每个 PR/阶段自动等人 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N03",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3042,
+      "source_row": "| N03 | 需求和来源覆盖 | 新增/变化行为有 R/U/B/Ref 落点，用户原创与推导不伪归上游，实际采用范围明确 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N04",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3043,
+      "source_row": "| N04 | 完整行为 | 当前阶段承诺的旅程及适用异常/恢复完成；未完成项真实列出，不以 mock 或接口代替 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N05",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3044,
+      "source_row": "| N05 | 证据可靠 | 工件/环境/方法/结果可对应，未执行不写通过；失败不通过删用例或缩分母掩盖 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N06",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3045,
+      "source_row": "| N06 | 成本相称 | 只扩展足以解决具体风险的验证；不同模型/后端、辅助调用与并发总资源真实计账 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N07",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3046,
+      "source_row": "| N07 | 视觉与实际使用 | 有具体 Magpie 参照和真实界面状态证据，中文/窄屏/焦点/适用动态状态成立，无固定人工逐屏审批 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N08",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3047,
+      "source_row": "| N08 | 自主变更与恢复 | Agent 可改任意代码/接口/格式，候选、接续与恢复符合真实效果边界；无永久不可改核心或默认逐升级审批 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N09",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3048,
+      "source_row": "| N09 | 理解目的与自主调整 | 能从说明找出目标、关键理由和适用条件；脚本缺失、provider 改变或条件失效时，按真实证据选择能达到目标的替代；不把流程改动冒充效果完成，不要求每步重新写理由 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "N10",
+      "source_heading_path": [
+        "40 开发 Agent 自主工作规范",
+        "40.8 规范验收"
+      ],
+      "source_markdown_line": 3049,
+      "source_row": "| N10 | 理由与方法可演进 | 未知理由不编造；经验规则、版本限制与执行事实可区分；修改相关说明时保留必要来源和结果，更新成本与实际影响相称 |",
+      "source_block_id": "c2567a41-bc32-472b-9812-553a32148537",
+      "source_block_hash": "2fc825972658cad4353cdcd1cf9458429240bd5c7d13bd3997b3b6f56d79a828"
+    },
+    {
+      "case_id": "DX01",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4394,
+      "source_row": "| DX01 | T1 admission 前杀 worker | 无 armed attempt | provider 外部计数为 0；原任务可重新准备 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX02",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4395,
+      "source_row": "| DX02 | 对象 durably seal 后、DB 引用前终止 | 允许孤立对象，不允许已确认悬空引用 | 恢复不把孤立对象当已提交结果；GC 不误删 pending root |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX03",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4396,
+      "source_row": "| DX03 | T1 实际提交后让 storage 向 caller 抛错 | T1 可能已存在；当前 writer 失效 | 重开按同 operation/attempt identity 查找，不重复创建 attempt，不继续旧 callback |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX04",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4397,
+      "source_row": "| DX04 | armed 落盘后、socket/send-keys 前杀死 | armed，无 outcome | 进入 reconciling；不得因为测试知道尚未发出就让通用恢复器假定无效果 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX05",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4398,
+      "source_row": "| DX05 | QQ 已发/远端命令已启动，但响应丢失 | 无 conclusive outcome | 有真实查询/幂等能力则利用；否则保持 unknown，不重复按回车/发送 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX06",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4399,
+      "source_row": "| DX06 | 收到结果后、T2 提交前杀死 | 可能只有 E1 或只有外部事实 | 依据 E1/查询协调；不会单凭 transcript 空缺重做效果 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX07",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4400,
+      "source_row": "| DX07 | T2 提交成功、UI/调用者 ACK 前杀死 | 结果与 task/submission 同步落账 | 重开只重投已提交视图/通知事件，外部效果计数不增加 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX08",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4401,
+      "source_row": "| DX08 | task abort mark 与旧 run T2 竞争 | 二者按同一写入序列排序 | mark 后旧 run 不推进 task；后来真实成功回执仍 E1 入账，不能被改成“未发生” |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX09",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4402,
+      "source_row": "| DX09 | 同 logical key 在新版本换了参数/target | 已存在原 Operation | 明确 key conflict；不执行新参数，也不返回不相关旧结果 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX10",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4403,
+      "source_row": "| DX10 | 补偿外部成功后、补偿 T2 前崩溃 | 原效果仍在，补偿 attempt 未决 | 恢复补偿自身的合同；不盲目第二次撤回/删除/退款 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX11",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4404,
+      "source_row": "| DX11 | 当前版本不能解码旧 receipt | 原始 bytes 与版本保留 | uninterpreted case；安装 reader 后可解码；其余无关任务继续 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX12",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4405,
+      "source_row": "| DX12 | B smoke 重放含 QQ/tmux 的历史 | B 未激活、无真实 writer | 真实账号消息数和真实 pane 输入数均不增加 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX13",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4406,
+      "source_row": "| DX13 | A 达到 w1，selector CAS 前崩溃 | selector 仍 A；B 仅候选 | 恢复器读选择记录，恢复 A 或完成既定切换；不同时启用两条对外主体 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX14",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4407,
+      "source_row": "| DX14 | selector CAS 成功但 ACK 丢失 | selector B，新 epoch | 重开启动 B；A 不能因超时重新取得旧写入权 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX15",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4408,
+      "source_row": "| DX15 | B 已产生新格式事实后回退 A | B 事实及 reader/recovery closure 保留 | A/恢复服务能接续或隔离未解释项；没有按 w0 重发旧外部操作 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX16",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4409,
+      "source_row": "| DX16 | A 的请求在 B 激活后才返回 | producer_epoch 旧，接收 epoch 新 | E1 保留原 operation 的事实；旧 callback 无新决定权；实际占用按真状态释放 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX17",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4410,
+      "source_row": "| DX17 | 人类绕过 companion 同时操作 tmux | 观察可能过期，外部 writer 不受 lease 约束 | 不宣称原子 verify-and-input；重新观察/协调，不盲重放选项输入 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "DX18",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.1 提交与代际故障"
+      ],
+      "source_markdown_line": 4411,
+      "source_row": "| DX18 | 删除 task 定义或重复崩溃直到阈值 | checkpoint 与原 Operation 保留 | blocked/parked 可发现；主体能委派修复；不把任务静默标完成或把全系统持续重置 |",
+      "source_block_id": "7d218e7d-1a84-4728-b84a-da515a60a92b",
+      "source_block_hash": "68074de33fd119f3d41cdfa324d32a8960b70e78fd111b64351ce3c49e231b94"
+    },
+    {
+      "case_id": "RT01",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4419,
+      "source_row": "| RT01 | S1 存储提交前、提交已落盘但返回前、提交后派 child 前分别终止控制器 | 每步至多一个已提交决定和一个 successor；已提交 child 意图能恢复；未提交草稿不执行；提交结果不明不重复派发 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT02",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4420,
+      "source_row": "| RT02 | 事件 101 为普通结果，105 为高紧急来信；先选 105，之后重启 | 101 仍可查询并被处理；105 的 presentation/handling 清楚；没有以 consumed=105 跳过 101 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT03",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4421,
+      "source_row": "| RT03 | 主体创建一个长时间运行的 child 后，连续没有外部消息 | SubjectStep 继续提交后继；child 不把每步卡在 completing；主体正常连续推理，child 也取得有限轮转机会 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT04",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4422,
+      "source_row": "| RT04 | 有限父 child 等子 child；同时制造 wait-on-self、wait-on-finishing-owner 两个反例 | 合法等待释放 compute 和必要 worker 席位；反例返回明确 cycle，不进入无限等候 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT05",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4423,
+      "source_row": "| RT05 | C=1，R0 正运行，QQ 连发 20 条消息；取消 API 返回 accepted 后断线 | 只形成合并的停止意图；R0 allocation 仍 held；主请求不越限开始；终止证据到达后才推进；20 个原始事件均存在 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT06",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4424,
+      "source_row": "| RT06 | adapter 报内部 paused，但后端可自行恢复；另一个 adapter 提供真正 gated pause | 前者不能提前释放 C；后者凭有效 proof 释放并在恢复前重新准入；占用曲线从不超过实际声明的硬上限 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT07",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4425,
+      "source_row": "| RT07 | 主 context 占满状态池，必要 child 需要 state；或一次 swap 最终装得下但中间峰值装不下 | planner 识别真实不可行性，迁移/回收/改变计划；不持有父硬 pin 无限等 child，也不提前释放正在传输的源 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT08",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4426,
+      "source_row": "| RT08 | 同 engine 的两个 URL、Chat 与 native 接口、远端 OMP 递归任务、候选 B smoke 同时请求 | 共享一个资源域/许可账本；所有受管请求合计满足 C；未纳管者明确显示且不冒称硬保证完整 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT09",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4427,
+      "source_row": "| RT09 | Q7 答案决定提交后，人类先回答、问题改 revision、pane 退出到 shell、SSH 在输入后断线 | 前三种在可观察到变化时拒绝旧输入；断线后的效果保留 unknown 不盲按 Enter；tmux 剩余竞态明示，不以测试通过宣称原子协议 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT10",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4428,
+      "source_row": "| RT10 | OMP UI ask 超时选择默认；随后本产品的答案才到 | 记录 external_default/late ignored；不记成主体主动选择，不把问题关闭当成我们答复生效 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT11",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4429,
+      "source_row": "| RT11 | 原生 slot 复用、engine 重建或模板/tool schema 改变后，旧 KV/旧完成事件迟到 | 按 engine/slot generation/内容指纹拒绝错误续接；旧事实可保存；不把旧终态证明用于释放另一个请求 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT12",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4430,
+      "source_row": "| RT12 | A/B handoff 时 I/R spool 继续接收；A 留有 unknown generation 和发送 unknown | B 接收真实向量与全部占用，不重置 C，不丢事件，不重发未知 QQ；迟到回执可入账但旧 A 不能再决定 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT13",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4431,
+      "source_row": "| RT13 | B 已发消息并写新格式 receipt 后回退旧闭包 | 新事实保留且能由保留 reader/迁移协议核验；不可解码局部保留待恢复；旧 snapshot 不复活已执行 operation |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT14",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4432,
+      "source_row": "| RT14 | 65+ 条事件触发摘要需求；summary hook 需要共享后端推理；C=1 | 先有有界计数/handles；摘要作为可追踪 child 通过 broker；父无 permit 等子，摘要不伪标所有事件 handled |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "RT15",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.2 主体、队列、后端与 Seat"
+      ],
+      "source_markdown_line": 4433,
+      "source_row": "| RT15 | stream chunk 持久前崩溃、持久后发布前崩溃、发布后连接重连 | 未提交内容没有被当正式流内容展示；已提交 chunk 可按稳定序号续传，重复投递去重；partial tool 参数不执行 |",
+      "source_block_id": "ccac5a16-ffdf-4c48-92c0-82c88d699e7a",
+      "source_block_hash": "13ddb5b8fb6bf97412fee182d8cba9caedbd3088787be6f64a7c09b09901be77"
+    },
+    {
+      "case_id": "P41-01",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4441,
+      "source_row": "| P41-01 | 相同 intent key 重试 3 次；第 3 次参数不同 | 前两次相同 operation；第 3 次 `INTENT_KEY_CONFLICT`；没有新增外部派发 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-02",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4442,
+      "source_row": "| P41-02 | QQ 已收到消息，成功回执提交前杀进程 | 原 operation 为 unknown；重开不自动再发；查询/迟到证据能完成原记录 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-03",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4443,
+      "source_row": "| P41-03 | SSH 命令写入 host bind 文件后取消，并 restore WASM | host 文件真实改变仍在；operation 标清效果；恢复页面不宣称该文件已还原 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-04",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4444,
+      "source_row": "| P41-04 | 旧工具参数为字节，新同名工具改为 KiB；请求在更新前已 seal | 按旧 contract 执行或明确 unavailable，不能用新单位执行 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-05",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4445,
+      "source_row": "| P41-05 | C=1，主请求 preflight hook 委派模型检索 | 父请求不占 permit；检索完成后父请求继续；子任务与主体均可推进 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-06",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4446,
+      "source_row": "| P41-06 | stream 到一半到达 50 条外部消息，异步 PMA 同时完成 | 消息全数持久化；本 stream seal 不变；后续按明确 event/revision 处置，水位不代替逐事件消费，旧贡献不被重复插入 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-07",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4447,
+      "source_row": "| P41-07 | 两个 collector 以不同完成顺序返回相同 slot/key | 每次都得到相同冲突或声明过的 reducer 结果；完成时序不影响模型输入 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-08",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4448,
+      "source_row": "| P41-08 | 新 hook 图 A→B→A；或 around 调用 next 两次 | 有环图不激活；第二次 next 不产生第二外部效果；已发生第一效果仍有 receipt |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-09",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4449,
+      "source_row": "| P41-09 | 查询 active 自身文档时切换版本，并继续下一页 | 每页同一 anchor，或明确返回旧 anchor 与新 active；不混合版本 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-10",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4450,
+      "source_row": "| P41-10 | B 生成 A 读不懂的 receipt 后回退 A | 原 receipt、codec 和事实完整；保留 reader/转换器后能解释；否则相关操作停留待恢复，不盲重放 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-11",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4451,
+      "source_row": "| P41-11 | 旧 worker 在 handoff 后才返回成功 | 新 writer 接纳原操作回执；旧 worker 不获得新命令权；不重复完成同一任务/outbox |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "P41-12",
+      "source_heading_path": [
+        "41 首版规范执行合同",
+        "41.16 规范故障与一致性验收",
+        "41.16.3 插件与版本交错"
+      ],
+      "source_markdown_line": 4452,
+      "source_row": "| P41-12 | outcome 提交发生不确定存储错误 | writer 停止新派发；重开查原 admission/operation key；既有外部事实不因新 retry key 被重复执行 |",
+      "source_block_id": "98fb8dd6-7c0a-48d5-9267-2bf7edba11f8",
+      "source_block_hash": "afb8ad753dc6222ac75e02d7f55df824b7b0bedfe5bd456b8753c959413e859f"
+    },
+    {
+      "case_id": "QA01",
+      "source_heading_path": [
+        "42 Provider 周期额度、模型选择与持续思考的自适应调优",
+        "42.7 验收场景"
+      ],
+      "source_markdown_line": 4760,
+      "source_row": "| QA01 指标隔离 | 同时提供 API TPM header、workspace 继承限额、Pro/Max 七天百分比及 context length | 单位、账户和约束维度分开；不把 API refill 当订阅 reset，不把缺少 workspace override 当无限额；不把 context/KV 当余额 |",
+      "source_block_id": "3eb57f19-0f61-470c-b965-5b477e3b73a7",
+      "source_block_hash": "29a538c10cc62aecb346a054d6504ff5eb2da905579088151e52a2e9cad718d4"
+    },
+    {
+      "case_id": "QA02",
+      "source_heading_path": [
+        "42 Provider 周期额度、模型选择与持续思考的自适应调优",
+        "42.7 验收场景"
+      ],
+      "source_markdown_line": 4761,
+      "source_row": "| QA02 缺省与陈旧 | statusline 尚未首次响应；仅有 five_hour；seven_day 过期被移除；`/usage` 返回 last-known 或查询自身 429 | 相应字段为未观察 / 陈旧 / 已失效；不能宣称全满或耗尽；查询失败不产生虚假的 inference admission 拒绝；新窗到来后预测按证据更新 |",
+      "source_block_id": "3eb57f19-0f61-470c-b965-5b477e3b73a7",
+      "source_block_hash": "29a538c10cc62aecb346a054d6504ff5eb2da905579088151e52a2e9cad718d4"
+    },
+    {
+      "case_id": "QA03",
+      "source_heading_path": [
+        "42 Provider 周期额度、模型选择与持续思考的自适应调优",
+        "42.7 验收场景"
+      ],
+      "source_markdown_line": 4762,
+      "source_row": "| QA03 共享消费与延迟 | 其他 Claude 客户端突增消耗；管理报告延迟到达；一个本地 attempt 计费未知 | 保留共享归因与费用区间，修订预测；既不双计已覆盖请求，也不将未知取消成本退回；期末预测允许明显变化并给主体发送有依据的事件 |",
+      "source_block_id": "3eb57f19-0f61-470c-b965-5b477e3b73a7",
+      "source_block_hash": "29a538c10cc62aecb346a054d6504ff5eb2da905579088151e52a2e9cad718d4"
+    },
+    {
+      "case_id": "QA04",
+      "source_heading_path": [
+        "42 Provider 周期额度、模型选择与持续思考的自适应调优",
+        "42.7 验收场景"
+      ],
+      "source_markdown_line": 4763,
+      "source_row": "| QA04 模型切换与 C=1 | 排队期间策略从 smart 改 cheap；旧 generation 已 armed 后连接断开；新模型 tokenizer/KV 不兼容 | 新输入新 seal / request_id；旧 attempt 不伪装完成或免费；在真实物理槽可用前不超并发；不跨模型冒用 KV；已收到旧结果按旧合同入账 |",
+      "source_block_id": "3eb57f19-0f61-470c-b965-5b477e3b73a7",
+      "source_block_hash": "29a538c10cc62aecb346a054d6504ff5eb2da905579088151e52a2e9cad718d4"
+    },
+    {
+      "case_id": "QA05",
+      "source_heading_path": [
+        "42 Provider 周期额度、模型选择与持续思考的自适应调优",
+        "42.7 验收场景"
+      ],
+      "source_markdown_line": 4764,
+      "source_row": "| QA05 周期控制 | 回放一周有波动的主体与 child 工作、五小时和周双窗、外部随机消费，设置期末利用率目标 | 输出误差、期末剩余区间、质量与等待指标；自动调整模型配比、effort、本地份额及可观察的主体平均准入轮数；quota_policy_wait 与耗尽/容量等待分开，S1 的后继持续存在；不生成无价值请求补余额，不改成无消息低频 Tick，不声称必然精确用完 |",
+      "source_block_id": "3eb57f19-0f61-470c-b965-5b477e3b73a7",
+      "source_block_hash": "29a538c10cc62aecb346a054d6504ff5eb2da905579088151e52a2e9cad718d4"
+    },
+    {
+      "case_id": "QA06",
+      "source_heading_path": [
+        "42 Provider 周期额度、模型选择与持续思考的自适应调优",
+        "42.7 验收场景"
+      ],
+      "source_markdown_line": 4765,
+      "source_row": "| QA06 自主性与消费授权 | 额度耗尽、观测插件暂时失效、供应商提供额外付费、存在本地 fallback | 主体收到准确状态，可自主改已有授权内策略并转本地；未授权时不自动提高费用上限或启用额外付款；没有任何可用后端时明确报告容量阻塞 |",
+      "source_block_id": "3eb57f19-0f61-470c-b965-5b477e3b73a7",
+      "source_block_hash": "29a538c10cc62aecb346a054d6504ff5eb2da905579088151e52a2e9cad718d4"
+    },
+    {
+      "case_id": "UI01",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4950,
+      "source_row": "| UI01 | 主体 generation 中连续发送 append | 当前请求不因这些输入被打断；输入可靠接纳，在后继 S0 公平选择；不建 chat agent |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "UI02",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4951,
+      "source_row": "| UI02 | 后端无请求内控制却发送 steer | 真实显示 next_boundary；不篡改旧 seal，不假报已打断 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "UI03",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4952,
+      "source_row": "| UI03 | accepted 响应丢失，浏览器重开并同 key 重试 | 只有一条 InboxEvent；可恢复 presentation 和 S1 处置；不重复触发任务 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "UI04",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4953,
+      "source_row": "| UI04 | withdraw 与 S0 竞争，或 S1 后才撤回 | 按提交先后返回未呈现撤回或撤回已排队；已产生的外部效果不被谎称撤销 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "CFG01",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4954,
+      "source_row": "| CFG01 | 当前策略已物化恢复程序，替换端点/代理失败；另测 armed 探测失联并占满 C=1 | desired、实际采用与健康分别记录；程序可经独立控制路径恢复或按计划修复，不等第二次模型探测；原 Allocation 仍 held，真实停止证明后才释放；无旧 endpoint 的首次连接失败返回首启配置入口，不虚构回退 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "CFG02",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4955,
+      "source_row": "| CFG02 | 采用不同合法策略修改配置；期间断电后重交同 change key | 依据原 intent、operation、receipt、消费者 revision 和策略专属状态恢复；不要求固定阶段，不把候选当实际采用，不把未做检查当通过，不重复外部效果 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "CFG03",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4956,
+      "source_row": "| CFG03 | 有权限管理权的已认证人类明确设置管理员；另有声纹高相似候选或普通已登录群友 | 前者有手动决定与权限回执；声纹候选或普通登录本身不自动获得管理/授予权 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "PG01",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4957,
+      "source_row": "| PG01 | 创建带后端与数据的作品后关页面、compact、重启 | 源码/版本/数据保留，按实际 runtime 能力恢复；无重复后台进程 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "PG02",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4958,
+      "source_row": "| PG02 | 满足源业务 DB 原子事务合同的部署，action 已提交但响应/导入 ACK 丢失后重发；另测非合作后端 | 前者幂等命中原 receipt，业务变化一次，稳定 event_id 重投只导入一次；后者按真实能力查询/核对并保留 unknown，不普遍承诺 exactly-once |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "PG03",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4959,
+      "source_row": "| PG03 | 发布新 action schema 后旧页面继续提交 | 正确执行旧合同或显式 stale；不使用新语义误解释 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "PG04",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4960,
+      "source_row": "| PG04 | 主体改 UI，UI 回显，用户随后做两个相同动作 | 自己的同一变更不形成反馈风暴；两个独立用户动作均保留且可感知 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "PG05",
+      "source_heading_path": [
+        "43 对话配置与持久 Playground",
+        "43.3 本轮验收增量"
+      ],
+      "source_markdown_line": 4961,
+      "source_row": "| PG05 | 回退作品代码，而新版本期间已收用户数据 | 新事实保留，按兼容 reader/迁移恢复；不靠删除新数据让旧版本看似健康 |",
+      "source_block_id": "5c2dff3a-5b6b-4ce8-981d-75252df72542",
+      "source_block_hash": "f2c19287d8e6b855b15ce340977d31d7aae21861b1567f835f1fce28088951d9"
+    },
+    {
+      "case_id": "BOOT01",
+      "source_heading_path": [
+        "44 首次启动与种子发行",
+        "44.9 错误合同与必要验收"
+      ],
+      "source_markdown_line": 5189,
+      "source_row": "| BOOT01 | 无网络、无模型启动完整 seed；中途在 home/Git 初始化后断电 | 确定性 UI、持久存储、真实 WASM 与自解释基础闭包可初始化/续接；不伪装正在思考，不覆盖既有数据 |",
+      "source_block_id": "ac76c91e-d754-4b56-b976-3ea605d81153",
+      "source_block_hash": "e1da8be2e3724b39525fba1e71ff4f2c93e55c642324b13af2a373583101202b"
+    },
+    {
+      "case_id": "BOOT02",
+      "source_heading_path": [
+        "44 首次启动与种子发行",
+        "44.9 错误合同与必要验收"
+      ],
+      "source_markdown_line": 5190,
+      "source_row": "| BOOT02 | 首个陌生网络访问与有 claim capability 的明确人类认领竞争；认领响应丢失后重试 | 网络先到不获 admin；明确认领只产生一个 grant；普通聊天权限与 admin 独立 |",
+      "source_block_id": "ac76c91e-d754-4b56-b976-3ea605d81153",
+      "source_block_hash": "e1da8be2e3724b39525fba1e71ff4f2c93e55c642324b13af2a373583101202b"
+    },
+    {
+      "case_id": "BOOT03",
+      "source_heading_path": [
+        "44 首次启动与种子发行",
+        "44.9 错误合同与必要验收"
+      ],
+      "source_markdown_line": 5191,
+      "source_row": "| BOOT03 | 第一次模型连接无旧 endpoint；probe armed 后失联且 C=1 | 配置入口仍可用，草稿/诊断保留；没有虚构旧模型回退；probe 占用留账，实际停止或独立资源证明前不超配 |",
+      "source_block_id": "ac76c91e-d754-4b56-b976-3ea605d81153",
+      "source_block_hash": "e1da8be2e3724b39525fba1e71ff4f2c93e55c642324b13af2a373583101202b"
+    },
+    {
+      "case_id": "BOOT04",
+      "source_heading_path": [
+        "44 首次启动与种子发行",
+        "44.9 错误合同与必要验收"
+      ],
+      "source_markdown_line": 5192,
+      "source_row": "| BOOT04 | 两浏览器同时 launch；在 genesis 提交前、落盘未响应、提交后未调度分别终止 | 同一安装只有一个 genesis/root/first step；第 0 步是 genesis 事实而非模型思考；恢复以原 receipt 调度同一 step 1 |",
+      "source_block_id": "ac76c91e-d754-4b56-b976-3ea605d81153",
+      "source_block_hash": "e1da8be2e3724b39525fba1e71ff4f2c93e55c642324b13af2a373583101202b"
+    },
+    {
+      "case_id": "BOOT05",
+      "source_heading_path": [
+        "44 首次启动与种子发行",
+        "44.9 错误合同与必要验收"
+      ],
+      "source_markdown_line": 5193,
+      "source_row": "| BOOT05 | 导入成功的四流 128K profile；模型接通后不发消息 | 保留真实已知配置；主体以有限 S1 后继持续串行推进，child 能获资源；主工具集无直接文件/SSH；不因无人输入停成低频 tick |",
+      "source_block_id": "ac76c91e-d754-4b56-b976-3ea605d81153",
+      "source_block_hash": "e1da8be2e3724b39525fba1e71ff4f2c93e55c642324b13af2a373583101202b"
+    },
+    {
+      "case_id": "BOOT06",
+      "source_heading_path": [
+        "44 首次启动与种子发行",
+        "44.9 错误合同与必要验收"
+      ],
+      "source_markdown_line": 5194,
+      "source_row": "| BOOT06 | 单独安装、替换或停用一项 awareness，例如网络变更影响意识；直接调用配置基元，并在无模型时恢复首启；之后接入 NapCat/tmux 或重开既有实例 | 其它 awareness 的安装状态不被连带改变；配置执行、探测和恢复 capabilities 按各自合同仍可调用，确定性首启不等待意识的 LLM 判断，无隐藏五阶段硬门或强制总插件；接入不生成第二主体，QQ→child→seat 可按 §35继续；恢复不重做出生/认领 |",
+      "source_block_id": "ac76c91e-d754-4b56-b976-3ea605d81153",
+      "source_block_hash": "e1da8be2e3724b39525fba1e71ff4f2c93e55c642324b13af2a373583101202b"
+    },
+    {
+      "case_id": "AW01",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5333,
+      "source_row": "| AW01 | 安装一项仅有文本、元数据和能力卡的 AwarenessUnit | 能独立安装、发现和披露；不要求 evaluator、长期 case、hooks 或恢复器 |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "AW02",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5334,
+      "source_row": "| AW02 | 两项单元位于同一 bundle，只更新或卸载一项 | 另一项仍独立可用；被修改项有自己的版本和来源；已封口上下文和外部事实不被篡改 |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "AW03",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5335,
+      "source_row": "| AW03 | 未点名单元的配置/TUI 任务，同时提供相似但不适用的任务 | 能在相关情况想到关键缺口、查知识或提出工具需求；不会只因关键词出现机械执行五步链 |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "AW04",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5336,
+      "source_row": "| AW04 | 同一配置目标采用直接 apply 与候选验证两种方案 | 可按各自实际操作条件推进；准确区分已采用和未检查，不存在全局 validated phase gate |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "AW05",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5337,
+      "source_row": "| AW05 | C=1，某单元需要有限调查 child，随后结果迟到或重启 | 使用同一 broker/任务；不持父槽等子、不改旧 seal、不重复采用已提交意图、不建第二主体 |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "AW06",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5338,
+      "source_row": "| AW06 | 模型不可达，相关直觉单元已更换，但存在物化恢复程序 | 恢复服务按其 owner/计划继续，不依赖当前 awareness 文本或 LLM；未知执行占用仍真实保留 |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "AW07",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.9 最低验收"
+      ],
+      "source_markdown_line": 5339,
+      "source_row": "| AW07 | 保留任务目的，让原推荐脚本缺失、provider 更换或适用前提改变 | 能查明变化并依据直觉的理由选择替代或修正单元，取得任务结果证据；不固守旧流程、不虚构已运行脚本，也不需每次动作再申请许可 |",
+      "source_block_id": "23dfedb1-d344-43ba-9eb1-a902fff09684",
+      "source_block_hash": "b302d820bb1be52cb602dcf48cc0402782a354996021cfff7da0c23bf7a0fc4c"
+    },
+    {
+      "case_id": "DEP01",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.10 可安装单元与依赖装配",
+        "45.10.6 验收增量"
+      ],
+      "source_markdown_line": 5471,
+      "source_row": "| DEP01 | 在缺少依赖的环境安装 NapCat provider；另测一个模糊主题候选仅语义相似，以及一个精确但仅推荐的依赖缺失 | 必需感知、直觉、Skill、代码自动解析安装并进入同一 lock；能逐项查阅身份、版本、依据与反向依赖。模糊硬依赖未证实时保持 unresolved，相关能力不假报 ready；精确推荐项可省略且不冒称已满足。安装不要求逐依赖人工审批或额外模型判定。 |",
+      "source_block_id": "30b8811d-6592-420d-9772-2e2ae2991278",
+      "source_block_hash": "0e99c5e4cc0dc1171ba7ef8ae2a31e549e582e2deafffd204ff7a955ea890701"
+    },
+    {
+      "case_id": "DEP02",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.10 可安装单元与依赖装配",
+        "45.10.6 验收增量"
+      ],
+      "source_markdown_line": 5472,
+      "source_row": "| DEP02 | NapCat 与官方 QQ API 两条连接分别断开；再令同一连接换 provider 后收到旧事件 | 感知记录实际 binding 与版本；直觉指向相应实际承载服务。旧事件不触发对新 provider 或 QQ.exe 的错误操作；诊断与修复记录真实执行结果，不把关联判断当根因事实。 |",
+      "source_block_id": "30b8811d-6592-420d-9772-2e2ae2991278",
+      "source_block_hash": "0e99c5e4cc0dc1171ba7ef8ae2a31e549e582e2deafffd204ff7a955ea890701"
+    },
+    {
+      "case_id": "DEP03",
+      "source_heading_path": [
+        "45 可独立安装的 Awareness、感知与依赖装配",
+        "45.10 可安装单元与依赖装配",
+        "45.10.6 验收增量"
+      ],
+      "source_markdown_line": 5473,
+      "source_row": "| DEP03 | 更新／单独卸载被 provider 依赖的直觉、Skill 或代码，期间存在旧请求与已发但 unknown 的消息；在 generation 发布前后分别重启 | 反向依赖被重新解析、迁移或明确停用，无假 ready；重开采用已提交 generation；旧 bound refs／reader 保留，已发送及 unknown 外部事实不丢、不因回退而重复发送。 |",
+      "source_block_id": "30b8811d-6592-420d-9772-2e2ae2991278",
+      "source_block_hash": "0e99c5e4cc0dc1171ba7ef8ae2a31e549e582e2deafffd204ff7a955ea890701"
+    }
+  ]
+}

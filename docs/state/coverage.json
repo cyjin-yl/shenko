@@ -1,0 +1,2366 @@
+{
+  "schema_version": 1,
+  "goal_id": "shenko-complete-product",
+  "spec_version": "0.6.2",
+  "coverage_status": "initial_unverified",
+  "items": [
+    {
+      "requirement_id": "R001",
+      "behaviors": [
+        "B01",
+        "B22"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R002",
+      "behaviors": [
+        "B41"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R003",
+      "behaviors": [
+        "B04",
+        "B05"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R004",
+      "behaviors": [
+        "B05"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R005",
+      "behaviors": [
+        "B05",
+        "B08"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R006",
+      "behaviors": [
+        "B03",
+        "B10",
+        "B15"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R007",
+      "behaviors": [
+        "B05",
+        "B06"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R008",
+      "behaviors": [
+        "B06"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R009",
+      "behaviors": [
+        "B07"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R010",
+      "behaviors": [
+        "B05",
+        "B15"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R011",
+      "behaviors": [
+        "B02",
+        "B05"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R012",
+      "behaviors": [
+        "B05",
+        "B08"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R013",
+      "behaviors": [
+        "B08"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R014",
+      "behaviors": [
+        "B06",
+        "B10"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R015",
+      "behaviors": [
+        "B10"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R016",
+      "behaviors": [
+        "B11"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R017",
+      "behaviors": [
+        "B11",
+        "B35"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R018",
+      "behaviors": [
+        "B11",
+        "B24"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R019",
+      "behaviors": [
+        "B06",
+        "B11"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R020",
+      "behaviors": [
+        "B07"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R021",
+      "behaviors": [
+        "B02",
+        "B05"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R022",
+      "behaviors": [
+        "B12",
+        "B13"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R023",
+      "behaviors": [
+        "B09"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R024",
+      "behaviors": [
+        "B01",
+        "B03",
+        "B07"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R025",
+      "behaviors": [
+        "B01"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R026",
+      "behaviors": [
+        "B01",
+        "B10",
+        "B11",
+        "B12",
+        "B19"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R027",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R028",
+      "behaviors": [
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R029",
+      "behaviors": [
+        "B02"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R030",
+      "behaviors": [
+        "B34"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R031",
+      "behaviors": [
+        "B35"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R032",
+      "behaviors": [
+        "B34"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R033",
+      "behaviors": [
+        "B34"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R034",
+      "behaviors": [
+        "B02"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R035",
+      "behaviors": [
+        "B22"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R036",
+      "behaviors": [
+        "B22"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R037",
+      "behaviors": [
+        "B18"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R038",
+      "behaviors": [
+        "B08",
+        "B18",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R039",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R040",
+      "behaviors": [
+        "B19"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R041",
+      "behaviors": [
+        "B11",
+        "B15",
+        "B26"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R042",
+      "behaviors": [
+        "B02",
+        "B03",
+        "B26",
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R043",
+      "behaviors": [
+        "B12"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R044",
+      "behaviors": [
+        "B05",
+        "B31"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R045",
+      "behaviors": [
+        "B41"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R046",
+      "behaviors": [
+        "B03",
+        "B31"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R047",
+      "behaviors": [
+        "B03",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R048",
+      "behaviors": [
+        "B03",
+        "B18",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R049",
+      "behaviors": [
+        "B07",
+        "B25",
+        "B36"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R050",
+      "behaviors": [
+        "B03",
+        "B10",
+        "B12"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R051",
+      "behaviors": [
+        "B03"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R052",
+      "behaviors": [
+        "B03"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R053",
+      "behaviors": [
+        "B03",
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R054",
+      "behaviors": [
+        "B03",
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R055",
+      "behaviors": [
+        "B03",
+        "B21",
+        "B22"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R056",
+      "behaviors": [
+        "B22"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R057",
+      "behaviors": [
+        "B22",
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R058",
+      "behaviors": [
+        "B19",
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R059",
+      "behaviors": [
+        "B23"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R060",
+      "behaviors": [
+        "B23",
+        "B29"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R061",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R062",
+      "behaviors": [
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R063",
+      "behaviors": [
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R064",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R065",
+      "behaviors": [
+        "B17"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R066",
+      "behaviors": [
+        "B17",
+        "B32"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R067",
+      "behaviors": [
+        "B16"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R068",
+      "behaviors": [
+        "B16",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R069",
+      "behaviors": [
+        "B24"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R070",
+      "behaviors": [
+        "B15",
+        "B24"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R071",
+      "behaviors": [
+        "B24"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R072",
+      "behaviors": [
+        "B22",
+        "B24"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R073",
+      "behaviors": [
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R074",
+      "behaviors": [
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R075",
+      "behaviors": [
+        "B25",
+        "B26"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R076",
+      "behaviors": [
+        "B26"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R077",
+      "behaviors": [
+        "B26"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R078",
+      "behaviors": [
+        "B26",
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R079",
+      "behaviors": [
+        "B28"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R080",
+      "behaviors": [
+        "B28"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R081",
+      "behaviors": [
+        "B28"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R082",
+      "behaviors": [
+        "B28",
+        "B37"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R083",
+      "behaviors": [
+        "B07",
+        "B28"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R084",
+      "behaviors": [
+        "B29"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R085",
+      "behaviors": [
+        "B03",
+        "B29"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R086",
+      "behaviors": [
+        "B23",
+        "B25",
+        "B29"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R087",
+      "behaviors": [
+        "B02",
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R088",
+      "behaviors": [
+        "B02",
+        "B07",
+        "B36"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R089",
+      "behaviors": [
+        "B01"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R090",
+      "behaviors": [
+        "B30",
+        "B53"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "A47"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R091",
+      "behaviors": [
+        "B33"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R092",
+      "behaviors": [
+        "B07"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R093",
+      "behaviors": [
+        "B07",
+        "B22"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R094",
+      "behaviors": [
+        "B07",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R095",
+      "behaviors": [
+        "B09",
+        "B30"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R096",
+      "behaviors": [
+        "B25"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R097",
+      "behaviors": [
+        "B03",
+        "B25"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R098",
+      "behaviors": [
+        "B19"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R099",
+      "behaviors": [
+        "B04"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R100",
+      "behaviors": [
+        "B09"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R101",
+      "behaviors": [
+        "B06",
+        "B25"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R102",
+      "behaviors": [
+        "B23"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R103",
+      "behaviors": [
+        "B35"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R104",
+      "behaviors": [
+        "B23",
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R105",
+      "behaviors": [
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R106",
+      "behaviors": [
+        "B03",
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R107",
+      "behaviors": [
+        "B03"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R108",
+      "behaviors": [
+        "B21"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R109",
+      "behaviors": [
+        "B21"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R110",
+      "behaviors": [
+        "B07",
+        "B37"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R111",
+      "behaviors": [
+        "B32"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R112",
+      "behaviors": [
+        "B18"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R113",
+      "behaviors": [
+        "B31",
+        "B53"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "A42"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R114",
+      "behaviors": [
+        "B19",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R115",
+      "behaviors": [
+        "B13",
+        "B14"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R116",
+      "behaviors": [
+        "B13",
+        "B14",
+        "B27"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R117",
+      "behaviors": [
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R118",
+      "behaviors": [
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R119",
+      "behaviors": [
+        "B35",
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R120",
+      "behaviors": [
+        "B36"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R121",
+      "behaviors": [
+        "B37"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R122",
+      "behaviors": [
+        "B38"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R123",
+      "behaviors": [
+        "B02",
+        "B38"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R124",
+      "behaviors": [
+        "B39"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R125",
+      "behaviors": [
+        "B41",
+        "B39"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R126",
+      "behaviors": [
+        "B41"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R127",
+      "behaviors": [
+        "B35"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R128",
+      "behaviors": [
+        "B40"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R129",
+      "behaviors": [
+        "B03",
+        "B04",
+        "B20",
+        "B24",
+        "B37",
+        "B38",
+        "B39",
+        "B41"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R130",
+      "behaviors": [
+        "B42",
+        "B19",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R131",
+      "behaviors": [
+        "B35",
+        "B33"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R132",
+      "behaviors": [
+        "B35",
+        "B03",
+        "B38"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R133",
+      "behaviors": [
+        "B43",
+        "B07",
+        "B41",
+        "B45"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R134",
+      "behaviors": [
+        "B44",
+        "B33",
+        "B37"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R135",
+      "behaviors": [
+        "B46",
+        "B03",
+        "B20"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R136",
+      "behaviors": [
+        "B45",
+        "B52",
+        "B26",
+        "B38",
+        "B43"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "AW08",
+        "AW09"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R137",
+      "behaviors": [
+        "B02",
+        "B38"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R138",
+      "behaviors": [
+        "B47",
+        "B25",
+        "B26",
+        "B27",
+        "B45"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R139",
+      "behaviors": [
+        "B48",
+        "B26",
+        "B39",
+        "B41",
+        "B45"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R140",
+      "behaviors": [
+        "B49",
+        "B41",
+        "B48"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R141",
+      "behaviors": [
+        "B49",
+        "B41"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R142",
+      "behaviors": [
+        "B50",
+        "B19",
+        "B38",
+        "B42",
+        "B47"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R143",
+      "behaviors": [
+        "B51",
+        "B03"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "A01",
+        "RT16"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R144",
+      "behaviors": [
+        "B52",
+        "B45",
+        "B47",
+        "B39"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "AW08",
+        "AW09"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R145",
+      "behaviors": [
+        "B53",
+        "B31",
+        "B11",
+        "B30",
+        "B39"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "A42",
+        "A47",
+        "A48"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R146",
+      "behaviors": [
+        "B54",
+        "B41",
+        "B49"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "N06",
+        "G13"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    },
+    {
+      "requirement_id": "R147",
+      "behaviors": [
+        "B55",
+        "B04",
+        "B05",
+        "B37"
+      ],
+      "specification_state": "specified",
+      "implementation_state": "not_assessed",
+      "evidence_state": [],
+      "acceptance_case_ids": [
+        "A49"
+      ],
+      "implementation_refs": [],
+      "evidence_refs": [],
+      "blockers": [],
+      "satisfied": false,
+      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Shenko · 实现改动"
+  short_description: "围绕用户可观察的行为完成连贯改动，自主选择实现并保留真实结果"
+  default_prompt: "使用 $shenko-dev-change 完成这项行为改动并说明实际结果。"
