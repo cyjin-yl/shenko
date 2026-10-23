@@ -1,7 +1,12 @@
-//! Inference broker — dispatches to Anthropic API or stub. SPEC §13, §47
+//! Inference broker — dispatches to Anthropic API, local model, or stub. SPEC §13, §22.1, §47
 //!
 //! Requests are held in a BinaryHeap keyed by (InferencePriority desc, arrival seq asc) so that
 //! Urgent(3) > Subject(2) > Normal(1) > Low(0), with FIFO ordering within the same priority.
+//!
+//! Provider selection (checked once at startup):
+//!   SHENKO_USE_LOCAL_MODEL=1  → LocalModelProvider (Qwen3.8-27B via Tailnet, §22.1)
+//!   ANTHROPIC_API_KEY set     → AnthropicProvider
+//!   neither                   → stub
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use tokio::sync::mpsc;
@@ -10,7 +15,66 @@ use anyhow::Result;
 
 use crate::admission::AdmissionController;
 use crate::provider::AnthropicProvider;
+use crate::local_provider::LocalModelProvider;
 use crate::request::{InferenceRequest, InferenceResult, InferenceStatus, InferenceResponse};
+
+enum ActiveProvider {
+    Anthropic(AnthropicProvider),
+    Local(LocalModelProvider),
+    Stub,
+}
+
+impl ActiveProvider {
+    fn from_env() -> Self {
+        if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
+            let p = LocalModelProvider::from_env();
+            info!(base_url=%p.base_url, model=%p.model, "local model provider selected (§22.1)");
+            return Self::Local(p);
+        }
+        if let Some(p) = AnthropicProvider::from_env() {
+            info!("Anthropic API key found — real inference enabled");
+            return Self::Anthropic(p);
+        }
+        info!("No ANTHROPIC_API_KEY and SHENKO_USE_LOCAL_MODEL not set — stub mode");
+        Self::Stub
+    }
+
+    async fn complete(&self, req: &InferenceRequest) -> InferenceResult {
+        match self {
+            Self::Anthropic(p) => match p.complete(&req.payload).await {
+                Ok(response) => InferenceResult {
+                    request_id: req.request_id,
+                    status: InferenceStatus::Success,
+                    response: Some(response),
+                },
+                Err(e) => {
+                    warn!(err=%e, "anthropic inference failed");
+                    InferenceResult { request_id: req.request_id, status: InferenceStatus::Failed, response: None }
+                }
+            },
+            Self::Local(p) => match p.complete(&req.payload).await {
+                Ok(response) => InferenceResult {
+                    request_id: req.request_id,
+                    status: InferenceStatus::Success,
+                    response: Some(response),
+                },
+                Err(e) => {
+                    warn!(err=%e, "local inference failed");
+                    InferenceResult { request_id: req.request_id, status: InferenceStatus::Failed, response: None }
+                }
+            },
+            Self::Stub => InferenceResult {
+                request_id: req.request_id,
+                status: InferenceStatus::Success,
+                response: Some(InferenceResponse {
+                    content: "[stub: set ANTHROPIC_API_KEY or SHENKO_USE_LOCAL_MODEL=1]".to_string(),
+                    stop_reason: "end_turn".to_string(),
+                    usage: None,
+                }),
+            },
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct BrokerHandle { tx: mpsc::UnboundedSender<InferenceRequest> }
@@ -20,6 +84,8 @@ impl BrokerHandle {
         self.tx.send(req).map_err(|e| anyhow::anyhow!("broker: {e}"))
     }
 }
+
+
 
 /// Wraps an InferenceRequest so that BinaryHeap (max-heap) dequeues by highest priority first,
 /// then by lowest sequence number (earliest arrival) for equal-priority ties.
@@ -56,18 +122,13 @@ impl PartialOrd for Queued {
 pub struct Broker {
     rx: mpsc::UnboundedReceiver<InferenceRequest>,
     admission: AdmissionController,
-    provider: Option<AnthropicProvider>,
+    provider: ActiveProvider,
 }
 
 impl Broker {
     pub fn new() -> (Self, BrokerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let provider = AnthropicProvider::from_env();
-        if provider.is_some() {
-            info!("Anthropic API key found — real inference enabled");
-        } else {
-            info!("No ANTHROPIC_API_KEY — stub mode");
-        }
+        let provider = ActiveProvider::from_env();
         (Self { rx, admission: AdmissionController::nominal(), provider }, BrokerHandle { tx })
     }
 
@@ -115,28 +176,7 @@ impl Broker {
                 }
             };
 
-            let result = match &self.provider {
-                Some(provider) => match provider.complete(&req.payload).await {
-                    Ok(response) => InferenceResult {
-                        request_id: req.request_id,
-                        status: InferenceStatus::Success,
-                        response: Some(response),
-                    },
-                    Err(e) => {
-                        warn!(err=%e, "inference failed");
-                        InferenceResult { request_id: req.request_id, status: InferenceStatus::Failed, response: None }
-                    }
-                },
-                None => InferenceResult {
-                    request_id: req.request_id,
-                    status: InferenceStatus::Success,
-                    response: Some(InferenceResponse {
-                        content: "[stub: set ANTHROPIC_API_KEY]".to_string(),
-                        stop_reason: "end_turn".to_string(),
-                        usage: None,
-                    }),
-                },
-            };
+            let result = self.provider.complete(&req).await;
             let _ = req.result_tx.send(result);
         }
         info!("inference broker stopped");

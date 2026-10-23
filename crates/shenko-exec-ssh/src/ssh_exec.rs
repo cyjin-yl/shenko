@@ -112,6 +112,108 @@ pub struct TmuxObservation {
     pub captured_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Structured seat observation returned by TmuxSeat::capture_pane. SPEC §17.5, §35.5
+/// Carries raw ANSI output, plain-stripped text, detected question/prompt lines,
+/// and a monotonic revision counter for change detection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeatObservation {
+    pub pane: TmuxPane,
+    /// Raw screen content with ANSI escape sequences (from capture-pane -e)
+    pub raw: String,
+    /// Plain text after stripping all ANSI/VT100 escape sequences
+    pub plain: String,
+    /// Lines that appear to be prompting for user input (questions, confirmations)
+    pub pending_questions: Vec<String>,
+    /// Monotonically increasing counter; changes when capture_pane is called
+    pub revision: u64,
+    pub captured_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Strip ANSI/VT100 escape sequences from raw terminal output. SPEC §17.5
+///
+/// Handles CSI sequences (`ESC [ ... letter`), OSC sequences (`ESC ] ... BEL/ST`),
+/// two-char ESC sequences, and charset designations. Preserves newlines and
+/// all non-escape content verbatim.
+pub fn parse_ansi_to_plain(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' {
+            out.push(ch);
+            continue;
+        }
+        match chars.peek() {
+            Some(&'[') => {
+                // CSI: ESC [ <params> <final>   final = ASCII letter or '@'
+                chars.next();
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() || c == '@' {
+                        break;
+                    }
+                }
+            }
+            Some(&']') => {
+                // OSC: ESC ] <payload> BEL  or  ESC ] <payload> ST (ESC \)
+                chars.next();
+                loop {
+                    match chars.next() {
+                        None | Some('\x07') => break,
+                        Some('\x1b') => {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Some(&'(') | Some(&')') => {
+                // Charset designation: ESC ( X  or  ESC ) X
+                chars.next();
+                chars.next();
+            }
+            Some(_) => {
+                // Two-char escape (e.g. ESC M, ESC 7, ESC 8) — skip second char
+                chars.next();
+            }
+            None => {}
+        }
+    }
+    out
+}
+
+/// Return lines from plain text that look like interactive prompts. SPEC §17.5
+///
+/// A line qualifies if it ends with '?' (after trimming) or contains any of
+/// the standard confirmation/prompt patterns used by CLI tools.
+pub fn extract_question_lines(plain: &str) -> Vec<String> {
+    const PATTERNS: &[&str] = &[
+        "Do you want",
+        "Would you like",
+        "Press Enter",
+        "Y/n",
+        "(y/N)",
+        "(Y/n)",
+        "(y/n)",
+        "[Y/n]",
+        "[y/N]",
+        "[y/n]",
+    ];
+    plain
+        .lines()
+        .filter(|line| {
+            let t = line.trim();
+            if t.is_empty() {
+                return false;
+            }
+            t.ends_with('?') || PATTERNS.iter().any(|p| line.contains(p))
+        })
+        .map(|l| l.to_string())
+        .collect()
+}
+
 /// Tmux seat adapter — discovers and controls tmux panes. SPEC §35.5
 /// This is the first required seat path: "已存在的 tmux 前台 TUI"
 pub struct TmuxSeat {
@@ -169,19 +271,18 @@ impl TmuxSeat {
         }).collect())
     }
 
-    /// Capture a pane preserving ANSI/attributes (capture-pane -e). SPEC §35.5
-    /// Returns both raw (with escapes) and plain text versions.
-    pub async fn capture_pane(&self, pane_id: &str) -> Result<TmuxObservation> {
-        // -e: preserve escape sequences (color, attribute)
+    /// Capture a pane preserving ANSI/attributes (capture-pane -e). SPEC §17.5, §35.5
+    /// Returns a SeatObservation with raw ANSI output, plain-stripped text,
+    /// and any detected question/prompt lines.
+    pub async fn capture_pane(&self, pane_id: &str) -> Result<SeatObservation> {
+        // -e: preserve escape sequences (color, attribute); second call gives tmux-stripped plain
         let raw_cmd = format!("tmux capture-pane -p -e -t '{pane_id}' 2>/dev/null || echo ''");
-        let plain_cmd = format!("tmux capture-pane -p -t '{pane_id}' 2>/dev/null || echo ''");
         let pane_info_cmd = format!(
             "tmux list-panes -t '{pane_id}' -F '{{{{session_name}}}}\t{{{{window_index}}}}\t{{{{pane_index}}}}\t{{{{pane_id}}}}\t{{{{pane_current_command}}}}\t{{{{pane_current_path}}}}\t{{{{pane_active}}}}\t{{{{pane_width}}}}\t{{{{pane_height}}}}' 2>/dev/null || echo ''"
         );
 
-        let (raw_out, plain_out, info_out) = tokio::try_join!(
+        let (raw_out, info_out) = tokio::try_join!(
             self.executor.run_command(&raw_cmd),
-            self.executor.run_command(&plain_cmd),
             self.executor.run_command(&pane_info_cmd),
         )?;
 
@@ -209,13 +310,17 @@ impl TmuxSeat {
             }
         };
 
-        let seq = self.observation_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let revision = self.observation_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let raw = raw_out.stdout;
+        let plain = parse_ansi_to_plain(&raw);
+        let pending_questions = extract_question_lines(&plain);
 
-        Ok(TmuxObservation {
+        Ok(SeatObservation {
             pane,
-            raw_screen: raw_out.stdout,
-            plain_text: plain_out.stdout,
-            observation_seq: seq,
+            raw,
+            plain,
+            pending_questions,
+            revision,
             captured_at: chrono::Utc::now(),
         })
     }
