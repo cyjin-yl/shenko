@@ -1,4 +1,9 @@
 //! Inference broker — dispatches to Anthropic API or stub. SPEC §13, §47
+//!
+//! Requests are held in a BinaryHeap keyed by (InferencePriority desc, arrival seq asc) so that
+//! Urgent(3) > Subject(2) > Normal(1) > Low(0), with FIFO ordering within the same priority.
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 use anyhow::Result;
@@ -14,6 +19,38 @@ impl BrokerHandle {
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
         self.tx.send(req).map_err(|e| anyhow::anyhow!("broker: {e}"))
     }
+}
+
+/// Wraps an InferenceRequest so that BinaryHeap (max-heap) dequeues by highest priority first,
+/// then by lowest sequence number (earliest arrival) for equal-priority ties.
+struct Queued {
+    req: InferenceRequest,
+    seq: u64,
+}
+
+impl Queued {
+    #[inline]
+    fn priority_val(&self) -> u8 { self.req.priority as u8 }
+}
+
+impl PartialEq for Queued {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority_val() == other.priority_val() && self.seq == other.seq
+    }
+}
+impl Eq for Queued {}
+
+impl Ord for Queued {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Higher priority wins; for equal priority, the earlier-arriving request (lower seq) wins.
+        self.priority_val()
+            .cmp(&other.priority_val())
+            .then_with(|| other.seq.cmp(&self.seq))
+    }
+}
+
+impl PartialOrd for Queued {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
 pub struct Broker {
@@ -36,7 +73,36 @@ impl Broker {
 
     pub async fn run(mut self) {
         info!("inference broker running");
-        while let Some(req) = self.rx.recv().await {
+        let mut queue: BinaryHeap<Queued> = BinaryHeap::new();
+        let mut seq: u64 = 0;
+
+        loop {
+            // Drain all immediately available requests into the priority queue.
+            loop {
+                match self.rx.try_recv() {
+                    Ok(req) => { queue.push(Queued { req, seq }); seq += 1; }
+                    Err(_) => break,
+                }
+            }
+
+            // If nothing is queued yet, block until at least one request arrives.
+            if queue.is_empty() {
+                match self.rx.recv().await {
+                    Some(req) => { queue.push(Queued { req, seq }); seq += 1; }
+                    None => break, // channel closed — all handles dropped
+                }
+                // Drain any requests that arrived concurrently while we were waiting.
+                loop {
+                    match self.rx.try_recv() {
+                        Ok(req) => { queue.push(Queued { req, seq }); seq += 1; }
+                        Err(_) => break,
+                    }
+                }
+            }
+
+            // Dequeue the highest-priority (earliest-within-tier) request.
+            let req = queue.pop().expect("queue non-empty").req;
+
             let _guard = match self.admission.try_admit() {
                 Some(g) => g,
                 None => {

@@ -103,7 +103,8 @@ async fn main() -> Result<()> {
             // 4. Start subject loop — the continuous main agent. SPEC §5.1
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
-            let dispatcher = Arc::new(shenko_subject::dispatch::ChildDispatcher::new(agent_id));
+            let (dispatcher_inner, _dispatch_rx) = shenko_subject::dispatch::ChildDispatcher::new(agent_id);
+            let dispatcher = Arc::new(dispatcher_inner);
             let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
                 agent_id,
                 Arc::clone(&subject_inbox),
@@ -121,15 +122,16 @@ async fn main() -> Result<()> {
                     ws_url,
                     ..Default::default()
                 };
-                let (_, _event_rx, _action_rx) = shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
+                let (napcat_client, _event_rx, _action_rx) = shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
+                let spool = napcat_client.spool.clone();
                 let cancel_napcat = cancel.clone();
                 let inbox_tx = subject_inbox.sender();
                 tokio::spawn(async move {
-                    // Route NapCat events to subject inbox
+                    // Route NapCat events to subject inbox; spool provides dedup and gap recording
                     let (event_tx_inner, mut event_rx_inner) = tokio::sync::mpsc::channel(256);
                     let (_action_tx_inner, action_rx_inner) = tokio::sync::mpsc::channel(256);
                     tokio::spawn(shenko_channel_napcat::client::NapCatClient::run_connection_loop(
-                        napcat_config, event_tx_inner, action_rx_inner, cancel_napcat.clone(),
+                        napcat_config, event_tx_inner, action_rx_inner, spool, cancel_napcat.clone(),
                     ));
                     while let Some(ev) = event_rx_inner.recv().await {
                         if cancel_napcat.is_cancelled() { break; }

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::time::Duration;
 use tracing::{info, warn, debug};
 use shenko_types::ids::{EntityId, BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
-use shenko_types::subject::{SubjectStep, SubjectStepState, SemanticWait};
+use shenko_types::subject::{SubjectStep, SubjectStepState, SemanticWait, DelegationIntent};
 use shenko_types::commit::CommitRef;
 use shenko_types::object::{ObjectRef, SchemaRef, Digest};
 use crate::inbox::{Inbox, InboxEvent};
@@ -289,6 +289,28 @@ async fn execute_step(
     // Carry thought forward
     if let Some(output) = &model_output {
         state.last_thought = Some(output.clone());
+    }
+
+    // Delegation heuristic — SPEC §5.2/§5.3
+    // If the model output signals a delegation ("委派" or "delegate"), synthesise a
+    // minimal DelegationIntent and hand it to the dispatcher.  A real seat adapter
+    // will drain the dispatcher channel and spawn an actual child.
+    if let Some(output) = &model_output {
+        let lower = output.to_lowercase();
+        if output.contains("委派") || lower.contains("delegate") {
+            let intent = DelegationIntent {
+                intent_id: EntityId::new(),
+                goal: output.lines().next().unwrap_or("delegated task").to_string(),
+                system_prompt: String::new(),
+                model: None,
+                capabilities: vec![],
+                budget_hint: None,
+                reply_grant: None,
+            };
+            if let Err(e) = state.dispatcher.dispatch(intent).await {
+                warn!(seq, err=%e, "delegation dispatch failed");
+            }
+        }
     }
 
     // S1: Committed — atomic commit of step + advance branch head in one TX. SPEC §41.2.1/§44.6

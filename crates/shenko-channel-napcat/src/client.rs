@@ -10,6 +10,7 @@ use anyhow::Result;
 use url::Url;
 
 use crate::config::NapCatConfig;
+use crate::spool::IngressSpool;
 
 /// OneBot v11 event from NapCat
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -30,18 +31,29 @@ pub struct OneBotAction {
     pub echo: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct NapCatClient {
     pub config: NapCatConfig,
     event_tx: mpsc::Sender<OneBotEvent>,
     action_tx: mpsc::Sender<OneBotAction>,
+    pub spool: Arc<IngressSpool>,
+}
+
+impl std::fmt::Debug for NapCatClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NapCatClient")
+            .field("config", &self.config)
+            .field("spool_pending", &self.spool.pending_count())
+            .finish()
+    }
 }
 
 impl NapCatClient {
     pub fn new(config: NapCatConfig) -> (Self, mpsc::Receiver<OneBotEvent>, mpsc::Receiver<OneBotAction>) {
         let (event_tx, event_rx) = mpsc::channel(256);
         let (action_tx, action_rx) = mpsc::channel(256);
-        (Self { config, event_tx, action_tx }, event_rx, action_rx)
+        let spool = Arc::new(IngressSpool::new(config.bot_qq));
+        (Self { config, event_tx, action_tx, spool }, event_rx, action_rx)
     }
 
     /// Send a private message via NapCat
@@ -71,6 +83,7 @@ impl NapCatClient {
         config: NapCatConfig,
         event_tx: mpsc::Sender<OneBotEvent>,
         mut action_rx: mpsc::Receiver<OneBotAction>,
+        spool: Arc<IngressSpool>,
         cancel: tokio_util::sync::CancellationToken,
     ) {
         loop {
@@ -91,6 +104,7 @@ impl NapCatClient {
                 }
                 Ok((ws_stream, _)) => {
                     info!("NapCat: connected");
+                    spool.record_reconnect();
                     let (mut write, mut read) = ws_stream.split();
 
                     loop {
@@ -100,9 +114,28 @@ impl NapCatClient {
                                     Some(Ok(Message::Text(text))) => {
                                         match serde_json::from_str::<OneBotEvent>(&text) {
                                             Ok(event) => {
-                                                let _ = event_tx.send(event).await;
+                                                // Serialize back to Value for spool ingestion
+                                                let raw = match serde_json::to_value(&event) {
+                                                    Ok(v) => v,
+                                                    Err(e) => {
+                                                        warn!(err=%e, "NapCat: failed to re-serialize event");
+                                                        continue;
+                                                    }
+                                                };
+                                                // Dedup via spool; duplicates are silently dropped
+                                                if let Some(spooled) = spool.ingest(raw) {
+                                                    // Reconstruct the typed event from the spooled raw value
+                                                    match serde_json::from_value::<OneBotEvent>(spooled.raw) {
+                                                        Ok(deduped_event) => {
+                                                            let _ = event_tx.send(deduped_event).await;
+                                                        }
+                                                        Err(e) => {
+                                                            warn!(err=%e, "NapCat: failed to deserialize spooled event");
+                                                        }
+                                                    }
+                                                }
                                             }
-                                            Err(e) => {
+                                            Err(_) => {
                                                 // Not all messages are events (some are API responses)
                                                 tracing::debug!("NapCat: non-event msg: {}", &text[..text.len().min(100)]);
                                             }
@@ -110,10 +143,12 @@ impl NapCatClient {
                                     }
                                     Some(Ok(Message::Close(_))) | None => {
                                         warn!("NapCat: connection closed");
+                                        spool.record_disconnect();
                                         break;
                                     }
                                     Some(Err(e)) => {
                                         warn!(err=%e, "NapCat: WS error");
+                                        spool.record_disconnect();
                                         break;
                                     }
                                     _ => {}
@@ -125,6 +160,7 @@ impl NapCatClient {
                                         let json = serde_json::to_string(&a).unwrap_or_default();
                                         if let Err(e) = write.send(Message::Text(json.into())).await {
                                             warn!(err=%e, "NapCat: send failed");
+                                            spool.record_disconnect();
                                             break;
                                         }
                                     }
