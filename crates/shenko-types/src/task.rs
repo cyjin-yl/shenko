@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commit::CommitRef;
 use crate::ids::{
-    BranchId, ControllerEpoch, EntityId, RecordRevision, RuntimeGeneration, TaskRevision,
+    ControllerEpoch, EntityId, RecordRevision, TaskRevision,
 };
 use crate::object::ObjectRef;
 

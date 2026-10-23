@@ -1,6 +1,5 @@
 [workspace]
 resolver = "2"
-edition = "2024"
 
 members = [
     "crates/shenko-types",
@@ -22,8 +21,8 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
 edition = "2024"
+version = "0.1.0"
 authors = ["Shenko Contributors"]
 license = "Apache-2.0"
 repository = "https://github.com/cyjin-yl/shenko"

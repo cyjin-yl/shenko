@@ -16,6 +16,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
 [lints.rust]

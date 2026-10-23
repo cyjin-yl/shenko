@@ -16,5 +16,9 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
+futures = { workspace = true }
+url = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

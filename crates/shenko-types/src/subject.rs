@@ -2,9 +2,10 @@
 //! S0: fix input plan + context version.
 //! S1: commit decision, event disposition, delegation intent, unique successor.
 use serde::{Deserialize, Serialize};
-use crate::ids::{EntityId, TaskRevision, RecordRevision};
+use crate::ids::{EntityId, BranchId, ControllerEpoch, RuntimeGeneration, RecordRevision, TaskRevision};
 use crate::commit::CommitRef;
 use crate::object::ObjectRef;
+use crate::task::WaitJoinPolicy;
 
 /// S0: input plan sealed for one subject step.
 /// Fixes the attention context version before the model is called.
@@ -137,4 +138,142 @@ impl SemanticWait {
             .num_seconds() as u64;
         elapsed >= self.max_wait_secs
     }
+}
+
+/// Subject branch head — tracks the continuous subject loop state. SPEC §41.5
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubjectBranchHead {
+    pub agent_id: EntityId,
+    pub branch_id: BranchId,
+    pub subject_root_task_id: EntityId,
+    pub controller_epoch: ControllerEpoch,
+    pub software_generation: RuntimeGeneration,
+    pub genesis_ref: GenesisRef,
+    pub committed_step_no: u64,
+    pub committed_step_id: Option<EntityId>,
+    pub committed_at: CommitRef,
+    pub next_step_id: EntityId,
+    pub mode: SubjectMode,
+    pub mode_reason_ref: Option<ObjectRef>,
+    pub record_revision: RecordRevision,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubjectMode { Active, Quiescing, Handoff, Paused, RecoveryBlocked }
+
+/// Persistent genesis record — the immutable birth of a subject instance. SPEC §44.6
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubjectGenesis {
+    pub genesis_id: EntityId,
+    pub subject_id: EntityId,
+    pub bootstrap_id: EntityId,
+    pub launch_id: EntityId,
+    pub seed_manifest_ref: ObjectRef,
+    pub initial_profile_ref: ObjectRef,
+    pub home_manifest_ref: ObjectRef,
+    pub bootstrap_event_ref: ObjectRef,
+    pub created_commit: CommitRef,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenesisRef { pub ledger_id: EntityId, pub genesis_id: EntityId }
+
+/// SubjectStep state machine per SPEC §41.5
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubjectStep {
+    pub step_id: EntityId,
+    pub branch_id: BranchId,
+    pub step_no: u64,
+    pub expected_parent_commit: CommitRef,
+    pub controller_epoch: ControllerEpoch,
+    pub software_generation: RuntimeGeneration,
+    pub state: SubjectStepState,
+    pub input_plan_ref: Option<ObjectRef>,
+    pub context_revision: Option<u64>,
+    pub active_request_id: Option<EntityId>,
+    pub active_attempt_id: Option<EntityId>,
+    pub model_result_ref: Option<ObjectRef>,
+    pub decision_ref: Option<ObjectRef>,
+    pub commit_ref: Option<CommitRef>,
+    pub retry_reason_ref: Option<ObjectRef>,
+    pub record_revision: RecordRevision,
+    pub created_by_step_id: Option<EntityId>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubjectStepState {
+    Planned, Preparing, AwaitingModel, ResultRecorded, Committed, RetryPending, Retired,
+}
+
+/// TaskWait — child wait record. SPEC §41.5
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskWait {
+    pub waiting_task_id: EntityId,
+    pub expected_task_revision: TaskRevision,
+    pub on_task_ids: Vec<EntityId>,
+    pub policy: WaitJoinPolicy,
+    pub resume_checkpoint_ref: Option<ObjectRef>,
+    pub created_commit: CommitRef,
+}
+
+/// StepDecision — the committed decision for one subject step. SPEC §41.5
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepDecision {
+    pub step_id: EntityId,
+    pub input_plan_ref: ObjectRef,
+    pub model_result_ref: Option<ObjectRef>,
+    pub applied_steering_refs: Vec<ObjectRef>,
+    pub event_dispositions: Vec<EventDisposition>,
+    pub delegated_task_intents: Vec<DelegationIntent>,
+    pub child_dialogue_intents: Vec<DialogueIntent>,
+    pub memory_intents: Vec<MemoryIntent>,
+    pub policy_intents: Vec<PolicyIntent>,
+    pub publication_intents: Vec<PublicationIntent>,
+    pub pending_obligations: Vec<PendingObligation>,
+    pub evidence_refs: Vec<ObjectRef>,
+    pub successor_step_id: EntityId,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DialogueIntent {
+    pub intent_id: EntityId,
+    pub target_task_id: EntityId,
+    pub message: String,
+    pub in_reply_to: Option<EntityId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolicyIntent {
+    pub intent_id: EntityId,
+    pub kind: PolicyKind,
+    pub description: String,
+    pub target_revision: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyKind {
+    ResourceShare,
+    UpdatePolicy,
+    NetworkPolicy,
+    RetentionPolicy,
+    InterruptPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PublicationIntent {
+    pub intent_id: EntityId,
+    pub target: String,
+    pub content: String,
+    pub reply_grant_id: Option<EntityId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingObligation {
+    pub obligation_id: EntityId,
+    pub description: String,
+    pub depends_on_task_id: Option<EntityId>,
+    pub resume_condition: String,
 }

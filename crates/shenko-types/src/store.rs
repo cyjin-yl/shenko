@@ -1,13 +1,10 @@
 //! 存储 trait 接口 — SPEC §41.2
 
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::commit::{CommitReceipt, DurabilityProfile};
-use crate::error::ShenkoError;
+use crate::commit::DurabilityProfile;
 use crate::ids::{EntityId, LedgerSeq};
-use crate::object::Digest;
 use crate::task::TaskRecord;
 use crate::operation::{AttemptRecord, OperationRecord};
 use crate::evidence::EvidenceReceipt;

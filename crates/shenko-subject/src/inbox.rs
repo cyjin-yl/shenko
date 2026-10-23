@@ -1,5 +1,4 @@
 //! Persistent subject inbox — SPEC §5.1
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use shenko_types::ids::EntityId;
 use serde::{Deserialize, Serialize};

@@ -99,4 +99,58 @@ CREATE INDEX IF NOT EXISTS idx_memory_kind ON memory_entries(kind);
 CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id, seq);
 CREATE INDEX IF NOT EXISTS idx_tasks_state ON tasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_ops_task ON operations(operation_id);
+
+CREATE TABLE IF NOT EXISTS subject_branch_heads (
+    agent_id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    committed_step_no INTEGER NOT NULL DEFAULT 0,
+    committed_step_id TEXT,
+    next_step_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'active',
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS subject_steps (
+    step_id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    step_no INTEGER NOT NULL,
+    state TEXT NOT NULL DEFAULT 'planned',
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS subject_genesis (
+    genesis_id TEXT PRIMARY KEY,
+    subject_id TEXT NOT NULL UNIQUE,
+    bootstrap_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS bootstrap_records (
+    bootstrap_id TEXT PRIMARY KEY,
+    installation_id TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'preparing',
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inbox_events (
+    event_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL,
+    consumed INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_inbox_agent ON inbox_events(agent_id, consumed, created_at);
 "#;

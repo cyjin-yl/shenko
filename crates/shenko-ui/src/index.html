@@ -2,40 +2,671 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Shenko（深刻）</title>
+<meta name="description" content="持续思考的个人 Agent">
 <style>
-:root{--bg:#0f0f0f;--surface:#1a1a1a;--border:#2a2a2a;--text:#e8e8e8;--muted:#888;--accent:oklch(70% 0.18 250);--accent-dim:oklch(45% 0.14 250)}
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.6;height:100dvh;display:flex;flex-direction:column}
-header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
-header h1{font-size:17px;font-weight:600;letter-spacing:-.01em}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--accent-dim)}
-.dot.on{background:var(--accent)}
-main{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:12px}
-.msg{max-width:680px;padding:12px 16px;border-radius:12px;line-height:1.65}
-.msg.subject{background:var(--surface);border:1px solid var(--border)}
-.msg.user{background:var(--accent-dim);margin-left:auto}
-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px}
-textarea{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 14px;font-size:14px;resize:none;height:44px}
-textarea:focus{outline:none;border-color:var(--accent)}
-button{background:var(--accent);border:none;border-radius:8px;color:#000;padding:0 18px;font-size:14px;font-weight:600;cursor:pointer;height:44px}
+/* ── Token system ── */
+:root {
+  --bg:          oklch(13% 0.005 250);
+  --bg-raised:   oklch(17% 0.008 250);
+  --bg-overlay:  oklch(20% 0.010 250);
+  --border:      oklch(28% 0.012 250);
+  --border-subtle: oklch(22% 0.008 250);
+  --text:        oklch(92% 0.006 250);
+  --text-muted:  oklch(58% 0.012 250);
+  --text-faint:  oklch(38% 0.010 250);
+  --accent:      oklch(68% 0.19  250);
+  --accent-dim:  oklch(42% 0.14  250);
+  --accent-bg:   oklch(20% 0.06  250);
+  --green:       oklch(72% 0.17  148);
+  --amber:       oklch(78% 0.18   65);
+  --red:         oklch(62% 0.22   27);
+  --radius-sm:   6px;
+  --radius-md:   10px;
+  --radius-lg:   14px;
+  --space-1:     4px;
+  --space-2:     8px;
+  --space-3:     12px;
+  --space-4:     16px;
+  --space-5:     20px;
+  --space-6:     24px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:          oklch(97% 0.003 250);
+    --bg-raised:   oklch(100% 0 0);
+    --bg-overlay:  oklch(94% 0.005 250);
+    --border:      oklch(84% 0.010 250);
+    --border-subtle: oklch(90% 0.006 250);
+    --text:        oklch(15% 0.010 250);
+    --text-muted:  oklch(44% 0.015 250);
+    --text-faint:  oklch(64% 0.012 250);
+    --accent:      oklch(52% 0.21  250);
+    --accent-dim:  oklch(68% 0.14  250);
+    --accent-bg:   oklch(93% 0.04  250);
+  }
+}
+
+/* ── Reset (native-feel: cursor: default, no pointer on non-links) ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* No pointer on interactive chrome elements — native convention */
+*, *::before, *::after { cursor: default; }
+a, [role=link] { cursor: pointer; }
+textarea, input { cursor: text; }
+
+/* No selection on chrome, only on content */
+* { user-select: none; -webkit-touch-callout: none; }
+.msg-body, .msg-content { user-select: text; }
+
+html { height: 100%; }
+
+body {
+  height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI",
+               "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Layout ── */
+.app { display: flex; flex: 1; overflow: hidden; }
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-raised);
+  transition: transform 0.18s ease;
+}
+
+.sidebar-header {
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.nav-section { padding: var(--space-2) var(--space-2); }
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text-muted);
+  transition: background 0.1s;
+}
+
+.nav-item:hover { background: var(--bg-overlay); color: var(--text); }
+.nav-item.active { background: var(--accent-bg); color: var(--accent); }
+
+.nav-icon { width: 16px; height: 16px; opacity: 0.7; flex-shrink: 0; }
+
+/* ── Main column ── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Topbar ── */
+.topbar {
+  height: 48px;
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.topbar-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.instance-name {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.topbar-spacer { flex: 1; }
+
+/* Status indicator */
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  transition: background 0.3s;
+}
+
+.status-dot.connected    { background: var(--green); box-shadow: 0 0 0 2px oklch(72% 0.17 148 / 0.2); }
+.status-dot.thinking     { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.status-dot.disconnected { background: var(--red); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── Timeline ── */
+.timeline {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-5) var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  scroll-behavior: auto; /* native-feel: no smooth scroll */
+}
+
+/* Scrollbar */
+.timeline::-webkit-scrollbar { width: 6px; }
+.timeline::-webkit-scrollbar-track { background: transparent; }
+.timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Messages ── */
+.msg {
+  display: flex;
+  gap: var(--space-3);
+  max-width: 740px;
+  width: 100%;
+}
+
+.msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.msg.system { align-self: center; }
+
+.msg-avatar {
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.msg.subject .msg-avatar { background: var(--accent-bg); color: var(--accent); }
+.msg.user    .msg-avatar { background: var(--bg-overlay); color: var(--text-muted); }
+
+.msg-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: 4px;
+}
+
+.msg.user .msg-meta { justify-content: flex-end; }
+
+.msg-role {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.msg.subject .msg-role { color: var(--accent); }
+
+.msg-time {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.msg-content {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  line-height: 1.65;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.msg.subject .msg-content {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.msg.user .msg-content {
+  background: var(--accent-dim);
+  color: var(--bg);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.msg.system .msg-content {
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+  padding: var(--space-1) var(--space-3);
+}
+
+/* Thinking indicator */
+.thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.thinking-dots span {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: bounce 1.2s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%            { transform: translateY(-4px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-dots span, .status-dot { animation: none; }
+  .thinking-dots span { opacity: 0.7; }
+}
+
+/* ── Input area ── */
+.input-area {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-5) var(--space-4);
+  display: flex;
+  gap: var(--space-2);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.input-wrap {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+textarea.compose {
+  width: 100%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  padding: var(--space-3) var(--space-4);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+  height: 44px;
+  min-height: 44px;
+  max-height: 160px;
+  transition: border-color 0.1s;
+  cursor: text;
+}
+
+textarea.compose:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px oklch(68% 0.19 250 / 0.12);
+}
+
+textarea.compose::placeholder { color: var(--text-faint); }
+
+.send-btn {
+  height: 44px;
+  padding: 0 var(--space-4);
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+  transition: opacity 0.1s;
+  min-width: 60px;
+}
+
+/* active state only — no hover effect per native-feel convention */
+.send-btn:active { opacity: 0.8; transform: scale(0.98); }
+.send-btn:disabled { opacity: 0.35; }
+
+/* Focus-visible ring (keyboard only) */
+.send-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Utility ── */
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .sidebar { display: none; }
+  .timeline { padding: var(--space-4) var(--space-3); }
+  .input-area { padding: var(--space-3); }
+  .msg { max-width: 100%; }
+}
 </style>
 </head>
 <body>
-<header><div class="dot" id="dot"></div><h1>Shenko（深刻）</h1></header>
-<main id="tl"></main>
-<footer>
-<textarea id="inp" placeholder="发消息…"></textarea>
-<button id="btn">发送</button>
-</footer>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" aria-label="Navigation">
+    <div class="sidebar-header">
+      <div class="sidebar-title">Shenko</div>
+    </div>
+    <nav class="nav-section" aria-label="Main">
+      <a class="nav-item active" href="#" aria-current="page">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2z"/>
+          <path d="M8 5v3l2 2"/>
+        </svg>
+        时间线
+      </a>
+      <a class="nav-item" href="#" id="nav-tasks">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <rect x="2" y="3" width="12" height="10" rx="2"/>
+          <path d="M5 7h6M5 10h4"/>
+        </svg>
+        任务
+      </a>
+      <a class="nav-item" href="#" id="nav-memory">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3 4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4z"/>
+          <path d="M6 8h4M8 6v4"/>
+        </svg>
+        记忆
+      </a>
+      <a class="nav-item" href="#" id="nav-config">
+        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <circle cx="8" cy="8" r="2"/>
+          <path d="M8 2v1M8 13v1M2 8h1M13 8h1M3.93 3.93l.7.7M11.37 11.37l.7.7M3.93 12.07l.7-.7M11.37 4.63l.7-.7"/>
+        </svg>
+        配置
+      </a>
+    </nav>
+  </aside>
+
+  <!-- Main -->
+  <main class="main" id="main">
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-title">深刻</div>
+      <span class="instance-name" id="instance-name" aria-live="polite"></span>
+      <div class="topbar-spacer"></div>
+      <div class="status" role="status" aria-live="polite">
+        <div class="status-dot" id="status-dot" aria-hidden="true"></div>
+        <span id="status-text" class="sr-only">未连接</span>
+      </div>
+    </header>
+
+    <!-- Timeline — aria-live for screen readers -->
+    <div class="timeline" id="timeline" role="log" aria-label="主体时间线" aria-live="polite" aria-relevant="additions">
+    </div>
+
+    <!-- Input -->
+    <div class="input-area" role="form" aria-label="发送消息">
+      <div class="input-wrap">
+        <label for="compose" class="sr-only">输入消息</label>
+        <textarea
+          id="compose"
+          class="compose"
+          placeholder="发消息给 Shenko…"
+          rows="1"
+          aria-label="消息输入"
+          autocomplete="off"
+          spellcheck="false"
+        ></textarea>
+      </div>
+      <button class="send-btn" id="send-btn" aria-label="发送" disabled>发送</button>
+    </div>
+  </main>
+</div>
+
 <script>
-const tl=document.getElementById('tl'),inp=document.getElementById('inp'),dot=document.getElementById('dot');
-let ws;
-function connect(){const p=location.protocol==='https:'?'wss:':'ws:';ws=new WebSocket(p+'//'+location.host+'/ws');ws.onopen=()=>dot.classList.add('on');ws.onclose=()=>{dot.classList.remove('on');setTimeout(connect,3000)};ws.onmessage=e=>{const m=JSON.parse(e.data);add(m.role||'subject',m.content||'')}}
-function add(role,content){const d=document.createElement('div');d.className='msg '+role;d.textContent=content;tl.appendChild(d);tl.scrollTop=tl.scrollHeight}
-document.getElementById('btn').addEventListener('click',()=>{const t=inp.value.trim();if(!t)return;add('user',t);if(ws&&ws.readyState===1)ws.send(JSON.stringify({role:'user',content:t}));inp.value=''});
-inp.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('btn').click()}});
+'use strict';
+
+// ── State ──
+let ws = null;
+let reconnectTimer = null;
+let userScrolledUp = false;
+let thinkingEl = null;
+
+const timeline  = document.getElementById('timeline');
+const compose   = document.getElementById('compose');
+const sendBtn   = document.getElementById('send-btn');
+const statusDot = document.getElementById('status-dot');
+const statusTxt = document.getElementById('status-text');
+
+// ── Scroll anchor: don't jump if user scrolled up ──
+timeline.addEventListener('scroll', () => {
+  const atBottom = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 60;
+  userScrolledUp = !atBottom;
+});
+
+function scrollToBottom(force) {
+  if (force || !userScrolledUp) {
+    // Use scrollTop directly — no smooth scroll per native-feel
+    timeline.scrollTop = timeline.scrollHeight;
+  }
+}
+
+// ── Connection status ──
+function setStatus(state) {
+  statusDot.className = 'status-dot ' + state;
+  const labels = { connected: '已连接', thinking: '思考中', disconnected: '未连接', '': '未连接' };
+  statusTxt.textContent = labels[state] || '未连接';
+}
+
+// ── Message rendering ──
+function formatTime(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit' });
+  } catch { return ''; }
+}
+
+function appendMessage({ role, content, message_id, timestamp, stream }) {
+  // Remove thinking indicator when subject starts speaking
+  if (role === 'subject' && thinkingEl) {
+    thinkingEl.remove();
+    thinkingEl = null;
+  }
+
+  // Check if this is a streaming continuation of last message
+  if (stream && role === 'subject') {
+    const last = timeline.querySelector('.msg.subject:last-child .msg-content');
+    if (last) {
+      last.textContent += content;
+      scrollToBottom(false);
+      return;
+    }
+  }
+
+  const msg = document.createElement('div');
+  msg.className = 'msg ' + role;
+  if (message_id) msg.dataset.id = message_id;
+
+  const avatarLabel = role === 'subject' ? '深' : role === 'user' ? '我' : '·';
+  const roleName    = role === 'subject' ? '深刻' : role === 'user' ? '你' : '';
+
+  if (role === 'system') {
+    msg.innerHTML = `<div class="msg-content">${escHtml(content)}</div>`;
+  } else {
+    msg.innerHTML = `
+      <div class="msg-avatar" aria-hidden="true">${escHtml(avatarLabel)}</div>
+      <div class="msg-body">
+        <div class="msg-meta">
+          <span class="msg-role">${escHtml(roleName)}</span>
+          <span class="msg-time">${escHtml(formatTime(timestamp || new Date().toISOString()))}</span>
+        </div>
+        <div class="msg-content msg-body">${escHtml(content)}</div>
+      </div>`;
+  }
+
+  timeline.appendChild(msg);
+  scrollToBottom(role === 'user');
+}
+
+function showThinking() {
+  if (thinkingEl) return;
+  thinkingEl = document.createElement('div');
+  thinkingEl.className = 'msg subject';
+  thinkingEl.innerHTML = `
+    <div class="msg-avatar" aria-hidden="true">深</div>
+    <div class="msg-body">
+      <div class="thinking-dots" role="status" aria-label="思考中">
+        <span></span><span></span><span></span>
+      </div>
+    </div>`;
+  timeline.appendChild(thinkingEl);
+  scrollToBottom(false);
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+// ── WebSocket ──
+function connect() {
+  if (ws) return;
+  clearTimeout(reconnectTimer);
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onopen = () => {
+    setStatus('connected');
+    sendBtn.disabled = false;
+    appendMessage({
+      role: 'system',
+      content: '已连接',
+      timestamp: new Date().toISOString(),
+    });
+  };
+
+  ws.onclose = () => {
+    ws = null;
+    setStatus('disconnected');
+    sendBtn.disabled = true;
+    thinkingEl = null;
+    reconnectTimer = setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => {
+    ws && ws.close();
+  };
+
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.role === 'subject') setStatus('thinking');
+      else setStatus('connected');
+      appendMessage(msg);
+      // After subject message, show connected again (brief thinking state)
+      if (msg.role === 'subject') {
+        setTimeout(() => { if (ws) setStatus('connected'); }, 300);
+      }
+    } catch {}
+  };
+}
+
+// ── Send ──
+function sendMessage() {
+  const text = compose.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+  const msg = {
+    role: 'user',
+    content: text,
+    message_id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+  };
+
+  appendMessage(msg);
+  ws.send(JSON.stringify(msg));
+  compose.value = '';
+  adjustHeight();
+  showThinking();
+  setStatus('thinking');
+}
+
+sendBtn.addEventListener('click', sendMessage);
+
+// ── Textarea auto-resize ──
+function adjustHeight() {
+  compose.style.height = 'auto';
+  const h = Math.min(compose.scrollHeight, 160);
+  compose.style.height = h + 'px';
+}
+
+compose.addEventListener('input', () => {
+  adjustHeight();
+  sendBtn.disabled = !compose.value.trim() || !ws || ws.readyState !== WebSocket.OPEN;
+});
+
+compose.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+  // Escape: clear compose
+  if (e.key === 'Escape') {
+    compose.value = '';
+    adjustHeight();
+    sendBtn.disabled = true;
+  }
+});
+
+// ── Init ──
 connect();
 </script>
 </body>

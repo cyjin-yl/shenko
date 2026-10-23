@@ -1,5 +1,4 @@
 //! Child agent dispatcher — SPEC §5.2, §5.3
-use std::sync::Arc;
 use shenko_types::ids::EntityId;
 use shenko_types::subject::DelegationIntent;
 use anyhow::Result;
