@@ -1,0 +1,33 @@
+[package]
+name = "shenko"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "shenko"
+path = "src/main.rs"
+
+[dependencies]
+shenko-types = { path = "../../crates/shenko-types" }
+shenko-kernel = { path = "../../crates/shenko-kernel" }
+shenko-store = { path = "../../crates/shenko-store" }
+shenko-broker = { path = "../../crates/shenko-broker" }
+shenko-subject = { path = "../../crates/shenko-subject" }
+shenko-memory = { path = "../../crates/shenko-memory" }
+shenko-ui = { path = "../../crates/shenko-ui" }
+shenko-seed = { path = "../../crates/shenko-seed" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+clap = { version = "4", features = ["derive", "env"] }
+uuid = { workspace = true }
+chrono = { workspace = true }
+dirs-next = "2"
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"

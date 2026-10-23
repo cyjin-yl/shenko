@@ -2,23 +2,26 @@
 //! S0: fix input plan + context version.
 //! S1: commit decision, event disposition, delegation intent, unique successor.
 use serde::{Deserialize, Serialize};
-use crate::ids::{EntityId, BranchId, ControllerEpoch};
+use crate::ids::{EntityId, TaskRevision, RecordRevision};
 use crate::commit::CommitRef;
 use crate::object::ObjectRef;
 
+/// S0: input plan sealed for one subject step.
+/// Fixes the attention context version before the model is called.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubjectStepInput {
     pub step_id: EntityId,
     pub step_seq: u64,
     pub agent_id: EntityId,
-    pub branch_id: BranchId,
-    pub controller_epoch: ControllerEpoch,
+    pub branch_id: crate::ids::BranchId,
+    pub controller_epoch: crate::ids::ControllerEpoch,
     pub attention_context_ref: ObjectRef,
     pub inbox_cursor: InboxCursor,
     pub sealed_at: chrono::DateTime<chrono::Utc>,
     pub sealed_commit: CommitRef,
 }
 
+/// S1: subject step decision committed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubjectStepDecision {
     pub step_id: EntityId,
@@ -32,16 +35,14 @@ pub struct SubjectStepDecision {
     pub decided_commit: CommitRef,
 }
 
+/// Inbox cursor — tracks consumed events.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InboxCursor {
     pub through_event_id: Option<EntityId>,
     pub consumed_count: u64,
 }
 
-impl Default for InboxCursor {
-    fn default() -> Self { Self { through_event_id: None, consumed_count: 0 } }
-}
-
+/// How a subject step handled an incoming event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventDisposition {
     pub event_id: EntityId,
@@ -50,8 +51,14 @@ pub struct EventDisposition {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Disposition { Acknowledged, Deferred, Delegated, Ignored }
+pub enum Disposition {
+    Acknowledged,
+    Deferred,
+    Delegated,
+    Ignored,
+}
 
+/// Intent to delegate work to a child agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelegationIntent {
     pub intent_id: EntityId,
@@ -63,13 +70,15 @@ pub struct DelegationIntent {
     pub reply_grant: Option<ReplyGrant>,
 }
 
+/// Budget hint for a child agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BudgetHint {
     pub max_tokens: Option<u64>,
     pub max_duration_secs: Option<u64>,
 }
 
-/// Bound to task/generation + target provider/account/conversation/thread.
+/// Reply grant — allows a child to publish directly.
+/// Bound to task/generation, target provider/account/conversation/thread.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplyGrant {
     pub grant_id: EntityId,
@@ -82,6 +91,7 @@ pub struct ReplyGrant {
     pub expires_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Intent to save/recall/forget memory.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryIntent {
     pub intent_id: EntityId,
@@ -92,14 +102,20 @@ pub struct MemoryIntent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum MemoryIntentKind { Save, Correct, Forget, Recall }
+pub enum MemoryIntentKind {
+    Save,
+    Correct,
+    Forget,
+    Recall,
+}
 
-/// Subject voluntarily waits on a semantic condition. Hard max 600s. SPEC §5.1/U55.
+/// Semantic wait — subject voluntarily waits on a condition.
+/// Max 600 seconds per SPEC §5.1/U55.
 /// Still polls with same model + prior+new context during wait.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticWait {
     pub condition_description: String,
-    pub max_wait_secs: u64,
+    pub max_wait_secs: u64,  // ≤ 600
     pub started_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -107,10 +123,10 @@ impl SemanticWait {
     pub const MAX_WAIT_SECS: u64 = 600;
 
     pub fn new(condition: impl Into<String>, max_wait_secs: u64) -> Self {
-        let capped = max_wait_secs.min(Self::MAX_WAIT_SECS);
+        assert!(max_wait_secs <= Self::MAX_WAIT_SECS, "semantic wait max 600s");
         Self {
             condition_description: condition.into(),
-            max_wait_secs: capped,
+            max_wait_secs,
             started_at: chrono::Utc::now(),
         }
     }
