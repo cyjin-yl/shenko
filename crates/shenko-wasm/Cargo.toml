@@ -16,5 +16,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+wasmtime = { workspace = true }
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

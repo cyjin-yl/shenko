@@ -11,6 +11,7 @@ use shenko_types::commit::CommitRef;
 use shenko_types::object::{ObjectRef, SchemaRef, Digest};
 use shenko_kernel::hooks::{HookRegistry, HookPayload};
 use crate::inbox::{Inbox, InboxEvent};
+use crate::outbox::OutboxMessage;
 use crate::dispatch::ChildDispatcher;
 
 pub struct SubjectLoopState {
@@ -32,6 +33,8 @@ pub struct SubjectLoopState {
     pub goals: Vec<String>,
     /// Monotonically increasing count of inbox events consumed across steps — used for InboxCursor.
     pub last_inbox_cursor: u64,
+    /// Outbound path for completed model output — SPEC §5.1, §21.12.
+    pub outbox_tx: Option<tokio::sync::broadcast::Sender<OutboxMessage>>,
 }
 
 impl SubjectLoopState {
@@ -52,6 +55,7 @@ impl SubjectLoopState {
             last_thought: None,
             goals: vec![],
             last_inbox_cursor: 0,
+            outbox_tx: None,
         }
     }
 
@@ -67,6 +71,12 @@ impl SubjectLoopState {
 
     pub fn with_hooks(mut self, registry: Arc<HookRegistry>) -> Self {
         self.hooks = Some(registry);
+        self
+    }
+
+    /// Attach the outbound timeline broadcaster — SPEC §5.1, §21.12.
+    pub fn with_outbox(mut self, tx: tokio::sync::broadcast::Sender<OutboxMessage>) -> Self {
+        self.outbox_tx = Some(tx);
         self
     }
 
@@ -342,6 +352,16 @@ async fn execute_step(
     // Carry thought forward
     if let Some(output) = &model_output {
         state.last_thought = Some(output.clone());
+
+        // Outbound path — publish the completed model output to the UI and any
+        // other subscribed transport. SPEC §5.1, §21.12.
+        if let Some(tx) = &state.outbox_tx {
+            let _ = tx.send(OutboxMessage {
+                kind: "thought".into(),
+                step: seq,
+                content: output.clone(),
+            });
+        }
     }
 
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.

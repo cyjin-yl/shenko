@@ -67,12 +67,12 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-subject/src/loop_runner.rs"
+        "crates/shenko-wasm/src/runtime.rs"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "有限generation，每步交付后继续注册下一步"
+      "note": "wasmtime 45 Engine/Module 实例化与 call_func 可用；checkpoint/restore 仅写/读标记文件，WASI/VFS/宿主挂载未实现"
     },
     {
       "requirement_id": "R005",
@@ -2123,14 +2123,18 @@
         "B38"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "crates/shenko-subject/src/outbox.rs",
+        "crates/shenko-ui/src/ws.rs",
+        "bin/shenko/src/main.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "subject outbox broadcast → UI WS 时间线；UI 输入经 inbox 回主体；前端与持久 outbox ledger 未完成"
     },
     {
       "requirement_id": "R133",
@@ -2175,14 +2179,16 @@
         "B20"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "implementation_refs": [
+        "bin/shenko/src/main.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "bootstrap_genesis 经 CAS seal_object 封存 seed_manifest/profile/home/bootstrap_event 并原子初始化 genesis/head/firstStep；完整 seed 装配、WASM 家园与首启 probe 未完成"
     },
     {
       "requirement_id": "R136",
