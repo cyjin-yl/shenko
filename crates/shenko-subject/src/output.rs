@@ -1,7 +1,7 @@
 //! Decode once at the model-result boundary; consumers never inspect raw text.
 //! Controls are whole unindented lines outside Markdown fences/quotes. There is
 //! no natural-language trigger, legacy alias, or raw-publication fallback.
-use shenko_identity::DefaultIdentityPolicy;
+use shenko_identity::IdentityService;
 use shenko_types::{
     error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
     ids::EntityId,
@@ -30,6 +30,7 @@ pub fn parse_output(
     step_id: EntityId,
     raw_ref: ObjectRef,
     raw: &str,
+    identity: &IdentityService,
 ) -> Result<ParsedOutput, ShenkoError> {
     let mut result = ParsedOutput {
         schema_version: 1,
@@ -41,7 +42,7 @@ pub fn parse_output(
     let mut offset = 0;
     let mut reply: Option<usize> = None;
     let mut fence: Option<(u8, usize)> = None;
-    let mut identity_fields = std::collections::BTreeSet::new();
+    let mut identity_fields = std::collections::HashSet::new();
     for (index, chunk) in raw.split_inclusive('\n').enumerate() {
         let line_no = index as u64 + 1;
         let line = chunk.trim_end_matches(['\r', '\n']);
@@ -68,17 +69,20 @@ pub fn parse_output(
             }
         }
         let active = !was_fenced && fence.is_none() && indentation == 0;
+        // ASCII control tags are reserved at column zero. Non-ASCII prose,
+        // references, indentation, quotes and fenced examples stay literal.
+        let tag = line
+            .strip_prefix('[')
+            .and_then(|v| v.split_once(']').map(|(h, _)| h));
         let control = active
-            && [
-                "[reply:",
-                "[identity:",
-                "[remember]",
-                "[delegate]",
-                "[memory]",
-                "dispatch:",
-            ]
-            .iter()
-            .any(|prefix| line.starts_with(prefix));
+            && (tag.is_some_and(|h| {
+                !h.is_empty()
+                    && h.bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || b":_-".contains(&c))
+            }) || line
+                .strip_prefix('[')
+                .is_some_and(|v| v.bytes().next().is_some_and(|c| c.is_ascii_lowercase()))
+                || line.starts_with("dispatch:"));
         if control {
             if line.starts_with("[memory]") || line.starts_with("dispatch:") {
                 return Err(invalid(
@@ -112,12 +116,12 @@ pub fn parse_output(
                 result.text.push_str(&text);
                 reply = Some(result.controls.len());
                 OutputAction::Reply { target, text }
-            } else if let Some(field) = header.strip_prefix("[identity:") {
-                if !identity_fields.insert(field.to_owned()) {
+            } else if let Some(change) =
+                identity.parse_control(header.trim_start_matches('['), value)
+            {
+                if !identity_fields.insert(std::mem::discriminant(&change)) {
                     return Err(invalid(line_no, "duplicate identity field in one result"));
                 }
-                let change = DefaultIdentityPolicy::parse_change(field, value)
-                    .ok_or_else(|| invalid(line_no, "unknown identity field"))?;
                 if value.trim().is_empty() {
                     return Err(invalid(line_no, "empty identity change"));
                 }

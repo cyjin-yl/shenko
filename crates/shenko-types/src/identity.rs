@@ -62,6 +62,7 @@ pub struct IdentityIntent {
     pub intent_id: EntityId,
     pub action_ids: Vec<EntityId>,
     pub expected_revision: u64,
+    pub provider_revision: String,
     pub proposed: IdentityProfile,
 }
 

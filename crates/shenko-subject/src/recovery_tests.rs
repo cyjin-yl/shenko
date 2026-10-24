@@ -76,7 +76,18 @@ fn state(
     agent: EntityId,
 ) -> Result<SubjectLoopState, shenko_types::error::ShenkoError> {
     let (dispatcher, _rx) = ChildDispatcher::new(agent);
-    SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), Arc::new(dispatcher), store)
+    let ctx = cordis_core::Context::new();
+    let _publication = ctx.provide(Arc::new(shenko_identity::IdentityService::new(Arc::new(
+        shenko_identity::DefaultIdentityPolicy,
+    ))))
+    .unwrap();
+    SubjectLoopState::new(
+        agent,
+        Arc::new(Inbox::new(8)),
+        Arc::new(dispatcher),
+        store,
+        ctx,
+    )
 }
 
 #[test]
@@ -386,7 +397,13 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     step.model_result_ref = Some(raw_ref.clone());
     step.record_revision = RecordRevision(3);
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
-    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw).unwrap();
+    let output = crate::output::parse_output(
+        step.step_id,
+        raw_ref.clone(),
+        raw,
+        &subject.identity_service,
+    )
+    .unwrap();
     assert_eq!(output.controls.len(), 2);
     let changes: Vec<_> = output
         .controls
@@ -400,13 +417,14 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 2,
+        schema_version: 3,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
             intent_id: EntityId::new(),
             action_ids: vec![],
             expected_revision: 1,
+            provider_revision: subject.identity_service.revision().into(),
             proposed: Policy::revise(
                 &profile,
                 &changes,
@@ -443,7 +461,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                2,
+                3,
             )
             .unwrap()
             .object,
@@ -472,7 +490,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                2,
+                3,
             )
             .unwrap()
             .object,
@@ -584,4 +602,134 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     assert_eq!(subject.head.committed_step_no, 2);
     assert!(super::build_system_prompt(&subject, false).contains("上一步身份意图未采用"));
     // Retain this container-disk fixture as crash evidence, not production data.
+}
+
+/// Native Cordis replacement reaches the real S0 consumer. The old generation
+/// finishes only its sealed request; recovery never reinterprets it with B.
+#[tokio::test]
+async fn native_identity_replacement_is_bound_to_sealed_request() {
+    use cordis_core::{Context, Plugin, PreparedPlugin};
+    use shenko_identity::{
+        DefaultIdentityPolicy as DefaultPolicy, IdentityPlugin, IdentityPolicy, IdentityService,
+    };
+    use shenko_types::identity::*;
+    struct OtherPolicy;
+    impl IdentityPolicy for OtherPolicy {
+        fn revision(&self) -> &str {
+            "test.identity/other@1"
+        }
+        fn genesis(&self, agent: EntityId, name: Option<&str>) -> IdentityProfile {
+            DefaultPolicy::genesis(agent, name)
+        }
+        fn persona_section(&self, profile: &IdentityProfile) -> String {
+            format!("replacement provider at revision {}", profile.revision)
+        }
+        fn parse_control(&self, header: &str, value: &str) -> Option<IdentityChange> {
+            DefaultPolicy.parse_control(header, value)
+        }
+        fn revise(
+            &self,
+            profile: &IdentityProfile,
+            changes: &[IdentityChange],
+            source: IdentitySource,
+        ) -> Option<IdentityProfile> {
+            DefaultPolicy::revise(profile, changes, source)
+        }
+    }
+    let (_dir, store, agent) = fixture();
+    let ctx = Context::new();
+    let first = ctx.spawn(shenko_identity::default_plugin()).await.unwrap();
+    let service = ctx.try_service::<IdentityService>().unwrap();
+    store
+        .initialize_identity(&service.genesis(agent, None))
+        .unwrap();
+    let (dispatcher, _) = ChildDispatcher::new(agent);
+    let mut subject = SubjectLoopState::new(
+        agent,
+        Arc::new(Inbox::new(8)),
+        Arc::new(dispatcher),
+        store.clone(),
+        ctx.clone(),
+    )
+    .unwrap();
+    let close = tokio_util::sync::CancellationToken::new();
+    close.cancel();
+    execute_step(1, &[], &mut subject, false, &close)
+        .await
+        .unwrap();
+    let frozen = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(
+        frozen.identity_provider_revision,
+        "shenko.identity/default@1"
+    );
+    assert!(frozen.payload.system_prompt.contains("你还没有名字"));
+    first.dispose().await.unwrap();
+    assert!(ctx.try_service::<IdentityService>().is_err());
+    let plugin = IdentityPlugin;
+    let prepared = plugin.prepare(Arc::new(OtherPolicy)).unwrap();
+    let second = ctx
+        .spawn(PreparedPlugin::from_input(plugin, prepared))
+        .await
+        .unwrap();
+    assert_eq!(
+        ctx.try_service::<IdentityService>().unwrap().revision(),
+        "test.identity/other@1"
+    );
+    let (dispatcher, _) = ChildDispatcher::new(agent);
+    let reopened = SubjectLoopState::new(
+        agent,
+        Arc::new(Inbox::new(8)),
+        Arc::new(dispatcher),
+        store.clone(),
+        ctx.clone(),
+    );
+    assert!(
+        reopened
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("IDENTITY_PROVIDER_REVISION_MISMATCH")
+    );
+    // The original live request retained its original service until S1, even
+    // though Cordis withdrew that service from new consumers.
+    let head = subject.head.clone();
+    let mut step = subject.step.clone();
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    step.record_revision = RecordRevision(2);
+    store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+    step.state = SubjectStepState::ResultRecorded;
+    step.record_revision = RecordRevision(3);
+    step.model_result_ref = Some(
+        store
+            .cas
+            .seal_object(
+                "[identity:name] 岚".as_bytes(),
+                "text/plain",
+                "model_results",
+                "text",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
+    store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+    subject.step = step;
+    execute_step(1, &[], &mut subject, false, &close)
+        .await
+        .unwrap();
+    assert_eq!(store.latest_identity(agent).unwrap().unwrap().revision, 2);
+    execute_step(2, &[], &mut subject, false, &close)
+        .await
+        .unwrap();
+    let next = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(next.identity_provider_revision, "test.identity/other@1");
+    assert!(
+        next.payload
+            .system_prompt
+            .contains("replacement provider at revision 2")
+    );
+    assert!(!next.payload.system_prompt.contains("你还没有名字"));
+    second.dispose().await.unwrap();
+    assert!(ctx.try_service::<IdentityService>().is_err());
 }

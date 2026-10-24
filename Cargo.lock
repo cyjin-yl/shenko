@@ -2421,6 +2421,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "cordis-core",
  "dirs-next",
  "serde",
  "serde_json",
@@ -2583,7 +2584,9 @@ name = "shenko-identity"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cordis-core",
  "shenko-types",
+ "tokio",
 ]
 
 [[package]]
@@ -2668,6 +2671,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "cordis-core",
  "dashmap 5.5.3",
  "futures",
  "parking_lot",

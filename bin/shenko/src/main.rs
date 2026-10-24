@@ -2,7 +2,7 @@
 //! SPEC §44: seed/bootstrap startup with real subject loop + broker.
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use shenko_identity::DefaultIdentityPolicy;
+use shenko_identity::IdentityService;
 use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -31,7 +31,7 @@ enum Command {
         #[arg(long, default_value = "7860")]
         port: u16,
         /// Instance name given by the user. Omit it to let the agent name
-        /// itself; passing a new one later renames the same agent.
+        /// itself. Existing instances are edited with an explicit revision CAS.
         #[arg(long)]
         name: Option<String>,
         /// NapCat WebSocket URL (e.g. ws://127.0.0.1:3001)
@@ -79,6 +79,12 @@ async fn main() -> Result<()> {
             .join("shenko")
     });
 
+    let identity_context = cordis_core::Context::new();
+    let identity_plugin = identity_context
+        .spawn(shenko_identity::default_plugin())
+        .await?;
+    let identity_service = identity_context.try_service::<IdentityService>()?;
+    let result: Result<()> = async {
     match cli.command {
         Command::Version => {
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
@@ -150,7 +156,7 @@ async fn main() -> Result<()> {
                     current.revision
                 );
                 if let Some(next) =
-                    DefaultIdentityPolicy::revise(&current, &changes, IdentitySource::Operator)
+                    identity_service.revise(&current, &changes, IdentitySource::Operator)
                 {
                     store.append_identity(&next, expected)?;
                     current = next;
@@ -198,7 +204,7 @@ async fn main() -> Result<()> {
 
             // 2. Bootstrap genesis if first run — SPEC §44.6
             let agent_id = bootstrap_genesis(&store, name.as_deref())?;
-            let identity = adopt_identity(&store, agent_id, name.as_deref())?;
+            let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
                 revision = identity.revision,
                 name = identity.display_name.as_deref().unwrap_or("(unnamed)"),
@@ -265,6 +271,7 @@ async fn main() -> Result<()> {
                 Arc::clone(&subject_inbox),
                 Arc::clone(&dispatcher),
                 Arc::clone(&store),
+                identity_context.clone(),
             )?
             .with_broker(broker_handle)
             .with_hooks(Arc::clone(&hook_registry))
@@ -555,6 +562,9 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+    }.await;
+    identity_plugin.dispose().await?;
+    result
 }
 
 fn napcat_inbox_event(
@@ -643,23 +653,21 @@ fn persist_delegation(
 }
 
 /// Make sure the agent has an identity revision, and apply a user-given
-/// `--name` as a rename of the same agent when it differs. SPEC §6, R117.
+/// `--name` only for initialization. Existing edits require an explicit CAS. SPEC §6, R117.
 fn adopt_identity(
     store: &shenko_store::store::Store,
     agent_id: shenko_types::ids::EntityId,
     name: Option<&str>,
+    identity: &IdentityService,
 ) -> Result<IdentityProfile> {
-    let current = store.initialize_identity(&DefaultIdentityPolicy::genesis(agent_id, name))?;
-    let Some(name) = name else { return Ok(current) };
-    let Some(next) = DefaultIdentityPolicy::revise(
-        &current,
-        &[IdentityChange::Name(name.into())],
-        IdentitySource::Operator,
-    ) else {
-        return Ok(current);
-    };
-    store.append_identity(&next, current.revision)?;
-    Ok(next)
+    let genesis = identity.genesis(agent_id, name);
+    let current = store.initialize_identity(&genesis)?;
+    anyhow::ensure!(
+        name.is_none() || current.display_name == genesis.display_name,
+        "IDENTITY_INITIAL_NAME_CONFLICT: start --name only initializes; use identity --expected-revision {} to edit",
+        current.revision
+    );
+    Ok(current)
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6
@@ -864,10 +872,22 @@ mod recovery_integration_tests {
         step.record_revision = RecordRevision(3);
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
         let next = EntityId::new();
+        let identity_context = cordis_core::Context::new();
+        let _publication = identity_context
+            .provide(Arc::new(IdentityService::new(Arc::new(
+                shenko_identity::DefaultIdentityPolicy,
+            ))))
+            .unwrap();
+        let identity_service = identity_context.try_service::<IdentityService>().unwrap();
         let decision = StepDecision {
-            schema_version: 2,
-            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue")
-                .unwrap(),
+            schema_version: 3,
+            output: shenko_subject::output::parse_output(
+                step.step_id,
+                object.clone(),
+                "continue",
+                &identity_service,
+            )
+            .unwrap(),
             identity_intent: None,
             step_id: step.step_id,
             input_plan_ref: object.clone(),
@@ -919,6 +939,7 @@ mod recovery_integration_tests {
             Arc::new(shenko_subject::inbox::Inbox::new(8)),
             Arc::new(dispatcher),
             store.clone(),
+            identity_context,
         )
         .unwrap();
         assert_eq!(restored.head.branch_id, head.branch_id);
@@ -955,8 +976,12 @@ mod reply_directive_tests {
             .seal_object(out.as_bytes(), "text/plain", "test", "text", 1)
             .unwrap()
             .object;
+        let identity = shenko_identity::IdentityService::new(std::sync::Arc::new(
+            shenko_identity::DefaultIdentityPolicy,
+        ));
         let parsed =
-            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out).unwrap();
+            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity)
+                .unwrap();
         assert_eq!(parsed.controls.len(), 6); // two replies, two identity, one memory, one task
         let first = &parsed.controls[0];
         let OutputAction::Reply { target, text } = &first.action else {
@@ -978,10 +1003,15 @@ mod reply_directive_tests {
         );
         // Unsupported old syntax is a diagnosed protocol error, not a fallback.
         assert!(
-            shenko_subject::output::parse_output(EntityId::new(), raw, "[memory] obsolete")
-                .unwrap_err()
-                .to_string()
-                .contains("CONTROL_PROTOCOL_INVALID")
+            shenko_subject::output::parse_output(
+                EntityId::new(),
+                raw,
+                "[memory] obsolete",
+                &identity
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("CONTROL_PROTOCOL_INVALID")
         );
     }
 }

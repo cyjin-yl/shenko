@@ -9,42 +9,6 @@ use crate::object::ObjectRef;
 use crate::task::WaitJoinPolicy;
 use serde::{Deserialize, Serialize};
 
-/// S0: input plan sealed for one subject step.
-/// Fixes the attention context version before the model is called.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubjectStepInput {
-    pub step_id: EntityId,
-    pub step_seq: u64,
-    pub agent_id: EntityId,
-    pub branch_id: crate::ids::BranchId,
-    pub controller_epoch: crate::ids::ControllerEpoch,
-    pub attention_context_ref: ObjectRef,
-    pub inbox_cursor: InboxCursor,
-    pub sealed_at: chrono::DateTime<chrono::Utc>,
-    pub sealed_commit: CommitRef,
-}
-
-/// S1: subject step decision committed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubjectStepDecision {
-    pub step_id: EntityId,
-    pub decided_at: chrono::DateTime<chrono::Utc>,
-    pub decision_ref: ObjectRef,
-    pub event_dispositions: Vec<EventDisposition>,
-    pub delegation_intents: Vec<DelegationIntent>,
-    pub memory_intents: Vec<MemoryIntent>,
-    pub successor_request_id: EntityId,
-    pub semantic_wait: Option<SemanticWait>,
-    pub decided_commit: CommitRef,
-}
-
-/// Inbox cursor — tracks consumed events.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InboxCursor {
-    pub through_event_id: Option<EntityId>,
-    pub consumed_count: u64,
-}
-
 /// How a subject step handled an incoming event.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventDisposition {

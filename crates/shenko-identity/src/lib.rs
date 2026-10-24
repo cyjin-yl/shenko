@@ -1,4 +1,4 @@
-//! Default identity business policy. Cordis service wiring is separate from durable schema.
+//! Replaceable identity policy on the pinned native Cordis Plugin/Service lifecycle.
 use chrono::Utc;
 use shenko_types::{identity::*, ids::EntityId};
 
@@ -188,4 +188,104 @@ mod tests {
             (agent, 2, NamingOrigin::SelfChosen)
         );
     }
+}
+
+/// Pure semantic policy. No file, shell, network or model capability is exposed.
+/// Replacing it does not replace the stable profile schema or agent identity.
+pub trait IdentityPolicy: Send + Sync + 'static {
+    fn revision(&self) -> &str;
+    fn genesis(&self, agent: EntityId, name: Option<&str>) -> IdentityProfile;
+    fn persona_section(&self, profile: &IdentityProfile) -> String;
+    fn parse_control(&self, header: &str, value: &str) -> Option<IdentityChange>;
+    fn revise(
+        &self,
+        current: &IdentityProfile,
+        changes: &[IdentityChange],
+        source: IdentitySource,
+    ) -> Option<IdentityProfile>;
+}
+
+impl IdentityPolicy for DefaultIdentityPolicy {
+    fn revision(&self) -> &str {
+        "shenko.identity/default@1"
+    }
+    fn genesis(&self, agent: EntityId, name: Option<&str>) -> IdentityProfile {
+        Self::genesis(agent, name)
+    }
+    fn persona_section(&self, profile: &IdentityProfile) -> String {
+        Self::persona_section(profile)
+    }
+    fn parse_control(&self, header: &str, value: &str) -> Option<IdentityChange> {
+        Self::parse_change(header.strip_prefix("identity:")?, value)
+    }
+    fn revise(
+        &self,
+        current: &IdentityProfile,
+        changes: &[IdentityChange],
+        source: IdentitySource,
+    ) -> Option<IdentityProfile> {
+        Self::revise(current, changes, source)
+    }
+}
+
+/// Typed capability published and withdrawn by Cordis, not a second registry.
+pub struct IdentityService {
+    policy: std::sync::Arc<dyn IdentityPolicy>,
+}
+impl cordis_core::Service for IdentityService {
+    const NAME: &'static str = "shenko.identity/v1";
+}
+impl IdentityService {
+    pub fn new(policy: std::sync::Arc<dyn IdentityPolicy>) -> Self {
+        Self { policy }
+    }
+    pub fn revision(&self) -> &str {
+        self.policy.revision()
+    }
+    pub fn genesis(&self, agent: EntityId, name: Option<&str>) -> IdentityProfile {
+        self.policy.genesis(agent, name)
+    }
+    pub fn persona_section(&self, profile: &IdentityProfile) -> String {
+        self.policy.persona_section(profile)
+    }
+    pub fn parse_control(&self, header: &str, value: &str) -> Option<IdentityChange> {
+        self.policy.parse_control(header, value)
+    }
+    pub fn revise(
+        &self,
+        current: &IdentityProfile,
+        changes: &[IdentityChange],
+        source: IdentitySource,
+    ) -> Option<IdentityProfile> {
+        self.policy.revise(current, changes, source)
+    }
+}
+
+pub struct IdentityPlugin;
+impl cordis_core::Plugin for IdentityPlugin {
+    type Config = std::sync::Arc<dyn IdentityPolicy>;
+    type Input = std::sync::Arc<IdentityService>;
+    type PrepareError = std::convert::Infallible;
+    type ApplyError = cordis_core::service::ServicePublishError;
+    fn prepare(&self, policy: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        Ok(std::sync::Arc::new(IdentityService::new(policy)))
+    }
+    async fn apply(
+        &self,
+        ctx: cordis_core::Context,
+        service: &Self::Input,
+    ) -> Result<(), Self::ApplyError> {
+        let _publication = ctx.provide(service.clone())?;
+        Ok(())
+    }
+}
+
+/// Default seed entry, with the exact same native prepare/apply path as replacements.
+pub fn default_plugin() -> cordis_core::PreparedPlugin {
+    use cordis_core::Plugin;
+    let plugin = IdentityPlugin;
+    let input = plugin
+        .prepare(std::sync::Arc::new(DefaultIdentityPolicy))
+        .expect("infallible policy preparation");
+    cordis_core::PreparedPlugin::from_input(plugin, input)
 }

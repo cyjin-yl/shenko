@@ -4,7 +4,7 @@
 use crate::dispatch::ChildDispatcher;
 use crate::inbox::{Inbox, InboxEvent};
 use crate::outbox::OutboxMessage;
-use shenko_identity::DefaultIdentityPolicy;
+use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
@@ -34,6 +34,7 @@ struct FrozenStepInput {
     payload: shenko_broker::request::InferencePayload,
     in_semantic_wait: bool,
     identity: Option<IdentityProfile>,
+    identity_provider_revision: String,
 }
 
 fn read_sealed(
@@ -60,7 +61,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 3 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 4 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -124,14 +125,14 @@ pub struct SubjectLoopState {
     pub last_thought: Option<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
-    /// Monotonically increasing count of inbox events consumed across steps — used for InboxCursor.
-    pub last_inbox_cursor: u64,
     /// Outbound path for completed model output — SPEC §5.1, §21.12.
     pub outbox_tx: Option<tokio::sync::broadcast::Sender<OutboxMessage>>,
     /// Identity revision fixed for the current step — SPEC §6. Reloaded only
     /// at the S0 boundary, so a change applies from the next step on.
     pub identity: Option<IdentityProfile>,
     pub identity_receipt: Option<IdentityReceipt>,
+    identity_context: cordis_core::Context,
+    identity_service: Arc<IdentityService>,
 }
 
 impl SubjectLoopState {
@@ -141,9 +142,21 @@ impl SubjectLoopState {
         inbox: Arc<Inbox>,
         dispatcher: Arc<ChildDispatcher>,
         store: Arc<shenko_store::store::Store>,
+        identity_context: cordis_core::Context,
     ) -> Result<Self, ShenkoError> {
         let (head, step) = store.load_subject(agent_id)?;
         validate_resume(&store, &step)?;
+        let identity_service = identity_context
+            .try_service::<IdentityService>()
+            .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
+        if step.state != SubjectStepState::Planned
+            && frozen_input(&store, &step)?.identity_provider_revision
+                != identity_service.revision()
+        {
+            return Err(ShenkoError::conflict(
+                "IDENTITY_PROVIDER_REVISION_MISMATCH: migrate/reconcile the sealed request before resuming",
+            ));
+        }
         let last_thought = if let Some(id) = head.committed_step_id {
             let previous = store
                 .get_step(&head.branch_id, id)?
@@ -187,10 +200,11 @@ impl SubjectLoopState {
             max_tokens: 4096,
             last_thought,
             goals: vec![],
-            last_inbox_cursor: 0,
             outbox_tx: None,
             identity,
             identity_receipt,
+            identity_context,
+            identity_service,
         })
     }
 
@@ -305,7 +319,7 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
 
     if let Some(identity) = &state.identity {
         prompt.push_str("\n\n");
-        prompt.push_str(&DefaultIdentityPolicy::persona_section(identity));
+        prompt.push_str(&state.identity_service.persona_section(identity));
     }
 
     if !state.goals.is_empty() {
@@ -416,9 +430,13 @@ async fn execute_step(
     }
     validate_resume(&store, &step)?;
     let input = if step.state == SubjectStepState::Planned {
+        state.identity_service = state
+            .identity_context
+            .try_service::<IdentityService>()
+            .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
         let input = FrozenStepInput {
-            schema_version: 3,
+            schema_version: 4,
             step_id,
             step_no: seq,
             events: events.to_vec(),
@@ -431,6 +449,7 @@ async fn execute_step(
             },
             in_semantic_wait,
             identity: state.identity.clone(),
+            identity_provider_revision: state.identity_service.revision().into(),
         };
         step.input_plan_ref = Some(seal_step_object(
             &store,
@@ -439,7 +458,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            3,
+            4,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -602,6 +621,7 @@ async fn execute_step(
             .clone()
             .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
         model_output.as_deref().unwrap_or(""),
+        &state.identity_service,
     )?;
     let mut decision_delegation_intents = vec![];
     let mut memory_candidates = vec![];
@@ -660,20 +680,23 @@ async fn execute_step(
         let current = input_identity.as_ref().ok_or_else(|| {
             ShenkoError::conflict("identity edit requires initialized S0 profile")
         })?;
-        DefaultIdentityPolicy::revise(
-            current,
-            &identity_changes,
-            IdentitySource::Subject {
-                step_id,
-                step_no: seq,
-            },
-        )
-        .map(|proposed| IdentityIntent {
-            intent_id: identity_action_ids[0],
-            action_ids: identity_action_ids,
-            expected_revision: current.revision,
-            proposed,
-        })
+        state
+            .identity_service
+            .revise(
+                current,
+                &identity_changes,
+                IdentitySource::Subject {
+                    step_id,
+                    step_no: seq,
+                },
+            )
+            .map(|proposed| IdentityIntent {
+                intent_id: identity_action_ids[0],
+                action_ids: identity_action_ids,
+                expected_revision: current.revision,
+                provider_revision: state.identity_service.revision().into(),
+                proposed,
+            })
     };
 
     let event_dispositions: Vec<EventDisposition> = events
@@ -686,7 +709,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
-        schema_version: 2,
+        schema_version: 3,
         step_id,
         output: output.clone(),
         identity_intent,
@@ -714,7 +737,7 @@ async fn execute_step(
         "application/json",
         "decisions",
         "StepDecision",
-        2,
+        3,
     )?);
 
     match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {

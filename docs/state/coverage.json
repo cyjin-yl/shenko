@@ -875,6 +875,7 @@
       ],
       "implementation_refs": [
         "crates/shenko-types/src/identity.rs",
+        "crates/shenko-identity/src/lib.rs",
         "crates/shenko-store/src/identity.rs",
         "crates/shenko-subject/src/loop_runner.rs",
         "bin/shenko/src/main.rs"
@@ -899,6 +900,7 @@
       ],
       "implementation_refs": [
         "crates/shenko-types/src/identity.rs",
+        "crates/shenko-identity/src/lib.rs",
         "crates/shenko-store/src/identity.rs",
         "crates/shenko-subject/src/loop_runner.rs",
         "bin/shenko/src/main.rs"
@@ -1720,6 +1722,7 @@
       ],
       "implementation_refs": [
         "crates/shenko-types/src/identity.rs",
+        "crates/shenko-identity/src/lib.rs",
         "crates/shenko-store/src/identity.rs",
         "crates/shenko-subject/src/loop_runner.rs",
         "bin/shenko/src/main.rs"
@@ -1727,7 +1730,7 @@
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C22：主体可用 [identity:soul] 自主改写灵魂，S1 提交后记新 revision（来源=step），下一轮生效。尚未经 child 保存/提升版本。"
+      "note": "C22：身份策略由原生 Cordis IdentityService 提供；S0 固定 profile/provider revision，S1 同事务保存身份意图、profile 或 conflict 回执、head/后继，下一边界采用。有限 child 的灵魂文件提升与真实模型验证仍未完成。"
     },
     {
       "requirement_id": "R106",
@@ -1917,6 +1920,7 @@
       ],
       "implementation_refs": [
         "crates/shenko-types/src/identity.rs",
+        "crates/shenko-identity/src/lib.rs",
         "crates/shenko-store/src/identity.rs",
         "crates/shenko-subject/src/loop_runner.rs",
         "bin/shenko/src/main.rs",
@@ -1926,7 +1930,7 @@
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C22：框架名与实例名分离；--name 用户命名或未命名时主体自取名；改名为同一 agent_id 的新 revision，历史保留；WebUI 自我面板显示实例名。命名仍在内核内而非可替换插件。"
+      "note": "C22：框架名与实例名分离；--name 仅初始化，既有编辑须 expected revision；命名/人格/灵魂解析与装配在可替换原生 Cordis IdentityService，主体在 S0 解析能力，仍为同一 agent_id。控制正文分离且原文/来源归档。UI 使用 S1 真实回执 revision。完整跨节点及真实模型验收未完成。"
     },
     {
       "requirement_id": "R118",
