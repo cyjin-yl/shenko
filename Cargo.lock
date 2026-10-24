@@ -2587,6 +2587,7 @@ dependencies = [
  "cordis-core",
  "crossbeam",
  "dashmap 5.5.3",
+ "futures",
  "parking_lot",
  "serde",
  "serde_json",
