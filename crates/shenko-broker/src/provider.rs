@@ -47,7 +47,7 @@ impl AnthropicProvider {
 
         let mut body = serde_json::json!({
             "model": self.model,
-            "max_tokens": payload.max_tokens.unwrap_or(8192),
+            "max_tokens": payload.max_tokens.unwrap_or(crate::request::DEFAULT_MAX_TOKENS),
             "messages": messages,
         });
 
@@ -78,14 +78,19 @@ impl AnthropicProvider {
             return Err(anyhow!("Anthropic API error {status}: {text}"));
         }
 
-        let raw: serde_json::Value = resp.json().await?;
+        let raw_response = resp.text().await?;
+        let raw: serde_json::Value = serde_json::from_str(&raw_response)?;
 
         let content = raw["content"]
             .as_array()
-            .and_then(|arr| arr.iter().find(|c| c["type"] == "text"))
-            .and_then(|c| c["text"].as_str())
-            .unwrap_or("")
-            .to_string();
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .filter(|block| block["type"] == "text")
+                    .filter_map(|block| block["text"].as_str())
+                    .collect::<String>()
+            })
+            .unwrap_or_default();
 
         let stop_reason = raw["stop_reason"].as_str().unwrap_or("unknown").to_string();
 
@@ -102,6 +107,7 @@ impl AnthropicProvider {
         Ok(InferenceResponse {
             content,
             stop_reason,
+            raw_response,
             usage,
         })
     }

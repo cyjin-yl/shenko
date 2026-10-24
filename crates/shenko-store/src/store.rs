@@ -283,7 +283,7 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("missing control rejection"))?;
         let rejection: shenko_types::subject::ControlOutputRejection =
             serde_json::from_slice(&self.cas.read_object(&reason.digest)?)?;
-        if rejection.schema_version != 1
+        if rejection.schema_version != 2
             || rejection.supersedes_step_id != previous.step_id
             || rejection.replacement_step_id != replacement.step_id
             || Some(rejection.request_id) != previous.active_request_id
@@ -407,7 +407,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(5)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(6)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())
@@ -553,7 +553,7 @@ impl Store {
             return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
         }
         let outcome: shenko_types::subject::SubjectModelOutcome = serde_json::from_slice(&bytes)?;
-        if outcome.schema_version != 1
+        if outcome.schema_version != 2
             || Some(outcome.request_id) != step.active_request_id
             || Some(&outcome.result_ref) != step.model_result_ref.as_ref()
         {

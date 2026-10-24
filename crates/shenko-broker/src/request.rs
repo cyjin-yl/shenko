@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::{ControllerEpoch, EntityId};
 use tokio::sync::oneshot;
 
+pub(crate) const DEFAULT_MAX_TOKENS: u64 = 8192;
+
 /// Non-secret effective transport/model contract, fixed by broker construction.
 /// It is sealed into S0; a recovered request must not route through a new binding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,19 +16,51 @@ pub enum ProviderBinding {
         base_url: String,
         model: String,
         allow_invalid_certs: bool,
+        serializer_revision: u32,
+        default_max_tokens: u64,
     },
     Anthropic {
         base_url: String,
         model: String,
         api_version: String,
+        serializer_revision: u32,
+        default_max_tokens: u64,
     },
+}
+
+impl ProviderBinding {
+    pub fn model(&self) -> &str {
+        match self {
+            Self::Stub { .. } => "stub",
+            Self::Local { model, .. } | Self::Anthropic { model, .. } => model,
+        }
+    }
+
+    pub(crate) fn validate_endpoint(&self) -> anyhow::Result<()> {
+        let endpoint = match self {
+            Self::Stub { .. } => return Ok(()),
+            Self::Local { base_url, .. } | Self::Anthropic { base_url, .. } => base_url,
+        };
+        let url = reqwest::Url::parse(endpoint)
+            .map_err(|_| anyhow::anyhow!("invalid provider endpoint"))?;
+        anyhow::ensure!(
+            matches!(url.scheme(), "http" | "https")
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+                && url.query().is_none()
+                && url.fragment().is_none(),
+            "provider endpoint must be HTTP(S) without credentials/query/fragment; use separate credentials"
+        );
+        Ok(())
+    }
 }
 
 pub struct InferenceRequest {
     pub request_id: EntityId,
     pub agent_id: EntityId,
     pub conversation_id: EntityId,
-    pub model: String,
+    pub provider_binding: ProviderBinding,
     pub priority: InferencePriority,
     pub epoch: ControllerEpoch,
     pub payload: InferencePayload,
@@ -88,6 +122,7 @@ pub struct ProviderRejection {
 pub struct InferenceResponse {
     pub content: String,
     pub stop_reason: String,
+    pub raw_response: String,
     pub usage: Option<TokenUsage>,
 }
 
