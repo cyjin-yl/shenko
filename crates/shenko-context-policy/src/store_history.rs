@@ -6,12 +6,14 @@
 //! Mapping convention until the session event writer (#6) fixes a payload:
 //! `event_type` is one of system / user / assistant / assistant_cancelled /
 //! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?,
-//! status?}` with `status` in [`CallStatus`]'s serde form. A call or result
+//! operation_id?, status?}` with `status` in [`CallStatus`]'s serde form. A call or result
 //! without `status` is Unknown, never success; one without `call_id` cannot be
 //! paired and is kept as [`ItemKind::Other`]; any other event type is kept as
 //! Other too. Non-JSON `data` becomes the text. Nothing is dropped.
-//! Authoritative call status belongs to the execution ledger (operations /
-//! attempts); joining it is a later step.
+//! When `operation_id` is present the execution ledger is authoritative:
+//! the call's status comes from that OperationRecord, overriding `status`.
+//! A referenced operation that is missing, unparsable or unreadable as a
+//! record reads as Unknown, never as the event's own claim.
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -29,6 +31,7 @@ struct Payload {
     call_id: Option<String>,
     tool: Option<String>,
     args_ref: Option<String>,
+    operation_id: Option<String>,
     status: Option<CallStatus>,
 }
 
@@ -51,7 +54,18 @@ impl StoreHistory {
             .map_err(|_| StorageError(format!("event {} has negative seq", event.event_id)))?;
         let payload = serde_json::from_str::<Payload>(&event.data)
             .unwrap_or_else(|_| Payload { text: event.data.clone(), ..Payload::default() });
-        let status = payload.status.unwrap_or(CallStatus::Unknown);
+        let status = match payload.operation_id.as_deref() {
+            None => payload.status.unwrap_or(CallStatus::Unknown),
+            Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {
+                Some(Ok(Some(op))) => CallStatus::from_operation(
+                    op.state,
+                    op.outcome,
+                    op.outcome_conflict,
+                    op.effect_status,
+                ),
+                _ => CallStatus::Unknown,
+            },
+        };
         let kind = match (event.event_type.as_str(), payload.call_id) {
             ("system", _) => ItemKind::System,
             ("user", _) => ItemKind::User,

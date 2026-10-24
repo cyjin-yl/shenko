@@ -41,6 +41,13 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
         events.push(("user", serde_json::json!({ "text": format!("question {n}") }).to_string()));
         events.push(("assistant", serde_json::json!({ "text": format!("answer {n}") }).to_string()));
     }
+    // Claims success but names an operation the execution ledger does not
+    // have: the ledger is authoritative, so this reads as Unknown.
+    let claimed = serde_json::json!({
+        "text": "git push", "call_id": "push-1", "operation_id": EntityId::new().to_string(),
+        "status": { "Executed": { "ok": true } },
+    });
+    events.push(("tool_call", claimed.to_string()));
     let mut batch = WriteBatch::new();
     for (seq, (event_type, data)) in events.into_iter().enumerate() {
         batch.session_event_upserts.push(RawSessionEvent {
@@ -60,6 +67,7 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
     assert_eq!(raw[2].kind, ItemKind::Other { event_type: "napcat_image".into() });
     assert_eq!(raw[3].kind, ItemKind::Other { event_type: "tool_result".into() });
     assert_eq!((raw[4].kind.clone(), raw[4].text.as_str()), (ItemKind::User, "plain text, not JSON"));
+    assert!(matches!(raw.last().unwrap().kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. }));
 
     let caps = ModelCaps { model_id: "text-only".into(), max_context: 1000, vision: None };
     let log = Arc::new(StoreWindowLog::new(store.clone(), session));
