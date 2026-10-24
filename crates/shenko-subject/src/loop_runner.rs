@@ -4,15 +4,20 @@
 use crate::dispatch::ChildDispatcher;
 use crate::inbox::{Inbox, InboxEvent};
 use crate::outbox::OutboxMessage;
+use shenko_identity::DefaultIdentityPolicy;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
-use shenko_types::identity::{IdentityProfile, IdentitySource, parse_identity_directives};
+use shenko_types::identity::{
+    IdentityIntent, IdentityOutcome, IdentityProfile, IdentityReceipt, IdentitySource,
+};
 use shenko_types::ids::{EntityId, RecordRevision};
-use shenko_types::object::{Digest, ObjectRef};
+use shenko_types::object::ObjectRef;
+use shenko_types::output::OutputAction;
 use shenko_types::subject::{
-    DelegationIntent, Disposition, EventDisposition, InferenceRetryFact, MemoryIntent, MemoryIntentKind, SubjectRetryEvidence,
-    SemanticWait, StepDecision, SubjectBranchHead, SubjectStep, SubjectStepState,
+    DelegationIntent, Disposition, EventDisposition, InferenceRetryFact, MemoryIntent,
+    MemoryIntentKind, SemanticWait, StepDecision, SubjectBranchHead, SubjectRetryEvidence,
+    SubjectStep, SubjectStepState,
 };
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -28,11 +33,16 @@ struct FrozenStepInput {
     model: String,
     payload: shenko_broker::request::InferencePayload,
     in_semantic_wait: bool,
+    identity: Option<IdentityProfile>,
 }
 
-fn read_sealed(store: &shenko_store::store::Store, object: &ObjectRef) -> Result<Vec<u8>, ShenkoError> {
+fn read_sealed(
+    store: &shenko_store::store::Store,
+    object: &ObjectRef,
+) -> Result<Vec<u8>, ShenkoError> {
     let bytes = store.cas.read_object(&object.digest)?;
-    if object.locator.is_empty() || bytes.len() as u64 != object.bytes
+    if object.locator.is_empty()
+        || bytes.len() as u64 != object.bytes
         || shenko_types::object::Digest::blake3(&bytes) != object.digest
     {
         return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
@@ -40,36 +50,59 @@ fn read_sealed(store: &shenko_store::store::Store, object: &ObjectRef) -> Result
     Ok(bytes)
 }
 
-fn frozen_input(store: &shenko_store::store::Store, step: &SubjectStep) -> Result<FrozenStepInput, ShenkoError> {
-    let object = step.input_plan_ref.as_ref().ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
+fn frozen_input(
+    store: &shenko_store::store::Store,
+    step: &SubjectStep,
+) -> Result<FrozenStepInput, ShenkoError> {
+    let object = step
+        .input_plan_ref
+        .as_ref()
+        .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
-        .map_err(|_| ShenkoError::conflict("recovery_blocked: legacy/incomplete frozen input needs reconciliation"))?;
-    if input.schema_version != 2 || input.step_id != step.step_id || input.step_no != step.step_no {
-        return Err(ShenkoError::conflict("recovery_blocked: frozen input identity mismatch"));
+        .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
+    if input.schema_version != 3 || input.step_id != step.step_id || input.step_no != step.step_no {
+        return Err(ShenkoError::conflict(
+            "recovery_blocked: frozen input identity mismatch",
+        ));
     }
     Ok(input)
 }
 
-fn validate_resume(store: &shenko_store::store::Store, step: &SubjectStep) -> Result<(), ShenkoError> {
+fn validate_resume(
+    store: &shenko_store::store::Store,
+    step: &SubjectStep,
+) -> Result<(), ShenkoError> {
     use SubjectStepState::*;
     let no_request = step.active_request_id.is_none() && step.active_attempt_id.is_none();
     match step.state {
         Planned if no_request => return Ok(()),
-        Preparing if no_request => {},
+        Preparing if no_request => {}
         RetryPending => {
-            let object = step.retry_reason_ref.as_ref().ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing retry evidence"))?;
-            let evidence: SubjectRetryEvidence = serde_json::from_slice(&read_sealed(store, object)?)?;
+            let object = step
+                .retry_reason_ref
+                .as_ref()
+                .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing retry evidence"))?;
+            let evidence: SubjectRetryEvidence =
+                serde_json::from_slice(&read_sealed(store, object)?)?;
             if step.active_attempt_id.is_some() || !evidence.permits_retry(step.active_request_id) {
-                return Err(ShenkoError::conflict("recovery_blocked: retry outcome not conclusive"));
+                return Err(ShenkoError::conflict(
+                    "recovery_blocked: retry outcome not conclusive",
+                ));
             }
-        },
+        }
         ResultRecorded if step.active_request_id.is_some() => {
-            let object = step.model_result_ref.as_ref().ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing recorded result"))?;
-            String::from_utf8(read_sealed(store, object)?).map_err(|e| ShenkoError::storage(e.to_string()))?;
-        },
-        _ => return Err(ShenkoError::conflict(format!(
-            "recovery_blocked: step {} is {:?}; reconcile original request/attempt before inference", step.step_id, step.state,
-        ))),
+            let object = step.model_result_ref.as_ref().ok_or_else(|| {
+                ShenkoError::conflict("recovery_blocked: missing recorded result")
+            })?;
+            String::from_utf8(read_sealed(store, object)?)
+                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        }
+        _ => {
+            return Err(ShenkoError::conflict(format!(
+                "recovery_blocked: step {} is {:?}; reconcile original request/attempt before inference",
+                step.step_id, step.state,
+            )));
+        }
     }
     frozen_input(store, step)?;
     Ok(())
@@ -98,6 +131,7 @@ pub struct SubjectLoopState {
     /// Identity revision fixed for the current step — SPEC §6. Reloaded only
     /// at the S0 boundary, so a change applies from the next step on.
     pub identity: Option<IdentityProfile>,
+    pub identity_receipt: Option<IdentityReceipt>,
 }
 
 impl SubjectLoopState {
@@ -129,7 +163,16 @@ impl SubjectLoopState {
         } else {
             None
         };
-        let identity = store.latest_identity(agent_id)?;
+        let identity = if step.state == SubjectStepState::Planned {
+            store.latest_identity(agent_id)?
+        } else {
+            frozen_input(&store, &step)?.identity
+        };
+        let identity_receipt = head
+            .committed_step_id
+            .map(|id| store.identity_receipt(id))
+            .transpose()?
+            .flatten();
         Ok(Self {
             agent_id,
             head,
@@ -147,6 +190,7 @@ impl SubjectLoopState {
             last_inbox_cursor: 0,
             outbox_tx: None,
             identity,
+            identity_receipt,
         })
     }
 
@@ -196,10 +240,15 @@ pub async fn run_subject_loop(
         };
         // An ingress replay may already be queued when ResultRecorded resumes S1.
         // Recheck L at consumption time so that stable IDs are never executed twice.
-        let filtered = events.into_iter().map(|event| {
-            state.store.event_disposition_commit(state.agent_id, event.event_id)
-                .map(|commit| if commit.is_none() { Some(event) } else { None })
-        }).collect::<Result<Vec<_>, _>>();
+        let filtered = events
+            .into_iter()
+            .map(|event| {
+                state
+                    .store
+                    .event_disposition_commit(state.agent_id, event.event_id)
+                    .map(|commit| if commit.is_none() { Some(event) } else { None })
+            })
+            .collect::<Result<Vec<_>, _>>();
         events = match filtered {
             Ok(events) => events.into_iter().flatten().collect(),
             Err(error) => break Err(error),
@@ -222,7 +271,8 @@ pub async fn run_subject_loop(
         };
 
         // Execute one subject step (S0 → AwaitingModel → Committed)
-        if let Err(error) = execute_step(seq, &events, &mut state, in_semantic_wait, &cancel).await {
+        if let Err(error) = execute_step(seq, &events, &mut state, in_semantic_wait, &cancel).await
+        {
             // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
             warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
             break Err(error);
@@ -250,10 +300,12 @@ const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行
 /// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
 fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> String {
     let mut prompt = String::from(SUBJECT_CONTRACT);
+    prompt.push_str("\n\n");
+    prompt.push_str(crate::output::OUTPUT_CONTRACT);
 
     if let Some(identity) = &state.identity {
         prompt.push_str("\n\n");
-        prompt.push_str(&identity.persona_section());
+        prompt.push_str(&DefaultIdentityPolicy::persona_section(identity));
     }
 
     if !state.goals.is_empty() {
@@ -263,6 +315,14 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
         }
     }
 
+    if let Some(receipt) = &state.identity_receipt {
+        if matches!(receipt.outcome, IdentityOutcome::Conflict { .. }) {
+            prompt.push_str(
+                "\n上一步身份意图未采用：S0 后身份被编辑，请基于本轮快照重新判断。回执：",
+            );
+            prompt.push_str(&serde_json::to_string(receipt).expect("identity receipt serializes"));
+        }
+    }
     if let Some(prev) = &state.last_thought {
         prompt.push_str("\n\n你上一步的想法（继续这条思路，不要重新开始）：\n");
         prompt.push_str(prev);
@@ -334,35 +394,6 @@ fn seal_step_object(
         .object)
 }
 
-/// Extract explicitly tagged memory content from model output. SPEC §12.2.
-///
-/// Recognises `记住`, `[remember]` and `[memory]`; honours at most one marker
-/// per step and returns the rest of that marker's line, trimmed.
-fn extract_memory_content(output: &str) -> Option<String> {
-    const MARKERS: [&str; 3] = ["记住", "[remember]", "[memory]"];
-    // ASCII-only lowercasing keeps byte offsets valid for the original text.
-    let lower = output.to_ascii_lowercase();
-    let mut content_start: Option<usize> = None;
-    for marker in MARKERS {
-        let haystack = if marker.is_ascii() {
-            lower.as_str()
-        } else {
-            output
-        };
-        if let Some(pos) = haystack.find(marker) {
-            let end = pos + marker.len();
-            content_start = Some(content_start.map_or(end, |cur| cur.min(end)));
-        }
-    }
-    let rest = &output[content_start?..];
-    let content = rest.lines().next().unwrap_or("").trim();
-    if content.is_empty() {
-        None
-    } else {
-        Some(content.to_string())
-    }
-}
-
 /// Execute one subject step: S0 (Planned→Preparing) → AwaitingModel → S1 (Committed).
 /// Returns the commit ref if S1 succeeded.
 async fn execute_step(
@@ -379,13 +410,15 @@ async fn execute_step(
     let next_step_id = EntityId::new();
     let mut step = state.step.clone();
     if step.step_no != seq {
-        return Err(ShenkoError::conflict("step is not the registered successor"));
+        return Err(ShenkoError::conflict(
+            "step is not the registered successor",
+        ));
     }
     validate_resume(&store, &step)?;
     let input = if step.state == SubjectStepState::Planned {
         state.identity = store.latest_identity(state.agent_id)?;
         let input = FrozenStepInput {
-            schema_version: 2,
+            schema_version: 3,
             step_id,
             step_no: seq,
             events: events.to_vec(),
@@ -397,9 +430,16 @@ async fn execute_step(
                 tools: vec![],
             },
             in_semantic_wait,
+            identity: state.identity.clone(),
         };
         step.input_plan_ref = Some(seal_step_object(
-            &store, seq, &serde_json::to_vec(&input)?, "application/json", "input_plans", "subject_step_input", 2,
+            &store,
+            seq,
+            &serde_json::to_vec(&input)?,
+            "application/json",
+            "input_plans",
+            "subject_step_input",
+            3,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -413,22 +453,37 @@ async fn execute_step(
     };
     let events = input.events.as_slice();
     let in_semantic_wait = input.in_semantic_wait;
+    let input_identity = input.identity.clone();
     let model_output = if step.state == SubjectStepState::ResultRecorded {
         // The actual sealed result is authoritative; no broker admission on this path.
-        let object = step.model_result_ref.as_ref().ok_or_else(|| ShenkoError::conflict("missing recorded result"))?;
-        Some(String::from_utf8(read_sealed(&store, object)?).map_err(|e| ShenkoError::storage(e.to_string()))?)
+        let object = step
+            .model_result_ref
+            .as_ref()
+            .ok_or_else(|| ShenkoError::conflict("missing recorded result"))?;
+        Some(
+            String::from_utf8(read_sealed(&store, object)?)
+                .map_err(|e| ShenkoError::storage(e.to_string()))?,
+        )
     } else {
         if step.state == SubjectStepState::Preparing {
             if let Some(reg) = &hooks_ref {
                 reg.run_phase(&HookPayload::BeforeInference {
-                    request_id: step_id, agent_id: state.agent_id, model: input.model.clone(),
-                }).await;
+                    request_id: step_id,
+                    agent_id: state.agent_id,
+                    model: input.model.clone(),
+                })
+                .await;
             }
         }
         // Close is not abort. Before dispatch, the frozen Preparing/RetryPending
         // fact is sufficient to resume. After dispatch, keep waiting for real evidence.
-        if cancel.is_cancelled() { return Ok(None); }
-        let broker = state.broker.as_ref().ok_or_else(|| ShenkoError::other("no broker; frozen preparation remains resumable"))?;
+        if cancel.is_cancelled() {
+            return Ok(None);
+        }
+        let broker = state
+            .broker
+            .as_ref()
+            .ok_or_else(|| ShenkoError::other("no broker; frozen preparation remains resumable"))?;
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
         let (tx, rx) = tokio::sync::oneshot::channel();
         let req = shenko_broker::request::InferenceRequest {
@@ -451,28 +506,54 @@ async fn execute_step(
         // between the write and send cannot prove that, and stays AwaitingModel.
         if broker.submit(req).is_err() {
             record_retry(state, InferenceRetryFact::NeverDispatched)?;
-            return Err(ShenkoError::other("broker admission rejected; never_dispatched persisted"));
+            return Err(ShenkoError::other(
+                "broker admission rejected; never_dispatched persisted",
+            ));
         }
-        let result = rx.await.map_err(|_| ShenkoError::other("model outcome unknown; reconcile original request"))?;
+        let result = rx
+            .await
+            .map_err(|_| ShenkoError::other("model outcome unknown; reconcile original request"))?;
         if result.request_id != request_id {
-            return Err(ShenkoError::conflict("model result request identity mismatch"));
+            return Err(ShenkoError::conflict(
+                "model result request identity mismatch",
+            ));
         }
         use shenko_broker::request::InferenceStatus;
         match result.status {
             InferenceStatus::QueuedCapacityWait => {
                 record_retry(state, InferenceRetryFact::NeverDispatched)?;
-                return Err(ShenkoError::other("broker capacity rejection; never_dispatched persisted"));
-            },
+                return Err(ShenkoError::other(
+                    "broker capacity rejection; never_dispatched persisted",
+                ));
+            }
             InferenceStatus::Rejected { http_status: 429 } => {
-                record_retry(state, InferenceRetryFact::ProviderRejected { http_status: 429 })?;
-                return Err(ShenkoError::other("provider rejection persisted; same frozen request may resume"));
-            },
-            InferenceStatus::Success => {},
-            _ => return Err(ShenkoError::other("model outcome not conclusive; preserve original awaiting_model for reconciliation")),
+                record_retry(
+                    state,
+                    InferenceRetryFact::ProviderRejected { http_status: 429 },
+                )?;
+                return Err(ShenkoError::other(
+                    "provider rejection persisted; same frozen request may resume",
+                ));
+            }
+            InferenceStatus::Success => {}
+            _ => {
+                return Err(ShenkoError::other(
+                    "model outcome not conclusive; preserve original awaiting_model for reconciliation",
+                ));
+            }
         }
-        let output = result.response.ok_or_else(|| ShenkoError::other("successful model result missing response"))?.content;
+        let output = result
+            .response
+            .ok_or_else(|| ShenkoError::other("successful model result missing response"))?
+            .content;
         step.model_result_ref = Some(seal_step_object(
-            &store, seq, output.as_bytes(), "text/plain", "model_results", "text", 1,
+            &store,
+            seq,
+            output.as_bytes(),
+            "text/plain",
+            "model_results",
+            "text",
+            1,
         )?);
         step.state = SubjectStepState::ResultRecorded;
         let expected = step.record_revision;
@@ -515,29 +596,85 @@ async fn execute_step(
 
     // S1 decision — SPEC §41.5: commit decision + event disposition +
     // delegation intent + unique successor before the ledger write.
-    let output_text = model_output.as_deref().unwrap_or("");
-    let lower_out = output_text.to_lowercase();
-    let delegation_trigger = output_text.contains("委派")
-        || output_text.contains("delegate")
-        || lower_out.contains("[delegate]")
-        || lower_out.contains("dispatch:");
-
-    let mut decision_delegation_intents: Vec<DelegationIntent> = vec![];
-    if delegation_trigger {
-        decision_delegation_intents.push(DelegationIntent {
-            intent_id: EntityId::new(),
-            goal: output_text
-                .lines()
-                .next()
-                .unwrap_or("delegated task")
-                .to_string(),
-            system_prompt: output_text.to_string(),
-            model: None,
-            capabilities: vec![],
-            budget_hint: None,
-            reply_grant: None,
-        });
+    let output = crate::output::parse_output(
+        step_id,
+        step.model_result_ref
+            .clone()
+            .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
+        model_output.as_deref().unwrap_or(""),
+    )?;
+    let mut decision_delegation_intents = vec![];
+    let mut memory_candidates = vec![];
+    let mut publication_intents = vec![];
+    let mut identity_changes = vec![];
+    let mut identity_action_ids = vec![];
+    for control in &output.controls {
+        match &control.action {
+            OutputAction::Delegate { text } => decision_delegation_intents.push(DelegationIntent {
+                intent_id: control.action_id,
+                goal: text.clone(),
+                system_prompt: text.clone(),
+                model: None,
+                capabilities: vec![],
+                budget_hint: None,
+                reply_grant: None,
+            }),
+            OutputAction::Remember { text } => {
+                let content_ref = seal_step_object(
+                    &store,
+                    seq,
+                    text.as_bytes(),
+                    "text/plain",
+                    "memory_intents",
+                    "text",
+                    1,
+                )?;
+                memory_candidates.push((
+                    MemoryIntent {
+                        intent_id: control.action_id,
+                        kind: MemoryIntentKind::Save,
+                        scope: "personal".into(),
+                        content_ref: Some(content_ref),
+                    },
+                    text.clone(),
+                ));
+            }
+            OutputAction::Reply { target, text } if !text.trim().is_empty() => {
+                publication_intents.push(shenko_types::subject::PublicationIntent {
+                    intent_id: control.action_id,
+                    target: target.clone(),
+                    content: text.clone(),
+                    reply_grant_id: None,
+                });
+            }
+            OutputAction::Identity { change } => {
+                identity_changes.push(change.clone());
+                identity_action_ids.push(control.action_id);
+            }
+            _ => {}
+        }
     }
+    let identity_intent = if identity_changes.is_empty() {
+        None
+    } else {
+        let current = input_identity.as_ref().ok_or_else(|| {
+            ShenkoError::conflict("identity edit requires initialized S0 profile")
+        })?;
+        DefaultIdentityPolicy::revise(
+            current,
+            &identity_changes,
+            IdentitySource::Subject {
+                step_id,
+                step_no: seq,
+            },
+        )
+        .map(|proposed| IdentityIntent {
+            intent_id: identity_action_ids[0],
+            action_ids: identity_action_ids,
+            expected_revision: current.revision,
+            proposed,
+        })
+    };
 
     let event_dispositions: Vec<EventDisposition> = events
         .iter()
@@ -547,40 +684,12 @@ async fn execute_step(
         })
         .collect();
 
-    // Memory intent — SPEC §12.2. At most one save intent per step, extracted
-    // only from an explicit marker in the model output. The tagged content is
-    // sealed into CAS and the intent is recorded in the S1 decision; the entry
-    // itself is committed after the S1 commit succeeds.
-    let memory_candidate: Option<(MemoryIntent, String)> = model_output
-        .as_deref()
-        .and_then(extract_memory_content)
-        .map(|content| {
-            let content_ref = seal_step_object(
-                &store,
-                seq,
-                content.as_bytes(),
-                "text/plain",
-                "memory_intents",
-                "text",
-                1,
-            )?;
-            let intent = MemoryIntent {
-                intent_id: EntityId::new(),
-                kind: MemoryIntentKind::Save,
-                scope: "personal".into(),
-                content_ref: Some(content_ref),
-            };
-            Ok::<_, ShenkoError>((intent, content))
-        })
-        .transpose()?;
-    let decision_memory_intents: Vec<MemoryIntent> = memory_candidate
-        .iter()
-        .map(|(intent, _)| intent.clone())
-        .collect();
-
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
+        schema_version: 2,
         step_id,
+        output: output.clone(),
+        identity_intent,
         input_plan_ref: step
             .input_plan_ref
             .clone()
@@ -590,9 +699,9 @@ async fn execute_step(
         event_dispositions,
         delegated_task_intents: decision_delegation_intents.clone(),
         child_dialogue_intents: vec![],
-        memory_intents: decision_memory_intents,
+        memory_intents: memory_candidates.iter().map(|(i, _)| i.clone()).collect(),
         policy_intents: vec![],
-        publication_intents: vec![],
+        publication_intents: publication_intents.clone(),
         pending_obligations: vec![],
         evidence_refs: vec![],
         successor_step_id: next_step_id,
@@ -605,7 +714,7 @@ async fn execute_step(
         "application/json",
         "decisions",
         "StepDecision",
-        1,
+        2,
     )?);
 
     match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {
@@ -616,34 +725,25 @@ async fn execute_step(
             state.step = successor;
             state.last_thought = model_output.clone();
 
-            // Self-revision of name/soul/personality — SPEC §6, R105/R117.
-            // Applied after the commit, effective from the next S0 boundary;
-            // the source step makes each revision traceable.
-            let mut identity_revision = state.identity.as_ref().map(|p| p.revision);
-            if let Some(output) = &model_output {
-                for change in parse_identity_directives(output) {
-                    let source = IdentitySource::Subject { step_id, step_no: seq };
-                    match store.change_identity(state.agent_id, &change, source) {
-                        Ok(Some(p)) => {
-                            info!(seq, revision = p.revision, "identity revised by subject");
-                            identity_revision = Some(p.revision);
-                        }
-                        Ok(None) => {}
-                        Err(e) => warn!(seq, err=%e, "identity revision not recorded"),
-                    }
-                }
-            }
+            // Read our committed receipt, not latest profile. Its revision and
+            // typed conflict were settled atomically with this exact S1.
+            let identity_receipt = store
+                .identity_receipt(step_id)?
+                .ok_or_else(|| ShenkoError::conflict("S1 identity receipt missing"))?;
+            let identity_revision = identity_receipt.outcome.revision();
+            state.identity_receipt = Some(identity_receipt);
 
             // Outbound path — publish ONLY after the S1 commit succeeded.
             // SPEC §41.2.3 committed-only publication: never show a thought
             // that is not durably recorded, or a retried step could show a
             // different one.
-            if let Some(output) = &model_output {
+            if model_output.is_some() {
                 if let Some(tx) = &state.outbox_tx {
                     let _ = tx.send(OutboxMessage {
                         kind: "thought".into(),
                         step: seq,
-                        content: output.clone(),
+                        text: decision.output.text.clone(),
+                        publications: publication_intents.clone(),
                         identity_revision,
                     });
                 }
@@ -652,7 +752,7 @@ async fn execute_step(
             // Memory pipeline — SPEC §12.2: accept the intent then commit its
             // entry. Runs only after the S1 commit is durable and at most once
             // per step.
-            if let Some((intent, content)) = &memory_candidate {
+            for (intent, content) in &memory_candidates {
                 let record = shenko_store::memory::MemoryIntentRecord::accepted(
                     intent.intent_id,
                     state.agent_id,
@@ -716,11 +816,20 @@ async fn execute_step(
 }
 
 fn record_retry(state: &mut SubjectLoopState, fact: InferenceRetryFact) -> Result<(), ShenkoError> {
-    let request_id = state.step.active_request_id.ok_or_else(|| ShenkoError::conflict("missing retry request"))?;
+    let request_id = state
+        .step
+        .active_request_id
+        .ok_or_else(|| ShenkoError::conflict("missing retry request"))?;
     let evidence = SubjectRetryEvidence { request_id, fact };
     let mut step = state.step.clone();
     step.retry_reason_ref = Some(seal_step_object(
-        &state.store, step.step_no, &serde_json::to_vec(&evidence)?, "application/json", "retry_evidence", "subject_retry_evidence", 1,
+        &state.store,
+        step.step_no,
+        &serde_json::to_vec(&evidence)?,
+        "application/json",
+        "retry_evidence",
+        "subject_retry_evidence",
+        1,
     )?);
     step.state = SubjectStepState::RetryPending;
     let expected = step.record_revision;

@@ -10,11 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::ids::EntityId;
 
-/// Upper bounds keep a self-edit from swallowing the context window.
-pub const MAX_NAME_CHARS: usize = 64;
-pub const MAX_SOUL_CHARS: usize = 2000;
-pub const MAX_PERSONALITY_CHARS: usize = 2000;
-
 /// Who chose the current display name. SPEC §6: user naming and self naming
 /// are both first-class initialisation paths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,153 +56,47 @@ pub struct IdentityProfile {
     pub created_at: DateTime<Utc>,
 }
 
-impl IdentityProfile {
-    /// Revision 1. A provided name is user-given; otherwise the instance is
-    /// unnamed and may name itself later.
-    pub fn genesis(agent_id: EntityId, name: Option<&str>) -> Self {
-        let display_name = name.and_then(|n| clean(n, MAX_NAME_CHARS, true));
-        Self {
-            agent_id,
-            revision: 1,
-            naming: if display_name.is_some() { NamingOrigin::UserGiven } else { NamingOrigin::Unnamed },
-            display_name,
-            soul: None,
-            personality: None,
-            source: IdentitySource::Genesis,
-            created_at: Utc::now(),
-        }
-    }
+/// One step proposes one atomic profile revision, based only on its S0 snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentityIntent {
+    pub intent_id: EntityId,
+    pub action_ids: Vec<EntityId>,
+    pub expected_revision: u64,
+    pub proposed: IdentityProfile,
+}
 
-    /// The next revision after applying `change`, or `None` when the change is
-    /// empty or identical to the current value.
-    pub fn successor(&self, change: &IdentityChange, source: IdentitySource) -> Option<Self> {
-        let mut next = self.clone();
-        match change {
-            IdentityChange::Name(v) => {
-                let v = clean(v, MAX_NAME_CHARS, true)?;
-                if self.display_name.as_deref() == Some(v.as_str()) {
-                    return None;
-                }
-                next.naming = match source {
-                    IdentitySource::Subject { .. } => NamingOrigin::SelfChosen,
-                    _ => NamingOrigin::UserGiven,
-                };
-                next.display_name = Some(v);
-            }
-            IdentityChange::Soul(v) => {
-                let v = clean(v, MAX_SOUL_CHARS, false)?;
-                if self.soul.as_deref() == Some(v.as_str()) {
-                    return None;
-                }
-                next.soul = Some(v);
-            }
-            IdentityChange::Personality(v) => {
-                let v = clean(v, MAX_PERSONALITY_CHARS, false)?;
-                if self.personality.as_deref() == Some(v.as_str()) {
-                    return None;
-                }
-                next.personality = Some(v);
-            }
-        }
-        next.revision = self.revision + 1;
-        next.source = source;
-        next.created_at = Utc::now();
-        Some(next)
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum IdentityOutcome {
+    Unchanged {
+        revision: Option<u64>,
+    },
+    Applied {
+        expected_revision: u64,
+        revision: u64,
+    },
+    Conflict {
+        expected_revision: u64,
+        actual_revision: Option<u64>,
+    },
+}
 
-    /// Persona section placed after the role/tool contract. SPEC §6 order.
-    pub fn persona_section(&self) -> String {
-        let mut s = String::from("## 你自己（身份 revision ");
-        s.push_str(&self.revision.to_string());
-        s.push_str("）\n");
-        match (&self.display_name, self.naming) {
-            (Some(name), NamingOrigin::SelfChosen) => {
-                s.push_str(&format!("你的名字是「{name}」，是你自己取的。\n"));
-            }
-            (Some(name), _) => {
-                s.push_str(&format!("你的名字是「{name}」，由用户取的。\n"));
-            }
-            (None, _) => s.push_str(
-                "你还没有名字。Shenko 只是你运行的框架名，不是你的名字。\
-                 想好后可以单独一行输出 `[identity:name] 名字` 为自己取名。\n",
-            ),
+impl IdentityOutcome {
+    pub fn revision(&self) -> Option<u64> {
+        match self {
+            Self::Unchanged { revision } => *revision,
+            Self::Applied { revision, .. } => Some(*revision),
+            Self::Conflict {
+                actual_revision, ..
+            } => *actual_revision,
         }
-        match &self.soul {
-            Some(soul) => s.push_str(&format!("你的灵魂（你自己对处事与自我的认识）：{soul}\n")),
-            None => s.push_str("你还没有写下自己的灵魂：一两句关于为人处事和自我认知的话。\n"),
-        }
-        if let Some(p) = &self.personality {
-            s.push_str(&format!("你的性格：{p}\n"));
-        }
-        s.push_str(
-            "这些都属于你，可以随反省改写：单独一行输出 `[identity:name] …`、\
-             `[identity:soul] …` 或 `[identity:personality] …`，从下一轮起生效。\
-             它们不改变上面的运行合同。",
-        );
-        s
     }
 }
 
-/// Parse `[identity:<field>] value` lines from committed model output. Only the
-/// last directive per field counts, so a step yields at most three changes.
-pub fn parse_identity_directives(output: &str) -> Vec<IdentityChange> {
-    let mut name = None;
-    let mut soul = None;
-    let mut personality = None;
-    for line in output.lines() {
-        let Some((field, value)) = identity_directive(line) else { continue };
-        let value = value.trim().to_string();
-        match field.trim() {
-            "name" => name = Some(IdentityChange::Name(value)),
-            "soul" => soul = Some(IdentityChange::Soul(value)),
-            "personality" => personality = Some(IdentityChange::Personality(value)),
-            _ => {}
-        }
-    }
-    [name, soul, personality].into_iter().flatten().collect()
-}
-
-/// Model output with every `[identity:*]` control line removed. Channels
-/// publish from this text, so an identity edit (field and value) never leaks
-/// into a reply, wherever it sits relative to `[reply:…]` lines.
-pub fn publishable_text(output: &str) -> String {
-    output
-        .lines()
-        .filter(|line| identity_directive(line).is_none())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// The one definition of an identity control line: `[identity:<field>] value`.
-fn identity_directive(line: &str) -> Option<(&str, &str)> {
-    line.trim().strip_prefix("[identity:")?.split_once(']').map(|(f, v)| (f.trim(), v))
-}
-
-fn clean(value: &str, max_chars: usize, single_line: bool) -> Option<String> {
-    let value = if single_line { value.lines().next().unwrap_or("") } else { value };
-    let value: String = value.trim().chars().take(max_chars).collect();
-    let value = value.trim().to_string();
-    (!value.is_empty()).then_some(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn directives_and_naming_origin() {
-        let out = "想了想。\n[identity:name] 岚\n多余\n[identity:soul] 认真对待每段关系。\n[identity:tools] 无效\n[identity:name]  \n";
-        let changes = parse_identity_directives(out);
-        // 同字段取最后一条；空名字随后被 successor 拒绝，未知字段忽略。
-        assert_eq!(changes, vec![IdentityChange::Name(String::new()), IdentityChange::Soul("认真对待每段关系。".into())]);
-
-        let agent = EntityId::new();
-        let g = IdentityProfile::genesis(agent, Some("  小满\n第二行 "));
-        assert_eq!((g.display_name.as_deref(), g.naming, g.revision), (Some("小满"), NamingOrigin::UserGiven, 1));
-        assert!(g.successor(&changes[0], IdentitySource::Operator).is_none());
-        assert!(g.successor(&IdentityChange::Name("小满".into()), IdentitySource::Operator).is_none());
-        let s = IdentitySource::Subject { step_id: EntityId::new(), step_no: 9 };
-        let n = g.successor(&IdentityChange::Name("岚".into()), s).unwrap();
-        assert_eq!((n.agent_id, n.revision, n.naming), (agent, 2, NamingOrigin::SelfChosen));
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentityReceipt {
+    pub step_id: EntityId,
+    pub intent_id: Option<EntityId>,
+    pub outcome: IdentityOutcome,
+    pub committed_at: crate::commit::CommitRef,
 }

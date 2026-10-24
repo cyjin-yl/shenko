@@ -1,15 +1,20 @@
 //! Shenko — personal agent framework entry point.
 //! SPEC §44: seed/bootstrap startup with real subject loop + broker.
-use std::path::PathBuf;
-use std::sync::Arc;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use shenko_identity::DefaultIdentityPolicy;
+use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
+use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
-use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 
 #[derive(Parser, Debug)]
-#[command(name = "shenko", about = "Shenko（深刻）— personal agent framework", version = "0.1.0")]
+#[command(
+    name = "shenko",
+    about = "Shenko（深刻）— personal agent framework",
+    version = "0.1.0"
+)]
 struct Cli {
     #[arg(long, env = "SHENKO_DATA_DIR")]
     data_dir: Option<PathBuf>,
@@ -45,6 +50,9 @@ enum Command {
         set_soul: Option<String>,
         #[arg(long)]
         set_personality: Option<String>,
+        /// Revision read by the editor; required for any mutation.
+        #[arg(long)]
+        expected_revision: Option<u64>,
         /// Print every revision, oldest first
         #[arg(long)]
         history: bool,
@@ -75,7 +83,14 @@ async fn main() -> Result<()> {
         Command::Version => {
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
             println!("Model: claude-opus-5-5");
-            println!("ANTHROPIC_API_KEY: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "set" } else { "not set (stub mode)" });
+            println!(
+                "ANTHROPIC_API_KEY: {}",
+                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                    "set"
+                } else {
+                    "not set (stub mode)"
+                }
+            );
         }
 
         Command::Check => {
@@ -84,42 +99,84 @@ async fn main() -> Result<()> {
             let db_path = data_dir.join("shenko.db");
             let cas_dir = data_dir.join("cas");
             let store = shenko_store::store::Store::open(db_path, cas_dir)?;
-            println!("Store: OK (SQLite {}, WAL={}, FTS5={})",
+            println!(
+                "Store: OK (SQLite {}, WAL={}, FTS5={})",
                 store.capabilities.sqlite_version,
                 store.capabilities.wal_mode,
                 store.capabilities.fts5_available,
             );
-            println!("API key: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "present" } else { "absent — stub mode" });
+            println!(
+                "API key: {}",
+                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                    "present"
+                } else {
+                    "absent — stub mode"
+                }
+            );
             println!("OK");
         }
 
-        Command::Identity { set_name, set_soul, set_personality, history } => {
+        Command::Identity {
+            set_name,
+            set_soul,
+            set_personality,
+            expected_revision,
+            history,
+        } => {
             tokio::fs::create_dir_all(&data_dir).await?;
-            let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let store =
+                shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
             let agent_id = store
                 .get_existing_agent_id()?
                 .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
-            let mut current = store.ensure_identity(agent_id, None)?;
+            let mut current = store
+                .latest_identity(agent_id)?
+                .ok_or_else(|| anyhow::anyhow!("identity not initialized"))?;
             let changes = [
                 set_name.map(IdentityChange::Name),
                 set_soul.map(IdentityChange::Soul),
                 set_personality.map(IdentityChange::Personality),
             ];
-            for change in changes.into_iter().flatten() {
-                if let Some(next) = store.change_identity(agent_id, &change, IdentitySource::Operator)? {
+            let changes: Vec<_> = changes.into_iter().flatten().collect();
+            if !changes.is_empty() {
+                let expected = expected_revision.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "editing requires --expected-revision from the profile you read"
+                    )
+                })?;
+                anyhow::ensure!(
+                    current.revision == expected,
+                    "IDENTITY_REVISION_CONFLICT: expected {expected}, actual {}",
+                    current.revision
+                );
+                if let Some(next) =
+                    DefaultIdentityPolicy::revise(&current, &changes, IdentitySource::Operator)
+                {
+                    store.append_identity(&next, expected)?;
                     current = next;
                 }
             }
-            let shown = if history { store.identity_history(agent_id)? } else { vec![current] };
+            let shown = if history {
+                store.identity_history(agent_id)?
+            } else {
+                vec![current]
+            };
             for profile in shown {
                 println!("{}", serde_json::to_string_pretty(&profile)?);
             }
         }
 
-        Command::Start { port, name, napcat, napcat_account } => {
+        Command::Start {
+            port,
+            name,
+            napcat,
+            napcat_account,
+        } => {
             if napcat.is_some() {
-                anyhow::ensure!(napcat_account.is_some_and(|account| account > 0),
-                    "NapCat persistent ingress requires --napcat-account or NAPCAT_BOT_QQ");
+                anyhow::ensure!(
+                    napcat_account.is_some_and(|account| account > 0),
+                    "NapCat persistent ingress requires --napcat-account or NAPCAT_BOT_QQ"
+                );
             }
             info!(
                 data_dir=%data_dir.display(), port,
@@ -172,7 +229,9 @@ async fn main() -> Result<()> {
                         received = dispatch_rx.recv() => received,
                         _ = dispatch_cancel.cancelled() => break,
                     };
-                    let Some((task_id, intent)) = received else { break };
+                    let Some((task_id, intent)) = received else {
+                        break;
+                    };
                     let kind = "delegation";
                     match persist_delegation(&dispatch_store, agent_id, task_id, &intent, kind) {
                         Ok(commit) => info!(
@@ -212,7 +271,10 @@ async fn main() -> Result<()> {
             .with_outbox(outbox_tx.clone());
 
             let cancel_subject = cancel.clone();
-            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
+            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(
+                loop_state,
+                cancel_subject,
+            ));
             info!("subject loop started");
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
@@ -244,10 +306,17 @@ async fn main() -> Result<()> {
                 let connection_config = napcat_config.clone();
                 let connection_cancel = cancel_napcat.clone();
                 tokio::spawn(async move {
-                    if let Err(error) = shenko_channel_napcat::client::NapCatClient::run_connection_loop(
-                        connection_config, event_tx, napcat_action_rx, pending_actions,
-                        connection_spool, connection_cancel.clone(),
-                    ).await {
+                    if let Err(error) =
+                        shenko_channel_napcat::client::NapCatClient::run_connection_loop(
+                            connection_config,
+                            event_tx,
+                            napcat_action_rx,
+                            pending_actions,
+                            connection_spool,
+                            connection_cancel.clone(),
+                        )
+                        .await
+                    {
                         tracing::error!(err=%error, "NapCat ingress failed — stopping runtime for recovery");
                         connection_cancel.cancel();
                     }
@@ -302,16 +371,21 @@ async fn main() -> Result<()> {
                                 _ = cancel_acks.cancelled() => break,
                             }
                             let page = spool.pending_after(after, 256)?;
-                            if page.is_empty() { after = 0; }
+                            if page.is_empty() {
+                                after = 0;
+                            }
                             for event in page {
                                 after = event.seq;
-                                if let Some(commit) = ack_store.event_disposition_commit(agent_id, event.spool_id)? {
+                                if let Some(commit) =
+                                    ack_store.event_disposition_commit(agent_id, event.spool_id)?
+                                {
                                     spool.ack(event.spool_id, &commit.to_string())?;
                                 }
                             }
                         }
                         Ok(())
-                    }.await;
+                    }
+                    .await;
                     if let Err(error) = result {
                         tracing::error!(err=%error, "NapCat acknowledgement mirror failed — reopen required");
                         cancel_acks.cancel();
@@ -339,57 +413,74 @@ async fn main() -> Result<()> {
                         let msg = match msg {
                             Ok(msg) => msg,
                             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                                tracing::warn!(skipped=n, "outbox lagged — replies skipped");
+                                tracing::warn!(skipped = n, "outbox lagged — replies skipped");
                                 continue;
                             }
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                         };
 
-                        let Some((kind, target, text)) = parse_reply_directive(&msg.content) else {
-                            continue;
-                        };
-
-                        let op = OutboundOperation::new(kind, target, text);
-                        let op_id = op.operation_id;
-                        if let Err(e) = ledger.record_intent(&op) {
-                            tracing::warn!(err=%e, "outbound intent not durable — message not sent");
-                            continue;
-                        }
-
-                        let send_result = match kind {
-                            OutboundKind::SendGroup => {
-                                reply_client
-                                    .send_group_message_with_echo(target, &op.message, op.echo_token.clone())
-                                    .await
-                            }
-                            OutboundKind::SendPrivate => {
-                                reply_client
-                                    .send_private_message_with_echo(target, &op.message, op.echo_token.clone())
-                                    .await
-                            }
-                        };
-
-                        match send_result {
-                            Ok(receipt) => {
-                                if let Err(e) = ledger.record_ack(op_id, receipt.retcode) {
-                                    tracing::warn!(err=%e, op=%op_id, "failed to record outbound ack");
+                        for publication in &msg.publications {
+                            let (kind, target) = match publication.target {
+                                shenko_types::output::PublicationTarget::QqGroup(id) => {
+                                    (OutboundKind::SendGroup, id)
                                 }
-                                if receipt.is_success() {
-                                    tracing::info!(op=%op_id, target, kind=kind.as_str(), "QQ reply sent");
-                                } else {
-                                    tracing::warn!(
-                                        op=%op_id, status=%receipt.status, retcode=receipt.retcode,
-                                        "NapCat rejected QQ reply"
-                                    );
+                                shenko_types::output::PublicationTarget::QqPrivate(id) => {
+                                    (OutboundKind::SendPrivate, id)
                                 }
+                            };
+                            let mut op =
+                                OutboundOperation::new(kind, target, publication.content.clone());
+                            op.operation_id = publication.intent_id;
+                            op.echo_token = publication.intent_id.to_string();
+                            let op_id = op.operation_id;
+                            if let Err(e) = ledger.record_intent(&op) {
+                                tracing::warn!(err=%e, "outbound intent not durable — message not sent");
+                                continue;
                             }
-                            Err(e) => {
-                                // The request may have been executed. Record the
-                                // unknown effect and leave resolution to
-                                // reconciliation; never blind-resend.
-                                tracing::warn!(err=%e, op=%op_id, "QQ reply outcome unknown");
-                                if let Err(e) = ledger.record_unknown(op_id) {
-                                    tracing::warn!(err=%e, op=%op_id, "failed to record unknown outcome");
+
+                            let send_result = match kind {
+                                OutboundKind::SendGroup => {
+                                    reply_client
+                                        .send_group_message_with_echo(
+                                            target,
+                                            &op.message,
+                                            op.echo_token.clone(),
+                                        )
+                                        .await
+                                }
+                                OutboundKind::SendPrivate => {
+                                    reply_client
+                                        .send_private_message_with_echo(
+                                            target,
+                                            &op.message,
+                                            op.echo_token.clone(),
+                                        )
+                                        .await
+                                }
+                            };
+
+                            match send_result {
+                                Ok(receipt) => {
+                                    if let Err(e) = ledger.record_ack(op_id, receipt.retcode) {
+                                        tracing::warn!(err=%e, op=%op_id, "failed to record outbound ack");
+                                    }
+                                    if receipt.is_success() {
+                                        tracing::info!(op=%op_id, target, kind=kind.as_str(), "QQ reply sent");
+                                    } else {
+                                        tracing::warn!(
+                                            op=%op_id, status=%receipt.status, retcode=receipt.retcode,
+                                            "NapCat rejected QQ reply"
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    // The request may have been executed. Record the
+                                    // unknown effect and leave resolution to
+                                    // reconciliation; never blind-resend.
+                                    tracing::warn!(err=%e, op=%op_id, "QQ reply outcome unknown");
+                                    if let Err(e) = ledger.record_unknown(op_id) {
+                                        tracing::warn!(err=%e, op=%op_id, "failed to record unknown outcome");
+                                    }
                                 }
                             }
                         }
@@ -406,7 +497,14 @@ async fn main() -> Result<()> {
                 .with_data_dir(data_dir.clone());
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
-            println!("  Inference: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "claude-opus-5-5" } else { "stub (no ANTHROPIC_API_KEY)" });
+            println!(
+                "  Inference: {}",
+                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                    "claude-opus-5-5"
+                } else {
+                    "stub (no ANTHROPIC_API_KEY)"
+                }
+            );
 
             // Supervise the actual subject task, including panics. Stop claiming
             // availability before waiting for the current durable boundary.
@@ -435,13 +533,19 @@ async fn main() -> Result<()> {
             if !subject_finished {
                 // Do not drop an admitted request merely because Ctrl-C arrived.
                 // A timeout is an observation limit, never proof the provider stopped.
-                match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task)
+                    .await
+                {
                     Ok(Ok(result)) => result?,
                     Ok(Err(error)) => return Err(error.into()),
                     Err(_) => {
                         let (_, step) = store.load_subject(agent_id)?;
-                        anyhow::bail!("shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
-                            step.step_id, step.state, step.active_request_id);
+                        anyhow::bail!(
+                            "shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
+                            step.step_id,
+                            step.state,
+                            step.active_request_id
+                        );
                     }
                 }
             }
@@ -457,7 +561,9 @@ fn napcat_inbox_event(
     event: shenko_channel_napcat::client::OneBotEvent,
 ) -> Result<shenko_subject::inbox::InboxEvent> {
     Ok(shenko_subject::inbox::InboxEvent {
-        event_id: event.ingress_id.ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?,
+        event_id: event
+            .ingress_id
+            .ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?,
         kind: shenko_subject::inbox::InboxEventKind::Message,
         payload: serde_json::to_value(&event)?,
         created_at: chrono::Utc::now(),
@@ -515,7 +621,9 @@ fn persist_delegation(
             registry_revision: 0,
         },
         input_ref,
-        state: TaskState::Pending { checkpoint_ref: None },
+        state: TaskState::Pending {
+            checkpoint_ref: None,
+        },
         abort_request: None,
         memos: Default::default(),
         residual_case_ids: Vec::new(),
@@ -534,42 +642,6 @@ fn persist_delegation(
     Ok(receipt.commit_ref)
 }
 
-/// Parse an explicit QQ reply directive emitted by the subject:
-/// `[reply:group:<group_id>] text` or `[reply:private:<user_id>] text`.
-/// Continuation lines are included until the next directive. Control lines
-/// (`[identity:*]`) are removed first: they are actions, never reply text.
-fn parse_reply_directive(
-    content: &str,
-) -> Option<(shenko_channel_napcat::outbound::OutboundKind, u64, String)> {
-    use shenko_channel_napcat::outbound::OutboundKind;
-
-    let publishable = shenko_types::identity::publishable_text(content);
-    let lines: Vec<&str> = publishable.lines().collect();
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        let Some(rest) = trimmed.strip_prefix("[reply:") else { continue };
-        let Some((head, tail)) = rest.split_once(']') else { continue };
-        let Some((kind, target)) = head.split_once(':') else { continue };
-        let Ok(target) = target.trim().parse::<u64>() else { continue };
-        let kind = match kind.trim() {
-            "group" => OutboundKind::SendGroup,
-            "private" => OutboundKind::SendPrivate,
-            _ => continue,
-        };
-
-        let mut body = String::from(tail.trim());
-        for next in &lines[i + 1..] {
-            if next.trim_start().starts_with("[reply:") { break; }
-            if !body.is_empty() { body.push('\n'); }
-            body.push_str(next.trim_end());
-        }
-        let body = body.trim().to_string();
-        if body.is_empty() { continue; }
-        return Some((kind, target, body));
-    }
-    None
-}
-
 /// Make sure the agent has an identity revision, and apply a user-given
 /// `--name` as a rename of the same agent when it differs. SPEC §6, R117.
 fn adopt_identity(
@@ -577,12 +649,17 @@ fn adopt_identity(
     agent_id: shenko_types::ids::EntityId,
     name: Option<&str>,
 ) -> Result<IdentityProfile> {
-    let current = store.ensure_identity(agent_id, name)?;
+    let current = store.initialize_identity(&DefaultIdentityPolicy::genesis(agent_id, name))?;
     let Some(name) = name else { return Ok(current) };
-    let change = IdentityChange::Name(name.to_string());
-    Ok(store
-        .change_identity(agent_id, &change, IdentitySource::Operator)?
-        .unwrap_or(current))
+    let Some(next) = DefaultIdentityPolicy::revise(
+        &current,
+        &[IdentityChange::Name(name.into())],
+        IdentitySource::Operator,
+    ) else {
+        return Ok(current);
+    };
+    store.append_identity(&next, current.revision)?;
+    Ok(next)
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6
@@ -590,10 +667,10 @@ fn bootstrap_genesis(
     store: &shenko_store::store::Store,
     name: Option<&str>,
 ) -> Result<shenko_types::ids::EntityId> {
-    use shenko_types::ids::*;
-    use shenko_types::subject::*;
     use shenko_types::commit::CommitRef;
+    use shenko_types::ids::*;
     use shenko_types::object::ObjectRef;
+    use shenko_types::subject::*;
 
     // Check if genesis exists already
     let existing_agent_id = store.get_existing_agent_id()?;
@@ -654,7 +731,10 @@ fn bootstrap_genesis(
         initial_profile_ref: initial_profile,
         home_manifest_ref: home_manifest,
         bootstrap_event_ref: bootstrap_event,
-        created_commit: CommitRef { ledger_id, seq: LedgerSeq(0) },
+        created_commit: CommitRef {
+            ledger_id,
+            seq: LedgerSeq(0),
+        },
     };
 
     let first_step_id = EntityId::new();
@@ -664,10 +744,16 @@ fn bootstrap_genesis(
         subject_root_task_id: EntityId::new(),
         controller_epoch: ControllerEpoch(1),
         software_generation: RuntimeGeneration::default(),
-        genesis_ref: GenesisRef { ledger_id, genesis_id },
+        genesis_ref: GenesisRef {
+            ledger_id,
+            genesis_id,
+        },
         committed_step_no: 0,
         committed_step_id: None,
-        committed_at: CommitRef { ledger_id, seq: LedgerSeq(0) },
+        committed_at: CommitRef {
+            ledger_id,
+            seq: LedgerSeq(0),
+        },
         next_step_id: first_step_id,
         mode: SubjectMode::Active,
         mode_reason_ref: None,
@@ -714,32 +800,57 @@ mod recovery_integration_tests {
         std::fs::create_dir(&dir).unwrap();
         let spool_path = dir.join("ingress.sqlite");
         let spool = IngressSpool::open(&spool_path, 9).unwrap();
-        let received = spool.ingest(serde_json::json!({
-            "post_type":"message", "message_type":"group", "group_id":7,
-            "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
-        })).unwrap().unwrap();
+        let received = spool
+            .ingest(serde_json::json!({
+                "post_type":"message", "message_type":"group", "group_id":7,
+                "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
+            }))
+            .unwrap()
+            .unwrap();
         drop(spool);
 
-        let config = NapCatConfig { bot_qq: 9, ws_url: "ws://127.0.0.1:0".into(), ..Default::default() };
-        let (client, mut rx, actions) = NapCatClient::open_persistent(config.clone(), &spool_path).unwrap();
+        let config = NapCatConfig {
+            bot_qq: 9,
+            ws_url: "ws://127.0.0.1:0".into(),
+            ..Default::default()
+        };
+        let (client, mut rx, actions) =
+            NapCatClient::open_persistent(config.clone(), &spool_path).unwrap();
         let cancel = tokio_util::sync::CancellationToken::new();
         let connector = tokio::spawn(NapCatClient::run_connection_loop(
-            config, client.event_sender(), actions, client.pending_actions.clone(),
-            client.spool.clone(), cancel.clone(),
+            config,
+            client.event_sender(),
+            actions,
+            client.pending_actions.clone(),
+            client.spool.clone(),
+            cancel.clone(),
         ));
         // Delivery now runs independently of connection establishment.
-        let replayed = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+        let replayed = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
         let inbox_event = napcat_inbox_event(replayed).unwrap();
         cancel.cancel();
         connector.await.unwrap().unwrap();
         assert_eq!(inbox_event.event_id, received.spool_id);
 
-        let store = shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap();
+        let store =
+            shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap();
         let agent = bootstrap_genesis(&store, None).unwrap();
         let (head, mut step) = store.load_subject(agent).unwrap();
-        assert!(store.event_disposition_commit(agent, inbox_event.event_id).unwrap().is_none());
+        assert!(
+            store
+                .event_disposition_commit(agent, inbox_event.event_id)
+                .unwrap()
+                .is_none()
+        );
         assert!(!client.spool.event(received.spool_id).unwrap().consumed);
-        let object = store.cas.seal_object(b"continue", "text/plain", "test", "raw", 1).unwrap().object;
+        let object = store
+            .cas
+            .seal_object(b"continue", "text/plain", "test", "raw", 1)
+            .unwrap()
+            .object;
         step.input_plan_ref = Some(object.clone());
         step.state = SubjectStepState::Preparing;
         step.record_revision = RecordRevision(1);
@@ -754,29 +865,62 @@ mod recovery_integration_tests {
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
         let next = EntityId::new();
         let decision = StepDecision {
-            step_id: step.step_id, input_plan_ref: object.clone(), model_result_ref: Some(object),
+            schema_version: 2,
+            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue")
+                .unwrap(),
+            identity_intent: None,
+            step_id: step.step_id,
+            input_plan_ref: object.clone(),
+            model_result_ref: Some(object),
             applied_steering_refs: vec![],
-            event_dispositions: vec![EventDisposition { event_id: inbox_event.event_id, disposition: Disposition::Acknowledged }],
-            delegated_task_intents: vec![], child_dialogue_intents: vec![], memory_intents: vec![],
-            policy_intents: vec![], publication_intents: vec![], pending_obligations: vec![], evidence_refs: vec![], successor_step_id: next,
+            event_dispositions: vec![EventDisposition {
+                event_id: inbox_event.event_id,
+                disposition: Disposition::Acknowledged,
+            }],
+            delegated_task_intents: vec![],
+            child_dialogue_intents: vec![],
+            memory_intents: vec![],
+            policy_intents: vec![],
+            publication_intents: vec![],
+            pending_obligations: vec![],
+            evidence_refs: vec![],
+            successor_step_id: next,
         };
-        step.decision_ref = Some(store.cas.seal_object(
-            &serde_json::to_vec(&decision).unwrap(), "application/json", "test", "StepDecision", 1,
-        ).unwrap().object);
+        step.decision_ref = Some(
+            store
+                .cas
+                .seal_object(
+                    &serde_json::to_vec(&decision).unwrap(),
+                    "application/json",
+                    "test",
+                    "StepDecision",
+                    1,
+                )
+                .unwrap()
+                .object,
+        );
         step.state = SubjectStepState::Committed;
         step.record_revision = RecordRevision(4);
-        let receipt = store.commit_step_and_advance_head(&step, &head, next).unwrap();
+        let receipt = store
+            .commit_step_and_advance_head(&step, &head, next)
+            .unwrap();
         // Intentionally omit ACK: model-side processing committed, I mirror is stale.
         assert!(!client.spool.event(received.spool_id).unwrap().consumed);
         drop(store);
         drop(client);
 
-        let store = Arc::new(shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap());
+        let store = Arc::new(
+            shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap(),
+        );
         assert_eq!(bootstrap_genesis(&store, None).unwrap(), agent);
         let (dispatcher, _rx) = shenko_subject::dispatch::ChildDispatcher::new(agent);
         let restored = shenko_subject::loop_runner::SubjectLoopState::new(
-            agent, Arc::new(shenko_subject::inbox::Inbox::new(8)), Arc::new(dispatcher), store.clone(),
-        ).unwrap();
+            agent,
+            Arc::new(shenko_subject::inbox::Inbox::new(8)),
+            Arc::new(dispatcher),
+            store.clone(),
+        )
+        .unwrap();
         assert_eq!(restored.head.branch_id, head.branch_id);
         assert_eq!(restored.head.committed_at, receipt.commit_ref);
         assert_eq!(restored.step.step_id, next);
@@ -784,7 +928,10 @@ mod recovery_integration_tests {
         let spool = IngressSpool::open(&spool_path, 9).unwrap();
         let pending = spool.consume(8).unwrap();
         assert_eq!(pending.len(), 1);
-        let commit = store.event_disposition_commit(agent, pending[0].spool_id).unwrap().unwrap();
+        let commit = store
+            .event_disposition_commit(agent, pending[0].spool_id)
+            .unwrap()
+            .unwrap();
         assert_eq!(commit, receipt.commit_ref);
         spool.ack(pending[0].spool_id, &commit.to_string()).unwrap();
         assert_eq!(spool.pending_count().unwrap(), 0);
@@ -796,20 +943,45 @@ mod recovery_integration_tests {
 
 #[cfg(test)]
 mod reply_directive_tests {
-    use super::*;
-    use shenko_channel_napcat::outbound::OutboundKind;
-
-    /// Review on #29: identity control lines must never reach a QQ reply,
-    /// whether they follow the reply, sit between replies or precede them.
+    use shenko_types::{ids::EntityId, output::*};
     #[test]
     fn identity_lines_are_actions_not_reply_text() {
-        let out = "先想一下\n[reply:group:7] 你好\n[identity:name] 岚\n继续说\n[identity:soul] 慢一点\n[reply:private:9] 第二条";
-        let (kind, target, body) = parse_reply_directive(out).unwrap();
-        assert!(matches!(kind, OutboundKind::SendGroup));
-        assert_eq!((target, body.as_str()), (7, "你好\n继续说"));
-        // The same output still yields the identity changes.
-        assert_eq!(shenko_types::identity::parse_identity_directives(out).len(), 2);
-        // A reply consisting only of control lines publishes nothing.
-        assert!(parse_reply_directive("[reply:group:7]\n[identity:name] 岚").is_none());
+        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
+        let dir = std::env::temp_dir().join(format!("shenko-controls-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = shenko_store::store::Store::open(dir.join("s.db"), dir.join("cas")).unwrap();
+        let raw = store
+            .cas
+            .seal_object(out.as_bytes(), "text/plain", "test", "text", 1)
+            .unwrap()
+            .object;
+        let parsed =
+            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out).unwrap();
+        assert_eq!(parsed.controls.len(), 6); // two replies, two identity, one memory, one task
+        let first = &parsed.controls[0];
+        let OutputAction::Reply { target, text } = &first.action else {
+            panic!("reply")
+        };
+        assert_eq!(*target, PublicationTarget::QqGroup(7));
+        assert_eq!(
+            text,
+            " 你好\n继续说\n> [delegate] 引用，不执行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
+        );
+        assert!(!parsed.text.contains("一整段记忆") && !parsed.text.contains("完整有限目标"));
+        assert_eq!(
+            &out[first.spans[0].start..first.spans[0].end],
+            "[reply:group:7]  你好\n"
+        );
+        assert_eq!(
+            store.cas.read_object(&parsed.raw_ref.digest).unwrap(),
+            out.as_bytes()
+        );
+        // Unsupported old syntax is a diagnosed protocol error, not a fallback.
+        assert!(
+            shenko_subject::output::parse_output(EntityId::new(), raw, "[memory] obsolete")
+                .unwrap_err()
+                .to_string()
+                .contains("CONTROL_PROTOCOL_INVALID")
+        );
     }
 }

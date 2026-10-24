@@ -12,9 +12,10 @@ pub struct OutboxMessage {
     /// The subject step number that produced it.
     pub step: u64,
     /// The model output text.
-    pub content: String,
+    pub text: String,
+    /// Already validated and committed publication actions; never reparse text.
+    pub publications: Vec<shenko_types::subject::PublicationIntent>,
     /// Identity revision in effect after this step (SPEC §6), so transports
     /// can refresh the displayed name/soul when it changes.
-    #[serde(default)]
     pub identity_revision: Option<u64>,
 }

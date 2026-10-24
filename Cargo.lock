@@ -2426,6 +2426,7 @@ dependencies = [
  "serde_json",
  "shenko-broker",
  "shenko-channel-napcat",
+ "shenko-identity",
  "shenko-kernel",
  "shenko-memory",
  "shenko-seed",
@@ -2578,6 +2579,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-identity"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "shenko-types",
+]
+
+[[package]]
 name = "shenko-kernel"
 version = "0.1.0"
 dependencies = [
@@ -2645,6 +2654,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shenko-channel-napcat",
+ "shenko-identity",
  "shenko-types",
  "thiserror 2.0.21",
  "tracing",
@@ -2664,6 +2674,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shenko-broker",
+ "shenko-identity",
  "shenko-kernel",
  "shenko-store",
  "shenko-types",

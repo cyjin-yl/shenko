@@ -1,11 +1,13 @@
 //! Subject step types — SPEC §5.1, §41.3
 //! S0: fix input plan + context version.
 //! S1: commit decision, event disposition, delegation intent, unique successor.
-use serde::{Deserialize, Serialize};
-use crate::ids::{EntityId, BranchId, ControllerEpoch, RuntimeGeneration, RecordRevision, TaskRevision};
 use crate::commit::CommitRef;
+use crate::ids::{
+    BranchId, ControllerEpoch, EntityId, RecordRevision, RuntimeGeneration, TaskRevision,
+};
 use crate::object::ObjectRef;
 use crate::task::WaitJoinPolicy;
+use serde::{Deserialize, Serialize};
 
 /// S0: input plan sealed for one subject step.
 /// Fixes the attention context version before the model is called.
@@ -116,7 +118,7 @@ pub enum MemoryIntentKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SemanticWait {
     pub condition_description: String,
-    pub max_wait_secs: u64,  // ≤ 600
+    pub max_wait_secs: u64, // ≤ 600
     pub started_at: chrono::DateTime<chrono::Utc>,
 }
 
@@ -124,7 +126,10 @@ impl SemanticWait {
     pub const MAX_WAIT_SECS: u64 = 600;
 
     pub fn new(condition: impl Into<String>, max_wait_secs: u64) -> Self {
-        assert!(max_wait_secs <= Self::MAX_WAIT_SECS, "semantic wait max 600s");
+        assert!(
+            max_wait_secs <= Self::MAX_WAIT_SECS,
+            "semantic wait max 600s"
+        );
         Self {
             condition_description: condition.into(),
             max_wait_secs,
@@ -160,7 +165,13 @@ pub struct SubjectBranchHead {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SubjectMode { Active, Quiescing, Handoff, Paused, RecoveryBlocked }
+pub enum SubjectMode {
+    Active,
+    Quiescing,
+    Handoff,
+    Paused,
+    RecoveryBlocked,
+}
 
 /// Persistent genesis record — the immutable birth of a subject instance. SPEC §44.6
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +188,10 @@ pub struct SubjectGenesis {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenesisRef { pub ledger_id: EntityId, pub genesis_id: EntityId }
+pub struct GenesisRef {
+    pub ledger_id: EntityId,
+    pub genesis_id: EntityId,
+}
 
 /// SubjectStep state machine per SPEC §41.5
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,7 +218,13 @@ pub struct SubjectStep {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubjectStepState {
-    Planned, Preparing, AwaitingModel, ResultRecorded, Committed, RetryPending, Retired,
+    Planned,
+    Preparing,
+    AwaitingModel,
+    ResultRecorded,
+    Committed,
+    RetryPending,
+    Retired,
 }
 
 /// Positive evidence that the original request cannot still produce a result.
@@ -224,8 +244,12 @@ pub enum InferenceRetryFact {
 
 impl SubjectRetryEvidence {
     pub fn permits_retry(&self, request_id: Option<EntityId>) -> bool {
-        request_id == Some(self.request_id) && matches!(self.fact,
-            InferenceRetryFact::NeverDispatched | InferenceRetryFact::ProviderRejected { http_status: 429 })
+        request_id == Some(self.request_id)
+            && matches!(
+                self.fact,
+                InferenceRetryFact::NeverDispatched
+                    | InferenceRetryFact::ProviderRejected { http_status: 429 }
+            )
     }
 }
 
@@ -243,7 +267,10 @@ pub struct TaskWait {
 /// StepDecision — the committed decision for one subject step. SPEC §41.5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepDecision {
+    pub schema_version: u32,
     pub step_id: EntityId,
+    pub output: crate::output::ParsedOutput,
+    pub identity_intent: Option<crate::identity::IdentityIntent>,
     pub input_plan_ref: ObjectRef,
     pub model_result_ref: Option<ObjectRef>,
     pub applied_steering_refs: Vec<ObjectRef>,
@@ -287,7 +314,7 @@ pub enum PolicyKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublicationIntent {
     pub intent_id: EntityId,
-    pub target: String,
+    pub target: crate::output::PublicationTarget,
     pub content: String,
     pub reply_grant_id: Option<EntityId>,
 }

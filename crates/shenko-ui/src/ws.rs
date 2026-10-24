@@ -1,20 +1,23 @@
 //! WebSocket handler — routes UI messages to subject inbox, streams subject output.
 //! SPEC §21: single subject timeline, real-time streaming.
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 
 use axum::{
-    extract::{ws::{WebSocket, WebSocketUpgrade, Message}, Extension},
+    extract::{
+        Extension,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
     response::Response,
 };
-use tracing::{info, warn, debug};
-use tokio::sync::{broadcast, mpsc::Sender};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use shenko_subject::inbox::{InboxEvent, InboxEventKind};
 use shenko_subject::outbox::OutboxMessage;
 use shenko_types::ids::EntityId;
+use tokio::sync::{broadcast, mpsc::Sender};
+use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 /// Message on the subject timeline
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,7 +68,9 @@ impl LiveStatus {
     /// counter when the socket closes (including every early-exit path).
     pub fn connection_added(self: &Arc<Self>) -> ConnectionGuard {
         self.connections.fetch_add(1, Ordering::Relaxed);
-        ConnectionGuard { live: Arc::clone(self) }
+        ConnectionGuard {
+            live: Arc::clone(self),
+        }
     }
 
     pub fn connections(&self) -> usize {
@@ -165,13 +170,12 @@ impl WsState {
 }
 
 impl Default for WsState {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    Extension(state): Extension<WsState>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, Extension(state): Extension<WsState>) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -224,7 +228,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                         }
                         let msg = TimelineMessage {
                             role: "subject".to_string(),
-                            content: out.content,
+                            content: out.text,
                             message_id: Uuid::new_v4().to_string(),
                             timestamp: Utc::now().to_rfc3339(),
                             stream: None,
@@ -288,9 +292,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
 
 /// Await the next subject outbox message. Pends forever when no outbox is wired,
 /// so the select loop stays idle instead of spinning. SPEC §21.12.
-async fn recv_outbox(
-    rx: &mut Option<broadcast::Receiver<OutboxMessage>>,
-) -> Option<OutboxMessage> {
+async fn recv_outbox(rx: &mut Option<broadcast::Receiver<OutboxMessage>>) -> Option<OutboxMessage> {
     match rx {
         Some(rx) => loop {
             match rx.recv().await {

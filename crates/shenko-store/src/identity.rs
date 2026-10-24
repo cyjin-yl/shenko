@@ -6,10 +6,11 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use shenko_types::error::ShenkoError;
-use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
+use shenko_types::identity::{IdentityProfile, IdentityReceipt};
 use shenko_types::ids::EntityId;
 
 use crate::store::Store;
+use rusqlite::TransactionBehavior;
 
 pub(crate) const IDENTITY_SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS identity_profiles (
@@ -19,17 +20,28 @@ CREATE TABLE IF NOT EXISTS identity_profiles (
     created_at TEXT NOT NULL,
     PRIMARY KEY (agent_id, revision)
 );
+CREATE TABLE IF NOT EXISTS subject_identity_receipts (
+    step_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL
+);
 ";
 
 impl Store {
     /// Current identity revision of `agent_id`, if any was recorded.
-    pub fn latest_identity(&self, agent_id: EntityId) -> Result<Option<IdentityProfile>, ShenkoError> {
+    pub fn latest_identity(
+        &self,
+        agent_id: EntityId,
+    ) -> Result<Option<IdentityProfile>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         read_latest(&conn, agent_id)
     }
 
     /// All revisions, oldest first — the traceable history of name and soul.
-    pub fn identity_history(&self, agent_id: EntityId) -> Result<Vec<IdentityProfile>, ShenkoError> {
+    pub fn identity_history(
+        &self,
+        agent_id: EntityId,
+    ) -> Result<Vec<IdentityProfile>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         let mut stmt = conn
             .prepare("SELECT profile FROM identity_profiles WHERE agent_id = ?1 ORDER BY revision")
@@ -40,51 +52,74 @@ impl Store {
         rows.map(|row| decode(&row.map_err(db)?)).collect()
     }
 
-    /// Record revision 1 unless the agent already has an identity. Returns the
-    /// current revision either way; older installations adopt one on start.
-    pub fn ensure_identity(&self, agent_id: EntityId, name: Option<&str>) -> Result<IdentityProfile, ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        if let Some(current) = read_latest(&conn, agent_id)? {
+    /// Initialize from an explicit prepared genesis; never invent policy in storage.
+    pub fn initialize_identity(
+        &self,
+        genesis: &IdentityProfile,
+    ) -> Result<IdentityProfile, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        if let Some(current) = read_latest(&tx, genesis.agent_id)? {
             return Ok(current);
         }
-        let genesis = IdentityProfile::genesis(agent_id, name);
-        insert(&conn, &genesis)?;
-        Ok(genesis)
-    }
-
-    /// Apply one change on top of the current revision. `Ok(None)` means the
-    /// change was a no-op. Fails with a conflict when no identity exists yet.
-    pub fn change_identity(
-        &self,
-        agent_id: EntityId,
-        change: &IdentityChange,
-        source: IdentitySource,
-    ) -> Result<Option<IdentityProfile>, ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        let current = read_latest(&conn, agent_id)?
-            .ok_or_else(|| ShenkoError::conflict("identity not initialised for agent"))?;
-        let Some(next) = current.successor(change, source) else { return Ok(None) };
-        insert(&conn, &next)?;
-        Ok(Some(next))
-    }
-
-    /// Append a revision prepared elsewhere (e.g. by an identity plugin). It
-    /// must be exactly the successor of the stored current revision; a stale
-    /// editor gets a conflict instead of overwriting a newer change.
-    pub fn append_identity(&self, next: &IdentityProfile) -> Result<(), ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        let expected = read_latest(&conn, next.agent_id)?.map_or(1, |p| p.revision + 1);
-        if next.revision != expected {
-            return Err(ShenkoError::conflict(format!(
-                "identity revision {} is not the successor (expected {expected})",
-                next.revision
-            )));
+        if genesis.revision != 1 {
+            return Err(ShenkoError::conflict("identity genesis must be revision 1"));
         }
-        insert(&conn, next)
+        insert(&tx, genesis)?;
+        tx.commit().map_err(db)?;
+        Ok(genesis.clone())
+    }
+
+    /// The editor must supply the revision it actually read. No read-latest rebasing.
+    pub fn append_identity(
+        &self,
+        next: &IdentityProfile,
+        expected_revision: u64,
+    ) -> Result<(), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db)?;
+        let actual = read_latest(&tx, next.agent_id)?.map(|p| p.revision);
+        if actual != Some(expected_revision) || next.revision != expected_revision + 1 {
+            return Err(shenko_types::error::ProtocolError::new(
+                "IDENTITY_REVISION_CONFLICT",
+                shenko_types::error::ErrorScope::Call,
+                shenko_types::error::RetryStrategy::NewRevision,
+            )
+            .with_details(
+                serde_json::json!({"expected_revision":expected_revision,"actual_revision":actual}),
+            )
+            .into());
+        }
+        insert(&tx, next)?;
+        tx.commit().map_err(db)
+    }
+
+    pub fn identity_receipt(
+        &self,
+        step_id: EntityId,
+    ) -> Result<Option<IdentityReceipt>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM subject_identity_receipts WHERE step_id=?1",
+                [step_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        data.map(|data| serde_json::from_str(&data).map_err(ShenkoError::from))
+            .transpose()
     }
 }
 
-fn read_latest(conn: &Connection, agent_id: EntityId) -> Result<Option<IdentityProfile>, ShenkoError> {
+pub(crate) fn read_latest(
+    conn: &Connection,
+    agent_id: EntityId,
+) -> Result<Option<IdentityProfile>, ShenkoError> {
     conn.query_row(
         "SELECT profile FROM identity_profiles WHERE agent_id = ?1 ORDER BY revision DESC LIMIT 1",
         params![agent_id.to_string()],
@@ -97,7 +132,7 @@ fn read_latest(conn: &Connection, agent_id: EntityId) -> Result<Option<IdentityP
 }
 
 /// The primary key rejects a second writer of the same revision.
-fn insert(conn: &Connection, profile: &IdentityProfile) -> Result<(), ShenkoError> {
+pub(crate) fn insert(conn: &Connection, profile: &IdentityProfile) -> Result<(), ShenkoError> {
     let json = serde_json::to_string(profile).map_err(|e| ShenkoError::storage(e.to_string()))?;
     conn.execute(
         "INSERT INTO identity_profiles (agent_id, revision, profile, created_at) VALUES (?1, ?2, ?3, ?4)",
@@ -118,7 +153,8 @@ fn insert(conn: &Connection, profile: &IdentityProfile) -> Result<(), ShenkoErro
 }
 
 fn decode(json: &str) -> Result<IdentityProfile, ShenkoError> {
-    serde_json::from_str(json).map_err(|e| ShenkoError::storage(format!("invalid identity profile: {e}")))
+    serde_json::from_str(json)
+        .map_err(|e| ShenkoError::storage(format!("invalid identity profile: {e}")))
 }
 
 fn db(error: rusqlite::Error) -> ShenkoError {

@@ -195,6 +195,15 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
+        schema_version: 2,
+        output: shenko_types::output::ParsedOutput {
+            schema_version: 1,
+            step_id: step.step_id,
+            raw_ref: step.model_result_ref.clone().unwrap(),
+            text: "继续先前关注".into(),
+            controls: vec![],
+        },
+        identity_intent: None,
         step_id: step.step_id,
         input_plan_ref: step.input_plan_ref.clone().unwrap(),
         model_result_ref: step.model_result_ref.clone(),
@@ -252,7 +261,12 @@ fn s1_commit_advances_branch_head() {
     let second_step_id = EntityId::new();
     let result = recorded_result(&store, &head, first_step);
     let step = committed_candidate(&store, result, second_step_id);
-    assert!(store.event_disposition_commit(agent_id, first_id).unwrap().is_none());
+    assert!(
+        store
+            .event_disposition_commit(agent_id, first_id)
+            .unwrap()
+            .is_none()
+    );
     let receipt = store
         .commit_step_and_advance_head(&step, &head, second_step_id)
         .unwrap();
@@ -271,7 +285,12 @@ fn s1_commit_advances_branch_head() {
     // 真实重开并读回，而不是只检查回执声称写了什么。
     let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
     assert_eq!(reopened.ledger.ledger_id(), ledger_id);
-    assert_eq!(reopened.event_disposition_commit(agent_id, first_id).unwrap(), Some(receipt.commit_ref));
+    assert_eq!(
+        reopened
+            .event_disposition_commit(agent_id, first_id)
+            .unwrap(),
+        Some(receipt.commit_ref)
+    );
     let (restored, successor) = reopened.load_subject(agent_id).unwrap();
     assert_eq!(restored.branch_id, head.branch_id);
     assert_eq!(restored.subject_root_task_id, head.subject_root_task_id);

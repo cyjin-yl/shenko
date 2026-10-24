@@ -1,0 +1,9 @@
+[package]
+name = "shenko-identity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+chrono.workspace = true

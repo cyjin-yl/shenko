@@ -131,7 +131,14 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
     // 用普通文件占据 CAS 根，确定性触发 mkdir 错误，不依赖进程权限。
     std::fs::remove_dir_all(dir.join("cas")).unwrap();
     std::fs::write(dir.join("cas"), b"not a directory").unwrap();
-    let result = execute_step(planned.step_no, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await;
+    let result = execute_step(
+        planned.step_no,
+        &[],
+        &mut subject,
+        false,
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .await;
     assert!(result.is_err());
     assert!(matches!(
         rx.try_recv(),
@@ -154,25 +161,49 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
 async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
     use shenko_types::identity::{IdentityChange, IdentitySource, NamingOrigin};
     let (dir, store, agent) = fixture();
-    store.ensure_identity(agent, None).unwrap();
+    store
+        .initialize_identity(&shenko_identity::DefaultIdentityPolicy::genesis(
+            agent, None,
+        ))
+        .unwrap();
     let mut subject = state(store.clone(), agent).unwrap();
     let before = super::build_system_prompt(&subject, false);
     assert!(before.starts_with(super::SUBJECT_CONTRACT));
     assert!(!before.contains("你是 Shenko"));
     assert!(before.contains("你还没有名字"));
 
-    let source = IdentitySource::Subject { step_id: subject.step.step_id, step_no: 1 };
-    let renamed = store
-        .change_identity(agent, &IdentityChange::Name("岚".into()), source)
-        .unwrap()
-        .unwrap();
-    assert_eq!((renamed.agent_id, renamed.revision, renamed.naming), (agent, 2, NamingOrigin::SelfChosen));
+    let source = IdentitySource::Subject {
+        step_id: subject.step.step_id,
+        step_no: 1,
+    };
+    let current = subject.identity.as_ref().unwrap();
+    let renamed = shenko_identity::DefaultIdentityPolicy::successor(
+        current,
+        &IdentityChange::Name("岚".into()),
+        source,
+    )
+    .unwrap();
+    store.append_identity(&renamed, current.revision).unwrap();
+    assert_eq!(
+        (renamed.agent_id, renamed.revision, renamed.naming),
+        (agent, 2, NamingOrigin::SelfChosen)
+    );
     // 本步尚未到边界：仍是 revision 1。
     assert_eq!(subject.identity.as_ref().unwrap().revision, 1);
 
     // 无 broker 时 execute_step 在 S0 之后报错，但 S0 已装配新身份并封存输入计划。
     let planned = subject.step.step_no;
-    assert!(execute_step(planned, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert!(
+        execute_step(
+            planned,
+            &[],
+            &mut subject,
+            false,
+            &tokio_util::sync::CancellationToken::new()
+        )
+        .await
+        .is_err()
+    );
     assert_eq!(subject.identity.as_ref().unwrap().revision, 2);
     assert!(subject.step.input_plan_ref.is_some());
     let after = super::build_system_prompt(&subject, false);
@@ -190,14 +221,21 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
 async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     let (dir, store, agent) = fixture();
     let event = crate::inbox::InboxEvent {
-        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":"original frozen input"}),
-        source: "fixture".into(), created_at: chrono::Utc::now(),
+        source: "fixture".into(),
+        created_at: chrono::Utc::now(),
     };
     let mut subject = state(store.clone(), agent).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
-    assert!(execute_step(1, &[event.clone()], &mut subject, false, &close).await.unwrap().is_none());
+    assert!(
+        execute_step(1, &[event.clone()], &mut subject, false, &close)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(subject.step.state, SubjectStepState::Preparing);
     drop(subject);
     drop(store);
@@ -207,7 +245,11 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     drop(closed_broker); // positively rejected admission; no provider ever dispatched
     let subject = state(store.clone(), agent).unwrap().with_broker(handle);
     let retained_inbox = subject.inbox.clone();
-    assert!(super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert!(
+        super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new())
+            .await
+            .is_err()
+    );
     assert!(retained_inbox.sender().is_closed());
     let (head, mut step) = store.load_subject(agent).unwrap();
     assert_eq!(step.state, SubjectStepState::RetryPending);
@@ -219,7 +261,10 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     // Reopen validates the typed certificate; simulate the durable result boundary
     // of that same request, not a fabricated S1 or a second model invocation.
     let subject = state(store.clone(), agent).unwrap();
-    assert_eq!(super::frozen_input(&store, &subject.step).unwrap().events[0].payload, event.payload);
+    assert_eq!(
+        super::frozen_input(&store, &subject.step).unwrap().events[0].payload,
+        event.payload
+    );
     drop(subject);
     let expected = step.record_revision;
     step.state = SubjectStepState::AwaitingModel;
@@ -227,7 +272,19 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     store.upsert_step(&step, &head, expected).unwrap();
     let expected = step.record_revision;
     step.state = SubjectStepState::ResultRecorded;
-    step.model_result_ref = Some(store.cas.seal_object(b"persisted complete result", "text/plain", "model_results", "text", 1).unwrap().object);
+    step.model_result_ref = Some(
+        store
+            .cas
+            .seal_object(
+                b"persisted complete result",
+                "text/plain",
+                "model_results",
+                "text",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
     step.record_revision = RecordRevision(expected.0 + 1);
     store.upsert_step(&step, &head, expected).unwrap();
     drop(store);
@@ -237,16 +294,294 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     let (tx, mut rx) = tokio::sync::broadcast::channel(8);
     subject = subject.with_outbox(tx);
     assert_eq!(subject.step.active_request_id, request_id);
-    execute_step(1, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await.unwrap().unwrap();
+    execute_step(
+        1,
+        &[],
+        &mut subject,
+        false,
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert_eq!(subject.head.committed_step_no, 1);
-    assert_eq!(rx.try_recv().unwrap().content, "persisted complete result");
-    assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
+    assert_eq!(rx.try_recv().unwrap().text, "persisted complete result");
+    assert!(
+        store
+            .event_disposition_commit(agent, event.event_id)
+            .unwrap()
+            .is_some()
+    );
     // A previously queued replay must be filtered after the resumed S1, even
     // though main admitted it before that S1's disposition became visible.
     subject.inbox.sender().send(event).await.unwrap();
-    assert!(super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert!(
+        super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new())
+            .await
+            .is_err()
+    );
     let (head, next) = store.load_subject(agent).unwrap();
     assert_eq!(head.committed_step_no, 1);
-    assert!(super::frozen_input(&store, &next).unwrap().events.is_empty());
+    assert!(
+        super::frozen_input(&store, &next)
+            .unwrap()
+            .events
+            .is_empty()
+    );
     // Keep the fixture on container disk for independent inspection.
+}
+
+/// One real process-crash/CAS recovery journey: all-or-none S1, death before
+/// postcommit work, then an operator editing during the successor's inference.
+#[tokio::test]
+async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
+    use shenko_identity::DefaultIdentityPolicy as Policy;
+    use shenko_types::{identity::*, output::*};
+    if let Some(dir) = std::env::var_os("SHENKO_C22_CRASH_CHILD") {
+        let dir = PathBuf::from(dir);
+        let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
+        let (step, head, next): (SubjectStep, SubjectBranchHead, EntityId) =
+            serde_json::from_slice(&std::fs::read(dir.join("candidate.json")).unwrap()).unwrap();
+        store
+            .commit_step_and_advance_head(&step, &head, next)
+            .unwrap();
+        // Actual process death immediately after the SQL commit, with no loop
+        // identity write, in-memory adoption, broadcaster or worker ever run.
+        std::process::Command::new("kill")
+            .args(["-KILL", &std::process::id().to_string()])
+            .status()
+            .unwrap();
+        unreachable!("SIGKILL must end the process");
+    }
+    let (dir, store, agent) = fixture();
+    let profile = store
+        .initialize_identity(&Policy::genesis(agent, None))
+        .unwrap();
+    let event = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"content":"choose your name"}),
+        source: "fixture".into(),
+        created_at: chrono::Utc::now(),
+    };
+    let mut subject = state(store.clone(), agent).unwrap();
+    let close = tokio_util::sync::CancellationToken::new();
+    close.cancel();
+    execute_step(1, &[event.clone()], &mut subject, false, &close)
+        .await
+        .unwrap();
+    let head = subject.head.clone();
+    let mut step = subject.step.clone();
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    step.record_revision = RecordRevision(2);
+    store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+    let raw = "[identity:name] 岚\n[identity:soul] 记住关系，不靠 delegate 或委派替代理解";
+    let raw_ref = store
+        .cas
+        .seal_object(raw.as_bytes(), "text/plain", "model_results", "text", 1)
+        .unwrap()
+        .object;
+    step.state = SubjectStepState::ResultRecorded;
+    step.model_result_ref = Some(raw_ref.clone());
+    step.record_revision = RecordRevision(3);
+    store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw).unwrap();
+    assert_eq!(output.controls.len(), 2);
+    let changes: Vec<_> = output
+        .controls
+        .iter()
+        .map(|control| {
+            let OutputAction::Identity { change } = &control.action else {
+                panic!("no synthetic memory/task")
+            };
+            change.clone()
+        })
+        .collect();
+    let next = EntityId::new();
+    let mut decision = StepDecision {
+        schema_version: 2,
+        step_id: step.step_id,
+        output,
+        identity_intent: Some(IdentityIntent {
+            intent_id: EntityId::new(),
+            action_ids: vec![],
+            expected_revision: 1,
+            proposed: Policy::revise(
+                &profile,
+                &changes,
+                IdentitySource::Subject {
+                    step_id: step.step_id,
+                    step_no: 1,
+                },
+            )
+            .unwrap(),
+        }),
+        input_plan_ref: step.input_plan_ref.clone().unwrap(),
+        model_result_ref: Some(raw_ref.clone()),
+        applied_steering_refs: vec![],
+        event_dispositions: vec![EventDisposition {
+            event_id: event.event_id,
+            disposition: Disposition::Acknowledged,
+        }],
+        delegated_task_intents: vec![],
+        child_dialogue_intents: vec![],
+        memory_intents: vec![],
+        policy_intents: vec![],
+        publication_intents: vec![],
+        pending_obligations: vec![],
+        evidence_refs: vec![],
+        successor_step_id: step.step_id,
+    };
+    step.state = SubjectStepState::Committed;
+    step.record_revision = RecordRevision(4);
+    step.decision_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&decision).unwrap(),
+                "application/json",
+                "decisions",
+                "StepDecision",
+                2,
+            )
+            .unwrap()
+            .object,
+    );
+    // A successor collision happens after identity insertion inside S1. It must
+    // roll back the identity, receipt and event disposition as well as the head.
+    assert!(
+        store
+            .commit_step_and_advance_head(&step, &head, step.step_id)
+            .is_err()
+    );
+    assert_eq!(store.latest_identity(agent).unwrap().unwrap().revision, 1);
+    assert!(store.identity_receipt(step.step_id).unwrap().is_none());
+    assert!(
+        store
+            .event_disposition_commit(agent, event.event_id)
+            .unwrap()
+            .is_none()
+    );
+    decision.successor_step_id = next;
+    step.decision_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&decision).unwrap(),
+                "application/json",
+                "decisions",
+                "StepDecision",
+                2,
+            )
+            .unwrap()
+            .object,
+    );
+    std::fs::write(
+        dir.join("candidate.json"),
+        serde_json::to_vec(&(&step, &head, next)).unwrap(),
+    )
+    .unwrap();
+    drop(subject);
+    drop(store);
+    let status=std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact","loop_runner::recovery_tests::identity_s1_crash_and_concurrent_editor_keep_durable_decision","--nocapture"])
+        .env("SHENKO_C22_CRASH_CHILD",&dir).status().unwrap();
+    assert!(!status.success());
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let receipt = store.identity_receipt(step.step_id).unwrap().unwrap();
+    assert!(matches!(
+        receipt.outcome,
+        IdentityOutcome::Applied {
+            expected_revision: 1,
+            revision: 2
+        }
+    ));
+    assert_eq!(
+        store.load_subject(agent).unwrap().0.committed_at,
+        receipt.committed_at
+    );
+    assert_eq!(
+        store
+            .latest_identity(agent)
+            .unwrap()
+            .unwrap()
+            .display_name
+            .as_deref(),
+        Some("岚")
+    );
+    assert_eq!(
+        store.cas.read_object(&raw_ref.digest).unwrap(),
+        raw.as_bytes()
+    );
+    let mut subject = state(store.clone(), agent).unwrap();
+    execute_step(2, &[], &mut subject, false, &close)
+        .await
+        .unwrap();
+    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(sealed.identity.unwrap().revision, 2);
+    let current = store.latest_identity(agent).unwrap().unwrap();
+    let operator = Policy::revise(
+        &current,
+        &[IdentityChange::Name("operator choice".into())],
+        IdentitySource::Operator,
+    )
+    .unwrap();
+    store.append_identity(&operator, 2).unwrap();
+    let head = subject.head.clone();
+    let mut step = subject.step.clone();
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    step.record_revision = RecordRevision(2);
+    store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+    step.state = SubjectStepState::ResultRecorded;
+    step.record_revision = RecordRevision(3);
+    step.model_result_ref = Some(
+        store
+            .cas
+            .seal_object(
+                "[identity:name] stale model choice".as_bytes(),
+                "text/plain",
+                "model_results",
+                "text",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
+    store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+    drop(subject);
+    let mut subject = state(store.clone(), agent).unwrap();
+    let (tx, mut rx) = tokio::sync::broadcast::channel(4);
+    subject = subject.with_outbox(tx);
+    execute_step(
+        2,
+        &[],
+        &mut subject,
+        false,
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(rx.try_recv().unwrap().identity_revision, Some(3));
+    let conflict = store.identity_receipt(step.step_id).unwrap().unwrap();
+    assert!(matches!(
+        conflict.outcome,
+        IdentityOutcome::Conflict {
+            expected_revision: 2,
+            actual_revision: Some(3)
+        }
+    ));
+    assert_eq!(
+        store
+            .latest_identity(agent)
+            .unwrap()
+            .unwrap()
+            .display_name
+            .as_deref(),
+        Some("operator choice")
+    );
+    assert_eq!(subject.head.committed_step_no, 2);
+    assert!(super::build_system_prompt(&subject, false).contains("上一步身份意图未采用"));
+    // Retain this container-disk fixture as crash evidence, not production data.
 }

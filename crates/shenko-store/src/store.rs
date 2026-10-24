@@ -164,8 +164,11 @@ impl Store {
         use SubjectStepState::*;
         let legal = matches!(
             (previous.state, step.state),
-            (Planned, Preparing) | (Preparing, AwaitingModel) | (AwaitingModel, ResultRecorded)
-                | (AwaitingModel, RetryPending) | (RetryPending, AwaitingModel)
+            (Planned, Preparing)
+                | (Preparing, AwaitingModel)
+                | (AwaitingModel, ResultRecorded)
+                | (AwaitingModel, RetryPending)
+                | (RetryPending, AwaitingModel)
         );
         if !legal
             || previous.record_revision != expected_revision
@@ -185,10 +188,17 @@ impl Store {
             return Err(ShenkoError::conflict("stale or invalid subject transition"));
         }
         if step.state == RetryPending || previous.state == RetryPending {
-            let evidence_ref = if step.state == RetryPending { &step.retry_reason_ref } else { &previous.retry_reason_ref };
-            let object = evidence_ref.as_ref().ok_or_else(|| ShenkoError::conflict("retry requires positive dispatch evidence"))?;
+            let evidence_ref = if step.state == RetryPending {
+                &step.retry_reason_ref
+            } else {
+                &previous.retry_reason_ref
+            };
+            let object = evidence_ref.as_ref().ok_or_else(|| {
+                ShenkoError::conflict("retry requires positive dispatch evidence")
+            })?;
             let bytes = self.cas.read_object(&object.digest)?;
-            let evidence: shenko_types::subject::SubjectRetryEvidence = serde_json::from_slice(&bytes)?;
+            let evidence: shenko_types::subject::SubjectRetryEvidence =
+                serde_json::from_slice(&bytes)?;
             if bytes.len() as u64 != object.bytes
                 || shenko_types::object::Digest::blake3(&bytes) != object.digest
                 || !evidence.permits_retry(previous.active_request_id)
@@ -248,7 +258,11 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("S1 missing decision"))?;
         let decision: shenko_types::subject::StepDecision =
             serde_json::from_slice(&self.cas.read_object(&decision_ref.digest)?)?;
-        if decision.step_id != step.step_id
+        if decision.schema_version != 2
+            || decision.output.schema_version != 1
+            || decision.output.step_id != step.step_id
+            || Some(&decision.output.raw_ref) != step.model_result_ref.as_ref()
+            || decision.step_id != step.step_id
             || decision.successor_step_id != next_step_id
             || Some(&decision.input_plan_ref) != step.input_plan_ref.as_ref()
             || decision.model_result_ref != step.model_result_ref
@@ -257,6 +271,63 @@ impl Store {
         }
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+        // Identity is settled under the SAME IMMEDIATE transaction as S1. The
+        // intent carries the S0 revision; never rebase model edits onto latest.
+        use shenko_types::identity::{IdentityOutcome, IdentityReceipt, IdentitySource};
+        let current_identity = crate::identity::read_latest(&tx, head.agent_id)?;
+        let actual_revision = current_identity.as_ref().map(|p| p.revision);
+        let outcome = if let Some(intent) = &decision.identity_intent {
+            let frozen: serde_json::Value =
+                serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
+            if frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(3)
+                || frozen
+                    .pointer("/identity/revision")
+                    .and_then(|v| v.as_u64())
+                    != Some(intent.expected_revision)
+                || intent.proposed.agent_id != head.agent_id
+                || intent.proposed.revision != intent.expected_revision + 1
+                || intent.proposed.source
+                    != (IdentitySource::Subject {
+                        step_id: step.step_id,
+                        step_no: step.step_no,
+                    })
+            {
+                return Err(ShenkoError::conflict(
+                    "identity intent is not bound to its S0 snapshot/source",
+                ));
+            }
+            if actual_revision != Some(intent.expected_revision) {
+                IdentityOutcome::Conflict {
+                    expected_revision: intent.expected_revision,
+                    actual_revision,
+                }
+            } else {
+                crate::identity::insert(&tx, &intent.proposed)?;
+                IdentityOutcome::Applied {
+                    expected_revision: intent.expected_revision,
+                    revision: intent.proposed.revision,
+                }
+            }
+        } else {
+            IdentityOutcome::Unchanged {
+                revision: actual_revision,
+            }
+        };
+        let identity_receipt = IdentityReceipt {
+            step_id: step.step_id,
+            intent_id: decision.identity_intent.as_ref().map(|i| i.intent_id),
+            outcome,
+            committed_at: commit_ref,
+        };
+        tx.execute(
+            "INSERT INTO subject_identity_receipts (step_id,data,commit_seq) VALUES (?1,?2,?3)",
+            params![
+                step.step_id.to_string(),
+                serde_json::to_string(&identity_receipt)?,
+                seq.0 as i64
+            ],
+        )
+        .map_err(storage_error)?;
         let mut step = step.clone();
         step.commit_ref = Some(commit_ref);
         let successor = SubjectStep {
@@ -293,7 +364,9 @@ impl Store {
                     step.step_id.to_string(), kind, seq.0 as i64],
             ).map_err(storage_error)?;
             if changed != 1 {
-                return Err(ShenkoError::conflict("event already disposed by a committed step"));
+                return Err(ShenkoError::conflict(
+                    "event already disposed by a committed step",
+                ));
             }
         }
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
@@ -410,14 +483,18 @@ impl Store {
         event_id: EntityId,
     ) -> Result<Option<CommitRef>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let seq: Option<u64> = conn.query_row(
-            "SELECT d.commit_seq FROM subject_event_dispositions d
+        let seq: Option<u64> = conn
+            .query_row(
+                "SELECT d.commit_seq FROM subject_event_dispositions d
              JOIN subject_branch_heads h ON h.branch_id=d.branch_id
              WHERE h.agent_id=?1 AND d.event_id=?2 AND d.disposition!='\"deferred\"'",
-            params![agent_id.to_string(), event_id.to_string()],
-            |row| row.get(0),
-        ).optional().map_err(storage_error)?;
-        Ok(seq.map(|seq| CommitRef::new(self.ledger.ledger_id(), shenko_types::ids::LedgerSeq(seq))))
+                params![agent_id.to_string(), event_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        Ok(seq
+            .map(|seq| CommitRef::new(self.ledger.ledger_id(), shenko_types::ids::LedgerSeq(seq))))
     }
 
     pub fn get_step(
