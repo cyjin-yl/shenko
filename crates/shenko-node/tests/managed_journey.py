@@ -280,6 +280,62 @@ try:
                 assert effects.execute('SELECT count(*) FROM attempts WHERE operation_id=?',[operation]).fetchone()[0]==1
     with sqlite3.connect(remote_root/'data/node.sqlite3') as db:
         assert db.execute('SELECT count(*) FROM commands').fetchone()[0]==1
+    # Old-format plan fixture: retain the exact deployment/operation identity,
+    # but omit schema-2 execution fields. This is NOT an old binary deployment.
+    # Query must use original CAS input; all new admissions require a new plan.
+    legacy_dir=root/'legacy-plan';legacy_dir.mkdir(mode=0o700)
+    legacy={k:v for k,v in plan.items() if k not in
+        {'plan_schema','repair_of','staging_root','installer','root_script'}}
+    d['dump'](legacy_dir/'plan.json',legacy)
+    legacy_bytes=(legacy_dir/'plan.json').read_bytes()
+    request_path=root/'legacy-new-request.json'
+    d['dump'](request_path,{'command':'initialize','node_id':worker_id,'identity':identity})
+    fresh_label='legacy-new-mutation'
+    fresh_operation=str(uuid.uuid5(uuid.UUID(legacy['deployment_id']),fresh_label))
+    adapter=[sys.executable,'-I',str(repo/'scripts/managed_node.py')]
+    rejected_codes=[]
+    for args in [('deploy',str(legacy_dir)),('call',str(legacy_dir),fresh_label,str(request_path))]:
+        denied=subprocess.run([*adapter,*args],capture_output=True)
+        assert denied.returncode!=0 and b'old plan is query-only' in denied.stderr,denied.stderr
+        rejected_codes.append(denied.returncode)
+    try:d['invoke'](legacy_dir,legacy,fresh_label,d['action'](['true']))
+    except ValueError as error:assert 'old plan is query-only' in str(error)
+    else:raise AssertionError('shared invoke boundary admitted old plan')
+    # No request/receipt side effects precede rejection, even for fresh labels.
+    assert {p.name for p in legacy_dir.iterdir()}=={'plan.json'}
+    with sqlite3.connect(root/'effects.sqlite3') as effects:
+        assert effects.execute('SELECT count(*) FROM attempts WHERE operation_id=?',[fresh_operation]).fetchone()[0]==0
+    old_queries=[]
+    for _ in range(2):
+        observed=subprocess.run([*adapter,'query',str(legacy_dir),'install'],capture_output=True)
+        assert observed.returncode==0,observed.stderr
+        old_queries.append(json.loads(observed.stdout))
+    assert old_queries==[recovered,recovered]
+    # Repair is a new explicit deployment, never resealing an old operation.
+    repair_config=dict(config,repair_of_plan=str(legacy_dir),initial_identity=identity)
+    d['dump'](root/'repair-config.json',repair_config)
+    repair_dir=root/'repair-deployment'
+    d['prepare'](repair_dir,root/'repair-config.json')
+    repair=json.loads((repair_dir/'plan.json').read_bytes())
+    assert repair['plan_schema']==2 and repair['deployment_id']!=legacy['deployment_id']
+    assert repair['repair_of']=={'deployment_id':legacy['deployment_id'],
+        'plan_sha256':hashlib.sha256(legacy_bytes).hexdigest()}
+    d['deploy'](repair_dir,repair)
+    repair_queries=[d['invoke'](repair_dir,repair,'install',query=True) for _ in range(2)]
+    assert repair_queries[0]==repair_queries[1] and repair_queries[0]['state']=='installed'
+    assert (legacy_dir/'plan.json').read_bytes()==legacy_bytes
+    with sqlite3.connect(root/'effects.sqlite3') as effects:
+        repair_operation=str(uuid.uuid5(uuid.UUID(repair['deployment_id']),'install'))
+        for operation in [op,repair_operation]:
+            assert effects.execute('SELECT count(*) FROM attempts WHERE operation_id=?',[operation]).fetchone()[0]==1
+        assert effects.execute('SELECT count(*) FROM attempts WHERE operation_id=?',[fresh_operation]).fetchone()[0]==0
+    plan_boundary={'fixture':'schema-1 shape projected from current plan; not old binary deployment',
+        'rejected_cli_exit_codes':rejected_codes,'direct_invoke_rejected':True,'fresh_operation_attempts':0,
+        'old_query_repeats':2,'old_operation':op,'old_plan_sha256':hashlib.sha256(legacy_bytes).hexdigest(),
+        'old_plan_preserved':True,'repair_deployment':repair['deployment_id'],
+        'repair_operation':repair_operation,'repair_query_repeats':2,'original_and_repair_attempts':1,
+        'repair_lineage':repair['repair_of']}
+    print(json.dumps({'plan_boundary':plan_boundary}),flush=True)
     print(json.dumps({'journey':1,'result':'passed','install_operation':op,'attempts':count,'loss':'actual_closed_SSH_stream','identity_adopted':True,'unrelated_db_unchanged':True,'legacy_migration':migration,'service':'one_shot_no_daemon',
         'interleaved_artifacts':2,'query_with_missing_or_unrelated_trust':True,'durable_marker':'decoded_install_and_C07_receipt_plus_artifact_digest',
         'real_key_revocation_and_changed_host_rejected':True}),flush=True)
@@ -343,7 +399,7 @@ try:
         'stale_owner_fenced_at':'authoritative_result_store','terminal_results':1,'raw_source_events':2,'unassociated_result_retained':True,'invalid_full_receipt_retained':True,'receipt_rows':3,
         'boundary':'pure_no_external_effect_contract; old computation not claimed stopped'}),flush=True)
     d['dump'](root/'result.json',{'passed':True,'journeys':2,'publication':publication,'physical_nodes':False,'smart_node_evidence':False,'manifest':plan['manifest'],
-        'deployment_id':plan['deployment_id'],'deployment_B':other['deployment_id'],'install_operation':op,'task_id':task_id,'source_events':exported['events'],'receipts':receipts,'unassociated_receipts':early_export,'legacy_migration':migration,'unrelated_db_unchanged':True})
+        'deployment_id':plan['deployment_id'],'deployment_B':other['deployment_id'],'install_operation':op,'task_id':task_id,'source_events':exported['events'],'receipts':receipts,'unassociated_receipts':early_export,'legacy_migration':migration,'unrelated_db_unchanged':True,'plan_boundary':plan_boundary})
 finally:
     stopping.set();listener.close();server.terminate()
     try:server.wait(timeout=5)

@@ -128,9 +128,17 @@ def prepare(directory, config):
     print(json.dumps({'deployment_id': deployment_id, 'registered': registered, 'manifest': manifest}))
 
 
+def require_executable_plan(plan):
+    if plan.get('plan_schema') != 2:
+        raise ValueError('old plan is query-only here; reconcile it before a new explicit deployment/repair plan')
+
+
 def invoke(directory, plan, label, action=None, query=False):
     assert len(label) <= 80 and label.replace('-', '').replace('_', '').isalnum(), 'stable simple operation label required'
     if not query:
+        # Every execution path, including call/node_call, shares this boundary.
+        # Old inputs retain query identity but cannot admit a fresh operation.
+        require_executable_plan(plan)
         # New admissions still validate the current registered binding. Query
         # resolves the original input and strict host trust from C07's CAS, not
         # a mutable local pathname (whose absence proves no remote outcome).
@@ -176,7 +184,7 @@ def node_call(directory, plan, label, request):
 
 
 def stage(directory, plan):
-    assert plan.get('plan_schema') == 2, 'old plan is query-only here; reconcile it before a new explicit deployment/repair plan'
+    require_executable_plan(plan)
     root = plan['remote_root']
     staging = plan['staging_root']
     assert staging == root + '/staging-' + plan['deployment_id'], 'deployment staging binding changed'
