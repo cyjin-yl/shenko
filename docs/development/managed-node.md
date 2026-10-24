@@ -226,3 +226,8 @@ binds the actual binary, schema and inherited journeys. Ledger identity/seq
 continuity in the C07/main Store remains an independent C01/#6 P1; this adapter's
 own durable ledger does not repair it. Full C17 and production integration remain
 incomplete.
+
+The focused script recovery continuation is PR [44](https://github.com/cyjin-yl/shenko/pull/44).
+Its [source/artifact-bound evidence](../evidence/c17-script-receipts-20261025.json)
+separates the real SSH results from direct Python faults and records the immutable
+review snapshot; it does not supersede the original remaining C17 obligations.
