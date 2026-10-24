@@ -191,6 +191,19 @@ pub enum SubjectStepState {
     Retired,
 }
 
+/// A complete result rejected before any S1 action admission. R0 retains its
+/// evidence and registers a new step/request; it never retries the old seal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ControlOutputRejection {
+    pub schema_version: u32,
+    pub supersedes_step_id: EntityId,
+    pub replacement_step_id: EntityId,
+    pub request_id: EntityId,
+    pub input_plan_ref: ObjectRef,
+    pub model_result_ref: ObjectRef,
+    pub error: crate::error::ProtocolError,
+}
+
 /// Positive evidence that the original request cannot still produce a result.
 /// A transport error, cancelled local future or generic provider failure is NOT evidence.
 #[derive(Debug, Clone, Serialize, Deserialize)]

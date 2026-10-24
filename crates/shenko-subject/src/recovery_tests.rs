@@ -287,13 +287,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     step.model_result_ref = Some(
         store
             .cas
-            .seal_object(
-                b"persisted complete result",
-                "text/plain",
-                "model_results",
-                "text",
-                1,
-            )
+            .seal_object(b"[delegate]", "text/plain", "model_results", "text", 1)
             .unwrap()
             .object,
     );
@@ -306,6 +300,90 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     let (tx, mut rx) = tokio::sync::broadcast::channel(8);
     subject = subject.with_outbox(tx);
     assert_eq!(subject.step.active_request_id, request_id);
+    assert!(
+        execute_step(
+            1,
+            &[],
+            &mut subject,
+            false,
+            &tokio_util::sync::CancellationToken::new(),
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    // A complete malformed control is durably rejected, not a permanent
+    // ResultRecorded crashloop or a fabricated successful S1/ACK.
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert_eq!(subject.head.committed_at, head.committed_at);
+    assert_ne!(subject.step.step_id, step.step_id);
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    assert!(rx.try_recv().is_err());
+    assert!(
+        store
+            .event_disposition_commit(agent, event.event_id)
+            .unwrap()
+            .is_none()
+    );
+    let retired = store
+        .get_step(&head.branch_id, step.step_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(retired.state, SubjectStepState::Retired);
+    assert_eq!(retired.model_result_ref, step.model_result_ref);
+    assert_eq!(retired.input_plan_ref, step.input_plan_ref);
+    let rejection: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&store, retired.retry_reason_ref.as_ref().unwrap()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(rejection.request_id, request_id.unwrap());
+    assert_eq!(rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(rejection.replacement_step_id, subject.step.step_id);
+    let correction = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(correction.events[0].event_id, event.event_id);
+    assert_eq!(correction.payload.messages[1].content, "[delegate]");
+    assert!(
+        correction.payload.messages[2]
+            .content
+            .contains("CONTROL_PROTOCOL_INVALID")
+    );
+    drop(subject);
+    drop(store);
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let subject = state(store.clone(), agent).unwrap();
+    assert_eq!(subject.step.step_id, rejection.replacement_step_id);
+    // Close/reopen before dispatch retains the correction. A terminal result
+    // of the NEW request can now settle the original input exactly once.
+    let mut corrected = subject.step.clone();
+    corrected.state = SubjectStepState::AwaitingModel;
+    corrected.active_request_id = Some(EntityId::new());
+    assert_ne!(corrected.active_request_id, request_id);
+    corrected.record_revision = RecordRevision(1);
+    store
+        .upsert_step(&corrected, &subject.head, RecordRevision(0))
+        .unwrap();
+    corrected.state = SubjectStepState::ResultRecorded;
+    corrected.model_result_ref = Some(
+        store
+            .cas
+            .seal_object(
+                b"persisted complete result",
+                "text/plain",
+                "model_results",
+                "text",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
+    corrected.record_revision = RecordRevision(2);
+    store
+        .upsert_step(&corrected, &subject.head, RecordRevision(1))
+        .unwrap();
+    drop(subject);
+    let mut subject = state(store.clone(), agent).unwrap();
+    let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+    subject = subject.with_outbox(tx);
     execute_step(
         1,
         &[],

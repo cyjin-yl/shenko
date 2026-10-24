@@ -1,6 +1,7 @@
 //! Decode once at the model-result boundary; consumers never inspect raw text.
 //! Controls are whole unindented lines outside Markdown fences/quotes. There is
 //! no natural-language trigger, legacy alias, or raw-publication fallback.
+use pulldown_cmark::{Event, Parser, Tag};
 use shenko_identity::IdentityService;
 use shenko_types::{
     error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
@@ -53,7 +54,26 @@ pub fn parse_output(
     };
     let mut offset = 0;
     let mut reply: Option<usize> = None;
-    let mut fence: Option<(u8, usize)> = None;
+    // CommonMark source ranges include lazy blockquote/list continuations and
+    // resolved shortcut reference links. A line-prefix heuristic cannot tell
+    // these from real controls. Never render/rewrite the original evidence.
+    let mut literal_ranges: Vec<_> = Parser::new(raw)
+        .into_offset_iter()
+        .filter_map(|(event, range)| match event {
+            Event::Start(
+                Tag::BlockQuote(_)
+                | Tag::List(_)
+                | Tag::CodeBlock(_)
+                | Tag::HtmlBlock
+                | Tag::Link { .. }
+                | Tag::Image { .. },
+            )
+            | Event::Code(_) => Some(range),
+            _ => None,
+        })
+        .collect();
+    literal_ranges.sort_by_key(|range| range.start);
+    let mut literal_ranges = literal_ranges.into_iter().peekable();
     let mut identity_fields = std::collections::HashSet::new();
     for (index, chunk) in raw.split_inclusive('\n').enumerate() {
         let line_no = index as u64 + 1;
@@ -64,23 +84,16 @@ pub fn parse_output(
             line: line_no,
         };
         offset += chunk.len();
-        let indentation = line.len() - line.trim_start_matches(' ').len();
-        let trimmed = line.trim_start_matches(' ');
-        let mark = trimmed.as_bytes().first().copied();
-        let count = mark.map_or(0, |m| trimmed.bytes().take_while(|b| *b == m).count());
-        let was_fenced = fence.is_some();
-        if indentation <= 3 && matches!(mark, Some(b'`' | b'~')) && count >= 3 {
-            match fence {
-                None => fence = Some((mark.unwrap(), count)),
-                Some((m, n))
-                    if mark == Some(m) && count >= n && trimmed[count..].trim().is_empty() =>
-                {
-                    fence = None
-                }
-                _ => {}
-            }
+        while literal_ranges
+            .peek()
+            .is_some_and(|range| range.end <= span.start)
+        {
+            literal_ranges.next();
         }
-        let active = !was_fenced && fence.is_none() && indentation == 0;
+        let active = !line.starts_with([' ', '\t'])
+            && !literal_ranges
+                .peek()
+                .is_some_and(|range| range.contains(&span.start));
         // ASCII control tags are reserved at column zero. Non-ASCII prose,
         // references, indentation, quotes and fenced examples stay literal.
         let tag = line

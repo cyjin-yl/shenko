@@ -223,6 +223,114 @@ impl Store {
         ))
     }
 
+    /// R0 for a conclusive but invalid control result: retain the retired step
+    /// and rejection, register a sealed correction, and CAS only next_step_id.
+    /// No S1, disposition, identity change or external intent is admitted here.
+    pub fn reject_output_and_replace_step(
+        &self,
+        retired: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        replacement: &SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let mut head = checked_head(&tx, expected_head)?;
+        validate_step_binding(&head, retired)?;
+        let previous = read_step(&tx, &head.branch_id, retired.step_id)?
+            .ok_or_else(|| ShenkoError::not_found("rejected subject step"))?;
+        validate_step_binding(&head, &previous)?;
+        if previous.state != SubjectStepState::ResultRecorded
+            || retired.state != SubjectStepState::Retired
+            || retired.record_revision.0 != previous.record_revision.0 + 1
+            || retired.active_request_id != previous.active_request_id
+            || retired.active_attempt_id != previous.active_attempt_id
+            || retired.model_result_ref != previous.model_result_ref
+            || retired.input_plan_ref != previous.input_plan_ref
+            || retired.context_revision != previous.context_revision
+            || retired.created_by_step_id != previous.created_by_step_id
+            || retired.decision_ref.is_some()
+            || retired.commit_ref.is_some()
+            || replacement.step_id == retired.step_id
+            || replacement.state != SubjectStepState::Preparing
+            || replacement.record_revision != RecordRevision(0)
+            || replacement.active_request_id.is_some()
+            || replacement.active_attempt_id.is_some()
+            || replacement.model_result_ref.is_some()
+            || replacement.decision_ref.is_some()
+            || replacement.commit_ref.is_some()
+            || replacement.created_by_step_id != previous.created_by_step_id
+            || replacement.input_plan_ref.is_none()
+            || replacement.input_plan_ref == previous.input_plan_ref
+            || replacement.context_revision != previous.context_revision
+            || replacement.retry_reason_ref != retired.retry_reason_ref
+        {
+            return Err(ShenkoError::conflict("invalid rejected-output replacement"));
+        }
+        self.verify_step_objects(retired)?;
+        self.verify_step_objects(replacement)?;
+        let reason = retired
+            .retry_reason_ref
+            .as_ref()
+            .ok_or_else(|| ShenkoError::conflict("missing control rejection"))?;
+        let rejection: shenko_types::subject::ControlOutputRejection =
+            serde_json::from_slice(&self.cas.read_object(&reason.digest)?)?;
+        if rejection.schema_version != 1
+            || rejection.supersedes_step_id != previous.step_id
+            || rejection.replacement_step_id != replacement.step_id
+            || Some(rejection.request_id) != previous.active_request_id
+            || Some(&rejection.input_plan_ref) != previous.input_plan_ref.as_ref()
+            || Some(&rejection.model_result_ref) != previous.model_result_ref.as_ref()
+            || rejection.error.code != "CONTROL_PROTOCOL_INVALID"
+            || rejection.error.scope != shenko_types::error::ErrorScope::Request
+            || rejection.error.retry != shenko_types::error::RetryStrategy::NewRevision
+        {
+            return Err(ShenkoError::conflict(
+                "rejection is not bound to recorded result",
+            ));
+        }
+        head.next_step_id = replacement.step_id;
+        head.record_revision = RecordRevision(head.record_revision.0 + 1);
+        validate_step_binding(&head, replacement)?;
+        let seq = self.ledger.allocate_seq(&tx)?;
+        let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+        update_step(&tx, retired, previous.record_revision, seq.0)?;
+        // A duplicate replacement ID fails the entire transaction, including
+        // retirement, so the head can never point at a missing/retired step.
+        insert_step(&tx, replacement, seq.0)?;
+        let changed = tx.execute(
+            "UPDATE subject_branch_heads SET next_step_id=?1, record_revision=?2, data=?3, updated_commit_seq=?4
+             WHERE agent_id=?5 AND branch_id=?6 AND record_revision=?7 AND next_step_id=?8",
+            params![replacement.step_id.to_string(), head.record_revision.0 as i64,
+                serde_json::to_string(&head)?, seq.0 as i64, head.agent_id.to_string(),
+                head.branch_id.0.to_string(), expected_head.record_revision.0 as i64,
+                previous.step_id.to_string()],
+        ).map_err(storage_error)?;
+        if changed != 1 {
+            return Err(ShenkoError::conflict("stale branch head"));
+        }
+        self.record_subject_commit(&tx, commit_ref, 3)?;
+        tx.commit().map_err(storage_error)?;
+        Ok(self.subject_receipt(
+            commit_ref,
+            vec![
+                UpdatedEntity {
+                    entity_id: retired.step_id,
+                    record_revision: retired.record_revision,
+                },
+                UpdatedEntity {
+                    entity_id: head.agent_id,
+                    record_revision: head.record_revision,
+                },
+                UpdatedEntity {
+                    entity_id: replacement.step_id,
+                    record_revision: replacement.record_revision,
+                },
+            ],
+        ))
+    }
+
     /// S1：条件更新 step/head，并原子插入真实 planned 后继。§41.5
     pub fn commit_step_and_advance_head(
         &self,

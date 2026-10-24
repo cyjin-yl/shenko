@@ -972,7 +972,7 @@ mod reply_directive_tests {
     use shenko_types::{ids::EntityId, output::*};
     #[test]
     fn identity_lines_are_actions_not_reply_text() {
-        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
+        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
         let dir = std::env::temp_dir().join(format!("shenko-controls-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = shenko_store::store::Store::open(dir.join("s.db"), dir.join("cas")).unwrap();
@@ -995,7 +995,7 @@ mod reply_directive_tests {
         assert_eq!(*target, PublicationTarget::QqGroup(7));
         assert_eq!(
             text,
-            " 你好\n继续说\n> [delegate] 引用，不执行\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
+            " 你好\n继续说\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
         );
         assert!(!parsed.text.contains("一整段记忆") && !parsed.text.contains("完整有限目标"));
         assert_eq!(

@@ -598,6 +598,24 @@ async fn execute_step(
         debug!(seq, hooks=%results.len(), "PostModel hooks ran");
     }
 
+    // S1 decision — SPEC §41.5: commit decision + event disposition +
+    // delegation intent + unique successor before the ledger write.
+    let output = crate::output::parse_output(
+        step_id,
+        step.model_result_ref
+            .clone()
+            .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
+        model_output.as_deref().unwrap_or(""),
+        &state.identity_service,
+    );
+    let output = match output {
+        Ok(output) => output,
+        Err(ShenkoError::Protocol(error)) if error.code == "CONTROL_PROTOCOL_INVALID" => {
+            replace_rejected_output(state, error)?;
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
     // ResultRecorded (including real CAS bytes) is already durable before hooks/S1.
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
@@ -613,16 +631,6 @@ async fn execute_step(
         debug!(seq, hooks=%results.len(), "PreEffect hooks ran");
     }
 
-    // S1 decision — SPEC §41.5: commit decision + event disposition +
-    // delegation intent + unique successor before the ledger write.
-    let output = crate::output::parse_output(
-        step_id,
-        step.model_result_ref
-            .clone()
-            .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
-        model_output.as_deref().unwrap_or(""),
-        &state.identity_service,
-    )?;
     let mut decision_delegation_intents = vec![];
     let mut memory_candidates = vec![];
     let mut publication_intents = vec![];
@@ -836,6 +844,93 @@ async fn execute_step(
             Err(e)
         }
     }
+}
+
+/// A protocol rejection is conclusive, unlike an unknown provider outcome.
+/// R0 records it and freezes a new correction request before adopting memory.
+fn replace_rejected_output(
+    state: &mut SubjectLoopState,
+    error: shenko_types::error::ProtocolError,
+) -> Result<(), ShenkoError> {
+    use shenko_types::subject::ControlOutputRejection;
+    let store = &state.store;
+    let mut retired = state.step.clone();
+    let mut input = frozen_input(store, &retired)?;
+    let raw_ref = retired
+        .model_result_ref
+        .clone()
+        .ok_or_else(|| ShenkoError::conflict("rejection missing recorded result"))?;
+    let replacement_id = EntityId::new();
+    let rejection = ControlOutputRejection {
+        schema_version: 1,
+        supersedes_step_id: retired.step_id,
+        replacement_step_id: replacement_id,
+        request_id: retired
+            .active_request_id
+            .ok_or_else(|| ShenkoError::conflict("rejection missing request"))?,
+        input_plan_ref: retired
+            .input_plan_ref
+            .clone()
+            .ok_or_else(|| ShenkoError::conflict("rejection missing input plan"))?,
+        model_result_ref: raw_ref.clone(),
+        error,
+    };
+    let reason_ref = seal_step_object(
+        store,
+        retired.step_no,
+        &serde_json::to_vec(&rejection)?,
+        "application/json",
+        "control_rejections",
+        "ControlOutputRejection",
+        1,
+    )?;
+    // Preserve the selected events and pinned persona/provider. This is a new
+    // step/request seal with explicit feedback, not replay of the invalid wire.
+    input.step_id = replacement_id;
+    input
+        .payload
+        .messages
+        .push(shenko_broker::request::InferenceMessage {
+            role: "assistant".into(),
+            content: String::from_utf8(read_sealed(store, &raw_ref)?)
+                .map_err(|e| ShenkoError::storage(e.to_string()))?,
+        });
+    input.payload.messages.push(shenko_broker::request::InferenceMessage {
+        role: "user".into(),
+        content: format!(
+            "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。",
+            rejection.error.code, rejection.error.details,
+        ),
+    });
+    let mut replacement = retired.clone();
+    replacement.step_id = replacement_id;
+    replacement.state = SubjectStepState::Preparing;
+    replacement.input_plan_ref = Some(seal_step_object(
+        store,
+        retired.step_no,
+        &serde_json::to_vec(&input)?,
+        "application/json",
+        "input_plans",
+        "subject_step_input",
+        4,
+    )?);
+    replacement.active_request_id = None;
+    replacement.active_attempt_id = None;
+    replacement.model_result_ref = None;
+    replacement.decision_ref = None;
+    replacement.commit_ref = None;
+    replacement.retry_reason_ref = Some(reason_ref.clone());
+    replacement.record_revision = RecordRevision(0);
+    retired.state = SubjectStepState::Retired;
+    retired.retry_reason_ref = Some(reason_ref);
+    retired.record_revision = RecordRevision(retired.record_revision.0 + 1);
+    let receipt = store.reject_output_and_replace_step(&retired, &state.head, &replacement)?;
+    let (head, step) = store.load_subject(state.agent_id)?;
+    state.head = head;
+    state.step = step;
+    warn!(step_id=%retired.step_id, replacement_step_id=%replacement_id,
+        commit=%receipt.commit_ref, error=%rejection.error, "control result rejected; correction registered");
+    Ok(())
 }
 
 fn record_retry(state: &mut SubjectLoopState, fact: InferenceRetryFact) -> Result<(), ShenkoError> {
