@@ -207,6 +207,28 @@ pub enum SubjectStepState {
     Planned, Preparing, AwaitingModel, ResultRecorded, Committed, RetryPending, Retired,
 }
 
+/// Positive evidence that the original request cannot still produce a result.
+/// A transport error, cancelled local future or generic provider failure is NOT evidence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubjectRetryEvidence {
+    pub request_id: EntityId,
+    pub fact: InferenceRetryFact,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InferenceRetryFact {
+    NeverDispatched,
+    ProviderRejected { http_status: u16 },
+}
+
+impl SubjectRetryEvidence {
+    pub fn permits_retry(&self, request_id: Option<EntityId>) -> bool {
+        request_id == Some(self.request_id) && matches!(self.fact,
+            InferenceRetryFact::NeverDispatched | InferenceRetryFact::ProviderRejected { http_status: 429 })
+    }
+}
+
 /// TaskWait — child wait record. SPEC §41.5
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskWait {

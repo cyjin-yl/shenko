@@ -49,7 +49,7 @@ impl ActiveProvider {
                 },
                 Err(e) => {
                     warn!(err=%e, "anthropic inference failed");
-                    InferenceResult { request_id: req.request_id, status: InferenceStatus::Failed, response: None }
+                    InferenceResult { request_id: req.request_id, status: failure_status(&e), response: None }
                 }
             },
             Self::Local(p) => match p.complete(&req.payload).await {
@@ -60,7 +60,7 @@ impl ActiveProvider {
                 },
                 Err(e) => {
                     warn!(err=%e, "local inference failed");
-                    InferenceResult { request_id: req.request_id, status: InferenceStatus::Failed, response: None }
+                    InferenceResult { request_id: req.request_id, status: failure_status(&e), response: None }
                 }
             },
             Self::Stub => InferenceResult {
@@ -73,6 +73,13 @@ impl ActiveProvider {
                 }),
             },
         }
+    }
+}
+
+fn failure_status(error: &anyhow::Error) -> InferenceStatus {
+    match error.downcast_ref::<crate::request::ProviderRejection>() {
+        Some(rejection) => InferenceStatus::Rejected { http_status: rejection.http_status },
+        None => InferenceStatus::Failed,
     }
 }
 
@@ -127,8 +134,16 @@ pub struct Broker {
 
 impl Broker {
     pub fn new() -> (Self, BrokerHandle) {
+        Self::with_provider(ActiveProvider::from_env())
+    }
+
+    /// Explicit offline construction; does not inspect or use ambient credentials.
+    pub fn offline() -> (Self, BrokerHandle) {
+        Self::with_provider(ActiveProvider::Stub)
+    }
+
+    fn with_provider(provider: ActiveProvider) -> (Self, BrokerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let provider = ActiveProvider::from_env();
         (Self { rx, admission: AdmissionController::nominal(), provider }, BrokerHandle { tx })
     }
 

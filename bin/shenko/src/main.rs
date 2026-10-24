@@ -29,6 +29,9 @@ enum Command {
         /// NapCat WebSocket URL (e.g. ws://127.0.0.1:3001)
         #[arg(long, env = "NAPCAT_WS_URL")]
         napcat: Option<String>,
+        /// Account bound to the persistent ingress database (not an admin grant).
+        #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
+        napcat_account: Option<u64>,
     },
     /// Validate configuration and exit
     Check,
@@ -74,7 +77,11 @@ async fn main() -> Result<()> {
             println!("OK");
         }
 
-        Command::Start { port, name, napcat } => {
+        Command::Start { port, name, napcat, napcat_account } => {
+            if napcat.is_some() {
+                anyhow::ensure!(napcat_account.is_some_and(|account| account > 0),
+                    "NapCat persistent ingress requires --napcat-account or NAPCAT_BOT_QQ");
+            }
             info!(
                 data_dir=%data_dir.display(), port,
                 name=name.as_deref().unwrap_or("(unnamed)"),
@@ -152,13 +159,14 @@ async fn main() -> Result<()> {
                 agent_id,
                 Arc::clone(&subject_inbox),
                 Arc::clone(&dispatcher),
-            ).with_store(Arc::clone(&store))
+                Arc::clone(&store),
+            )?
             .with_broker(broker_handle)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
 
             let cancel_subject = cancel.clone();
-            tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
+            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
             info!("subject loop started");
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
@@ -169,41 +177,98 @@ async fn main() -> Result<()> {
 
                 let napcat_config = shenko_channel_napcat::config::NapCatConfig {
                     ws_url,
+                    bot_qq: napcat_account.expect("NapCat account validated before startup"),
                     ..Default::default()
                 };
+                // 独立接收域先落盘；打开失败停止启动，绝不降级到内存。
                 let (napcat_client, mut napcat_event_rx, napcat_action_rx) =
-                    shenko_channel_napcat::client::NapCatClient::new(napcat_config.clone());
+                    shenko_channel_napcat::client::NapCatClient::open_persistent(
+                        napcat_config.clone(),
+                        data_dir.join("napcat-ingress.sqlite"),
+                    )?;
                 let client = Arc::new(napcat_client);
                 let spool = client.spool.clone();
                 let event_tx = client.event_sender();
                 let pending_actions = client.pending_actions.clone();
                 let cancel_napcat = cancel.clone();
 
-                // WebSocket reader/writer loop.
-                tokio::spawn(shenko_channel_napcat::client::NapCatClient::run_connection_loop(
-                    napcat_config.clone(),
-                    event_tx,
-                    napcat_action_rx,
-                    pending_actions,
-                    spool,
-                    cancel_napcat.clone(),
-                ));
+                // A storage failure closes the connector and stops this runtime;
+                // silently leaving an apparently healthy UI would hide lost reception.
+                let connection_spool = Arc::clone(&spool);
+                let connection_config = napcat_config.clone();
+                let connection_cancel = cancel_napcat.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = shenko_channel_napcat::client::NapCatClient::run_connection_loop(
+                        connection_config, event_tx, napcat_action_rx, pending_actions,
+                        connection_spool, connection_cancel.clone(),
+                    ).await {
+                        tracing::error!(err=%error, "NapCat ingress failed — stopping runtime for recovery");
+                        connection_cancel.cancel();
+                    }
+                });
 
-                // Route NapCat events to the subject inbox; spool provides dedup
-                // and gap recording.
+                // Keep the ingress identity across replay. L's committed S1 receipt
+                // wins over a stale I acknowledgement mirror after a crash.
                 let inbox_tx = subject_inbox.sender();
+                let event_store = Arc::clone(&store);
+                let event_spool = Arc::clone(&spool);
                 let cancel_events = cancel_napcat.clone();
                 tokio::spawn(async move {
-                    while let Some(ev) = napcat_event_rx.recv().await {
-                        if cancel_events.is_cancelled() { break; }
-                        let inbox_ev = shenko_subject::inbox::InboxEvent {
-                            event_id: shenko_types::ids::EntityId::new(),
-                            kind: shenko_subject::inbox::InboxEventKind::Message,
-                            payload: serde_json::to_value(&ev).unwrap_or_default(),
-                            created_at: chrono::Utc::now(),
-                            source: "napcat".to_string(),
-                        };
-                        let _ = inbox_tx.send(inbox_ev).await;
+                    let result: Result<()> = async {
+                        loop {
+                            let ev = tokio::select! {
+                                ev = napcat_event_rx.recv() => match ev {
+                                    Some(ev) => ev,
+                                    None => break,
+                                },
+                                _ = cancel_events.cancelled() => break,
+                            };
+                            let event_id = ev.ingress_id.ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?;
+                            if let Some(commit) = event_store.event_disposition_commit(agent_id, event_id)? {
+                                event_spool.ack(event_id, &commit.to_string())?;
+                                continue;
+                            }
+                            let inbox_ev = napcat_inbox_event(ev)?;
+                            tokio::select! {
+                                sent = inbox_tx.send(inbox_ev) => sent.map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?,
+                                _ = cancel_events.cancelled() => break,
+                            }
+                        }
+                        Ok(())
+                    }.await;
+                    if let Err(error) = result {
+                        tracing::error!(err=%error, "NapCat admission failed — ingress remains pending");
+                        cancel_events.cancel();
+                    }
+                });
+
+                // Poll bounded pages: cross-node watchers and one-shot callbacks
+                // are not recovery truth. No S1 receipt means no ACK, even if delivered.
+                let ack_store = Arc::clone(&store);
+                let cancel_acks = cancel_napcat.clone();
+                tokio::spawn(async move {
+                    let result: Result<()> = async {
+                        let mut after = 0;
+                        let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
+                        loop {
+                            tokio::select! {
+                                _ = tick.tick() => {},
+                                _ = cancel_acks.cancelled() => break,
+                            }
+                            let page = spool.pending_after(after, 256)?;
+                            if page.is_empty() { after = 0; }
+                            for event in page {
+                                after = event.seq;
+                                if let Some(commit) = ack_store.event_disposition_commit(agent_id, event.spool_id)? {
+                                    spool.ack(event.spool_id, &commit.to_string())?;
+                                }
+                            }
+                        }
+                        Ok(())
+                    }.await;
+                    if let Err(error) = result {
+                        tracing::error!(err=%error, "NapCat acknowledgement mirror failed — reopen required");
+                        cancel_acks.cancel();
                     }
                 });
 
@@ -296,22 +361,61 @@ async fn main() -> Result<()> {
             println!("  Subject loop: running (continuous thought)");
             println!("  Inference: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "claude-opus-5-5" } else { "stub (no ANTHROPIC_API_KEY)" });
 
-            // Run until Ctrl-C
-            let _cancel_ui = cancel.clone();
-            tokio::select! {
-                res = ui.run() => {
-                    if let Err(e) = res { tracing::error!("UI: {e}"); }
+            // Supervise the actual subject task, including panics. Stop claiming
+            // availability before waiting for the current durable boundary.
+            let live = ui.ws_state().live;
+            let mut subject_finished = false;
+            let runtime_result: Result<()> = tokio::select! {
+                result = &mut subject_task => {
+                    subject_finished = true;
+                    match result {
+                        Ok(Err(error)) => Err(error.into()),
+                        Err(error) => Err(error.into()),
+                        Ok(Ok(())) => Err(anyhow::anyhow!("subject stopped unexpectedly")),
+                    }
                 }
-                _ = tokio::signal::ctrl_c() => {
-                    info!("shutdown signal");
+                result = ui.run() => result,
+                result = tokio::signal::ctrl_c() => {
+                    result?;
+                    info!("shutdown signal; settling subject at a recoverable boundary");
+                    Ok(())
+                }
+                _ = cancel.cancelled() => Err(anyhow::anyhow!("runtime stopped after connector failure; reopen for recovery")),
+            };
+            live.set_wired(false);
+            subject_inbox.close().await;
+            cancel.cancel();
+            if !subject_finished {
+                // Do not drop an admitted request merely because Ctrl-C arrived.
+                // A timeout is an observation limit, never proof the provider stopped.
+                match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task).await {
+                    Ok(Ok(result)) => result?,
+                    Ok(Err(error)) => return Err(error.into()),
+                    Err(_) => {
+                        let (_, step) = store.load_subject(agent_id)?;
+                        anyhow::bail!("shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
+                            step.step_id, step.state, step.active_request_id);
+                    }
                 }
             }
-            cancel.cancel();
+            runtime_result?;
             info!("Shenko stopped");
         }
     }
 
     Ok(())
+}
+
+fn napcat_inbox_event(
+    event: shenko_channel_napcat::client::OneBotEvent,
+) -> Result<shenko_subject::inbox::InboxEvent> {
+    Ok(shenko_subject::inbox::InboxEvent {
+        event_id: event.ingress_id.ok_or_else(|| anyhow::anyhow!("NapCat event missing durable ingress identity"))?,
+        kind: shenko_subject::inbox::InboxEventKind::Message,
+        payload: serde_json::to_value(&event)?,
+        created_at: chrono::Utc::now(),
+        source: "napcat".to_string(),
+    })
 }
 
 /// Durably record a delegated child task as `Pending`. Returns the commit that
@@ -530,4 +634,98 @@ fn bootstrap_genesis(
     info!(agent_id=%agent_id, name=name.unwrap_or("(unnamed)"), commit=%receipt.commit_ref, "genesis created");
 
     Ok(agent_id)
+}
+
+#[cfg(test)]
+mod recovery_integration_tests {
+    use super::*;
+    use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
+    use shenko_types::{ids::*, subject::*};
+
+    // Local I/L/CAS simulation: crash after S1, before I mirrors its ACK.
+    // No provider, external account, model inference or production data is used.
+    #[tokio::test]
+    async fn reopen_reconciles_spool_from_committed_subject_disposition() {
+        let dir = std::env::temp_dir().join(format!("shenko-continuity-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let spool_path = dir.join("ingress.sqlite");
+        let spool = IngressSpool::open(&spool_path, 9).unwrap();
+        let received = spool.ingest(serde_json::json!({
+            "post_type":"message", "message_type":"group", "group_id":7,
+            "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
+        })).unwrap().unwrap();
+        drop(spool);
+
+        let config = NapCatConfig { bot_qq: 9, ws_url: "ws://127.0.0.1:0".into(), ..Default::default() };
+        let (client, mut rx, actions) = NapCatClient::open_persistent(config.clone(), &spool_path).unwrap();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let connector = tokio::spawn(NapCatClient::run_connection_loop(
+            config, client.event_sender(), actions, client.pending_actions.clone(),
+            client.spool.clone(), cancel.clone(),
+        ));
+        // Delivery now runs independently of connection establishment.
+        let replayed = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+        let inbox_event = napcat_inbox_event(replayed).unwrap();
+        cancel.cancel();
+        connector.await.unwrap().unwrap();
+        assert_eq!(inbox_event.event_id, received.spool_id);
+
+        let store = shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap();
+        let agent = bootstrap_genesis(&store, None).unwrap();
+        let (head, mut step) = store.load_subject(agent).unwrap();
+        assert!(store.event_disposition_commit(agent, inbox_event.event_id).unwrap().is_none());
+        assert!(!client.spool.event(received.spool_id).unwrap().consumed);
+        let object = store.cas.seal_object(b"continue", "text/plain", "test", "raw", 1).unwrap().object;
+        step.input_plan_ref = Some(object.clone());
+        step.state = SubjectStepState::Preparing;
+        step.record_revision = RecordRevision(1);
+        store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
+        step.state = SubjectStepState::AwaitingModel;
+        step.active_request_id = Some(EntityId::new());
+        step.record_revision = RecordRevision(2);
+        store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+        step.state = SubjectStepState::ResultRecorded;
+        step.model_result_ref = Some(object.clone());
+        step.record_revision = RecordRevision(3);
+        store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+        let next = EntityId::new();
+        let decision = StepDecision {
+            step_id: step.step_id, input_plan_ref: object.clone(), model_result_ref: Some(object),
+            applied_steering_refs: vec![],
+            event_dispositions: vec![EventDisposition { event_id: inbox_event.event_id, disposition: Disposition::Acknowledged }],
+            delegated_task_intents: vec![], child_dialogue_intents: vec![], memory_intents: vec![],
+            policy_intents: vec![], publication_intents: vec![], pending_obligations: vec![], evidence_refs: vec![], successor_step_id: next,
+        };
+        step.decision_ref = Some(store.cas.seal_object(
+            &serde_json::to_vec(&decision).unwrap(), "application/json", "test", "StepDecision", 1,
+        ).unwrap().object);
+        step.state = SubjectStepState::Committed;
+        step.record_revision = RecordRevision(4);
+        let receipt = store.commit_step_and_advance_head(&step, &head, next).unwrap();
+        // Intentionally omit ACK: model-side processing committed, I mirror is stale.
+        assert!(!client.spool.event(received.spool_id).unwrap().consumed);
+        drop(store);
+        drop(client);
+
+        let store = Arc::new(shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap());
+        assert_eq!(bootstrap_genesis(&store, None).unwrap(), agent);
+        let (dispatcher, _rx) = shenko_subject::dispatch::ChildDispatcher::new(agent);
+        let restored = shenko_subject::loop_runner::SubjectLoopState::new(
+            agent, Arc::new(shenko_subject::inbox::Inbox::new(8)), Arc::new(dispatcher), store.clone(),
+        ).unwrap();
+        assert_eq!(restored.head.branch_id, head.branch_id);
+        assert_eq!(restored.head.committed_at, receipt.commit_ref);
+        assert_eq!(restored.step.step_id, next);
+        assert_eq!(restored.step.state, SubjectStepState::Planned);
+        let spool = IngressSpool::open(&spool_path, 9).unwrap();
+        let pending = spool.consume(8).unwrap();
+        assert_eq!(pending.len(), 1);
+        let commit = store.event_disposition_commit(agent, pending[0].spool_id).unwrap().unwrap();
+        assert_eq!(commit, receipt.commit_ref);
+        spool.ack(pending[0].spool_id, &commit.to_string()).unwrap();
+        assert_eq!(spool.pending_count().unwrap(), 0);
+        assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
+        assert!(spool.ingest(received.raw).unwrap().is_none());
+        // Temporary evidence files are deliberately retained for inspection.
+    }
 }
