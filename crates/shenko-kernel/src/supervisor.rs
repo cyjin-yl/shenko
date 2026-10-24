@@ -1,45 +1,45 @@
-//! Minimal supervisor — starts plugins, holds lifecycle state.
-use std::sync::Arc;
+//! Minimal host policy around the native Cordis runtime, not a plugin framework.
 use anyhow::Result;
-use tracing::info;
+use cordis_core::{Context, FiberHandle, Plugin};
+use std::sync::Arc;
 
-use shenko_types::ids::RuntimeGeneration;
+use crate::capability::CapabilityRegistry;
 use crate::lifecycle::LifecycleState;
 use crate::plugin::PluginRegistry;
-use crate::capability::CapabilityRegistry;
-use crate::service::ServiceRegistry;
+use shenko_types::ids::RuntimeGeneration;
 
-/// The Shenko supervisor. Does NOT depend on any plugin implementation.
+/// Business services are native Plugins with generation-owned Context bindings.
+/// The binary's default business graph is not yet installed through this API.
 pub struct Supervisor {
     pub lifecycle: Arc<LifecycleState>,
     pub plugins: Arc<PluginRegistry>,
     pub capabilities: Arc<CapabilityRegistry>,
-    pub services: Arc<ServiceRegistry>,
 }
 
 impl Supervisor {
     pub fn new(generation: RuntimeGeneration) -> Self {
+        let lifecycle = Arc::new(LifecycleState::new(generation));
         Self {
-            lifecycle: Arc::new(LifecycleState::new(generation)),
-            plugins: Arc::new(PluginRegistry::new()),
+            plugins: Arc::new(PluginRegistry::new(lifecycle.shutdown_token())),
+            lifecycle,
             capabilities: Arc::new(CapabilityRegistry::new()),
-            services: Arc::new(ServiceRegistry::new()),
         }
     }
 
-    pub async fn start(&self) -> Result<()> {
-        info!(generation = %self.lifecycle.generation, "supervisor starting");
-        self.plugins.start_all().await?;
-        info!("supervisor started");
-        Ok(())
+    pub fn context(&self) -> &Context {
+        self.plugins.context()
+    }
+
+    pub async fn spawn<P: Plugin>(&self, plugin: P, config: P::Config) -> Result<FiberHandle> {
+        self.plugins.spawn(plugin, config).await
+    }
+
+    pub async fn restart(&self, fiber: &FiberHandle) -> Result<()> {
+        self.plugins.restart(fiber).await
     }
 
     pub async fn stop(&self) -> Result<()> {
-        info!("supervisor stopping");
-        self.lifecycle.shutdown();
-        self.plugins.stop_all().await?;
-        info!("supervisor stopped");
-        Ok(())
+        self.plugins.stop().await
     }
 
     pub fn is_shutdown(&self) -> bool {
