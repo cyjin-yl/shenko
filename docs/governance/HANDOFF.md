@@ -2,6 +2,25 @@
 
 **更新时间：2026-10-25（C07 修复与 C01 独立复核分列；以下明确区分当前与历史证据）**
 
+## C17 PR40 focused repair（2026-10-25；非完整包完成）
+
+- 本轮 assign/comment 身份 cyjin-yl；Git base main `04c09a4051ba8641ef50265ee572aa373ab453bc`，
+  branch `fix/c17-store-ownership-evidence-20261025`，
+  [PR40](https://github.com/cyjin-yl/shenko/pull/40)，产品 `453fff7e754e46af920dc7fcbc46c9321f41d819`。
+  当前为已发布候选，最终实际PR/merge状态由GitHub读回与issue22交付comment记录，不预填成功。
+- 修复PR37引入的两项P2：未知数据库先immutable只读识别，不再因文件名/user_version=0改写；
+  只迁移完整匹配的已初始化v1，保留十张旧表内容和身份/账本/seq；认证已知schema的完整
+  receipt/source先独立E1，再判断task/T2，unassociated/invalid可在无模型重开后有限导出。
+- 两条继承旅程、十五项既有相关Rust tests的适用版本、实际source/binary/schema/hash、
+  receipt/原日志/失败边界见[修复证据](../evidence/c17-ownership-evidence-repair-20261025.json)。
+  场景仍为同一受管容器内独立逻辑节点+真实OpenSSH，不是物理双机/LLM/选主/掉电验收。
+- 本轮未改C01/C22代码。#6 ledger_id/seq重开P1仍存在；主控已在#6认领S1后durable
+  dispatcher，勿在其相同候选重复写。下一行为包为C01持续账本/dispatch→#12真实child/T2
+  →#22 registry/成员authority。未知schemaIngress、自动pending协调、全部异构平台、
+  A42/A47/A48/A49和7/30天原义务保留；#6/#12/#22及完整goal均不关闭。
+- 独立候选 `/tmp/shenko-c17-repair-LzjgwLDo/repo`；原共享源/原worktrees/旧fixtures未写入或删除，
+  Cargo使用共享flock、单job、关闭incremental；只使用本次loopback fixture，无陌生设备部署。
+
 ## C07 当前可取修复与接续（2026-10-25）
 
 - **最终远端交付已独立读回**：子 PR35 实际 MERGED，merge=`94b8c5c2b03daaa7f3f73892e963479021ea6e24`；父 PR33 实际 MERGED main，merge/可取产品基线=`54d6ae5c0a870eee8640d2deb0e89854ae6dc1ae`。该 main 的全部 tracked Rust/Cargo/helper 输入 SHA256=`f5a91f75ff5ad722f356e54e7d9b5a378e6e41ca569e8f861d5a16faff64c929`，与已验证组合候选一致；没有把 PR 接口缓存的 base SHA 当当前 main。交付评论见 [#12 checkpoint](https://github.com/cyjin-yl/shenko/issues/12#issuecomment-6388000869)。
