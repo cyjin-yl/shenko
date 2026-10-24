@@ -1,0 +1,85 @@
+//! Budget compact through the real pinned Cordis runtime: install, window
+//! commit, replacement fencing and raw-history recovery after uninstall.
+use std::sync::Arc;
+
+use shenko_compact_budget::{BudgetCompactPlugin, BudgetConfig, POLICY_ID};
+use shenko_context_policy::{
+    CallStatus, CommitError, ContextPolicyHost, HistorySource, ItemKind, MemoryHistory, ModelCaps,
+    PolicyRegistry, WindowEntry,
+};
+use shenko_kernel::PluginRegistry;
+use tokio_util::sync::CancellationToken;
+
+fn caps() -> ModelCaps {
+    ModelCaps { model_id: "text-only".into(), max_context: 4000, vision: None }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn budget_window_keeps_unfinished_calls_and_fences_replaced_generations() {
+    let history = MemoryHistory::new();
+    history.append(ItemKind::System, "system prompt", 100);
+    // An old call that is still Unknown in the execution ledger.
+    history.append(
+        ItemKind::ToolCall {
+            call_id: "ssh-1".into(),
+            tool: "ssh".into(),
+            args_ref: "ledger://call/ssh-1".into(),
+            status: CallStatus::Unknown,
+        },
+        "ssh host deploy",
+        50,
+    );
+    for n in 0..30 {
+        history.append(ItemKind::User, format!("question {n}"), 60);
+        history.append(ItemKind::Assistant { cancelled: false }, format!("answer {n}"), 60);
+    }
+    let items = history.snapshot();
+    let used: u32 = items.iter().map(|i| i.tokens).sum();
+
+    let host = PluginRegistry::new(CancellationToken::new());
+    let registry = Arc::new(PolicyRegistry::new());
+    host.spawn(ContextPolicyHost, registry.clone()).await.unwrap();
+    let budget = host.spawn(BudgetCompactPlugin, BudgetConfig::default()).await.unwrap();
+    assert_eq!(registry.installed()[0].0.id, POLICY_ID);
+    assert!(registry.should_compact(&items, &caps(), used));
+
+    let (prepared, _) = registry.prepare(&items, &caps(), used).unwrap();
+    assert_eq!(prepared.carried_calls, vec!["ssh-1".to_string()]);
+    assert!(prepared.cost.window_tokens < prepared.cost.source_tokens);
+    assert_eq!(prepared.cost.model_calls, 0);
+
+    // Replacing the plugin generation invalidates the window it prepared.
+    host.restart(&budget).await.unwrap();
+    let stale = registry.commit(prepared, &history).unwrap_err();
+    assert!(matches!(stale, CommitError::StalePolicy { .. }));
+
+    let (prepared, _) = registry.prepare(&items, &caps(), used).unwrap();
+    // A message arriving between prepare and commit is carried, not lost.
+    let late = history.append(ItemKind::User, "late message", 10);
+    let window = registry.commit(prepared, &history).unwrap();
+    assert_eq!(window.policy_id.as_deref(), Some(POLICY_ID));
+    // System prompt + the carried call are an identical prefix; the rest is recomputed.
+    assert_eq!(window.cost.reused_prefix_tokens, 150);
+
+    // Uninstall the strategy; the committed window still resolves to raw events.
+    budget.dispose().await.unwrap();
+    assert!(registry.installed().is_empty());
+    let visible = registry.ledger().current().materialize(&history);
+    assert!(visible.iter().any(|e| matches!(e, WindowEntry::Verbatim { at, .. } if *at == late)));
+    let unknown_call = visible.iter().find_map(|e| match e {
+        WindowEntry::Verbatim { at, .. } => history.read_event(at.event_id).filter(|i| {
+            matches!(i.kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. })
+        }),
+        _ => None,
+    });
+    assert!(unknown_call.is_some(), "unfinished call stays whole and keeps its status");
+    let (from, to) = visible
+        .iter()
+        .find_map(|e| match e {
+            WindowEntry::Pointer { from, to, .. } => Some((*from, *to)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(history.read_range(from, to).len() as u64, to - from + 1);
+    host.stop().await.unwrap();
+}
