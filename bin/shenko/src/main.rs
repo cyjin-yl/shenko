@@ -291,6 +291,7 @@ async fn main() -> Result<()> {
             let ui = shenko_ui::server::UiServer::new(port)
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
+                .with_store(Arc::clone(&store))
                 .with_data_dir(data_dir.clone());
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
