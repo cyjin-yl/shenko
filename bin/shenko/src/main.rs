@@ -786,6 +786,7 @@ fn bootstrap_genesis(
         active_request_id: None,
         active_attempt_id: None,
         model_result_ref: None,
+        model_outcome_ref: None,
         decision_ref: None,
         commit_ref: None,
         retry_reason_ref: None,
@@ -875,6 +876,26 @@ mod recovery_integration_tests {
         step.state = SubjectStepState::ResultRecorded;
         step.model_result_ref = Some(object.clone());
         step.record_revision = RecordRevision(3);
+        step.model_outcome_ref = Some(
+            store
+                .cas
+                .seal_object(
+                    &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                        schema_version: 1,
+                        request_id: step.active_request_id.unwrap(),
+                        result_ref: step.model_result_ref.clone().unwrap(),
+                        stop_reason: "end_turn".into(),
+                        usage: None,
+                    })
+                    .unwrap(),
+                    "application/json",
+                    "model_outcomes",
+                    "SubjectModelOutcome",
+                    1,
+                )
+                .unwrap()
+                .object,
+        );
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
         let next = EntityId::new();
         let identity_context = cordis_core::Context::new();

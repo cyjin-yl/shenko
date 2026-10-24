@@ -139,6 +139,7 @@ fn initialized_subject() -> (PathBuf, Store, shenko_types::ids::EntityId) {
         active_request_id: None,
         active_attempt_id: None,
         model_result_ref: None,
+        model_outcome_ref: None,
         decision_ref: None,
         commit_ref: None,
         retry_reason_ref: None,
@@ -181,6 +182,26 @@ fn recorded_result(
         store
             .cas
             .seal_object("继续先前关注".as_bytes(), "text/plain", "test", "raw", 1)
+            .unwrap()
+            .object,
+    );
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 1,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: step.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                1,
+            )
             .unwrap()
             .object,
     );

@@ -183,7 +183,8 @@ impl Store {
                 && step.active_attempt_id != previous.active_attempt_id)
             || step.input_plan_ref.is_none()
             || (step.state == AwaitingModel && step.active_request_id.is_none())
-            || (step.state == ResultRecorded && step.model_result_ref.is_none())
+            || (step.state == ResultRecorded
+                && (step.model_result_ref.is_none() || step.model_outcome_ref.is_none()))
         {
             return Err(ShenkoError::conflict("stale or invalid subject transition"));
         }
@@ -247,6 +248,7 @@ impl Store {
             || retired.active_request_id != previous.active_request_id
             || retired.active_attempt_id != previous.active_attempt_id
             || retired.model_result_ref != previous.model_result_ref
+            || retired.model_outcome_ref != previous.model_outcome_ref
             || retired.input_plan_ref != previous.input_plan_ref
             || retired.context_revision != previous.context_revision
             || retired.created_by_step_id != previous.created_by_step_id
@@ -258,12 +260,17 @@ impl Store {
             || replacement.active_request_id.is_some()
             || replacement.active_attempt_id.is_some()
             || replacement.model_result_ref.is_some()
+            || replacement.model_outcome_ref.is_some()
             || replacement.decision_ref.is_some()
             || replacement.commit_ref.is_some()
             || replacement.created_by_step_id != previous.created_by_step_id
             || replacement.input_plan_ref.is_none()
             || replacement.input_plan_ref == previous.input_plan_ref
-            || replacement.context_revision != previous.context_revision
+            || replacement.context_revision.is_none()
+            || replacement.context_revision
+                != previous
+                    .context_revision
+                    .and_then(|revision| revision.checked_add(1))
             || replacement.retry_reason_ref != retired.retry_reason_ref
         {
             return Err(ShenkoError::conflict("invalid rejected-output replacement"));
@@ -282,7 +289,11 @@ impl Store {
             || Some(rejection.request_id) != previous.active_request_id
             || Some(&rejection.input_plan_ref) != previous.input_plan_ref.as_ref()
             || Some(&rejection.model_result_ref) != previous.model_result_ref.as_ref()
-            || rejection.error.code != "CONTROL_PROTOCOL_INVALID"
+            || Some(&rejection.model_outcome_ref) != previous.model_outcome_ref.as_ref()
+            || !matches!(
+                rejection.error.code.as_str(),
+                "CONTROL_PROTOCOL_INVALID" | "MODEL_RESULT_INCOMPLETE"
+            )
             || rejection.error.scope != shenko_types::error::ErrorScope::Request
             || rejection.error.retry != shenko_types::error::RetryStrategy::NewRevision
         {
@@ -290,6 +301,7 @@ impl Store {
                 "rejection is not bound to recorded result",
             ));
         }
+        self.recorded_model_outcome(&previous)?;
         head.next_step_id = replacement.step_id;
         head.record_revision = RecordRevision(head.record_revision.0 + 1);
         validate_step_binding(&head, replacement)?;
@@ -353,6 +365,7 @@ impl Store {
             || step.active_request_id != previous.active_request_id
             || step.active_attempt_id != previous.active_attempt_id
             || step.model_result_ref != previous.model_result_ref
+            || step.model_outcome_ref != previous.model_outcome_ref
             || step.input_plan_ref != previous.input_plan_ref
             || step.context_revision != previous.context_revision
             || step.created_by_step_id != previous.created_by_step_id
@@ -360,6 +373,9 @@ impl Store {
             return Err(ShenkoError::conflict("S1 requires current recorded result"));
         }
         self.verify_step_objects(step)?;
+        if !self.recorded_model_outcome(step)?.is_complete() {
+            return Err(ShenkoError::conflict("S1 requires a complete model result"));
+        }
         let decision_ref = step
             .decision_ref
             .as_ref()
@@ -391,7 +407,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(4)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(5)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())
@@ -455,6 +471,7 @@ impl Store {
             active_request_id: None,
             active_attempt_id: None,
             model_result_ref: None,
+            model_outcome_ref: None,
             decision_ref: None,
             commit_ref: None,
             retry_reason_ref: None,
@@ -519,10 +536,39 @@ impl Store {
         ))
     }
 
+    /// Read terminal evidence bound to this exact result/request, independently
+    /// of whether it is complete enough to admit actions.
+    pub fn recorded_model_outcome(
+        &self,
+        step: &SubjectStep,
+    ) -> Result<shenko_types::subject::SubjectModelOutcome, ShenkoError> {
+        let object = step.model_outcome_ref.as_ref().ok_or_else(|| {
+            ShenkoError::conflict("missing model terminal evidence; migrate/reconcile explicitly")
+        })?;
+        let bytes = self.cas.read_object(&object.digest)?;
+        if object.locator.is_empty()
+            || bytes.len() as u64 != object.bytes
+            || shenko_types::object::Digest::blake3(&bytes) != object.digest
+        {
+            return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+        }
+        let outcome: shenko_types::subject::SubjectModelOutcome = serde_json::from_slice(&bytes)?;
+        if outcome.schema_version != 1
+            || Some(outcome.request_id) != step.active_request_id
+            || Some(&outcome.result_ref) != step.model_result_ref.as_ref()
+        {
+            return Err(ShenkoError::conflict(
+                "model terminal evidence/result mismatch",
+            ));
+        }
+        Ok(outcome)
+    }
+
     fn verify_step_objects(&self, step: &SubjectStep) -> Result<(), ShenkoError> {
         for object in [
             &step.input_plan_ref,
             &step.model_result_ref,
+            &step.model_outcome_ref,
             &step.decision_ref,
             &step.retry_reason_ref,
         ]

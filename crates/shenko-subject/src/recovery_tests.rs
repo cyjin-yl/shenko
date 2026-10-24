@@ -61,6 +61,7 @@ fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
         active_request_id: None,
         active_attempt_id: None,
         model_result_ref: None,
+        model_outcome_ref: None,
         decision_ref: None,
         commit_ref: None,
         retry_reason_ref: None,
@@ -239,7 +240,9 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
         source: "fixture".into(),
         created_at: chrono::Utc::now(),
     };
-    let mut subject = state(store.clone(), agent).unwrap();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    drop(offline);
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle);
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     assert!(
@@ -292,6 +295,26 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
             .object,
     );
     step.record_revision = RecordRevision(expected.0 + 1);
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 1,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: step.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
     store.upsert_step(&step, &head, expected).unwrap();
     drop(store);
 
@@ -317,6 +340,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     assert_eq!(subject.head.committed_step_no, 0);
     assert_eq!(subject.head.committed_at, head.committed_at);
     assert_ne!(subject.step.step_id, step.step_id);
+    assert!(subject.step.context_revision > step.context_revision);
     assert_eq!(subject.step.state, SubjectStepState::Preparing);
     assert!(rx.try_recv().is_err());
     assert!(
@@ -470,6 +494,26 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     step.state = SubjectStepState::AwaitingModel;
     step.active_request_id = Some(EntityId::new());
     step.record_revision = RecordRevision(2);
+    corrected.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 1,
+                    request_id: corrected.active_request_id.unwrap(),
+                    result_ref: corrected.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
     store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
     let raw = "[identity:name] 岚\n[identity:soul] 记住关系，不靠 delegate 或委派替代理解";
     let raw_ref = store
@@ -480,6 +524,26 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     step.state = SubjectStepState::ResultRecorded;
     step.model_result_ref = Some(raw_ref.clone());
     step.record_revision = RecordRevision(3);
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 1,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: step.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
     let output = crate::output::parse_output(
         step.step_id,
@@ -656,6 +720,26 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .unwrap()
             .object,
     );
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 1,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: step.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
     drop(subject);
     let mut subject = state(store.clone(), agent).unwrap();
@@ -797,6 +881,26 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
                 "text/plain",
                 "model_results",
                 "text",
+                1,
+            )
+            .unwrap()
+            .object,
+    );
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 1,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: step.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
                 1,
             )
             .unwrap()

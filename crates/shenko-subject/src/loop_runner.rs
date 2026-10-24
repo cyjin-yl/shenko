@@ -31,6 +31,7 @@ struct FrozenStepInput {
     step_no: u64,
     events: Vec<InboxEvent>,
     model: String,
+    provider_binding: Option<shenko_broker::request::ProviderBinding>,
     payload: shenko_broker::request::InferencePayload,
     in_semantic_wait: bool,
     identity: Option<IdentityProfile>,
@@ -61,7 +62,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 4 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 5 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -72,11 +73,11 @@ fn frozen_input(
 fn validate_resume(
     store: &shenko_store::store::Store,
     step: &SubjectStep,
-) -> Result<(), ShenkoError> {
+) -> Result<Option<FrozenStepInput>, ShenkoError> {
     use SubjectStepState::*;
     let no_request = step.active_request_id.is_none() && step.active_attempt_id.is_none();
     match step.state {
-        Planned if no_request => return Ok(()),
+        Planned if no_request => return Ok(None),
         Preparing if no_request => {}
         RetryPending => {
             let object = step
@@ -92,11 +93,11 @@ fn validate_resume(
             }
         }
         ResultRecorded if step.active_request_id.is_some() => {
-            let object = step.model_result_ref.as_ref().ok_or_else(|| {
-                ShenkoError::conflict("recovery_blocked: missing recorded result")
-            })?;
-            String::from_utf8(read_sealed(store, object)?)
-                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+            if step.model_result_ref.is_none() || step.model_outcome_ref.is_none() {
+                return Err(ShenkoError::conflict(
+                    "recovery_blocked: missing terminal model evidence; explicit migration required",
+                ));
+            }
         }
         _ => {
             return Err(ShenkoError::conflict(format!(
@@ -105,8 +106,7 @@ fn validate_resume(
             )));
         }
     }
-    frozen_input(store, step)?;
-    Ok(())
+    frozen_input(store, step).map(Some)
 }
 
 pub struct SubjectLoopState {
@@ -145,13 +145,13 @@ impl SubjectLoopState {
         identity_context: cordis_core::Context,
     ) -> Result<Self, ShenkoError> {
         let (head, step) = store.load_subject(agent_id)?;
-        validate_resume(&store, &step)?;
+        let resumed_input = validate_resume(&store, &step)?;
         let identity_service = identity_context
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
-        if step.state != SubjectStepState::Planned
-            && frozen_input(&store, &step)?.identity_provider_revision
-                != identity_service.revision()
+        if resumed_input
+            .as_ref()
+            .is_some_and(|input| input.identity_provider_revision != identity_service.revision())
         {
             return Err(ShenkoError::conflict(
                 "IDENTITY_PROVIDER_REVISION_MISMATCH: migrate/reconcile the sealed request before resuming",
@@ -179,7 +179,7 @@ impl SubjectLoopState {
         let identity = if step.state == SubjectStepState::Planned {
             store.latest_identity(agent_id)?
         } else {
-            frozen_input(&store, &step)?.identity
+            resumed_input.and_then(|input| input.identity)
         };
         let identity_receipt = head
             .committed_step_id
@@ -428,7 +428,7 @@ async fn execute_step(
             "step is not the registered successor",
         ));
     }
-    validate_resume(&store, &step)?;
+    let resumed_input = validate_resume(&store, &step)?;
     let input = if step.state == SubjectStepState::Planned {
         state.identity_service = state
             .identity_context
@@ -436,11 +436,12 @@ async fn execute_step(
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
         let input = FrozenStepInput {
-            schema_version: 4,
+            schema_version: 5,
             step_id,
             step_no: seq,
             events: events.to_vec(),
             model: state.model.clone(),
+            provider_binding: state.broker.as_ref().map(|b| b.binding().clone()),
             payload: shenko_broker::request::InferencePayload {
                 system_prompt: build_system_prompt(state, in_semantic_wait),
                 messages: build_messages(state, events),
@@ -458,7 +459,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            4,
+            5,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -468,20 +469,24 @@ async fn execute_step(
         state.step = step.clone();
         input
     } else {
-        frozen_input(&store, &step)?
+        resumed_input.ok_or_else(|| ShenkoError::conflict("missing validated S0"))?
     };
     let events = input.events.as_slice();
     let in_semantic_wait = input.in_semantic_wait;
     let input_identity = input.identity.clone();
-    let model_output = if step.state == SubjectStepState::ResultRecorded {
+    let (model_output, stop_reason) = if step.state == SubjectStepState::ResultRecorded {
         // The actual sealed result is authoritative; no broker admission on this path.
         let object = step
             .model_result_ref
             .as_ref()
             .ok_or_else(|| ShenkoError::conflict("missing recorded result"))?;
-        Some(
-            String::from_utf8(read_sealed(&store, object)?)
-                .map_err(|e| ShenkoError::storage(e.to_string()))?,
+        let outcome = store.recorded_model_outcome(&step)?;
+        (
+            Some(
+                String::from_utf8(read_sealed(&store, object)?)
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?,
+            ),
+            outcome.stop_reason,
         )
     } else {
         if step.state == SubjectStepState::Preparing {
@@ -503,6 +508,12 @@ async fn execute_step(
             .broker
             .as_ref()
             .ok_or_else(|| ShenkoError::other("no broker; frozen preparation remains resumable"))?;
+        if input.provider_binding.as_ref() != Some(broker.binding()) {
+            return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+                "MODEL_PROVIDER_BINDING_MISMATCH", shenko_types::error::ErrorScope::Request,
+                shenko_types::error::RetryStrategy::NewRevision,
+            ).with_details(serde_json::json!({"reason":"explicit S0 migration/reconciliation required; request not dispatched"}))));
+        }
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
         let (tx, rx) = tokio::sync::oneshot::channel();
         let req = shenko_broker::request::InferenceRequest {
@@ -561,10 +572,10 @@ async fn execute_step(
                 ));
             }
         }
-        let output = result
+        let response = result
             .response
-            .ok_or_else(|| ShenkoError::other("successful model result missing response"))?
-            .content;
+            .ok_or_else(|| ShenkoError::other("successful model result missing response"))?;
+        let output = response.content;
         step.model_result_ref = Some(seal_step_object(
             &store,
             seq,
@@ -574,12 +585,32 @@ async fn execute_step(
             "text",
             1,
         )?);
+        let outcome = shenko_types::subject::SubjectModelOutcome {
+            schema_version: 1,
+            request_id,
+            result_ref: step.model_result_ref.clone().unwrap(),
+            stop_reason: response.stop_reason.clone(),
+            usage: response
+                .usage
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?,
+        };
+        step.model_outcome_ref = Some(seal_step_object(
+            &store,
+            seq,
+            &serde_json::to_vec(&outcome)?,
+            "application/json",
+            "model_outcomes",
+            "SubjectModelOutcome",
+            1,
+        )?);
         step.state = SubjectStepState::ResultRecorded;
         let expected = step.record_revision;
         step.record_revision = RecordRevision(expected.0 + 1);
         store.upsert_step(&step, &state.head, expected)?;
         state.step = step.clone();
-        Some(output)
+        (Some(output), response.stop_reason)
     };
 
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
@@ -587,11 +618,7 @@ async fn execute_step(
         let results = reg
             .run_phase(&HookPayload::AfterInference {
                 request_id: step_id,
-                stop_reason: model_output
-                    .as_ref()
-                    .map(|_| "stop")
-                    .unwrap_or("none")
-                    .to_string(),
+                stop_reason: stop_reason.clone(),
                 output_tokens: model_output.as_ref().map(|o| o.len() as u64).unwrap_or(0),
             })
             .await;
@@ -600,17 +627,30 @@ async fn execute_step(
 
     // S1 decision — SPEC §41.5: commit decision + event disposition +
     // delegation intent + unique successor before the ledger write.
-    let output = crate::output::parse_output(
-        step_id,
-        step.model_result_ref
-            .clone()
-            .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
-        model_output.as_deref().unwrap_or(""),
-        &state.identity_service,
-    );
+    let complete = matches!(stop_reason.as_str(), "stop" | "end_turn" | "stop_sequence");
+    let output = if complete {
+        crate::output::parse_output(
+            step_id,
+            step.model_result_ref
+                .clone()
+                .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
+            model_output.as_deref().unwrap_or(""),
+            &state.identity_service,
+        )
+    } else {
+        Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+            "MODEL_RESULT_INCOMPLETE", shenko_types::error::ErrorScope::Request,
+            shenko_types::error::RetryStrategy::NewRevision,
+        ).with_details(serde_json::json!({"stop_reason":stop_reason,"reason":"partial/refused/unknown result is not an action decision"}))))
+    };
     let output = match output {
         Ok(output) => output,
-        Err(ShenkoError::Protocol(error)) if error.code == "CONTROL_PROTOCOL_INVALID" => {
+        Err(ShenkoError::Protocol(error))
+            if matches!(
+                error.code.as_str(),
+                "CONTROL_PROTOCOL_INVALID" | "MODEL_RESULT_INCOMPLETE"
+            ) =>
+        {
             replace_rejected_output(state, error)?;
             return Ok(None);
         }
@@ -873,6 +913,10 @@ fn replace_rejected_output(
             .clone()
             .ok_or_else(|| ShenkoError::conflict("rejection missing input plan"))?,
         model_result_ref: raw_ref.clone(),
+        model_outcome_ref: retired
+            .model_outcome_ref
+            .clone()
+            .ok_or_else(|| ShenkoError::conflict("rejection missing terminal outcome"))?,
         error,
     };
     let reason_ref = seal_step_object(
@@ -912,11 +956,20 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        4,
+        5,
     )?);
+    replacement.context_revision = Some(
+        retired
+            .context_revision
+            .and_then(|revision| revision.checked_add(1))
+            .ok_or_else(|| {
+                ShenkoError::conflict("correction context revision exhausted/missing")
+            })?,
+    );
     replacement.active_request_id = None;
     replacement.active_attempt_id = None;
     replacement.model_result_ref = None;
+    replacement.model_outcome_ref = None;
     replacement.decision_ref = None;
     replacement.commit_ref = None;
     replacement.retry_reason_ref = Some(reason_ref.clone());

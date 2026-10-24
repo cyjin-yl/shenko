@@ -28,6 +28,8 @@ pub struct TimelineMessage {
     pub timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step: Option<String>,
 }
 
 /// Live facts shared by the WS layer and the read-only `/api/self` endpoint.
@@ -179,6 +181,13 @@ pub async fn ws_handler(ws: WebSocketUpgrade, Extension(state): Extension<WsStat
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
+#[derive(Deserialize)]
+struct UserSubmission {
+    submission_id: String,
+    message_id: String,
+    content: String,
+}
+
 async fn handle_socket(mut socket: WebSocket, state: WsState) {
     info!("ws client connected");
     // Counted for `/api/self`; dropped on every exit path from this task.
@@ -193,6 +202,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
         message_id: Uuid::new_v4().to_string(),
         timestamp: Utc::now().to_rfc3339(),
         stream: None,
+        step: None,
     };
     if let Ok(json) = serde_json::to_string(&welcome) {
         let _ = socket.send(Message::Text(json.into())).await;
@@ -232,6 +242,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                             message_id: Uuid::new_v4().to_string(),
                             timestamp: Utc::now().to_rfc3339(),
                             stream: None,
+                            step: Some(out.step.to_string()),
                         };
                         if let Ok(json) = serde_json::to_string(&msg) {
                             if socket.send(Message::Text(json.into())).await.is_err() { break; }
@@ -245,7 +256,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         debug!("ws recv {} bytes", text.len());
-                        if let Ok(user_msg) = serde_json::from_str::<TimelineMessage>(&text) {
+                        if let Ok(user_msg) = serde_json::from_str::<UserSubmission>(&text) {
                             // Route the user message into the subject inbox (SPEC §5.1).
                             let event = InboxEvent {
                                 event_id: EntityId::new(),
@@ -253,7 +264,8 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                 payload: serde_json::json!({
                                     "content": user_msg.content,
                                     "message_id": user_msg.message_id,
-                                    "role": user_msg.role,
+                                    "submission_id": user_msg.submission_id,
+                                    "role": "user",
                                 }),
                                 created_at: Utc::now(),
                                 source: "web_ui".to_string(),
@@ -261,24 +273,21 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                             // A successful try_send is only volatile queue admission,
                             // not persistence or a subject decision. Never echo success
                             // when the bounded inbox is full or its consumer has stopped.
-                            let admission = match &state.inbox_tx {
+                            let (stage, detail) = match &state.inbox_tx {
                                 Some(tx) => match tx.try_send(event) {
-                                    Ok(()) => "已进入内存队列；尚未持久化或处理，服务退出前仍可能丢失。",
-                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => "未接收：主体输入队列已满，请稍后重试。",
-                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => "未接收：主体已停止，需要恢复。",
+                                    Ok(()) => ("queued", "已进入内存队列；尚未持久化或处理，服务退出前仍可能丢失。"),
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => ("rejected", "主体输入队列已满，请稍后重试。"),
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => ("rejected", "主体已停止，需要恢复。"),
                                 },
-                                None => "未接收：主体输入未连接。",
+                                None => ("rejected", "主体输入未连接。"),
                             };
-                            let reply = TimelineMessage {
-                                role: "system".to_string(),
-                                content: admission.to_string(),
-                                message_id: Uuid::new_v4().to_string(),
-                                timestamp: Utc::now().to_rfc3339(),
-                                stream: None,
-                            };
-                            if let Ok(json) = serde_json::to_string(&reply) {
-                                let _ = socket.send(Message::Text(json.into())).await;
-                            }
+                            // This wire receipt is what the actual page consumes.
+                            // Queued is deliberately NOT durable acceptance.
+                            let reply = serde_json::json!({
+                                "type":"receipt", "submission_id":user_msg.submission_id,
+                                "stage":stage, "detail":detail,
+                            });
+                            if socket.send(Message::Text(reply.to_string().into())).await.is_err() { break; }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => { info!("ws disconnected"); break; }
