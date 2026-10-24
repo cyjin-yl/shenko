@@ -32,7 +32,20 @@ pub struct RawInboxEvent {
     pub received_at_ms: i64,
 }
 
+/// 原始会话父行写入 — SPEC §12.1
+/// 与其事件同一 WriteBatch 提交；已存在时必须一致，不改写原始事实。
+#[derive(Debug)]
+pub struct RawSession {
+    pub session_id: EntityId,
+    pub agent_id: EntityId,
+    /// RFC 3339
+    pub started_at: String,
+    /// JSON-serialised session metadata
+    pub data: String,
+}
+
 /// 原始会话事件写入 — SPEC §12.1
+/// event_id 幂等；(session_id, seq) 只能属于一个 event_id。
 #[derive(Debug)]
 pub struct RawSessionEvent {
     pub event_id: EntityId,
@@ -53,6 +66,8 @@ pub struct WriteBatch {
     pub evidence_upserts: Vec<EvidenceReceipt>,
     pub raw_objects: Vec<RawObject>,
     pub inbox_event_upserts: Vec<RawInboxEvent>,
+    /// Written before `session_event_upserts` in the same transaction.
+    pub raw_session_upserts: Vec<RawSession>,
     pub session_event_upserts: Vec<RawSessionEvent>,
 }
 
@@ -68,6 +83,7 @@ impl WriteBatch {
             && self.evidence_upserts.is_empty()
             && self.raw_objects.is_empty()
             && self.inbox_event_upserts.is_empty()
+            && self.raw_session_upserts.is_empty()
             && self.session_event_upserts.is_empty()
     }
 }
