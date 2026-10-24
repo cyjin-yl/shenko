@@ -6,7 +6,8 @@
 //! Mapping convention until the session event writer (#6) fixes a payload:
 //! `event_type` is one of system / user / assistant / assistant_cancelled /
 //! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?,
-//! operation_id?, status?}` with `status` in [`CallStatus`]'s serde form. A call or result
+//! operation_id?, status?, v?}` with `status` in [`CallStatus`]'s serde form;
+//! `v` above [`PAYLOAD_VERSION`] keeps the raw data as Other. A call or result
 //! without `status` is Unknown, never success; one without `call_id` cannot be
 //! paired and is kept as [`ItemKind::Other`]; any other event type is kept as
 //! Other too. Non-JSON `data` becomes the text. Nothing is dropped.
@@ -26,6 +27,8 @@ use crate::window::{CommittedWindow, WindowLog};
 
 #[derive(Default, Deserialize)]
 struct Payload {
+    /// Payload schema version; absent means the unversioned v1 shape.
+    v: Option<u32>,
     #[serde(default)]
     text: String,
     call_id: Option<String>,
@@ -34,6 +37,9 @@ struct Payload {
     operation_id: Option<String>,
     status: Option<CallStatus>,
 }
+
+/// Highest session event payload version this reader interprets.
+pub const PAYLOAD_VERSION: u32 = 1;
 
 /// Tokenizer of the currently bound model.
 pub type TokenCounter = Arc<dyn Fn(&str) -> u32 + Send + Sync>;
@@ -54,6 +60,16 @@ impl StoreHistory {
             .map_err(|_| StorageError(format!("event {} has negative seq", event.event_id)))?;
         let payload = serde_json::from_str::<Payload>(&event.data)
             .unwrap_or_else(|_| Payload { text: event.data.clone(), ..Payload::default() });
+        // A newer payload shape is not guessed at with this reader: keep the
+        // raw data verbatim under a versioned Other kind.
+        if let Some(v) = payload.v.filter(|v| *v > PAYLOAD_VERSION) {
+            return Ok(HistoryItem {
+                at: ItemRef { seq, event_id: event.event_id },
+                kind: ItemKind::Other { event_type: format!("{}@v{v}", event.event_type) },
+                tokens: (self.count)(&event.data),
+                text: event.data,
+            });
+        }
         let status = match payload.operation_id.as_deref() {
             None => payload.status.unwrap_or(CallStatus::Unknown),
             Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {

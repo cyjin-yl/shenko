@@ -48,6 +48,8 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
         "status": { "Executed": { "ok": true } },
     });
     events.push(("tool_call", claimed.to_string()));
+    // A payload version newer than the reader: kept raw, not reinterpreted.
+    events.push(("user", r#"{"v":2,"parts":[{"kind":"text","value":"future"}]}"#.into()));
     let mut batch = WriteBatch::new();
     for (seq, (event_type, data)) in events.into_iter().enumerate() {
         batch.session_event_upserts.push(RawSessionEvent {
@@ -67,7 +69,10 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
     assert_eq!(raw[2].kind, ItemKind::Other { event_type: "napcat_image".into() });
     assert_eq!(raw[3].kind, ItemKind::Other { event_type: "tool_result".into() });
     assert_eq!((raw[4].kind.clone(), raw[4].text.as_str()), (ItemKind::User, "plain text, not JSON"));
-    assert!(matches!(raw.last().unwrap().kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. }));
+    let n = raw.len();
+    assert!(matches!(raw[n - 2].kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. }));
+    assert_eq!(raw[n - 1].kind, ItemKind::Other { event_type: "user@v2".into() });
+    assert!(raw[n - 1].text.contains("future"));
 
     let caps = ModelCaps { model_id: "text-only".into(), max_context: 1000, vision: None };
     let log = Arc::new(StoreWindowLog::new(store.clone(), session));
