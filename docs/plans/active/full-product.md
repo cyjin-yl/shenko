@@ -1,6 +1,6 @@
 # 完整开发执行计划
 
-状态：规划基线，产品实现尚未开始。目标与授权见 [GOAL.md](../../../GOAL.md)，完整范围与停止条件见 [COMPLETION.md](../../governance/COMPLETION.md)。下面的分组是可调整工作顺序，不是必须逐阶段审批的流程。
+状态：实现进行中。已有基础代码与候选；可领取任务、实际issues和依赖见 [community-stack](community-stack.md)，不是从零开始。目标与授权见 [GOAL.md](../../../GOAL.md)，完整范围与停止条件见 [COMPLETION.md](../../governance/COMPLETION.md)。下面的分组是可调整工作顺序，不是必须逐阶段审批的流程。
 
 所有开发者先读 [shenko-dev](../../../.agents/skills/shenko-dev/SKILL.md)，再按需使用原子 Skill。Rust 采用 2024 edition；开发无新增人工 gate，验证用最少有效证据，不为一个连贯增量新增十个或更多测试。
 
@@ -32,3 +32,7 @@
 协调者把可独立工作分给隔离 worktrees，把协议变更通知依赖者；选择已验证的提交进入自己的集成分支。相关测试在集成候选再跑，不能把各分支成功简单相加。定期从完整需求端重新检查已完成标记，新增遗漏工作，保持 S3–S5 在总目标里。
 
 每次 checkpoint 记录当前真实可执行任务；不把这张初始表机械当成固定流水线。目标不变时方法由开发者自主修正。
+
+## 当前协作入口
+
+[朋友PROMPT](../../../PROMPT.md) 与 [community-stack](community-stack.md) 支持加入当前开发。认领不锁任务，朋友下线可从最后已推SHA自主续接；完整S1–S5与COMPLETION不变。

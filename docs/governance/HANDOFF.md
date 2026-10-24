@@ -1,6 +1,6 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-23**
+**更新时间：2026-10-24（协作入口；历史构建数据不代表本轮复测）**
 **当前分支：`main`**
 **HEAD：`093b417`（本文件编写时可见的最后提交）**
 **upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)（已合并）**
@@ -82,3 +82,10 @@ cargo test --workspace        # 当前 26 passed / 0 failed
 - R：27/147 partial，0 satisfied（以 `docs/state/coverage.json` 为准）
 - 测试：26 passed / 0 failed（见上）
 - 待验收：V1-01~V1-15 均未执行
+
+## 社区任务栈接续（2026-10-24）
+
+- [#4总追踪](https://github.com/cyjin-yl/shenko/issues/4)、22个工作包#5–#26已发布；[任务图](../plans/active/community-stack.md)、[朋友PROMPT](../../PROMPT.md)。归属映射不改变实现/验收状态。
+- 当前公开代码盘点基线`d4b612b`；此文档增量不含产品实现和新构建结果。
+- 恢复线暂停，本地`291d5a5`候选及ACK接线保留，32入站只渲染10却全ACK的问题仍待验证。Broker/SSH、UI和cordis候选排队，不当作已merge。先#6，再#12，再#22第二节点接走任务。
+- 朋友离线不锁任务：从最后已推checkpoint开continuation分支，保留作者/提交/PR，不等交还/审批，未知effects先对账。
