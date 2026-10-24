@@ -158,7 +158,7 @@ impl Store {
         task.record_revision = RecordRevision(task.record_revision.0 + 1);
         task.updated_commit = commit;
         task.memos.insert(
-            format!("external:{}", op.logical_key),
+            "external:last_operation".into(),
             serde_json::json!({"operation_id":op.operation_id,"attempt_id":att.attempt_id}),
         );
         tx.execute("INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
