@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use shenko_compact_budget::{BudgetCompact, BudgetConfig};
 use shenko_context_policy::{
-    CallStatus, HistorySource, ItemKind, ModelCaps, PolicyRegistry, StoreHistory, StoreWindowLog,
+    CallStatus, HistorySource, ItemKind, ModelCaps, PolicyRegistry, Projected, StoreHistory, StoreWindowLog,
     TokenCounter, WindowEntry, WindowLedger,
 };
 use shenko_store::Store;
@@ -89,6 +89,13 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
     let head = WindowLedger::new(Arc::new(StoreWindowLog::new(store, session))).current().unwrap();
     assert_eq!(head, window, "committed window is the durable head");
     let visible = head.materialize(&history).unwrap();
+    // What the model would see: raw events resolved with kind and ledger
+    // status intact, window notes kept apart from raw truth.
+    let projected = head.project(&history).unwrap();
+    assert_eq!(projected.len(), visible.len());
+    assert!(projected.iter().any(|p| matches!(p, Projected::Note { .. })));
+    assert!(projected.iter().any(|p| matches!(p,
+        Projected::Event(i) if matches!(i.kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. }))));
     let mut seen = Vec::new();
     for entry in &visible {
         match entry {

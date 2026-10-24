@@ -6,7 +6,7 @@ use shenko_compact_budget::{BudgetCompactPlugin, BudgetConfig};
 use shenko_compact_snap::{SnapCompact, SnapCompactPlugin, SnapConfig};
 use shenko_context_policy::{
     Availability, ContextInput, ContextPolicy, ContextPolicyHost, ItemKind, MemoryHistory,
-    ModelCaps, PolicyError, PolicyRegistry, StoreWindowLog, VisionCaps, WindowBase, WindowEntry,
+    ModelCaps, PolicyError, PolicyRegistry, Projected, StoreWindowLog, VisionCaps, WindowBase, WindowEntry,
     WindowLedger,
 };
 use shenko_kernel::{FiberHandle, PluginRegistry};
@@ -149,6 +149,16 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let ids: Vec<_> = chain.iter().skip(1).map(|w| w.id).collect();
     assert_eq!(ids, vec![a.id, b.id, c.id], "genesis + three windows, in order");
     assert_eq!(chain[3], c, "frames and body read back byte-identical");
+    let frames: Vec<_> = chain[3]
+        .project(&h)
+        .unwrap()
+        .into_iter()
+        .filter_map(|p| match p {
+            Projected::Frame { bytes, .. } => Some(bytes),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(frames, c.derivatives.iter().map(|d| d.bytes.clone()).collect::<Vec<_>>());
     assert_eq!(reopened.model_generation().unwrap(), 1);
     let _ = std::fs::remove_dir_all(dir);
 }
