@@ -264,6 +264,23 @@ impl Store {
             created_by_step_id: Some(step.step_id),
         };
         update_step(&tx, &step, previous.record_revision, seq.0)?;
+        // 与 S1 同事务保存处置索引；I 只据此确认，不把送入内存 channel 当消费。
+        // deferred 可由后续步继续处理，已接受的处置不能产生第二份决定/外部意图。
+        for disposition in &decision.event_dispositions {
+            let kind = serde_json::to_string(&disposition.disposition)?;
+            let changed = tx.execute(
+                "INSERT INTO subject_event_dispositions (branch_id,event_id,step_id,disposition,commit_seq)
+                 VALUES (?1,?2,?3,?4,?5)
+                 ON CONFLICT(branch_id,event_id) DO UPDATE SET
+                     step_id=excluded.step_id, disposition=excluded.disposition, commit_seq=excluded.commit_seq
+                 WHERE subject_event_dispositions.disposition='\"deferred\"'",
+                params![head.branch_id.0.to_string(), disposition.event_id.to_string(),
+                    step.step_id.to_string(), kind, seq.0 as i64],
+            ).map_err(storage_error)?;
+            if changed != 1 {
+                return Err(ShenkoError::conflict("event already disposed by a committed step"));
+            }
+        }
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;
@@ -368,6 +385,23 @@ impl Store {
         validate_step_binding(&head, &step)?;
         tx.commit().map_err(storage_error)?;
         Ok((head, step))
+    }
+
+    /// 返回当前分支已提交的非 deferred 处置；接收库 ACK 只是此真相的镜像。
+    pub fn event_disposition_commit(
+        &self,
+        agent_id: EntityId,
+        event_id: EntityId,
+    ) -> Result<Option<CommitRef>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let seq: Option<u64> = conn.query_row(
+            "SELECT d.commit_seq FROM subject_event_dispositions d
+             JOIN subject_branch_heads h ON h.branch_id=d.branch_id
+             WHERE h.agent_id=?1 AND d.event_id=?2 AND d.disposition!='\"deferred\"'",
+            params![agent_id.to_string(), event_id.to_string()],
+            |row| row.get(0),
+        ).optional().map_err(storage_error)?;
+        Ok(seq.map(|seq| CommitRef::new(self.ledger.ledger_id(), shenko_types::ids::LedgerSeq(seq))))
     }
 
     pub fn get_step(

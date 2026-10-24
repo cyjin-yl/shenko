@@ -203,31 +203,31 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
 ///
 /// Event text may arrive under different keys depending on the source:
 /// OneBot/NapCat uses `raw_message`, other channels use `message`, and the
-/// WebUI sends `content` (see `shenko-ui/src/ws.rs`). Non-text payloads and
-/// text-less system events are skipped rather than crashing the step.
+/// WebUI sends `content` (see `shenko-ui/src/ws.rs`).
+/// 批次内每条输入均呈现；无文本的事件保留 JSON，不能未呈现便在 S1 确认。
 fn build_messages(
     _state: &SubjectLoopState,
     events: &[InboxEvent],
 ) -> Vec<shenko_broker::request::InferenceMessage> {
     let mut messages = vec![];
 
-    for ev in events.iter().take(10) {
+    for ev in events {
         let text = ["raw_message", "message", "content", "text"]
             .iter()
             .find_map(|key| ev.payload.get(*key).and_then(|v| v.as_str()))
             .map(str::trim)
-            .filter(|text| !text.is_empty());
-        if let Some(text) = text {
-            let who = ev
-                .payload
-                .get("nickname")
-                .and_then(|v| v.as_str())
-                .unwrap_or(&ev.source);
-            messages.push(shenko_broker::request::InferenceMessage {
-                role: "user".to_string(),
-                content: format!("[{who}] {text}"),
-            });
-        }
+            .filter(|text| !text.is_empty())
+            .map(str::to_owned)
+            .unwrap_or_else(|| ev.payload.to_string());
+        let who = ev
+            .payload
+            .get("nickname")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&ev.source);
+        messages.push(shenko_broker::request::InferenceMessage {
+            role: "user".to_string(),
+            content: format!("[{who}] {text}"),
+        });
     }
 
     if messages.is_empty() {

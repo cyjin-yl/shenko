@@ -14,6 +14,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_commit_sequence ON commit_log(seq);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_committed_step
             ON subject_steps(branch_id, step_no) WHERE state='committed';
+        CREATE TABLE IF NOT EXISTS subject_event_dispositions (
+            branch_id TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            step_id TEXT NOT NULL REFERENCES subject_steps(step_id),
+            disposition TEXT NOT NULL,
+            commit_seq INTEGER NOT NULL,
+            PRIMARY KEY (branch_id, event_id)
+        );
     ",
     )?;
 
