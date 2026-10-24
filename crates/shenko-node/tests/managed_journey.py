@@ -6,6 +6,7 @@ Only creates/controls a new loopback SSH fixture and private per-node stores.
 import base64
 import copy
 import json
+import hashlib
 import os
 from pathlib import Path
 import runpy
@@ -18,7 +19,8 @@ import threading
 import time
 import uuid
 
-repo, binary, ssh_driver, sshd, libdir, root = map(Path, sys.argv[1:])
+repo, binary, ssh_driver, sshd, libdir, root = map(Path, sys.argv[1:7])
+legacy_source = Path(sys.argv[7]) if len(sys.argv) == 8 else None
 root.mkdir(mode=0o700)
 d = runpy.run_path(str(repo / 'scripts/managed_node.py'))
 node = lambda directory, request: d['call_binary'](binary, directory, request)
@@ -92,6 +94,35 @@ try:
     plan=json.loads((plan_dir/'plan.json').read_text())
     op=str(uuid.uuid5(uuid.UUID(plan['deployment_id']),'install'))
     marker[0]=remote_root/('install-'+plan['deployment_id']+'.json')
+    # Journey 1 includes ownership refusal and the actual v1 -> v2 install
+    # migration. The legacy source is read-only; all migration happens on backup.
+    unrelated=root/'unrelated-data';unrelated.mkdir(mode=0o700)
+    with sqlite3.connect(unrelated/'node.sqlite3') as db:
+        db.execute('PRAGMA journal_mode=WAL')
+        db.execute('CREATE TABLE unrelated(secret TEXT)')
+        db.execute("INSERT INTO unrelated VALUES('preserve-me')")
+    before={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in unrelated.iterdir()}
+    rejected=subprocess.run([str(binary),str(unrelated)],input=b'{"command":"status"}',capture_output=True)
+    assert rejected.returncode!=0 and b'unrecognized node installation' in rejected.stderr
+    assert before=={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in unrelated.iterdir()}
+    migration=None
+    if legacy_source:
+        migrated=root/'migrated-installation';migrated.mkdir(mode=0o700)
+        with sqlite3.connect('file:'+str(legacy_source/'node.sqlite3')+'?mode=ro&immutable=1',uri=True) as old:
+            assert old.execute('PRAGMA user_version').fetchone()[0]==1
+            tables=[r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' ORDER BY name")]
+            rows={t:old.execute('SELECT * FROM '+t+' ORDER BY rowid').fetchall() for t in tables}
+            with sqlite3.connect(migrated/'node.sqlite3') as backup:old.backup(backup)
+        migrated_status=node(migrated,{'command':'status'})
+        with sqlite3.connect(migrated/'node.sqlite3') as db:
+            assert db.execute('PRAGMA user_version').fetchone()[0]==2
+            assert db.execute('PRAGMA application_id').fetchone()[0]==0x53484e4b
+            for t,old_rows in rows.items():
+                new_rows=db.execute('SELECT * FROM '+t+' ORDER BY rowid').fetchall()
+                if t=='meta':new_rows=[r for r in new_rows if r[0]!='installation']
+                assert new_rows==old_rows,t
+        assert node(migrated,{'command':'status'})['metadata']==migrated_status['metadata']
+        migration={'storage_schema':2,'old_tables_preserved':len(tables),'source_readonly':True}
     # Journey 1: real artifact upload/install -> lost SSH response -> original
     # receipt query -> resume/adopt existing self -> capability/status readback.
     try:d['deploy'](plan_dir,plan)
@@ -114,18 +145,38 @@ try:
         assert count==1
     with sqlite3.connect(remote_root/'data/node.sqlite3') as db:
         assert db.execute('SELECT count(*) FROM commands').fetchone()[0]==1
-    print(json.dumps({'journey':1,'result':'passed','install_operation':op,'attempts':count,'loss':'actual_closed_SSH_stream','identity_adopted':True,'service':'one_shot_no_daemon'}),flush=True)
+    print(json.dumps({'journey':1,'result':'passed','install_operation':op,'attempts':count,'loss':'actual_closed_SSH_stream','identity_adopted':True,'unrelated_db_unchanged':True,'legacy_migration':migration,'service':'one_shot_no_daemon'}),flush=True)
     # Journey 2: a durable task leaves a result on old owner; query it, explicitly
     # transfer the pure contract, preserve late facts but fence old settlement,
     # execute on the new owner, accept exactly one terminal outcome after reopen.
     node(controller,{'command':'join','operation_id':uid(),'expected_node':controller_id,'identity':identity,'manifest':plan['manifest']})
     node(controller,{'command':'register','node_id':controller_id,'target_id':'c17-local-authority-worker','binding_digest':'sha256:'+'3'*64})
+    # This authenticated receiver snapshot has the same registered source, but
+    # has not yet received the task assignment. E1 must not depend on lookup.
+    early_receiver=root/'early-receiver';early_receiver.mkdir(mode=0o700)
+    with sqlite3.connect(controller/'node.sqlite3') as source:
+        with sqlite3.connect(early_receiver/'node.sqlite3') as target:source.backup(target)
     payload=list(b'original task bytes\x00with stable identity')
     task_id=uid()
     first=node(controller,{'command':'create','task_id':task_id,'node_id':worker_id,'input':payload})['ticket']
     original=d['node_call'](plan_dir,plan,'first-task',{'command':'execute','ticket':first,'input':payload})['receipt']
     queried=d['node_call'](plan_dir,plan,'original-task-query',{'command':'query','task_id':task_id,'epoch':first['epoch']})
     assert queried['receipt']==original
+    unassociated=node(early_receiver,{'command':'accept','from_node':worker_id,'receipt':original})
+    assert unassociated['classification']=='unassociated' and not unassociated['accepted']
+    early_export=node(early_receiver,{'command':'export_receipts','after':'0','limit':128})
+    assert len(early_export['receipts'])==1 and early_export['receipts'][0]['receipt']==original
+    assert early_export['receipts'][0]['reason']=='task_missing'
+    # A trusted worker's contradictory outer result must be retained in full,
+    # not lost with a transcript rejection, and cannot settle the running task.
+    contradictory=copy.deepcopy(original);contradictory['output_digest']='blake3:'+'0'*64
+    invalid=node(controller,{'command':'accept','from_node':worker_id,'receipt':contradictory})
+    assert invalid['classification']=='invalid' and not invalid['accepted']
+    invalid_export=node(controller,{'command':'export_receipts','after':'0','limit':128})
+    assert invalid_export['receipts'][0]['receipt']==contradictory
+    assert invalid_export['receipts'][0]['reason']=='result_transcript_mismatch'
+    with sqlite3.connect(controller/'node.sqlite3') as db:
+        assert db.execute('SELECT count(*) FROM results').fetchone()[0]==0
     second=node(controller,{'command':'transfer','task_id':task_id,'expected_revision':first['record_revision'],'expected_epoch':first['epoch'],'to_node':controller_id})['ticket']
     stale=node(controller,{'command':'accept','from_node':worker_id,'receipt':original})
     assert stale['status']=='evidence_only_stale_owner' and not stale['accepted']
@@ -138,6 +189,10 @@ try:
     assert late['status']=='evidence_only_terminal' and not late['accepted']
     restored=node(controller,{'command':'create','task_id':task_id,'node_id':worker_id,'input':payload})
     assert restored['terminal'] and restored['ticket']==second
+    receipts=node(controller,{'command':'export_receipts','after':'0','limit':128})
+    assert len(receipts['receipts'])==3
+    assert receipts['receipts'][0]['receipt']==contradictory and receipts['receipts'][0]['status']=='invalid'
+    assert {r['status'] for r in receipts['receipts']}=={'invalid','terminal','settled'}
     exported=node(controller,{'command':'export','after':'0','limit':128})
     assert {e['raw']['node_id'] for e in exported['events']}=={worker_id,controller_id}
     with sqlite3.connect(controller/'node.sqlite3') as db:
@@ -148,10 +203,10 @@ try:
         task=json.loads(db.execute('SELECT data FROM tasks').fetchone()[0])
         assert task['owner']['id']==identity['branch_id'] and task['state']['status']=='terminal'
     print(json.dumps({'journey':2,'result':'passed','task_id':task_id,'epochs':[first['epoch'],second['epoch']],
-        'stale_owner_fenced_at':'authoritative_result_store','terminal_results':1,'raw_source_events':2,
+        'stale_owner_fenced_at':'authoritative_result_store','terminal_results':1,'raw_source_events':2,'unassociated_result_retained':True,'invalid_full_receipt_retained':True,'receipt_rows':3,
         'boundary':'pure_no_external_effect_contract; old computation not claimed stopped'}),flush=True)
     d['dump'](root/'result.json',{'passed':True,'journeys':2,'physical_nodes':False,'smart_node_evidence':False,'manifest':plan['manifest'],
-        'deployment_id':plan['deployment_id'],'install_operation':op,'task_id':task_id,'source_events':exported['events']})
+        'deployment_id':plan['deployment_id'],'install_operation':op,'task_id':task_id,'source_events':exported['events'],'receipts':receipts,'unassociated_receipts':early_export,'legacy_migration':migration,'unrelated_db_unchanged':True})
 finally:
     stopping.set();listener.close();server.terminate()
     try:server.wait(timeout=5)
