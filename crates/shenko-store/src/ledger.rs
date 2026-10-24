@@ -15,6 +15,7 @@ pub struct Ledger {
     incarnation: EntityId,
     ledger_id: EntityId,
     pub(crate) next_seq: Mutex<LedgerSeq>,
+    mutation_open: Mutex<bool>,
 }
 
 impl Ledger {
@@ -25,11 +26,16 @@ impl Ledger {
             incarnation,
             ledger_id,
             next_seq: Mutex::new(LedgerSeq(1)),
+            mutation_open: Mutex::new(true),
         }
     }
 
     #[instrument(skip(self, batch))]
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
+        self.with_mutation(|| self.try_commit(batch), |_| true)
+    }
+
+    fn try_commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
         if batch.is_empty() {
             let seq = {
                 let mut seq = self.next_seq.lock();
@@ -180,6 +186,30 @@ impl Ledger {
             store_incarnation: self.incarnation,
             updated,
         })
+    }
+
+    /// One admission line for ordinary commits, subject/memory writes and T1/E1.
+    /// Failure is published before queued writers can enter. Pessimistic closure
+    /// also leaves the handle failed if a writer unwinds. Never hold over I/O.
+    pub(crate) fn with_mutation<T, E: From<ShenkoError>>(
+        &self,
+        write: impl FnOnce() -> Result<T, E>,
+        storage_failure: impl FnOnce(&E) -> bool,
+    ) -> Result<T, E> {
+        let mut open = self.mutation_open.lock();
+        if !*open {
+            return Err(ShenkoError::storage("writer closed; reopen and query original operation").into());
+        }
+        *open = false;
+        let result = write();
+        if result.as_ref().err().is_none_or(|e| !storage_failure(e)) {
+            *open = true;
+        }
+        result
+    }
+
+    pub(crate) fn close_writer(&self) {
+        *self.mutation_open.lock() = false;
     }
 
     pub fn ledger_id(&self) -> EntityId {
