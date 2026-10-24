@@ -185,7 +185,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     // Send welcome
     let welcome = TimelineMessage {
         role: "system".to_string(),
-        content: "已连接到 Shenko（深刻）。持续思考中。".to_string(),
+        content: "已连接。主体持续思考中。".to_string(),
         message_id: Uuid::new_v4().to_string(),
         timestamp: Utc::now().to_rfc3339(),
         stream: None,

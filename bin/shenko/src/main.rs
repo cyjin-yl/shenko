@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
+use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 
 #[derive(Parser, Debug)]
 #[command(name = "shenko", about = "Shenko（深刻）— personal agent framework", version = "0.1.0")]
@@ -24,6 +25,8 @@ enum Command {
     Start {
         #[arg(long, default_value = "7860")]
         port: u16,
+        /// Instance name given by the user. Omit it to let the agent name
+        /// itself; passing a new one later renames the same agent.
         #[arg(long)]
         name: Option<String>,
         /// NapCat WebSocket URL (e.g. ws://127.0.0.1:3001)
@@ -32,6 +35,19 @@ enum Command {
         /// Account bound to the persistent ingress database (not an admin grant).
         #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
         napcat_account: Option<u64>,
+    },
+    /// Show or edit the instance's name, soul and personality — SPEC §6.
+    /// Every edit is a new revision of the same agent; history is kept.
+    Identity {
+        #[arg(long)]
+        set_name: Option<String>,
+        #[arg(long)]
+        set_soul: Option<String>,
+        #[arg(long)]
+        set_personality: Option<String>,
+        /// Print every revision, oldest first
+        #[arg(long)]
+        history: bool,
     },
     /// Validate configuration and exit
     Check,
@@ -77,6 +93,29 @@ async fn main() -> Result<()> {
             println!("OK");
         }
 
+        Command::Identity { set_name, set_soul, set_personality, history } => {
+            tokio::fs::create_dir_all(&data_dir).await?;
+            let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let agent_id = store
+                .get_existing_agent_id()?
+                .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
+            let mut current = store.ensure_identity(agent_id, None)?;
+            let changes = [
+                set_name.map(IdentityChange::Name),
+                set_soul.map(IdentityChange::Soul),
+                set_personality.map(IdentityChange::Personality),
+            ];
+            for change in changes.into_iter().flatten() {
+                if let Some(next) = store.change_identity(agent_id, &change, IdentitySource::Operator)? {
+                    current = next;
+                }
+            }
+            let shown = if history { store.identity_history(agent_id)? } else { vec![current] };
+            for profile in shown {
+                println!("{}", serde_json::to_string_pretty(&profile)?);
+            }
+        }
+
         Command::Start { port, name, napcat, napcat_account } => {
             if napcat.is_some() {
                 anyhow::ensure!(napcat_account.is_some_and(|account| account > 0),
@@ -102,6 +141,13 @@ async fn main() -> Result<()> {
 
             // 2. Bootstrap genesis if first run — SPEC §44.6
             let agent_id = bootstrap_genesis(&store, name.as_deref())?;
+            let identity = adopt_identity(&store, agent_id, name.as_deref())?;
+            info!(
+                revision = identity.revision,
+                name = identity.display_name.as_deref().unwrap_or("(unnamed)"),
+                naming = ?identity.naming,
+                "identity ready"
+            );
 
             // 3. Start inference broker
             let (broker, broker_handle) = shenko_broker::broker::Broker::new();
@@ -356,6 +402,7 @@ async fn main() -> Result<()> {
             let ui = shenko_ui::server::UiServer::new(port)
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
+                .with_store(Arc::clone(&store))
                 .with_data_dir(data_dir.clone());
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
@@ -495,6 +542,21 @@ fn parse_reply_directive(
         return Some((kind, target, body));
     }
     None
+}
+
+/// Make sure the agent has an identity revision, and apply a user-given
+/// `--name` as a rename of the same agent when it differs. SPEC §6, R117.
+fn adopt_identity(
+    store: &shenko_store::store::Store,
+    agent_id: shenko_types::ids::EntityId,
+    name: Option<&str>,
+) -> Result<IdentityProfile> {
+    let current = store.ensure_identity(agent_id, name)?;
+    let Some(name) = name else { return Ok(current) };
+    let change = IdentityChange::Name(name.to_string());
+    Ok(store
+        .change_identity(agent_id, &change, IdentitySource::Operator)?
+        .unwrap_or(current))
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6

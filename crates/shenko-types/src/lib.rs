@@ -11,6 +11,7 @@ pub mod object;
 pub mod agent;
 pub mod subject;
 pub mod error;
+pub mod identity;
 
 pub use ids::*;
 pub use commit::*;
@@ -22,3 +23,4 @@ pub use object::*;
 pub use agent::*;
 pub use subject::*;
 pub use error::*;
+pub use identity::*;
