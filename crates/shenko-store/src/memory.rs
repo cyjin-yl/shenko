@@ -119,17 +119,11 @@ impl Store {
         entry: &MemoryEntry,
         intent_id: Option<EntityId>,
     ) -> Result<CommitReceipt, ShenkoError> {
-        let seq = {
-            let mut s = self.ledger.next_seq.lock();
-            let cur = *s;
-            *s = s.next();
-            cur
-        };
-
-        let conn = self.ledger.conn.lock();
+        let mut conn = self.ledger.conn.lock();
         let tx = conn
-            .unchecked_transaction()
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let seq = self.ledger.allocate_seq(&tx)?;
 
         // A true upsert, not INSERT OR REPLACE: REPLACE deletes the conflicting
         // row without firing DELETE triggers (unless recursive_triggers is on),

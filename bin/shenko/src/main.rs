@@ -152,7 +152,8 @@ async fn main() -> Result<()> {
                 agent_id,
                 Arc::clone(&subject_inbox),
                 Arc::clone(&dispatcher),
-            ).with_store(Arc::clone(&store))
+                Arc::clone(&store),
+            )?
             .with_broker(broker_handle)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
