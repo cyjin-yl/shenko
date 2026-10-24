@@ -156,8 +156,10 @@ operation, not an old cached reply.
 
 Schema-1 plans remain queryable with their original deployment/operation identity;
 this adapter does not silently execute a legacy staging/installer fallback.
-Preserve their original reader/source and all raw receipts. Deploy rejects such
-a plan rather than rebuilding its old sealed operation with new code.
+Preserve their original reader/source and all raw receipts. Both `deploy` and
+`call` reject such a plan before any task read, request write or SSH execution;
+the shared non-query admission boundary also covers direct `invoke`/`node_call`.
+It never rebuilds an old sealed operation with new code.
 
 A malformed or conflicting final receipt/artifact is **not** durable success and
 is not overwritten, renamed away or deleted by installation. Reconcile the old
@@ -195,6 +197,11 @@ identity anchor are synthetic and explicitly not main-app integration.
    without changing bytes/directory entries. If V1_DATA_DIR is supplied, SQLite
    backup into a new directory verifies migration preserves every old table row;
    the original fixture is read-only, never migrated in place.
+   An old-format plan projection rejects deploy/call with zero fresh attempts,
+   queries its original CAS install twice, then explicitly prepares and deploys a
+   distinct schema-2 repair recording predecessor ID/hash. Two repair queries
+   retain one install attempt; predecessor plan bytes stay unchanged. This checks
+   the schema-1 format boundary, not an original old-executable installation.
 2. Query the original durable task result, transfer the pure assignment, reject
    old-owner settlement, execute on the new owner and accept once. Preserve both
    raw sources after separate process reopen; never claim old work was stopped.
