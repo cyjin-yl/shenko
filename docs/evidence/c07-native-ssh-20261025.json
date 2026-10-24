@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "evidence_id": "C07-native-ssh-20261025",
+  "work_id": "C07",
+  "issue": "https://github.com/cyjin-yl/shenko/issues/12",
+  "pr": "https://github.com/cyjin-yl/shenko/pull/33",
+  "candidate_commit": "684bea0dc18c5d2b06fe958d31d11cf82ef2e2a8",
+  "consumed_inputs": {
+    "source_commit": "684bea0dc18c5d2b06fe958d31d11cf82ef2e2a8",
+    "source_sha256": "e13bd1d60dc3ed27696df023c1f89a63861408572ecbe4a2e85ef5866a2b4fb7",
+    "files": 32,
+    "method": "sorted git-ls-files paths, NUL, SHA256(file bytes)"
+  },
+  "git_base": "f3ed8c69db9a150edd23e41897186ed451b1a2b5",
+  "reused_ssh_candidate": "1ad2a205b910f19a9c4b9339035ec3923d08e663",
+  "requirements": [
+    "R018",
+    "R041"
+  ],
+  "related_cases": [
+    "A14",
+    "A30",
+    "V1-02",
+    "V1-03",
+    "V1-04",
+    "V1-09",
+    "E04",
+    "DX17",
+    "RT09",
+    "RT10",
+    "P41-03"
+  ],
+  "completed_cases": [],
+  "scope": "Native trusted-child SSH adapter with task-bound admission and operation receipts; not production subject/seat or full C07 acceptance.",
+  "environment": {
+    "host": "managed doescontainer",
+    "container": "shenko-dev-live",
+    "limits": "8 CPU / 6GiB",
+    "node_scope": "one Linux container; isolated loopback sshd with temporary host/client keys and explicit known_hosts; not a physical second node",
+    "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "ssh": "OpenSSH_9.2p1 Debian-2+deb12u10",
+    "remote_helper": "POSIX/Python 3.11.2; native OpenSSH, not russh/WASMSSH",
+    "cargo": "CARGO_BUILD_JOBS=1, CARGO_INCREMENTAL=0, CARGO_TARGET_DIR=/tmp/shenko-live-target; shared flock /tmp/shenko-cargo.lock"
+  },
+  "checks": [
+    {
+      "command": "cargo build -p shenko-exec-ssh --example task_ssh",
+      "exit_code": 0,
+      "log": "/tmp/shenko-c07-build-r5.log"
+    },
+    {
+      "command": "cargo test -p shenko-store -p shenko-exec-ssh -- --test-threads=1",
+      "exit_code": 0,
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0,
+      "new_test_functions_in_this_continuation": 0,
+      "inherited_ssh_test_functions": 2,
+      "log": "/tmp/shenko-c07-tests-r5.log"
+    },
+    {
+      "command": "python3 -I /tmp/shenko-c07-real-ssh-e7DTgs7k/journey-r5.py",
+      "exit_code": 0,
+      "kind": "isolated actual OpenSSH lifecycle experiment; synthetic persisted TaskRecord, real sshd/handshake/process/files",
+      "log": "/tmp/shenko-c07-real-ssh-e7DTgs7k/journey-r5.log",
+      "result": {
+        "kind": "isolated-real-OpenSSH-journey",
+        "passed": true,
+        "operations": 5,
+        "attempts": 5,
+        "task_terminal": false,
+        "timeout_receipt_recovered": "5e0f9dbe-2915-4328-9824-c1b96a6dee94",
+        "exec_business_effects": "unknown",
+        "remote_run_count": 1,
+        "host_mismatch_rejected": true,
+        "new_dispatch_after_cancel_rejected": true
+      }
+    },
+    {
+      "command": "focused rustfmt --check and git diff --check",
+      "exit_code": 0,
+      "note": "No unrelated workspace reformat."
+    }
+  ],
+  "experiment_inputs": {
+    "script_sha256": "48da8cd8dfc59e7c03f3422429228c804e5e0804f2950a698788aae07ee3bfe2",
+    "binary_sha256": "2c47027998e29f0a27642dd17cd14683e70ff1e771191204e4a0c6688e9916fa",
+    "preserved_binary": "/tmp/shenko-c07-ssh-rfTjpwvl/task_ssh-684bea0",
+    "input_and_receipt_directory": "/tmp/shenko-c07-real-ssh-e7DTgs7k/run-r5",
+    "private_keys_in_repository": false
+  },
+  "observed": [
+    "Real SSH authentication and strict pinned host verification, not localhost host bypass.",
+    "Literal argv and binary stdin survived with observed remote exit 7.",
+    "Upload/download bytes and SHA256 matched.",
+    "Matching key queried original operation; changed payload and stale invocation rejected without another attempt.",
+    "Host mismatch returned SSH 255/unknown and did not execute the action.",
+    "Local SSH timeout was unknown; later controller process queried the original completed receipt; exactly one remote run and one attempt.",
+    "Cancellation blocked new task dispatch; late evidence remained ingestible without setting task terminal.",
+    "Exec attempt ended while business effects remain unknown/reconciling."
+  ],
+  "failures_preserved": [
+    {
+      "kind": "compile",
+      "log": "/tmp/shenko-c07-check-r1.log",
+      "cause": "E0716 temporary capture readers",
+      "fixed": true
+    },
+    {
+      "kind": "actual SSH journey",
+      "log": "/tmp/shenko-c07-real-ssh-e7DTgs7k/journey.log",
+      "cause": "ChildStdin shutdown did not drop pipe/produce EOF; fixed by explicit drop before joining completion",
+      "fixed": true
+    },
+    {
+      "kind": "environment",
+      "log": "/tmp/shenko-c07-apt.log",
+      "cause": "pre-existing apt dependency inconsistency; sshd/libwrap extracted into a new temporary package directory",
+      "fixed": "isolated workaround; no claim that system package graph was repaired"
+    }
+  ],
+  "remaining": [
+    "Production subject/delegation outbox -> child scheduler and application T2/acceptance wiring.",
+    "Registry authority, ancestor cancellation, global writer/node fencing and durable residual supervisor.",
+    "Complete public-key lifecycle/UI, file/resource tools, seat/process/question identity, actual OMP/Claude TUI and structured adapters.",
+    "Real WASM SSH, production/heterogeneous devices, multi-node takeover and long-run evidence.",
+    "Storage baseline remains libsqlite3-sys 0.30.1 / bundled SQLite 3.46.0, below SPEC WAL-reset fixed profile; existing CAS directory synchronization/full-writer-incarnation are not certified by this experiment. No power-loss-local acceptance is claimed."
+  ],
+  "source_preservation": {
+    "actions": "No writes to shared source or original worktrees; only read/bundle extraction.",
+    "shared_main_observed": "d4b612b1235b4fa5e658a4c2f5b3769b49ccef54",
+    "original_ssh_worktree_head": "1ad2a205b910f19a9c4b9339035ec3923d08e663",
+    "original_ssh_worktree_status": "clean",
+    "shared_tracked_patch_sha256_observed": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "note": "Current observed tracked patch is empty, unlike the older handoff hash faf7e49d...; do not assert that old hash still matches. This workflow did not reset/clean/edit the shared source."
+  },
+  "product_tested": true,
+  "production_tested": false,
+  "full_c07_complete": false,
+  "full_product_complete": false
+}

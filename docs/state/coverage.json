@@ -300,16 +300,23 @@
       ],
       "specification_state": "specified",
       "implementation_state": "partial",
-      "evidence_state": [],
+      "evidence_state": [
+        "buildable",
+        "verified_real"
+      ],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-ui/src/index.html",
-        "crates/shenko-ui/src/ws.rs"
+        "crates/shenko-exec-ssh/src/executor.rs",
+        "crates/shenko-exec-ssh/src/task_runner.rs",
+        "crates/shenko-exec-ssh/src/remote_helper.py",
+        "crates/shenko-store/src/external.rs"
       ],
-      "evidence_refs": [],
+      "evidence_refs": [
+        "docs/evidence/c07-native-ssh-20261025.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "OKLCH tokens, WebSocket timeline, aria-live, reconnect"
+      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。"
     },
     {
       "requirement_id": "R019",
@@ -672,14 +679,24 @@
         "B26"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "buildable",
+        "verified_real"
+      ],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-exec-ssh/src/executor.rs",
+        "crates/shenko-exec-ssh/src/task_runner.rs",
+        "crates/shenko-exec-ssh/src/remote_helper.py",
+        "crates/shenko-store/src/external.rs"
+      ],
+      "evidence_refs": [
+        "docs/evidence/c07-native-ssh-20261025.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。"
     },
     {
       "requirement_id": "R042",
