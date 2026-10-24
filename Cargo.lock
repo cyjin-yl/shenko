@@ -2565,9 +2565,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "serde",
  "serde_json",
+ "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",

@@ -4,7 +4,7 @@
 
 ## 为什么采用这条路径
 
-原远端分支只返回“需要 russh”，并没有传输。宿主 OpenSSH 能在不改 workspace 依赖的前提下实际连接、认证并校验主机身份，补齐 R018 的一个执行路径；WASM SSH、完整文件工具和持久 effect 接线仍分别保留为未完成义务。
+原远端分支只返回“需要 russh”，并没有传输。宿主 OpenSSH 能在不改 workspace 依赖的前提下实际连接、认证并校验主机身份，补齐 R018 的一个执行路径；本轮另提供受持久任务记录约束的原生 SSH runner；WASM SSH、完整文件/seat 工具与完整任务服务仍保留为未完成义务。
 
 ## 最小使用方式
 
@@ -61,7 +61,7 @@ Unix 为每次调用创建独立进程组，超时或 future drop 时向该组�
 仅新增两个针对性测试，串行运行：
 
 ```sh
-CARGO_BUILD_JOBS=2 cargo test -p shenko-exec-ssh -- --test-threads=1
+CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
 ```
 
 1. 临时脚本模拟 SSH：检查 argv 边界、严格 host 校验/隔离配置参数、凭据脱敏、255 unknown、部分输出和旧 serde 结果兼容；脚本不会登录远端。
@@ -73,8 +73,32 @@ CARGO_BUILD_JOBS=2 cargo test -p shenko-exec-ssh -- --test-threads=1
 
 - R019/A09：WASM SSH/keygen/transfer、托管签名桥；本 provider 不能抵扣这些目标。
 - R016/R017：密钥创建、轮换/撤销与公钥 UI。
-- R041：stat/read/write/hash patch、SFTP、stdin、stream/poll/cancel API、输出截断及有界 spool；当前命令输出仍完整缓存在内存中。
+- R041：stat/read/write/hash patch、SFTP、stdin、stream/poll/cancel API、输出截断及有界 spool；本轮只提供有界 stdin/输出、1MiB upload/download；完整文件 API、流式 spool 与远端取消仍未交付。
 - §17.1/§17.5/§35.5：稳定 seat/process 身份、lease、版本化问题与原子协议、高亮/grid 状态机、真实 Claude/OMP journey。既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
-- §36/§41、RT09/P41-03：外层 durable intent/receipt、取消 supervisor 与远端可查询 receipt helper 的实际接线；本 crate 不生成或提交持久账本，也不保证 arbitrary shell 的外部效果可撤销。
+- §36/§41、RT09/P41-03：本轮有 task-bound T1/E1 和远端 receipt 的原生适配；完整调度器 T2、祖先取消、授权 registry、writer/node fencing、残余 supervisor 与真实部署验收仍未接全。不保证 arbitrary shell 的业务效果已完成或可撤销。
 
 这些是已有 SPEC 范围，不因本轮实现或测试通过而标记 satisfied。
+
+## 受持久任务约束的原生 SSH 切片（C07 / #12）
+
+`SshTaskRunner` 是可信 child/execution-service 侧 API，不直接接受聊天正文声明的权限。
+它复用 `shenko-store` 的 Task/Operation/Attempt/Evidence 表和 CAS，不另造一个内存任务表。
+
+- `SshBinding::register` 要求显式 known_hosts 与 key/agent 来源，将**公有**信任材料封存到 CAS；不复制私钥。每次真正 `over_ssh`，不使用 localhost host 直通。
+- `execute` 在一笔 IMMEDIATE SQLite 事务内查 `(task_id, logical_key)`、校验当前 task/record revision、running invocation、epoch、当前任务取消及 admission 状态，再固定输入、目标/合同、operation/armed attempt 和 task memo。事务外才 SSH；同 key 不同参数/绑定/合同冲突，同 key 命中只查询原 operation，旧 context 也不会再派发。
+- `SshAction::Exec` 以 argv + 二进制 stdin 执行，默认不经过远端 shell。显式 `sh -c` 仍是任意 shell，调用者承担它的真实效果。`Upload`/`Download` 各是一项独立 operation，限 1MiB。上传写同目录独立临时文件、fsync、rename、fsync 目录；不会声称跨本地/远端原子。
+- 对端要求已登记的 POSIX/Python3 能力及私有、账号所有的 receipt root。v1 helper 用 UUID 目录原子认领，先持久 intent，再执行；receipt fsync/rename 后才返回。目录已存在但 receipt 缺失时保持 unknown，绝不重新运行。helper/信任摘要和 receipt reader 版本固定在记录里。
+- 真实 SSH 超时/255/断线后保留 armed/unknown。`query(operation_id)` 只核验原路径、输入 seal 与原始 receipt，查询缺失不是重发许可。query 的 SSH 进程退出 0 也不是命令完成；须有匹配的 completed receipt。
+- E1 将原始观察 seal 到 CAS，并原子追加证据与 operation/attempt 投影。迟到证据可以在取消后入账，但不推进旧 task。SQLite settlement/CAS 错误会关闭此 Store 的原生 external writer；重开后先查询原 identity，不在旧 session 重试效果。
+- **进程结束不等于业务完成。** exec receipt 可确认退出码（包括真正的远端 exit 255），但 arbitrary exec 的 effect_status 仍 unknown、operation 保持 reconciling；attempt 可 ended。成功文件上传的声明域是写入给定 bytes，下载是 read-only。runner 从不将 TaskRecord 置 terminal；完整业务 acceptance/T2、取消 supervisor 与 C17 节点归属/fencing 由后续服务接续。
+- 传输每路 stdout/stderr 最多保留 2MiB 并继续排空，超限返回 output-unavailable/unknown，避免无限内存队列。helper receipt 单路输出有界，明确带 truncated；对端原始输出文件仍需受管磁盘配额。future drop 不是 durable cancel，不能证明远端停止。
+
+可运行的可信 child 驱动为 `examples/task_ssh.rs`：对现有任务使用 `execute`/`query`/`task`；`fixture-init` **仅**创建空账本内的合成任务供隔离实验，不是生产身份/授权入口。
+
+```sh
+CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 cargo build -p shenko-exec-ssh --example task_ssh
+# task_ssh execute /private/config.json
+# task_ssh query /private/config.json
+```
+
+配置只放在本机受保护文件，包含 db/cas、可信 TaskInvocation、已登记 target、operation_id、logical_key、action 与 timeout；不要提交真实密钥、账号 endpoint 或对话。该驱动证明可运行的原生 adapter，尚未把主体的 durable delegation outbox、完整 registry 授权和生产 child scheduler 接全，也不替代 C01/seat/WASM/多节点验收。

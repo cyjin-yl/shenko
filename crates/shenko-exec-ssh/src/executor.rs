@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// 目标与显式凭据选择；主机身份始终由 OpenSSH 严格校验。
 #[derive(Clone, Serialize, Deserialize)]
@@ -258,12 +258,35 @@ impl SshExecutor {
         Ok(command)
     }
 
+    pub async fn run_with_input(
+        &self,
+        cmd: &str,
+        input: &[u8],
+        timeout_secs: u64,
+    ) -> Result<ExecResult> {
+        self.run_input(
+            cmd,
+            input,
+            Some(std::time::Duration::from_secs(timeout_secs)),
+        )
+        .await
+    }
+
     async fn run(&self, cmd: &str, timeout: Option<std::time::Duration>) -> Result<ExecResult> {
+        self.run_input(cmd, &[], timeout).await
+    }
+
+    async fn run_input(
+        &self,
+        cmd: &str,
+        input: &[u8],
+        timeout: Option<std::time::Duration>,
+    ) -> Result<ExecResult> {
         let remote =
             self.force_ssh || !matches!(self.target.host.as_str(), "localhost" | "127.0.0.1");
         let mut command = self.command(cmd, remote)?;
         command
-            .stdin(Stdio::null())
+            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
@@ -281,13 +304,49 @@ impl SshExecutor {
         };
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        let mut stdout_pipe = child.stdout.take().expect("已配置 stdout pipe");
-        let mut stderr_pipe = child.stderr.take().expect("已配置 stderr pipe");
+        let stdout_pipe = child.stdout.take().expect("已配置 stdout pipe");
+        let stderr_pipe = child.stderr.take().expect("已配置 stderr pipe");
+        let mut stdin_pipe = child.stdin.take().expect("configured stdin");
+        let write_input = async move {
+            let written = stdin_pipe.write_all(input).await;
+            // ChildStdin shutdown alone does not close the pipe. Remote JSON
+            // readers need EOF before they can dispatch the sealed operation.
+            drop(stdin_pipe);
+            written
+        };
+        async fn capture<R: tokio::io::AsyncRead + Unpin>(
+            mut pipe: R,
+            bytes: &mut Vec<u8>,
+        ) -> std::io::Result<usize> {
+            let size = (&mut pipe)
+                .take(2 * 1024 * 1024 + 1)
+                .read_to_end(bytes)
+                .await?;
+            if size > 2 * 1024 * 1024 {
+                // Keep draining to avoid deadlocking a producer on a full pipe.
+                tokio::io::copy(&mut pipe, &mut tokio::io::sink()).await?;
+                Err(std::io::Error::other("output limit exceeded"))
+            } else {
+                Ok(size)
+            }
+        }
         let collect = async {
-            tokio::join!(
+            let (status, out, err, written) = tokio::join!(
                 child.wait(),
-                stdout_pipe.read_to_end(&mut stdout),
-                stderr_pipe.read_to_end(&mut stderr)
+                capture(stdout_pipe, &mut stdout),
+                capture(stderr_pipe, &mut stderr),
+                write_input
+            );
+            (
+                status,
+                out.and(written).and_then(|_| {
+                    if stdout.len() > 2 * 1024 * 1024 || stderr.len() > 2 * 1024 * 1024 {
+                        Err(std::io::Error::other("output limit exceeded"))
+                    } else {
+                        Ok(0)
+                    }
+                }),
+                err,
             )
         };
         let completion = match timeout {
