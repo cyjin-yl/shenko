@@ -132,5 +132,18 @@
   "product_tested": true,
   "production_tested": false,
   "full_c07_complete": false,
-  "full_product_complete": false
+  "full_product_complete": false,
+  "delivery": {
+    "child_pr": "https://github.com/cyjin-yl/shenko/pull/35",
+    "child_state": "MERGED",
+    "child_merge": "94b8c5c2b03daaa7f3f73892e963479021ea6e24",
+    "parent_pr": "https://github.com/cyjin-yl/shenko/pull/33",
+    "parent_state": "MERGED",
+    "parent_merge_and_observed_main": "54d6ae5c0a870eee8640d2deb0e89854ae6dc1ae",
+    "actual_merged_product_inputs_sha256": "f5a91f75ff5ad722f356e54e7d9b5a378e6e41ca569e8f861d5a16faff64c929",
+    "source_inputs_match_verified_integration": true,
+    "issue_state": "OPEN; assignee cyjin-yl",
+    "checkpoint_comment": "https://github.com/cyjin-yl/shenko/issues/12#issuecomment-6388000869",
+    "remaining_c01": "PR28 still OPEN/DRAFT; not fixed or merged by this repair"
+  }
 }
