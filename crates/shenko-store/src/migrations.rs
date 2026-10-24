@@ -1,10 +1,21 @@
 //! SQLite migrations for Shenko store.
-use rusqlite::Connection;
 use anyhow::Result;
+use rusqlite::Connection;
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Step 1 (v1): base schema, incl. the legacy `memory_entries` table.
     conn.execute_batch(SCHEMA_V1)?;
+    // 加法迁移不改写已有历史；旧重复步会显式阻止迁移，不能静默选赢家。
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS ledger_identity (
+            singleton INTEGER PRIMARY KEY CHECK(singleton=1), ledger_id TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_commit_sequence ON commit_log(seq);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_subject_committed_step
+            ON subject_steps(branch_id, step_no) WHERE state='committed';
+    ",
+    )?;
 
     // Step 2 (memory v2): intent persistence plus the columns that the
     // memory store append/search path needs. `memory_entries` predates this
@@ -29,9 +40,24 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 /// SQLite has no `ADD COLUMN IF NOT EXISTS`, so each column is checked first.
 fn ensure_memory_columns(conn: &Connection) -> Result<()> {
     ensure_column(conn, "memory_entries", "source_ref", "TEXT")?;
-    ensure_column(conn, "memory_entries", "scope", "TEXT NOT NULL DEFAULT 'personal'")?;
-    ensure_column(conn, "memory_entries", "record_revision", "INTEGER NOT NULL DEFAULT 0")?;
-    ensure_column(conn, "memory_entries", "created_at_ms", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(
+        conn,
+        "memory_entries",
+        "scope",
+        "TEXT NOT NULL DEFAULT 'personal'",
+    )?;
+    ensure_column(
+        conn,
+        "memory_entries",
+        "record_revision",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_column(
+        conn,
+        "memory_entries",
+        "created_at_ms",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
     ensure_column(conn, "memory_entries", "updated_commit_seq", "INTEGER")?;
 
     // Backfill millisecond timestamps for rows written by the legacy schema.
@@ -78,7 +104,9 @@ fn apply_memory_fts(conn: &Connection) -> Result<()> {
     // this: for an external-content table it scans `memory_entries` itself.
     let stale = existed != 0 && fts_index_is_stale(conn);
     if existed == 0 || stale {
-        conn.execute_batch("INSERT INTO memory_entries_fts(memory_entries_fts) VALUES('rebuild');")?;
+        conn.execute_batch(
+            "INSERT INTO memory_entries_fts(memory_entries_fts) VALUES('rebuild');",
+        )?;
     }
     Ok(())
 }

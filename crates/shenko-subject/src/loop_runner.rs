@@ -1,28 +1,29 @@
 //! Continuous subject loop — SPEC §5.1, §41.5
 //! Real S0/S1 step state machine. Never terminates on empty inbox.
 //! Semantic wait hard-max 600s. Yields inference slot after each step.
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio::time::Duration;
-use tracing::{info, warn, debug};
-use shenko_types::ids::{EntityId, BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
-use shenko_types::subject::{SubjectStep, SubjectStepState, SubjectStepDecision, SemanticWait, DelegationIntent, InboxCursor, EventDisposition, Disposition, MemoryIntent, MemoryIntentKind};
-use shenko_types::commit::CommitRef;
-use shenko_types::object::{ObjectRef, SchemaRef, Digest};
-use shenko_kernel::hooks::{HookRegistry, HookPayload};
+use crate::dispatch::ChildDispatcher;
 use crate::inbox::{Inbox, InboxEvent};
 use crate::outbox::OutboxMessage;
-use crate::dispatch::ChildDispatcher;
+use shenko_kernel::hooks::{HookPayload, HookRegistry};
+use shenko_types::commit::CommitRef;
+use shenko_types::error::ShenkoError;
+use shenko_types::ids::{EntityId, RecordRevision};
+use shenko_types::object::ObjectRef;
+use shenko_types::subject::{
+    DelegationIntent, Disposition, EventDisposition, InboxCursor, MemoryIntent, MemoryIntentKind,
+    SemanticWait, StepDecision, SubjectBranchHead, SubjectStep, SubjectStepState,
+};
+use std::sync::Arc;
+use tracing::{debug, info, warn};
 
 pub struct SubjectLoopState {
     pub agent_id: EntityId,
-    pub branch_id: BranchId,
-    pub step_seq: Arc<AtomicU64>,
+    pub head: SubjectBranchHead,
+    pub step: SubjectStep,
     pub inbox: Arc<Inbox>,
     pub dispatcher: Arc<ChildDispatcher>,
     pub active_wait: Option<SemanticWait>,
-    pub parent_commit: Option<CommitRef>,
-    pub store: Option<Arc<shenko_store::store::Store>>,
+    pub store: Arc<shenko_store::store::Store>,
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
     pub hooks: Option<Arc<HookRegistry>>,
     pub model: String,
@@ -38,30 +39,64 @@ pub struct SubjectLoopState {
 }
 
 impl SubjectLoopState {
-    pub fn new(agent_id: EntityId, inbox: Arc<Inbox>, dispatcher: Arc<ChildDispatcher>) -> Self {
-        Self {
+    /// 从真实 head/唯一后继恢复；未知模型状态不允许重新发起推理。
+    pub fn new(
+        agent_id: EntityId,
+        inbox: Arc<Inbox>,
+        dispatcher: Arc<ChildDispatcher>,
+        store: Arc<shenko_store::store::Store>,
+    ) -> Result<Self, ShenkoError> {
+        let (head, step) = store.load_subject(agent_id)?;
+        if step.state != SubjectStepState::Planned
+            || step.active_request_id.is_some()
+            || step.active_attempt_id.is_some()
+        {
+            return Err(ShenkoError::conflict(format!(
+                "recovery_blocked: step {} is {:?}; reconcile original request/attempt and frozen input before inference",
+                step.step_id, step.state,
+            )));
+        }
+        let last_thought = if let Some(id) = head.committed_step_id {
+            let previous = store
+                .get_step(&head.branch_id, id)?
+                .ok_or_else(|| ShenkoError::not_found("committed subject step"))?;
+            if previous.state != SubjectStepState::Committed
+                || previous.commit_ref != Some(head.committed_at)
+            {
+                return Err(ShenkoError::conflict("committed head/step mismatch"));
+            }
+            previous
+                .model_result_ref
+                .map(|object| {
+                    let bytes = store.cas.read_object(&object.digest)?;
+                    if bytes.len() as u64 != object.bytes
+                        || shenko_types::object::Digest::blake3(&bytes) != object.digest
+                    {
+                        return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+                    }
+                    String::from_utf8(bytes).map_err(|e| ShenkoError::storage(e.to_string()))
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        Ok(Self {
             agent_id,
-            branch_id: BranchId::new(),
-            step_seq: Arc::new(AtomicU64::new(1)),
+            head,
+            step,
             inbox,
             dispatcher,
             active_wait: None,
-            parent_commit: None,
-            store: None,
+            store,
             broker: None,
             hooks: None,
             model: "claude-opus-5-5".to_string(),
             max_tokens: 4096,
-            last_thought: None,
+            last_thought,
             goals: vec![],
             last_inbox_cursor: 0,
             outbox_tx: None,
-        }
-    }
-
-    pub fn with_store(mut self, store: Arc<shenko_store::store::Store>) -> Self {
-        self.store = Some(store);
-        self
+        })
     }
 
     pub fn with_broker(mut self, broker: shenko_broker::broker::BrokerHandle) -> Self {
@@ -79,8 +114,6 @@ impl SubjectLoopState {
         self.outbox_tx = Some(tx);
         self
     }
-
-    pub fn next_seq(&self) -> u64 { self.step_seq.fetch_add(1, Ordering::SeqCst) }
 }
 
 /// Run the continuous subject loop. SPEC §5.1, §41.5.
@@ -95,22 +128,17 @@ pub async fn run_subject_loop(
 ) {
     info!(agent_id=%state.agent_id, "subject loop started");
 
-    let mut idle_streak = 0u64;
-
     loop {
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");
             break;
         }
 
-        let seq = state.next_seq();
+        let seq = state.step.step_no;
 
         // Collect available events — short timeout to stay responsive
         let events = state.inbox.recv_batch(32, 80).await;
         let has_events = !events.is_empty();
-
-        if has_events { idle_streak = 0; }
-        else { idle_streak += 1; }
 
         // Check semantic wait — SPEC §5.1/U55, §41.5
         let in_semantic_wait = match state.active_wait.as_ref() {
@@ -128,18 +156,14 @@ pub async fn run_subject_loop(
         };
 
         // Execute one subject step (S0 → AwaitingModel → Committed)
-        if let Some(new_commit) = execute_step(seq, &events, &mut state, in_semantic_wait).await {
-            state.parent_commit = Some(new_commit);
+        if let Err(error) = execute_step(seq, &events, &mut state, in_semantic_wait).await {
+            // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
+            warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
+            break;
         }
 
         // Yield inference slot to children — cooperative multitasking. SPEC §5.1
         tokio::task::yield_now().await;
-
-        // Brief back-off when truly idle (no events for many consecutive steps),
-        // but never turn into a low-frequency timer tick. SPEC §5.1: always continues.
-        if idle_streak > 20 && !in_semantic_wait {
-            tokio::time::sleep(Duration::from_millis(30)).await;
-        }
     }
 
     info!("subject loop terminated");
@@ -181,7 +205,10 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
 /// OneBot/NapCat uses `raw_message`, other channels use `message`, and the
 /// WebUI sends `content` (see `shenko-ui/src/ws.rs`). Non-text payloads and
 /// text-less system events are skipped rather than crashing the step.
-fn build_messages(_state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenko_broker::request::InferenceMessage> {
+fn build_messages(
+    _state: &SubjectLoopState,
+    events: &[InboxEvent],
+) -> Vec<shenko_broker::request::InferenceMessage> {
     let mut messages = vec![];
 
     for ev in events.iter().take(10) {
@@ -191,8 +218,11 @@ fn build_messages(_state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenk
             .map(str::trim)
             .filter(|text| !text.is_empty());
         if let Some(text) = text {
-            let who = ev.payload.get("nickname")
-                .and_then(|v| v.as_str()).unwrap_or(&ev.source);
+            let who = ev
+                .payload
+                .get("nickname")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&ev.source);
             messages.push(shenko_broker::request::InferenceMessage {
                 role: "user".to_string(),
                 content: format!("[{who}] {text}"),
@@ -211,39 +241,20 @@ fn build_messages(_state: &SubjectLoopState, events: &[InboxEvent]) -> Vec<shenk
     messages
 }
 
-/// Seal step-artifact bytes into the store CAS and return the durable
-/// `ObjectRef`. SPEC §41.2.2.
-///
-/// Explicit degradation: when sealing fails (e.g. no writable CAS), the step
-/// still proceeds with an `ObjectRef` whose digest matches the bytes but whose
-/// locator is empty — honest, though the bytes cannot be read back.
+/// CAS 失败直接返回，绝不制造空 locator 后继续提交。§41.2.2
 fn seal_step_object(
     store: &shenko_store::store::Store,
-    seq: u64,
+    _seq: u64,
     data: &[u8],
     media_type: &str,
     namespace: &str,
     codec_name: &str,
     codec_major: u32,
-) -> ObjectRef {
-    match store.cas.seal_object(data, media_type, namespace, codec_name, codec_major) {
-        Ok(sealed) => sealed.object,
-        Err(e) => {
-            warn!(seq, err=%e, namespace, "CAS seal failed — degrading to unlocated ObjectRef");
-            ObjectRef {
-                digest: Digest::blake3(data),
-                bytes: data.len() as u64,
-                media_type: media_type.to_string(),
-                store_namespace: namespace.to_string(),
-                locator: String::new(),
-                codec: SchemaRef {
-                    name: codec_name.to_string(),
-                    major: codec_major,
-                    digest: Digest::blake3(codec_name.as_bytes()),
-                },
-            }
-        }
-    }
+) -> Result<ObjectRef, ShenkoError> {
+    Ok(store
+        .cas
+        .seal_object(data, media_type, namespace, codec_name, codec_major)?
+        .object)
 }
 
 /// Extract explicitly tagged memory content from model output. SPEC §12.2.
@@ -256,7 +267,11 @@ fn extract_memory_content(output: &str) -> Option<String> {
     let lower = output.to_ascii_lowercase();
     let mut content_start: Option<usize> = None;
     for marker in MARKERS {
-        let haystack = if marker.is_ascii() { lower.as_str() } else { output };
+        let haystack = if marker.is_ascii() {
+            lower.as_str()
+        } else {
+            output
+        };
         if let Some(pos) = haystack.find(marker) {
             let end = pos + marker.len();
             content_start = Some(content_start.map_or(end, |cur| cur.min(end)));
@@ -278,17 +293,18 @@ async fn execute_step(
     events: &[InboxEvent],
     state: &mut SubjectLoopState,
     in_semantic_wait: bool,
-) -> Option<CommitRef> {
-    let store = state.store.as_ref()?;
+) -> Result<CommitRef, ShenkoError> {
+    let store = Arc::clone(&state.store);
     let hooks_ref = state.hooks.clone(); // Option<Arc<HookRegistry>> — cloned to avoid reborrow
 
-    let step_id = EntityId::new();
+    let step_id = state.step.step_id;
     let next_step_id = EntityId::new();
-
-    let parent_commit = state.parent_commit.unwrap_or_else(|| CommitRef {
-        ledger_id: store.ledger.ledger_id(),
-        seq: shenko_types::ids::LedgerSeq(0),
-    });
+    let mut step = state.step.clone();
+    if step.state != SubjectStepState::Planned || step.step_no != seq {
+        return Err(ShenkoError::conflict(
+            "step is not the registered planned successor",
+        ));
+    }
 
     // S0: seal input plan — SPEC §41.5
     // Build a content-addressed input plan from the step seq + event ids so each
@@ -301,14 +317,14 @@ async fn execute_step(
         plan_buf.extend_from_slice(id_bytes);
     }
     let input_plan_ref = seal_step_object(
-        store,
+        &store,
         seq,
         &plan_buf,
         "application/octet-stream",
         "input_plans",
         "input_plan",
         1,
-    );
+    )?;
 
     // Advance the inbox cursor to the last event consumed by this step.
     let last_event_id = events.last().map(|ev| ev.event_id.clone());
@@ -318,39 +334,23 @@ async fn execute_step(
         consumed_count: state.last_inbox_cursor,
     };
 
-    // S0: Planned → Preparing — seal input plan
-    let mut step = SubjectStep {
-        step_id,
-        branch_id: state.branch_id.clone(),
-        step_no: seq,
-        expected_parent_commit: parent_commit,
-        controller_epoch: ControllerEpoch(1),
-        software_generation: RuntimeGeneration::default(),
-        state: SubjectStepState::Preparing,
-        input_plan_ref: Some(input_plan_ref),
-        context_revision: Some(seq),
-        active_request_id: None,
-        active_attempt_id: None,
-        model_result_ref: None,
-        decision_ref: None,
-        commit_ref: None,
-        retry_reason_ref: None,
-        record_revision: RecordRevision(0),
-        created_by_step_id: None,
-    };
-
-    if let Err(e) = store.upsert_step(&step) {
-        warn!(seq, err=%e, "S0 Preparing commit failed");
-        return None;
-    }
+    // S0 的抢占以持久 step revision 为准，同一步只有一个准备者能继续。
+    step.state = SubjectStepState::Preparing;
+    step.input_plan_ref = Some(input_plan_ref);
+    step.context_revision = Some(seq);
+    step.record_revision = RecordRevision(step.record_revision.0 + 1);
+    store.upsert_step(&step, &state.head, state.step.record_revision)?;
+    state.step = step.clone();
 
     // Hook: PreIngress — SPEC §37. Fires before messages are built and inference begins.
     if let Some(reg) = &hooks_ref {
-        let results = reg.run_phase(&HookPayload::BeforeInference {
-            request_id: step_id,
-            agent_id: state.agent_id,
-            model: state.model.clone(),
-        }).await;
+        let results = reg
+            .run_phase(&HookPayload::BeforeInference {
+                request_id: step_id,
+                agent_id: state.agent_id,
+                model: state.model.clone(),
+            })
+            .await;
         debug!(seq, hooks=%results.len(), "PreIngress hooks ran");
     }
 
@@ -360,7 +360,10 @@ async fn execute_step(
             step.state = SubjectStepState::AwaitingModel;
             let request_id = EntityId::new();
             step.active_request_id = Some(request_id);
-            let _ = store.upsert_step(&step);
+            let expected_revision = step.record_revision;
+            step.record_revision = RecordRevision(expected_revision.0 + 1);
+            store.upsert_step(&step, &state.head, expected_revision)?;
+            state.step = step.clone();
 
             let (tx, rx) = tokio::sync::oneshot::channel();
             let req = shenko_broker::request::InferenceRequest {
@@ -369,7 +372,7 @@ async fn execute_step(
                 conversation_id: state.agent_id,
                 model: state.model.clone(),
                 priority: shenko_broker::request::InferencePriority::Subject,
-                epoch: ControllerEpoch(1),
+                epoch: state.head.controller_epoch,
                 payload: shenko_broker::request::InferencePayload {
                     system_prompt: build_system_prompt(state, in_semantic_wait),
                     messages: build_messages(state, events),
@@ -379,78 +382,83 @@ async fn execute_step(
                 result_tx: tx,
             };
 
-            match broker.submit(req) {
-                Ok(()) => match rx.await {
-                    Ok(result) => {
-                        use shenko_broker::request::InferenceStatus;
-                        match result.status {
-                            InferenceStatus::Success => result.response.map(|r| r.content),
-                            InferenceStatus::Failed => {
-                                warn!(seq, "model inference failed");
-                                None
-                            }
-                            InferenceStatus::QueuedCapacityWait => {
-                                debug!(seq, "inference queued — capacity wait");
-                                None
-                            }
-                            InferenceStatus::Cancelled => None,
-                        }
-                    }
-                    Err(_) => {
-                        warn!(seq, "inference channel closed");
-                        None
-                    }
-                },
-                Err(e) => {
-                    warn!(seq, err=%e, "broker submit failed");
-                    None
-                }
+            broker.submit(req).map_err(|e| {
+                ShenkoError::other(format!("broker admission failed; reconcile request: {e}"))
+            })?;
+            let result = rx.await.map_err(|_| {
+                ShenkoError::other("model outcome unknown; reconcile original request")
+            })?;
+            if result.request_id != request_id
+                || !matches!(
+                    result.status,
+                    shenko_broker::request::InferenceStatus::Success
+                )
+            {
+                return Err(ShenkoError::other(
+                    "model has no accepted complete result; keep awaiting_model for reconciliation",
+                ));
             }
+            Some(
+                result
+                    .response
+                    .ok_or_else(|| ShenkoError::other("successful model result missing response"))?
+                    .content,
+            )
         }
         None => {
-            debug!(seq, "no broker configured — step proceeds without model");
-            None
+            return Err(ShenkoError::other(
+                "no broker; step cannot commit a model decision",
+            ));
         }
     };
 
-    // Carry thought forward
-    if let Some(output) = &model_output {
-        state.last_thought = Some(output.clone());
-    }
-
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
     if let Some(reg) = &hooks_ref {
-        let results = reg.run_phase(&HookPayload::AfterInference {
-            request_id: step_id,
-            stop_reason: model_output.as_ref().map(|_| "stop").unwrap_or("none").to_string(),
-            output_tokens: model_output.as_ref().map(|o| o.len() as u64).unwrap_or(0),
-        }).await;
+        let results = reg
+            .run_phase(&HookPayload::AfterInference {
+                request_id: step_id,
+                stop_reason: model_output
+                    .as_ref()
+                    .map(|_| "stop")
+                    .unwrap_or("none")
+                    .to_string(),
+                output_tokens: model_output.as_ref().map(|o| o.len() as u64).unwrap_or(0),
+            })
+            .await;
         debug!(seq, hooks=%results.len(), "PostModel hooks ran");
     }
 
     // S1: Committed — atomic commit of step + advance branch head in one TX. SPEC §41.2.1/§44.6
-    step.state = SubjectStepState::Committed;
-    step.record_revision = RecordRevision(1);
+    step.state = SubjectStepState::ResultRecorded;
+    let expected_revision = step.record_revision;
+    step.record_revision = RecordRevision(expected_revision.0 + 1);
     if let Some(output) = &model_output {
         // Seal the actual model bytes before the S1 commit so the ref points
         // at durable, readable content. SPEC §41.2.2.
         step.model_result_ref = Some(seal_step_object(
-            store,
+            &store,
             seq,
             output.as_bytes(),
             "text/plain",
             "model_results",
             "text",
             1,
-        ));
+        )?);
     }
+
+    store.upsert_step(&step, &state.head, expected_revision)?;
+    state.step = step.clone();
+    step.state = SubjectStepState::Committed;
+    step.record_revision = RecordRevision(step.record_revision.0 + 1);
 
     // Hook: PreEffect — SPEC §37. Fires before S1 commit is written to the ledger.
     if let Some(reg) = &hooks_ref {
-        let results = reg.run_phase(&HookPayload::BeforeOperation {
-            operation_id: step_id,
-            operation_name: format!("commit_step/{seq}"),
-        }).await;
+        let results = reg
+            .run_phase(&HookPayload::BeforeOperation {
+                operation_id: step_id,
+                operation_name: format!("commit_step/{seq}"),
+            })
+            .await;
         debug!(seq, hooks=%results.len(), "PreEffect hooks ran");
     }
 
@@ -467,7 +475,11 @@ async fn execute_step(
     if delegation_trigger {
         decision_delegation_intents.push(DelegationIntent {
             intent_id: EntityId::new(),
-            goal: output_text.lines().next().unwrap_or("delegated task").to_string(),
+            goal: output_text
+                .lines()
+                .next()
+                .unwrap_or("delegated task")
+                .to_string(),
             system_prompt: output_text.to_string(),
             model: None,
             capabilities: vec![],
@@ -476,10 +488,13 @@ async fn execute_step(
         });
     }
 
-    let event_dispositions: Vec<EventDisposition> = events.iter().map(|ev| EventDisposition {
-        event_id: ev.event_id.clone(),
-        disposition: Disposition::Acknowledged,
-    }).collect();
+    let event_dispositions: Vec<EventDisposition> = events
+        .iter()
+        .map(|ev| EventDisposition {
+            event_id: ev.event_id.clone(),
+            disposition: Disposition::Acknowledged,
+        })
+        .collect();
 
     // Memory intent — SPEC §12.2. At most one save intent per step, extracted
     // only from an explicit marker in the model output. The tagged content is
@@ -490,77 +505,65 @@ async fn execute_step(
         .and_then(extract_memory_content)
         .map(|content| {
             let content_ref = seal_step_object(
-                store,
+                &store,
                 seq,
                 content.as_bytes(),
                 "text/plain",
                 "memory_intents",
                 "text",
                 1,
-            );
+            )?;
             let intent = MemoryIntent {
                 intent_id: EntityId::new(),
                 kind: MemoryIntentKind::Save,
                 scope: "personal".into(),
                 content_ref: Some(content_ref),
             };
-            (intent, content)
-        });
+            Ok::<_, ShenkoError>((intent, content))
+        })
+        .transpose()?;
     let decision_memory_intents: Vec<MemoryIntent> = memory_candidate
         .iter()
         .map(|(intent, _)| intent.clone())
         .collect();
 
-    // Build a placeholder ObjectRef for the self-referential decision_ref field,
-    // then digest the whole struct to produce the real CAS ref.
-    let placeholder_codec = shenko_types::object::SchemaRef {
-        name: "SubjectStepDecision".into(),
-        major: 1,
-        digest: Digest::blake3(b"SubjectStepDecision"),
-    };
-    let decision = SubjectStepDecision {
+    // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
+    let decision = StepDecision {
         step_id,
-        decided_at: chrono::Utc::now(),
-        decision_ref: ObjectRef {
-            digest: Digest::blake3(b"_placeholder_"),
-            bytes: 0,
-            media_type: "application/json".into(),
-            store_namespace: "decisions".into(),
-            locator: String::new(),
-            codec: placeholder_codec.clone(),
-        },
+        input_plan_ref: step
+            .input_plan_ref
+            .clone()
+            .ok_or_else(|| ShenkoError::conflict("missing input plan"))?,
+        model_result_ref: step.model_result_ref.clone(),
+        applied_steering_refs: vec![],
         event_dispositions,
-        delegation_intents: decision_delegation_intents.clone(),
-        memory_intents: decision_memory_intents.clone(),
-        successor_request_id: next_step_id,
-        semantic_wait: None,
-        decided_commit: state.parent_commit.unwrap_or_else(|| CommitRef {
-            ledger_id: store.ledger.ledger_id(),
-            seq: shenko_types::ids::LedgerSeq(0),
-        }),
+        delegated_task_intents: decision_delegation_intents.clone(),
+        child_dialogue_intents: vec![],
+        memory_intents: decision_memory_intents,
+        policy_intents: vec![],
+        publication_intents: vec![],
+        pending_obligations: vec![],
+        evidence_refs: vec![],
+        successor_step_id: next_step_id,
     };
-    let decision_bytes = serde_json::to_vec(&decision).unwrap_or_default();
-    // Seal the decision bytes themselves; the ref stored on the step points at
-    // durable content. The struct's inner decision_ref stays a clearly marked
-    // placeholder because a ref cannot contain its own digest.
+    let decision_bytes = serde_json::to_vec(&decision)?;
     step.decision_ref = Some(seal_step_object(
-        store,
+        &store,
         seq,
         &decision_bytes,
         "application/json",
         "decisions",
-        "SubjectStepDecision",
+        "StepDecision",
         1,
-    ));
+    )?);
 
-    match store.commit_step_and_advance_head(
-        &step,
-        state.agent_id,
-        state.branch_id.clone(),
-        next_step_id,
-        RecordRevision(0),
-    ) {
+    match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {
         Ok(receipt) => {
+            // 只在提交明确成功后采用内存状态并发布。
+            let (head, successor) = store.load_subject(state.agent_id)?;
+            state.head = head;
+            state.step = successor;
+            state.last_thought = model_output.clone();
             // Outbound path — publish ONLY after the S1 commit succeeded.
             // SPEC §41.2.3 committed-only publication: never show a thought
             // that is not durably recorded, or a retried step could show a
@@ -590,10 +593,8 @@ async fn execute_step(
                 );
                 match store.insert_memory_intent(&record) {
                     Ok(()) => {
-                        let entry = shenko_store::memory::MemoryEntry::new(
-                            state.agent_id,
-                            content.clone(),
-                        );
+                        let entry =
+                            shenko_store::memory::MemoryEntry::new(state.agent_id, content.clone());
                         if let Err(e) = store.commit_memory_intent(&entry, intent.intent_id) {
                             warn!(seq, err=%e, "memory intent commit failed");
                             let _ = store.fail_memory_intent(intent.intent_id, &e.to_string());
@@ -616,11 +617,13 @@ async fn execute_step(
 
             // Hook: PostEffect — SPEC §37. Fires after S1 is durably committed.
             if let Some(reg) = &hooks_ref {
-                let results = reg.run_phase(&HookPayload::AfterOperation {
-                    operation_id: step_id,
-                    outcome: "committed".to_string(),
-                    effect_status: format!("commit/{seq}"),
-                }).await;
+                let results = reg
+                    .run_phase(&HookPayload::AfterOperation {
+                        operation_id: step_id,
+                        outcome: "committed".to_string(),
+                        effect_status: format!("commit/{seq}"),
+                    })
+                    .await;
                 debug!(seq, hooks=%results.len(), "PostEffect hooks ran");
             }
 
@@ -632,11 +635,15 @@ async fn execute_step(
                 }
             }
 
-            Some(receipt.commit_ref)
+            Ok(receipt.commit_ref)
         }
         Err(e) => {
             warn!(seq, err=%e, "S1 commit failed");
-            None
+            Err(e)
         }
     }
 }
+
+#[cfg(test)]
+#[path = "recovery_tests.rs"]
+mod recovery_tests;
