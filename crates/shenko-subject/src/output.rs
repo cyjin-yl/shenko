@@ -92,7 +92,7 @@ pub fn parse_output(
         let control = active
             && !markdown_reference
             && (tag.is_some_and(|h| {
-                !h.is_empty()
+                h.bytes().next().is_some_and(|c| c.is_ascii_alphabetic())
                     && h.bytes()
                         .all(|c| c.is_ascii_alphanumeric() || b":_-".contains(&c))
             }) || (tag.is_none()
