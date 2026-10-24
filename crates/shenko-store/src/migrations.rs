@@ -35,6 +35,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(scope, created_at_ms);",
     )?;
 
+    // Versioned instance identity (SPEC §6): additive, never rewrites rows.
+    conn.execute_batch(crate::identity::IDENTITY_SCHEMA)?;
+
     // Step 3 (best effort): FTS5 index + sync triggers. FTS5 is optional in
     // the SQLite build; when it is missing, migrations must still succeed and
     // searches fall back to a LIKE scan.

@@ -7,6 +7,7 @@ use crate::outbox::OutboxMessage;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
+use shenko_types::identity::{IdentityProfile, IdentitySource, parse_identity_directives};
 use shenko_types::ids::{EntityId, RecordRevision};
 use shenko_types::object::ObjectRef;
 use shenko_types::subject::{
@@ -94,6 +95,9 @@ pub struct SubjectLoopState {
     pub last_inbox_cursor: u64,
     /// Outbound path for completed model output — SPEC §5.1, §21.12.
     pub outbox_tx: Option<tokio::sync::broadcast::Sender<OutboxMessage>>,
+    /// Identity revision fixed for the current step — SPEC §6. Reloaded only
+    /// at the S0 boundary, so a change applies from the next step on.
+    pub identity: Option<IdentityProfile>,
 }
 
 impl SubjectLoopState {
@@ -125,6 +129,7 @@ impl SubjectLoopState {
         } else {
             None
         };
+        let identity = store.latest_identity(agent_id)?;
         Ok(Self {
             agent_id,
             head,
@@ -141,6 +146,7 @@ impl SubjectLoopState {
             goals: vec![],
             last_inbox_cursor: 0,
             outbox_tx: None,
+            identity,
         })
     }
 
@@ -232,15 +238,23 @@ pub async fn run_subject_loop(
     result
 }
 
-/// System prompt for the continuous subject. SPEC §5.1
+/// Role and output contract of the subject. It names the framework, never the
+/// instance, and does not vary with identity revisions (R054). SPEC §5.1, §6.
+const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行在 Shenko 框架上。\n\
+     你有持续的内心生活：关注、兴趣、承诺、疑问。\n\
+     你在没有外部消息时也继续思考——空闲不是停止的理由。\n\
+     思考是连续的，上一步的想法会成为这一步的起点。\n\
+     回复 QQ 时输出 \"[reply:group:群号] 内容\" 或 \"[reply:private:QQ号] 内容\"。";
+
+/// System prompt for the continuous subject: contract → persona → per-step
+/// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
 fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> String {
-    let mut prompt = String::from(
-        "你是 Shenko（深刻），一个持续运行的个人 agent。\n\
-         你有持续的内心生活：关注、兴趣、承诺、疑问。\n\
-         你在没有外部消息时也继续思考——空闲不是停止的理由。\n\
-         思考是连续的，上一步的想法会成为这一步的起点。\n\
-         回复 QQ 时输出 \"[reply:group:群号] 内容\" 或 \"[reply:private:QQ号] 内容\"。",
-    );
+    let mut prompt = String::from(SUBJECT_CONTRACT);
+
+    if let Some(identity) = &state.identity {
+        prompt.push_str("\n\n");
+        prompt.push_str(&identity.persona_section());
+    }
 
     if !state.goals.is_empty() {
         prompt.push_str("\n\n当前关注的方向：\n");
@@ -369,6 +383,18 @@ async fn execute_step(
     }
     validate_resume(&store, &step)?;
     let input = if step.state == SubjectStepState::Planned {
+        // Identity takes effect at this boundary only: the persona (with its
+        // revision) is part of the system prompt sealed in the frozen input,
+        // so a resumed step keeps the persona it started with. SPEC §6, R053.
+        let identity = store.latest_identity(state.agent_id)?;
+        if identity.as_ref().map(|p| p.revision) != state.identity.as_ref().map(|p| p.revision) {
+            info!(
+                seq,
+                revision = identity.as_ref().map(|p| p.revision),
+                "identity revision adopted at step boundary"
+            );
+        }
+        state.identity = identity;
         let input = FrozenStepInput {
             schema_version: 2,
             step_id,
@@ -600,6 +626,25 @@ async fn execute_step(
             state.head = head;
             state.step = successor;
             state.last_thought = model_output.clone();
+
+            // Self-revision of name/soul/personality — SPEC §6, R105/R117.
+            // Applied after the commit, effective from the next S0 boundary;
+            // the source step makes each revision traceable.
+            let mut identity_revision = state.identity.as_ref().map(|p| p.revision);
+            if let Some(output) = &model_output {
+                for change in parse_identity_directives(output) {
+                    let source = IdentitySource::Subject { step_id, step_no: seq };
+                    match store.change_identity(state.agent_id, &change, source) {
+                        Ok(Some(p)) => {
+                            info!(seq, revision = p.revision, "identity revised by subject");
+                            identity_revision = Some(p.revision);
+                        }
+                        Ok(None) => {}
+                        Err(e) => warn!(seq, err=%e, "identity revision not recorded"),
+                    }
+                }
+            }
+
             // Outbound path — publish ONLY after the S1 commit succeeded.
             // SPEC §41.2.3 committed-only publication: never show a thought
             // that is not durably recorded, or a retried step could show a
@@ -610,6 +655,7 @@ async fn execute_step(
                         kind: "thought".into(),
                         step: seq,
                         content: output.clone(),
+                        identity_revision,
                     });
                 }
             }

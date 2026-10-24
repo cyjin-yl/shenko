@@ -6,6 +6,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
+use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 
 #[derive(Parser, Debug)]
 #[command(name = "shenko", about = "Shenko（深刻）— personal agent framework", version = "0.1.0")]
@@ -24,6 +25,8 @@ enum Command {
     Start {
         #[arg(long, default_value = "7860")]
         port: u16,
+        /// Instance name given by the user. Omit it to let the agent name
+        /// itself; passing a new one later renames the same agent.
         #[arg(long)]
         name: Option<String>,
         /// NapCat WebSocket URL (e.g. ws://127.0.0.1:3001)
@@ -32,6 +35,19 @@ enum Command {
         /// Account bound to the persistent ingress database (not an admin grant).
         #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
         napcat_account: Option<u64>,
+    },
+    /// Show or edit the instance's name, soul and personality — SPEC §6.
+    /// Every edit is a new revision of the same agent; history is kept.
+    Identity {
+        #[arg(long)]
+        set_name: Option<String>,
+        #[arg(long)]
+        set_soul: Option<String>,
+        #[arg(long)]
+        set_personality: Option<String>,
+        /// Print every revision, oldest first
+        #[arg(long)]
+        history: bool,
     },
     /// Validate configuration and exit
     Check,
@@ -77,6 +93,29 @@ async fn main() -> Result<()> {
             println!("OK");
         }
 
+        Command::Identity { set_name, set_soul, set_personality, history } => {
+            tokio::fs::create_dir_all(&data_dir).await?;
+            let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let agent_id = store
+                .get_existing_agent_id()?
+                .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
+            let mut current = store.ensure_identity(agent_id, None)?;
+            let changes = [
+                set_name.map(IdentityChange::Name),
+                set_soul.map(IdentityChange::Soul),
+                set_personality.map(IdentityChange::Personality),
+            ];
+            for change in changes.into_iter().flatten() {
+                if let Some(next) = store.change_identity(agent_id, &change, IdentitySource::Operator)? {
+                    current = next;
+                }
+            }
+            let shown = if history { store.identity_history(agent_id)? } else { vec![current] };
+            for profile in shown {
+                println!("{}", serde_json::to_string_pretty(&profile)?);
+            }
+        }
+
         Command::Start { port, name, napcat, napcat_account } => {
             if napcat.is_some() {
                 anyhow::ensure!(napcat_account.is_some_and(|account| account > 0),
@@ -102,6 +141,13 @@ async fn main() -> Result<()> {
 
             // 2. Bootstrap genesis if first run — SPEC §44.6
             let agent_id = bootstrap_genesis(&store, name.as_deref())?;
+            let identity = adopt_identity(&store, agent_id, name.as_deref())?;
+            info!(
+                revision = identity.revision,
+                name = identity.display_name.as_deref().unwrap_or("(unnamed)"),
+                naming = ?identity.naming,
+                "identity ready"
+            );
 
             // 3. Start inference broker
             let (broker, broker_handle) = shenko_broker::broker::Broker::new();
@@ -356,6 +402,7 @@ async fn main() -> Result<()> {
             let ui = shenko_ui::server::UiServer::new(port)
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
+                .with_store(Arc::clone(&store))
                 .with_data_dir(data_dir.clone());
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
@@ -489,13 +536,15 @@ fn persist_delegation(
 
 /// Parse an explicit QQ reply directive emitted by the subject:
 /// `[reply:group:<group_id>] text` or `[reply:private:<user_id>] text`.
-/// Continuation lines are included until the next directive.
+/// Continuation lines are included until the next directive. Control lines
+/// (`[identity:*]`) are removed first: they are actions, never reply text.
 fn parse_reply_directive(
     content: &str,
 ) -> Option<(shenko_channel_napcat::outbound::OutboundKind, u64, String)> {
     use shenko_channel_napcat::outbound::OutboundKind;
 
-    let lines: Vec<&str> = content.lines().collect();
+    let publishable = shenko_types::identity::publishable_text(content);
+    let lines: Vec<&str> = publishable.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim_start();
         let Some(rest) = trimmed.strip_prefix("[reply:") else { continue };
@@ -519,6 +568,21 @@ fn parse_reply_directive(
         return Some((kind, target, body));
     }
     None
+}
+
+/// Make sure the agent has an identity revision, and apply a user-given
+/// `--name` as a rename of the same agent when it differs. SPEC §6, R117.
+fn adopt_identity(
+    store: &shenko_store::store::Store,
+    agent_id: shenko_types::ids::EntityId,
+    name: Option<&str>,
+) -> Result<IdentityProfile> {
+    let current = store.ensure_identity(agent_id, name)?;
+    let Some(name) = name else { return Ok(current) };
+    let change = IdentityChange::Name(name.to_string());
+    Ok(store
+        .change_identity(agent_id, &change, IdentitySource::Operator)?
+        .unwrap_or(current))
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6
@@ -727,5 +791,25 @@ mod recovery_integration_tests {
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
         assert!(spool.ingest(received.raw).unwrap().is_none());
         // Temporary evidence files are deliberately retained for inspection.
+    }
+}
+
+#[cfg(test)]
+mod reply_directive_tests {
+    use super::*;
+    use shenko_channel_napcat::outbound::OutboundKind;
+
+    /// Review on #29: identity control lines must never reach a QQ reply,
+    /// whether they follow the reply, sit between replies or precede them.
+    #[test]
+    fn identity_lines_are_actions_not_reply_text() {
+        let out = "先想一下\n[reply:group:7] 你好\n[identity:name] 岚\n继续说\n[identity:soul] 慢一点\n[reply:private:9] 第二条";
+        let (kind, target, body) = parse_reply_directive(out).unwrap();
+        assert!(matches!(kind, OutboundKind::SendGroup));
+        assert_eq!((target, body.as_str()), (7, "你好\n继续说"));
+        // The same output still yields the identity changes.
+        assert_eq!(shenko_types::identity::parse_identity_directives(out).len(), 2);
+        // A reply consisting only of control lines publishes nothing.
+        assert!(parse_reply_directive("[reply:group:7]\n[identity:name] 岚").is_none());
     }
 }

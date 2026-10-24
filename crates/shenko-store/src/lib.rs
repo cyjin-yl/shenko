@@ -6,6 +6,7 @@ pub mod store;
 pub mod cas;
 pub mod ledger;
 pub mod memory;
+pub mod identity;
 
 pub use store::*;
 pub use cas::*;

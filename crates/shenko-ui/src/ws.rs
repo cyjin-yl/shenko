@@ -194,6 +194,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
         let _ = socket.send(Message::Text(json.into())).await;
     }
 
+    let mut identity_revision: Option<u64> = None;
     loop {
         tokio::select! {
             // Subject broadcasts → all WS clients
@@ -214,6 +215,13 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
             out = recv_outbox(&mut outbox_rx) => {
                 match out {
                     Some(out) => {
+                        // Identity revisions change mid-session (self naming,
+                        // CLI rename); tell the page so it re-reads /api/self.
+                        if out.identity_revision.is_some() && out.identity_revision != identity_revision {
+                            identity_revision = out.identity_revision;
+                            let note = serde_json::json!({ "type": "identity", "revision": identity_revision });
+                            if socket.send(Message::Text(note.to_string().into())).await.is_err() { break; }
+                        }
                         let msg = TimelineMessage {
                             role: "subject".to_string(),
                             content: out.content,

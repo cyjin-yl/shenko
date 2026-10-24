@@ -149,6 +149,41 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// SPEC §6 R053/R054/R117：人格只在 S0 边界生效，合同前缀不随身份变化，改名不换 agent。
+#[tokio::test]
+async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
+    use shenko_types::identity::{IdentityChange, IdentitySource, NamingOrigin};
+    let (dir, store, agent) = fixture();
+    store.ensure_identity(agent, None).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let before = super::build_system_prompt(&subject, false);
+    assert!(before.starts_with(super::SUBJECT_CONTRACT));
+    assert!(!before.contains("你是 Shenko"));
+    assert!(before.contains("你还没有名字"));
+
+    let source = IdentitySource::Subject { step_id: subject.step.step_id, step_no: 1 };
+    let renamed = store
+        .change_identity(agent, &IdentityChange::Name("岚".into()), source)
+        .unwrap()
+        .unwrap();
+    assert_eq!((renamed.agent_id, renamed.revision, renamed.naming), (agent, 2, NamingOrigin::SelfChosen));
+    // 本步尚未到边界：仍是 revision 1。
+    assert_eq!(subject.identity.as_ref().unwrap().revision, 1);
+
+    // 无 broker 时 execute_step 在 S0 之后报错，但 S0 已装配新身份并封存输入计划。
+    let planned = subject.step.step_no;
+    assert!(execute_step(planned, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert_eq!(subject.identity.as_ref().unwrap().revision, 2);
+    assert!(subject.step.input_plan_ref.is_some());
+    let after = super::build_system_prompt(&subject, false);
+    assert!(after.starts_with(super::SUBJECT_CONTRACT));
+    assert!(after.contains("「岚」") && after.contains("自己取的"));
+    assert_eq!(store.identity_history(agent).unwrap().len(), 2);
+    drop(subject);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// One interrupted input's recovery journey: close before dispatch, rejected
 /// admission, then persisted result recovery and stale ingress replay.
 #[tokio::test]

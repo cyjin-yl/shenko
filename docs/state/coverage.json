@@ -867,14 +867,22 @@
         "B40"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "acceptance_case_ids": [
+        "A36",
+        "A46"
+      ],
+      "implementation_refs": [
+        "crates/shenko-types/src/identity.rs",
+        "crates/shenko-store/src/identity.rs",
+        "crates/shenko-subject/src/loop_runner.rs",
+        "bin/shenko/src/main.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C22：版本化 IdentityProfile 在固定运行合同之后装配，仅在 S0 边界重载；revision+digest 封入输入计划，可追溯。fixture 验证，未在真实模型上观察。"
     },
     {
       "requirement_id": "R054",
@@ -883,14 +891,22 @@
         "B40"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "acceptance_case_ids": [
+        "A36",
+        "A46"
+      ],
+      "implementation_refs": [
+        "crates/shenko-types/src/identity.rs",
+        "crates/shenko-store/src/identity.rs",
+        "crates/shenko-subject/src/loop_runner.rs",
+        "bin/shenko/src/main.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C22：人格段落只追加在 SUBJECT_CONTRACT 之后，不含工具 schema/权限/资源字段；[identity:*] 只能改 name/soul/personality。"
     },
     {
       "requirement_id": "R055",
@@ -1696,14 +1712,22 @@
         "B40"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "acceptance_case_ids": [
+        "A36",
+        "A46"
+      ],
+      "implementation_refs": [
+        "crates/shenko-types/src/identity.rs",
+        "crates/shenko-store/src/identity.rs",
+        "crates/shenko-subject/src/loop_runner.rs",
+        "bin/shenko/src/main.rs"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C22：主体可用 [identity:soul] 自主改写灵魂，S1 提交后记新 revision（来源=step），下一轮生效。尚未经 child 保存/提升版本。"
     },
     {
       "requirement_id": "R106",
@@ -1885,14 +1909,24 @@
         "B40"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
+      "acceptance_case_ids": [
+        "A36",
+        "A46"
+      ],
+      "implementation_refs": [
+        "crates/shenko-types/src/identity.rs",
+        "crates/shenko-store/src/identity.rs",
+        "crates/shenko-subject/src/loop_runner.rs",
+        "bin/shenko/src/main.rs",
+        "crates/shenko-ui/src/api.rs",
+        "crates/shenko-ui/src/index.html"
+      ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C22：框架名与实例名分离；--name 用户命名或未命名时主体自取名；改名为同一 agent_id 的新 revision，历史保留；WebUI 自我面板显示实例名。命名仍在内核内而非可替换插件。"
     },
     {
       "requirement_id": "R118",
