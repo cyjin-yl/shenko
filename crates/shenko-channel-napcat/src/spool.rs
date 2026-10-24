@@ -80,6 +80,24 @@ pub struct SpooledEvent {
     pub raw: serde_json::Value,
 }
 
+/// Non-executable evidence for a repeated stable source identity. The original
+/// event remains immutable; metadata changes, conflicts and revisions are not commands.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngressObservation {
+    pub event_id: EntityId,
+    pub kind: ObservationKind,
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationKind {
+    Original,
+    MetadataOnly,
+    Conflict,
+    Revision,
+}
+
 struct Backend {
     connection: Connection,
     failed: bool,
@@ -138,7 +156,7 @@ impl IngressSpool {
         let fk: i64 = connection.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
         ensure!(sync == 2 && fk == 1, "接收库耐久配置读回失败");
         let version: i64 = connection.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        ensure!(version <= 1, "接收库版本较新，不能用旧 reader 写入");
+        ensure!(version <= 2, "接收库版本较新，不能用旧 reader 写入");
         let tx = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute_batch("
             CREATE TABLE IF NOT EXISTS ingress_cursor (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body TEXT NOT NULL);
@@ -152,6 +170,42 @@ impl IngressSpool {
             CREATE INDEX IF NOT EXISTS ingress_pending ON ingress_events(consumed, seq);
             CREATE TABLE IF NOT EXISTS ingress_gaps (gap_id TEXT PRIMARY KEY, body TEXT NOT NULL);
         ")?;
+        if version < 2 {
+            tx.execute_batch("
+                ALTER TABLE ingress_events ADD COLUMN source_key TEXT;
+                ALTER TABLE ingress_events ADD COLUMN eligible INTEGER NOT NULL DEFAULT 1;
+            ")?;
+        }
+        tx.execute_batch("
+            CREATE INDEX IF NOT EXISTS ingress_source ON ingress_events(source_key, seq);
+            CREATE INDEX IF NOT EXISTS ingress_delivery ON ingress_events(eligible, consumed, seq);
+            CREATE TABLE IF NOT EXISTS ingress_observations (
+                source_key TEXT NOT NULL, raw_hash TEXT NOT NULL, body TEXT NOT NULL,
+                PRIMARY KEY(source_key, raw_hash)
+            );
+        ")?;
+        if version < 2 {
+            // Preserve v1 rows and raw bytes. Quarantine later observations of the
+            // same identity, including any already consumed rows; never invent ACKs.
+            let mut after = 0;
+            loop {
+                let page: Vec<String> = {
+                    let mut stmt = tx.prepare("SELECT body FROM ingress_events WHERE seq>?1 ORDER BY seq LIMIT 256")?;
+                    stmt.query_map([after], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+                };
+                if page.is_empty() { break; }
+                for body in page {
+                    let event: SpooledEvent = serde_json::from_str(&body)?;
+                    after = i64::try_from(event.seq)?;
+                    let key = source_identity(account, &event.raw).unwrap_or_else(|| event.dedup_key.clone());
+                    let original = first_source_event(&tx, &key)?;
+                    let kind = original.as_ref().map_or(ObservationKind::Original, |first| observation_kind(&first.raw, &event.raw));
+                    save_observation(&tx, &key, original.as_ref().map_or(event.spool_id, |e| e.spool_id), kind, &event.raw)?;
+                    tx.execute("UPDATE ingress_events SET source_key=?1,eligible=?2 WHERE spool_id=?3",
+                        params![key, original.is_none(), event.spool_id.to_string()])?;
+                }
+            }
+        }
         let existing: Option<String> = tx
             .query_row(
                 "SELECT body FROM ingress_cursor WHERE singleton=1",
@@ -174,7 +228,7 @@ impl IngressSpool {
             )?;
         }
         tx.pragma_update(None, "application_id", APPLICATION_ID)?;
-        tx.pragma_update(None, "user_version", 1)?;
+        tx.pragma_update(None, "user_version", 2)?;
         tx.commit()?;
         Ok(Self {
             backend: Mutex::new(Backend {
@@ -216,12 +270,9 @@ impl IngressSpool {
             let mut cursor = read_cursor(tx)?;
             let spool_id = EntityId::new();
             let (dedup_key, weak_dedup) = dedup_key(cursor.account, &raw, spool_id)?;
-            let duplicate: bool = tx.query_row(
-                "SELECT EXISTS(SELECT 1 FROM ingress_events WHERE dedup_key=?1)",
-                [&dedup_key],
-                |r| r.get(0),
-            )?;
-            if duplicate {
+            let source_key = source_identity(cursor.account, &raw).unwrap_or_else(|| dedup_key.clone());
+            if let Some(original) = first_source_event(tx, &source_key)? {
+                save_observation(tx, &source_key, original.spool_id, observation_kind(&original.raw, &raw), &raw)?;
                 return Ok(None);
             }
             let mut event = SpooledEvent {
@@ -236,15 +287,17 @@ impl IngressSpool {
                 raw,
             };
             tx.execute(
-                "INSERT INTO ingress_events (spool_id,dedup_key,body) VALUES (?1,?2,?3)",
+                "INSERT INTO ingress_events (spool_id,dedup_key,body,source_key) VALUES (?1,?2,?3,?4)",
                 params![
                     event.spool_id.to_string(),
                     event.dedup_key,
-                    serde_json::to_string(&event)?
+                    serde_json::to_string(&event)?,
+                    source_key,
                 ],
             )?;
             event.seq = u64::try_from(tx.last_insert_rowid())?;
             save_event(tx, &event)?;
+            save_observation(tx, &source_key, event.spool_id, ObservationKind::Original, &event.raw)?;
             cursor.advance(event.seq);
             save_cursor(tx, &cursor)?;
             Ok(Some(event))
@@ -261,11 +314,22 @@ impl IngressSpool {
         let backend = self.backend.lock();
         ensure!(!backend.failed, "接收库 handle 已失效，必须重开");
         let mut stmt = backend.connection.prepare(
-            "SELECT body FROM ingress_events WHERE consumed=0 AND seq>?1 ORDER BY seq LIMIT ?2",
+            "SELECT body FROM ingress_events WHERE eligible=1 AND consumed=0 AND seq>?1 ORDER BY seq LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![i64::try_from(after)?, i64::try_from(max)?], |r| {
             r.get::<_, String>(0)
         })?;
+        rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
+    }
+
+    /// Raw repeat/conflict evidence; never returned by the delivery scan.
+    pub fn observations(&self, id: EntityId) -> Result<Vec<IngressObservation>> {
+        let backend = self.backend.lock();
+        ensure!(!backend.failed, "接收库 handle 已失效，必须重开");
+        let mut stmt = backend.connection.prepare(
+            "SELECT o.body FROM ingress_observations o JOIN ingress_events e ON e.source_key=o.source_key WHERE e.spool_id=?1 ORDER BY o.rowid",
+        )?;
+        let rows = stmt.query_map([id.to_string()], |r| r.get::<_, String>(0))?;
         rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
     }
 
@@ -357,7 +421,7 @@ impl IngressSpool {
         let backend = self.backend.lock();
         ensure!(!backend.failed, "接收库 handle 已失效，必须重开");
         let count: i64 = backend.connection.query_row(
-            "SELECT count(*) FROM ingress_events WHERE consumed=0",
+            "SELECT count(*) FROM ingress_events WHERE eligible=1 AND consumed=0",
             [],
             |r| r.get(0),
         )?;
@@ -413,42 +477,56 @@ fn read_gaps(connection: &Connection) -> Result<Vec<IngressGap>> {
     rows.map(|row| Ok(serde_json::from_str(&row?)?)).collect()
 }
 
-fn dedup_key(account: u64, raw: &serde_json::Value, id: EntityId) -> Result<(String, bool)> {
-    // 只有消息事件的非空平台 message_id 被视为稳定身份；time 不是 ID。
-    let post_type = raw["post_type"].as_str();
+fn source_identity(account: u64, raw: &serde_json::Value) -> Option<String> {
+    // Platform time and display names are not identities. Explicit revisions are
+    // observations of this message, quarantined until an actual revision policy exists.
     let message_id = raw.get("message_id").filter(|v| match v {
         serde_json::Value::Number(n) => n.as_i64().is_some_and(|n| n != 0),
         serde_json::Value::String(s) => !s.is_empty() && s != "0",
         _ => false,
-    });
+    })?;
     let conversation = match raw["message_type"].as_str() {
-        Some("group") => raw.get("group_id").map(|v| serde_json::json!(["group", v])),
-        Some("private") => raw
-            .get("user_id")
-            .map(|v| serde_json::json!(["private", v, raw.get("group_id")])),
-        _ => None,
+        Some("group") => serde_json::json!(["group", raw.get("group_id").filter(|v| !v.is_null())?]),
+        Some("private") => serde_json::json!(["private", raw.get("user_id").filter(|v| !v.is_null())?, raw.get("group_id")]),
+        _ => return None,
     };
-    if matches!(post_type, Some("message" | "message_sent"))
-        && message_id.is_some()
-        && conversation.is_some()
-    {
-        let identity = serde_json::json!([
-            "napcat",
-            account.to_string(),
-            "onebot_v11",
-            conversation,
-            post_type,
-            raw.get("sub_type"),
-            message_id,
-            raw.get("message_revision")
-        ]);
-        // 同一身份不同原文保留为独立冲突/修订证据，不覆盖；相同重投去重。
-        let digest = blake3::hash(&serde_json::to_vec(raw)?);
-        Ok((format!("{identity}:{digest}"), false))
-    } else {
-        // 弱去重事件仅拥有本接收记录的稳定身份，不冒称跨重连强去重。
-        Ok((format!("napcat:{account}:onebot_v11:spool:{id}"), true))
+    if !matches!(raw["post_type"].as_str(), Some("message" | "message_sent")) { return None; }
+    // OneBot message_id accepts string or integer wire representations.
+    let message_id = message_id.as_str().map(str::to_owned).unwrap_or_else(|| message_id.to_string());
+    Some(serde_json::json!(["napcat", account.to_string(), "onebot_v11", conversation, message_id]).to_string())
+}
+
+fn dedup_key(account: u64, raw: &serde_json::Value, id: EntityId) -> Result<(String, bool)> {
+    match source_identity(account, raw) {
+        Some(identity) => Ok((format!("{identity}:{}", blake3::hash(&serde_json::to_vec(raw)?)), false)),
+        // No stable source identity means no strong cross-reconnect dedup claim.
+        None => Ok((format!("napcat:{account}:onebot_v11:spool:{id}"), true)),
     }
+}
+
+fn first_source_event(connection: &Connection, key: &str) -> Result<Option<SpooledEvent>> {
+    let body: Option<String> = connection.query_row(
+        "SELECT body FROM ingress_events WHERE source_key=?1 ORDER BY seq LIMIT 1", [key], |r| r.get(0),
+    ).optional()?;
+    body.map(|body| Ok(serde_json::from_str(&body)?)).transpose()
+}
+
+fn observation_kind(original: &serde_json::Value, raw: &serde_json::Value) -> ObservationKind {
+    if original.get("message_revision") != raw.get("message_revision") { return ObservationKind::Revision; }
+    // Compare command-bearing content and actor, not sender nick/card/role or
+    // reception time. Conservative conflicts are retained, never auto-executed.
+    let semantic = |v: &serde_json::Value| serde_json::json!([
+        v.get("user_id"), v.get("message"), v.get("raw_message"), v.get("anonymous"), v.get("sub_type")
+    ]);
+    if semantic(original) == semantic(raw) { ObservationKind::MetadataOnly } else { ObservationKind::Conflict }
+}
+
+fn save_observation(tx: &Transaction<'_>, key: &str, event_id: EntityId, kind: ObservationKind, raw: &serde_json::Value) -> Result<()> {
+    let hash = blake3::hash(&serde_json::to_vec(raw)?).to_string();
+    let observation = IngressObservation { event_id, kind, raw: raw.clone() };
+    tx.execute("INSERT OR IGNORE INTO ingress_observations VALUES (?1,?2,?3)",
+        params![key, hash, serde_json::to_string(&observation)?])?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -520,7 +598,7 @@ mod tests {
             ws_url: "not-a-url".into(),
             ..Default::default()
         };
-        let (client, mut rx, actions) =
+        let (client, _rx, actions) =
             crate::NapCatClient::open_persistent(config.clone(), scratch.db()).unwrap();
         let result = runtime.block_on(crate::NapCatClient::run_connection_loop(
             config,
@@ -531,7 +609,9 @@ mod tests {
             tokio_util::sync::CancellationToken::new(),
         ));
         assert!(result.is_err()); // URL 在本地拒绝，绝不连接外部服务。
-        assert_eq!(rx.try_recv().unwrap().ingress_id, Some(event.spool_id));
+        // Invalid URL may win the concurrent select before delivery; durable I
+        // remains authoritative regardless of which future was polled first.
+        assert_eq!(client.spool.consume(1).unwrap()[0].spool_id, event.spool_id);
         assert_eq!(client.spool.pending_count().unwrap(), 1);
         drop(client);
         spool.record_reconnect().unwrap();
@@ -549,7 +629,8 @@ mod tests {
         assert_eq!(gaps[0].status, GapStatus::Reconciling);
         assert_eq!(gaps[1].status, GapStatus::Reconciling);
         assert_eq!(gaps[2].status, GapStatus::Reconciling);
-        assert_eq!(gaps[3].status, GapStatus::Open);
+        assert_eq!(gaps[3].status, GapStatus::Reconciling);
+        assert_eq!(gaps[4].status, GapStatus::Open);
     }
 
     #[test]
@@ -561,17 +642,21 @@ mod tests {
         let private = spool.ingest(private).unwrap().unwrap();
         let mut edit = message();
         edit["raw_message"] = json!("测试修订");
-        let revision = spool.ingest(edit).unwrap().unwrap();
+        assert!(spool.ingest(edit.clone()).unwrap().is_none());
         let notice = json!({"post_type":"notice", "time":1, "user_id":7});
         let first = spool.ingest(notice.clone()).unwrap().unwrap();
         let second = spool.ingest(notice).unwrap().unwrap();
         assert_ne!(group.dedup_key, private.dedup_key);
-        assert_ne!(group.dedup_key, revision.dedup_key);
+        let observations = spool.observations(group.spool_id).unwrap();
+        assert_eq!(observations.len(), 2);
+        assert_eq!(observations[1].kind, ObservationKind::Conflict);
+        assert_eq!(observations[1].raw, edit);
         assert!(first.weak_dedup && second.weak_dedup);
         assert_ne!(first.spool_id, second.spool_id);
         drop(spool);
         let spool = IngressSpool::open(scratch.db(), 9).unwrap();
-        assert_eq!(spool.pending_count().unwrap(), 5);
+        assert_eq!(spool.pending_count().unwrap(), 4);
+        assert_eq!(spool.observations(group.spool_id).unwrap()[1].kind, ObservationKind::Conflict);
         assert_eq!(
             spool.event(first.spool_id).unwrap().dedup_key,
             first.dedup_key

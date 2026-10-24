@@ -131,7 +131,7 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
     // 用普通文件占据 CAS 根，确定性触发 mkdir 错误，不依赖进程权限。
     std::fs::remove_dir_all(dir.join("cas")).unwrap();
     std::fs::write(dir.join("cas"), b"not a directory").unwrap();
-    let result = execute_step(planned.step_no, &[], &mut subject, false).await;
+    let result = execute_step(planned.step_no, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await;
     assert!(result.is_err());
     assert!(matches!(
         rx.try_recv(),
@@ -147,4 +147,71 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
     drop(subject);
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// One interrupted input's recovery journey: close before dispatch, rejected
+/// admission, then persisted result recovery and stale ingress replay.
+#[tokio::test]
+async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
+    let (dir, store, agent) = fixture();
+    let event = crate::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"content":"original frozen input"}),
+        source: "fixture".into(), created_at: chrono::Utc::now(),
+    };
+    let mut subject = state(store.clone(), agent).unwrap();
+    let close = tokio_util::sync::CancellationToken::new();
+    close.cancel();
+    assert!(execute_step(1, &[event.clone()], &mut subject, false, &close).await.unwrap().is_none());
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    drop(subject);
+    drop(store);
+
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let (closed_broker, handle) = shenko_broker::broker::Broker::offline();
+    drop(closed_broker); // positively rejected admission; no provider ever dispatched
+    let subject = state(store.clone(), agent).unwrap().with_broker(handle);
+    let retained_inbox = subject.inbox.clone();
+    assert!(super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert!(retained_inbox.sender().is_closed());
+    let (head, mut step) = store.load_subject(agent).unwrap();
+    assert_eq!(step.state, SubjectStepState::RetryPending);
+    let request_id = step.active_request_id;
+    drop(retained_inbox);
+    drop(store);
+
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    // Reopen validates the typed certificate; simulate the durable result boundary
+    // of that same request, not a fabricated S1 or a second model invocation.
+    let subject = state(store.clone(), agent).unwrap();
+    assert_eq!(super::frozen_input(&store, &subject.step).unwrap().events[0].payload, event.payload);
+    drop(subject);
+    let expected = step.record_revision;
+    step.state = SubjectStepState::AwaitingModel;
+    step.record_revision = RecordRevision(expected.0 + 1);
+    store.upsert_step(&step, &head, expected).unwrap();
+    let expected = step.record_revision;
+    step.state = SubjectStepState::ResultRecorded;
+    step.model_result_ref = Some(store.cas.seal_object(b"persisted complete result", "text/plain", "model_results", "text", 1).unwrap().object);
+    step.record_revision = RecordRevision(expected.0 + 1);
+    store.upsert_step(&step, &head, expected).unwrap();
+    drop(store);
+
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap(); // no broker: resending would fail
+    let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+    subject = subject.with_outbox(tx);
+    assert_eq!(subject.step.active_request_id, request_id);
+    execute_step(1, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await.unwrap().unwrap();
+    assert_eq!(subject.head.committed_step_no, 1);
+    assert_eq!(rx.try_recv().unwrap().content, "persisted complete result");
+    assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
+    // A previously queued replay must be filtered after the resumed S1, even
+    // though main admitted it before that S1's disposition became visible.
+    subject.inbox.sender().send(event).await.unwrap();
+    assert!(super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()).await.is_err());
+    let (head, next) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 1);
+    assert!(super::frozen_input(&store, &next).unwrap().events.is_empty());
+    // Keep the fixture on container disk for independent inspection.
 }

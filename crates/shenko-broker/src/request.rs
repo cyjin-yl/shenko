@@ -37,7 +37,20 @@ pub struct InferenceResult {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum InferenceStatus { Success, Failed, Cancelled, QueuedCapacityWait }
+pub enum InferenceStatus {
+    Success,
+    /// Outcome/remote execution may be unknown. Never retry based on this alone.
+    Failed,
+    Cancelled,
+    /// Broker did not dispatch this request.
+    QueuedCapacityWait,
+    /// Explicit provider rejection, not inferred from error text.
+    Rejected { http_status: u16 },
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("provider rejected request with HTTP {http_status}")]
+pub struct ProviderRejection { pub http_status: u16 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InferenceResponse { pub content: String, pub stop_reason: String, pub usage: Option<TokenUsage> }
