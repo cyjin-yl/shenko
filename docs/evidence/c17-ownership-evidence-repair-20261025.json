@@ -3,7 +3,7 @@
   "evidence_id": "c17-ownership-evidence-repair-20261025",
   "issue": "https://github.com/cyjin-yl/shenko/issues/22",
   "pr": "https://github.com/cyjin-yl/shenko/pull/40",
-  "status": "focused_native_slice_verified",
+  "status": "focused_native_slice_verified_pushed_and_merged",
   "full_C17_complete": false,
   "production_integration_complete": false,
   "full_goal_complete": false,
@@ -126,7 +126,8 @@
     ],
     "failure_history": [
       "An initial local shell quoting parse failed before executing the edit; no source modification occurred.",
-      "First journey command printed JOURNEY_EXIT=0, then its optional summary Python command had a quoting SyntaxError and made that wrapper exit 1. Raw result.json and journey output were independently read; final source journey wrapper exited 0."
+      "First journey command printed JOURNEY_EXIT=0, then its optional summary Python command had a quoting SyntaxError and made that wrapper exit 1. Raw result.json and journey output were independently read; final source journey wrapper exited 0.",
+      "The installed old gh pr edit command failed on GitHub classic-projects deprecation after a successful push. The normal authenticated gh REST PATCH updated the PR body; ready/merge used standard API checks without bypassing protection."
     ],
     "commands": [
       "cargo check -p shenko-node",
@@ -148,7 +149,9 @@
     "journey_log": "/tmp/shenko-c17-repair-LzjgwLDo/journey-final.log",
     "journey_result": "/tmp/shenko-c17-repair-LzjgwLDo/journey-final/result.json",
     "raw_receipts": "/tmp/shenko-c17-repair-LzjgwLDo/journey-final/deployment",
-    "original_legacy_source": "/tmp/shenko-c17-kxCI4JuI/journey-final/remote-worker/data"
+    "original_legacy_source": "/tmp/shenko-c17-kxCI4JuI/journey-final/remote-worker/data",
+    "final_product_bundle": "/tmp/shenko-c17-repair-LzjgwLDo/final.bundle",
+    "final_product_bundle_sha256": "052d2f8e1b41b2388c041911b7f69e6fbcc7a4f0452a4f8341d2464d46ba68b1"
   },
   "bounds": [
     "Only bounded pure blake3 task, no arbitrary external effects, old computation not claimed stopped.",
@@ -177,12 +180,21 @@
     "force_push_or_protection_changes": false
   },
   "delivery": {
-    "state": "verified_candidate_pending_real_merge_readback",
+    "state": "MERGED",
     "stack_parent_pr": 37,
     "git_base": "main",
     "semantic_dependencies": [
       6,
       12
-    ]
+    ],
+    "pr_head": "b17ec86f65ec7e082de74efec356c68e3a28f643",
+    "merge_commit": "d593acfff33f1fa0f881be2497ee47f6784f396d",
+    "remote_main_read_back": "d593acfff33f1fa0f881be2497ee47f6784f396d",
+    "merge_tree_equals_verified_candidate": true,
+    "github_ci_checks": 0,
+    "force_push_or_protection_changes": false,
+    "issue_remains_open": true,
+    "issue22_comment": "https://github.com/cyjin-yl/shenko/issues/22#issuecomment-6388655564",
+    "ledger_P1_handoff": "https://github.com/cyjin-yl/shenko/issues/6#issuecomment-6388656298"
   }
 }

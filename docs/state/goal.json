@@ -7,8 +7,8 @@
   "harness_status": "in_progress",
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
-  "branch": "fix/c17-store-ownership-evidence-20261025",
-  "head_commit": "453fff7e754e46af920dc7fcbc46c9321f41d819",
+  "branch": "main",
+  "head_commit": "d593acfff33f1fa0f881be2497ee47f6784f396d",
   "pr_url": "https://github.com/cyjin-yl/shenko/pull/40",
   "claude_session_id": null,
   "active_workers": [],
@@ -33,9 +33,12 @@
     "pr": 40,
     "git_base": "04c09a4051ba8641ef50265ee572aa373ab453bc",
     "product_commit": "453fff7e754e46af920dc7fcbc46c9321f41d819",
-    "status": "focused_verified_candidate_pending_actual_merge",
+    "status": "focused_verified_pushed_and_merged",
     "full_work_package_complete": false,
     "full_goal_complete": false,
-    "evidence": "docs/evidence/c17-ownership-evidence-repair-20261025.json"
+    "evidence": "docs/evidence/c17-ownership-evidence-repair-20261025.json",
+    "delivered_pr_head": "b17ec86f65ec7e082de74efec356c68e3a28f643",
+    "merge_commit": "d593acfff33f1fa0f881be2497ee47f6784f396d",
+    "remote_main_observed_at_checkpoint": "d593acfff33f1fa0f881be2497ee47f6784f396d"
   }
 }
