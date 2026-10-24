@@ -597,6 +597,25 @@ async fn execute_step(
             state.head = head;
             state.step = successor;
             state.last_thought = model_output.clone();
+
+            // Self-revision of name/soul/personality — SPEC §6, R105/R117.
+            // Applied after the commit, effective from the next S0 boundary;
+            // the source step makes each revision traceable.
+            let mut identity_revision = state.identity.as_ref().map(|p| p.revision);
+            if let Some(output) = &model_output {
+                for change in parse_identity_directives(output) {
+                    let source = IdentitySource::Subject { step_id, step_no: seq };
+                    match store.change_identity(state.agent_id, &change, source) {
+                        Ok(Some(p)) => {
+                            info!(seq, revision = p.revision, "identity revised by subject");
+                            identity_revision = Some(p.revision);
+                        }
+                        Ok(None) => {}
+                        Err(e) => warn!(seq, err=%e, "identity revision not recorded"),
+                    }
+                }
+            }
+
             // Outbound path — publish ONLY after the S1 commit succeeded.
             // SPEC §41.2.3 committed-only publication: never show a thought
             // that is not durably recorded, or a retried step could show a
@@ -607,6 +626,7 @@ async fn execute_step(
                         kind: "thought".into(),
                         step: seq,
                         content: output.clone(),
+                        identity_revision,
                     });
                 }
             }
@@ -658,20 +678,6 @@ async fn execute_step(
                     })
                     .await;
                 debug!(seq, hooks=%results.len(), "PostEffect hooks ran");
-            }
-
-            // Self-revision of name/soul/personality — SPEC §6, R105/R117.
-            // Applied after the commit, effective from the next S0 boundary;
-            // the source step makes each revision traceable.
-            if let Some(output) = &model_output {
-                for change in parse_identity_directives(output) {
-                    let source = IdentitySource::Subject { step_id, step_no: seq };
-                    match store.change_identity(state.agent_id, &change, source) {
-                        Ok(Some(p)) => info!(seq, revision = p.revision, "identity revised by subject"),
-                        Ok(None) => {}
-                        Err(e) => warn!(seq, err=%e, "identity revision not recorded"),
-                    }
-                }
             }
 
             // Dispatch delegation intents sealed into the S1 decision. SPEC §5.2/§5.3.

@@ -512,13 +512,15 @@ fn persist_delegation(
 
 /// Parse an explicit QQ reply directive emitted by the subject:
 /// `[reply:group:<group_id>] text` or `[reply:private:<user_id>] text`.
-/// Continuation lines are included until the next directive.
+/// Continuation lines are included until the next directive. Control lines
+/// (`[identity:*]`) are removed first: they are actions, never reply text.
 fn parse_reply_directive(
     content: &str,
 ) -> Option<(shenko_channel_napcat::outbound::OutboundKind, u64, String)> {
     use shenko_channel_napcat::outbound::OutboundKind;
 
-    let lines: Vec<&str> = content.lines().collect();
+    let publishable = shenko_types::identity::publishable_text(content);
+    let lines: Vec<&str> = publishable.lines().collect();
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim_start();
         let Some(rest) = trimmed.strip_prefix("[reply:") else { continue };
@@ -760,5 +762,25 @@ mod recovery_integration_tests {
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
         assert!(spool.ingest(received.raw).unwrap().is_none());
         // Temporary evidence files are deliberately retained for inspection.
+    }
+}
+
+#[cfg(test)]
+mod reply_directive_tests {
+    use super::*;
+    use shenko_channel_napcat::outbound::OutboundKind;
+
+    /// Review on #29: identity control lines must never reach a QQ reply,
+    /// whether they follow the reply, sit between replies or precede them.
+    #[test]
+    fn identity_lines_are_actions_not_reply_text() {
+        let out = "先想一下\n[reply:group:7] 你好\n[identity:name] 岚\n继续说\n[identity:soul] 慢一点\n[reply:private:9] 第二条";
+        let (kind, target, body) = parse_reply_directive(out).unwrap();
+        assert!(matches!(kind, OutboundKind::SendGroup));
+        assert_eq!((target, body.as_str()), (7, "你好\n继续说"));
+        // The same output still yields the identity changes.
+        assert_eq!(shenko_types::identity::parse_identity_directives(out).len(), 2);
+        // A reply consisting only of control lines publishes nothing.
+        assert!(parse_reply_directive("[reply:group:7]\n[identity:name] 岚").is_none());
     }
 }

@@ -13,4 +13,8 @@ pub struct OutboxMessage {
     pub step: u64,
     /// The model output text.
     pub content: String,
+    /// Identity revision in effect after this step (SPEC §6), so transports
+    /// can refresh the displayed name/soul when it changes.
+    #[serde(default)]
+    pub identity_revision: Option<u64>,
 }

@@ -1407,6 +1407,13 @@ a{color:inherit}
         return;
       }
       if (d.type === 'receipt') { handleReceipt(d); return; }
+      /* A new identity revision reached the timeline: re-read the real
+         profile instead of keeping the name from page load. */
+      if (d.type === 'identity') {
+        var shown = selfData && selfData.identity ? selfData.identity.revision : null;
+        if (d.revision !== shown) fetchSelf();
+        return;
+      }
       if (d.type === 'thought') { handleThought(d); return; }
       if (d.role === 'system') return;            /* welcome / metadata, never a row */
       if (d.role === 'subject') {

@@ -155,8 +155,7 @@ pub fn parse_identity_directives(output: &str) -> Vec<IdentityChange> {
     let mut soul = None;
     let mut personality = None;
     for line in output.lines() {
-        let Some(rest) = line.trim().strip_prefix("[identity:") else { continue };
-        let Some((field, value)) = rest.split_once(']') else { continue };
+        let Some((field, value)) = identity_directive(line) else { continue };
         let value = value.trim().to_string();
         match field.trim() {
             "name" => name = Some(IdentityChange::Name(value)),
@@ -166,6 +165,22 @@ pub fn parse_identity_directives(output: &str) -> Vec<IdentityChange> {
         }
     }
     [name, soul, personality].into_iter().flatten().collect()
+}
+
+/// Model output with every `[identity:*]` control line removed. Channels
+/// publish from this text, so an identity edit (field and value) never leaks
+/// into a reply, wherever it sits relative to `[reply:…]` lines.
+pub fn publishable_text(output: &str) -> String {
+    output
+        .lines()
+        .filter(|line| identity_directive(line).is_none())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The one definition of an identity control line: `[identity:<field>] value`.
+fn identity_directive(line: &str) -> Option<(&str, &str)> {
+    line.trim().strip_prefix("[identity:")?.split_once(']').map(|(f, v)| (f.trim(), v))
 }
 
 fn clean(value: &str, max_chars: usize, single_line: bool) -> Option<String> {
