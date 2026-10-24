@@ -1,25 +1,40 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-25（C07 修复与 C01 独立复核分列；以下明确区分当前与历史证据）**
+**更新时间：2026-10-25（C17 PR40 已合入；C07/C01 与完整包剩余义务分列）**
 
 ## C17 PR40 focused repair（2026-10-25；非完整包完成）
 
 - 本轮 assign/comment 身份 cyjin-yl；Git base main `04c09a4051ba8641ef50265ee572aa373ab453bc`，
   branch `fix/c17-store-ownership-evidence-20261025`，
   [PR40](https://github.com/cyjin-yl/shenko/pull/40)，产品 `453fff7e754e46af920dc7fcbc46c9321f41d819`。
-  当前为已发布候选，最终实际PR/merge状态由GitHub读回与issue22交付comment记录，不预填成功。
+  **已实际ready并normal merge**：交付head `b17ec86f65ec7e082de74efec356c68e3a28f643`，merge/独立读回main
+  `d593acfff33f1fa0f881be2497ee47f6784f396d`。该main完整tree等于已测候选；不是仅有本地代码。
+  [实际交付comment](https://github.com/cyjin-yl/shenko/issues/22#issuecomment-6388655564)。GitHub CI checks=0，不冒称CI绿灯。
 - 修复PR37引入的两项P2：未知数据库先immutable只读识别，不再因文件名/user_version=0改写；
   只迁移完整匹配的已初始化v1，保留十张旧表内容和身份/账本/seq；认证已知schema的完整
   receipt/source先独立E1，再判断task/T2，unassociated/invalid可在无模型重开后有限导出。
 - 两条继承旅程、十五项既有相关Rust tests的适用版本、实际source/binary/schema/hash、
   receipt/原日志/失败边界见[修复证据](../evidence/c17-ownership-evidence-repair-20261025.json)。
   场景仍为同一受管容器内独立逻辑节点+真实OpenSSH，不是物理双机/LLM/选主/掉电验收。
+  最终build与两条旅程exit0；15项原相关tests在7cf04bd实过，最终仅schema过滤字面修正，
+  那15项包输入实核未变，未无谓重编/假称重跑。docs/fmt/diff exit0。错误计算predicate分支
+  只做静态E1边界确认，不伪称另注入一次故障。自有sshd/proxy均停，连接errno111。
 - 本轮未改C01/C22代码。#6 ledger_id/seq重开P1仍存在；主控已在#6认领S1后durable
   dispatcher，勿在其相同候选重复写。下一行为包为C01持续账本/dispatch→#12真实child/T2
   →#22 registry/成员authority。未知schemaIngress、自动pending协调、全部异构平台、
   A42/A47/A48/A49和7/30天原义务保留；#6/#12/#22及完整goal均不关闭。
 - 独立候选 `/tmp/shenko-c17-repair-LzjgwLDo/repo`；原共享源/原worktrees/旧fixtures未写入或删除，
   Cargo使用共享flock、单job、关闭incremental；只使用本次loopback fixture，无陌生设备部署。
+
+### 本次独立读回的关联PR状态
+
+| issue / slice | 实际PR状态 | 交付/merge事实 |
+| --- | --- | --- |
+| #6 C01 | PR28 OPEN/DRAFT | head `ee9a3e009bec6d32437fec5cb9fbc26557d23204`；没有真实merge SHA，恢复/outbox及ledger P1不因C17完成 |
+| #12 C07 | PR33、35 MERGED | parent merge `54d6ae5c0a870eee8640d2deb0e89854ae6dc1ae`；repair merge `94b8c5c2b03daaa7f3f73892e963479021ea6e24`；production child/T2仍欠 |
+| #22 C17 | PR37、40 MERGED | first slice merge `012a3f6285210888ce1c5bbb0e23397ab9cfbfd3`；本修复merge `d593acfff33f1fa0f881be2497ee47f6784f396d`；#22仍OPEN |
+
+这里是本次checkpoint时的真实远端观察，不将后续docs commit当未验证的新产品；完整S1–S5未完成。
 
 ## C07 当前可取修复与接续（2026-10-25）
 
