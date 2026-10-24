@@ -153,5 +153,20 @@
     "Armed/Unknown never auto resend; historical unlinked effects need explicit reconciliation. Original raw/receipt and mixed-ledger provenance preserved.",
     "Durable physical compute, submission/chunk-stream, provider query/cancel, complete child ownership/authority and formal S1–S5 remain open."
   ],
-  "authorship": "Original seven PR29 commits preserved; wrong-author c62081b/9a4f935/3e6ad79 are not ancestors. New local commits use raw cyjin-yl author and committer with AI coauthor trailer."
+  "authorship": "Original seven PR29 commits preserved; wrong-author c62081b/9a4f935/3e6ad79 are not ancestors. New local commits use raw cyjin-yl author and committer with AI coauthor trailer.",
+  "delivery": {
+    "status": "actually_merged_and_independently_read_back",
+    "child_pr": 41,
+    "child_merge": "e7e26a6bd799584b98982cb859da3328cf0634e7",
+    "integration_pr": 38,
+    "delivered_pr_head": "5c8cb8c3a00d37ab8e0fcb3b5c2501ae38c4cd0b",
+    "main_merge": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
+    "main_tree": "1aa5e100f7b40e93054992669a61af7720e636a9",
+    "main_readback": "Authenticated GitHub branches/main plus independent dev-container git fetch agree. Source inputs equal built/replayed 21696156.",
+    "issue6_comment": "https://github.com/cyjin-yl/shenko/issues/6#issuecomment-6388977029",
+    "issue5_comment": "https://github.com/cyjin-yl/shenko/issues/5#issuecomment-6388977315",
+    "checks": 0,
+    "issues_closed": false,
+    "source_pr28": "GitHub now reports merged via original 400c66e after main received the preserved graph; not independently merged bad parent first."
+  }
 }

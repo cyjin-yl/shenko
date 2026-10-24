@@ -8,13 +8,13 @@
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
   "branch": "main",
-  "head_commit": "d593acfff33f1fa0f881be2497ee47f6784f396d",
-  "pr_url": "https://github.com/cyjin-yl/shenko/pull/40",
+  "head_commit": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
+  "pr_url": "https://github.com/cyjin-yl/shenko/pull/38",
   "claude_session_id": null,
   "active_workers": [],
   "blockers": [],
   "next_actions": [
-    "Publish/independently read back PR38 broader integration; PR41 is merged into its actual corrected parent at e7e26a6, not yet a full C01/C22 completion claim.",
+    "Continue from actual merged C01/C22 product baseline9d6c1af (PR38; child PR41 merged at e7e26a6); complete native durable child admission/handler -> C07/T2 and remaining authority/cancel/residual coordination. This is not full C01/C22 completion.",
     "Use durable native Pending TaskRecord -> production child admission/handler -> C07/T2, current authority/ancestor cancel/node fencing and residual supervisor; do not add a parallel task/outbox path.",
     "Historical unknown/unlinked postcommit effects and mixed-ledger provenance remain explicit reconciliation work, never unconditional replay.",
     "Full physical compute/submission/chunk-stream, production provider query/cancel, QQ/model/child and all remaining S1–S5/7–30-day obligations stay open; #5/#6/#12/#22 remain open.",
@@ -43,10 +43,13 @@
     "integration_pr": 38,
     "main_input": "011cce9b81cb3a14306c9bd9aae451742f2f6bf2",
     "product_candidate": "2169615684c30c5e2d8ef76e12090303c781d595",
-    "status": "child_merged_parent_combination_verified_pending_delivery_readback",
+    "status": "focused_slice_verified_pushed_and_merged",
     "full_work_package_complete": false,
     "full_goal_complete": false,
-    "evidence": "docs/evidence/c01-committed-intent-handoff-20261025.json"
+    "evidence": "docs/evidence/c01-committed-intent-handoff-20261025.json",
+    "delivered_pr_head": "5c8cb8c3a00d37ab8e0fcb3b5c2501ae38c4cd0b",
+    "merge_commit": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
+    "remote_main_observed_at_checkpoint": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330"
   },
   "checkpoints": {
     "previous_C17": {
