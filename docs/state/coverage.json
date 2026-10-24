@@ -1909,14 +1909,34 @@
         "B14"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
-      "blockers": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "implemented",
+        "buildable",
+        "simulated"
+      ],
+      "acceptance_case_ids": [
+        "A44",
+        "V1-12"
+      ],
+      "implementation_refs": [
+        "crates/shenko-context-policy/src/window.rs",
+        "crates/shenko-compact-budget/src/lib.rs",
+        "crates/shenko-compact-snap/src/lib.rs",
+        "crates/shenko-compact-snap/src/render.rs"
+      ],
+      "evidence_refs": [
+        "crates/shenko-compact-budget/tests/budget_plugin.rs",
+        "crates/shenko-compact-snap/tests/independent_plugins.rs"
+      ],
+      "blockers": [
+        "原始历史仍为进程内 MemoryHistory，待 #6 ledger / #14 history child 适配",
+        "正式主循环尚未调用 ContextPolicy",
+        "真实 KV/prefill 与视觉阅读正确率未测",
+        "BMP 外字符（emoji 等）无字形，按记录判不可读并回退"
+      ],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C20 切片1：budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG；窗口保留原始引用/未完成调用单元，前缀复用按逐项相同计算。成本中 vision token 为 patch 估算，非实测。 帧字形为 GNU Unifont 15.1.05（BMP 全覆盖，CJK 16×16），中英数字路径混排人工目检可读；模型读图正确率未测。"
     },
     {
       "requirement_id": "R116",
@@ -1926,14 +1946,31 @@
         "B27"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
-      "blockers": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "implemented",
+        "buildable",
+        "simulated"
+      ],
+      "acceptance_case_ids": [
+        "A45",
+        "V1-12"
+      ],
+      "implementation_refs": [
+        "crates/shenko-context-policy/src/registry.rs",
+        "crates/shenko-compact-budget/src/lib.rs",
+        "crates/shenko-compact-snap/src/lib.rs"
+      ],
+      "evidence_refs": [
+        "crates/shenko-compact-budget/tests/budget_plugin.rs",
+        "crates/shenko-compact-snap/tests/independent_plugins.rs"
+      ],
+      "blockers": [
+        "包管理器层面的安装/更新（manifest 依赖解析、包闭包）待 #10/#8",
+        "未在正式运行时或真实模型上启用"
+      ],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C20 切片1：两个独立 cordis Plugin，经已合入 PluginRegistry 分别 spawn/restart/dispose；替换后旧 epoch 窗口提交被拒；卸载后已提交窗口仍可物化。无视觉/帧不可读时报告并回退 budget。"
     },
     {
       "requirement_id": "R117",
