@@ -136,6 +136,7 @@ pub struct WsState {
     pub outbox_tx: Option<std::sync::Arc<broadcast::Sender<OutboxMessage>>>,
     /// Live connection/subject facts shared with `/api/self`.
     pub live: Arc<LiveStatus>,
+    pub store: Option<Arc<shenko_store::Store>>,
 }
 
 impl WsState {
@@ -146,6 +147,7 @@ impl WsState {
             inbox_tx: None,
             outbox_tx: None,
             live: Arc::new(LiveStatus::new()),
+            store: None,
         }
     }
 
@@ -156,6 +158,7 @@ impl WsState {
             inbox_tx: Some(std::sync::Arc::new(inbox_tx)),
             outbox_tx: None,
             live: Arc::new(LiveStatus::new()),
+            store: None,
         }
     }
 
@@ -232,6 +235,8 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     }
 
     let mut identity_revision: Option<u64> = None;
+    let mut committed_seq = 0u64;
+    let mut history = std::collections::VecDeque::new();
     loop {
         tokio::select! {
             // Subject broadcasts → all WS clients
@@ -249,7 +254,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                 }
             }
             // Subject model output → every connected client. SPEC §5.1, §21.12
-            out = recv_outbox(&mut outbox_rx) => {
+            out = recv_committed(&state, &mut committed_seq, &mut history, &mut outbox_rx) => {
                 match out {
                     Some(out) => {
                         // Identity revisions change mid-session (self naming,
@@ -337,5 +342,33 @@ async fn recv_outbox(rx: &mut Option<broadcast::Receiver<OutboxMessage>>) -> Opt
             }
         },
         None => std::future::pending().await,
+    }
+}
+
+async fn recv_committed(
+    state: &WsState,
+    seq: &mut u64,
+    history: &mut std::collections::VecDeque<OutboxMessage>,
+    wake: &mut Option<broadcast::Receiver<OutboxMessage>>,
+) -> Option<OutboxMessage> {
+    let Some(store) = &state.store else {
+        return recv_outbox(wake).await;
+    };
+    loop {
+        if let Some(out) = history.pop_front() {
+            *seq = out.commit_ref.seq.0;
+            state.live.record_outbox(out.step);
+            return Some(out);
+        }
+        match shenko_subject::outbox::committed_after(store, *seq, 64) {
+            Ok(messages) => history.extend(messages),
+            Err(e) => {
+                tracing::error!(err=%e,"committed timeline read failed; no guessed replay");
+                return None;
+            }
+        }
+        if history.is_empty() {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
     }
 }

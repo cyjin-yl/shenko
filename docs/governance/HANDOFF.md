@@ -1,6 +1,16 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-25（C01 独立复核；以下明确区分当前与历史证据）**
+**更新时间：2026-10-25（C07 修复与 C01 独立复核分列；以下明确区分当前与历史证据）**
+
+## C07 当前可取修复与接续（2026-10-25）
+
+- **最终远端交付已独立读回**：子 PR35 实际 MERGED，merge=`94b8c5c2b03daaa7f3f73892e963479021ea6e24`；父 PR33 实际 MERGED main，merge/可取产品基线=`54d6ae5c0a870eee8640d2deb0e89854ae6dc1ae`。该 main 的全部 tracked Rust/Cargo/helper 输入 SHA256=`f5a91f75ff5ad722f356e54e7d9b5a378e6e41ca569e8f861d5a16faff64c929`，与已验证组合候选一致；没有把 PR 接口缓存的 base SHA 当当前 main。交付评论见 [#12 checkpoint](https://github.com/cyjin-yl/shenko/issues/12#issuecomment-6388000869)。
+- **下一动作与包边界**：#12 保持 OPEN/assign `cyjin-yl`；在真实 C01 outbox/task 接口上推进 production child/T2、authority/ancestor/node fencing 和 residual supervisor，并独立完成 seat/TUI/OMP/Claude/public-key UI/WASM。PR28 仍 OPEN/DRAFT，不是本轮完成前置恢复的证据；11 个完整 C07 case 与 #22 第二节点验收不据此通过。后续纯文档提交不改变上述产品输入；共享源未同步或回灌。
+
+- [#12](https://github.com/cyjin-yl/shenko/issues/12) assign `cyjin-yl`；自有 `stack/c07-remote-exec` / [PR35](https://github.com/cyjin-yl/shenko/pull/35)，真实 Git 父 [PR33](https://github.com/cyjin-yl/shenko/pull/33) @ `727b96473835c4d2928a704ed7023d6995359740`。产品修复已 push `3846e9d8421e31fa01adeaf077e9864487dc5ff3`；这里不覆盖下方 C01 未解决的 P1，也不把语义前置当已验收。
+- 五项 runner/store 阻塞已有实际修复与证据：排队写入的失败封闭、共用 seq/commit 排序、CAS 迁移后 host trust、upload 原子 0600、不可被重复 receipt 清除的持久 outcome 冲突。原 13 tests、build/check、真实隔离 SSH 旅程、SQLite 故障/并发与重开组合均成功；无新仓库测试。旧 helper receipt 的独立备份可查询，不盲重发。
+- 已组合真实 main `98af8144788c5197dfe9289800127066d9ab5700`，本地 verification SHA `1dfa8252e56d0115f55316f53c3e04fde7e9fa5e` 的 application check/example build exit 0。原始输入/日志/范围见 [C07 修复证据](../evidence/c07-ssh-repair-20261025.json)、[任务卡](../tasks/C07.md)；PR 的实际 mergeCommit 和 issue 交付 comment 记录最终合入状态，不能以候选 SHA 冒充 main 已同步。
+- 接续副本 `/tmp/shenko-c07-repair-owzisjCq/repo`；Cargo 仍共享 flock、单 job、关闭 incremental。自有 sshd 已下线、临时 keys/receipts/日志保留；共享源与原 worktrees 未写入/删除。下一个行为切片是 production durable outbox/child scheduler→SSH/T2、归属/authority/祖先取消/node fencing 与 residual supervisor；完整 seat/OMP/Claude/TUI/WASM/第二物理节点和长跑未交付。baseline ledger identity/reopen 连续性、SQLite 3.46.0 WAL-reset/CAS 掉电保证仍有缺口。#12 与全产品均不标 complete。
 
 ## 当前 checkpoint：PR28 仍为 Draft，不能合入
 

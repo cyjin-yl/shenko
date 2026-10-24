@@ -44,6 +44,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     if let Err(e) = apply_memory_fts(conn) {
         tracing::warn!(error = %e, "FTS5 unavailable; memory search will use LIKE fallback");
     }
+    conn.execute_batch(crate::intents::SCHEMA)?;
     Ok(())
 }
 
