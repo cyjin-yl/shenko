@@ -1410,8 +1410,11 @@ a{color:inherit}
       /* A new identity revision reached the timeline: re-read the real
          profile instead of keeping the name from page load. */
       if (d.type === 'identity') {
-        var shown = selfData && selfData.identity ? selfData.identity.revision : null;
-        if (d.revision !== shown) fetchSelf();
+        if (typeof d.revision === 'number' &&
+            (wantedIdentityRev === null || d.revision > wantedIdentityRev)) {
+          wantedIdentityRev = d.revision;
+        }
+        if (shownIdentityRev === null || shownIdentityRev < wantedIdentityRev) fetchSelf();
         return;
       }
       if (d.type === 'thought') { handleThought(d); return; }
@@ -1442,8 +1445,17 @@ a{color:inherit}
   }
 
   /* The self panel shows the instance's own name (SPEC §6); the nav brand
-     stays the framework's. Unnamed instances keep a neutral mark. */
+     stays the framework's. Unnamed instances keep a neutral mark.
+     Revisions only move forward: a late response for an older revision
+     never replaces a newer one already shown. */
+  var shownIdentityRev = null;   // revision currently rendered
+  var wantedIdentityRev = null;  // newest revision announced over WS
+  var identityRetry = null;
+  var identityRetryDelay = 1000;
   function applyIdentity(identity) {
+    var rev = identity && typeof identity.revision === 'number' ? identity.revision : null;
+    if (rev !== null && shownIdentityRev !== null && rev < shownIdentityRev) return;
+    if (rev !== null) shownIdentityRev = rev;
     var name = identity && identity.display_name ? String(identity.display_name) : '';
     var nameEl = document.getElementById('panel-name');
     if (nameEl) nameEl.textContent = name || '未命名';
@@ -1760,10 +1772,27 @@ a{color:inherit}
     });
   }
 
+  /* An announced revision is retried with backoff until it is actually
+     loaded, so one failed HTTP refresh cannot strand the old name while the
+     socket stays healthy and sends no further identity notes. */
+  function ensureIdentityLoaded() {
+    var behind = wantedIdentityRev !== null &&
+      (shownIdentityRev === null || shownIdentityRev < wantedIdentityRev);
+    if (!behind) { identityRetryDelay = 1000; return; }
+    if (identityRetry) return;
+    identityRetry = setTimeout(function () { identityRetry = null; fetchSelf(); }, identityRetryDelay);
+    identityRetryDelay = Math.min(identityRetryDelay * 2, 30000);
+  }
+
+  var selfSeq = 0;      // last request issued
+  var selfApplied = 0;  // newest request whose response was applied
   function fetchSelf() {
+    var seq = ++selfSeq;
     selfState = 'loading';
     renderArtifacts();
     getJSON('/api/self').then(function (d) {
+      if (seq < selfApplied) return;  // a newer response already landed
+      selfApplied = seq;
       if (!d || d.available === false) { selfState = 'unavailable'; selfData = null; }
       else {
         selfState = 'ok'; selfData = d;
@@ -1785,11 +1814,14 @@ a{color:inherit}
       }
       renderDevices();
       renderArtifacts();
+      ensureIdentityLoaded();
     }).catch(function () {
+      if (seq < selfApplied) return;
       selfState = 'unavailable';
       selfData = null;
       renderDevices();
       renderArtifacts();
+      ensureIdentityLoaded();
     });
   }
 
