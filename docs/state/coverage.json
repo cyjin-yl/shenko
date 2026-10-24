@@ -1930,7 +1930,7 @@
         "crates/shenko-compact-snap/tests/independent_plugins.rs"
       ],
       "blockers": [
-        "main 原始历史仍为进程内 MemoryHistory；朋友已推 StoreHistory checkpoint 01392e6 尚未合入，#6 会话写入口/执行状态关联和 #14 history child 仍待接续",
+        "main 原始历史仍为进程内 MemoryHistory；朋友已推 HistorySource/WindowLog checkpoint a3b2af2 尚未合入或独立复核，#6 会话写入口/执行状态关联和 #14 history child 仍待接续",
         "正式主循环尚未调用 ContextPolicy",
         "真实 KV/prefill 与视觉阅读正确率未测",
         "BMP 外字符（emoji 等）无字形，按记录判不可读并回退"
