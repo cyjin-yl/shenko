@@ -119,6 +119,14 @@ impl Store {
         entry: &MemoryEntry,
         intent_id: Option<EntityId>,
     ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_commit_entry(entry, intent_id), |_| true)
+    }
+
+    fn try_commit_entry(
+        &self,
+        entry: &MemoryEntry,
+        intent_id: Option<EntityId>,
+    ) -> Result<CommitReceipt, ShenkoError> {
         let seq = {
             let mut s = self.ledger.next_seq.lock();
             let cur = *s;
@@ -205,6 +213,10 @@ impl Store {
 
     /// Persist an accepted intent (state = "accepted") before it is processed.
     pub fn insert_memory_intent(&self, rec: &MemoryIntentRecord) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(|| self.try_insert_memory_intent(rec), |_| true)
+    }
+
+    fn try_insert_memory_intent(&self, rec: &MemoryIntentRecord) -> Result<(), ShenkoError> {
         let conn = self.ledger.conn.lock();
         conn.execute(
             "INSERT OR REPLACE INTO memory_intents
@@ -245,6 +257,14 @@ impl Store {
 
     /// Mark an intent failed with a human-readable reason.
     pub fn fail_memory_intent(
+        &self,
+        intent_id: EntityId,
+        reason: &str,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(|| self.try_fail_memory_intent(intent_id, reason), |_| true)
+    }
+
+    fn try_fail_memory_intent(
         &self,
         intent_id: EntityId,
         reason: &str,

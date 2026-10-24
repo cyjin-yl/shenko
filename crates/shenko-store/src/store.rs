@@ -78,6 +78,15 @@ impl Store {
         head: &shenko_types::subject::SubjectBranchHead,
         first_step: &shenko_types::subject::SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_initialize_genesis(genesis, head, first_step), |_| true)
+    }
+
+    fn try_initialize_genesis(
+        &self,
+        genesis: &shenko_types::subject::SubjectGenesis,
+        head: &shenko_types::subject::SubjectBranchHead,
+        first_step: &shenko_types::subject::SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
         use rusqlite::params;
         use shenko_types::commit::{CommitRef, UpdatedEntity};
 
@@ -135,6 +144,13 @@ impl Store {
         &self,
         step: &shenko_types::subject::SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_upsert_step(step), |_| true)
+    }
+
+    fn try_upsert_step(
+        &self,
+        step: &shenko_types::subject::SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
         use rusqlite::params;
         use shenko_types::commit::{CommitRef, UpdatedEntity};
 
@@ -174,6 +190,17 @@ impl Store {
     /// Atomically commit a step AND advance the branch head in one SQL transaction.
     /// SPEC §41.2.1 (single mutation line), §44.6 (head tracks committed step + next step).
     pub fn commit_step_and_advance_head(
+        &self,
+        step: &shenko_types::subject::SubjectStep,
+        head_agent_id: shenko_types::ids::EntityId,
+        head_branch_id: shenko_types::ids::BranchId,
+        next_step_id: shenko_types::ids::EntityId,
+        head_record_revision: shenko_types::ids::RecordRevision,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_commit_step_and_advance_head(step, head_agent_id, head_branch_id, next_step_id, head_record_revision), |_| true)
+    }
+
+    fn try_commit_step_and_advance_head(
         &self,
         step: &shenko_types::subject::SubjectStep,
         head_agent_id: shenko_types::ids::EntityId,
