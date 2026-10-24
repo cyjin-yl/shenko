@@ -2,13 +2,30 @@
 //! Only a pure blake3 child is implemented: no arbitrary external effects, no
 //! model/secret synchronization, no competing subject loop or background daemon.
 use anyhow::{Context, Result, ensure};
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::{commit::CommitRef, ids::*, object::*, task::*};
 use std::path::Path;
 
-const SCHEMA: u32 = 1;
+const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
+const STORAGE_SCHEMA: u32 = 2;
+const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
+const NODE_TABLES: &str = "
+CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
+CREATE TABLE commands(id TEXT PRIMARY KEY,seal TEXT NOT NULL,result TEXT NOT NULL);
+CREATE TABLE members(node TEXT PRIMARY KEY,data TEXT NOT NULL);
+CREATE TABLE tasks(id TEXT PRIMARY KEY,data TEXT NOT NULL);
+CREATE TABLE work(task TEXT NOT NULL,epoch TEXT NOT NULL,seal TEXT NOT NULL,result TEXT,PRIMARY KEY(task,epoch));
+CREATE TABLE events(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,source TEXT NOT NULL,digest TEXT NOT NULL,data TEXT NOT NULL);
+CREATE TABLE conflicts(seq INTEGER PRIMARY KEY,id TEXT NOT NULL,data TEXT NOT NULL);
+CREATE TABLE results(task TEXT PRIMARY KEY,data TEXT NOT NULL);
+CREATE TABLE objects(digest TEXT PRIMARY KEY,bytes BLOB NOT NULL);
+CREATE TABLE assignments(task TEXT NOT NULL,epoch TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(task,epoch));";
+const RECEIPT_TABLE: &str = "CREATE TABLE receipts(seq INTEGER PRIMARY KEY AUTOINCREMENT,source TEXT NOT NULL,event_id TEXT NOT NULL,digest TEXT NOT NULL,task TEXT NOT NULL,data TEXT NOT NULL,status TEXT NOT NULL,reason TEXT,UNIQUE(source,event_id,digest));";
+
 const KIND: &str = "node.blake3.v1";
 fn contract() -> Digest {
     Digest::blake3(b"node.blake3.v1:pure:bytes->blake3:no-external-effects")
@@ -133,6 +150,10 @@ pub enum Request {
         after: String,
         limit: u32,
     },
+    ExportReceipts {
+        after: String,
+        limit: u32,
+    },
 }
 
 pub struct Node {
@@ -156,16 +177,54 @@ impl Node {
             "private nonsymlink data directory required"
         );
         let db = dir.join("node.sqlite3");
-        if !db.exists() {
+        for entry in std::fs::read_dir(dir)? {
+            let entry = entry?;
             ensure!(
-                std::fs::read_dir(dir)?.next().is_none(),
+                [
+                    "node.sqlite3",
+                    "node.sqlite3-journal",
+                    "node.sqlite3-wal",
+                    "node.sqlite3-shm"
+                ]
+                .iter()
+                .any(|name| entry.file_name() == *name)
+                    && entry.file_type()?.is_file(),
                 "non-installation data present; choose a new directory"
             );
         }
-        let conn = Connection::open(db)?;
+        let existing = db.try_exists()?;
+        if existing {
+            // immutable prevents even a read-only SQLite open from creating WAL
+            // sidecars or recovering another application's journal during preflight.
+            let readonly = Connection::open_with_flags(
+                readonly_uri(&db)?,
+                OpenFlags::SQLITE_OPEN_READ_ONLY
+                    | OpenFlags::SQLITE_OPEN_URI
+                    | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+            )?;
+            validate_installation(&readonly)?;
+        } else {
+            ensure!(
+                std::fs::read_dir(dir)?.next().is_none(),
+                "non-installation data present"
+            );
+            use std::os::unix::fs::OpenOptionsExt;
+            // Never follow a replacement symlink or adopt an existing empty DB.
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&db)?;
+        }
+        let mut conn = Connection::open_with_flags(
+            &db,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        // Separate local DB per node. Explicit process_crash profile; do not
-        // inherit baseline WAL/power-loss claims from an unverified build.
+        if existing {
+            validate_installation(&conn)?;
+        }
+        // Only our new file or a validated installation may reach persistent PRAGMAs.
         conn.execute_batch(
             "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
@@ -177,20 +236,20 @@ impl Node {
             "node storage profile not adopted"
         );
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        ensure!(version == 0 || version == SCHEMA, "unsupported node schema");
-        if version == 0 {
-            conn.execute_batch("BEGIN IMMEDIATE;
-            CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS commands(id TEXT PRIMARY KEY,seal TEXT NOT NULL,result TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS members(node TEXT PRIMARY KEY,data TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,data TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS work(task TEXT NOT NULL,epoch TEXT NOT NULL,seal TEXT NOT NULL,result TEXT,PRIMARY KEY(task,epoch));
-            CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,source TEXT NOT NULL,digest TEXT NOT NULL,data TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS conflicts(seq INTEGER PRIMARY KEY,id TEXT NOT NULL,data TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS results(task TEXT PRIMARY KEY,data TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS objects(digest TEXT PRIMARY KEY,bytes BLOB NOT NULL);
-            CREATE TABLE IF NOT EXISTS assignments(task TEXT NOT NULL,epoch TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(task,epoch));
-            PRAGMA user_version=1; COMMIT;")?;
+        if version != STORAGE_SCHEMA {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            if !existing {
+                tx.execute_batch(NODE_TABLES)?;
+            } else {
+                // The exact v1 fingerprint and durable identities were validated
+                // read-only. Preserve all existing rows, identities and ledger seq.
+                validate_installation(&tx)?;
+            }
+            tx.execute_batch(RECEIPT_TABLE)?;
+            set(&tx, "installation", &EntityId::new())?;
+            tx.pragma_update(None, "application_id", APPLICATION_ID)?;
+            tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
+            tx.commit()?;
         }
         Ok(Self {
             conn,
@@ -498,6 +557,32 @@ impl Node {
                     json!({"events":events,"through":cursor,"profile":"process_crash","scope":"native_node_journey_only"}),
                 )
             }
+            Request::ExportReceipts { after, limit } => {
+                ensure!((1..=128).contains(&limit), "export limit 1..128");
+                let after = number(&after)?;
+                let mut stmt = self.conn.prepare(
+                    "SELECT seq,data,status,reason FROM receipts WHERE seq>?1 ORDER BY seq LIMIT ?2",
+                )?;
+                let rows = stmt
+                    .query_map(params![i64::try_from(after)?, limit], |r| {
+                        Ok((
+                            r.get::<_, i64>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, String>(2)?,
+                            r.get::<_, Option<String>>(3)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                let through = rows
+                    .last()
+                    .map(|r| r.0.to_string())
+                    .unwrap_or(after.to_string());
+                let receipts = rows.into_iter().map(|(seq, data, status, reason)| {
+                    Ok(json!({"seq":seq.to_string(), "receipt":serde_json::from_str::<Value>(&data)?,
+                        "status":status, "reason":reason}))
+                }).collect::<Result<Vec<_>>>()?;
+                Ok(json!({"receipts":receipts,"through":through,"profile":"process_crash"}))
+            }
         }
     }
     fn execute(&mut self, lease: Ticket, input: Vec<u8>) -> Result<Value> {
@@ -619,17 +704,39 @@ impl Node {
         );
         number(&ev.raw.local_seq)?;
         number(&ev.raw.epoch)?;
+        // E1 is independently committed before any task lookup or settlement
+        // predicate. A later T2 rejection/storage failure cannot erase the source.
         let fresh = append_event(&tx, ev)?;
+        let receipt_digest = digest(&receipt)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO receipts(source,event_id,digest,task,data,status) VALUES(?1,?2,?3,?4,?5,'pending')",
+            params![from.to_string(),ev.raw.event_id.to_string(),receipt_digest.0,
+                lease.task_id.to_string(),text(&receipt)?],
+        )?;
+        let receipt_seq: i64 = tx.query_row(
+            "SELECT seq FROM receipts WHERE source=?1 AND event_id=?2 AND digest=?3",
+            params![
+                from.to_string(),
+                ev.raw.event_id.to_string(),
+                receipt_digest.0
+            ],
+            |r| r.get(0),
+        )?;
         if fresh == "conflict" {
-            tx.commit()?;
-            return Ok(json!({"status":"event_conflict","accepted":false}));
+            return evidence_only(tx, receipt_seq, "invalid", "event_conflict");
         }
-        let mut t = task(&tx, lease.task_id)?.context("task missing")?;
+        tx.commit()?;
+
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let Some(mut t) = task(&tx, lease.task_id)? else {
+            return evidence_only(tx, receipt_seq, "unassociated", "task_missing");
+        };
         let expected_payload = json!({"kind":KIND,"task_id":lease.task_id,"input_digest":lease.input_digest,"output_digest":receipt.output_digest,"invocation_id":lease.invocation_id,"contract_digest":lease.contract_digest});
-        ensure!(
-            ev.raw.payload == expected_payload && ev.raw.causal_parents == vec![lease.task_id],
-            "result transcript mismatch"
-        );
+        if ev.raw.payload != expected_payload || ev.raw.causal_parents != vec![lease.task_id] {
+            return evidence_only(tx, receipt_seq, "invalid", "result_transcript_mismatch");
+        }
         // Source facts survive staleness; only the current owner may settle.
         let current = ticket(&t, &own)?;
         let valid = lease.node_id == current.node_id
@@ -644,36 +751,50 @@ impl Node {
             )
             .optional()?;
         if let Some(old) = old {
-            let same = digest(&serde_json::from_str::<ResultReceipt>(&old)?)? == digest(&receipt)?;
-            tx.commit()?;
-            return Ok(
-                json!({"status":if same {"already_settled"} else {"evidence_only_terminal"},"accepted":false}),
+            let same = digest(&serde_json::from_str::<ResultReceipt>(&old)?)? == receipt_digest;
+            return evidence_only(
+                tx,
+                receipt_seq,
+                if same { "settled" } else { "terminal" },
+                if same {
+                    "already_settled"
+                } else {
+                    "evidence_only_terminal"
+                },
             );
         }
         if !valid || t.abort_request.is_some() {
-            tx.commit()?;
-            return Ok(json!({"status":"evidence_only_stale_owner","accepted":false}));
+            return evidence_only(tx, receipt_seq, "stale_owner", "evidence_only_stale_owner");
         }
-        ensure!(
-            lease.record_revision == current.record_revision,
-            "stale record revision"
-        );
-        ensure!(
-            t.kind == KIND
-                && lease.contract_digest == contract()
-                && lease.input_digest == t.input_ref.digest,
-            "task contract/input conflict"
-        );
+        if lease.record_revision != current.record_revision {
+            return evidence_only(tx, receipt_seq, "stale_owner", "stale_record_revision");
+        }
+        if t.kind != KIND
+            || lease.contract_digest != contract()
+            || lease.input_digest != t.input_ref.digest
+        {
+            return evidence_only(tx, receipt_seq, "invalid", "task_contract_input_conflict");
+        }
         let bytes: Vec<u8> = tx.query_row(
             "SELECT bytes FROM objects WHERE digest=?1",
             [&t.input_ref.digest.0],
             |r| r.get(0),
         )?;
-        ensure!(
-            Digest::blake3(&bytes) == t.input_ref.digest
-                && receipt.output_digest == Digest::blake3(&bytes),
-            "task acceptance predicate failed"
-        );
+        if Digest::blake3(&bytes) != t.input_ref.digest {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "stored object corruption",
+            )
+            .into());
+        }
+        if receipt.output_digest != Digest::blake3(&bytes) {
+            return evidence_only(
+                tx,
+                receipt_seq,
+                "invalid",
+                "task_acceptance_predicate_failed",
+            );
+        }
         let result = seal(
             &tx,
             &serde_json::to_vec(&receipt)?,
@@ -697,6 +818,10 @@ impl Node {
         tx.execute(
             "INSERT INTO results VALUES(?1,?2)",
             params![t.task_id.to_string(), text(&receipt)?],
+        )?;
+        tx.execute(
+            "UPDATE receipts SET status='settled',reason=NULL WHERE seq=?1",
+            [receipt_seq],
         )?;
         tx.commit()?;
         Ok(
@@ -735,10 +860,79 @@ impl Node {
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         Ok(
-            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":SCHEMA,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
+            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
         )
     }
 }
+// Accept only the exact original schema plus real initialized identities for
+// v1 migration. user_version=0 and a filename never confer installation ownership.
+fn validate_installation(conn: &Connection) -> Result<u32> {
+    let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    let app: u32 = conn.query_row("PRAGMA application_id", [], |r| r.get(0))?;
+    ensure!(
+        (version == 1 && app == 0) || (version == STORAGE_SCHEMA && app == APPLICATION_ID),
+        "unrecognized node installation/application/schema"
+    );
+    let expected = Connection::open_in_memory()?;
+    expected.execute_batch(NODE_TABLES)?;
+    if version == STORAGE_SCHEMA {
+        expected.execute_batch(RECEIPT_TABLE)?;
+    }
+    fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
+        Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")?
+            .query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+    ensure!(
+        schema(conn)? == schema(&expected)?,
+        "unrecognized installation schema fingerprint"
+    );
+    fn value<T: for<'a> Deserialize<'a>>(conn: &Connection, key: &str) -> Result<T> {
+        let s: String = conn.query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))?;
+        Ok(serde_json::from_str(&s)?)
+    }
+    if version == STORAGE_SCHEMA {
+        let _: EntityId = value(conn, "installation")?;
+    } else {
+        let _: EntityId = value(conn, "node")?;
+        let _: EntityId = value(conn, "ledger")?;
+        let _: Option<Identity> = value(conn, "identity")?;
+        let _: Vec<Identity> = value(conn, "retired_identities")?;
+    }
+    Ok(version)
+}
+fn readonly_uri(db: &Path) -> Result<String> {
+    use std::os::unix::ffi::OsStrExt;
+    let db = if db.is_absolute() {
+        db.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(db)
+    };
+    let encoded: String = db
+        .as_os_str()
+        .as_bytes()
+        .iter()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"/-_.".contains(b) {
+                (*b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
+    Ok(format!("file:{encoded}?immutable=1"))
+}
+fn evidence_only(tx: Transaction<'_>, seq: i64, status: &str, reason: &str) -> Result<Value> {
+    tx.execute(
+        "UPDATE receipts SET status=?2,reason=?3 WHERE seq=?1",
+        params![seq, status, reason],
+    )?;
+    tx.commit()?;
+    Ok(
+        json!({"status":reason,"accepted":false,"evidence_seq":seq.to_string(),"classification":status}),
+    )
+}
+
 fn meta(tx: &Transaction<'_>, key: &str) -> Result<Option<String>> {
     Ok(tx
         .query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))
