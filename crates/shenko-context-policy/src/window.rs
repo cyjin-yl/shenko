@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
-use crate::history::HistorySource;
+use crate::history::{HistorySource, ItemRef};
 use crate::policy::{CostReport, Derivative, PreparedWindow, WindowBase, WindowEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,7 +22,39 @@ pub struct CommittedWindow {
     pub derivatives: Vec<Derivative>,
     /// Raw events after this seq are appended verbatim when materialized.
     pub covers_through: Option<u64>,
+    /// Model/template/encoder binding the window's input was built for.
+    pub model_generation: u64,
     pub cost: CostReport,
+}
+
+/// What actually reaches the model for one entry. Equal identities produce
+/// equal input; anything else (including an index into a different
+/// derivative list) is a different input.
+#[derive(PartialEq)]
+enum InputIdentity<'a> {
+    Raw(ItemRef, u32),
+    Pointer(u64, u64, &'a str),
+    Text(u64, u64, &'a str),
+    Image(u64, u64, &'a str, &'a str),
+}
+
+fn identities<'a>(
+    entries: &'a [WindowEntry],
+    derivatives: &'a [Derivative],
+) -> Vec<Option<InputIdentity<'a>>> {
+    entries
+        .iter()
+        .map(|entry| match entry {
+            WindowEntry::Verbatim { at, tokens } => Some(InputIdentity::Raw(*at, *tokens)),
+            WindowEntry::Pointer { from, to, note, .. } => {
+                Some(InputIdentity::Pointer(*from, *to, note))
+            }
+            WindowEntry::Text { from, to, text, .. } => Some(InputIdentity::Text(*from, *to, text)),
+            WindowEntry::Image { from, to, derivative, .. } => derivatives
+                .get(*derivative)
+                .map(|d| InputIdentity::Image(*from, *to, &d.media_type, &d.blake3)),
+        })
+        .collect()
 }
 
 impl CommittedWindow {
@@ -36,6 +68,7 @@ impl CommittedWindow {
             entries: Vec::new(),
             derivatives: Vec::new(),
             covers_through: None,
+            model_generation: 0,
             cost: CostReport::default(),
         }
     }
@@ -109,7 +142,9 @@ impl WindowLedger {
         self.state.lock().model_generation
     }
 
-    /// Record a model rebind; windows prepared for the old binding cannot commit.
+    /// Record a rebind of model weights, chat template, tokenizer or vision
+    /// encoder/processor. Windows prepared for the old binding cannot commit,
+    /// and no prefix built under it counts as reusable.
     pub fn set_model_generation(&self, generation: u64) {
         self.state.lock().model_generation = generation;
     }
@@ -150,18 +185,26 @@ impl WindowLedger {
             entries: prepared.entries,
             derivatives: prepared.derivatives,
             covers_through: Some(prepared.base.leaf_seq),
+            model_generation: prepared.base.model_generation,
             cost: prepared.cost,
         };
         let next = window.materialize(history);
-        let reused: u32 = previous
-            .iter()
-            .zip(&next)
-            .take_while(|(a, b)| a == b)
-            .map(|(_, b)| b.tokens())
-            .sum();
+        // Reusable only when the binding is unchanged and the final input of
+        // each leading entry is identical, derivative bytes included.
+        let reused: u32 = if current.model_generation == window.model_generation {
+            identities(&previous, &current.derivatives)
+                .into_iter()
+                .zip(identities(&next, &window.derivatives))
+                .zip(&next)
+                .take_while(|((a, b), _)| a.is_some() && a == b)
+                .map(|(_, entry)| entry.tokens())
+                .sum()
+        } else {
+            0
+        };
         let total: u32 = next.iter().map(WindowEntry::tokens).sum();
-        window.cost.reused_prefix_tokens = reused;
-        window.cost.computed_prefill_tokens = total - reused;
+        window.cost.reusable_prefix_tokens = reused;
+        window.cost.recompute_tokens = total - reused;
         state.windows.push(window.clone());
         Ok(window)
     }

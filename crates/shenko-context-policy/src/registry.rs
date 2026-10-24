@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::history::{HistoryItem, HistorySource};
 use crate::policy::{
     Availability, ContextInput, ContextPolicy, ModelCaps, PolicyError, PolicyManifest,
-    PreparedWindow, WindowBase,
+    PreparedWindow, WindowBase, WindowEntry,
 };
 use crate::window::{CommitError, CommittedWindow, WindowLedger};
 
@@ -125,25 +125,39 @@ impl PolicyRegistry {
     }
 
     /// Whether the first usable strategy wants a new window now.
-    pub fn should_compact(&self, items: &[HistoryItem], caps: &ModelCaps, used_tokens: u32) -> bool {
+    pub fn should_compact(&self, history: &dyn HistorySource, caps: &ModelCaps, used_tokens: u32) -> bool {
+        let items = raw_items(history);
         self.candidates()
             .into_iter()
             .find(|(p, _, _)| !matches!(p.availability(caps), Availability::Unavailable(_)))
             .is_some_and(|(policy, _, epoch)| {
-                let input = ContextInput { base: self.base(items, epoch), items, caps, used_tokens };
+                let input =
+                    ContextInput { base: self.base(&items, epoch), items: &items, caps, used_tokens };
                 policy.should_compact(&input)
             })
     }
 
     /// Prepare with the preferred usable strategy, falling back on unavailable,
-    /// non-shrinking, over-limit or unreadable results. Never loops on itself.
-    /// No registry lock is held while strategy code runs.
+    /// non-shrinking, over-limit or unreadable results. No registry lock is
+    /// held while strategy code runs.
+    ///
+    /// Gain is judged against the window the model sees now, not the raw
+    /// history: a window must be at least [`MIN_GAIN_RATIO`] smaller than the
+    /// current materialized window. Re-cutting the same raw history into the
+    /// same (or a marginally smaller) window costs a full prefill for no
+    /// benefit, so it is refused instead of repeated whenever the trigger
+    /// still fires.
     pub fn prepare(
         &self,
-        items: &[HistoryItem],
+        history: &dyn HistorySource,
         caps: &ModelCaps,
         used_tokens: u32,
     ) -> Result<(PreparedWindow, Vec<Attempt>), NoUsablePolicy> {
+        let items = raw_items(history);
+        let items = &items[..];
+        let current: u32 =
+            self.ledger.current().materialize(history).iter().map(WindowEntry::tokens).sum();
+        let ceiling = current - (current as f32 * MIN_GAIN_RATIO) as u32;
         let mut attempts = Vec::new();
         for (policy, manifest, epoch) in self.candidates() {
             if let Availability::Unavailable(reason) = policy.availability(caps) {
@@ -162,7 +176,7 @@ impl PolicyRegistry {
                 };
                 if window.cost.window_tokens > limit {
                     Err(PolicyError::OverBudget { window: window.cost.window_tokens, limit })
-                } else if window.cost.window_tokens >= window.cost.source_tokens {
+                } else if window.cost.window_tokens > ceiling {
                     Err(PolicyError::NoReduction)
                 } else {
                     Ok(window)
@@ -200,6 +214,13 @@ impl PolicyRegistry {
         }
         self.ledger.commit(prepared, history)
     }
+}
+
+/// Smallest share of the current window a new window must save.
+pub const MIN_GAIN_RATIO: f32 = 0.05;
+
+fn raw_items(history: &dyn HistorySource) -> Vec<HistoryItem> {
+    history.leaf_seq().map_or_else(Vec::new, |leaf| history.read_range(0, leaf))
 }
 
 /// Install `policy` into the registry for the lifetime of this Fiber

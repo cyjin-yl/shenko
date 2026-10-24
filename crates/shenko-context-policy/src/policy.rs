@@ -116,10 +116,13 @@ pub struct CostReport {
     pub render_micros: u64,
     pub truncated_chars: u64,
     pub unrenderable_chars: u64,
-    /// Filled at commit: identical leading entries against the previous window.
-    /// Only an identical prefix can reuse KV; everything after it is recomputed.
-    pub reused_prefix_tokens: u32,
-    pub computed_prefill_tokens: u32,
+    /// Filled at commit: tokens of the leading entries whose final input is
+    /// identical to the previous window (same raw event, same derived text,
+    /// same derivative bytes) under the same model/template/encoder
+    /// generation. A conservative upper bound on KV reuse, not a backend
+    /// cache-hit measurement; everything after it must be recomputed.
+    pub reusable_prefix_tokens: u32,
+    pub recompute_tokens: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

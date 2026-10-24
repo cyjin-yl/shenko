@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use shenko_compact_budget::{BudgetCompactPlugin, BudgetConfig};
-use shenko_compact_snap::{SnapCompactPlugin, SnapConfig};
+use shenko_compact_snap::{SnapCompact, SnapCompactPlugin, SnapConfig};
 use shenko_context_policy::{
-    Availability, ContextPolicyHost, ItemKind, MemoryHistory, ModelCaps, PolicyError,
-    PolicyRegistry, VisionCaps, WindowEntry,
+    Availability, ContextInput, ContextPolicy, ContextPolicyHost, ItemKind, MemoryHistory,
+    ModelCaps, PolicyError, PolicyRegistry, VisionCaps, WindowBase, WindowEntry, WindowLedger,
 };
 use shenko_kernel::{FiberHandle, PluginRegistry};
 use tokio_util::sync::CancellationToken;
@@ -55,15 +55,14 @@ async fn without_usable_vision_snapcompact_reports_and_budget_takes_over() {
     let items = h.snapshot();
     let used = items.iter().map(|i| i.tokens).sum();
 
-    let (window, attempts) = registry.prepare(&items, &text_only, used).unwrap();
+    let (window, attempts) = registry.prepare(&h, &text_only, used).unwrap();
     assert!(matches!(&attempts[0].outcome, Err(PolicyError::Unavailable(_))));
     assert_eq!(window.policy.id, "budget-compact");
 
     // Vision present, but records are mostly outside the BMP (no Unifont glyph):
     // reported unreadable, never shipped as a frame, budget falls in.
     let emoji = history(|n| format!("{n} 🚀🔥✅🎉🙏🤖"));
-    let items = emoji.snapshot();
-    let (window, attempts) = registry.prepare(&items, &VISION, used).unwrap();
+    let (window, attempts) = registry.prepare(&emoji, &VISION, used).unwrap();
     assert!(matches!(&attempts[0].outcome, Err(PolicyError::FrameUnreadable(_))));
     assert_eq!(window.policy.id, "budget-compact");
     host.stop().await.unwrap();
@@ -78,7 +77,7 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let used = items.iter().map(|i| i.tokens).sum();
     assert!(registry.availability(&VISION).iter().all(|(_, a)| *a == Availability::Available));
 
-    let (prepared, _) = registry.prepare(&items, &VISION, used).unwrap();
+    let (prepared, _) = registry.prepare(&h, &VISION, used).unwrap();
     assert_eq!(prepared.policy.id, "snapcompact");
     assert!(prepared.cost.window_tokens <= 32768, "fits the image-request envelope");
     assert!(prepared.cost.truncated_chars > 0, "bounded archive records truncation");
@@ -97,9 +96,41 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     assert_eq!(ids, vec!["budget-compact".to_string()]);
     assert_eq!(registry.ledger().current().derivatives, window.derivatives);
     h.append(ItemKind::User, "after uninstall", 10);
-    let items = h.snapshot();
-    let (next, _) = registry.prepare(&items, &VISION, used).unwrap();
-    assert_eq!(next.policy.id, "budget-compact");
-    registry.commit(next, &h).unwrap();
+    // Only budget compact is consulted now, and it is judged against the
+    // committed frame window: its text-only window would be larger, so it
+    // is refused rather than swapped in.
+    let refused = registry.prepare(&h, &VISION, used).unwrap_err();
+    assert_eq!(refused.attempts.len(), 1);
+    assert_eq!(refused.attempts[0].policy, "budget-compact");
+    assert_eq!(refused.attempts[0].outcome, Err(PolicyError::NoReduction));
     host.stop().await.unwrap();
+
+    // Prefix reuse follows the actual input: identical entries whose PNG bytes
+    // differ (2000 vs 1999 output chars) are not reusable, nor is anything
+    // built under a previous model/template/encoder generation.
+    let raw = h.snapshot();
+    let ledger = WindowLedger::new();
+    let cut = |chars, source_window, model_generation| {
+        let config = SnapConfig { max_tool_output_chars: chars, ..SnapConfig::default() };
+        let base = WindowBase {
+            source_window,
+            leaf_seq: raw.last().unwrap().at.seq,
+            model_generation,
+            policy_epoch: 0,
+        };
+        let input = ContextInput { base, items: &raw, caps: &VISION, used_tokens: used };
+        SnapCompact::new(config).prepare(&input).unwrap()
+    };
+    let a = ledger.commit(cut(2000, ledger.current().id, 0), &h).unwrap();
+    let b = cut(1999, a.id, 0);
+    assert_eq!(b.entries, a.entries, "same ranges, indices and token counts");
+    assert_ne!(b.derivatives, a.derivatives, "different pixels");
+    let b = ledger.commit(b, &h).unwrap();
+    let first_image = b.entries.iter().position(|e| matches!(e, WindowEntry::Image { .. })).unwrap();
+    let text_prefix: u32 = b.entries[..first_image].iter().map(WindowEntry::tokens).sum();
+    assert_eq!(b.cost.reusable_prefix_tokens, text_prefix);
+    ledger.set_model_generation(1);
+    let c = ledger.commit(cut(1999, b.id, 1), &h).unwrap();
+    assert_eq!((c.entries == b.entries, c.derivatives == b.derivatives), (true, true));
+    assert_eq!(c.cost.reusable_prefix_tokens, 0, "new binding: nothing reusable");
 }
