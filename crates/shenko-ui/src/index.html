@@ -1778,7 +1778,12 @@ a{color:inherit}
   function ensureIdentityLoaded() {
     var behind = wantedIdentityRev !== null &&
       (shownIdentityRev === null || shownIdentityRev < wantedIdentityRev);
-    if (!behind) { identityRetryDelay = 1000; return; }
+    if (!behind) {
+      // Caught up: a retry scheduled for an older gap must not fire later.
+      if (identityRetry) { clearTimeout(identityRetry); identityRetry = null; }
+      identityRetryDelay = 1000;
+      return;
+    }
     if (identityRetry) return;
     identityRetry = setTimeout(function () { identityRetry = null; fetchSelf(); }, identityRetryDelay);
     identityRetryDelay = Math.min(identityRetryDelay * 2, 30000);
@@ -1817,8 +1822,10 @@ a{color:inherit}
       ensureIdentityLoaded();
     }).catch(function () {
       if (seq < selfApplied) return;
-      selfState = 'unavailable';
-      selfData = null;
+      // A failed refresh never discards a profile that already loaded; the
+      // panel keeps the last verified data and only an empty page is
+      // reported unavailable.
+      selfState = selfData ? 'ok' : 'unavailable';
       renderDevices();
       renderArtifacts();
       ensureIdentityLoaded();
