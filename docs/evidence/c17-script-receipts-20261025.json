@@ -3,7 +3,7 @@
   "evidence_id": "c17-script-receipts-20261025",
   "issue": "https://github.com/cyjin-yl/shenko/issues/22",
   "pr": "https://github.com/cyjin-yl/shenko/pull/44",
-  "status": "focused_script_slice_verified_independent_review_defect_fixed",
+  "status": "focused_script_slice_verified_pushed_and_merged",
   "full_C17_complete": false,
   "production_integration_complete": false,
   "full_cases_passed": [],
@@ -173,7 +173,8 @@
       "Unpublished rebase onto latest main had expected original-journey/docs conflicts; both PR40 assertions and this slice preserved. No reset/stash/force or lost source.",
       "First checkpoint journey used PR37 matching native source; final main-integrated journey uses matching PR40 final binary. No old binary was represented as a build of new Rust.",
       "Read-only GitHub PR inspection requested unsupported old-gh field baseRefOid; command failed without product side effects; corrected to supported fields.",
-      "Publication-seat inspection used an initialized, un-checked-out transfer repository; git log exit128 was inspected without reset, stash or overwriting any checkout."
+      "Publication-seat inspection used an initialized, un-checked-out transfer repository; git log exit128 was inspected without reset, stash or overwriting any checkout.",
+      "Final docs-only merge preview extraction wrapper exit1: installed Python tarfile has no extractall(filter=...) keyword, and no files were extracted. Retry checked every bounded archive path/symlink target before extraction, then exact prospective merged-tree docs check exit0. Product and real SSH journey were unaffected; archive/failure/retry record retained."
     ],
     "docs_check_exit": 0,
     "diff_check_exit": 0,
@@ -249,7 +250,8 @@
     "previous_read_only_snapshot_preserved": "/tmp/shenko-c17-scripts-45zhEXYR/review-snapshot",
     "schema_boundary_plan": "/tmp/shenko-c17-scripts-45zhEXYR/journey-main-integrated/legacy-plan/plan.json",
     "repair_plan": "/tmp/shenko-c17-scripts-45zhEXYR/journey-main-integrated/repair-deployment/plan.json",
-    "repair_raw_receipts": "/tmp/shenko-c17-scripts-45zhEXYR/journey-main-integrated/repair-deployment"
+    "repair_raw_receipts": "/tmp/shenko-c17-scripts-45zhEXYR/journey-main-integrated/repair-deployment",
+    "merge_preview_check": "/tmp/shenko-c17-scripts-45zhEXYR/merge-preview-check.json"
   },
   "review": {
     "original_independent_review": "complete_needs_fix: three original defects passed; one confirmed P2 schema-1 call admission bypass",
@@ -613,5 +615,27 @@
     "C17_files_changed_by_main": false,
     "fresh_targeted_native_build_required": true,
     "reason": "Cargo/types/store transitive input changes invalidate blanket reuse of old native evidence; fresh artifact and driver bound to clean merge source."
+  },
+  "delivery": {
+    "pr": "https://github.com/cyjin-yl/shenko/pull/44",
+    "state": "MERGED",
+    "draft": false,
+    "original_base": "011cce9b81cb3a14306c9bd9aae451742f2f6bf2",
+    "code_integration_base": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
+    "actual_target_parent": "6dca5a325f91138967ed5b6cd90872ceaf8a6e37",
+    "pushed_head": "c696d230979157257c9ff9aec1a26fd2c16611bc",
+    "merge_commit": "0368b8faec6aecf51622d8340d3003944ebda27d",
+    "merged_tree": "e24f6657427a93549370fb87dc958b96593150d8",
+    "merged_tree_equals_docs_checked_merge_preview": true,
+    "merged_native_script_inputs_equal_verified_product": true,
+    "native_script_input_diff_exit": 0,
+    "merged_preview_docs_exit": 0,
+    "github_checks": 0,
+    "protection_changed": false,
+    "force_push": false,
+    "issue22_state": "OPEN",
+    "issue22_assignee": "cyjin-yl",
+    "issue4_state": "OPEN",
+    "full_goal_complete": false
   }
 }
