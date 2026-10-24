@@ -172,6 +172,7 @@ pub struct SubjectStep {
     pub active_request_id: Option<EntityId>,
     pub active_attempt_id: Option<EntityId>,
     pub model_result_ref: Option<ObjectRef>,
+    pub model_outcome_ref: Option<ObjectRef>,
     pub decision_ref: Option<ObjectRef>,
     pub commit_ref: Option<CommitRef>,
     pub retry_reason_ref: Option<ObjectRef>,
@@ -191,6 +192,25 @@ pub enum SubjectStepState {
     Retired,
 }
 
+/// The terminal provider evidence is not equivalent to its text content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubjectModelOutcome {
+    pub schema_version: u32,
+    pub request_id: EntityId,
+    pub result_ref: ObjectRef,
+    pub stop_reason: String,
+    pub usage: Option<serde_json::Value>,
+}
+
+impl SubjectModelOutcome {
+    pub fn is_complete(&self) -> bool {
+        matches!(
+            self.stop_reason.as_str(),
+            "stop" | "end_turn" | "stop_sequence"
+        )
+    }
+}
+
 /// A complete result rejected before any S1 action admission. R0 retains its
 /// evidence and registers a new step/request; it never retries the old seal.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +221,7 @@ pub struct ControlOutputRejection {
     pub request_id: EntityId,
     pub input_plan_ref: ObjectRef,
     pub model_result_ref: ObjectRef,
+    pub model_outcome_ref: ObjectRef,
     pub error: crate::error::ProtocolError,
 }
 

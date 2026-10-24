@@ -957,8 +957,6 @@ a{color:inherit}
 
   function handleThought(d) {
     var content = String(d.content == null ? '' : d.content);
-    if (!content.trim()) return;
-
     var id = d.message_id ? String(d.message_id) : '';
     if (id) {
       if (seenIds.has(id)) return;
@@ -973,6 +971,18 @@ a{color:inherit}
     if (step !== null) {
       if (seenSteps.has(step)) return;
       seenSteps.add(step);
+    }
+
+    if (!content.trim()) {
+      if (step !== null) {
+        lastStep = lastStep === null ? step : Math.max(lastStep, step);
+        localRound = Math.max(localRound, step);
+        latestRound = latestRound === null ? step : Math.max(latestRound, step);
+        statusStep.textContent = '第 ' + latestRound + ' 轮';
+        if (cfgStep) cfgStep.textContent = String(latestRound);
+        updatePanelHeader();
+      }
+      return;
     }
 
     var dt = parseDate(d.committed_at) || parseDate(d.timestamp);
@@ -1053,7 +1063,7 @@ a{color:inherit}
     return art;
   }
 
-  function setReceipt(art, state, step) {
+  function setReceipt(art, state, step, detail) {
     var r = art.querySelector('.receipt');
     if (!r) return;
     r.textContent = '';
@@ -1063,7 +1073,7 @@ a{color:inherit}
     } else if (state === 'sent') {
       r.textContent = '已发出';
     } else if (state === 'failed') {
-      r.appendChild(document.createTextNode('未发出 · '));
+      r.appendChild(document.createTextNode((detail ? '未接收：' + detail : '未发出') + ' · '));
       var b = document.createElement('button');
       b.type = 'button';
       b.textContent = '重试';
@@ -1088,6 +1098,8 @@ a{color:inherit}
         }
       });
       r.appendChild(b);
+    } else if (state === 'queued') {
+      r.textContent = '已进入内存队列 · 尚未持久化';
     } else if (state === 'accepted') {
       r.textContent = '服务器已接收';
     } else if (state === 'selected') {
@@ -1100,7 +1112,24 @@ a{color:inherit}
   function handleReceipt(d) {
     var art = submissions.get(String(d.submission_id));
     if (!art) return;
-    if (d.stage === 'accepted') setReceipt(art, 'accepted');
+    if (d.stage === 'rejected') {
+      setReceipt(art, 'failed', null, String(d.detail || '服务器拒绝接收'));
+      var payload = payloads.get(String(d.submission_id));
+      // Do not overwrite a newer draft; the failed row always keeps its retry.
+      if (payload && !compose.value.trim()) {
+        compose.value = payload.content;
+        saveDraft(payload.content);
+        adjustHeight();
+        updateSend();
+      }
+      awaitingReply = Array.from(submissions.values()).some(function (row) {
+        var receipt = row.querySelector('.receipt');
+        return receipt && receipt.dataset.state !== 'failed' && receipt.dataset.state !== 'committed';
+      });
+      updateTail();
+    }
+    else if (d.stage === 'queued') setReceipt(art, 'queued');
+    else if (d.stage === 'accepted') setReceipt(art, 'accepted');
     else if (d.stage === 'selected') setReceipt(art, 'selected', d.step);
     else if (d.stage === 'committed') setReceipt(art, 'committed');
   }
