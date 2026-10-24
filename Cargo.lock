@@ -447,7 +447,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "cordis-core"
 version = "0.6.1"
-source = "git+https://github.com/dshbox/cordis-rs?rev=1754062cef67cfc119fc7a2084c0321a231b9092#1754062cef67cfc119fc7a2084c0321a231b9092"
+source = "git+https://github.com/cyjin-yl/cordis-rs?rev=9a8a49fa459991ee29da73fb42ea9324cee9b680#9a8a49fa459991ee29da73fb42ea9324cee9b680"
 dependencies = [
  "futures",
  "parking_lot",
