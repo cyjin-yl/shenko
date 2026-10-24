@@ -199,15 +199,19 @@ pub struct SubjectModelOutcome {
     pub request_id: EntityId,
     pub result_ref: ObjectRef,
     pub stop_reason: String,
+    /// Exact successful HTTP response body (or explicit offline fixture), not a text projection.
+    pub raw_response: String,
     pub usage: Option<serde_json::Value>,
 }
 
 impl SubjectModelOutcome {
     pub fn is_complete(&self) -> bool {
-        matches!(
-            self.stop_reason.as_str(),
-            "stop" | "end_turn" | "stop_sequence"
-        )
+        self.schema_version == 2
+            && !self.raw_response.is_empty()
+            && matches!(
+                self.stop_reason.as_str(),
+                "stop" | "end_turn" | "stop_sequence"
+            )
     }
 }
 

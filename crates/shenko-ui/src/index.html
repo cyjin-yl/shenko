@@ -862,7 +862,7 @@ a{color:inherit}
   }
 
   /* ── Timeline entries ─────────────────────────────────────────── */
-  var localRound = 0, latestRound = null, lastStep = null, lastDateKey = '';
+  var latestRound = null, lastStep = null, lastDateKey = '';
   var hasThoughts = false, hasUser = false, awaitingReply = false;
   var seenSteps = new Set(), seenIds = new Set();
   var submissions = new Map(), payloads = new Map();
@@ -966,8 +966,10 @@ a{color:inherit}
     var step = null;
     if (d.step !== null && d.step !== undefined && String(d.step).trim() !== '') {
       var n = Number(d.step);
-      if (Number.isFinite(n)) step = n;
+      if (Number.isSafeInteger(n) && n > 0) step = n;
     }
+    // Never substitute a browser-visible message count for a subject step.
+    if (step === null) return;
     if (step !== null) {
       if (seenSteps.has(step)) return;
       seenSteps.add(step);
@@ -976,7 +978,6 @@ a{color:inherit}
     if (!content.trim()) {
       if (step !== null) {
         lastStep = lastStep === null ? step : Math.max(lastStep, step);
-        localRound = Math.max(localRound, step);
         latestRound = latestRound === null ? step : Math.max(latestRound, step);
         statusStep.textContent = '第 ' + latestRound + ' 轮';
         if (cfgStep) cfgStep.textContent = String(latestRound);
@@ -995,9 +996,7 @@ a{color:inherit}
       appendGap(lastStep + 1, step - 1);
     }
 
-    localRound += 1;
-    var round = step !== null ? step : localRound;
-    localRound = Math.max(localRound, round);
+    var round = step;
     if (latestRound === null || round > latestRound) latestRound = round;
     var art = appendThought(round, step, content, dt);
     if (d.demo) art.dataset.demo = '1';
@@ -1100,16 +1099,12 @@ a{color:inherit}
       r.appendChild(b);
     } else if (state === 'queued') {
       r.textContent = '已进入内存队列 · 尚未持久化';
-    } else if (state === 'accepted') {
-      r.textContent = '服务器已接收';
-    } else if (state === 'selected') {
-      r.textContent = '已选入第 ' + step + ' 轮';
-    } else if (state === 'committed') {
-      r.textContent = '主体已处置';
+
     }
   }
 
   function handleReceipt(d) {
+    if (d.schema_version !== 1) return;
     var art = submissions.get(String(d.submission_id));
     if (!art) return;
     if (d.stage === 'rejected') {
@@ -1129,9 +1124,6 @@ a{color:inherit}
       updateTail();
     }
     else if (d.stage === 'queued') setReceipt(art, 'queued');
-    else if (d.stage === 'accepted') setReceipt(art, 'accepted');
-    else if (d.stage === 'selected') setReceipt(art, 'selected', d.step);
-    else if (d.stage === 'committed') setReceipt(art, 'committed');
   }
 
   function appendInterruption(secs) {
@@ -1838,7 +1830,6 @@ a{color:inherit}
           var baseline = Math.floor(d.step);
           if (latestRound === null || baseline > latestRound) {
             latestRound = baseline;
-            localRound = Math.max(localRound, baseline);
             lastStep = lastStep === null ? baseline : Math.max(lastStep, baseline);
             statusStep.textContent = '第 ' + baseline + ' 轮';
             if (cfgStep) cfgStep.textContent = String(baseline);

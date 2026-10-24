@@ -30,6 +30,10 @@ pub struct TimelineMessage {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub step: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit_ref: Option<String>,
 }
 
 /// Live facts shared by the WS layer and the read-only `/api/self` endpoint.
@@ -181,6 +185,23 @@ pub async fn ws_handler(ws: WebSocketUpgrade, Extension(state): Extension<WsStat
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SubmissionStage {
+    Queued,
+    Rejected,
+}
+
+#[derive(Serialize)]
+struct SubmissionReceipt<'a> {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    submission_id: &'a str,
+    stage: SubmissionStage,
+    detail: &'static str,
+}
+
 #[derive(Deserialize)]
 struct UserSubmission {
     submission_id: String,
@@ -203,6 +224,8 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
         timestamp: Utc::now().to_rfc3339(),
         stream: None,
         step: None,
+        step_id: None,
+        commit_ref: None,
     };
     if let Ok(json) = serde_json::to_string(&welcome) {
         let _ = socket.send(Message::Text(json.into())).await;
@@ -239,10 +262,12 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                         let msg = TimelineMessage {
                             role: "subject".to_string(),
                             content: out.text,
-                            message_id: Uuid::new_v4().to_string(),
+                            message_id: out.step_id.to_string(),
                             timestamp: Utc::now().to_rfc3339(),
                             stream: None,
                             step: Some(out.step.to_string()),
+                            step_id: Some(out.step_id.to_string()),
+                            commit_ref: Some(out.commit_ref.to_string()),
                         };
                         if let Ok(json) = serde_json::to_string(&msg) {
                             if socket.send(Message::Text(json.into())).await.is_err() { break; }
@@ -275,19 +300,20 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                             // when the bounded inbox is full or its consumer has stopped.
                             let (stage, detail) = match &state.inbox_tx {
                                 Some(tx) => match tx.try_send(event) {
-                                    Ok(()) => ("queued", "已进入内存队列；尚未持久化或处理，服务退出前仍可能丢失。"),
-                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => ("rejected", "主体输入队列已满，请稍后重试。"),
-                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => ("rejected", "主体已停止，需要恢复。"),
+                                    Ok(()) => (SubmissionStage::Queued, "已进入内存队列；尚未持久化或处理，服务退出前仍可能丢失。"),
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => (SubmissionStage::Rejected, "主体输入队列已满，请稍后重试。"),
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => (SubmissionStage::Rejected, "主体已停止，需要恢复。"),
                                 },
-                                None => ("rejected", "主体输入未连接。"),
+                                None => (SubmissionStage::Rejected, "主体输入未连接。"),
                             };
                             // This wire receipt is what the actual page consumes.
                             // Queued is deliberately NOT durable acceptance.
-                            let reply = serde_json::json!({
-                                "type":"receipt", "submission_id":user_msg.submission_id,
-                                "stage":stage, "detail":detail,
-                            });
-                            if socket.send(Message::Text(reply.to_string().into())).await.is_err() { break; }
+                            let reply = SubmissionReceipt {
+                                schema_version: 1, kind: "receipt", submission_id: &user_msg.submission_id,
+                                stage, detail,
+                            };
+                            let json = serde_json::to_string(&reply).expect("receipt serialization");
+                            if socket.send(Message::Text(json.into())).await.is_err() { break; }
                         }
                     }
                     Some(Ok(Message::Close(_))) | None => { info!("ws disconnected"); break; }

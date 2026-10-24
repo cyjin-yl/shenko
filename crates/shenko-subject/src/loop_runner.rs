@@ -30,7 +30,6 @@ struct FrozenStepInput {
     step_id: EntityId,
     step_no: u64,
     events: Vec<InboxEvent>,
-    model: String,
     provider_binding: Option<shenko_broker::request::ProviderBinding>,
     payload: shenko_broker::request::InferencePayload,
     in_semantic_wait: bool,
@@ -62,7 +61,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 5 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 6 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -119,7 +118,6 @@ pub struct SubjectLoopState {
     pub store: Arc<shenko_store::store::Store>,
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
     pub hooks: Option<Arc<HookRegistry>>,
-    pub model: String,
     pub max_tokens: u64,
     /// Last model output — feeds the next step's attention context.
     pub last_thought: Option<String>,
@@ -196,7 +194,6 @@ impl SubjectLoopState {
             store,
             broker: None,
             hooks: None,
-            model: "claude-opus-5-5".to_string(),
             max_tokens: 4096,
             last_thought,
             goals: vec![],
@@ -436,11 +433,10 @@ async fn execute_step(
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
         let input = FrozenStepInput {
-            schema_version: 5,
+            schema_version: 6,
             step_id,
             step_no: seq,
             events: events.to_vec(),
-            model: state.model.clone(),
             provider_binding: state.broker.as_ref().map(|b| b.binding().clone()),
             payload: shenko_broker::request::InferencePayload {
                 system_prompt: build_system_prompt(state, in_semantic_wait),
@@ -459,7 +455,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            5,
+            6,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -494,7 +490,12 @@ async fn execute_step(
                 reg.run_phase(&HookPayload::BeforeInference {
                     request_id: step_id,
                     agent_id: state.agent_id,
-                    model: input.model.clone(),
+                    model: input
+                        .provider_binding
+                        .as_ref()
+                        .map(|binding| binding.model())
+                        .unwrap_or("unbound")
+                        .into(),
                 })
                 .await;
             }
@@ -520,10 +521,10 @@ async fn execute_step(
             request_id,
             agent_id: state.agent_id,
             conversation_id: state.agent_id,
-            model: input.model,
+            provider_binding: broker.binding().clone(),
             priority: shenko_broker::request::InferencePriority::Subject,
             epoch: state.head.controller_epoch,
-            payload: input.payload,
+            payload: input.payload.clone(),
             result_tx: tx,
         };
         step.state = SubjectStepState::AwaitingModel;
@@ -586,10 +587,11 @@ async fn execute_step(
             1,
         )?);
         let outcome = shenko_types::subject::SubjectModelOutcome {
-            schema_version: 1,
+            schema_version: 2,
             request_id,
             result_ref: step.model_result_ref.clone().unwrap(),
             stop_reason: response.stop_reason.clone(),
+            raw_response: response.raw_response,
             usage: response
                 .usage
                 .as_ref()
@@ -603,7 +605,7 @@ async fn execute_step(
             "application/json",
             "model_outcomes",
             "SubjectModelOutcome",
-            1,
+            2,
         )?);
         step.state = SubjectStepState::ResultRecorded;
         let expected = step.record_revision;
@@ -651,7 +653,7 @@ async fn execute_step(
                 "CONTROL_PROTOCOL_INVALID" | "MODEL_RESULT_INCOMPLETE"
             ) =>
         {
-            replace_rejected_output(state, error)?;
+            replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error)?;
             return Ok(None);
         }
         Err(error) => return Err(error),
@@ -813,6 +815,8 @@ async fn execute_step(
                     let _ = tx.send(OutboxMessage {
                         kind: "thought".into(),
                         step: seq,
+                        step_id,
+                        commit_ref: receipt.commit_ref.clone(),
                         text: decision.output.text.clone(),
                         publications: publication_intents.clone(),
                         identity_revision,
@@ -890,19 +894,20 @@ async fn execute_step(
 /// R0 records it and freezes a new correction request before adopting memory.
 fn replace_rejected_output(
     state: &mut SubjectLoopState,
+    mut input: FrozenStepInput,
+    raw_output: &str,
     error: shenko_types::error::ProtocolError,
 ) -> Result<(), ShenkoError> {
     use shenko_types::subject::ControlOutputRejection;
     let store = &state.store;
     let mut retired = state.step.clone();
-    let mut input = frozen_input(store, &retired)?;
     let raw_ref = retired
         .model_result_ref
         .clone()
         .ok_or_else(|| ShenkoError::conflict("rejection missing recorded result"))?;
     let replacement_id = EntityId::new();
     let rejection = ControlOutputRejection {
-        schema_version: 1,
+        schema_version: 2,
         supersedes_step_id: retired.step_id,
         replacement_step_id: replacement_id,
         request_id: retired
@@ -926,7 +931,7 @@ fn replace_rejected_output(
         "application/json",
         "control_rejections",
         "ControlOutputRejection",
-        1,
+        2,
     )?;
     // Preserve the selected events and pinned persona/provider. This is a new
     // step/request seal with explicit feedback, not replay of the invalid wire.
@@ -936,8 +941,7 @@ fn replace_rejected_output(
         .messages
         .push(shenko_broker::request::InferenceMessage {
             role: "assistant".into(),
-            content: String::from_utf8(read_sealed(store, &raw_ref)?)
-                .map_err(|e| ShenkoError::storage(e.to_string()))?,
+            content: raw_output.into(),
         });
     input.payload.messages.push(shenko_broker::request::InferenceMessage {
         role: "user".into(),
@@ -956,7 +960,7 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        5,
+        6,
     )?);
     replacement.context_revision = Some(
         retired

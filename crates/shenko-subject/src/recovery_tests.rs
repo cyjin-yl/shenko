@@ -300,17 +300,18 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
             .cas
             .seal_object(
                 &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 1,
+                    schema_version: 2,
                     request_id: step.active_request_id.unwrap(),
                     result_ref: step.model_result_ref.clone().unwrap(),
                     stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                     usage: None,
                 })
                 .unwrap(),
                 "application/json",
                 "model_outcomes",
                 "SubjectModelOutcome",
-                1,
+                2,
             )
             .unwrap()
             .object,
@@ -401,6 +402,28 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
             .object,
     );
     corrected.record_revision = RecordRevision(2);
+    corrected.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
+                    schema_version: 2,
+                    request_id: corrected.active_request_id.unwrap(),
+                    result_ref: corrected.model_result_ref.clone().unwrap(),
+                    stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                2,
+            )
+            .unwrap()
+            .object,
+    );
+
     store
         .upsert_step(&corrected, &subject.head, RecordRevision(1))
         .unwrap();
@@ -494,26 +517,6 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     step.state = SubjectStepState::AwaitingModel;
     step.active_request_id = Some(EntityId::new());
     step.record_revision = RecordRevision(2);
-    corrected.model_outcome_ref = Some(
-        store
-            .cas
-            .seal_object(
-                &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 1,
-                    request_id: corrected.active_request_id.unwrap(),
-                    result_ref: corrected.model_result_ref.clone().unwrap(),
-                    stop_reason: "end_turn".into(),
-                    usage: None,
-                })
-                .unwrap(),
-                "application/json",
-                "model_outcomes",
-                "SubjectModelOutcome",
-                1,
-            )
-            .unwrap()
-            .object,
-    );
     store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
     let raw = "[identity:name] 岚\n[identity:soul] 记住关系，不靠 delegate 或委派替代理解";
     let raw_ref = store
@@ -529,17 +532,18 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .cas
             .seal_object(
                 &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 1,
+                    schema_version: 2,
                     request_id: step.active_request_id.unwrap(),
                     result_ref: step.model_result_ref.clone().unwrap(),
                     stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                     usage: None,
                 })
                 .unwrap(),
                 "application/json",
                 "model_outcomes",
                 "SubjectModelOutcome",
-                1,
+                2,
             )
             .unwrap()
             .object,
@@ -725,17 +729,18 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .cas
             .seal_object(
                 &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 1,
+                    schema_version: 2,
                     request_id: step.active_request_id.unwrap(),
                     result_ref: step.model_result_ref.clone().unwrap(),
                     stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                     usage: None,
                 })
                 .unwrap(),
                 "application/json",
                 "model_outcomes",
                 "SubjectModelOutcome",
-                1,
+                2,
             )
             .unwrap()
             .object,
@@ -891,17 +896,18 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
             .cas
             .seal_object(
                 &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 1,
+                    schema_version: 2,
                     request_id: step.active_request_id.unwrap(),
                     result_ref: step.model_result_ref.clone().unwrap(),
                     stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                     usage: None,
                 })
                 .unwrap(),
                 "application/json",
                 "model_outcomes",
                 "SubjectModelOutcome",
-                1,
+                2,
             )
             .unwrap()
             .object,

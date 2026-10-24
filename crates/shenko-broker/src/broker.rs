@@ -33,11 +33,15 @@ impl ActiveProvider {
                 base_url: p.base_url.clone(),
                 model: p.model.clone(),
                 allow_invalid_certs: p.allow_invalid_certs,
+                serializer_revision: 1,
+                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
             },
             Self::Anthropic(p) => ProviderBinding::Anthropic {
                 base_url: p.base_url.clone(),
                 model: p.model.clone(),
                 api_version: crate::provider::ANTHROPIC_API_VERSION.into(),
+                serializer_revision: 1,
+                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
             },
         }
     }
@@ -45,7 +49,7 @@ impl ActiveProvider {
     fn from_env() -> Self {
         if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
             let p = LocalModelProvider::from_env();
-            info!(base_url=%p.base_url, model=%p.model, "local model provider selected (§22.1)");
+            info!(model=%p.model, "local model provider selected (§22.1)");
             return Self::Local(p);
         }
         if let Some(p) = AnthropicProvider::from_env() {
@@ -95,6 +99,7 @@ impl ActiveProvider {
                     content: "[stub: set ANTHROPIC_API_KEY or SHENKO_USE_LOCAL_MODEL=1]"
                         .to_string(),
                     stop_reason: "end_turn".to_string(),
+                    raw_response: r#"{"provider":"stub","stop_reason":"end_turn"}"#.into(),
                     usage: None,
                 }),
             },
@@ -123,6 +128,10 @@ impl BrokerHandle {
     }
 
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
+        anyhow::ensure!(
+            req.provider_binding == self.binding,
+            "MODEL_PROVIDER_BINDING_MISMATCH: request not admitted"
+        );
         self.tx
             .send(req)
             .map_err(|e| anyhow::anyhow!("broker: {e}"))
@@ -172,8 +181,10 @@ pub struct Broker {
 }
 
 impl Broker {
-    pub fn new() -> (Self, BrokerHandle) {
-        Self::with_provider(ActiveProvider::from_env())
+    pub fn new() -> Result<(Self, BrokerHandle)> {
+        let provider = ActiveProvider::from_env();
+        provider.binding().validate_endpoint()?;
+        Ok(Self::with_provider(provider))
     }
 
     /// Explicit offline construction; does not inspect or use ambient credentials.
@@ -235,7 +246,7 @@ impl Broker {
             // Dequeue the highest-priority (earliest-within-tier) request.
             let req = queue.pop().expect("queue non-empty").req;
 
-            let _guard = match self.admission.try_admit() {
+            let guard = match self.admission.try_admit() {
                 Some(g) => g,
                 None => {
                     let _ = req.result_tx.send(InferenceResult {
@@ -248,6 +259,16 @@ impl Broker {
             };
 
             let result = self.provider.complete(&req).await;
+            if matches!(
+                result.status,
+                InferenceStatus::Failed | InferenceStatus::Cancelled
+            ) {
+                // No verified remote stop: keep the allocation charged. The
+                // subject's AwaitingModel record also blocks blind reopen replay.
+                drop(guard); // deliberately NOT released
+            } else {
+                guard.release_terminal();
+            }
             let _ = req.result_tx.send(result);
         }
         info!("inference broker stopped");

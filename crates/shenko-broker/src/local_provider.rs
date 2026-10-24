@@ -66,7 +66,7 @@ impl LocalModelProvider {
 
         let body = serde_json::json!({
             "model": self.model,
-            "max_tokens": payload.max_tokens.unwrap_or(8192),
+            "max_tokens": payload.max_tokens.unwrap_or(crate::request::DEFAULT_MAX_TOKENS),
             "messages": messages,
         });
 
@@ -91,7 +91,8 @@ impl LocalModelProvider {
             return Err(anyhow!("local model API error {status}: {text}"));
         }
 
-        let raw: serde_json::Value = resp.json().await?;
+        let raw_response = resp.text().await?;
+        let raw: serde_json::Value = serde_json::from_str(&raw_response)?;
 
         let content = raw["choices"]
             .as_array()
@@ -129,6 +130,7 @@ impl LocalModelProvider {
         Ok(InferenceResponse {
             content,
             stop_reason: finish_reason,
+            raw_response,
             usage,
         })
     }

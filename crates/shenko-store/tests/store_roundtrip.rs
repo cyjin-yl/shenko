@@ -190,17 +190,18 @@ fn recorded_result(
             .cas
             .seal_object(
                 &serde_json::to_vec(&shenko_types::subject::SubjectModelOutcome {
-                    schema_version: 1,
+                    schema_version: 2,
                     request_id: step.active_request_id.unwrap(),
                     result_ref: step.model_result_ref.clone().unwrap(),
                     stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                     usage: None,
                 })
                 .unwrap(),
                 "application/json",
                 "model_outcomes",
                 "SubjectModelOutcome",
-                1,
+                2,
             )
             .unwrap()
             .object,

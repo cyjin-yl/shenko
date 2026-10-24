@@ -11,6 +11,8 @@ pub struct OutboxMessage {
     pub kind: String,
     /// The subject step number that produced it.
     pub step: u64,
+    pub step_id: shenko_types::ids::EntityId,
+    pub commit_ref: shenko_types::commit::CommitRef,
     /// The model output text.
     pub text: String,
     /// Already validated and committed publication actions; never reparse text.
