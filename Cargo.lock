@@ -1867,6 +1867,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
+dependencies = [
+ "bitflags",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pulley-interpreter"
 version = "45.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2421,11 +2432,13 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "cordis-core",
  "dirs-next",
  "serde",
  "serde_json",
  "shenko-broker",
  "shenko-channel-napcat",
+ "shenko-identity",
  "shenko-kernel",
  "shenko-memory",
  "shenko-seed",
@@ -2482,9 +2495,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blake3",
  "chrono",
  "futures",
  "parking_lot",
+ "rusqlite",
  "serde",
  "serde_json",
  "shenko-store",
@@ -2578,6 +2593,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-identity"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cordis-core",
+ "shenko-types",
+ "tokio",
+]
+
+[[package]]
 name = "shenko-kernel"
 version = "0.1.0"
 dependencies = [
@@ -2657,6 +2682,8 @@ dependencies = [
  "rusqlite_migration",
  "serde",
  "serde_json",
+ "shenko-channel-napcat",
+ "shenko-identity",
  "shenko-types",
  "thiserror 2.0.21",
  "tracing",
@@ -2670,12 +2697,15 @@ dependencies = [
  "anyhow",
  "async-trait",
  "chrono",
+ "cordis-core",
  "dashmap 5.5.3",
  "futures",
  "parking_lot",
+ "pulldown-cmark",
  "serde",
  "serde_json",
  "shenko-broker",
+ "shenko-identity",
  "shenko-kernel",
  "shenko-store",
  "shenko-types",
