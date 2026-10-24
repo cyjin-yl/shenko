@@ -14,12 +14,10 @@
   "active_workers": [],
   "blockers": [],
   "next_actions": [
-    "Continue S3/S4/S5 implementation from the gaps table in docs/governance/HANDOFF.md.",
-    "Wire the shenko-update A/B state machine into the runtime (§35.7).",
-    "Finish WASM VFS/mount wiring and the real WASM home bootstrap (§8/§29).",
-    "Bind seat execution (TmuxSeat in shenko-exec-ssh) into the main runtime (§35.4/§35.5).",
-    "Consume memory intents from the thought loop and register the compact crates as plugins (§12/§35.3).",
-    "Host plugins on the real cordis lifecycle once cordis-core is bound (§7)."
+    "Use PROMPT.md and community-stack: tracking #4, work packages #5–#26 exist; join current stack rather than restart.",
+    "Deliver GOAL/PROMPT collaboration docs, then resume C01/#6 recovery candidate 291d5a5 with ACK/input-set correctness verification.",
+    "Continue #12 remote execution then #22 second-node join and durable task result transfer.",
+    "Offline contributors do not block continuation from last pushed checkpoint; full S1–S5 still required."
   ],
   "last_checkpoint": "docs/governance/HANDOFF.md",
   "upstream": "cyjin-yl/shenko",
@@ -27,5 +25,5 @@
   "upstream_visibility": "public",
   "upstream_default_branch": "main",
   "upstream_verified_at": "2026-10-23",
-  "notes": "18 workspace packages: 17 library crates under crates/ plus bin/shenko. Verified 2026-10-23 at HEAD fa74614: cargo test --workspace = 26 passed, 0 failed, 0 ignored across 8 crates (shenko-store 11, shenko-wasm 3, shenko-awareness-core 3, shenko-types 2, shenko-channel-napcat 2, shenko-memory 2, shenko-update 2, shenko-ui 1); the other 9 crates have no tests yet. PR #3 is merged. coverage.json: 27 partial / 120 not_assessed / 0 satisfied (147 requirements)."
+  "notes": "18 workspace packages: 17 library crates under crates/ plus bin/shenko. Verified 2026-10-23 at HEAD fa74614: cargo test --workspace = 26 passed, 0 failed, 0 ignored across 8 crates (shenko-store 11, shenko-wasm 3, shenko-awareness-core 3, shenko-types 2, shenko-channel-napcat 2, shenko-memory 2, shenko-update 2, shenko-ui 1); the other 9 crates have no tests yet. PR #3 is merged. coverage.json: 27 partial / 120 not_assessed / 0 satisfied (147 requirements). Community work ownership updated 2026-10-24; prior test counts remain historical and were not rerun for this doc increment."
 }

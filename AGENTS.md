@@ -8,7 +8,7 @@ Before any Shenko design, implementation, debugging, review, maintenance or hand
 
 ## Mission
 
-Build the complete Shenko（深刻）described by [SPEC.md](SPEC.md), and deliver it through continuously updated upstream PRs. Read [WHY.md](WHY.md) for intent and [GOAL.md](GOAL.md) for the assignment. The seed is documentation; product implementation begins with the receiving developer.
+Build the complete Shenko（深刻）described by [SPEC.md](SPEC.md), and deliver it through continuously updated upstream PRs. Read [WHY.md](WHY.md) for intent and [GOAL.md](GOAL.md) for the assignment. Implementation is already in progress. Join the existing stack through [PROMPT.md](PROMPT.md) and [community-stack](docs/plans/active/community-stack.md); reuse existing code, candidates and evidence rather than starting over.
 
 The owner explicitly chose unrestricted Claude execution in the friend's own fork. Launch with **`--dangerously-skip-permissions`**, Claude Code's actual flag for `bypassPermissions`. In that fork, autonomously create and merge branches, refactor any component, change development methods, install tools, run experiments, manage CI and use many subagents. GitHub supplies the actual upstream access boundary. Keep developing while PRs await review.
 
@@ -75,3 +75,7 @@ All formal S1–S5 scope remains in this goal. Completion means the [full contra
 A first release or a PR is useful progress; it is not the complete product. Track unfinished integrations, environmental waits and real observation periods accurately and keep advancing available work. Surface actual coverage, results and PR state in the transcript so the native goal evaluator can judge them.
 
 The seed's `python3 scripts/check_docs.py` checks document integrity only. Introduce actual product build and verification commands with their implementation.
+
+## Community continuation
+
+Issue claims are advisory, not exclusive locks. If a contributor goes offline, continue from their last pushed checkpoint on a new branch, preserve authorship and link the original PR; do not wait for release, approval or return, and do not force-push their branch. Keep semantic dependencies distinct from Git stack bases and continue independent work while review is pending. Reconcile unknown external effects instead of blindly replaying them. Entry points: [PROMPT.md](PROMPT.md), [work graph](docs/plans/active/community-stack.md).

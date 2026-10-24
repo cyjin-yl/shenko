@@ -129,3 +129,9 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 ## 验证记录
 
 [history/manifest.json](history/manifest.json)记录原稿大小和SHA-256；原始U01–U49逐字保留，并追加U50–U62。`python3 scripts/check_docs.py`检查覆盖ID、原话、原稿hash、本地链接、必读Skill及符号链接；它不是产品测试。现有文档没有声称本次已经实现或完成设备/性能验收。
+
+## 社区任务栈
+
+- [朋友可复制PROMPT](../PROMPT.md)
+- [当前工作包与已发布issues](plans/active/community-stack.md)
+- [R/B/case归属与依赖JSON](plans/active/community-stack.json)
