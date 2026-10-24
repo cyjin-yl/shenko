@@ -1,18 +1,39 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-24（协作入口；历史构建数据不代表本轮复测）**
-**当前分支：`main`**
-**HEAD：`093b417`（本文件编写时可见的最后提交）**
-**upstream PR：[#3](https://github.com/cyjin-yl/shenko/pull/3)（已合并）**
+**更新时间：2026-10-25（C01 独立复核；以下明确区分当前与历史证据）**
 
-## 立即可继续的工作
+## 当前 checkpoint：PR28 仍为 Draft，不能合入
 
-```bash
-cd /tank/shared/projects/shenko/shenko
-git log --oneline -5          # 查看最近提交
-cargo check --workspace       # 验证编译
-cargo test --workspace        # 当前 26 passed / 0 failed
-```
+- 执行身份 `cyjin-yl`；[#6](https://github.com/cyjin-yl/shenko/issues/6) 已 assign 同一真实账号，并有开工/接口/交付/本轮复核认领 comments。认领不形成排他锁或人工 gate。
+- 复核对象是 [PR28](https://github.com/cyjin-yl/shenko/pull/28) / `fix/c01-durable-recovery-20261024` 的实际 head `ee9a3e009bec6d32437fec5cb9fbc26557d23204`，重点逐项读回 `b525f8d→ee9a3e0` 的13文件增量，而非复述 fixed_findings。
+- GitHub PR 接口读回的 base SHA 为 `21b85e2cf272e0c2ce9e8e17de426696c59370cb`；本轮另外新 clone 的远端 main 为 `9a1a0a41d6d72add9fb3c5b7135f51ba7bc0c409`（PR30 已合入）。两者不是同一事实；本轮未复核 PR30，也未把 PR28 与其组合构建。
+- PR28 实际状态仍为 **OPEN / DRAFT**、无 CI checks；本轮未 mark ready、未 merge，故没有 PR28 merge SHA。没有关闭 #6，也没有宣称 C01/全产品完成。
+
+### 两个仍需修复的 P1
+
+已在 [逐行 review](https://github.com/cyjin-yl/shenko/pull/28#pullrequestreview-5639070800) 提交真实调用链、触发状态和行号；这是当前 SHA 的静态确认，未伪称新增运行复现。
+
+1. `bin/shenko/src/main.rs:169` 先启动恢复主体，NapCat 出站订阅到 `:284` 才建立。`ResultRecorded` 无需 broker 即可接续 S1；若 ingress 打开/迁移较慢，S1 后的 broadcast 先于订阅。保留但无人消费的 `_outbox_rx` 不会补转历史，新订阅也不接收旧消息。输入已持久处置、`publication_intents` 为空，回复没有对应 outbound operation，重放输入也不会补做。先建立实际消费者，再放行恢复执行，并保留已提交发布的稳定可补投身份。
+2. `bin/shenko/src/main.rs:387` 在等待主体结算之前取消共享 token，同时结束 NapCat 接收/回复与委派消费者。在途模型随后真实返回时，主体仍能 S1/处置输入并正常退出，但回复/委派接收者已经停止；回复可能连持久 intent 都没有。分开 admission/主步停止与已提交工作消费者的生命周期，在消费者具备持久交接/恢复边界后再关闭。模型有真实结果不等于全部后续效果已结算，也不证明远端停止。
+
+### 本轮实际证据与边界
+
+- 全部实际命令通过 SSH 在受管 doescontainer 的容器执行；原共享源码、原 worktree 和未提交改动未写入。只在容器磁盘 `/tmp` 新建独立 Git clone；没有改权限、全局 safe.directory、分支保护或强推。
+- 原候选 `/tmp/shenko-c01-recover-tcqxw1p2/repo` HEAD 读回为 `ee9a3e0`，工作区干净。按已公布算法（排序 tracked Rust/Cargo 路径 + NUL + bytes + NUL）重新计算 source SHA-256，确为 `46a7d2df69a3005b65d41e7aa09409967399895f78517fe6363bbbff3ee95e61`；`p1-fixed.bundle` SHA-256 确为 `46e2832133e01802a2dfe2fa597f654a6be079603bf985f8259dbcad4669f8ba`。
+- 独立读取原始 `/tmp/shenko-c01-p1-tests-r4.log`：相关 suites 共23 passed、0 failed/ignored；复用此前串行 Cargo 证据，**本轮未重跑 Cargo、未新增测试**。原日志确有 >256槽背压接收、typed重试/冻结输入/结果恢复、未知请求阻断、CAS失败、竞争S1等通过输出。
+- 独立读取 `/tmp/shenko-c01-process-l5dc3k9u/rejected.log`、`settled.log`：确有 HTTP429 失败退出、原实例重开、SIGINT 后等待真实模型响应再退出的轨迹。这只是 loopback 模拟；没有 NapCat/委派消费者结算的证据，不能覆盖上述两个组合窗口。source/hash与原始日志读回不等于本轮重新测得历史命令 exit code。
+- socket/分页投递已真实拆开；安全 Preparing、带正面证书的 RetryPending 与真实 ResultRecorded 有恢复路径；generic/transport unknown 仍阻断；稳定源身份的昵称/内容冲突保留为非执行观察；主体返回错误/handle监督与UI易失 admission 的表达都有实际补丁。这些局部进展不抵消上述未解决的输出交接缺陷。
+- 不补造真实 NapCat/provider 账号验收、32事件完整模型/ACK组合、第二节点/异构设备或7/30天长跑证据。selector/多分支/full writer fencing、完整 genesis/launch、S1后 durable outbox/task/memory replay 和持久 Web ingress 等仍是后续义务。
+
+### 下一动作
+
+从 PR28 已推的实际 head 建 focused continuation 分支修复两个 P1，保留原作者/提交和朋友后继栈（含 PR29），在 #6/PR comments 说明接口、base/head及checkpoint；不用等待认领释放或额外人类审批。复用已有恢复/停机旅程，不建立新测试工厂。验证通过后再按真实权限推进 ready/合入；main 已有 PR30，届时须核对并验证真实整合候选，不能把各分支结果直接相加。#12 SSH 和 #22 第二节点各自独立认领/PR，可先推进不依赖缺失前置证据的部分，不冒称 C01 全链已通。
+
+本次仅更新交接文档，不改产品代码/覆盖计数；记录本文的 docs 分支为 `docs/c01-independent-review-20261025`，提交/PR/合入结果由其真实 GitHub 记录及 #6 接续 comment 定位。
+
+## 历史基线（保留来源，不代表当前 main 或本轮复测）
+
+以下内容源于旧 checkpoint `093b417`、PR3及2026-10-24协作记录；26个测试、coverage状态、资源与推荐顺序均不是本轮新测结论。与上方当前 checkpoint 冲突时以上方为准。PR30 的真实 cordis 接线已在 main，不再沿用下方“尚无 runtime 绑定”作为当前事实；本轮没有独立评审它。
 
 ## 工作区事实（已核对）
 
