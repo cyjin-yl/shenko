@@ -212,7 +212,7 @@ async fn main() -> Result<()> {
             .with_outbox(outbox_tx.clone());
 
             let cancel_subject = cancel.clone();
-            tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
+            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject));
             info!("subject loop started");
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
@@ -408,20 +408,44 @@ async fn main() -> Result<()> {
             println!("  Subject loop: running (continuous thought)");
             println!("  Inference: {}", if std::env::var("ANTHROPIC_API_KEY").is_ok() { "claude-opus-5-5" } else { "stub (no ANTHROPIC_API_KEY)" });
 
-            // Run until Ctrl-C
-            let _cancel_ui = cancel.clone();
-            tokio::select! {
-                res = ui.run() => {
-                    if let Err(e) = res { tracing::error!("UI: {e}"); }
+            // Supervise the actual subject task, including panics. Stop claiming
+            // availability before waiting for the current durable boundary.
+            let live = ui.ws_state().live;
+            let mut subject_finished = false;
+            let runtime_result: Result<()> = tokio::select! {
+                result = &mut subject_task => {
+                    subject_finished = true;
+                    match result {
+                        Ok(Err(error)) => Err(error.into()),
+                        Err(error) => Err(error.into()),
+                        Ok(Ok(())) => Err(anyhow::anyhow!("subject stopped unexpectedly")),
+                    }
                 }
-                _ = tokio::signal::ctrl_c() => {
-                    info!("shutdown signal");
+                result = ui.run() => result,
+                result = tokio::signal::ctrl_c() => {
+                    result?;
+                    info!("shutdown signal; settling subject at a recoverable boundary");
+                    Ok(())
                 }
-                _ = cancel.cancelled() => {
-                    anyhow::bail!("runtime stopped after a connector failure; reopen persistent state for recovery");
+                _ = cancel.cancelled() => Err(anyhow::anyhow!("runtime stopped after connector failure; reopen for recovery")),
+            };
+            live.set_wired(false);
+            subject_inbox.close().await;
+            cancel.cancel();
+            if !subject_finished {
+                // Do not drop an admitted request merely because Ctrl-C arrived.
+                // A timeout is an observation limit, never proof the provider stopped.
+                match tokio::time::timeout(std::time::Duration::from_secs(15), &mut subject_task).await {
+                    Ok(Ok(result)) => result?,
+                    Ok(Err(error)) => return Err(error.into()),
+                    Err(_) => {
+                        let (_, step) = store.load_subject(agent_id)?;
+                        anyhow::bail!("shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
+                            step.step_id, step.state, step.active_request_id);
+                    }
                 }
             }
-            cancel.cancel();
+            runtime_result?;
             info!("Shenko stopped");
         }
     }
@@ -696,13 +720,18 @@ mod recovery_integration_tests {
         })).unwrap().unwrap();
         drop(spool);
 
-        let config = NapCatConfig { bot_qq: 9, ws_url: "not-a-url".into(), ..Default::default() };
+        let config = NapCatConfig { bot_qq: 9, ws_url: "ws://127.0.0.1:0".into(), ..Default::default() };
         let (client, mut rx, actions) = NapCatClient::open_persistent(config.clone(), &spool_path).unwrap();
-        assert!(NapCatClient::run_connection_loop(
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let connector = tokio::spawn(NapCatClient::run_connection_loop(
             config, client.event_sender(), actions, client.pending_actions.clone(),
-            client.spool.clone(), tokio_util::sync::CancellationToken::new(),
-        ).await.is_err()); // Local URL rejection happens after durable replay.
-        let inbox_event = napcat_inbox_event(rx.try_recv().unwrap()).unwrap();
+            client.spool.clone(), cancel.clone(),
+        ));
+        // Delivery now runs independently of connection establishment.
+        let replayed = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv()).await.unwrap().unwrap();
+        let inbox_event = napcat_inbox_event(replayed).unwrap();
+        cancel.cancel();
+        connector.await.unwrap().unwrap();
         assert_eq!(inbox_event.event_id, received.spool_id);
 
         let store = shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap();

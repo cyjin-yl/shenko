@@ -11,11 +11,69 @@ use shenko_types::identity::{IdentityProfile, IdentitySource, parse_identity_dir
 use shenko_types::ids::{EntityId, RecordRevision};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::subject::{
-    DelegationIntent, Disposition, EventDisposition, InboxCursor, MemoryIntent, MemoryIntentKind,
+    DelegationIntent, Disposition, EventDisposition, InferenceRetryFact, MemoryIntent, MemoryIntentKind, SubjectRetryEvidence,
     SemanticWait, StepDecision, SubjectBranchHead, SubjectStep, SubjectStepState,
 };
 use std::sync::Arc;
 use tracing::{debug, info, warn};
+
+/// Recoverable S0 input, including the immutable request projection and original
+/// event payloads. A list of UUIDs alone cannot reconstruct a result's dispositions.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct FrozenStepInput {
+    schema_version: u32,
+    step_id: EntityId,
+    step_no: u64,
+    events: Vec<InboxEvent>,
+    model: String,
+    payload: shenko_broker::request::InferencePayload,
+    in_semantic_wait: bool,
+}
+
+fn read_sealed(store: &shenko_store::store::Store, object: &ObjectRef) -> Result<Vec<u8>, ShenkoError> {
+    let bytes = store.cas.read_object(&object.digest)?;
+    if object.locator.is_empty() || bytes.len() as u64 != object.bytes
+        || shenko_types::object::Digest::blake3(&bytes) != object.digest
+    {
+        return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+    }
+    Ok(bytes)
+}
+
+fn frozen_input(store: &shenko_store::store::Store, step: &SubjectStep) -> Result<FrozenStepInput, ShenkoError> {
+    let object = step.input_plan_ref.as_ref().ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
+    let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
+        .map_err(|_| ShenkoError::conflict("recovery_blocked: legacy/incomplete frozen input needs reconciliation"))?;
+    if input.schema_version != 2 || input.step_id != step.step_id || input.step_no != step.step_no {
+        return Err(ShenkoError::conflict("recovery_blocked: frozen input identity mismatch"));
+    }
+    Ok(input)
+}
+
+fn validate_resume(store: &shenko_store::store::Store, step: &SubjectStep) -> Result<(), ShenkoError> {
+    use SubjectStepState::*;
+    let no_request = step.active_request_id.is_none() && step.active_attempt_id.is_none();
+    match step.state {
+        Planned if no_request => return Ok(()),
+        Preparing if no_request => {},
+        RetryPending => {
+            let object = step.retry_reason_ref.as_ref().ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing retry evidence"))?;
+            let evidence: SubjectRetryEvidence = serde_json::from_slice(&read_sealed(store, object)?)?;
+            if step.active_attempt_id.is_some() || !evidence.permits_retry(step.active_request_id) {
+                return Err(ShenkoError::conflict("recovery_blocked: retry outcome not conclusive"));
+            }
+        },
+        ResultRecorded if step.active_request_id.is_some() => {
+            let object = step.model_result_ref.as_ref().ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing recorded result"))?;
+            String::from_utf8(read_sealed(store, object)?).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        },
+        _ => return Err(ShenkoError::conflict(format!(
+            "recovery_blocked: step {} is {:?}; reconcile original request/attempt before inference", step.step_id, step.state,
+        ))),
+    }
+    frozen_input(store, step)?;
+    Ok(())
+}
 
 pub struct SubjectLoopState {
     pub agent_id: EntityId,
@@ -51,15 +109,7 @@ impl SubjectLoopState {
         store: Arc<shenko_store::store::Store>,
     ) -> Result<Self, ShenkoError> {
         let (head, step) = store.load_subject(agent_id)?;
-        if step.state != SubjectStepState::Planned
-            || step.active_request_id.is_some()
-            || step.active_attempt_id.is_some()
-        {
-            return Err(ShenkoError::conflict(format!(
-                "recovery_blocked: step {} is {:?}; reconcile original request/attempt and frozen input before inference",
-                step.step_id, step.state,
-            )));
-        }
+        validate_resume(&store, &step)?;
         let last_thought = if let Some(id) = head.committed_step_id {
             let previous = store
                 .get_step(&head.branch_id, id)?
@@ -72,12 +122,7 @@ impl SubjectLoopState {
             previous
                 .model_result_ref
                 .map(|object| {
-                    let bytes = store.cas.read_object(&object.digest)?;
-                    if bytes.len() as u64 != object.bytes
-                        || shenko_types::object::Digest::blake3(&bytes) != object.digest
-                    {
-                        return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
-                    }
+                    let bytes = read_sealed(&store, &object)?;
                     String::from_utf8(bytes).map_err(|e| ShenkoError::storage(e.to_string()))
                 })
                 .transpose()?
@@ -131,19 +176,34 @@ impl SubjectLoopState {
 pub async fn run_subject_loop(
     mut state: SubjectLoopState,
     cancel: tokio_util::sync::CancellationToken,
-) {
+) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
 
-    loop {
+    let result = loop {
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");
-            break;
+            break Ok(());
         }
 
         let seq = state.step.step_no;
 
         // Collect available events — short timeout to stay responsive
-        let events = state.inbox.recv_batch(32, 80).await;
+        let mut events = if state.step.state == SubjectStepState::Planned {
+            state.inbox.recv_batch(32, 80).await
+        } else {
+            // Never consume new input into a recovered, already frozen step.
+            vec![]
+        };
+        // An ingress replay may already be queued when ResultRecorded resumes S1.
+        // Recheck L at consumption time so that stable IDs are never executed twice.
+        let filtered = events.into_iter().map(|event| {
+            state.store.event_disposition_commit(state.agent_id, event.event_id)
+                .map(|commit| if commit.is_none() { Some(event) } else { None })
+        }).collect::<Result<Vec<_>, _>>();
+        events = match filtered {
+            Ok(events) => events.into_iter().flatten().collect(),
+            Err(error) => break Err(error),
+        };
         let has_events = !events.is_empty();
 
         // Check semantic wait — SPEC §5.1/U55, §41.5
@@ -162,17 +222,20 @@ pub async fn run_subject_loop(
         };
 
         // Execute one subject step (S0 → AwaitingModel → Committed)
-        if let Err(error) = execute_step(seq, &events, &mut state, in_semantic_wait).await {
+        if let Err(error) = execute_step(seq, &events, &mut state, in_semantic_wait, &cancel).await {
             // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
             warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
-            break;
+            break Err(error);
         }
 
         // Yield inference slot to children — cooperative multitasking. SPEC §5.1
         tokio::task::yield_now().await;
-    }
+    };
 
+    // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
+    state.inbox.close().await;
     info!("subject loop terminated");
+    result
 }
 
 /// Role and output contract of the subject. It names the framework, never the
@@ -307,142 +370,116 @@ async fn execute_step(
     events: &[InboxEvent],
     state: &mut SubjectLoopState,
     in_semantic_wait: bool,
-) -> Result<CommitRef, ShenkoError> {
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<Option<CommitRef>, ShenkoError> {
     let store = Arc::clone(&state.store);
     let hooks_ref = state.hooks.clone(); // Option<Arc<HookRegistry>> — cloned to avoid reborrow
 
     let step_id = state.step.step_id;
     let next_step_id = EntityId::new();
     let mut step = state.step.clone();
-    if step.state != SubjectStepState::Planned || step.step_no != seq {
-        return Err(ShenkoError::conflict(
-            "step is not the registered planned successor",
-        ));
+    if step.step_no != seq {
+        return Err(ShenkoError::conflict("step is not the registered successor"));
     }
-
-    // S0: seal input plan — SPEC §41.5
-    // Build a content-addressed input plan from the step seq + event ids so each
-    // step fixes its attention context version before the model is called.
-    // The bytes are sealed into CAS so the ref is actually readable back.
-    let mut plan_buf: Vec<u8> = Vec::new();
-    plan_buf.extend_from_slice(seq.to_le_bytes().as_slice());
-    for ev in events {
-        let id_bytes = ev.event_id.as_uuid().as_bytes();
-        plan_buf.extend_from_slice(id_bytes);
-    }
-
-    // Identity takes effect at this boundary only. The revision and digest
-    // join the sealed input plan, so each step names the persona it used.
-    // SPEC §6, R053.
-    let identity = store.latest_identity(state.agent_id)?;
-    if identity.as_ref().map(|p| p.revision) != state.identity.as_ref().map(|p| p.revision) {
-        info!(
-            seq,
-            revision = identity.as_ref().map(|p| p.revision),
-            "identity revision adopted at step boundary"
-        );
-    }
-    state.identity = identity;
-    if let Some(profile) = &state.identity {
-        let digest = Digest::blake3(&serde_json::to_vec(profile)?);
-        plan_buf.extend_from_slice(b"identity");
-        plan_buf.extend_from_slice(profile.revision.to_le_bytes().as_slice());
-        plan_buf.extend_from_slice(digest.hex().as_bytes());
-    }
-    let input_plan_ref = seal_step_object(
-        &store,
-        seq,
-        &plan_buf,
-        "application/octet-stream",
-        "input_plans",
-        "input_plan",
-        1,
-    )?;
-
-    // Advance the inbox cursor to the last event consumed by this step.
-    let last_event_id = events.last().map(|ev| ev.event_id.clone());
-    state.last_inbox_cursor = state.last_inbox_cursor.saturating_add(events.len() as u64);
-    let _inbox_cursor = InboxCursor {
-        through_event_id: last_event_id,
-        consumed_count: state.last_inbox_cursor,
+    validate_resume(&store, &step)?;
+    let input = if step.state == SubjectStepState::Planned {
+        state.identity = store.latest_identity(state.agent_id)?;
+        let input = FrozenStepInput {
+            schema_version: 2,
+            step_id,
+            step_no: seq,
+            events: events.to_vec(),
+            model: state.model.clone(),
+            payload: shenko_broker::request::InferencePayload {
+                system_prompt: build_system_prompt(state, in_semantic_wait),
+                messages: build_messages(state, events),
+                max_tokens: Some(state.max_tokens),
+                tools: vec![],
+            },
+            in_semantic_wait,
+        };
+        step.input_plan_ref = Some(seal_step_object(
+            &store, seq, &serde_json::to_vec(&input)?, "application/json", "input_plans", "subject_step_input", 2,
+        )?);
+        step.context_revision = Some(seq);
+        step.state = SubjectStepState::Preparing;
+        let expected = step.record_revision;
+        step.record_revision = RecordRevision(expected.0 + 1);
+        store.upsert_step(&step, &state.head, expected)?;
+        state.step = step.clone();
+        input
+    } else {
+        frozen_input(&store, &step)?
     };
-
-    // S0 的抢占以持久 step revision 为准，同一步只有一个准备者能继续。
-    step.state = SubjectStepState::Preparing;
-    step.input_plan_ref = Some(input_plan_ref);
-    step.context_revision = Some(seq);
-    step.record_revision = RecordRevision(step.record_revision.0 + 1);
-    store.upsert_step(&step, &state.head, state.step.record_revision)?;
-    state.step = step.clone();
-
-    // Hook: PreIngress — SPEC §37. Fires before messages are built and inference begins.
-    if let Some(reg) = &hooks_ref {
-        let results = reg
-            .run_phase(&HookPayload::BeforeInference {
-                request_id: step_id,
-                agent_id: state.agent_id,
-                model: state.model.clone(),
-            })
-            .await;
-        debug!(seq, hooks=%results.len(), "PreIngress hooks ran");
-    }
-
-    // AwaitingModel: real inference via broker
-    let model_output = match &state.broker {
-        Some(broker) => {
-            step.state = SubjectStepState::AwaitingModel;
-            let request_id = EntityId::new();
-            step.active_request_id = Some(request_id);
-            let expected_revision = step.record_revision;
-            step.record_revision = RecordRevision(expected_revision.0 + 1);
-            store.upsert_step(&step, &state.head, expected_revision)?;
-            state.step = step.clone();
-
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            let req = shenko_broker::request::InferenceRequest {
-                request_id,
-                agent_id: state.agent_id,
-                conversation_id: state.agent_id,
-                model: state.model.clone(),
-                priority: shenko_broker::request::InferencePriority::Subject,
-                epoch: state.head.controller_epoch,
-                payload: shenko_broker::request::InferencePayload {
-                    system_prompt: build_system_prompt(state, in_semantic_wait),
-                    messages: build_messages(state, events),
-                    max_tokens: Some(state.max_tokens),
-                    tools: vec![],
-                },
-                result_tx: tx,
-            };
-
-            broker.submit(req).map_err(|e| {
-                ShenkoError::other(format!("broker admission failed; reconcile request: {e}"))
-            })?;
-            let result = rx.await.map_err(|_| {
-                ShenkoError::other("model outcome unknown; reconcile original request")
-            })?;
-            if result.request_id != request_id
-                || !matches!(
-                    result.status,
-                    shenko_broker::request::InferenceStatus::Success
-                )
-            {
-                return Err(ShenkoError::other(
-                    "model has no accepted complete result; keep awaiting_model for reconciliation",
-                ));
+    let events = input.events.as_slice();
+    let in_semantic_wait = input.in_semantic_wait;
+    let model_output = if step.state == SubjectStepState::ResultRecorded {
+        // The actual sealed result is authoritative; no broker admission on this path.
+        let object = step.model_result_ref.as_ref().ok_or_else(|| ShenkoError::conflict("missing recorded result"))?;
+        Some(String::from_utf8(read_sealed(&store, object)?).map_err(|e| ShenkoError::storage(e.to_string()))?)
+    } else {
+        if step.state == SubjectStepState::Preparing {
+            if let Some(reg) = &hooks_ref {
+                reg.run_phase(&HookPayload::BeforeInference {
+                    request_id: step_id, agent_id: state.agent_id, model: input.model.clone(),
+                }).await;
             }
-            Some(
-                result
-                    .response
-                    .ok_or_else(|| ShenkoError::other("successful model result missing response"))?
-                    .content,
-            )
         }
-        None => {
-            return Err(ShenkoError::other(
-                "no broker; step cannot commit a model decision",
-            ));
+        // Close is not abort. Before dispatch, the frozen Preparing/RetryPending
+        // fact is sufficient to resume. After dispatch, keep waiting for real evidence.
+        if cancel.is_cancelled() { return Ok(None); }
+        let broker = state.broker.as_ref().ok_or_else(|| ShenkoError::other("no broker; frozen preparation remains resumable"))?;
+        let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let req = shenko_broker::request::InferenceRequest {
+            request_id,
+            agent_id: state.agent_id,
+            conversation_id: state.agent_id,
+            model: input.model,
+            priority: shenko_broker::request::InferencePriority::Subject,
+            epoch: state.head.controller_epoch,
+            payload: input.payload,
+            result_tx: tx,
+        };
+        step.state = SubjectStepState::AwaitingModel;
+        step.active_request_id = Some(request_id);
+        let expected = step.record_revision;
+        step.record_revision = RecordRevision(expected.0 + 1);
+        store.upsert_step(&step, &state.head, expected)?;
+        state.step = step.clone();
+        // A failed channel send proves this admission was never enqueued. A crash
+        // between the write and send cannot prove that, and stays AwaitingModel.
+        if broker.submit(req).is_err() {
+            record_retry(state, InferenceRetryFact::NeverDispatched)?;
+            return Err(ShenkoError::other("broker admission rejected; never_dispatched persisted"));
         }
+        let result = rx.await.map_err(|_| ShenkoError::other("model outcome unknown; reconcile original request"))?;
+        if result.request_id != request_id {
+            return Err(ShenkoError::conflict("model result request identity mismatch"));
+        }
+        use shenko_broker::request::InferenceStatus;
+        match result.status {
+            InferenceStatus::QueuedCapacityWait => {
+                record_retry(state, InferenceRetryFact::NeverDispatched)?;
+                return Err(ShenkoError::other("broker capacity rejection; never_dispatched persisted"));
+            },
+            InferenceStatus::Rejected { http_status: 429 } => {
+                record_retry(state, InferenceRetryFact::ProviderRejected { http_status: 429 })?;
+                return Err(ShenkoError::other("provider rejection persisted; same frozen request may resume"));
+            },
+            InferenceStatus::Success => {},
+            _ => return Err(ShenkoError::other("model outcome not conclusive; preserve original awaiting_model for reconciliation")),
+        }
+        let output = result.response.ok_or_else(|| ShenkoError::other("successful model result missing response"))?.content;
+        step.model_result_ref = Some(seal_step_object(
+            &store, seq, output.as_bytes(), "text/plain", "model_results", "text", 1,
+        )?);
+        step.state = SubjectStepState::ResultRecorded;
+        let expected = step.record_revision;
+        step.record_revision = RecordRevision(expected.0 + 1);
+        store.upsert_step(&step, &state.head, expected)?;
+        state.step = step.clone();
+        Some(output)
     };
 
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
@@ -461,26 +498,7 @@ async fn execute_step(
         debug!(seq, hooks=%results.len(), "PostModel hooks ran");
     }
 
-    // S1: Committed — atomic commit of step + advance branch head in one TX. SPEC §41.2.1/§44.6
-    step.state = SubjectStepState::ResultRecorded;
-    let expected_revision = step.record_revision;
-    step.record_revision = RecordRevision(expected_revision.0 + 1);
-    if let Some(output) = &model_output {
-        // Seal the actual model bytes before the S1 commit so the ref points
-        // at durable, readable content. SPEC §41.2.2.
-        step.model_result_ref = Some(seal_step_object(
-            &store,
-            seq,
-            output.as_bytes(),
-            "text/plain",
-            "model_results",
-            "text",
-            1,
-        )?);
-    }
-
-    store.upsert_step(&step, &state.head, expected_revision)?;
-    state.step = step.clone();
+    // ResultRecorded (including real CAS bytes) is already durable before hooks/S1.
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
 
@@ -688,13 +706,28 @@ async fn execute_step(
                 }
             }
 
-            Ok(receipt.commit_ref)
+            Ok(Some(receipt.commit_ref))
         }
         Err(e) => {
             warn!(seq, err=%e, "S1 commit failed");
             Err(e)
         }
     }
+}
+
+fn record_retry(state: &mut SubjectLoopState, fact: InferenceRetryFact) -> Result<(), ShenkoError> {
+    let request_id = state.step.active_request_id.ok_or_else(|| ShenkoError::conflict("missing retry request"))?;
+    let evidence = SubjectRetryEvidence { request_id, fact };
+    let mut step = state.step.clone();
+    step.retry_reason_ref = Some(seal_step_object(
+        &state.store, step.step_no, &serde_json::to_vec(&evidence)?, "application/json", "retry_evidence", "subject_retry_evidence", 1,
+    )?);
+    step.state = SubjectStepState::RetryPending;
+    let expected = step.record_revision;
+    step.record_revision = RecordRevision(expected.0 + 1);
+    state.store.upsert_step(&step, &state.head, expected)?;
+    state.step = step;
+    Ok(())
 }
 
 #[cfg(test)]

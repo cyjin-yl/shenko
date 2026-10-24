@@ -185,7 +185,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     // Send welcome
     let welcome = TimelineMessage {
         role: "system".to_string(),
-        content: "已连接。主体持续思考中。".to_string(),
+        content: "已连接传输服务；处理状态以持久结果为准。".to_string(),
         message_id: Uuid::new_v4().to_string(),
         timestamp: Utc::now().to_rfc3339(),
         stream: None,
@@ -254,14 +254,20 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                 created_at: Utc::now(),
                                 source: "web_ui".to_string(),
                             };
-                            if let Some(tx) = &state.inbox_tx {
-                                let _ = tx.try_send(event);
-                            }
-
-                            // Brief echo back to the sender only.
+                            // A successful try_send is only volatile queue admission,
+                            // not persistence or a subject decision. Never echo success
+                            // when the bounded inbox is full or its consumer has stopped.
+                            let admission = match &state.inbox_tx {
+                                Some(tx) => match tx.try_send(event) {
+                                    Ok(()) => "已进入内存队列；尚未持久化或处理，服务退出前仍可能丢失。",
+                                    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => "未接收：主体输入队列已满，请稍后重试。",
+                                    Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => "未接收：主体已停止，需要恢复。",
+                                },
+                                None => "未接收：主体输入未连接。",
+                            };
                             let reply = TimelineMessage {
-                                role: "subject".to_string(),
-                                content: format!("收到。"),
+                                role: "system".to_string(),
+                                content: admission.to_string(),
                                 message_id: Uuid::new_v4().to_string(),
                                 timestamp: Utc::now().to_rfc3339(),
                                 stream: None,
