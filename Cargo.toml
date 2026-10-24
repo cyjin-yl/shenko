@@ -36,7 +36,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["codec", "io"] }
 
 # Plugin backbone (user-confirmed: cordis-rs)
-cordis-core = { git = "https://github.com/dshbox/cordis-rs", rev = "1754062cef67cfc119fc7a2084c0321a231b9092" }
+# Native shutdown extension, appended to upstream 1754062; not an internal adapter.
+cordis-core = { git = "https://github.com/cyjin-yl/cordis-rs", rev = "9a8a49fa459991ee29da73fb42ea9324cee9b680" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

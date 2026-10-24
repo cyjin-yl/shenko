@@ -9,7 +9,7 @@
 1.复用真实有效GitHub身份/登录；有上游写权限用现route，无写权限fork向上游提PR。检查main、父PR、未提交工作并保留其他人的成果。
 2.完整读AGENTS.md、.agents/skills/shenko-dev/SKILL.md、WHY.md、GOAL.md、docs/governance/COMPLETION.md和PROMPT.md。打开总追踪#4、docs/plans/active/community-stack.md与所选docs/tasks/Cxx.md；完整读该任务对应SPEC/R/B/case。
 3.优先取已推送的现存候选/接口/证据，核对base SHA，建立隔离工作分支。评论正在做的任务、基础SHA、分支/PR和下一动作即可；认领不是锁，不需要批准。
-4.语义依赖不同于Git父分支。实际依赖未合并PR补丁时子PR base父分支，独立任务base main。自主研究、实现、重构、安装依赖、调试和验证，按Why调整方法，不新增计划签字/阶段审批/逐工具确认/等review才继续的gate。
+4.语义依赖不同于Git父分支。实际依赖未合并PR补丁时子PR base父分支，独立任务base main。自主研究、实现、重构、安装依赖、调试和验证，按Why调整方法，不新增计划签字/阶段审批/逐工具确认/等review才继续的gate。快速迭代直接迁移内部调用者并删除旧接口/别名/fallback/兼容测试，不保留旧内部框架；数据/经历/回执走明确迁移保留，真实供应商协议、平台能力与正常可选值仍按SPEC支持，任何component可替换。
 5.有意义成果及时commit/push开draft PR，列issue、Depends on、真实base/head、候选与证据；无补丁不开空PR。父未合并可继续子栈或独立任务，具备真实权限和足够证据时自主合入。
 6.优先复用有效验证，同一连贯增量不新增十个或更多测试。实机/fixture/构建/长期观察分别写，未跑不报成功；凭据、私有端点和原始私人聊天不进公开repo。
 7.可能下线时先push checkpoint，写SHA/branch/PR、已做/失败/未验证、下一动作及在途effects。主控可以从最后已推SHA开continuation分支接续，不等你回归、批准或交还；保留作者/提交，不强推别人分支，未知effects先对账不盲重发。
@@ -24,4 +24,4 @@
 /goal 按PROMPT.md加入cyjin-yl/shenko当前栈，完成指定Cxx／issue链接。读当前规则、shenko-dev、任务卡和对应SPEC完整章节，核对main/父PR/候选并复用已有实现。自主开发、调试、验证、commit、push及更新实际PR，不新增人工gate；认领不排他，review等待不阻塞独立工作。推送checkpoint和下一动作，使主控在我下线后从最后已推SHA自主续接，保留原作者提交、不强推、不盲重放未知effects。局部行为/证据/交付成立后报告，再按需要领下个包；不把局部完成当全部S1–S5完成。
 ```
 
-入口：[任务图](docs/plans/active/community-stack.md)、[JSON归属](docs/plans/active/community-stack.json)、[当前接续](docs/governance/HANDOFF.md)、[#5人格/姓名](https://github.com/cyjin-yl/shenko/issues/5)。模型按实际可用选择，UI可优先用户推荐k3.1-pro但非参与资格。主控单workflow/doescontainer是本机防OOM配置，朋友按自己的容量自主安排。
+入口：[任务图](docs/plans/active/community-stack.md)、[JSON归属](docs/plans/active/community-stack.json)、[当前接续](docs/governance/HANDOFF.md)、[#5人格/姓名](https://github.com/cyjin-yl/shenko/issues/5)。模型按实际可用选择，UI可优先用户推荐k3.1-pro但非参与资格。主控最多5条workflow、doescontainer内cargo共享锁串行是本机防OOM配置，并非必须跑满，朋友按自己的容量自主安排。

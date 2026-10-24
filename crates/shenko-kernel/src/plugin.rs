@@ -3,28 +3,18 @@
 //! Preparation and sealing use the upstream Plugin contract. Cordis owns resident
 //! Fibers, generation journals, dependency convergence and panic containment. The
 //! only Shenko policy here is terminal admission, retaining unfinished creation
-//! independently of its caller, and attempting every typed allocation at shutdown.
+//! independently of its caller, and awaiting native Runtime shutdown.
 //! No graph mutex is held while polling plugin code. Attributed tasks retain
 //! Cordis's self-wait detection across our completion-owner task boundary.
-use std::any::TypeId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 use cordis_core::logger::{Exporter, Level, LogRecord};
 use cordis_core::{Context, FiberHandle, Plugin, PreparedPlugin};
-use futures::future::{BoxFuture, join_all};
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
-
-type Removal = Arc<dyn Fn(Context) -> BoxFuture<'static, Result<()>> + Send + Sync>;
-
-#[derive(Default)]
-struct Admissions {
-    removals: Vec<(TypeId, Removal)>,
-    stopping: bool,
-}
 
 #[derive(Default)]
 struct Diagnostics {
@@ -47,7 +37,7 @@ impl Exporter for Diagnostics {
 pub struct PluginRegistry {
     context: Context,
     shutdown: CancellationToken,
-    admissions: Arc<Mutex<Admissions>>,
+    stopping: Arc<AtomicBool>,
     diagnostics: Arc<Diagnostics>,
 }
 
@@ -61,7 +51,7 @@ impl PluginRegistry {
         Self {
             context,
             shutdown,
-            admissions: Arc::new(Mutex::new(Admissions::default())),
+            stopping: Arc::new(AtomicBool::new(false)),
             diagnostics,
         }
     }
@@ -91,38 +81,22 @@ impl PluginRegistry {
             .prepare(config)
             .map_err(|error| anyhow::anyhow!("{error}"))?;
         let prepared = PreparedPlugin::from_input(plugin, input);
-        {
-            let mut admissions = self.admissions.lock();
-            anyhow::ensure!(!self.shutdown.is_cancelled(), "plugin host is shut down");
-            self.check_outcomes()?;
-            let key = TypeId::of::<P>();
-            if !admissions.removals.iter().any(|(id, _)| *id == key) {
-                admissions.removals.push((
-                    key,
-                    Arc::new(|ctx| {
-                        Box::pin(async move { ctx.remove_plugins::<P>().await.map_err(Into::into) })
-                    }),
-                ));
-            }
-        }
+        anyhow::ensure!(!self.shutdown.is_cancelled(), "plugin host is shut down");
+        self.check_outcomes()?;
         let context = self.context.clone();
         let shutdown = self.shutdown.clone();
-        let diagnostics = self.diagnostics.clone();
         let (send, receive) = oneshot::channel();
         self.context.spawn_attributed(async move {
-            // This definitive admission check is inside the completion owner.
-            // An admitted-but-not-yet-polled creation cannot allocate after stop.
+            // Cancellation interrupts pending apply; the native Runtime gate,
+            // not this select poll, linearizes attach against terminal shutdown.
             let result = tokio::select! {
                 biased;
                 _ = shutdown.cancelled() => Err(anyhow::anyhow!("plugin creation interrupted by shutdown")),
                 result = context.spawn(prepared) => result.map_err(Into::into),
             };
-            // A dropped spawn future delegates rollback to Cordis. The shutdown
-            // owner's typed remove waits for that exact native terminal barrier.
-            let result = result.and_then(|fiber| {
-                check_outcomes(&diagnostics)?;
-                Ok(fiber)
-            });
+            // Return this creation's actual result, even if another Fiber has
+            // since reported unknown cleanup. The caller must receive the live
+            // handle; host health only gates subsequent admission/restart.
             let _ = send.send(result);
         });
         receive
@@ -139,42 +113,33 @@ impl PluginRegistry {
         self.check_outcomes()
     }
 
-    /// Terminally close admission and attempt every native typed allocation.
+    /// Terminally close admission and await every native resident Fiber.
     /// A concurrent/reentrant stop refuses immediately, rather than waiting on
     /// the very lifecycle callback that must return for shutdown to finish.
     /// Caller cancellation abandons only the wait. Retry after an in-progress or
     /// recursive refusal to observe completion; errors never clear the unknown latch.
     pub async fn stop(&self) -> Result<()> {
-        let removals = {
-            let mut admissions = self.admissions.lock();
-            anyhow::ensure!(
-                !admissions.stopping,
-                "plugin shutdown already in progress; do not wait from a lifecycle callback"
-            );
-            self.shutdown.cancel();
-            admissions.stopping = true;
-            admissions
-                .removals
-                .iter()
-                .rev()
-                .map(|(_, remove)| remove.clone())
-                .collect::<Vec<_>>()
-        };
+        anyhow::ensure!(
+            self.stopping
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok(),
+            "plugin shutdown already in progress; do not wait from a lifecycle callback"
+        );
+        self.shutdown.cancel();
         let context = self.context.clone();
-        let admissions = self.admissions.clone();
+        let stopping = self.stopping.clone();
         let diagnostics = self.diagnostics.clone();
         let (send, receive) = oneshot::channel();
         self.context.spawn_attributed(async move {
-            // Poll all independent type removals; a failed/recursive member cannot
-            // suppress the rest. Cordis, not a Shenko actor, owns each disposal.
-            let results =
-                join_all(removals.into_iter().map(|remove| remove(context.clone()))).await;
-            let result = results
-                .into_iter()
-                .collect::<Result<Vec<_>>>()
-                .map(|_| ())
+            // Cordis closes attach and freezes its flat resident authority in
+            // one critical section, including native Context compositions and
+            // old allocations already detached by a cancelled typed removal.
+            let result = context
+                .close_plugins()
+                .await
+                .map_err(Into::into)
                 .and_then(|()| check_outcomes(&diagnostics));
-            admissions.lock().stopping = false;
+            stopping.store(false, Ordering::SeqCst);
             let _ = send.send(result);
         });
         receive

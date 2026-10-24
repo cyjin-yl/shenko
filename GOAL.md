@@ -30,6 +30,8 @@ Claude Code采用实际 `--dangerously-skip-permissions` 启动方式，模型�
 
 Rust2024/真实cordis-rs、持久WASM家园、单连续串行主体与有限children、最长600秒且仍用同一主模型轮询的语义等待、原始session与durable effects、全局推理准入、本地AI优先、两个独立compact、自解释/原子awareness、首版真实自开发/自迁移及所有后期具名平台/工具/后端都保留。Dreaming为社区可选。
 
+快速迭代直接迁移内部调用者到真实原生接口，删除被替代的旧trait、字段别名、fallback、双路径及兼容测试；不为旧内部框架保留兼容层。数据、经历、回执用明确迁移保留，不以清债擦除事实。真实供应商协议/平台能力/正常可选值继续按SPEC尤其§47支持；任何产品component仍可替换。
+
 人格/灵魂/实例姓名应版本化装配，框架品牌不得写死成所有实例身份（[#5](https://github.com/cyjin-yl/shenko/issues/5)）。Proto-UI当前主线+shadcn及compiler seam是真实技术义务，不以手写页面视觉相似替代；Magpie/Alma流式稳定需要实际证据。详细行为仍以SPEC和最新用户裁决为准。
 
 近期按 #6恢复正确 → #12真实远端执行 → #22第二节点加入并接走持久任务推进；各节点凭据/provider本地能力与共享自我分开，归属切换由代码fencing而非模型口头承诺。
@@ -38,7 +40,7 @@ Rust2024/真实cordis-rs、持久WASM家园、单连续串行主体与有限chil
 
 每个连贯增量零或少量直接有用检查，优先复用证据，不新增十个或更多测试，不借拆worker/PR/参数表规避。规格、实现、构建、fixture、实机、长期观察分开；失败和unknown如实记录。
 
-维护 [goal state](docs/state/goal.json)、[coverage](docs/state/coverage.json)、任务/PR栈及证据。每次交接推送已完成checkpoint并写SHA/branch/PR、结果、失败/未验证项、下一动作、资源和在途effects。主控当前只跑1条workflow，所有实际开发进程在受管doescontainer容器避免OOM；这是本机profile，不强加朋友同样的并发拓扑。
+维护 [goal state](docs/state/goal.json)、[coverage](docs/state/coverage.json)、任务/PR栈及证据。每次交接推送已完成checkpoint并写SHA/branch/PR、结果、失败/未验证项、下一动作、资源和在途effects。主控最多5条workflow，按真实容量少开而非跑满；所有实际开发进程在受管doescontainer容器，cargo持共享锁串行以避免OOM；这是本机profile，不强加朋友同样的并发拓扑。
 
 ## 完成条件
 

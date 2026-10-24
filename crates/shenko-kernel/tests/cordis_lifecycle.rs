@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use cordis_core::{Context, FiberState, InjectSpec, Plugin, Service};
+use cordis_core::{Context, FiberState, InjectSpec, Plugin, PreparedPlugin, Service};
 use futures::FutureExt;
 use shenko_kernel::Supervisor;
 use shenko_types::ids::RuntimeGeneration;
@@ -170,6 +170,26 @@ impl Plugin for Healthy {
     }
 }
 
+struct GatedHealthy {
+    cleaned: Arc<AtomicUsize>,
+    entered: Notify,
+    release: Notify,
+}
+impl Plugin for GatedHealthy {
+    type Config = ();
+    type Input = ();
+    type PrepareError = Infallible;
+    type ApplyError = Error;
+    fn prepare(&self, (): ()) -> Result<(), Infallible> {
+        Ok(())
+    }
+    async fn apply(&self, ctx: Context, (): &()) -> Result<(), Error> {
+        self.entered.notify_one();
+        self.release.notified().await;
+        Healthy(self.cleaned.clone()).apply(ctx, &()).await
+    }
+}
+
 struct BadDeclaration;
 impl Plugin for BadDeclaration {
     type Config = ();
@@ -250,6 +270,19 @@ async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() 
                 .is_err()
         );
         assert_eq!(healthy.state(), FiberState::Active);
+        // Both creations passed admission while diagnostics were healthy.
+        // Another Fiber's failed cleanup must not hide this successful handle.
+        let delayed = Arc::new(GatedHealthy {
+            cleaned: cleaned.clone(),
+            entered: Notify::new(),
+            release: Notify::new(),
+        });
+        let creation = {
+            let host = host.clone();
+            let delayed = delayed.clone();
+            tokio::spawn(async move { host.spawn(delayed, ()).await })
+        };
+        delayed.entered.notified().await;
         let plugin = Arc::new(RuntimePlugin::new(&host, false, true));
         let failure = host.spawn(plugin.clone(), ()).await.unwrap_err();
         assert!(format!("{failure:#}").contains("partial apply failed"));
@@ -264,11 +297,14 @@ async fn native_failure_isolation_panic_containment_and_unknown_cleanup_latch() 
                 .iter()
                 .any(|r| r.text().contains("payload destructor panicked"))
         );
+        delayed.release.notify_one();
+        let delivered = creation.await.unwrap().unwrap();
+        assert_eq!(delivered.state(), FiberState::Active);
         assert!(host.spawn(Healthy(cleaned.clone()), ()).await.is_err());
         assert!(host.restart(&healthy).await.is_err());
         assert!(host.stop().await.is_err()); // drain != proof external effects undone
         assert!(host.stop().await.is_err()); // reading does not clear unknown
-        assert_eq!(cleaned.load(Ordering::SeqCst), 1);
+        assert_eq!(cleaned.load(Ordering::SeqCst), 2);
         assert_eq!(host.context().runtime_snapshot().fibers().len(), 1);
     })
     .await
@@ -293,7 +329,7 @@ async fn shutdown_interrupts_abandoned_pending_creation_and_closes_admission() {
         starting.abort();
         assert!(starting.await.unwrap_err().is_cancelled());
         // No release signal: shutdown must drop the pending native spawn,
-        // then typed removal must await Cordis's rollback/unlink barrier.
+        // then Runtime shutdown must await Cordis's rollback/unlink barrier.
         let (stopped, late_start) =
             tokio::join!(host.stop(), host.spawn(Healthy(cleaned.clone()), ()));
         stopped.unwrap();
@@ -307,4 +343,122 @@ async fn shutdown_interrupts_abandoned_pending_creation_and_closes_admission() {
     })
     .await
     .expect("pending creation cannot trap shutdown behind apply");
+}
+
+// A native composition is not a Shenko ownership tree: the child remains a
+// resident after its current typed allocation is detached by another caller.
+struct NativeComposition(Arc<NativeChild>);
+impl Plugin for NativeComposition {
+    type Config = ();
+    type Input = ();
+    type PrepareError = Infallible;
+    type ApplyError = Error;
+    fn prepare(&self, (): ()) -> Result<(), Infallible> {
+        Ok(())
+    }
+    async fn apply(&self, ctx: Context, (): &()) -> Result<(), Error> {
+        ctx.spawn(PreparedPlugin::from_input(self.0.clone(), ()))
+            .await
+            .map_err(Error::other)?;
+        Ok(())
+    }
+}
+
+struct NativeChild {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+    joined: Arc<AtomicUsize>,
+    cleaned: Arc<AtomicUsize>,
+}
+impl Plugin for NativeChild {
+    type Config = ();
+    type Input = ();
+    type PrepareError = Infallible;
+    type ApplyError = Error;
+    fn prepare(&self, (): ()) -> Result<(), Infallible> {
+        Ok(())
+    }
+    async fn apply(&self, ctx: Context, (): &()) -> Result<(), Error> {
+        let _publication = ctx
+            .provide(Arc::new(LiveResource(42)))
+            .map_err(Error::other)?;
+        let (signal, stopped) = oneshot::channel();
+        let joined = self.joined.clone();
+        ctx.run(async move {
+            let _ = stopped.await;
+            joined.fetch_add(1, Ordering::SeqCst);
+        })
+        .map_err(Error::other)?;
+        ctx.effect_sync(move || {
+            let _ = signal.send(());
+        })
+        .map_err(Error::other)?;
+        let entered = self.entered.clone();
+        let release = self.release.clone();
+        let cleaned = self.cleaned.clone();
+        ctx.effect(move || async move {
+            entered.notify_one();
+            release.notified().await;
+            cleaned.fetch_add(1, Ordering::SeqCst);
+        })
+        .map_err(Error::other)?;
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_joins_native_composition_after_cancelled_detached_removal() {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let host = Arc::new(Supervisor::new(RuntimeGeneration::new(
+            "native-composition",
+        )));
+        let child = Arc::new(NativeChild {
+            entered: Arc::new(Notify::new()),
+            release: Arc::new(Notify::new()),
+            joined: Arc::new(AtomicUsize::new(0)),
+            cleaned: Arc::new(AtomicUsize::new(0)),
+        });
+        host.spawn(NativeComposition(child.clone()), ())
+            .await
+            .unwrap();
+        assert_eq!(host.context().try_service::<LiveResource>().unwrap().0, 42);
+        let removing = {
+            let ctx = host.context().clone();
+            tokio::spawn(async move { ctx.remove_plugins::<Arc<NativeChild>>().await })
+        };
+        child.entered.notified().await;
+        removing.abort();
+        assert!(removing.await.unwrap_err().is_cancelled());
+        // No current allocation remains, but the exact resident is still draining.
+        host.context()
+            .remove_plugins::<Arc<NativeChild>>()
+            .await
+            .unwrap();
+        assert!(host.context().try_service::<LiveResource>().is_err());
+        assert_eq!(host.context().runtime_snapshot().fibers().len(), 3);
+        let mut stopping = Box::pin(host.stop());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(30), &mut stopping)
+                .await
+                .is_err()
+        );
+        assert_eq!(child.cleaned.load(Ordering::SeqCst), 0);
+        child.release.notify_one();
+        stopping.await.unwrap();
+        assert_eq!(child.cleaned.load(Ordering::SeqCst), 1);
+        assert_eq!(child.joined.load(Ordering::SeqCst), 1);
+        assert!(host.context().runtime_snapshot().services().is_empty());
+        assert_eq!(host.context().runtime_snapshot().fibers().len(), 1);
+        assert!(
+            host.context()
+                .spawn(PreparedPlugin::from_input(
+                    Healthy(Arc::new(AtomicUsize::new(0))),
+                    ()
+                ))
+                .await
+                .is_err()
+        );
+    })
+    .await
+    .expect("shutdown must join native residents, not just current type mappings");
 }
