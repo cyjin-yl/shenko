@@ -33,7 +33,9 @@ pub struct SnapConfig {
     pub tail_ratio: f32,
     pub max_tool_output_chars: usize,
     pub max_tool_args_chars: usize,
+    /// Frame width in 8px halfwidth cells; a CJK glyph takes two.
     pub columns: u32,
+    /// Text rows (16px each) per frame.
     pub rows_per_frame: u32,
     /// Above this share of glyph-less characters in any one record, the frame
     /// is unreadable.
@@ -51,7 +53,7 @@ impl Default for SnapConfig {
             max_tool_output_chars: 2000,
             max_tool_args_chars: 500,
             columns: 160,
-            rows_per_frame: 96,
+            rows_per_frame: 64,
             max_unrenderable_ratio: 0.02,
             min_image_context: 8192,
         }
@@ -272,8 +274,8 @@ impl Plugin for SnapCompactPlugin {
     }
 
     fn prepare(&self, config: SnapConfig) -> Result<SnapConfig, std::io::Error> {
-        if config.columns == 0 || config.rows_per_frame == 0 {
-            return Err(std::io::Error::other("snapcompact frame size must be non-zero"));
+        if config.columns < 2 || config.rows_per_frame == 0 {
+            return Err(std::io::Error::other("snapcompact frames need at least 2 columns and 1 row"));
         }
         Ok(config)
     }

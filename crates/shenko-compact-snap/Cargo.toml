@@ -9,7 +9,7 @@ license.workspace = true
 shenko-context-policy = { path = "../shenko-context-policy" }
 cordis-core = { workspace = true }
 png = { workspace = true }
-font8x8 = { workspace = true }
+unifont = { workspace = true }
 
 [dev-dependencies]
 shenko-compact-budget = { path = "../shenko-compact-budget" }

@@ -938,12 +938,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
-name = "font8x8"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "875488b8711a968268c7cf5d139578713097ca4635a76044e8fe8eedf831d07e"
-
-[[package]]
 name = "foreign-types"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2598,13 +2592,13 @@ name = "shenko-compact-snap"
 version = "0.1.0"
 dependencies = [
  "cordis-core",
- "font8x8",
  "png",
  "shenko-compact-budget",
  "shenko-context-policy",
  "shenko-kernel",
  "tokio",
  "tokio-util",
+ "unifont",
 ]
 
 [[package]]
@@ -3366,6 +3360,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unifont"
+version = "1.1.0+data-15.1.05"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eb5abf597aaa6fff19801d6747672f56e618d60002e7191ea92773a5bcae156"
 
 [[package]]
 name = "untrusted"

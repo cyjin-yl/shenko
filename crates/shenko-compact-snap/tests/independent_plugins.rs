@@ -59,10 +59,10 @@ async fn without_usable_vision_snapcompact_reports_and_budget_takes_over() {
     assert!(matches!(&attempts[0].outcome, Err(PolicyError::Unavailable(_))));
     assert_eq!(window.policy.id, "budget-compact");
 
-    // Vision present, but the archive is Chinese and the frame font has no CJK
-    // glyphs: reported unreadable, never shipped as a frame, budget falls in.
-    let cjk = history(|n| format!("第{n}步：修复存储层的恢复路径"));
-    let items = cjk.snapshot();
+    // Vision present, but records are mostly outside the BMP (no Unifont glyph):
+    // reported unreadable, never shipped as a frame, budget falls in.
+    let emoji = history(|n| format!("{n} 🚀🔥✅🎉🙏🤖"));
+    let items = emoji.snapshot();
     let (window, attempts) = registry.prepare(&items, &VISION, used).unwrap();
     assert!(matches!(&attempts[0].outcome, Err(PolicyError::FrameUnreadable(_))));
     assert_eq!(window.policy.id, "budget-compact");
@@ -72,7 +72,8 @@ async fn without_usable_vision_snapcompact_reports_and_budget_takes_over() {
 #[tokio::test(flavor = "multi_thread")]
 async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let (host, registry, snap) = host_with_both().await;
-    let h = history(|n| format!("step {n}: fix path crates/shenko-store/src/lib.rs:{n}"));
+    // Mixed Chinese / English / digits / paths, as real group chat and tool logs are.
+    let h = history(|n| format!("第{n}步：修复 crates/shenko-store/src/lib.rs:{n} 的恢复路径，见 #6"));
     let items = h.snapshot();
     let used = items.iter().map(|i| i.tokens).sum();
     assert!(registry.availability(&VISION).iter().all(|(_, a)| *a == Availability::Available));
@@ -82,6 +83,7 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     assert!(prepared.cost.window_tokens <= 32768, "fits the image-request envelope");
     assert!(prepared.cost.truncated_chars > 0, "bounded archive records truncation");
     assert!(prepared.cost.vision_tokens_estimate > 0 && prepared.cost.image_bytes > 0);
+    assert_eq!(prepared.cost.unrenderable_chars, 0, "every CJK glyph is drawn, none boxed");
     let frame = &prepared.derivatives[0];
     assert_eq!(&frame.bytes[1..4], b"PNG");
     // Every frame is introduced by a pointer back to its raw range.

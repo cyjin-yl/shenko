@@ -52,7 +52,8 @@ blake3 = "1"
 
 # Snapcompact frame rendering
 png = "0.17"
-font8x8 = { version = "0.3", default-features = false }
+# GNU Unifont 15.1.05 glyphs (OFL-1.1 or GPL-2+ with font exception); crate MIT.
+unifont = "=1.1.0"
 
 # IDs and hashing
 uuid = { version = "1", features = ["v4", "serde"] }

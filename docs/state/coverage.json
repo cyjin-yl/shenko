@@ -1885,7 +1885,8 @@
       "implementation_refs": [
         "crates/shenko-context-policy/src/window.rs",
         "crates/shenko-compact-budget/src/lib.rs",
-        "crates/shenko-compact-snap/src/lib.rs"
+        "crates/shenko-compact-snap/src/lib.rs",
+        "crates/shenko-compact-snap/src/render.rs"
       ],
       "evidence_refs": [
         "crates/shenko-compact-budget/tests/budget_plugin.rs",
@@ -1895,10 +1896,10 @@
         "原始历史仍为进程内 MemoryHistory，待 #6 ledger / #14 history child 适配",
         "正式主循环尚未调用 ContextPolicy",
         "真实 KV/prefill 与视觉阅读正确率未测",
-        "帧字体无 CJK 字形，中文档案如实回退"
+        "BMP 外字符（emoji 等）无字形，按记录判不可读并回退"
       ],
       "satisfied": false,
-      "note": "C20 切片1：budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG；窗口保留原始引用/未完成调用单元，前缀复用按逐项相同计算。成本中 vision token 为 patch 估算，非实测。"
+      "note": "C20 切片1：budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG；窗口保留原始引用/未完成调用单元，前缀复用按逐项相同计算。成本中 vision token 为 patch 估算，非实测。 帧字形为 GNU Unifont 15.1.05（BMP 全覆盖，CJK 16×16），中英数字路径混排人工目检可读；模型读图正确率未测。"
     },
     {
       "requirement_id": "R116",
