@@ -1980,14 +1980,21 @@
         "B38"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "buildable"
+      ],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-kernel/src/plugin.rs",
+        "crates/shenko-kernel/src/supervisor.rs"
+      ],
+      "evidence_refs": [
+        "crates/shenko-kernel/tests/cordis_lifecycle.rs"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Supervisor start/restart/stop 由 pinned cordis Context/PreparedPlugin/FiberHandle/effect 实际承载；两个真实库集成测试覆盖取消等待、generation换代、Service/effect清理及失败闭锁。bin默认业务闭包尚未装配；typed依赖绑定、版本化hook图和持久activation/handoff未完成；不是完整R123/A18/H08验收。"
     },
     {
       "requirement_id": "R124",

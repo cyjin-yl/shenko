@@ -1,13 +1,13 @@
 //! Minimal supervisor — starts plugins, holds lifecycle state.
-use std::sync::Arc;
 use anyhow::Result;
+use std::sync::Arc;
 use tracing::info;
 
-use shenko_types::ids::RuntimeGeneration;
+use crate::capability::CapabilityRegistry;
 use crate::lifecycle::LifecycleState;
 use crate::plugin::PluginRegistry;
-use crate::capability::CapabilityRegistry;
 use crate::service::ServiceRegistry;
+use shenko_types::ids::RuntimeGeneration;
 
 /// The Shenko supervisor. Does NOT depend on any plugin implementation.
 pub struct Supervisor {
@@ -28,10 +28,18 @@ impl Supervisor {
     }
 
     pub async fn start(&self) -> Result<()> {
+        anyhow::ensure!(!self.is_shutdown(), "supervisor is shut down");
         info!(generation = %self.lifecycle.generation, "supervisor starting");
         self.plugins.start_all().await?;
         info!("supervisor started");
         Ok(())
+    }
+
+    /// Destructively restart registered fibers on their real Cordis generations.
+    /// This is not a durable software activation or atomic hook-graph swap.
+    pub async fn restart(&self) -> Result<()> {
+        anyhow::ensure!(!self.is_shutdown(), "supervisor is shut down");
+        self.plugins.restart_all().await
     }
 
     pub async fn stop(&self) -> Result<()> {
