@@ -165,6 +165,7 @@ impl Store {
         let legal = matches!(
             (previous.state, step.state),
             (Planned, Preparing) | (Preparing, AwaitingModel) | (AwaitingModel, ResultRecorded)
+                | (AwaitingModel, RetryPending) | (RetryPending, AwaitingModel)
         );
         if !legal
             || previous.record_revision != expected_revision
@@ -182,6 +183,20 @@ impl Store {
             || (step.state == ResultRecorded && step.model_result_ref.is_none())
         {
             return Err(ShenkoError::conflict("stale or invalid subject transition"));
+        }
+        if step.state == RetryPending || previous.state == RetryPending {
+            let evidence_ref = if step.state == RetryPending { &step.retry_reason_ref } else { &previous.retry_reason_ref };
+            let object = evidence_ref.as_ref().ok_or_else(|| ShenkoError::conflict("retry requires positive dispatch evidence"))?;
+            let bytes = self.cas.read_object(&object.digest)?;
+            let evidence: shenko_types::subject::SubjectRetryEvidence = serde_json::from_slice(&bytes)?;
+            if bytes.len() as u64 != object.bytes
+                || shenko_types::object::Digest::blake3(&bytes) != object.digest
+                || !evidence.permits_retry(previous.active_request_id)
+                || previous.active_attempt_id.is_some()
+                || step.model_result_ref.is_some()
+            {
+                return Err(ShenkoError::conflict("request is not proven safe to retry"));
+            }
         }
         self.verify_step_objects(step)?;
         let seq = self.ledger.allocate_seq(&tx)?;
@@ -324,6 +339,7 @@ impl Store {
             &step.input_plan_ref,
             &step.model_result_ref,
             &step.decision_ref,
+            &step.retry_reason_ref,
         ]
         .into_iter()
         .flatten()

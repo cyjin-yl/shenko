@@ -75,6 +75,9 @@ impl LocalModelProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                return Err(crate::request::ProviderRejection { http_status: status.as_u16() }.into());
+            }
             let text = resp.text().await.unwrap_or_default();
             return Err(anyhow!("local model API error {status}: {text}"));
         }

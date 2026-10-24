@@ -266,15 +266,15 @@ impl NapCatClient {
         spool: Arc<IngressSpool>,
         cancel: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<()> {
-        let result = Self::connection_loop(
-            config,
-            event_tx,
-            action_rx,
-            pending_actions.clone(),
-            spool,
-            cancel,
-        )
-        .await;
+        // Replay can wait on bounded subject admission without stopping the socket.
+        // Both futures are scoped here: an error stops the connector, not a detached task.
+        let result = tokio::select! {
+            result = Self::delivery_loop(event_tx, spool.clone(), cancel.clone()) => result,
+            result = Self::connection_loop(
+                config, action_rx, pending_actions.clone(), spool.clone(), cancel,
+            ) => result,
+        };
+        spool.record_disconnect()?;
         pending_actions.lock().clear();
         if let Err(err) = &result {
             error!(err=%err, "NapCat: 接收循环失败，未确认事件留待重开核对");
@@ -282,29 +282,46 @@ impl NapCatClient {
         result
     }
 
+    async fn delivery_loop(
+        event_tx: mpsc::Sender<OneBotEvent>,
+        spool: Arc<IngressSpool>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> anyhow::Result<()> {
+        // Process-local delivery watermark, NOT an ACK. Never reset it on a scan
+        // or socket reconnect; a process reopen intentionally replays stable IDs.
+        let mut after = 0;
+        let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        loop {
+            let events = spool.pending_after(after, 256)?;
+            if events.is_empty() {
+                tokio::select! {
+                    _ = tick.tick() => {},
+                    _ = cancel.cancelled() => return Ok(()),
+                }
+                continue;
+            }
+            for event in events {
+                let seq = event.seq;
+                if !Self::deliver_spooled(&event_tx, &spool, event, &cancel).await? {
+                    return Ok(());
+                }
+                after = seq;
+                // SQLite settlement is synchronous; do not monopolize a
+                // single-thread executor across a page of disk-backed writes.
+                tokio::task::yield_now().await;
+            }
+        }
+    }
+
     async fn connection_loop(
         config: NapCatConfig,
-        event_tx: mpsc::Sender<OneBotEvent>,
         mut action_rx: mpsc::Receiver<OneBotAction>,
         pending_actions: PendingActions,
         spool: Arc<IngressSpool>,
         cancel: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<()> {
-        // 进程重开本身也是未覆盖区间；不把重连当成历史已补齐。
+        // A process reopen is itself an uncovered interval.
         spool.record_disconnect()?;
-        let mut after = 0;
-        loop {
-            let events = spool.pending_after(after, 256)?;
-            if events.is_empty() {
-                break;
-            }
-            for event in events {
-                after = event.seq;
-                if !Self::deliver_spooled(&event_tx, &spool, event, &cancel).await? {
-                    return Ok(());
-                }
-            }
-        }
         loop {
             if cancel.is_cancelled() {
                 break;
@@ -317,13 +334,17 @@ impl NapCatClient {
 
             info!(url=%config.ws_url, "NapCat: connecting");
 
-            match connect_async(url.as_str()).await {
+            let connected = tokio::select! {
+                result = connect_async(url.as_str()) => result,
+                _ = cancel.cancelled() => break,
+            };
+            match connected {
                 Err(e) => {
                     warn!(err=%e, "NapCat: connection failed, retrying in {}ms", config.reconnect_interval_ms);
-                    tokio::time::sleep(tokio::time::Duration::from_millis(
-                        config.reconnect_interval_ms,
-                    ))
-                    .await;
+                    tokio::select! {
+                        _ = tokio::time::sleep(tokio::time::Duration::from_millis(config.reconnect_interval_ms)) => {},
+                        _ = cancel.cancelled() => break,
+                    }
                     continue;
                 }
                 Ok((ws_stream, _)) => {
@@ -346,12 +367,7 @@ impl NapCatClient {
 
                                         if value.get("post_type").is_some() {
                                             // 原文先落盘，再解析和交付。解析失败仍可从接收库恢复。
-                                            if let Some(event) = spool.ingest(value)? {
-                                                if !Self::deliver_spooled(&event_tx, &spool, event, &cancel).await? {
-                                                    spool.record_disconnect()?;
-                                                    return Ok(());
-                                                }
-                                            }
+                                            spool.ingest(value)?;
                                         } else if let Some(echo) = value.get("echo").and_then(|v| v.as_str()) {
                                             // Action response — route to its waiter.
                                             let waiter = pending_actions.lock().remove(echo);
@@ -450,5 +466,89 @@ impl NapCatClient {
         spool.mark_delivered(event.spool_id)?;
         // 不调用 ack：channel 成功不等于主体已提交处置。
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::collections::HashSet;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn socket_persists_new_observations_while_replay_is_backpressured() {
+        let dir = std::env::temp_dir().join(format!("shenko-backpressure-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = NapCatConfig {
+            ws_url: format!("ws://{}", listener.local_addr().unwrap()),
+            bot_qq: 9,
+            ..Default::default()
+        };
+        let (client, mut rx, actions) = NapCatClient::open_persistent(config.clone(), dir.join("ingress.sqlite")).unwrap();
+        let raw = |id| json!({"post_type":"message", "message_type":"group", "group_id":7,
+            "user_id":8, "message_id":id, "raw_message":"original", "sender":{"nickname":"before"}});
+        let mut first = None;
+        for id in 1..=600 {
+            let event = client.spool.ingest(raw(id)).unwrap().unwrap();
+            if id == 1 { first = Some(event.spool_id); }
+        }
+        let (stop_tx, stop_rx) = oneshot::channel();
+        let (connected_tx, connected_rx) = oneshot::channel();
+        let (live_tx, live_rx) = oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let _ = connected_tx.send(());
+            let _ = live_rx.await;
+            let mut metadata = raw(1);
+            metadata["sender"]["nickname"] = json!("after");
+            let mut conflict = metadata.clone();
+            conflict["raw_message"] = json!("changed command");
+            for value in [raw(601), metadata, conflict] {
+                ws.send(Message::Text(value.to_string().into())).await.unwrap();
+            }
+            let _ = stop_rx.await;
+        });
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let connector = tokio::spawn(NapCatClient::run_connection_loop(
+            config, client.event_sender(), actions, client.pending_actions.clone(), client.spool.clone(), cancel.clone(),
+        ));
+        // Establish the connection despite the >channel-size durable backlog.
+        tokio::time::timeout(Duration::from_secs(5), connected_rx).await.unwrap().unwrap();
+        // Let delivery hit real backpressure, then send new socket observations.
+        tokio::time::timeout(Duration::from_secs(60), async {
+            while rx.len() != 256 { tokio::time::sleep(Duration::from_millis(10)).await; }
+        }).await.unwrap();
+        live_tx.send(()).unwrap();
+        // No consumer drains the bounded channel until the socket has durably
+        // accepted a fresh event and conflicting observations of the first one.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if client.spool.cursor().unwrap().last_seq == 601
+                    && client.spool.observations(first.unwrap()).unwrap().len() == 3 { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+        assert_eq!(rx.len(), 256);
+        let observations = client.spool.observations(first.unwrap()).unwrap();
+        assert_eq!(observations[1].kind, crate::spool::ObservationKind::MetadataOnly);
+        assert_eq!(observations[2].kind, crate::spool::ObservationKind::Conflict);
+        let mut ids = HashSet::new();
+        for _ in 0..601 {
+            let event = tokio::time::timeout(Duration::from_secs(5), rx.recv()).await.unwrap().unwrap();
+            assert!(ids.insert(event.ingress_id.unwrap()));
+        }
+        assert!(tokio::time::timeout(Duration::from_millis(250), rx.recv()).await.is_err());
+        assert_eq!(client.spool.pending_count().unwrap(), 601); // channel delivery is never ACK
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(2), connector).await.unwrap().unwrap().unwrap();
+        let _ = stop_tx.send(());
+        server.await.unwrap();
+        let reopened = IngressSpool::open(dir.join("ingress.sqlite"), 9).unwrap();
+        assert_eq!(reopened.pending_count().unwrap(), 601);
+        assert_eq!(reopened.consume(1).unwrap()[0].spool_id, first.unwrap());
+        // Keep the fixture on container disk for independent inspection.
     }
 }
