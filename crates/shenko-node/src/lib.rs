@@ -169,6 +169,13 @@ impl Node {
         conn.execute_batch(
             "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
+        let journal: String = conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?;
+        let synchronous: i64 = conn.query_row("PRAGMA synchronous", [], |r| r.get(0))?;
+        let foreign_keys: i64 = conn.query_row("PRAGMA foreign_keys", [], |r| r.get(0))?;
+        ensure!(
+            journal == "delete" && synchronous == 2 && foreign_keys == 1,
+            "node storage profile not adopted"
+        );
         let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         ensure!(version == 0 || version == SCHEMA, "unsupported node schema");
         if version == 0 {
@@ -728,7 +735,7 @@ impl Node {
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         Ok(
-            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":SCHEMA,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
+            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":SCHEMA,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
         )
     }
 }

@@ -98,7 +98,7 @@ def prepare(directory, config):
 
 
 def invoke(directory, plan, label, action=None, query=False):
-    assert len(label) <= 96 and label.replace('-', '').replace('_', '').isalnum(), 'stable simple operation label required'
+    assert len(label) <= 80 and label.replace('-', '').replace('_', '').isalnum(), 'stable simple operation label required'
     trust = Path(plan['parent']['target']['known_hosts_path']).read_bytes()
     assert hashlib.sha256(trust).hexdigest() == plan['known_hosts_sha256'], 'registered host trust changed'
     request = dict(plan['parent'])
@@ -155,7 +155,8 @@ def deploy(directory, plan):
     node_call(directory, plan, 'initialize', {'command': 'initialize', 'node_id': plan['node_id'], 'identity': plan.get('initial_identity')})
     joined = node_call(directory, plan, 'join', {'command': 'join', 'operation_id': plan['deployment_id'],
         'expected_node': plan['node_id'], 'identity': plan['identity'], 'manifest': plan['manifest']})
-    status = node_call(directory, plan, 'status', {'command': 'status', 'operation_id': plan['deployment_id']})
+    # Status is a new explicit read-only observation, not a cached install receipt.
+    status = node_call(directory, plan, 'status-' + str(uuid.uuid4()), {'command': 'status', 'operation_id': plan['deployment_id']})
     assert status['node_id'] == plan['node_id'] and status['metadata']['identity'] == plan['identity']
     assert status['running_manifest'] == plan['manifest'], 'actual runtime differs from installation plan'
     print(json.dumps({'install': install, 'join': joined, 'status': status}))

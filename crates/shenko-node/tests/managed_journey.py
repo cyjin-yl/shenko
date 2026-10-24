@@ -38,7 +38,7 @@ server_port=port()
 listener=socket.socket();listener.bind(('127.0.0.1',0));listener.listen()
 proxy_port=listener.getsockname()[1]
 config=root/'sshd_config'
-config.write_text(f"Port {server_port}\nListenAddress 127.0.0.1\nHostKey {root}/host_key\nPidFile {root}/sshd.pid\nAuthorizedKeysFile {root}/authorized_keys\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\nStrictModes yes\nUsePAM no\nAllowUsers root\nLogLevel ERROR\n")
+config.write_text(f"Port {server_port}\nListenAddress 127.0.0.1\nHostKey {root}/host_key\nPidFile {root}/sshd.pid\nAuthorizedKeysFile {root}/authorized_keys\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin prohibit-password\nStrictModes no\nUsePAM no\nAllowUsers root\nLogLevel ERROR\n")
 public=(root/'host_key.pub').read_text().split()
 (root/'known_hosts').write_text(f'[127.0.0.1]:{proxy_port} {public[0]} {public[1]}\n')
 remote_root=root/'remote-worker'
@@ -101,7 +101,8 @@ try:
     recovered=d['invoke'](plan_dir,plan,'install',query=True)
     assert recovered['state']=='installed'
     d['deploy'](plan_dir,plan)
-    # A full driver retry is query-only for every old operation, including join.
+    # A full retry queries every old mutating operation, including join; status
+    # is intentionally a new read-only observation.
     d['deploy'](plan_dir,plan)
     status=d['node_call'](plan_dir,plan,'status-readback',{'command':'status','operation_id':plan['deployment_id']})
     assert status['metadata']['retired_identities']==[old_self]
