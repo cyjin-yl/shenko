@@ -368,6 +368,7 @@ fn persist(
         checkpoint_scope_ref: None,
         state,
         outcome,
+        outcome_conflict: false,
         effect_status: effect,
         retry_of: None,
         compensates: None,

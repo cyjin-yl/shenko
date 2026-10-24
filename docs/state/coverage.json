@@ -312,11 +312,12 @@
         "crates/shenko-store/src/external.rs"
       ],
       "evidence_refs": [
-        "docs/evidence/c07-native-ssh-20261025.json"
+        "docs/evidence/c07-native-ssh-20261025.json",
+        "docs/evidence/c07-ssh-repair-20261025.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。"
+      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。 PR35 修复并实测局部 writer 排队封闭/提交排序、CAS 迁移 trust、0600 upload 和持久 terminal conflict；仍不是全局 writer fencing、完整 C07 或掉电验收。"
     },
     {
       "requirement_id": "R019",
@@ -692,11 +693,12 @@
         "crates/shenko-store/src/external.rs"
       ],
       "evidence_refs": [
-        "docs/evidence/c07-native-ssh-20261025.json"
+        "docs/evidence/c07-native-ssh-20261025.json",
+        "docs/evidence/c07-ssh-repair-20261025.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。"
+      "note": "仅真实隔离 Linux 容器 OpenSSH 传输与 task-bound native adapter：严格 host key、显式 key/agent、argv/stdin、1MiB upload/download、稳定 operation/receipt 与 unknown 查询已运行。生产 child/outbox、完整授权/fencing、seat、WASM 与其它平台仍未完成；无完整 case 或掉电验收通过声明。 PR35 修复并实测局部 writer 排队封闭/提交排序、CAS 迁移 trust、0600 upload 和持久 terminal conflict；仍不是全局 writer fencing、完整 C07 或掉电验收。"
     },
     {
       "requirement_id": "R042",

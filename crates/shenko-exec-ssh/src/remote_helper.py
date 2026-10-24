@@ -73,8 +73,10 @@ with open(stdout, "xb") as out, open(stderr, "xb") as err:
             assert len(data) <= LIMIT and os.path.isabs(payload["path"])
             destination = payload["path"]
             tmp = os.path.join(os.path.dirname(destination), ".shenko-" + operation)
-            with open(tmp, "xb") as f:
-                os.chmod(tmp, 0o600)
+            # Create private from the first instant, regardless of umask. A
+            # later chmod cannot revoke a descriptor another account opened.
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
                 f.write(data)
                 f.flush()
                 os.fsync(f.fileno())

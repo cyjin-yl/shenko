@@ -7,6 +7,10 @@ use shenko_store::{Store, TaskInvocation};
 use shenko_types::{commit::CommitRef, evidence::*, ids::*, object::*, operation::*};
 
 const HELPER: &str = include_str!("remote_helper.py");
+// PR33 727b964 helper artifact: query-only compatibility for its v1 receipts.
+// Never use this compatibility path to dispatch or replay the old operation.
+const LEGACY_RECEIPT_V1: &str =
+    "blake3:3db899dc077c398ecc459e86565ed432e31097335af46291b579c6c3e0eaf9c6";
 const MAX_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,19 +130,11 @@ impl SshBinding {
         })
     }
     fn executor(&self, store: &Store) -> Result<SshExecutor> {
-        let bytes = store.cas.read_object(&self.known_hosts.digest)?;
-        ensure!(
-            Digest::blake3(&bytes) == self.known_hosts.digest,
-            "trust object corrupted"
-        );
-        // Use the sealed public trust object, not the user's mutable trust file.
+        // CAS locators are historical hints: recovery may relocate the store.
+        // Verify and resolve the immutable trust object in the current CAS.
+        let path = store.cas.verified_object_path(&self.known_hosts)?;
         let mut target = self.target.clone();
-        let path = self
-            .known_hosts
-            .locator
-            .strip_prefix("file://")
-            .context("native trust locator required")?;
-        target.known_hosts_path = Some(path.into());
+        target.known_hosts_path = Some(path);
         Ok(SshExecutor::over_ssh(target))
     }
 }
@@ -263,6 +259,7 @@ impl SshTaskRunner<'_> {
             checkpoint_scope_ref: None,
             state: OperationState::InFlight,
             outcome: None,
+            outcome_conflict: false,
             effect_status: EffectStatus::Unknown,
             retry_of: None,
             compensates: None,
@@ -302,7 +299,8 @@ impl SshTaskRunner<'_> {
         let att = self.store.external_operation_attempt(id)?;
         ensure!(
             op.operation_name == "ssh.native.v1"
-                && op.contract_ref.contract_digest == Digest::blake3(HELPER.as_bytes()),
+                && (op.contract_ref.contract_digest == Digest::blake3(HELPER.as_bytes())
+                    || op.contract_ref.contract_digest.0 == LEGACY_RECEIPT_V1),
             "unsupported receipt reader version"
         );
         let bytes = self.store.cas.read_object(&op.final_input_ref.digest)?;

@@ -21,8 +21,7 @@ pub struct TaskInvocation {
 
 impl Store {
     pub fn close_external_writer(&self) {
-        self.external_writer_open
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.ledger.close_writer();
     }
 
     pub fn external_task(&self, id: EntityId) -> Result<TaskRecord> {
@@ -73,15 +72,10 @@ impl Store {
         op: &mut OperationRecord,
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
-        let result = self.try_arm_external_operation(ctx, op, att);
-        if result
-            .as_ref()
-            .err()
-            .is_some_and(|e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>())
-        {
-            self.close_external_writer();
-        }
-        result
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att),
+            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
     }
 
     fn try_arm_external_operation(
@@ -90,11 +84,6 @@ impl Store {
         op: &mut OperationRecord,
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
-        ensure!(
-            self.external_writer_open
-                .load(std::sync::atomic::Ordering::SeqCst),
-            "external writer closed; reopen and query original operation"
-        );
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let existing: Option<String> = tx.query_row(
@@ -182,11 +171,7 @@ impl Store {
                 self.capabilities.incarnation.to_string()
             ],
         )?;
-        if let Err(error) = tx.commit() {
-            self.external_writer_open
-                .store(false, std::sync::atomic::Ordering::SeqCst);
-            return Err(error.into());
-        }
+        tx.commit()?;
         Ok(None)
     }
 
@@ -200,16 +185,10 @@ impl Store {
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
     ) -> Result<OperationRecord> {
-        let result =
-            self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect);
-        if result
-            .as_ref()
-            .err()
-            .is_some_and(|e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>())
-        {
-            self.close_external_writer();
-        }
-        result
+        self.ledger.with_mutation(
+            || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect),
+            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
     }
 
     fn try_record_external_evidence(
@@ -220,11 +199,6 @@ impl Store {
         outcome: Option<OperationOutcome>,
         effect: EffectStatus,
     ) -> Result<OperationRecord> {
-        ensure!(
-            self.external_writer_open
-                .load(std::sync::atomic::Ordering::SeqCst),
-            "external writer closed; reopen and query original operation"
-        );
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let data: String = tx.query_row(
@@ -255,8 +229,13 @@ impl Store {
         ev.received_commit = commit;
         // Process completion and application effect settlement are different.
         // A lost later query cannot erase a previously observed ended attempt.
+        // Pre-marker records used Ended + no outcome for an unresolved conflict.
+        // Migrate that projection conservatively; repeated facts cannot settle it.
+        op.outcome_conflict |=
+            att.dispatch_stage == AttemptDispatchStage::Ended && op.outcome.is_none();
         if let Some(observed) = outcome {
-            if op.outcome.is_some() && op.outcome != Some(observed) {
+            if op.outcome_conflict || (op.outcome.is_some() && op.outcome != Some(observed)) {
+                op.outcome_conflict = true;
                 op.state = OperationState::Reconciling;
                 op.outcome = None;
                 op.effect_status = EffectStatus::Unknown;
@@ -301,11 +280,7 @@ impl Store {
                 self.capabilities.incarnation.to_string()
             ],
         )?;
-        if let Err(error) = tx.commit() {
-            self.external_writer_open
-                .store(false, std::sync::atomic::Ordering::SeqCst);
-            return Err(error.into());
-        }
+        tx.commit()?;
         Ok(op)
     }
 }
