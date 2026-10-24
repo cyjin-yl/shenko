@@ -77,10 +77,11 @@ fn state(
 ) -> Result<SubjectLoopState, shenko_types::error::ShenkoError> {
     let (dispatcher, _rx) = ChildDispatcher::new(agent);
     let ctx = cordis_core::Context::new();
-    let _publication = ctx.provide(Arc::new(shenko_identity::IdentityService::new(Arc::new(
-        shenko_identity::DefaultIdentityPolicy,
-    ))))
-    .unwrap();
+    let _publication = ctx
+        .provide(Arc::new(shenko_identity::IdentityService::new(Arc::new(
+            shenko_identity::DefaultIdentityPolicy,
+        ))))
+        .unwrap();
     SubjectLoopState::new(
         agent,
         Arc::new(Inbox::new(8)),
@@ -358,11 +359,16 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .unwrap();
         // Actual process death immediately after the SQL commit, with no loop
         // identity write, in-memory adoption, broadcaster or worker ever run.
-        std::process::Command::new("kill")
-            .args(["-KILL", &std::process::id().to_string()])
-            .status()
-            .unwrap();
-        unreachable!("SIGKILL must end the process");
+        #[cfg(unix)]
+        {
+            std::process::Command::new("kill")
+                .args(["-KILL", &std::process::id().to_string()])
+                .status()
+                .unwrap();
+            unreachable!("SIGKILL must end the process");
+        }
+        #[cfg(not(unix))]
+        std::process::exit(73); // abrupt exit without destructors on other platforms
     }
     let (dir, store, agent) = fixture();
     let profile = store
@@ -506,6 +512,11 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .args(["--exact","loop_runner::recovery_tests::identity_s1_crash_and_concurrent_editor_keep_durable_decision","--nocapture"])
         .env("SHENKO_C22_CRASH_CHILD",&dir).status().unwrap();
     assert!(!status.success());
+    #[cfg(unix)]
+    assert_eq!(
+        std::os::unix::process::ExitStatusExt::signal(&status),
+        Some(9)
+    );
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
     let receipt = store.identity_receipt(step.step_id).unwrap().unwrap();
     assert!(matches!(

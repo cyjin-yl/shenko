@@ -32,6 +32,18 @@ pub fn parse_output(
     raw: &str,
     identity: &IdentityService,
 ) -> Result<ParsedOutput, ShenkoError> {
+    if raw_ref.bytes != raw.len() as u64
+        || raw_ref.digest != shenko_types::object::Digest::blake3(raw.as_bytes())
+        || raw_ref.locator.is_empty()
+    {
+        return Err(ProtocolError::new(
+            "MODEL_OUTPUT_SOURCE_MISMATCH",
+            ErrorScope::Request,
+            RetryStrategy::NeverAutomatically,
+        )
+        .into());
+    }
+
     let mut result = ParsedOutput {
         schema_version: 1,
         step_id,
@@ -74,14 +86,19 @@ pub fn parse_output(
         let tag = line
             .strip_prefix('[')
             .and_then(|v| v.split_once(']').map(|(h, _)| h));
+        let markdown_reference = line
+            .split_once(']')
+            .is_some_and(|(_, suffix)| suffix.starts_with(['(', '[', ':']));
         let control = active
+            && !markdown_reference
             && (tag.is_some_and(|h| {
                 !h.is_empty()
                     && h.bytes()
                         .all(|c| c.is_ascii_alphanumeric() || b":_-".contains(&c))
-            }) || line
-                .strip_prefix('[')
-                .is_some_and(|v| v.bytes().next().is_some_and(|c| c.is_ascii_lowercase()))
+            }) || (tag.is_none()
+                && line
+                    .strip_prefix('[')
+                    .is_some_and(|v| v.bytes().next().is_some_and(|c| c.is_ascii_lowercase())))
                 || line.starts_with("dispatch:"));
         if control {
             if line.starts_with("[memory]") || line.starts_with("dispatch:") {

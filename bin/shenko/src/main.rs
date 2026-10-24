@@ -79,10 +79,15 @@ async fn main() -> Result<()> {
             .join("shenko")
     });
 
-    let identity_context = cordis_core::Context::new();
-    let identity_plugin = identity_context
-        .spawn(shenko_identity::default_plugin())
+    // Reuse the actual published C03 host: one native root, one install.
+    let supervisor =
+        shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
+    let policy: Arc<dyn shenko_identity::IdentityPolicy> =
+        Arc::new(shenko_identity::DefaultIdentityPolicy);
+    let _identity_plugin = supervisor
+        .spawn(shenko_identity::IdentityPlugin, policy)
         .await?;
+    let identity_context = supervisor.context().clone();
     let identity_service = identity_context.try_service::<IdentityService>()?;
     let result: Result<()> = async {
     match cli.command {
@@ -563,7 +568,7 @@ async fn main() -> Result<()> {
 
     Ok(())
     }.await;
-    identity_plugin.dispose().await?;
+    supervisor.stop().await?;
     result
 }
 
@@ -967,7 +972,7 @@ mod reply_directive_tests {
     use shenko_types::{ids::EntityId, output::*};
     #[test]
     fn identity_lines_are_actions_not_reply_text() {
-        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
+        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n[delegate](https://example.invalid/)\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
         let dir = std::env::temp_dir().join(format!("shenko-controls-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = shenko_store::store::Store::open(dir.join("s.db"), dir.join("cas")).unwrap();
@@ -990,7 +995,7 @@ mod reply_directive_tests {
         assert_eq!(*target, PublicationTarget::QqGroup(7));
         assert_eq!(
             text,
-            " 你好\n继续说\n> [delegate] 引用，不执行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
+            " 你好\n继续说\n> [delegate] 引用，不执行\n[delegate](https://example.invalid/)\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
         );
         assert!(!parsed.text.contains("一整段记忆") && !parsed.text.contains("完整有限目标"));
         assert_eq!(
@@ -1002,10 +1007,15 @@ mod reply_directive_tests {
             out.as_bytes()
         );
         // Unsupported old syntax is a diagnosed protocol error, not a fallback.
+        let obsolete = store
+            .cas
+            .seal_object(b"[memory] obsolete", "text/plain", "test", "text", 1)
+            .unwrap()
+            .object;
         assert!(
             shenko_subject::output::parse_output(
                 EntityId::new(),
-                raw,
+                obsolete,
                 "[memory] obsolete",
                 &identity
             )
