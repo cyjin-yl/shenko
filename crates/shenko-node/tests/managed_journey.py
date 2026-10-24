@@ -110,7 +110,7 @@ try:
         migrated=root/'migrated-installation';migrated.mkdir(mode=0o700)
         with sqlite3.connect('file:'+str(legacy_source/'node.sqlite3')+'?mode=ro&immutable=1',uri=True) as old:
             assert old.execute('PRAGMA user_version').fetchone()[0]==1
-            tables=[r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+            tables=[r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' ORDER BY name")]
             rows={t:old.execute('SELECT * FROM '+t+' ORDER BY rowid').fetchall() for t in tables}
             with sqlite3.connect(migrated/'node.sqlite3') as backup:old.backup(backup)
         migrated_status=node(migrated,{'command':'status'})

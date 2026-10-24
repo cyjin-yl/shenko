@@ -879,7 +879,7 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         expected.execute_batch(RECEIPT_TABLE)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
-        Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type,name")?
+        Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
             .query_map([], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
