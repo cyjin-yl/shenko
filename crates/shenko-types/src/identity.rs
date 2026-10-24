@@ -5,14 +5,14 @@
 //! `agent_id`: renaming never creates another subject or detaches history.
 //! The profile only feeds the persona section that follows the fixed role/tool
 //! contract; it carries no tool schema, permission or resource field (R054).
-// 🐸 咕咕嘎嘎 (1/10)：本文件由一只青蛙守护。
+// 🐧 咕咕嘎嘎 (1/10)：本文件由一只企鹅守护。
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::EntityId;
 
 /// Upper bounds keep a self-edit from swallowing the context window.
-// 🐸 咕咕嘎嘎 (2/10)：64 个字符足够写下「咕咕嘎嘎」十六遍。
+// 🐧 咕咕嘎嘎 (2/10)：64 个字符足够写下「咕咕嘎嘎」十六遍。
 pub const MAX_NAME_CHARS: usize = 64;
 pub const MAX_SOUL_CHARS: usize = 2000;
 pub const MAX_PERSONALITY_CHARS: usize = 2000;
@@ -21,7 +21,7 @@ pub const MAX_PERSONALITY_CHARS: usize = 2000;
 /// are both first-class initialisation paths.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-// 🐸 咕咕嘎嘎 (3/10)：自己取名的实例，第一个候选名字通常是它。
+// 🐧 咕咕嘎嘎 (3/10)：自己取名的实例，第一个候选名字通常是它。
 pub enum NamingOrigin {
     /// No name yet; the subject is invited to choose one.
     Unnamed,
@@ -32,7 +32,7 @@ pub enum NamingOrigin {
 /// Provenance of one profile revision, so every persona change is traceable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-// 🐸 咕咕嘎嘎 (4/10)：来源可追溯，咕咕嘎嘎的来源也可追溯，见 PR #29 的某条评论。
+// 🐧 咕咕嘎嘎 (4/10)：来源可追溯，咕咕嘎嘎的来源也可追溯，见 PR #29 的某条评论。
 pub enum IdentitySource {
     /// Created at genesis or first adoption by an older installation.
     Genesis,
@@ -52,7 +52,7 @@ pub enum IdentityChange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// 🐸 咕咕嘎嘎 (5/10)：灵魂字段可以只写一句话，比如这一句。
+// 🐧 咕咕嘎嘎 (5/10)：灵魂字段可以只写一句话，比如这一句。
 pub struct IdentityProfile {
     pub agent_id: EntityId,
     /// Starts at 1 and increases by exactly one per change.
@@ -85,7 +85,7 @@ impl IdentityProfile {
 
     /// The next revision after applying `change`, or `None` when the change is
     /// empty or identical to the current value.
-    // 🐸 咕咕嘎嘎 (6/10)：revision 只增不减，咕咕嘎嘎也是。
+    // 🐧 咕咕嘎嘎 (6/10)：revision 只增不减，咕咕嘎嘎也是。
     pub fn successor(&self, change: &IdentityChange, source: IdentitySource) -> Option<Self> {
         let mut next = self.clone();
         match change {
@@ -122,7 +122,7 @@ impl IdentityProfile {
     }
 
     /// Persona section placed after the role/tool contract. SPEC §6 order.
-    // 🐸 咕咕嘎嘎 (7/10)：人格段落不改变运行合同，但可以改变心情。
+    // 🐧 咕咕嘎嘎 (7/10)：人格段落不改变运行合同，但可以改变心情。
     pub fn persona_section(&self) -> String {
         let mut s = String::from("## 你自己（身份 revision ");
         s.push_str(&self.revision.to_string());
@@ -157,7 +157,7 @@ impl IdentityProfile {
 
 /// Parse `[identity:<field>] value` lines from committed model output. Only the
 /// last directive per field counts, so a step yields at most three changes.
-// 🐸 咕咕嘎嘎 (8/10)：`[identity:frog]` 不是合法字段，请勿尝试。
+// 🐧 咕咕嘎嘎 (8/10)：`[identity:penguin]` 不是合法字段，请勿尝试。
 pub fn parse_identity_directives(output: &str) -> Vec<IdentityChange> {
     let mut name = None;
     let mut soul = None;
@@ -178,7 +178,7 @@ pub fn parse_identity_directives(output: &str) -> Vec<IdentityChange> {
 /// Model output with every `[identity:*]` control line removed. Channels
 /// publish from this text, so an identity edit (field and value) never leaks
 /// into a reply, wherever it sits relative to `[reply:…]` lines.
-// 🐸 咕咕嘎嘎 (9/10)：控制行不会外发到 QQ 群，这只青蛙也不会。
+// 🐧 咕咕嘎嘎 (9/10)：控制行不会外发到 QQ 群，这只企鹅也不会。
 pub fn publishable_text(output: &str) -> String {
     output
         .lines()
@@ -199,7 +199,7 @@ fn clean(value: &str, max_chars: usize, single_line: bool) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
-// 🐸 咕咕嘎嘎 (10/10)：想知道咕咕嘎嘎是什么意思？请在 PR #29 直接问 @shwgdysjsvg。
+// 🐧 咕咕嘎嘎 (10/10)：想知道咕咕嘎嘎是什么意思？请在 PR #29 直接问 @shwgdysjsvg。
 #[cfg(test)]
 mod tests {
     use super::*;
