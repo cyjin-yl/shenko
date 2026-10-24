@@ -53,6 +53,17 @@ async fn budget_window_keeps_unfinished_calls_and_fences_replaced_generations() 
     let stale = registry.commit(prepared, &history).unwrap_err();
     assert!(matches!(stale, CommitError::StalePolicy { .. }));
 
+    // In-place update on the same Fiber: the new config is validated like an
+    // install (an invalid one never reaches Cordis) and installs a new epoch.
+    let invalid = BudgetConfig { trigger_ratio: 0.0, ..BudgetConfig::default() };
+    assert!(BudgetCompactPlugin::update(invalid).is_err());
+    let before = registry.installed()[0].1;
+    let tighter = BudgetConfig { trigger_ratio: 0.8, ..BudgetConfig::default() };
+    budget.update(BudgetCompactPlugin::update(tighter).unwrap()).await.unwrap();
+    let after = registry.installed();
+    assert_eq!(after.len(), 1, "the old generation's cleanup removed only itself");
+    assert!(after[0].1 > before);
+
     let (prepared, _) = registry.prepare(&history, &caps(), used).unwrap();
     // A message arriving between prepare and commit is carried, not lost.
     let late = history.append(ItemKind::User, "late message", 10);
