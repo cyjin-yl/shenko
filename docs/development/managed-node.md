@@ -122,14 +122,55 @@ python3 -I scripts/managed_node.py query PRIVATE_PLAN install
 python3 -I scripts/managed_node.py call PRIVATE_PLAN STABLE_LABEL REQUEST_JSON
 ```
 
-Prepare freezes artifact chunks and a deployment UUID and registers the target
-before SSH. Each upload/install/join stage has a stable derived operation ID and
-logical key. Installation verifies compressed artifact SHA256 and private file
-creation. A retry queries existing C07 operations; changed inputs conflict.
-Transport loss means unknown, not failure/permission to install again. Query the
-original plan/label; if its receipt remains unknown, retain that responsibility
-rather than generate another plan to bypass uncertainty. A fresh deliberate
-read-only status uses its own observation operation, not an old cached reply.
+Prepare creates a schema-2 plan freezing the artifact, deployment UUID, installer
+(including C07's shared atomic writer), root-creation implementation and
+`staging_root=remote_root/staging-<deployment_id>`. Every upload's destination
+is therefore part of the frozen C07 input/resource binding. Two plans sharing a
+registered target/root cannot overwrite each other's chunks. Existing plan
+retries keep their original paths, code, operation IDs and bytes; changed inputs
+require a new explicit plan/operation, never a reseal under an old ID.
+
+Each upload/install/join stage has a stable derived operation ID and logical key.
+Installation verifies SHA256, writes and syncs private temporary artifact/receipt
+bytes, validates the receipt, then atomically publishes with a no-clobber hard
+link and syncs the directory. The receipt preparation reuses C07 `write_atomic`;
+its replace semantics are confined to a unique private temporary name. A final
+identity-bound name is never overwritten. This is native POSIX/Python3 managed
+writing, not a generic cross-platform framework or power-loss test. Temporary
+and damaged files remain evidence; existence alone is not a durability marker.
+
+A retry queries existing C07 operations; changed inputs conflict. Transport loss
+means unknown, not failure/permission to install again. Query the original
+plan/label; if its receipt remains unknown, retain that responsibility rather
+than generate another plan to bypass uncertainty. Query uses C07's CAS-sealed
+original operation/trust, not the current local `known_hosts` file. Removal or an
+unrelated edit to that pathname cannot imply that the remote effect never
+happened. New admissions still require the original registered trust digest;
+CAS trust still strictly rejects a changed real host key, and remote key
+revocation still denies authentication. Local pathname removal is not a
+revocation API; authenticated revocation/fencing must occur at the real trust or
+authorization boundary. A fresh read-only status uses its own observation
+operation, not an old cached reply.
+
+### Existing plans and explicit repair
+
+Schema-1 plans remain queryable with their original deployment/operation identity;
+this adapter does not silently execute a legacy staging/installer fallback.
+Preserve their original reader/source and all raw receipts. Both `deploy` and
+`call` reject such a plan before any task read, request write or SSH execution;
+the shared non-query admission boundary also covers direct `invoke`/`node_call`.
+It never rebuilds an old sealed operation with new code.
+
+A malformed or conflicting final receipt/artifact is **not** durable success and
+is not overwritten, renamed away or deleted by installation. Reconcile the old
+C07 operation first. If an explicit repair is needed, create a new config from
+the original authorized binding, add `repair_of_plan` pointing to the retained
+old plan directory, and `prepare NEW_REPAIR_PLAN CONFIG_JSON`. The new plan records
+the original deployment ID and exact plan hash, validates the same target/root,
+node and self, and allocates distinct staging/artifact/receipt and C07 operation
+IDs. Then deploy that new plan. It does not mutate the old seal or pretend the
+old unknown operation never occurred. This lineage is plan-local evidence, not
+a claim of full production `OperationRecord.compensates` integration.
 
 ## Reproduce the two journeys / 两条真实隔离组合场景
 
@@ -146,13 +187,21 @@ its temporary authorized-key fixture uses `StrictModes no`. This does not alter
 production sshd configuration. The test-only C07 `fixture-init` parent and
 identity anchor are synthetic and explicitly not main-app integration.
 
-1. Upload the real artifact through C07, actually close SSH after its installation
-   receipt exists, query that original operation, resume adoption/capability
-   readback and repeat deployment without another install attempt or identity.
+1. Interleave different artifacts A/B on one registered target/root; resume A
+   after B stages, and later install B without overwriting A. Actually close SSH
+   only after decoding the complete install **and C07** receipts and checking the
+   artifact digest. Query the original operation with missing/unrelated local
+   trust, while rejecting new admissions and actual remote key revocation/host
+   replacement; resume adoption and repeat without another mutating attempt.
    The same installation journey now also refuses an unrelated WAL database
    without changing bytes/directory entries. If V1_DATA_DIR is supplied, SQLite
    backup into a new directory verifies migration preserves every old table row;
    the original fixture is read-only, never migrated in place.
+   An old-format plan projection rejects deploy/call with zero fresh attempts,
+   queries its original CAS install twice, then explicitly prepares and deploys a
+   distinct schema-2 repair recording predecessor ID/hash. Two repair queries
+   retain one install attempt; predecessor plan bytes stay unchanged. This checks
+   the schema-1 format boundary, not an original old-executable installation.
 2. Query the original durable task result, transfer the pure assignment, reject
    old-owner settlement, execute on the new owner and accept once. Preserve both
    raw sources after separate process reopen; never claim old work was stopped.
@@ -162,6 +211,12 @@ identity anchor are synthetic and explicitly not main-app integration.
    the two inherited journeys, not new independent test scenarios. The separate
    wrong-computation predicate branch is statically checked; it is not claimed as
    another directly injected runtime fault.
+
+A bounded direct Python process-fault lifecycle also kills receipt serialization,
+checks that no partial final was published, preserves damaged/conflicting finals,
+and completes a distinct repair identity. This is a publication-primitive check,
+not real SSH interruption, C07 redispatch or physical power-loss evidence.
+All owned listeners stop on both success/failure and are read back as refused.
 
 No physical machine, actual model inference, election, partition quorum,
 production child scheduler, arbitrary resource fencing, image resurrection or
@@ -178,3 +233,8 @@ binds the actual binary, schema and inherited journeys. Ledger identity/seq
 continuity in the C07/main Store remains an independent C01/#6 P1; this adapter's
 own durable ledger does not repair it. Full C17 and production integration remain
 incomplete.
+
+The focused script recovery continuation is PR [44](https://github.com/cyjin-yl/shenko/pull/44).
+Its [source/artifact-bound evidence](../evidence/c17-script-receipts-20261025.json)
+separates the real SSH results from direct Python faults and records the immutable
+review snapshot; it does not supersede the original remaining C17 obligations.
