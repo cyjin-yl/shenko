@@ -18,6 +18,7 @@ pub struct Store {
     pub ledger: Arc<Ledger>,
     pub cas: Arc<ContentStore>,
     pub capabilities: StoreCapabilities,
+    pub(crate) external_writer_open: std::sync::atomic::AtomicBool,
 }
 
 impl Store {
@@ -60,7 +61,7 @@ impl Store {
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation));
         let cas = Arc::new(ContentStore::new(cas_dir));
 
-        Ok(Self { ledger, cas, capabilities })
+        Ok(Self { ledger, cas, capabilities, external_writer_open: std::sync::atomic::AtomicBool::new(true) })
     }
 
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
