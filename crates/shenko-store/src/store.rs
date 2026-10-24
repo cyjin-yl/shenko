@@ -90,6 +90,15 @@ impl Store {
         head: &SubjectBranchHead,
         first_step: &SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_initialize_genesis(genesis, head, first_step), |e| matches!(e, ShenkoError::Storage(_)))
+    }
+
+    fn try_initialize_genesis(
+        &self,
+        genesis: &SubjectGenesis,
+        head: &SubjectBranchHead,
+        first_step: &SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
         if genesis.subject_id != head.agent_id
             || head.genesis_ref.genesis_id != genesis.genesis_id
             || head.genesis_ref.ledger_id != self.ledger.ledger_id()
@@ -147,6 +156,15 @@ impl Store {
 
     /// S0 与结果落账只更新已登记步骤，不允许插入随机新步骤。§41.5
     pub fn upsert_step(
+        &self,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        expected_revision: RecordRevision,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_upsert_step(step, expected_head, expected_revision), |e| matches!(e, ShenkoError::Storage(_)))
+    }
+
+    fn try_upsert_step(
         &self,
         step: &SubjectStep,
         expected_head: &SubjectBranchHead,
@@ -228,6 +246,15 @@ impl Store {
     /// and rejection, register a sealed correction, and CAS only next_step_id.
     /// No S1, disposition, identity change or external intent is admitted here.
     pub fn reject_output_and_replace_step(
+        &self,
+        retired: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        replacement: &SubjectStep,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_reject_output_and_replace_step(retired, expected_head, replacement), |e| matches!(e, ShenkoError::Storage(_)))
+    }
+
+    fn try_reject_output_and_replace_step(
         &self,
         retired: &SubjectStep,
         expected_head: &SubjectBranchHead,
@@ -345,6 +372,15 @@ impl Store {
 
     /// S1：条件更新 step/head，并原子插入真实 planned 后继。§41.5
     pub fn commit_step_and_advance_head(
+        &self,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        next_step_id: EntityId,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(|| self.try_commit_step_and_advance_head(step, expected_head, next_step_id), |e| matches!(e, ShenkoError::Storage(_)))
+    }
+
+    fn try_commit_step_and_advance_head(
         &self,
         step: &SubjectStep,
         expected_head: &SubjectBranchHead,

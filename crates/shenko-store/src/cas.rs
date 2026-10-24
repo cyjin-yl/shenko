@@ -85,6 +85,15 @@ impl ContentStore {
         fs::read(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))
     }
 
+    /// Resolve immutable content in THIS store, never a historical locator.
+    pub fn verified_object_path(&self, object: &ObjectRef) -> Result<PathBuf, ShenkoError> {
+        let bytes = self.read_object(&object.digest)?;
+        if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
+            return Err(ShenkoError::storage("CAS object length/digest mismatch"));
+        }
+        Ok(self.object_path(&object.digest))
+    }
+
     pub fn object_exists(&self, digest: &Digest) -> bool {
         self.object_path(digest).exists()
     }

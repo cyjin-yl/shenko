@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "evidence_id": "C07-ssh-repair-20261025",
+  "work_id": "C07",
+  "issue": "https://github.com/cyjin-yl/shenko/issues/12",
+  "pr": "https://github.com/cyjin-yl/shenko/pull/35",
+  "parent_pr": "https://github.com/cyjin-yl/shenko/pull/33",
+  "git_base": {
+    "branch": "feat/c07-ssh-task-receipts-20261025",
+    "head": "727b96473835c4d2928a704ed7023d6995359740"
+  },
+  "candidate_commit": "3846e9d8421e31fa01adeaf077e9864487dc5ff3",
+  "consumed_inputs": {
+    "repair": {
+      "commit": "3846e9d8421e31fa01adeaf077e9864487dc5ff3",
+      "files": 101,
+      "sha256": "bf1f1046f99e41bed972bf2a8f9b185eb981d632b7b90f49c4e835bb985134b3",
+      "method": "sorted tracked Rust, remote_helper.py and Cargo files: path + NUL + raw SHA256(content)"
+    },
+    "current_main_integration": {
+      "commit": "1dfa8252e56d0115f55316f53c3e04fde7e9fa5e",
+      "files": 100,
+      "sha256": "f5a91f75ff5ad722f356e54e7d9b5a378e6e41ca569e8f861d5a16faff64c929",
+      "method": "sorted tracked Rust, remote_helper.py and Cargo files: path + NUL + raw SHA256(content)"
+    },
+    "artifacts": {
+      "task_ssh-3846e9d": "0cb93a98dc3f38ddf5a8a2ff7565c90752edd5b17d55ee6acae56546df7efe6b",
+      "journey-r6.py": "50716a0cf92949499c7cf0bb2118029890df93ec52690bc38e292f8b96049fc0",
+      "probe/src/main.rs": "50dafc3a01f858e3085f103d5d27af96cd3a6afb7d9ef893e88ffdbca32cf6ac",
+      "probe/Cargo.lock": "217d78b79d1608fbb93190e7f8123f3d0110bad2b300c5f19bbde050fce77d80"
+    }
+  },
+  "semantic_dependencies": {
+    "C01": "PR28 ee9a3e009bec6d32437fec5cb9fbc26557d23204 OPEN/DRAFT at observation; no C01 code dependency in this adapter-only repair",
+    "C03": "PR31 merged into observed main 98af8144788c5197dfe9289800127066d9ab5700"
+  },
+  "recorded_at": "2026-10-24T18:31:34.958748+00:00",
+  "scope": "Five confirmed PR33 runner/store defects; independently usable native SSH adapter slice, not full C07 or production integration.",
+  "environment": {
+    "host": "managed doescontainer",
+    "container": "shenko-dev-live",
+    "limits": "8 CPU / 6GiB",
+    "cargo": "one worker; CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0; shared flock /tmp/shenko-cargo.lock; disk target /tmp/shenko-live-target",
+    "node_scope": "isolated real loopback OpenSSH in one container, not a physical second node"
+  },
+  "fixed": [
+    "One shared mutation admission/failure line serializes all existing Ledger/Store/subject/memory and external T1/E1 writes. Storage failure is published before queued mutation can enter; no SSH/network under the line.",
+    "The same mutation line covers seq allocation through commit, removing the external/ordinary reversed commit ordering.",
+    "Trust is length/digest verified and resolved in the current CAS, not the historical absolute locator.",
+    "Upload temporary files use O_CREAT|O_EXCL and 0600 in the creation syscall, without a post-create chmod window.",
+    "Contradictory terminal outcomes persist outcome_conflict with serde default; old Ended + no outcome projection migrates conservatively. Repeated receipts cannot settle it."
+  ],
+  "checks": [
+    {
+      "command": "cargo build -p shenko-exec-ssh --example task_ssh",
+      "exit_code": 0,
+      "log": "/tmp/shenko-c07-repair-owzisjCq/build.log"
+    },
+    {
+      "command": "cargo test -p shenko-store -p shenko-exec-ssh -- --test-threads=1; cargo check -p shenko",
+      "exit_code": 0,
+      "passed": 13,
+      "failed": 0,
+      "ignored": 0,
+      "new_repository_tests": 0,
+      "inherited_ssh_test_functions": 2,
+      "log": "/tmp/shenko-c07-repair-owzisjCq/tests-check.log"
+    },
+    {
+      "command": "extended preserved real SSH journey-r6.py",
+      "exit_code": 0,
+      "result": {
+        "kind": "isolated-real-OpenSSH-journey",
+        "passed": true,
+        "operations": 5,
+        "attempts": 5,
+        "task_terminal": false,
+        "timeout_receipt_recovered": "539ab830-597b-4360-92fd-d11a756bb1c9",
+        "exec_business_effects": "unknown",
+        "remote_run_count": 1,
+        "host_mismatch_rejected": true,
+        "new_dispatch_after_cancel_rejected": true,
+        "relocated_CAS_receipt_recovered": true,
+        "upload_mode": "0600"
+      },
+      "log": "/tmp/shenko-c07-repair-owzisjCq/journey-r6.log"
+    },
+    {
+      "command": "isolated writer-settlement diagnostic consuming restored SSH ledger, real SQLite hooks/trigger and Store APIs",
+      "exit_code": 0,
+      "log": "/tmp/shenko-c07-repair-owzisjCq/probe.log",
+      "observed": [
+        "succeeded/failed/succeeded stays reconciling with sticky conflict after reopen",
+        "E1 held before seq allocation while ordinary commit queued; commit-log seq order [1,2,3]",
+        "ordinary storage failure while T1/E1 queued rejects both before mutation; operation/evidence counts unchanged",
+        "ordinary and memory mutations rejected on same failed handle"
+      ],
+      "classification": "local diagnostic fault injection, not provider outcome or full durable supervisor acceptance"
+    },
+    {
+      "command": "new runner queries prior PR33 helper receipt in separate SQLite backup/CAS restore",
+      "exit_code": 0,
+      "stdout": "/tmp/shenko-c07-repair-owzisjCq/legacy-query.stdout",
+      "note": "preserves old operation UUID/contract and v1 reader; query-only, not redispatch compatibility"
+    },
+    {
+      "command": "actual current-main combined candidate cargo check -p shenko && cargo build -p shenko-exec-ssh --example task_ssh",
+      "candidate_commit": "1dfa8252e56d0115f55316f53c3e04fde7e9fa5e",
+      "main": "98af8144788c5197dfe9289800127066d9ab5700",
+      "exit_code": 0,
+      "log": "/tmp/shenko-c07-repair-owzisjCq/main-integration.log"
+    }
+  ],
+  "resources": {
+    "owned_sshd": "stopped after experiment; loopback port returned errno 111",
+    "temporary_keys_and_failure_fixtures": "preserved only on managed container disk; no private key bytes in repository"
+  },
+  "requirements": [
+    "R018",
+    "R041"
+  ],
+  "completed_cases": [],
+  "remaining": [
+    "C01 recovery/outbox gaps are not fixed by this slice; full production subject/delegation outbox -> child scheduler and application T2/acceptance remain.",
+    "Registry authority, ancestor cancel, full cross-handle/process writer/node fencing and residual supervisor remain. This is same-handle failure admission, not proof that an already armed external operation stopped.",
+    "Persistent ledger identity/seq across reopen is an existing baseline gap; experiment establishes ordering within one ledger handle, not continuity across reopened random ledger IDs.",
+    "Existing seat pane selection, swallowed capture failure and send-keys semantics remain; seat/process/question identities, OMP/Claude TUI, public-key lifecycle/UI and complete resource tools are not delivered.",
+    "Real WASM SSH, physical second node, heterogeneous platforms, production accounts and long-run acceptance remain.",
+    "Bundled SQLite 3.46.0 WAL-reset profile, CAS directory sync and power-loss durability are not certified. No full C07 case is marked complete."
+  ],
+  "source_preservation": "No writes to shared source/original worktrees; independent /tmp bundle clone and owned isolated fixtures only. No deletion, reset, clean, force-push, global safe.directory or protection changes.",
+  "product_tested": true,
+  "production_tested": false,
+  "full_c07_complete": false,
+  "full_product_complete": false,
+  "delivery": {
+    "child_pr": "https://github.com/cyjin-yl/shenko/pull/35",
+    "child_state": "MERGED",
+    "child_merge": "94b8c5c2b03daaa7f3f73892e963479021ea6e24",
+    "parent_pr": "https://github.com/cyjin-yl/shenko/pull/33",
+    "parent_state": "MERGED",
+    "parent_merge_and_observed_main": "54d6ae5c0a870eee8640d2deb0e89854ae6dc1ae",
+    "actual_merged_product_inputs_sha256": "f5a91f75ff5ad722f356e54e7d9b5a378e6e41ca569e8f861d5a16faff64c929",
+    "source_inputs_match_verified_integration": true,
+    "issue_state": "OPEN; assignee cyjin-yl",
+    "checkpoint_comment": "https://github.com/cyjin-yl/shenko/issues/12#issuecomment-6388000869",
+    "remaining_c01": "PR28 still OPEN/DRAFT; not fixed or merged by this repair"
+  }
+}

@@ -13,6 +13,7 @@ members = [
     "crates/shenko-channel-napcat-link",
     "crates/shenko-exec-host",
     "crates/shenko-exec-ssh",
+    "crates/shenko-node",
     "crates/shenko-wasm",
     "crates/shenko-compact-budget",
     "crates/shenko-compact-snap",

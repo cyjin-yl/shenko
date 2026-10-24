@@ -81,6 +81,10 @@ pub struct OperationRecord {
     pub checkpoint_scope_ref: Option<ObjectRef>,
     pub state: OperationState,
     pub outcome: Option<OperationOutcome>,
+    /// Sticky contradictory terminal evidence. Only explicit reconciliation may
+    /// clear this; receipt repetition is not a reconciliation decision.
+    #[serde(default)]
+    pub outcome_conflict: bool,
     pub effect_status: EffectStatus,
     pub retry_of: Option<EntityId>,
     pub compensates: Option<EntityId>,
