@@ -2616,6 +2616,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "shenko-types",
+]
+
+[[package]]
 name = "shenko-seed"
 version = "0.1.0"
 dependencies = [

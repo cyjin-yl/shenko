@@ -441,14 +441,19 @@
         "B19"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-node/src/lib.rs",
+        "scripts/managed_node.py"
+      ],
+      "evidence_refs": [
+        "docs/evidence/c17-native-first-journey-20261025.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
     },
     {
       "requirement_id": "R027",
@@ -1838,16 +1843,21 @@
         "B53"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [
         "A42"
       ],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-node/src/lib.rs",
+        "scripts/managed_node.py"
+      ],
+      "evidence_refs": [
+        "docs/evidence/c17-native-first-journey-20261025.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
     },
     {
       "requirement_id": "R114",
@@ -2402,18 +2412,23 @@
         "B39"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [
         "A42",
         "A47",
         "A48"
       ],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-node/src/lib.rs",
+        "scripts/managed_node.py"
+      ],
+      "evidence_refs": [
+        "docs/evidence/c17-native-first-journey-20261025.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
     },
     {
       "requirement_id": "R146",
@@ -2444,16 +2459,21 @@
         "B37"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [
         "A49"
       ],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-node/src/lib.rs",
+        "scripts/managed_node.py"
+      ],
+      "evidence_refs": [
+        "docs/evidence/c17-native-first-journey-20261025.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
     }
   ]
 }
