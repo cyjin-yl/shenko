@@ -51,7 +51,20 @@ contract, not remote attestation or a substitute for verifying the source tree.
 
 `shenko-node PRIVATE_DATA_DIR` reads one <=1MiB JSON request on stdin and returns
 one JSON response after committed work. Existing unrelated data is rejected;
-never use a live main-app directory. New counters on the wire are canonical
+never use a live main-app directory. Storage schema **2** is separate from
+record/wire schema **1**. Existing databases first undergo an immutable/read-only
+application/schema/installation preflight: even WAL sidecar creation or journal
+recovery is not allowed for an unknown database. Then the writable open rechecks
+ownership before persistent PRAGMAs. New files use exclusive creation and 0600;
+unrelated directory entries and symlinks are rejected.
+
+The only unmarked legacy format eligible for migration is the exact original v1
+schema (all non-SQLite schema objects) with valid durable node/ledger/identity
+metadata. Its rows, node/self IDs, ledger and seq remain unchanged. One migration
+transaction adds the installation UUID, SHNK application_id, receipts table and
+storage version 2. This is a trusted local format migration, not cryptographic
+proof of remote ownership. Unknown, corrupt or incomplete uninitialized databases
+fail closed; this adapter does not overwrite them or repair arbitrary data. New counters on the wire are canonical
 unsigned decimal strings. Node UUIDs, agent/branch UUIDs and task UUIDs are distinct.
 
 - `initialize`: stable `node_id`, optional provisioning `identity`; reopen never
@@ -70,9 +83,21 @@ unsigned decimal strings. Node UUIDs, agent/branch UUIDs and task UUIDs are dist
   execution epoch and semantic/record revisions without changing TaskRecord owner.
 - `accept`: authenticated `from_node` and original `receipt`. Import stable
   source/event/digest facts, but only the current ticket may create one terminal
-  result. Late/stale results remain evidence, not new authority.
+  result. Late/stale results remain evidence, not new authority. For authenticated,
+  known-schema receipts, E1 commits the full decoded receipt and source event
+  **before** task lookup or settlement predicates. Missing-task receipts become
+  `unassociated`; transcript/contract/predicate rejections become `invalid`.
+  A failed T2 cannot roll back E1; pending receipts remain available for explicit
+  reconciliation. Authentication/schema/digest failures are still rejected before
+  E1 by this typed adapter; it is not the complete unknown-schema EvidenceIngress.
 - `export`: string `after` cursor and `limit` 1..128; native-journey raw events,
-  independent of any LLM. This is not the complete main-app history exporter.
+  independent of any LLM. `export_receipts` has its own cursor and returns full
+  canonical decoded receipts, authenticated provenance and current classification,
+  including unassociated/invalid evidence. Its cursor enumerates receipt arrival,
+  **not** subsequent classification changes; it is not a resumable status watch.
+  Neither command is the complete main-app history exporter. Explicit reaccept
+  of the same receipt may reconcile after the task arrives; duplicates never
+  grant an old invocation control or settle a terminal task again.
 
 Objects are bounded and stored in the **same SQLite transaction** as references,
 so this adapter has no separate filesystem CAS publication window. Assignments,
@@ -112,7 +137,7 @@ Build the existing `task_ssh` example, then run
 
 ```sh
 python3 -I crates/shenko-node/tests/managed_journey.py \
-  REPO NODE_BINARY SSH_DRIVER SSHD LIB_DIR NEW_PRIVATE_ROOT
+  REPO NODE_BINARY SSH_DRIVER SSHD LIB_DIR NEW_PRIVATE_ROOT [V1_DATA_DIR]
 ```
 
 The fixture requires a native Linux container, root account, OpenSSH server/keygen
@@ -124,12 +149,32 @@ identity anchor are synthetic and explicitly not main-app integration.
 1. Upload the real artifact through C07, actually close SSH after its installation
    receipt exists, query that original operation, resume adoption/capability
    readback and repeat deployment without another install attempt or identity.
+   The same installation journey now also refuses an unrelated WAL database
+   without changing bytes/directory entries. If V1_DATA_DIR is supplied, SQLite
+   backup into a new directory verifies migration preserves every old table row;
+   the original fixture is read-only, never migrated in place.
 2. Query the original durable task result, transfer the pure assignment, reject
    old-owner settlement, execute on the new owner and accept once. Preserve both
    raw sources after separate process reopen; never claim old work was stopped.
+   The same task's genuine receipt is delivered to an authenticated receiver
+   before its task is known, and a contradictory outer receipt is refused at T2;
+   both full receipts remain exportable after reopen. These are assertions within
+   the two inherited journeys, not new independent test scenarios. The separate
+   wrong-computation predicate branch is statically checked; it is not claimed as
+   another directly injected runtime fault.
 
 No physical machine, actual model inference, election, partition quorum,
 production child scheduler, arbitrary resource fencing, image resurrection or
 long-run acceptance follows from these two scenarios. See the machine-readable
 [evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../tasks/C17.md)
 for exact candidate and remaining obligations.
+
+## Focused review repair / 复核接续
+
+[PR40](https://github.com/cyjin-yl/shenko/pull/40) on main `04c09a4` repairs
+installation ownership and E1/T2 separation; final product source `453fff7e754e46af920dc7fcbc46c9321f41d819`.
+The [repair evidence](../evidence/c17-ownership-evidence-repair-20261025.json)
+binds the actual binary, schema and inherited journeys. Ledger identity/seq
+continuity in the C07/main Store remains an independent C01/#6 P1; this adapter's
+own durable ledger does not repair it. Full C17 and production integration remain
+incomplete.

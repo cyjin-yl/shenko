@@ -8,23 +8,37 @@
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
   "branch": "main",
-  "head_commit": "093b417",
-  "pr_url": "https://github.com/cyjin-yl/shenko/pull/3",
+  "head_commit": "d593acfff33f1fa0f881be2497ee47f6784f396d",
+  "pr_url": "https://github.com/cyjin-yl/shenko/pull/40",
   "claude_session_id": null,
   "active_workers": [],
   "blockers": [],
   "next_actions": [
-    "Use PROMPT.md and community-stack: tracking #4, work packages #5–#26 exist; join current stack rather than restart.",
-    "Deliver GOAL/PROMPT collaboration docs, then resume C01/#6 recovery candidate 291d5a5 with ACK/input-set correctness verification.",
-    "Continue #12 remote execution then #22 second-node join and durable task result transfer.",
-    "Offline contributors do not block continuation from last pushed checkpoint; full S1–S5 still required.",
-    "C17 PR37 native first journey is partial: integrate real C01 outbox/child admission/C07-T2, then actual model/privacy/node authority; do not close #22 or complete A42/A47/A48/A49 from isolated receipts."
+    "Continue the current #6/C22 durable dispatcher branch from its actual pushed head; do not duplicate that writer or mistake draft PR28/38 for merged production recovery.",
+    "Fix C01 persistent ledger identity/monotonic seq across reopen without rewriting prior commit provenance; C17 PR40 does not change shenko-store.",
+    "Integrate actual C01 durable outbox -> registry-derived child admission -> C07/T2, then managed-node authority; #6/#12/#22 remain open.",
+    "C17 PR40 repairs only database ownership and authenticated known-schema E1/T2 separation. A42/A47/A48/A49, physical second-node, election/privacy/full export/image recovery and 7/30-day evidence remain incomplete.",
+    "Preserve offline contributor commits and source fixtures; resume from pushed checkpoints without approval/release gates. All S1–S5 remains required."
   ],
   "last_checkpoint": "docs/governance/HANDOFF.md",
   "upstream": "cyjin-yl/shenko",
   "upstream_url": "https://github.com/cyjin-yl/shenko",
   "upstream_visibility": "public",
   "upstream_default_branch": "main",
-  "upstream_verified_at": "2026-10-23",
-  "notes": "18 workspace packages: 17 library crates under crates/ plus bin/shenko. Verified 2026-10-23 at HEAD fa74614: cargo test --workspace = 26 passed, 0 failed, 0 ignored across 8 crates (shenko-store 11, shenko-wasm 3, shenko-awareness-core 3, shenko-types 2, shenko-channel-napcat 2, shenko-memory 2, shenko-update 2, shenko-ui 1); the other 9 crates have no tests yet. PR #3 is merged. coverage.json: 27 partial / 120 not_assessed / 0 satisfied (147 requirements). Community work ownership updated 2026-10-24; prior test counts remain historical and were not rerun for this doc increment."
+  "upstream_verified_at": "2026-10-25",
+  "notes": "18 workspace packages: 17 library crates under crates/ plus bin/shenko. Verified 2026-10-23 at HEAD fa74614: cargo test --workspace = 26 passed, 0 failed, 0 ignored across 8 crates (shenko-store 11, shenko-wasm 3, shenko-awareness-core 3, shenko-types 2, shenko-channel-napcat 2, shenko-memory 2, shenko-update 2, shenko-ui 1); the other 9 crates have no tests yet. PR #3 is merged. coverage.json: 27 partial / 120 not_assessed / 0 satisfied (147 requirements). Community work ownership updated 2026-10-24; prior test counts remain historical and were not rerun for this doc increment.",
+  "current_checkpoint": {
+    "work_id": "C17",
+    "issue": 22,
+    "pr": 40,
+    "git_base": "04c09a4051ba8641ef50265ee572aa373ab453bc",
+    "product_commit": "453fff7e754e46af920dc7fcbc46c9321f41d819",
+    "status": "focused_verified_pushed_and_merged",
+    "full_work_package_complete": false,
+    "full_goal_complete": false,
+    "evidence": "docs/evidence/c17-ownership-evidence-repair-20261025.json",
+    "delivered_pr_head": "b17ec86f65ec7e082de74efec356c68e3a28f643",
+    "merge_commit": "d593acfff33f1fa0f881be2497ee47f6784f396d",
+    "remote_main_observed_at_checkpoint": "d593acfff33f1fa0f881be2497ee47f6784f396d"
+  }
 }
