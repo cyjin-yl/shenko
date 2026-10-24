@@ -536,8 +536,8 @@ a{color:inherit}
 <header class="status">
   <span class="brand">深刻</span>
   <span class="sep" aria-hidden="true"></span>
-  <span class="inst" id="instance" title="当前 Web 实例">本机</span>
-  <span class="step" id="status-step">第 — 轮</span>
+  <span class="inst" id="instance" title="当前访问客户端，不代表服务端设备在线">当前浏览器</span>
+  <span class="step" id="status-step">尚无输出观测</span>
   <div class="conn" id="conn" data-s="offline">
     <span class="dot" aria-hidden="true"></span>
     <span id="conn-text">未连接</span>
@@ -582,8 +582,8 @@ a{color:inherit}
       <div class="col">
         <div class="empty" id="empty">
           <span class="tick" aria-hidden="true"></span>
-          <b>尚未开始</b>
-          <span class="hint">主体的第一轮思考提交后显示于此</span>
+          <b>尚无输出观测</b>
+          <span class="hint">此处显示主体输出；当前执行状态未知</span>
           <span class="conn-line" id="empty-conn">未连接</span>
         </div>
         <div class="entries" id="entries"></div>
@@ -600,7 +600,7 @@ a{color:inherit}
           <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 6.4 7.8 12.1a2.2 2.2 0 0 0 3.1 3.1l5.6-5.6a3.6 3.6 0 0 0-5.1-5.1L5.6 10.4a5 5 0 0 0 7.1 7.1l4.1-4.1"/></svg>
         </button>
         <label class="sr-only" for="compose">输入消息</label>
-        <textarea id="compose" rows="1" placeholder="输入消息，Enter 发送" autocomplete="off" spellcheck="false"></textarea>
+        <textarea id="compose" aria-describedby="protocol-note" rows="1" placeholder="输入消息，Enter 发送" autocomplete="off" spellcheck="false"></textarea>
         <button class="model" id="composer-model" type="button" title="模型绑定（打开配置）" hidden>—</button>
         <button class="mode" id="mode" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mode-menu">
           <span id="mode-label">追加</span>
@@ -612,14 +612,15 @@ a{color:inherit}
         <div class="menu" id="mode-menu" role="menu" aria-label="消息模式" hidden>
           <button class="menu-row" type="button" role="menuitemradio" aria-checked="true" data-mode="append">
             <svg class="check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg>
-            <span><span class="t">追加</span><span class="d">等这一轮封口后进入</span></span>
+            <span><span class="t">追加</span><span class="d">仅追加到下一边界；入队不等于持久接纳</span></span>
           </button>
-          <button class="menu-row" type="button" role="menuitemradio" aria-checked="false" data-mode="intervene">
+          <button class="menu-row" type="button" role="menuitemradio" aria-checked="false" data-mode="steer" disabled aria-disabled="true">
             <svg class="check" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg>
-            <span><span class="t">介入</span><span class="d">请求尽早进入下一轮</span></span>
+            <span><span class="t">介入</span><span class="d">steer 尚未实现，不能打断当前请求</span></span>
           </button>
         </div>
       </div>
+      <p class="panel-note" id="protocol-note" style="max-width:var(--measure);margin:6px auto 0">仅内存排队 · 下一边界候选；steer、持久接纳、去重与恢复回执尚未实现。</p>
     </div>
   </section>
 
@@ -650,7 +651,7 @@ a{color:inherit}
           <div><dt>连接状态</dt><dd class="text" id="cfg-conn">离线</dd></div>
           <div><dt>主题</dt><dd class="text">跟随系统</dd></div>
           <div><dt>版本</dt><dd id="cfg-version">—</dd></div>
-          <div><dt>最新步骤</dt><dd id="cfg-step">—</dd></div>
+          <div><dt>最后观测步骤</dt><dd id="cfg-step">—</dd></div>
           <div><dt>模型</dt><dd id="cfg-model">—</dd></div>
           <div><dt>数据目录</dt><dd id="cfg-data-dir">—</dd></div>
           <div><dt>运行代际</dt><dd id="cfg-generation">—</dd></div>
@@ -690,10 +691,10 @@ a{color:inherit}
       <div class="row"><span class="k">API Key</span><span class="v" id="p-api-key">读取中…</span></div>
     </section>
     <section class="section">
-      <h2 class="section-label">设备</h2>
-      <div class="device-row" data-online="true">
+      <h2 class="section-label">客户端与设备</h2>
+      <div class="device-row" data-online="unknown">
         <span class="d-dot" aria-hidden="true"></span>
-        <span class="d-name">本机 · Web</span>
+        <span class="d-name">当前客户端</span>
         <span class="d-meta">当前浏览器</span>
       </div>
       <div id="p-devices"></div>
@@ -717,6 +718,9 @@ a{color:inherit}
 <script>
 'use strict';
 (function () {
+  // 模拟模式从初始化起隔离网络与真实草稿，不混入 live 状态。
+  var params = new URLSearchParams(location.search);
+  var demoMode = params.get('demo') === '1';
   /* ── Elements ─────────────────────────────────────────────────── */
   function $(id) { return document.getElementById(id); }
   var stream = $('stream'), entries = $('entries'), empty = $('empty');
@@ -727,7 +731,7 @@ a{color:inherit}
   var connEl = $('conn'), connText = $('conn-text'), statusStep = $('status-step'), unread = $('unread');
   var srState = $('sr-state');
   var avatar = $('avatar'), panel = $('panel'), panelClose = $('panel-close'), scrim = $('scrim');
-  var panelAvatar = $('panel-avatar'), panelStatus = $('panel-status');
+  var panelStatus = $('panel-status');
   var pEndpoint = $('p-endpoint'), pConn = $('p-conn'), pModel = $('p-model');
   var pDataDir = $('p-data-dir'), pGeneration = $('p-generation'), pApiKey = $('p-api-key');
   var pDevices = $('p-devices'), pActivity = $('p-activity'), pArtifacts = $('p-artifacts');
@@ -782,7 +786,7 @@ a{color:inherit}
   function updateJump() {
     if (currentView === 'timeline' && !follow && newCount > 0) {
       jumpCount.textContent = String(newCount);
-      jump.setAttribute('aria-label', '回到最新，' + newCount + ' 轮新内容');
+      jump.setAttribute('aria-label', '回到最新，' + newCount + ' 条新内容');
       jump.hidden = false;
     } else {
       jump.hidden = true;
@@ -862,9 +866,9 @@ a{color:inherit}
   }
 
   /* ── Timeline entries ─────────────────────────────────────────── */
-  var localRound = 0, latestRound = null, lastStep = null, lastDateKey = '';
+  var latestRound = null, lastStep = null, lastDateKey = '';
   var hasThoughts = false, hasUser = false, awaitingReply = false;
-  var seenSteps = new Set(), seenIds = new Set();
+  var seenIds = new Set();
   var submissions = new Map(), payloads = new Map();
   var activities = [];
 
@@ -882,7 +886,7 @@ a{color:inherit}
   function appendGap(a, b) {
     var el = document.createElement('div');
     el.className = 'gap';
-    el.textContent = '步骤 ' + a + '–' + b + ' 未记录';
+    el.textContent = '本客户端未观测步骤 ' + a + '–' + b + '（不代表服务端未记录）';
     entries.appendChild(el);
   }
 
@@ -914,19 +918,20 @@ a{color:inherit}
     }
   }
 
-  function appendThought(round, step, content, dt) {
+  function appendThought(step, content, dt, demoLabel) {
+    var label = demoLabel || (step === null ? '轮次未知' : '步骤 #' + step);
     var art = document.createElement('article');
     art.className = 'entry';
     art.dataset.kind = 'thought';
     art.tabIndex = 0;
-    if (step !== null) { art.dataset.step = String(step); art.id = 'step-' + step; }
-    art.setAttribute('aria-label', dt ? '第 ' + round + ' 轮，' + hhmm(dt) : '第 ' + round + ' 轮');
+    if (step !== null) art.dataset.step = String(step);
+    art.setAttribute('aria-label', dt ? label + '，提交时间 ' + hhmm(dt) : label + '，提交时间未知');
 
     var gut = document.createElement('div');
     gut.className = 'gut';
     var s = document.createElement('span');
     s.className = 'step';
-    s.textContent = '第 ' + round + ' 轮';
+    s.textContent = label;
     gut.appendChild(s);
     if (dt) {
       var t = document.createElement('time');
@@ -943,7 +948,7 @@ a{color:inherit}
     var copy = document.createElement('button');
     copy.type = 'button';
     copy.textContent = '复制';
-    copy.setAttribute('aria-label', '复制第 ' + round + ' 轮内容');
+    copy.setAttribute('aria-label', '复制' + label + '内容');
     copy.addEventListener('click', function () { copyText(content, copy); });
     act.appendChild(copy);
     body.appendChild(act);
@@ -956,6 +961,7 @@ a{color:inherit}
   }
 
   function handleThought(d) {
+    if (demoMode || d.demo) return;
     var content = String(d.content == null ? '' : d.content);
     if (!content.trim()) return;
 
@@ -968,14 +974,10 @@ a{color:inherit}
     var step = null;
     if (d.step !== null && d.step !== undefined && String(d.step).trim() !== '') {
       var n = Number(d.step);
-      if (Number.isFinite(n)) step = n;
+      if (Number.isSafeInteger(n) && n >= 0) step = n;
     }
-    if (step !== null) {
-      if (seenSteps.has(step)) return;
-      seenSteps.add(step);
-    }
-
-    var dt = parseDate(d.committed_at) || parseDate(d.timestamp);
+    // 仅源提交时间可进入正文时间栏；observed_at 是观测时间，不替代它。
+    var dt = parseDate(d.committed_at);
 
     if (dt) {
       var key = dateKey(dt);
@@ -985,16 +987,16 @@ a{color:inherit}
       appendGap(lastStep + 1, step - 1);
     }
 
-    localRound += 1;
-    var round = step !== null ? step : localRound;
-    localRound = Math.max(localRound, round);
-    if (latestRound === null || round > latestRound) latestRound = round;
-    var art = appendThought(round, step, content, dt);
-    if (d.demo) art.dataset.demo = '1';
+    if (step !== null && (latestRound === null || step > latestRound)) latestRound = step;
+    var art = appendThought(step, content, dt);
+    art.dataset.messageId = id;
+    if (id) art.id = 'message-' + encodeURIComponent(id);
+    art.title = '输出投影 ID：' + (id || '未知') + '；提交时间：' + (dt ? dt.toISOString() : '未知')
+      + (d.observed_at ? '；观测于：' + String(d.observed_at) : '');
 
     if (step !== null) lastStep = step;
-    statusStep.textContent = '第 ' + latestRound + ' 轮';
-    if (cfgStep) cfgStep.textContent = String(latestRound);
+    statusStep.textContent = latestRound === null ? '轮次未知' : '最后观测 #' + latestRound;
+    if (cfgStep) cfgStep.textContent = latestRound === null ? '未知' : String(latestRound);
     updatePanelHeader();
 
     hasThoughts = true;
@@ -1061,7 +1063,7 @@ a{color:inherit}
     if (state === 'sending') {
       r.textContent = '发送中';
     } else if (state === 'sent') {
-      r.textContent = '已发出';
+      r.textContent = '已交给连接 · 等待入队回执（非持久）';
     } else if (state === 'failed') {
       r.appendChild(document.createTextNode('未发出 · '));
       var b = document.createElement('button');
@@ -1073,7 +1075,7 @@ a{color:inherit}
         if (!payload || !connected || !ws || ws.readyState !== WebSocket.OPEN) return;
         setReceipt(art, 'sending');
         try {
-          ws.send(JSON.stringify(payload));   /* same submission_id + message_id */
+          ws.send(JSON.stringify(payload));   /* 保留关联 ID；服务端尚无持久查重，未知结果不自动重发。 */
           setReceipt(art, 'sent');
           awaitingReply = true;
           if (compose.value.trim() === payload.content) {
@@ -1088,21 +1090,27 @@ a{color:inherit}
         }
       });
       r.appendChild(b);
-    } else if (state === 'accepted') {
-      r.textContent = '服务器已接收';
-    } else if (state === 'selected') {
-      r.textContent = '已选入第 ' + step + ' 轮';
-    } else if (state === 'committed') {
-      r.textContent = '主体已处置';
+    } else if (state === 'queued') {
+      r.textContent = '已入内存队列 · 下一边界候选（未证明持久接纳或主体已读）';
+    } else if (state === 'rejected') {
+      r.textContent = '未入队 · ' + (step || '服务端拒绝');
+    } else if (state === 'unknown') {
+      r.textContent = '入队结果未知 · 尚无持久查询/去重，请勿盲目重发';
     }
   }
 
   function handleReceipt(d) {
     var art = submissions.get(String(d.submission_id));
     if (!art) return;
-    if (d.stage === 'accepted') setReceipt(art, 'accepted');
-    else if (d.stage === 'selected') setReceipt(art, 'selected', d.step);
-    else if (d.stage === 'committed') setReceipt(art, 'committed');
+    if (d.stage === 'queued' && d.durable === false) setReceipt(art, 'queued');
+    else if (d.stage === 'rejected') {
+      var reasons = {
+        INBOX_FULL: '内存队列已满', INBOX_CLOSED: '输入通道已关闭',
+        INBOX_UNAVAILABLE: '输入通道尚未接入', STEER_NOT_IMPLEMENTED: 'steer 尚未实现',
+        EMPTY_INPUT: '内容为空', INVALID_INPUT: '输入格式无效'
+      };
+      setReceipt(art, 'rejected', reasons[d.error] || '服务端拒绝');
+    }
   }
 
   function appendInterruption(secs) {
@@ -1113,7 +1121,7 @@ a{color:inherit}
   }
 
   /* ── Composer ─────────────────────────────────────────────────── */
-  var DRAFT_KEY = 'shenko.draft.v1';
+  var DRAFT_KEY = demoMode ? 'shenko.demo.draft.v1' : 'shenko.draft.v1';
   function loadDraft() {
     try { return localStorage.getItem(DRAFT_KEY) || ''; } catch (e) { return ''; }
   }
@@ -1134,16 +1142,17 @@ a{color:inherit}
   }
 
   function updateSend() {
-    var ready = connected && compose.value.trim().length > 0;
+    var ready = !demoMode && connected && compose.value.trim().length > 0;
     sendBtn.disabled = !ready;
     sendBtn.dataset.ready = ready ? 'true' : 'false';
-    if (!connected) sendBtn.title = '未连接，内容会保留在草稿';
+    if (demoMode) sendBtn.title = '模拟数据，发送已禁用';
+    else if (!connected) sendBtn.title = '未连接，内容会保留在草稿';
     else sendBtn.title = ready ? '发送' : '输入消息后发送';
   }
 
   function sendMessage() {
     var text = compose.value.trim();
-    if (!text || !connected || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (demoMode || !text || !connected || !ws || ws.readyState !== WebSocket.OPEN) return;
 
     var submissionId = uid();
     var messageId = uid();
@@ -1218,8 +1227,8 @@ a{color:inherit}
   /* ── Mode menu ────────────────────────────────────────────────── */
   var currentMode = 'append';
   function setMode(mode) {
-    currentMode = mode === 'intervene' ? 'intervene' : 'append';
-    modeLabel.textContent = currentMode === 'intervene' ? '介入' : '追加';
+    currentMode = 'append';
+    modeLabel.textContent = '追加';
     Array.prototype.forEach.call(modeMenu.querySelectorAll('.menu-row'), function (row) {
       row.setAttribute('aria-checked', row.dataset.mode === currentMode ? 'true' : 'false');
     });
@@ -1239,6 +1248,7 @@ a{color:inherit}
   });
   Array.prototype.forEach.call(modeMenu.querySelectorAll('.menu-row'), function (row) {
     row.addEventListener('click', function () {
+      if (row.disabled) return;
       setMode(row.dataset.mode);
       closeMenu(true);
     });
@@ -1261,7 +1271,8 @@ a{color:inherit}
   }
 
   function connHuman(name, secs) {
-    if (name === 'online') return '在线';
+    if (demoMode) return '模拟 · 未连接 live';
+    if (name === 'online') return 'WebSocket 已连接';
     if (name === 'reconnect') return secs > 0 ? '重连中 · ' + secs + 's' : '重连中';
     return '离线';
   }
@@ -1269,15 +1280,15 @@ a{color:inherit}
   var lastAnnouncedState = '';
   function setState(name, secs) {
     connEl.dataset.s = name;
-    avatar.dataset.s = name;
-    panelAvatar.dataset.s = name;
+    // 只有连接指示灯表示 WebSocket；主体头像不伪装执行或存活探测。
+    avatar.title = connHuman(name, secs) + ' · 主体执行未知';
     var label = connHuman(name, secs);
     connText.textContent = label;
     if (cfgConn) cfgConn.textContent = label;
     if (pConn) pConn.textContent = label;
     if (emptyConn) {
       emptyConn.textContent = connected
-        ? '已连接 · 等待主体第一轮'
+        ? '连接已建立 · 执行状态未知'
         : (name === 'reconnect' ? '未连接 · 正在重连' : '未连接');
     }
     if (name !== lastAnnouncedState) {
@@ -1296,7 +1307,7 @@ a{color:inherit}
   }
 
   function syncEndpoint() {
-    var url = wsUrl();
+    var url = demoMode ? '' : wsUrl();
     if (cfgEndpoint) { cfgEndpoint.textContent = url || '—'; cfgEndpoint.title = url; }
     if (pEndpoint) {
       pEndpoint.textContent = url ? middleTruncate(url, 34) : '—';
@@ -1319,10 +1330,10 @@ a{color:inherit}
       tailText.textContent = '未连接';
     } else if (awaitingReply) {
       tail.dataset.s = 'pending';
-      tailText.textContent = '已送出 · 等待主体下一轮';
+      tailText.textContent = '已交给连接 · 尚无主体处置证据';
     } else {
       tail.dataset.s = 'waiting';
-      tailText.textContent = '已连接 · 等待主体下一轮';
+      tailText.textContent = 'WebSocket 已连接 · 主体执行状态未知';
     }
   }
 
@@ -1354,7 +1365,7 @@ a{color:inherit}
   }
 
   function connect() {
-    if (ws) return;
+    if (demoMode || ws) return;
     var url = wsUrl();
     if (!url) { setState('offline'); return; }
 
@@ -1387,6 +1398,10 @@ a{color:inherit}
       if (sock !== ws) return;
       ws = null;
       connected = false;
+      submissions.forEach(function (art) {
+        var r = art.querySelector('.receipt');
+        if (r && (r.dataset.state === 'sent' || r.dataset.state === 'sending')) setReceipt(art, 'unknown');
+      });
       if (!disconnectedAt) disconnectedAt = Date.now();
       updateSend();
       scheduleReconnect();
@@ -1396,7 +1411,7 @@ a{color:inherit}
   function onMessage(ev) {
     var d;
     try { d = JSON.parse(ev.data); } catch (e) { return; }
-    if (!d || typeof d !== 'object') return;
+    if (demoMode || !d || typeof d !== 'object') return;
 
     try {
       if (d.type === 'hello') {
@@ -1410,8 +1425,6 @@ a{color:inherit}
       if (d.type === 'thought') { handleThought(d); return; }
       if (d.role === 'system') return;            /* welcome / metadata, never a row */
       if (d.role === 'subject') {
-        var c = String(d.content == null ? '' : d.content);
-        if (c.trim() === '收到。') return;         /* legacy transport echo, not a thought */
         handleThought(d);
         return;
       }
@@ -1436,11 +1449,12 @@ a{color:inherit}
 
   function updatePanelHeader() {
     if (!panelStatus) return;
+    if (demoMode) { panelStatus.textContent = '模拟数据 · 与 live 隔离'; return; }
     var st = connEl.dataset.s;
     if (st === 'online') {
       panelStatus.textContent = latestRound !== null
-        ? '在线 · 第 ' + latestRound + ' 轮'
-        : '在线 · 等待第一轮';
+        ? '最后观测 #' + latestRound + ' · 当前执行未知'
+        : '执行状态未知 · 尚无输出观测';
     } else if (st === 'reconnect') {
       panelStatus.textContent = '未连接 · 正在重连';
     } else {
@@ -1478,13 +1492,11 @@ a{color:inherit}
     var devices = Array.isArray(selfData.devices) ? selfData.devices : [];
     devices.forEach(function (dev) {
       if (!dev || typeof dev !== 'object') return;
-      var id = String(dev.id || '');
       var name = String(dev.name || dev.label || dev.id || '');
       if (!name) return;
-      if (id === 'local' || name === '本机') return;   /* the base row already covers this */
       var row = document.createElement('div');
       row.className = 'device-row';
-      row.dataset.online = dev.online === true ? 'true' : 'false';
+      row.dataset.online = dev.online === true ? 'true' : (dev.online === false ? 'false' : 'unknown');
       var dot = document.createElement('span');
       dot.className = 'd-dot'; dot.setAttribute('aria-hidden', 'true');
       var nm = document.createElement('span');
@@ -1492,7 +1504,7 @@ a{color:inherit}
       nm.textContent = name + (dev.kind ? ' · ' + String(dev.kind) : '');
       var meta = document.createElement('span');
       meta.className = 'd-meta';
-      meta.textContent = dev.online === true ? '在线' : '离线';
+      meta.textContent = dev.online === true ? '在线' : (dev.online === false ? '离线' : '存活未知');
       row.appendChild(dot); row.appendChild(nm); row.appendChild(meta);
       pDevices.appendChild(row);
     });
@@ -1504,7 +1516,7 @@ a{color:inherit}
     if (!activities.length) {
       var p = document.createElement('p');
       p.className = 'panel-note';
-      p.textContent = '尚无已提交的思考';
+      p.textContent = demoMode ? '模拟模式不记录真实活动' : '本客户端尚无输出观测';
       pActivity.appendChild(p);
       return;
     }
@@ -1634,6 +1646,7 @@ a{color:inherit}
 
   /* ── Read-only JSON pages ─────────────────────────────────────── */
   function getJSON(path) {
+    if (demoMode) return Promise.reject(new Error('模拟模式不访问 live API'));
     return fetch(path, { headers: { 'Accept': 'application/json' }, cache: 'no-store' })
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -1652,10 +1665,11 @@ a{color:inherit}
 
   function loadTasks() {
     if (!tasksList) return;
+    if (demoMode) { noteInto(tasksList, '模拟模式 · 不读取真实任务'); return; }
     noteInto(tasksList, '读取中…');
     getJSON('/api/tasks').then(function (d) {
       var items = d && Array.isArray(d.items) ? d.items : [];
-      if (!d || d.available === false) { noteInto(tasksList, '任务源尚未接入'); return; }
+      if (!d || d.available === false) { noteInto(tasksList, d && d.error === 'STORE_READ_FAILED' ? '任务读取失败（不代表空表）' : '任务源尚未接入'); return; }
       if (!items.length) { noteInto(tasksList, '暂无任务'); return; }
       tasksList.textContent = '';
       items.forEach(function (t) {
@@ -1682,9 +1696,14 @@ a{color:inherit}
 
   function loadMemory() {
     if (!memoryList) return;
+    if (demoMode) { noteInto(memoryList, '模拟模式 · 不读取真实记忆'); return; }
     noteInto(memoryList, '读取中…');
     getJSON('/api/memory').then(function (d) {
       var items = d && Array.isArray(d.items) ? d.items : [];
+      if (!d || d.available === false) {
+        noteInto(memoryList, d && d.error === 'STORE_READ_FAILED' ? '记忆读取失败（不代表空表）' : '记忆源尚未接入');
+        return;
+      }
       if (!items.length) { noteInto(memoryList, '暂无记忆条目'); return; }
       memoryList.textContent = '';
       items.forEach(function (m) {
@@ -1695,7 +1714,9 @@ a{color:inherit}
         text.textContent = String(m.content || m.text || m.summary || m.title || m.kind || '—');
         var meta = document.createElement('span');
         meta.className = 'memory-meta';
-        meta.textContent = m.created_at ? formatStamp(String(m.created_at)) : String(m.kind || '');
+        var created = typeof m.created_at_ms === 'number' ? new Date(m.created_at_ms).toISOString() : m.created_at;
+        meta.textContent = created ? formatStamp(String(created)) : String(m.kind || '');
+        row.title = '记忆 ID：' + String(m.entry_id || '未知') + '；来源：' + String(m.source_ref || '未知');
         row.appendChild(text); row.appendChild(meta);
         memoryList.appendChild(row);
       });
@@ -1703,6 +1724,7 @@ a{color:inherit}
   }
 
   function loadConfig() {
+    if (demoMode) return;
     configState = 'loading';
     renderPanelConfig();
     getJSON('/api/config').then(function (d) {
@@ -1733,6 +1755,7 @@ a{color:inherit}
   }
 
   function loadHealth() {
+    if (demoMode) return;
     getJSON('/health').then(function (d) {
       if (d && d.version) {
         serverVersion = String(d.version);
@@ -1744,22 +1767,20 @@ a{color:inherit}
   }
 
   function fetchSelf() {
+    if (demoMode) return;
     selfState = 'loading';
     renderArtifacts();
     getJSON('/api/self').then(function (d) {
       if (!d || d.available === false) { selfState = 'unavailable'; selfData = null; }
       else {
         selfState = 'ok'; selfData = d;
-        /* The WS stream carries no replay history; /api/self reports the last
-           committed step observed by the loop. Use it as the baseline so the
-           status strip does not restart at 第 1 轮 after a page reload. */
-        if (typeof d.step === 'number' && isFinite(d.step) && d.step >= 0) {
-          var baseline = Math.floor(d.step);
+        // API 只给出进程最后观测输出，不是当前执行状态或可恢复历史。
+        if (typeof d.step === 'number' && Number.isSafeInteger(d.step) && d.step >= 0) {
+          var baseline = d.step;
           if (latestRound === null || baseline > latestRound) {
             latestRound = baseline;
-            localRound = Math.max(localRound, baseline);
             lastStep = lastStep === null ? baseline : Math.max(lastStep, baseline);
-            statusStep.textContent = '第 ' + baseline + ' 轮';
+            statusStep.textContent = '最后观测 #' + baseline;
             if (cfgStep) cfgStep.textContent = String(baseline);
             updatePanelHeader();
           }
@@ -1810,42 +1831,54 @@ a{color:inherit}
   renderPanel();
   updateTail();
   updateJump();
-  connect();
-  loadConfig();
-  loadHealth();
-  fetchSelf();
+  if (!demoMode) {
+    connect();
+    loadConfig();
+    loadHealth();
+    fetchSelf();
+  }
 
-  /* Client-side visual demo only, enabled solely by ?demo=1.
-     It never runs without the parameter and never sends anything. */
+  // 视觉样本使用独立呈现路径；不进入 handleThought/真实轮次/近期活动。
   (function () {
-    var q;
-    try { q = new URLSearchParams(location.search); } catch (e) { return; }
-    if (q.get('demo') !== '1') return;
-    var theme = q.get('theme');
+    if (!demoMode) return;
+    var theme = params.get('theme');
     if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-    var now = Date.now();
+    $('instance').textContent = '模拟数据 · 与 live 隔离';
+    $('instance').title = '纯视觉样本，不是主体运行证据';
+    statusStep.textContent = '模拟样本 · 非真实轮次';
+    compose.disabled = true;
+    compose.placeholder = '模拟模式 · 不能向真实主体发送';
+    configState = 'error';
+    selfState = 'unavailable';
+    $('protocol-note').textContent = '模拟模式：发送已禁用；以下样本不是运行、提交或持久协议证据。';
+    var pgLink = document.querySelector('a[href="/playground"]');
+    pgLink.removeAttribute('href');
+    pgLink.setAttribute('aria-disabled', 'true');
+    pgLink.title = '模拟模式不访问真实 Playground';
     var samples = [
       {
-        step: 42, minutes: 18,
+        step: 42,
         text: '昨天留下的那条线索值得继续：记忆里“用户更在意可解释性”和今天早上的部署日志对不上。日志显示三次重试都发生在配置加载之前，而不是模型调用阶段。\n\n如果这个判断成立，问题不在推理容量，而在启动顺序。先查配置同步的时序，再决定是否改动 admission 窗口。'
       },
       {
-        step: 43, minutes: 9,
+        step: 43,
         text: '配置时序已经确认：数据目录在首次请求之后才解析，重试因此读到了默认值。修复不需要新的抽象，只要把目录解析提前到服务启动的同一段代码里。\n\n我把这个结论记成一条临时判断，等下一次部署验证后，再决定是否写进长期记忆。'
       },
       {
-        step: 44, minutes: 2,
+        step: 44,
         text: '验证结果符合预期，重试次数归零。仍然有一个未解释的细节：第二次启动比第一次慢 300ms。可能只是冷缓存，不值得现在就追。\n\n接下来回到昨天未完成的记忆合并：把重复的两次观察保留来源，合成一条更小的条目。'
       }
     ];
     samples.forEach(function (s) {
-      handleThought({
-        type: 'thought', step: s.step, content: s.text,
-        committed_at: new Date(now - s.minutes * 60000).toISOString(),
-        message_id: 'demo-' + s.step, demo: true
-      });
+      var art = appendThought(null, '【模拟数据】\n' + s.text, null, '模拟 #' + s.step);
+      art.dataset.demo = '1';
     });
-    if (q.get('panel') === '1') {
+    empty.hidden = true;
+    tail.hidden = false;
+    tailText.textContent = '模拟数据 · 未连接 WebSocket/API · 不记录真实轮次或活动';
+    renderPanel();
+    queueScroll();
+    if (params.get('panel') === '1') {
       setTimeout(function () { openPanel(); }, 200);
     }
   })();

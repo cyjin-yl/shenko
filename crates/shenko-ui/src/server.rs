@@ -1,15 +1,15 @@
+use anyhow::Result;
+use axum::{Extension, Router, routing::get};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use axum::{Router, routing::get, Extension};
 use tower_http::cors::CorsLayer;
 use tracing::info;
-use anyhow::Result;
 
 use crate::api::{self, ApiState};
 use crate::playground::{self, PlaygroundState};
 use crate::routes::*;
-use crate::ws::{ws_handler, WsState};
+use crate::ws::{WsState, ws_handler};
 
 pub struct UiServer {
     pub bind: SocketAddr,
@@ -36,7 +36,9 @@ impl UiServer {
         }
     }
 
-    pub fn ws_state(&self) -> WsState { self.state.clone() }
+    pub fn ws_state(&self) -> WsState {
+        self.state.clone()
+    }
 
     /// Point the persistent Playground at `<data_dir>/playground`. SPEC §43.2.
     pub fn with_data_dir(mut self, data_dir: impl Into<PathBuf>) -> Self {
@@ -46,12 +48,9 @@ impl UiServer {
         self
     }
 
-    /// Attach the persistent store for the read-only WebUI task list.
+    /// 为只读任务与记忆接口接入现有持久 store。
     /// Without this, `/api/tasks` honestly serves `available: false`.
-    pub fn with_store(
-        mut self,
-        store: std::sync::Arc<shenko_store::store::Store>,
-    ) -> Self {
+    pub fn with_store(mut self, store: std::sync::Arc<shenko_store::store::Store>) -> Self {
         self.store = Some(store);
         self
     }
@@ -84,18 +83,21 @@ impl UiServer {
         }
         let playground_root = playground_state.root().to_path_buf();
 
-        // Observe the subject outbox independently of any browser client, so
-        // `/api/self` knows the last committed thought step and whether the
-        // loop is active. A broadcast subscriber never consumes messages meant
-        // for WS clients. SPEC §21.12.
+        // 独立于浏览器记录最后观测输出。滞后时继续观察，关闭时清除连接标记；
+        // 输出时间不等于提交时间，也不能推断当前执行状态。
         if let Some(outbox_tx) = self.state.outbox_tx.as_ref() {
             self.state.live.set_wired(true);
             let live = Arc::clone(&self.state.live);
             let mut outbox_rx = outbox_tx.subscribe();
             tokio::spawn(async move {
-                while let Ok(msg) = outbox_rx.recv().await {
-                    live.record_outbox(msg.step);
+                loop {
+                    match outbox_rx.recv().await {
+                        Ok(msg) => live.record_outbox(msg.step),
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    }
                 }
+                live.set_wired(false);
             });
         }
 
