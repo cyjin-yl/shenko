@@ -1,6 +1,6 @@
 //! 本地 SQLite/CAS 恢复验证，不代表真实 provider 或部署验收。
 use super::{SubjectLoopState, execute_step};
-use crate::{dispatch::ChildDispatcher, inbox::Inbox};
+use crate::inbox::Inbox;
 use shenko_store::store::Store;
 use shenko_types::{commit::CommitRef, ids::*, subject::*};
 use std::{path::PathBuf, sync::Arc};
@@ -76,20 +76,13 @@ fn state(
     store: Arc<Store>,
     agent: EntityId,
 ) -> Result<SubjectLoopState, shenko_types::error::ShenkoError> {
-    let (dispatcher, _rx) = ChildDispatcher::new(agent);
     let ctx = cordis_core::Context::new();
     let _publication = ctx
         .provide(Arc::new(shenko_identity::IdentityService::new(Arc::new(
             shenko_identity::DefaultIdentityPolicy,
         ))))
         .unwrap();
-    SubjectLoopState::new(
-        agent,
-        Arc::new(Inbox::new(8)),
-        Arc::new(dispatcher),
-        store,
-        ctx,
-    )
+    SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store, ctx)
 }
 
 #[test]
@@ -821,15 +814,8 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
     store
         .initialize_identity(&service.genesis(agent, None))
         .unwrap();
-    let (dispatcher, _) = ChildDispatcher::new(agent);
-    let mut subject = SubjectLoopState::new(
-        agent,
-        Arc::new(Inbox::new(8)),
-        Arc::new(dispatcher),
-        store.clone(),
-        ctx.clone(),
-    )
-    .unwrap();
+    let mut subject =
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone()).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     execute_step(1, &[], &mut subject, false, &close)
@@ -853,14 +839,8 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         ctx.try_service::<IdentityService>().unwrap().revision(),
         "test.identity/other@1"
     );
-    let (dispatcher, _) = ChildDispatcher::new(agent);
-    let reopened = SubjectLoopState::new(
-        agent,
-        Arc::new(Inbox::new(8)),
-        Arc::new(dispatcher),
-        store.clone(),
-        ctx.clone(),
-    );
+    let reopened =
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone());
     assert!(
         reopened
             .err()

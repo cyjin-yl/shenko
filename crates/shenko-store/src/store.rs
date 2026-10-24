@@ -90,7 +90,10 @@ impl Store {
         head: &SubjectBranchHead,
         first_step: &SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
-        self.ledger.with_mutation(|| self.try_initialize_genesis(genesis, head, first_step), |e| matches!(e, ShenkoError::Storage(_)))
+        self.ledger.with_mutation(
+            || self.try_initialize_genesis(genesis, head, first_step),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
     }
 
     fn try_initialize_genesis(
@@ -161,7 +164,10 @@ impl Store {
         expected_head: &SubjectBranchHead,
         expected_revision: RecordRevision,
     ) -> Result<CommitReceipt, ShenkoError> {
-        self.ledger.with_mutation(|| self.try_upsert_step(step, expected_head, expected_revision), |e| matches!(e, ShenkoError::Storage(_)))
+        self.ledger.with_mutation(
+            || self.try_upsert_step(step, expected_head, expected_revision),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
     }
 
     fn try_upsert_step(
@@ -251,7 +257,10 @@ impl Store {
         expected_head: &SubjectBranchHead,
         replacement: &SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
-        self.ledger.with_mutation(|| self.try_reject_output_and_replace_step(retired, expected_head, replacement), |e| matches!(e, ShenkoError::Storage(_)))
+        self.ledger.with_mutation(
+            || self.try_reject_output_and_replace_step(retired, expected_head, replacement),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
     }
 
     fn try_reject_output_and_replace_step(
@@ -377,7 +386,10 @@ impl Store {
         expected_head: &SubjectBranchHead,
         next_step_id: EntityId,
     ) -> Result<CommitReceipt, ShenkoError> {
-        self.ledger.with_mutation(|| self.try_commit_step_and_advance_head(step, expected_head, next_step_id), |e| matches!(e, ShenkoError::Storage(_)))
+        self.ledger.with_mutation(
+            || self.try_commit_step_and_advance_head(step, expected_head, next_step_id),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
     }
 
     fn try_commit_step_and_advance_head(
@@ -534,6 +546,7 @@ impl Store {
                 ));
             }
         }
+        self.enqueue_subject_intents(&tx, &head, &step, &decision, commit_ref, false)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;

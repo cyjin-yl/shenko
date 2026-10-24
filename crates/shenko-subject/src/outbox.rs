@@ -21,3 +21,32 @@ pub struct OutboxMessage {
     /// can refresh the displayed name/soul when it changes.
     pub identity_revision: Option<u64>,
 }
+
+/// Replayable committed-only projection. Stable IDs let transports de-duplicate
+/// a repeated snapshot independently of effect dispatch.
+pub fn committed_after(
+    store: &shenko_store::Store,
+    seq: u64,
+    limit: usize,
+) -> anyhow::Result<Vec<OutboxMessage>> {
+    store
+        .committed_decisions_after(seq, limit)?
+        .into_iter()
+        .map(|(step, decision)| {
+            let identity_revision = store
+                .identity_receipt(step.step_id)?
+                .and_then(|r| r.outcome.revision());
+            Ok(OutboxMessage {
+                kind: "thought".into(),
+                step: step.step_no,
+                step_id: step.step_id,
+                commit_ref: step
+                    .commit_ref
+                    .ok_or_else(|| anyhow::anyhow!("missing committed ref"))?,
+                text: decision.output.text,
+                publications: decision.publication_intents,
+                identity_revision,
+            })
+        })
+        .collect()
+}

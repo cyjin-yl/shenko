@@ -224,49 +224,19 @@ async fn main() -> Result<()> {
             // 4. Start subject loop — the continuous main agent. SPEC §5.1
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
-            let (dispatcher_inner, mut dispatch_rx) =
-                shenko_subject::dispatch::ChildDispatcher::new(agent_id);
-            let dispatcher = Arc::new(dispatcher_inner);
-
-            // Delegation consumer — the child side of the dispatcher. SPEC §5.2/§5.3.
-            // Delegated intents used to be dropped together with the receiver; now
-            // each one is durably recorded as a Pending TaskRecord so a committed
-            // decision is never silently lost.
+            // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
+            store.start_subject_dispatcher()?;
+            store.settle_subject_memory()?;
+            store.reconcile_subject_publications()?;
+            let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
-            let dispatch_cancel = cancel.clone();
-            tokio::spawn(async move {
-                loop {
-                    let received = tokio::select! {
-                        received = dispatch_rx.recv() => received,
-                        _ = dispatch_cancel.cancelled() => break,
-                    };
-                    let Some((task_id, intent)) = received else {
-                        break;
-                    };
-                    let kind = "delegation";
-                    match persist_delegation(&dispatch_store, agent_id, task_id, &intent, kind) {
-                        Ok(commit) => info!(
-                            task_id = %task_id,
-                            intent_id = %intent.intent_id,
-                            kind,
-                            commit = %commit,
-                            goal = %intent.goal,
-                            "delegation received — child task recorded (Pending)"
-                        ),
-                        Err(e) => tracing::error!(
-                            task_id = %task_id,
-                            intent_id = %intent.intent_id,
-                            kind,
-                            err = %e,
-                            "delegation received but could not be recorded — intent not executed"
-                        ),
-                    }
-                    // TODO(§35.4): seat execution (BuildProvider / AgentSeat)
-                    // attaches here. This round records the delegated intent; it
-                    // does not run a coding agent or advance the task state.
-                }
+            let dispatch_stop = consumer_cancel.clone();
+            let failure_cancel = cancel.clone();
+            let dispatcher_task = tokio::spawn(async move {
+                let result = shenko_subject::dispatch::run_committed_dispatcher(dispatch_store, dispatch_stop).await;
+                if result.is_err() { failure_cancel.cancel(); }
+                result
             });
-            info!("delegation consumer started");
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
@@ -274,20 +244,12 @@ async fn main() -> Result<()> {
             let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
                 agent_id,
                 Arc::clone(&subject_inbox),
-                Arc::clone(&dispatcher),
                 Arc::clone(&store),
                 identity_context.clone(),
             )?
             .with_broker(broker_handle)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
-
-            let cancel_subject = cancel.clone();
-            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(
-                loop_state,
-                cancel_subject,
-            ));
-            info!("subject loop started");
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
@@ -310,7 +272,7 @@ async fn main() -> Result<()> {
                 let spool = client.spool.clone();
                 let event_tx = client.event_sender();
                 let pending_actions = client.pending_actions.clone();
-                let cancel_napcat = cancel.clone();
+                let cancel_napcat = consumer_cancel.clone();
 
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
@@ -413,25 +375,22 @@ async fn main() -> Result<()> {
                     OutboundLedger::with_store(Arc::clone(&store))
                         .with_account(napcat_config.bot_qq),
                 );
-                let mut outbox_rx = outbox_tx.subscribe();
                 let reply_client = Arc::clone(&client);
-                let cancel_replies = cancel_napcat.clone();
+                let reply_store = Arc::clone(&store);
+                let cancel_replies = consumer_cancel.clone();
+                let reply_failure = cancel.clone();
                 tokio::spawn(async move {
+                    let result: Result<()> = async {
+                    let mut tick=tokio::time::interval(std::time::Duration::from_millis(250));
                     loop {
-                        let msg = tokio::select! {
-                            msg = outbox_rx.recv() => msg,
+                        tokio::select! { biased;
                             _ = cancel_replies.cancelled() => break,
-                        };
-                        let msg = match msg {
-                            Ok(msg) => msg,
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                                tracing::warn!(skipped = n, "outbox lagged — replies skipped");
-                                continue;
-                            }
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                        };
+                            _ = tick.tick() => {}
+                        }
+                        // Ready index, not the broadcast buffer, owns the work.
+                        for work in reply_store.committed_intents(Some("publication"), Some("ready"), 32)? {
+                            let publication: shenko_types::subject::PublicationIntent = serde_json::from_value(work.payload)?;
 
-                        for publication in &msg.publications {
                             let (kind, target) = match publication.target {
                                 shenko_types::output::PublicationTarget::QqGroup(id) => {
                                     (OutboundKind::SendGroup, id)
@@ -445,10 +404,7 @@ async fn main() -> Result<()> {
                             op.operation_id = publication.intent_id;
                             op.echo_token = publication.intent_id.to_string();
                             let op_id = op.operation_id;
-                            if let Err(e) = ledger.record_intent(&op) {
-                                tracing::warn!(err=%e, "outbound intent not durable — message not sent");
-                                continue;
-                            }
+                            if !ledger.record_intent(&op)? { continue; }
 
                             let send_result = match kind {
                                 OutboundKind::SendGroup => {
@@ -473,9 +429,7 @@ async fn main() -> Result<()> {
 
                             match send_result {
                                 Ok(receipt) => {
-                                    if let Err(e) = ledger.record_ack(op_id, receipt.retcode) {
-                                        tracing::warn!(err=%e, op=%op_id, "failed to record outbound ack");
-                                    }
+                                    ledger.record_response(op_id, &receipt)?;
                                     if receipt.is_success() {
                                         tracing::info!(op=%op_id, target, kind=kind.as_str(), "QQ reply sent");
                                     } else {
@@ -490,16 +444,29 @@ async fn main() -> Result<()> {
                                     // unknown effect and leave resolution to
                                     // reconciliation; never blind-resend.
                                     tracing::warn!(err=%e, op=%op_id, "QQ reply outcome unknown");
-                                    if let Err(e) = ledger.record_unknown(op_id) {
-                                        tracing::warn!(err=%e, op=%op_id, "failed to record unknown outcome");
-                                    }
+                                    ledger.record_unknown(op_id, &e.to_string())?;
                                 }
                             }
                         }
                     }
+                    Ok(())
+                    }.await;
+                    if let Err(e)=result { tracing::error!(err=%e,"publication consumer stopped; reopen writer and reconcile"); reply_failure.cancel(); }
                 });
                 info!("NapCat connector started");
             }
+
+            // Connector/ACK storage failures also stop admission in the subject.
+            let connector_failure = cancel.clone();
+            let connector_stop = consumer_cancel.clone();
+            tokio::spawn(async move { connector_stop.cancelled().await; connector_failure.cancel(); });
+            let cancel_subject = cancel.clone();
+            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(
+                loop_state,
+                cancel_subject,
+            ));
+            info!("subject loop started");
+
 
             // 6. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
@@ -551,6 +518,7 @@ async fn main() -> Result<()> {
                     Ok(Ok(result)) => result?,
                     Ok(Err(error)) => return Err(error.into()),
                     Err(_) => {
+                        consumer_cancel.cancel();
                         let (_, step) = store.load_subject(agent_id)?;
                         anyhow::bail!(
                             "shutdown settlement timed out: durable step {} is {:?}, request {:?}; remote outcome is NOT proven stopped, reopen/reconcile before dispatch",
@@ -560,6 +528,13 @@ async fn main() -> Result<()> {
                         );
                     }
                 }
+            }
+            // S1 has settled or left a durable unresolved step. Do not drop the
+            // consumers first. Their unfinished work remains queryable on reopen.
+            consumer_cancel.cancel();
+            match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
+                Ok(result) => result??,
+                Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
             }
             runtime_result?;
             info!("Shenko stopped");
@@ -584,77 +559,6 @@ fn napcat_inbox_event(
         created_at: chrono::Utc::now(),
         source: "napcat".to_string(),
     })
-}
-
-/// Durably record a delegated child task as `Pending`. Returns the commit that
-/// inserted it. The intent itself is sealed into the CAS, so the child's input
-/// is re-readable later. SPEC §41.4 X02, §5.2.
-///
-/// `agent_id` is used as the conversation/owner placeholder, matching the
-/// store's existing single-subject convention (`loop_runner` uses the same value
-/// as `conversation_id` for inference requests).
-fn persist_delegation(
-    store: &shenko_store::store::Store,
-    agent_id: shenko_types::ids::EntityId,
-    task_id: shenko_types::ids::EntityId,
-    intent: &shenko_types::subject::DelegationIntent,
-    kind: &str,
-) -> Result<shenko_types::commit::CommitRef> {
-    use shenko_types::commit::CommitRef;
-    use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision, TaskRevision};
-    use shenko_types::object::Digest;
-    use shenko_types::store::WriteBatch;
-    use shenko_types::task::{
-        DispatchEligibility, ImplementationRef, TaskOwner, TaskRecord, TaskState,
-    };
-
-    let input_bytes = serde_json::to_vec(intent)?;
-    let input_ref = store
-        .cas
-        .seal_object(&input_bytes, "application/json", "delegation", "json", 1)?
-        .object;
-
-    // Pre-commit placeholder, same convention as genesis: the ledger commit that
-    // inserts this row is returned below and is the authoritative provenance.
-    let pre_commit = CommitRef::new(store.ledger.ledger_id(), LedgerSeq(0));
-
-    let task = TaskRecord {
-        record_schema_version: 1,
-        task_id,
-        task_revision: TaskRevision(0),
-        record_revision: RecordRevision(0),
-        agent_id,
-        conversation_id: agent_id,
-        owner: TaskOwner::Conversation { id: agent_id },
-        background: false,
-        kind: kind.to_string(),
-        definition_version: 1,
-        // No seat implementation is bound yet. TODO(§35.4).
-        implementation_ref: ImplementationRef {
-            plugin_id: EntityId::nil(),
-            artifact_digest: Digest::blake3(b""),
-            registry_revision: 0,
-        },
-        input_ref,
-        state: TaskState::Pending {
-            checkpoint_ref: None,
-        },
-        abort_request: None,
-        memos: Default::default(),
-        residual_case_ids: Vec::new(),
-        created_by_step_id: None,
-        dispatch_eligibility: DispatchEligibility::Ready,
-        no_progress_crashes: 0,
-        first_run_at: None,
-        terminal_at: None,
-        created_commit: pre_commit,
-        updated_commit: pre_commit,
-    };
-
-    let mut batch = WriteBatch::new();
-    batch.task_upserts.push(task);
-    let receipt = store.commit(batch)?;
-    Ok(receipt.commit_ref)
 }
 
 /// Make sure the agent has an identity revision, and apply a user-given
@@ -960,11 +864,9 @@ mod recovery_integration_tests {
             shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap(),
         );
         assert_eq!(bootstrap_genesis(&store, None).unwrap(), agent);
-        let (dispatcher, _rx) = shenko_subject::dispatch::ChildDispatcher::new(agent);
         let restored = shenko_subject::loop_runner::SubjectLoopState::new(
             agent,
             Arc::new(shenko_subject::inbox::Inbox::new(8)),
-            Arc::new(dispatcher),
             store.clone(),
             identity_context,
         )

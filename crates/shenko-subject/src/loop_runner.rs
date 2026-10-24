@@ -1,7 +1,6 @@
 //! Continuous subject loop — SPEC §5.1, §41.5
 //! Real S0/S1 step state machine. Never terminates on empty inbox.
 //! Semantic wait hard-max 600s. Yields inference slot after each step.
-use crate::dispatch::ChildDispatcher;
 use crate::inbox::{Inbox, InboxEvent};
 use crate::outbox::OutboxMessage;
 use shenko_identity::IdentityService;
@@ -113,7 +112,6 @@ pub struct SubjectLoopState {
     pub head: SubjectBranchHead,
     pub step: SubjectStep,
     pub inbox: Arc<Inbox>,
-    pub dispatcher: Arc<ChildDispatcher>,
     pub active_wait: Option<SemanticWait>,
     pub store: Arc<shenko_store::store::Store>,
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
@@ -138,7 +136,6 @@ impl SubjectLoopState {
     pub fn new(
         agent_id: EntityId,
         inbox: Arc<Inbox>,
-        dispatcher: Arc<ChildDispatcher>,
         store: Arc<shenko_store::store::Store>,
         identity_context: cordis_core::Context,
     ) -> Result<Self, ShenkoError> {
@@ -189,7 +186,6 @@ impl SubjectLoopState {
             head,
             step,
             inbox,
-            dispatcher,
             active_wait: None,
             store,
             broker: None,
@@ -824,32 +820,6 @@ async fn execute_step(
                 }
             }
 
-            // Memory pipeline — SPEC §12.2: accept the intent then commit its
-            // entry. Runs only after the S1 commit is durable and at most once
-            // per step.
-            for (intent, content) in &memory_candidates {
-                let record = shenko_store::memory::MemoryIntentRecord::accepted(
-                    intent.intent_id,
-                    state.agent_id,
-                    "note",
-                    intent.scope.clone(),
-                    content.clone(),
-                    intent.content_ref.as_ref().map(|r| r.locator.clone()),
-                    None,
-                );
-                match store.insert_memory_intent(&record) {
-                    Ok(()) => {
-                        let entry =
-                            shenko_store::memory::MemoryEntry::new(state.agent_id, content.clone());
-                        if let Err(e) = store.commit_memory_intent(&entry, intent.intent_id) {
-                            warn!(seq, err=%e, "memory intent commit failed");
-                            let _ = store.fail_memory_intent(intent.intent_id, &e.to_string());
-                        }
-                    }
-                    Err(e) => warn!(seq, err=%e, "memory intent insert failed"),
-                }
-            }
-
             if seq % 50 == 0 || !events.is_empty() {
                 debug!(
                     seq,
@@ -871,14 +841,6 @@ async fn execute_step(
                     })
                     .await;
                 debug!(seq, hooks=%results.len(), "PostEffect hooks ran");
-            }
-
-            // Dispatch delegation intents sealed into the S1 decision. SPEC §5.2/§5.3.
-            // Fire after commit so intent is only dispatched once durably committed.
-            for intent in decision_delegation_intents {
-                if let Err(e) = state.dispatcher.dispatch(intent).await {
-                    warn!(seq, err=%e, "delegation dispatch failed");
-                }
             }
 
             Ok(Some(receipt.commit_ref))

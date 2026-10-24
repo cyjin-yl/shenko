@@ -218,7 +218,9 @@ impl Ledger {
     ) -> Result<T, E> {
         let mut open = self.mutation_open.lock();
         if !*open {
-            return Err(ShenkoError::storage("writer closed; reopen and query original operation").into());
+            return Err(
+                ShenkoError::storage("writer closed; reopen and query original operation").into(),
+            );
         }
         *open = false;
         let result = write();

@@ -106,6 +106,18 @@ impl Store {
             );
             return Ok(Some(old));
         }
+        // Subject publications use this same T1, with a revocable dispatcher
+        // owner. A stale callback can enter E1 but cannot arm a new send.
+        let subject_owner: Option<String> = tx.query_row(
+            "SELECT CASE WHEN state='claimed' THEN COALESCE(owner,'') ELSE '' END FROM subject_intents WHERE intent_id=?1 AND kind='publication'",
+            [ctx.task_id.to_string()], |r| r.get(0)).optional()?;
+        if let Some(owner) = subject_owner {
+            self.check_dispatch_owner(&tx)?;
+            ensure!(
+                owner == self.capabilities.incarnation.to_string(),
+                "stale_subject_claim"
+            );
+        }
         let data: String = tx.query_row(
             "SELECT data FROM tasks WHERE task_id=?1",
             [ctx.task_id.to_string()],
