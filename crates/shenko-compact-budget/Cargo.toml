@@ -6,15 +6,12 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-shenko-types = { path = "../shenko-types" }
-serde = { workspace = true }
-serde_json = { workspace = true }
+shenko-context-policy = { path = "../shenko-context-policy" }
+cordis-core = { workspace = true }
+
+[dev-dependencies]
+shenko-kernel = { path = "../shenko-kernel" }
 tokio = { workspace = true }
-tracing = { workspace = true }
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-uuid = { workspace = true }
-chrono = { workspace = true }
-async-trait = { workspace = true }
+tokio-util = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"
