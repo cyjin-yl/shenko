@@ -5,6 +5,8 @@ Only creates/controls a new loopback SSH fixture and private per-node stores.
 """
 import base64
 import copy
+import hashlib
+import gzip
 import json
 import hashlib
 import os
@@ -25,6 +27,46 @@ root.mkdir(mode=0o700)
 d = runpy.run_path(str(repo / 'scripts/managed_node.py'))
 node = lambda directory, request: d['call_binary'](binary, directory, request)
 uid = lambda: str(uuid.uuid4())
+
+# One bounded fault lifecycle at the Python publication primitive, NOT SSH or
+# power-loss evidence. Never interpret a direct primitive re-entry as C07 replay.
+def publication_fault():
+    folder=root/'publication-fault';folder.mkdir(mode=0o700)
+    raw=b'bounded publication fixture, not a native runtime'
+    chunk=folder/'chunk';chunk.write_bytes(gzip.compress(raw,mtime=0))
+    sha=hashlib.sha256(raw).hexdigest();interrupted=uid()
+    prefix="""import json,os
+ def interrupted_dump(value,file,*args,**kwargs):
+  file.write('{"interrupted":');file.flush();os.fsync(file.fileno());os._exit(91)
+ json.dump=interrupted_dump
+""".replace('\n ', '\n')
+    argv=[str(folder),interrupted,sha,str(chunk)]
+    crash=subprocess.run([sys.executable,'-I','-c',prefix+d['INSTALL'],*argv],capture_output=True)
+    assert crash.returncode==91,crash.stderr
+    assert not (folder/('install-'+interrupted+'.json')).exists()
+    assert list(folder.glob('install-'+interrupted+'.json.prepared-*.new'))
+    # A pre-existing damaged final is preserved, not silently overwritten or
+    # treated as durable. Repair is an explicit NEW install identity/operation.
+    damaged=folder/('install-'+interrupted+'.json')
+    damaged.write_bytes(b'{"interrupted":')
+    rejected=subprocess.run([sys.executable,'-I','-c',d['INSTALL'],*argv],capture_output=True)
+    assert rejected.returncode!=0 and damaged.read_bytes()==b'{"interrupted":'
+    repair=uid()
+    completed=subprocess.run([sys.executable,'-I','-c',d['INSTALL'],str(folder),repair,sha,str(chunk)],capture_output=True)
+    assert completed.returncode==0,completed.stderr
+    receipt=json.loads(completed.stdout)
+    assert json.loads((folder/('install-'+repair+'.json')).read_bytes())==receipt
+    assert damaged.read_bytes()==b'{"interrupted":' and receipt['operation_id']!=interrupted
+    final=folder/('install-'+repair+'.json')
+    (folder/'valid-receipt.preserved').write_bytes(final.read_bytes())
+    final.write_text(json.dumps(dict(receipt,state='conflicting')))
+    conflicting=final.read_bytes()
+    rejected=subprocess.run([sys.executable,'-I','-c',d['INSTALL'],str(folder),repair,sha,str(chunk)],capture_output=True)
+    assert rejected.returncode!=0 and final.read_bytes()==conflicting
+    return {'kind':'pure_python_process_fault','crash_exit':91,'partial_final_published':False,
+        'damaged_evidence_preserved':True,'repair_operation':repair,'C07_redispatch_test':False,'power_loss_test':False}
+publication=publication_fault()
+print(json.dumps({'publication':publication}),flush=True)
 identity = {'agent_id': uid(), 'branch_id': uid(), 'origin_proof': 'sha256:' + '1'*64}
 old_self = {'agent_id': uid(), 'branch_id': uid(), 'origin_proof': 'sha256:' + '2'*64}
 controller_id, worker_id = uid(), uid()
@@ -49,9 +91,27 @@ remote_root=root/'remote-worker'
 # the receipt marker; subsequent receipt queries use a healthy new connection.
 dropped=threading.Event();stopping=threading.Event()
 marker=[None]
-def relay(client):
-    upstream=socket.create_connection(('127.0.0.1',server_port))
+relays=[]
+def installation_ready():
+    if marker[0] is None:return False
+    plan,operation=marker[0]
     try:
+        install=json.loads((remote_root/('install-'+plan['deployment_id']+'.json')).read_bytes())
+        expected={'operation_id':plan['deployment_id'],'sha256':plan['artifact_sha256'],
+            'artifact':str(remote_root/('artifact-'+plan['deployment_id'])),
+            'state':'installed','service':'one_shot_no_daemon'}
+        if install!=expected:return False
+        if hashlib.sha256(Path(install['artifact']).read_bytes()).hexdigest()!=plan['artifact_sha256']:return False
+        receipt=json.loads((root/'receipts'/operation/'receipt.json').read_bytes())
+        return (receipt['operation_id']==operation and receipt['state']=='completed' and receipt['exit_code']==0
+            and not receipt['stdout_truncated'] and not receipt['stderr_truncated']
+            and json.loads(base64.b64decode(receipt['stdout_b64']))==install)
+    except (OSError,ValueError,KeyError):return False
+
+def relay(client):
+    upstream=None
+    try:
+        upstream=socket.create_connection(('127.0.0.1',server_port))
         while not stopping.is_set():
             readers,_,_=select.select([client,upstream],[],[],0.05)
             for src in readers:
@@ -59,20 +119,23 @@ def relay(client):
                 if not data:return
                 if src is upstream and marker[0] is not None and not dropped.is_set():
                     time.sleep(0.04)
-                    if marker[0].exists():dropped.set();return
+                    if installation_ready():dropped.set();return
                 (upstream if src is client else client).sendall(data)
     except (OSError,ConnectionError):pass
-    finally:client.close();upstream.close()
+    finally:
+        client.close()
+        if upstream is not None:upstream.close()
 def serve():
     listener.settimeout(0.1)
     while not stopping.is_set():
         try:client,_=listener.accept()
         except socket.timeout:continue
         except OSError:return
-        threading.Thread(target=relay,args=(client,),daemon=True).start()
+        worker=threading.Thread(target=relay,args=(client,),daemon=True)
+        relays.append(worker);worker.start()
 log=open(root/'sshd.log','xb')
 server=subprocess.Popen([str(sshd),'-D','-e','-f',str(config)],stdout=log,stderr=log,env=dict(os.environ,LD_LIBRARY_PATH=str(libdir)))
-threading.Thread(target=serve,daemon=True).start()
+proxy=threading.Thread(target=serve,daemon=True);proxy.start()
 try:
     for _ in range(100):
         if server.poll() is not None:raise RuntimeError('sshd failed; inspect private fixture log')
@@ -93,7 +156,6 @@ try:
     d['prepare'](plan_dir,root/'config.json')
     plan=json.loads((plan_dir/'plan.json').read_text())
     op=str(uuid.uuid5(uuid.UUID(plan['deployment_id']),'install'))
-    marker[0]=remote_root/('install-'+plan['deployment_id']+'.json')
     # Journey 1 includes ownership refusal and the actual v1 -> v2 install
     # migration. The legacy source is read-only; all migration happens on backup.
     unrelated=root/'unrelated-data';unrelated.mkdir(mode=0o700)
@@ -123,14 +185,76 @@ try:
                 assert new_rows==old_rows,t
         assert node(migrated,{'command':'status'})['metadata']==migrated_status['metadata']
         migration={'storage_schema':2,'old_tables_preserved':len(tables),'source_readonly':True}
+    marker[0]=(plan,op)
+    # Interleave A and B on the SAME registered target/root with different ELF
+    # bytes. A must survive B's stage and then retry every upload without replay.
+    d['stage'](plan_dir,plan)
+    variant=root/'shenko-node-B'
+    variant.write_bytes(binary.read_bytes()+b'\nC17 distinct deployment artifact B\n')
+    variant.chmod(0o700)
+    config_b=dict(config,artifact=str(variant))
+    d['dump'](root/'config-B.json',config_b)
+    other_dir=root/'deployment-B'
+    d['prepare'](other_dir,root/'config-B.json')
+    other=json.loads((other_dir/'plan.json').read_text())
+    assert other['artifact_sha256']!=plan['artifact_sha256']
+    assert other['staging_root']!=plan['staging_root']
+    d['stage'](other_dir,other)
+    for candidate in [plan,other]:
+        for chunk,sha in candidate['chunks_sha256'].items():
+            assert hashlib.sha256((Path(candidate['staging_root'])/chunk).read_bytes()).hexdigest()==sha
     # Journey 1: real artifact upload/install -> lost SSH response -> original
     # receipt query -> resume/adopt existing self -> capability/status readback.
     try:d['deploy'](plan_dir,plan)
     except RuntimeError as error:assert 'unknown' in str(error),str(error)
     else:raise AssertionError('response-loss injection did not interrupt install')
-    assert dropped.is_set() and marker[0].exists()
+    assert dropped.is_set() and installation_ready()
+    # Local file removal or unrelated trust edits cannot erase the frozen
+    # operation's outcome. They still prevent a NEW admission under this plan.
+    known_hosts=root/'known_hosts'
+    trust=known_hosts.read_bytes()
+    known_hosts.rename(root/'known_hosts.preserved')
     recovered=d['invoke'](plan_dir,plan,'install',query=True)
     assert recovered['state']=='installed'
+    try:d['invoke'](plan_dir,plan,'new-with-missing-trust',d['action'](['true']))
+    except FileNotFoundError:pass
+    else:raise AssertionError('new admission accepted missing trust')
+    known_hosts.write_bytes(trust+b'unrelated.invalid '+public[0].encode()+b' '+public[1].encode()+b'\n')
+    assert d['invoke'](plan_dir,plan,'install',query=True)==recovered
+    try:d['invoke'](plan_dir,plan,'new-with-changed-trust',d['action'](['true']))
+    except AssertionError as error:assert 'registered host trust changed' in str(error)
+    else:raise AssertionError('new admission accepted changed binding')
+    known_hosts.write_bytes(trust)
+    # An actual remote authorization revocation is NOT a missing local file.
+    auth=root/'authorized_keys';auth.rename(root/'authorized_keys.preserved')
+    auth.write_bytes(b'')
+    try:d['invoke'](plan_dir,plan,'install',query=True)
+    except RuntimeError as error:assert 'unknown' in str(error)
+    else:raise AssertionError('query bypassed remote key revocation')
+    auth.write_bytes((root/'authorized_keys.preserved').read_bytes())
+    assert d['invoke'](plan_dir,plan,'install',query=True)==recovered
+    # Restart only our isolated sshd with a DIFFERENT real host key. CAS trust
+    # must reject it, even though the mutable local known_hosts path is intact.
+    subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(root/'changed_host_key')],check=True)
+    original_config=(root/'sshd_config').read_text()
+    def restart_fixture(text):
+        global server
+        server.terminate();server.wait(timeout=5)
+        (root/'sshd_config').write_text(text)
+        server=subprocess.Popen([str(sshd),'-D','-e','-f',str(root/'sshd_config')],stdout=log,stderr=log,
+            env=dict(os.environ,LD_LIBRARY_PATH=str(libdir)))
+        for _ in range(100):
+            if server.poll() is not None:raise RuntimeError('fixture sshd restart failed')
+            try:
+                with socket.create_connection(('127.0.0.1',server_port),timeout=0.1):return
+            except OSError:time.sleep(0.02)
+        raise RuntimeError('fixture sshd restart timed out')
+    restart_fixture(original_config.replace('HostKey '+str(root/'host_key'),'HostKey '+str(root/'changed_host_key')))
+    try:d['invoke'](plan_dir,plan,'install',query=True)
+    except RuntimeError as error:assert 'unknown' in str(error)
+    else:raise AssertionError('query accepted changed real host key')
+    restart_fixture(original_config)
+    assert d['invoke'](plan_dir,plan,'install',query=True)==recovered
     d['deploy'](plan_dir,plan)
     # A full retry queries every old mutating operation, including join; status
     # is intentionally a new read-only observation.
@@ -143,9 +267,22 @@ try:
     with sqlite3.connect(root/'effects.sqlite3') as effects:
         count=effects.execute('SELECT count(*) FROM attempts WHERE operation_id=?',[op]).fetchone()[0]
         assert count==1
+    # Resume B's install too (not a second subject or a database migration).
+    installed_b=d['invoke'](other_dir,other,'install',d['action'](['python3','-I','-c',other['installer'],
+        other['remote_root'],other['deployment_id'],other['artifact_sha256'],
+        *[other['staging_root']+'/'+n for n in other['parts']]]))
+    assert installed_b['sha256']==other['artifact_sha256']
+    assert hashlib.sha256(Path(installed_b['artifact']).read_bytes()).hexdigest()==other['artifact_sha256']
+    with sqlite3.connect(root/'effects.sqlite3') as effects:
+        for candidate in [plan,other]:
+            for label in ['root','staging-root',*candidate['parts'],'install']:
+                operation=str(uuid.uuid5(uuid.UUID(candidate['deployment_id']),label))
+                assert effects.execute('SELECT count(*) FROM attempts WHERE operation_id=?',[operation]).fetchone()[0]==1
     with sqlite3.connect(remote_root/'data/node.sqlite3') as db:
         assert db.execute('SELECT count(*) FROM commands').fetchone()[0]==1
-    print(json.dumps({'journey':1,'result':'passed','install_operation':op,'attempts':count,'loss':'actual_closed_SSH_stream','identity_adopted':True,'unrelated_db_unchanged':True,'legacy_migration':migration,'service':'one_shot_no_daemon'}),flush=True)
+    print(json.dumps({'journey':1,'result':'passed','install_operation':op,'attempts':count,'loss':'actual_closed_SSH_stream','identity_adopted':True,'unrelated_db_unchanged':True,'legacy_migration':migration,'service':'one_shot_no_daemon',
+        'interleaved_artifacts':2,'query_with_missing_or_unrelated_trust':True,'durable_marker':'decoded_install_and_C07_receipt_plus_artifact_digest',
+        'real_key_revocation_and_changed_host_rejected':True}),flush=True)
     # Journey 2: a durable task leaves a result on old owner; query it, explicitly
     # transfer the pure contract, preserve late facts but fence old settlement,
     # execute on the new owner, accept exactly one terminal outcome after reopen.
@@ -205,10 +342,19 @@ try:
     print(json.dumps({'journey':2,'result':'passed','task_id':task_id,'epochs':[first['epoch'],second['epoch']],
         'stale_owner_fenced_at':'authoritative_result_store','terminal_results':1,'raw_source_events':2,'unassociated_result_retained':True,'invalid_full_receipt_retained':True,'receipt_rows':3,
         'boundary':'pure_no_external_effect_contract; old computation not claimed stopped'}),flush=True)
-    d['dump'](root/'result.json',{'passed':True,'journeys':2,'physical_nodes':False,'smart_node_evidence':False,'manifest':plan['manifest'],
-        'deployment_id':plan['deployment_id'],'install_operation':op,'task_id':task_id,'source_events':exported['events'],'receipts':receipts,'unassociated_receipts':early_export,'legacy_migration':migration,'unrelated_db_unchanged':True})
+    d['dump'](root/'result.json',{'passed':True,'journeys':2,'publication':publication,'physical_nodes':False,'smart_node_evidence':False,'manifest':plan['manifest'],
+        'deployment_id':plan['deployment_id'],'deployment_B':other['deployment_id'],'install_operation':op,'task_id':task_id,'source_events':exported['events'],'receipts':receipts,'unassociated_receipts':early_export,'legacy_migration':migration,'unrelated_db_unchanged':True})
 finally:
     stopping.set();listener.close();server.terminate()
     try:server.wait(timeout=5)
     except subprocess.TimeoutExpired:server.kill();server.wait()
+    proxy.join(timeout=5)
+    for worker in relays:worker.join(timeout=5)
+    assert not proxy.is_alive() and not any(worker.is_alive() for worker in relays)
     log.close()
+    for closed_port in [server_port,proxy_port]:
+        with socket.socket() as probe:
+            probe.settimeout(1)
+            assert probe.connect_ex(('127.0.0.1',closed_port))==111,'owned listener still reachable'
+    (root/'service-stop.json').write_text(json.dumps({'sshd_stopped':server.poll() is not None,
+        'proxy_stopped':not proxy.is_alive(),'refused_ports':[server_port,proxy_port]}))
