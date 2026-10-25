@@ -2745,6 +2745,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shenko-types",
+ "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
  "tracing",

@@ -1,8 +1,19 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-25（PR51 raw session 写入口与 PR53 C20 持久历史已合入；完整 C01/C20 仍开放）**
+**更新时间：2026-10-25（C11 真实 Proto-UI 已合入；C05 恢复整合已验证；贡献者授权已明确确认）**
 
-> **2026-10-25 配额交接（模型额度耗尽，loop 停止）**
+## 当前接续：C05/C11 与社区协作
+
+- 当前已合主线包含 PR #55（有限 native child）、#57（并发公平 broker）、#62（持久历史/窗口）、#64（AGPL 采用）与 #65（真实 Proto-UI，merge `d9a6ebcf64`）。这些是局部交付，不是完整 S1–S5 验收。
+- C05 交付入口是 [PR #63](https://github.com/cyjin-yl/shenko/pull/63)。整合产品候选 `2a82a8e` 保留原 C05 提交，正常合并上述 main；已解决 API 冲突、全部 4 参 bootstrap 调用和无模型 native child 恢复。没有模型时仍服务配置/UI并处理确定性 child，结果留在持久账本；不启动假推理，不用最近输出猜“正在思考”，不伪造本机在线。此候选的 33 项受影响现有测试通过（含 native 子进程重开）；重新构建的真实 binary 两次无模型启动/退出均通过，genesis/head/identity 不变、`committed_step_no=0`、真实 home ready 与 Git memory 可读、C11 资产字节一致。证据为 `doescontainer/shenko-dev-live:/tmp/shenko-c05-final-_omvoejc/result.json` 与两份启动日志。首次观察窗仅 15 秒，而 Store 初始化已耗 14 秒，未算通过；修正为有限 120 秒观察后约 14 秒完成两次启动。最终合入状态见 PR 的交付评论。
+- C11 已取代旧 WIP #58，具体源码/资产与验收边界见 [C11 卡](../tasks/C11.md)。真实 CLI 改名 r1→r2 后，已打开的 Chromium 页面约 580ms 内自动更新、导航次数仍 1、零浏览器错误；排序/退避/timer 收敛本轮仅代码核对。隔离 fixture 不是生产模型证据。
+- 许可采用见 PR #64；`shwgdysjsvg` 已于 2026-10-25 12:20:53 UTC [明确同意贡献者协议](https://github.com/cyjin-yl/shenko/issues/54#issuecomment-6397563508)，主控已回应。协议版本和本人有权贡献范围见 [许可记录](LICENSING.md)；原作者/原 commits/来源 PR 保留。
+- 全仓贡献者 monitor 在 doescontainer 的 `agent-proto-dev` 运行；脚本 `/tmp/shenko-gh-replies.py`，持久水位/事件为 `/workspace/shenko-gh-replies/`。覆盖普通评论、inline、reviews、新 PR/head/state；按端点完整分页成功后才推进水位。每个有限窗口发现他人新事件即返回主控，或 20 分钟到期后续接；不能把脚本存在当成永久在线。
+- 下一条主链是 C20 projection → broker 原生 Text/Image parts → provider 实际图片 wire → 正式 loop。主控已在 [#9 回复接口需求并明确分工](https://github.com/cyjin-yl/shenko/issues/9#issuecomment-6397517441)。不重写朋友的历史/策略模块，不从文字上下文额度推测视觉能力或实际 KV 成本；其余包闭包、steer/stream、真实模型/QQ/多节点长期证据继续开放。
+
+## 历史配额交接（以下为当时状态，已被上方当前接续覆盖）
+
+> **2026-10-25 较早配额交接（当时模型额度耗尽，loop 停止）**
 >
 > 当前 provider 5 小时额度耗尽（HTTP 429），工作流停止；主控已完成本节的提交/推送/PR 保存，供 dot 或其他贡献者接续。不要声称本文件所列局部切片已完成完整 SPEC。
 >

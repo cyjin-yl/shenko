@@ -8,7 +8,7 @@ pub async fn run_committed_dispatcher(
     store: Arc<Store>,
     native: Arc<NativeChildService>,
     agent_id: shenko_types::ids::EntityId,
-    task_result_tx: tokio::sync::mpsc::Sender<InboxEvent>,
+    task_result_tx: Option<tokio::sync::mpsc::Sender<InboxEvent>>,
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -21,6 +21,11 @@ pub async fn run_committed_dispatcher(
                 store.reconcile_subject_publications()?;
                 native.run_once().await?;
 
+                // With no subject model, results stay durable for the later
+                // subject to consume. Do not fill an undrained in-memory inbox.
+                let Some(task_result_tx) = task_result_tx.as_ref() else {
+                    continue;
+                };
                 let ready = store.ready_native_results(agent_id, 64)?;
                 let ready_ids: HashSet<_> = ready.iter().map(|result| result.result_id).collect();
                 delivered.retain(|id| ready_ids.contains(id));
@@ -35,7 +40,10 @@ pub async fn run_committed_dispatcher(
                         created_at: chrono::Utc::now(),
                         source: "native-child".into(),
                     };
-                    task_result_tx.send(event).await?;
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(()),
+                        result = task_result_tx.send(event) => result?,
+                    }
                 }
             }
         }

@@ -92,38 +92,47 @@ async fn main() -> Result<()> {
     let result: Result<()> = async {
     match cli.command {
         Command::Version => {
+            let model = shenko_seed::ModelProfile::from_env();
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
-            println!("Model: claude-opus-5-5");
-            println!(
-                "ANTHROPIC_API_KEY: {}",
-                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                    "set"
-                } else {
-                    "not set (stub mode)"
-                }
-            );
+            println!("Model: {}", model.model.as_deref().unwrap_or("not_connected"));
+            println!("Inference capacity: {:?}", model.capacity);
         }
 
         Command::Check => {
             info!(data_dir=%data_dir.display(), "check");
+            let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+                data_dir: data_dir.clone(),
+                ..Default::default()
+            });
+            bootstrap.validate_target()?;
             tokio::fs::create_dir_all(&data_dir).await?;
-            let db_path = data_dir.join("shenko.db");
-            let cas_dir = data_dir.join("cas");
-            let store = shenko_store::store::Store::open(db_path, cas_dir)?;
+            let store = shenko_store::store::Store::open(
+                data_dir.join("shenko.db"),
+                data_dir.join("cas"),
+            )?;
             println!(
                 "Store: OK (SQLite {}, WAL={}, FTS5={})",
                 store.capabilities.sqlite_version,
                 store.capabilities.wal_mode,
                 store.capabilities.fts5_available,
             );
-            println!(
-                "API key: {}",
-                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                    "present"
-                } else {
-                    "absent — stub mode"
-                }
+            let prepared = bootstrap.prepare(store.ledger.ledger_id())?;
+            println!("Home manifest: {}", prepared.manifest_path.display());
+            println!("Home: {}", serde_json::to_string_pretty(&prepared.manifest)?);
+            let subject = if store.get_existing_agent_id()?.is_some() {
+                shenko_seed::BootstrapSubjectState::ExistingGenesis
+            } else {
+                shenko_seed::BootstrapSubjectState::PendingGenesis
+            };
+            let owner_grant = store.get_bootstrap_owner_grant(store.ledger.ledger_id())?;
+            let view = bootstrap.view(
+                store.ledger.ledger_id(),
+                subject,
+                shenko_seed::ModelProfile::from_env(),
+                owner_grant,
             );
+            println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
+            drop(prepared);
             println!("OK");
         }
 
@@ -195,7 +204,15 @@ async fn main() -> Result<()> {
                 "Shenko starting"
             );
 
-            // 1. Open persistent store
+            let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+                data_dir: data_dir.clone(),
+                agent_name: name.clone(),
+                napcat_ws_url: napcat.clone(),
+            });
+            bootstrap.validate_target()?;
+            let model_profile = shenko_seed::ModelProfile::from_env();
+
+            // 1. Open persistent store and prepare the actual WASI home.
             tokio::fs::create_dir_all(&data_dir).await?;
             let db_path = data_dir.join("shenko.db");
             let cas_dir = data_dir.join("cas");
@@ -207,8 +224,18 @@ async fn main() -> Result<()> {
                 "store ready"
             );
 
-            // 2. Bootstrap genesis if first run — SPEC §44.6
-            let agent_id = bootstrap_genesis(&store, name.as_deref())?;
+            let prepared_home = bootstrap.prepare(store.ledger.ledger_id())?;
+            info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
+
+            // 2. Bootstrap genesis if first run — SPEC §44.6. The genesis
+            // closure references the actual home manifest and guest artifact.
+            let agent_id = bootstrap_genesis(
+                &store,
+                name.as_deref(),
+                &prepared_home.manifest,
+                &model_profile,
+            )?;
+            drop(prepared_home);
             let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
                 revision = identity.revision,
@@ -217,11 +244,7 @@ async fn main() -> Result<()> {
                 "identity ready"
             );
 
-            // 3. Start inference broker
-            let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
-            tokio::spawn(broker.run());
-
-            // 4. Start subject loop — the continuous main agent. SPEC §5.1
+            // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
             // Establish recovery consumers BEFORE ResultRecorded can take fast S1.
@@ -252,7 +275,7 @@ async fn main() -> Result<()> {
             let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
             let dispatch_native = Arc::clone(&native_child);
-            let dispatch_results = subject_inbox.sender();
+            let dispatch_results = model_profile.configured.then(|| subject_inbox.sender());
             let dispatch_stop = consumer_cancel.clone();
             let failure_cancel = cancel.clone();
             let dispatcher_task = tokio::spawn(async move {
@@ -266,6 +289,32 @@ async fn main() -> Result<()> {
                 if result.is_err() { failure_cancel.cancel(); }
                 result
             });
+            if !model_profile.configured {
+                if napcat.is_some() {
+                    tracing::warn!("NapCat not started without a subject model; durable bootstrap remains available");
+                }
+                let owner_grant =
+                    store.get_bootstrap_owner_grant(store.ledger.ledger_id())?;
+                let view = bootstrap.view(
+                    store.ledger.ledger_id(),
+                    shenko_seed::BootstrapSubjectState::ExistingGenesis,
+                    model_profile.clone(),
+                    owner_grant,
+                );
+                println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
+                let runtime_result =
+                    run_deterministic_ui(port, store, data_dir, model_profile, cancel).await;
+                consumer_cancel.cancel();
+                match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
+                    Ok(result) => result??,
+                    Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
+                }
+                return runtime_result;
+            }
+
+            // Start inference only after the model-independent recovery services.
+            let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            tokio::spawn(broker.run());
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
@@ -502,16 +551,13 @@ async fn main() -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
-                .with_data_dir(data_dir.clone());
+                .with_data_dir(data_dir.clone())
+                .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject loop: running (continuous thought)");
             println!(
-                "  Inference: {}",
-                if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                    "claude-opus-5-5"
-                } else {
-                    "stub (no ANTHROPIC_API_KEY)"
-                }
+                "  Inference: {} (configured; probe/capability evidence separate)",
+                model_profile.model.as_deref().unwrap_or("not_connected")
             );
 
             // Supervise the actual subject task, including panics. Stop claiming
@@ -576,6 +622,37 @@ async fn main() -> Result<()> {
     result
 }
 
+/// Deterministic no-model service: keep the existing UI, configuration and
+/// health endpoints available without constructing a broker or a fake thought
+/// loop. No inbox/outbox is wired, so browsers cannot mistake it for thinking.
+async fn run_deterministic_ui(
+    port: u16,
+    store: Arc<shenko_store::store::Store>,
+    data_dir: PathBuf,
+    model_profile: shenko_seed::ModelProfile,
+    failure: tokio_util::sync::CancellationToken,
+) -> Result<()> {
+    let ui = shenko_ui::server::UiServer::new(port)
+        .with_store(store)
+        .with_data_dir(data_dir)
+        .with_inference_status(model_profile.model, model_profile.configured);
+    println!("Shenko UI: http://0.0.0.0:{port}");
+    println!("  Subject loop: not started (model_binding needed)");
+    println!("  Inference: not_connected; capacity blocked");
+    let result = tokio::select! {
+        result = ui.run() => result,
+        _ = failure.cancelled() => Err(anyhow::anyhow!("deterministic recovery stopped; reopen for recovery")),
+        result = tokio::signal::ctrl_c() => {
+            result?;
+            info!("shutdown signal; deterministic bootstrap stopped without model effects");
+            Ok(())
+        }
+    };
+    result?;
+    info!("Shenko stopped");
+    Ok(())
+}
+
 fn napcat_inbox_event(
     event: shenko_channel_napcat::client::OneBotEvent,
 ) -> Result<shenko_subject::inbox::InboxEvent> {
@@ -608,33 +685,92 @@ fn adopt_identity(
     Ok(current)
 }
 
-/// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6
+/// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6.
+/// New geneses bind the real prepared home. Existing geneses are immutable and
+/// are never replaced merely to upgrade their manifest representation.
 fn bootstrap_genesis(
     store: &shenko_store::store::Store,
     name: Option<&str>,
+    home: &shenko_seed::HomeManifest,
+    model_profile: &shenko_seed::ModelProfile,
 ) -> Result<shenko_types::ids::EntityId> {
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
     use shenko_types::object::ObjectRef;
     use shenko_types::subject::*;
 
-    // Check if genesis exists already
-    let existing_agent_id = store.get_existing_agent_id()?;
+    if let Some(agent_id) = store.get_existing_agent_id()? {
+        let genesis = store
+            .get_subject_genesis(agent_id)?
+            .ok_or_else(|| anyhow::anyhow!("existing subject has no genesis"))?;
+        let read_json = |object: &ObjectRef, label: &str| -> Result<serde_json::Value> {
+            let path = store.cas.verified_object_path(object)?;
+            let bytes = std::fs::read(&path)?;
+            serde_json::from_slice(&bytes).map_err(|error| {
+                anyhow::anyhow!("SEED_CLOSURE_INCOMPLETE: decode {label}: {error}")
+            })
+        };
+        let seed = read_json(&genesis.seed_manifest_ref, "seed manifest")?;
+        read_json(&genesis.initial_profile_ref, "initial model profile")?;
+        read_json(&genesis.bootstrap_event_ref, "bootstrap event")?;
+        if let Some(value) = seed.get("home_manifest_ref") {
+            let nested: ObjectRef = serde_json::from_value(value.clone()).map_err(|error| {
+                anyhow::anyhow!("SEED_CLOSURE_INCOMPLETE: seed home reference: {error}")
+            })?;
+            anyhow::ensure!(
+                nested.digest == genesis.home_manifest_ref.digest,
+                "SEED_CLOSURE_INCOMPLETE: seed/genesis home references differ; data preserved"
+            );
+        }
+        if let Some(value) = seed.get("home_probe_ref") {
+            let probe: ObjectRef = serde_json::from_value(value.clone()).map_err(|error| {
+                anyhow::anyhow!("SEED_CLOSURE_INCOMPLETE: seed guest reference: {error}")
+            })?;
+            store.cas.verified_object_path(&probe)?;
+        }
 
-    if let Some(agent_id) = existing_agent_id {
+        let home_path = store.cas.verified_object_path(&genesis.home_manifest_ref)?;
+        let bytes = std::fs::read(home_path)?;
+        match serde_json::from_slice::<shenko_seed::HomeManifest>(&bytes) {
+            Ok(stored) => {
+                anyhow::ensure!(
+                    stored == home.clone(),
+                    "DATA_PATH_CONFLICT: genesis and current home manifests differ; data preserved"
+                );
+            }
+            Err(error) => {
+                // Before C05 the genesis contained only a descriptive placeholder
+                // and no production runtime used it. Recognize exactly that shape;
+                // arbitrary corrupt closures still stop with their data intact.
+                let legacy: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| {
+                    anyhow::anyhow!("SEED_CLOSURE_INCOMPLETE: decode genesis home: {error}")
+                })?;
+                let legacy_placeholder = legacy.get("wasm").and_then(|v| v.as_bool()) == Some(true)
+                    && legacy.get("home").and_then(|v| v.as_str()).is_some()
+                    && legacy
+                        .get("mounts")
+                        .and_then(|v| v.as_array())
+                        .is_some_and(|mounts| mounts.is_empty());
+                anyhow::ensure!(
+                    legacy_placeholder,
+                    "SEED_CLOSURE_INCOMPLETE: unrecognized genesis home manifest; data preserved"
+                );
+                tracing::warn!(
+                    agent_id=%agent_id,
+                    "legacy genesis home placeholder retained; current prepared home is not a new subject"
+                );
+            }
+        }
         info!(agent_id=%agent_id, "existing genesis found — resuming");
         return Ok(agent_id);
     }
 
-    // First run — create genesis. SPEC §44.6
     let agent_id = EntityId::new();
     let bootstrap_id = EntityId::new();
     let launch_id = EntityId::new();
     let genesis_id = EntityId::new();
     let ledger_id = store.ledger.ledger_id();
 
-    // Seal the real seed artifacts into the CAS so the genesis object closure is
-    // materialized and re-readable. SPEC §44.6.
     let seal_json = |value: &serde_json::Value| -> Result<ObjectRef> {
         let bytes = serde_json::to_vec(value)?;
         Ok(store
@@ -643,29 +779,40 @@ fn bootstrap_genesis(
             .object)
     };
 
+    // The home object and actual WASI probe are sealed before a manifest may
+    // reference them. This is a bootstrap-home closure, not a claim that every
+    // product plugin or VM live state has been captured.
+    let home_manifest = seal_json(&serde_json::to_value(home)?)?;
+    let home_probe = store
+        .cas
+        .seal_object(
+            shenko_seed::HOME_PROBE_WAT.as_bytes(),
+            "application/wat",
+            "seed",
+            "home_probe",
+            1,
+        )?
+        .object;
     let seed_manifest = seal_json(&serde_json::json!({
         "seed_version": env!("CARGO_PKG_VERSION"),
         "platform": std::env::consts::OS,
         "created": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         "spec_version": "0.6.2",
+        "runtime": home.runtime,
+        "runtime_generation": home.runtime_generation,
+        "home_manifest_ref": home_manifest.clone(),
+        "home_probe_ref": home_probe,
+        "closure_level": "bootstrap_home_only",
+        "complete_product_seed": false,
     }))?;
-    let initial_profile = seal_json(&serde_json::json!({
-        "model": "claude-opus-5-5",
-        "max_tokens": 4096,
-        "source": "default",
-    }))?;
-    let home_dir = std::env::var("SHENKO_HOME")
-        .map(|h| format!("{h}/home"))
-        .unwrap_or_else(|_| "$SHENKO_HOME/home".to_string());
-    let home_manifest = seal_json(&serde_json::json!({
-        "home": home_dir,
-        "wasm": true,
-        "mounts": [],
-    }))?;
+    let initial_profile = seal_json(&serde_json::to_value(model_profile)?)?;
     let bootstrap_event = seal_json(&serde_json::json!({
         "event": "bootstrap",
         "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         "kind": "genesis",
+        "installation_id": home.installation_id,
+        "seed_manifest_ref": seed_manifest.clone(),
+        "home_manifest_ref": home_manifest.clone(),
     }))?;
 
     let genesis = SubjectGenesis {
@@ -788,8 +935,21 @@ mod recovery_integration_tests {
         assert_eq!(inbox_event.event_id, received.spool_id);
 
         let store =
-            shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap();
-        let agent = bootstrap_genesis(&store, None).unwrap();
+            shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap();
+        let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(),
+            ..Default::default()
+        })
+        .prepare(store.ledger.ledger_id())
+        .unwrap();
+        let model_profile = shenko_seed::ModelProfile::from_env();
+        let agent = bootstrap_genesis(
+            &store,
+            None,
+            &prepared_home.manifest,
+            &model_profile,
+        )
+        .unwrap();
         let (head, mut step) = store.load_subject(agent).unwrap();
         assert!(
             store
@@ -895,9 +1055,12 @@ mod recovery_integration_tests {
         drop(client);
 
         let store = Arc::new(
-            shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap(),
+            shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap(),
         );
-        assert_eq!(bootstrap_genesis(&store, None).unwrap(), agent);
+        assert_eq!(
+            bootstrap_genesis(&store, None, &prepared_home.manifest, &model_profile).unwrap(),
+            agent
+        );
         let restored = shenko_subject::loop_runner::SubjectLoopState::new(
             agent,
             Arc::new(shenko_subject::inbox::Inbox::new(8)),
@@ -925,7 +1088,7 @@ mod recovery_integration_tests {
     }
 
     fn open_native_fixture(dir: &std::path::Path) -> shenko_store::store::Store {
-        shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap()
+        shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap()
     }
 
     /// Deterministic model-output fixture admitted through the real parser and S1
@@ -1063,8 +1226,22 @@ mod recovery_integration_tests {
             .context()
             .try_service::<shenko_subject::NativeChildService>()?;
         native.recover()?;
-        native.run_once().await?;
+        let agent = store.get_existing_agent_id()?.expect("fixture identity exists");
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let dispatcher = tokio::spawn(shenko_subject::dispatch::run_committed_dispatcher(
+            store.clone(), native, agent, None, cancel.clone(),
+        ));
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while store.ready_native_results(agent, 1)?.is_empty() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            anyhow::Ok(())
+        }).await;
+        cancel.cancel();
+        let dispatched = dispatcher.await;
         supervisor.stop().await?;
+        observed??;
+        dispatched??;
         Ok(())
     }
 
@@ -1083,7 +1260,14 @@ mod recovery_integration_tests {
         let dir = std::env::temp_dir().join(format!("shenko-native-reopen-{}", EntityId::new()));
         std::fs::create_dir(&dir).unwrap();
         let store = open_native_fixture(&dir);
-        let agent = bootstrap_genesis(&store, None).unwrap();
+        let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(),
+            ..Default::default()
+        })
+        .prepare(store.ledger.ledger_id())
+        .unwrap();
+        let model_profile = shenko_seed::ModelProfile::from_env();
+        let agent = bootstrap_genesis(&store, None, &prepared_home.manifest, &model_profile).unwrap();
         store.start_subject_dispatcher().unwrap();
         let printf_task = EntityId::new();
         let missing_task = EntityId::new();
@@ -1116,7 +1300,10 @@ mod recovery_integration_tests {
         assert!(status.success(), "native helper process failed: {status}");
 
         let store = Arc::new(open_native_fixture(&dir));
-        assert_eq!(bootstrap_genesis(&store, None).unwrap(), agent);
+        assert_eq!(
+            bootstrap_genesis(&store, None, &prepared_home.manifest, &model_profile).unwrap(),
+            agent
+        );
         store.start_subject_dispatcher().unwrap();
         let supervisor = shenko_kernel::Supervisor::new(RuntimeGeneration::default());
         let _child = supervisor
@@ -1182,7 +1369,7 @@ mod recovery_integration_tests {
             store.clone(),
             native.clone(),
             agent,
-            inbox.sender(),
+            Some(inbox.sender()),
             cancel.clone(),
         ));
         let events = inbox.recv_batch(1, 2_000).await;
@@ -1355,7 +1542,18 @@ mod recovery_integration_tests {
         let dir = std::env::temp_dir().join(format!("shenko-native-fencing-{}", EntityId::new()));
         std::fs::create_dir(&dir).unwrap();
         let old_store = Arc::new(open_native_fixture(&dir));
-        bootstrap_genesis(&old_store, None).unwrap();
+        let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(),
+            ..Default::default()
+        })
+        .prepare(old_store.ledger.ledger_id())
+        .unwrap();
+        bootstrap_genesis(
+            &old_store,
+            None,
+            &prepared_home.manifest,
+            &shenko_seed::ModelProfile::from_env(),
+        ).unwrap();
         old_store.start_subject_dispatcher().unwrap();
         let cancelled_task = EntityId::new();
         let unknown_task = EntityId::new();

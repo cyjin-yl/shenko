@@ -10,6 +10,7 @@ use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedE
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::ids::{BranchId, RecordRevision};
+use shenko_types::object::ObjectRef;
 use shenko_types::store::{StoreCapabilities, WriteBatch};
 use shenko_types::subject::{
     SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
@@ -710,6 +711,69 @@ impl Store {
         step_id: EntityId,
     ) -> Result<Option<SubjectStep>, ShenkoError> {
         read_step(&self.ledger.conn.lock(), branch_id, step_id)
+    }
+
+    /// Read the immutable genesis so bootstrap can prove that the reopened
+    /// home manifest is the same object bound to this subject.
+    pub fn get_subject_genesis(
+        &self,
+        agent_id: EntityId,
+    ) -> Result<Option<SubjectGenesis>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM subject_genesis WHERE subject_id = ?1",
+                [agent_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        data.map(|json| {
+            serde_json::from_str(&json)
+                .map(Some)
+                .map_err(|error| ShenkoError::storage(format!("bad subject genesis: {error}")))
+        })
+        .transpose()
+        .map(|value| value.flatten())
+    }
+
+    /// Read only an explicit persisted owner/provisioning grant for this
+    /// installation. A genesis or an HTTP visit is not administrative proof.
+    pub fn get_bootstrap_owner_grant(
+        &self,
+        installation_id: EntityId,
+    ) -> Result<Option<ObjectRef>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM bootstrap_records WHERE installation_id = ?1                  ORDER BY updated_commit_seq DESC, created_at DESC, bootstrap_id DESC LIMIT 1",
+                [installation_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let Some(data) = data else {
+            return Ok(None);
+        };
+        let record: serde_json::Value = serde_json::from_str(&data)
+            .map_err(|error| ShenkoError::storage(format!("bad bootstrap record: {error}")))?;
+        let stored_installation = record
+            .get("installation_id")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| ShenkoError::storage("bootstrap record has no installation_id"))?
+            .parse::<EntityId>()
+            .map_err(|_| ShenkoError::storage("invalid bootstrap installation_id"))?;
+        if stored_installation != installation_id {
+            return Err(ShenkoError::conflict(
+                "bootstrap record installation binding mismatch",
+            ));
+        }
+        match record.get("owner_grant_ref") {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(value) => serde_json::from_value(value.clone())
+                .map(Some)
+                .map_err(|error| ShenkoError::storage(format!("bad owner grant ref: {error}"))),
+        }
     }
 
     /// 数据库错误不能冒充首次运行，否则会重复出生。

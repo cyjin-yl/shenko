@@ -13,17 +13,43 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
+    Json, Router,
     extract::{Query, State},
     routing::get,
-    Json, Router,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use shenko_store::store::Store;
 
 use crate::playground::PlaygroundState;
 use crate::ws::LiveStatus;
+
+/// Actual provider selection supplied by the production bootstrap. Configured
+/// means a provider can be constructed, not that a probe or capacity succeeded.
+#[derive(Clone, Debug)]
+pub struct InferenceStatus {
+    pub model: Option<String>,
+    pub configured: bool,
+}
+
+impl InferenceStatus {
+    pub fn new(model: Option<String>, configured: bool) -> Self {
+        Self { model, configured }
+    }
+
+    fn model_label(&self) -> &str {
+        self.model.as_deref().unwrap_or("not_connected")
+    }
+
+    fn capacity(&self) -> &'static str {
+        if self.configured {
+            "unprobed"
+        } else {
+            "blocked"
+        }
+    }
+}
 
 /// Shared state for the `/api/*` routes. Every field is optional so the router
 /// stays usable in tests and in early deployments with no store attached.
@@ -38,6 +64,9 @@ pub struct ApiState {
     pub playground: Option<PlaygroundState>,
     /// Real observations about the subject loop and WebSocket clients.
     pub live: Option<Arc<LiveStatus>>,
+    /// Provider binding from the same bootstrap that decided whether to start
+    /// the subject loop. None means no runtime binding was supplied.
+    pub inference: Option<InferenceStatus>,
 }
 
 impl ApiState {
@@ -64,6 +93,11 @@ impl ApiState {
     /// Share the live subject/client facts tracked by the WS layer.
     pub fn with_live(mut self, live: Arc<LiveStatus>) -> Self {
         self.live = Some(live);
+        self
+    }
+
+    pub fn with_inference(mut self, inference: InferenceStatus) -> Self {
+        self.inference = Some(inference);
         self
     }
 }
@@ -119,35 +153,48 @@ async fn memory_handler() -> Json<Value> {
 }
 
 /// Resolved configuration shared by `/api/config` and `/api/self`.
-/// Returns `(model, data_dir, api_key_configured, generation)`.
-fn config_values(state: &ApiState) -> (String, Option<String>, bool, String) {
+struct ConfigValues {
+    model: String,
+    data_dir: Option<String>,
+    api_key_configured: bool,
+    generation: String,
+    model_configured: Option<bool>,
+    inference_capacity: &'static str,
+}
+
+fn config_values(state: &ApiState) -> ConfigValues {
     // Only presence is reported; the key value is never read into a response.
     let api_key_configured = std::env::var("ANTHROPIC_API_KEY").is_ok();
     // Only an explicit binding is evidence. An API key's presence does not
     // prove a model, provider, online state, or effective sampling profile.
-    let model = std::env::var("SHENKO_MODEL").unwrap_or_else(|_| "unknown".to_string());
+    let inference = state.inference.as_ref();
     let data_dir = state
         .data_dir
         .clone()
         .or_else(|| std::env::var_os("SHENKO_DATA_DIR").map(PathBuf::from))
         .map(|p| p.display().to_string());
-    // RuntimeGeneration is a label whose documented default is "seed"
-    // (shenko-types::ids::RuntimeGeneration::default).
-    let generation =
-        std::env::var("SHENKO_GENERATION").unwrap_or_else(|_| "unknown".to_string());
-    (model, data_dir, api_key_configured, generation)
+    let generation = std::env::var("SHENKO_GENERATION").unwrap_or_else(|_| "unknown".to_string());
+    ConfigValues {
+        model: inference.map(InferenceStatus::model_label).unwrap_or("unknown").into(),
+        data_dir,
+        api_key_configured,
+        generation,
+        model_configured: inference.map(|binding| binding.configured),
+        inference_capacity: inference.map(InferenceStatus::capacity).unwrap_or("unknown"),
+    }
 }
 
-/// `GET /api/config` → `{ model, data_dir, generation, api_key_configured }`.
-/// Secrets are reduced to a boolean; the key itself is never echoed.
+/// `GET /api/config` reports the actual binding and distinguishes blocked from
+/// configured-but-unprobed capacity. Secrets are reduced to a boolean.
 async fn config_handler(State(state): State<ApiState>) -> Json<Value> {
-    let (model, data_dir, api_key_configured, generation) = config_values(&state);
-
+    let values = config_values(&state);
     Json(json!({
-        "model": model,
-        "data_dir": data_dir,
-        "generation": generation,
-        "api_key_configured": api_key_configured,
+        "model": values.model,
+        "data_dir": values.data_dir,
+        "generation": values.generation,
+        "api_key_configured": values.api_key_configured,
+        "model_configured": values.model_configured,
+        "inference_capacity": values.inference_capacity,
     }))
 }
 
@@ -165,10 +212,9 @@ async fn config_handler(State(state): State<ApiState>) -> Json<Value> {
 /// device this node actually knows about; scheduled/interval activities do not
 /// exist yet, so `activities` is empty.
 async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
-    let (model, data_dir, _api_key_configured, _generation) = config_values(&state);
-
+    let values = config_values(&state);
     // Recent output is not evidence of current thinking or idleness.
-    let status = "unknown";
+    let status = if values.model_configured == Some(false) { "blocked" } else { "unknown" };
     let connected_clients = state.live.as_ref().map(|live| live.connections());
     let step = state.live.as_ref().and_then(|live| live.last_step());
     let last_outbox_observed_at = state
@@ -217,8 +263,10 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         })),
         "connected_clients": connected_clients,
         "step": step,
-        "model": model,
-        "data_dir": data_dir,
+        "model": values.model,
+        "model_configured": values.model_configured,
+        "inference_capacity": values.inference_capacity,
+        "data_dir": values.data_dir,
         // Device discovery is not wired. The UI must not turn loopback HTTP
         // reachability into a fabricated green device presence signal.
         "devices": [],
