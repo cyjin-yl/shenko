@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
-use crate::history::{StorageError, HistorySource, ItemRef};
+use crate::history::{HistoryItem, HistorySource, ItemRef, StorageError};
 use crate::policy::{CostReport, Derivative, PreparedWindow, WindowBase, WindowEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,5 +286,44 @@ impl WindowLedger {
                 Err(CommitError::ModelGenerationChanged { prepared: window.model_generation, current })
             }
         }
+    }
+}
+
+/// One model-visible element of a window, provider-neutral. Mapping these to
+/// a provider's message/part wire format (roles, tool messages, image parts)
+/// belongs to the inference binding (§47), not to the policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Projected {
+    /// A raw event, with its kind and ledger status exactly as recorded.
+    Event(HistoryItem),
+    /// Window-produced text (pointer notes, derived text), never raw truth.
+    Note { from: u64, to: u64, text: String },
+    /// A rendered frame; a lossy derivative of the given raw range.
+    Frame { from: u64, to: u64, media_type: String, bytes: Vec<u8> },
+}
+
+impl CommittedWindow {
+    /// Resolve the materialized window into what the model actually sees.
+    /// A raw event or frame that cannot be resolved fails the projection:
+    /// a context silently missing part of the record is not a valid input.
+    pub fn project(&self, history: &dyn HistorySource) -> Result<Vec<Projected>, StorageError> {
+        self.materialize(history)?
+            .into_iter()
+            .map(|entry| match entry {
+                WindowEntry::Verbatim { at, .. } => history
+                    .read_event(at.event_id)?
+                    .filter(|item| item.at == at)
+                    .map(Projected::Event)
+                    .ok_or_else(|| StorageError(format!("raw event {} at seq {} is missing", at.event_id, at.seq))),
+                WindowEntry::Pointer { from, to, note: text, .. } | WindowEntry::Text { from, to, text, .. } => {
+                    Ok(Projected::Note { from, to, text })
+                }
+                WindowEntry::Image { from, to, derivative, .. } => self
+                    .derivatives
+                    .get(derivative)
+                    .map(|d| Projected::Frame { from, to, media_type: d.media_type.clone(), bytes: d.bytes.clone() })
+                    .ok_or_else(|| StorageError(format!("window {} lacks derivative {derivative}", self.id))),
+            })
+            .collect()
     }
 }

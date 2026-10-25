@@ -5,12 +5,16 @@
 //!
 //! Mapping convention until the session event writer (#6) fixes a payload:
 //! `event_type` is one of system / user / assistant / assistant_cancelled /
-//! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?}`.
-//! Calls and results stay Unknown until the operations/attempts association
-//! lands; a payload status is not success evidence. A call or result without
-//! `call_id` cannot be paired and is kept as [`ItemKind::Other`]; any other
-//! event type is kept as Other too. Non-JSON `data` becomes the text. Nothing
-//! is dropped.
+//! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?,
+//! operation_id?, status?, v?}` with `status` in [`CallStatus`]'s serde form;
+//! `v` above [`PAYLOAD_VERSION`] keeps the raw data as Other. A call or result
+//! without `status` is Unknown, never success; one without `call_id` cannot be
+//! paired and is kept as [`ItemKind::Other`]; any other event type is kept as
+//! Other too. Non-JSON `data` becomes the text. Nothing is dropped.
+//! When `operation_id` is present the execution ledger is authoritative:
+//! the call's status comes from that OperationRecord, overriding `status`.
+//! A referenced operation that is missing, unparsable or unreadable as a
+//! record reads as Unknown, never as the event's own claim.
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -25,12 +29,19 @@ use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
 #[derive(Default, Deserialize)]
 struct Payload {
+    /// Payload schema version; absent means the unversioned v1 shape.
+    v: Option<u32>,
     #[serde(default)]
     text: String,
     call_id: Option<String>,
     tool: Option<String>,
     args_ref: Option<String>,
+    operation_id: Option<String>,
+    status: Option<CallStatus>,
 }
+
+/// Highest session event payload version this reader interprets.
+pub const PAYLOAD_VERSION: u32 = 1;
 
 /// Tokenizer of the currently bound model.
 pub type TokenCounter = Arc<dyn Fn(&str) -> u32 + Send + Sync>;
@@ -51,6 +62,28 @@ impl StoreHistory {
             .map_err(|_| StorageError(format!("event {} has negative seq", event.event_id)))?;
         let payload = serde_json::from_str::<Payload>(&event.data)
             .unwrap_or_else(|_| Payload { text: event.data.clone(), ..Payload::default() });
+        // A newer payload shape is not guessed at with this reader: keep the
+        // raw data verbatim under a versioned Other kind.
+        if let Some(v) = payload.v.filter(|v| *v > PAYLOAD_VERSION) {
+            return Ok(HistoryItem {
+                at: ItemRef { seq, event_id: event.event_id },
+                kind: ItemKind::Other { event_type: format!("{}@v{v}", event.event_type) },
+                tokens: (self.count)(&event.data),
+                text: event.data,
+            });
+        }
+        let status = match payload.operation_id.as_deref() {
+            None => CallStatus::Unknown,
+            Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {
+                Some(Ok(Some(op))) => CallStatus::from_operation(
+                    op.state,
+                    op.outcome,
+                    op.outcome_conflict,
+                    op.effect_status,
+                ),
+                _ => CallStatus::Unknown,
+            },
+        };
         let kind = match (event.event_type.as_str(), payload.call_id) {
             ("system", _) => ItemKind::System,
             ("user", _) => ItemKind::User,
@@ -60,11 +93,9 @@ impl StoreHistory {
                 call_id,
                 tool: payload.tool.unwrap_or_default(),
                 args_ref: payload.args_ref.unwrap_or_default(),
-                status: CallStatus::Unknown,
+                status,
             },
-            ("tool_result", Some(call_id)) => {
-                ItemKind::ToolResult { call_id, status: CallStatus::Unknown }
-            }
+            ("tool_result", Some(call_id)) => ItemKind::ToolResult { call_id, status },
             (other, _) => ItemKind::Other { event_type: other.to_owned() },
         };
         let tokens = (self.count)(&payload.text);
