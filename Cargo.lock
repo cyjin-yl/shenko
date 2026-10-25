@@ -2597,8 +2597,12 @@ name = "shenko-compact-budget"
 version = "0.1.0"
 dependencies = [
  "cordis-core",
+ "rusqlite",
+ "serde_json",
  "shenko-context-policy",
  "shenko-kernel",
+ "shenko-store",
+ "shenko-types",
  "tokio",
  "tokio-util",
 ]
@@ -2612,6 +2616,8 @@ dependencies = [
  "shenko-compact-budget",
  "shenko-context-policy",
  "shenko-kernel",
+ "shenko-store",
+ "shenko-types",
  "tokio",
  "tokio-util",
  "unifont",
@@ -2626,6 +2632,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
 ]
