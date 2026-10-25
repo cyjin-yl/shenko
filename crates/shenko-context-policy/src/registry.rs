@@ -10,7 +10,7 @@ use cordis_core::{Context, Plugin, Service};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use crate::history::{HistoryItem, HistorySource};
+use crate::history::{StorageError, HistoryItem, HistorySource};
 use crate::policy::{
     Availability, ContextInput, ContextPolicy, ModelCaps, PolicyError, PolicyManifest,
     PreparedWindow, WindowBase, WindowEntry,
@@ -38,9 +38,21 @@ pub struct Attempt {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
-#[error("no installed context policy produced a usable window: {attempts:?}")]
-pub struct NoUsablePolicy {
-    pub attempts: Vec<Attempt>,
+pub enum PrepareError {
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error("no installed context policy produced a usable window: {attempts:?}")]
+    NoUsablePolicy { attempts: Vec<Attempt> },
+}
+
+impl PrepareError {
+    /// Strategy outcomes, empty when history could not be read at all.
+    pub fn attempts(&self) -> &[Attempt] {
+        match self {
+            Self::Storage(_) => &[],
+            Self::NoUsablePolicy { attempts } => attempts,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -54,8 +66,14 @@ impl Service for PolicyRegistry {
 }
 
 impl PolicyRegistry {
+    /// Registry over an in-process window log.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Registry whose committed windows live in `ledger`'s log.
+    pub fn with_ledger(ledger: WindowLedger) -> Self {
+        Self { state: Mutex::default(), ledger }
     }
 
     pub fn ledger(&self) -> &WindowLedger {
@@ -115,26 +133,32 @@ impl PolicyRegistry {
         out
     }
 
-    fn base(&self, items: &[HistoryItem], epoch: u64) -> WindowBase {
-        WindowBase {
-            source_window: self.ledger.current().id,
+    fn base(&self, items: &[HistoryItem], epoch: u64) -> Result<WindowBase, StorageError> {
+        Ok(WindowBase {
+            source_window: self.ledger.current()?.id,
             leaf_seq: items.last().map_or(0, |i| i.at.seq),
-            model_generation: self.ledger.model_generation(),
+            model_generation: self.ledger.model_generation()?,
             policy_epoch: epoch,
-        }
+        })
     }
 
     /// Whether the first usable strategy wants a new window now.
-    pub fn should_compact(&self, history: &dyn HistorySource, caps: &ModelCaps, used_tokens: u32) -> bool {
-        let items = raw_items(history);
-        self.candidates()
+    pub fn should_compact(
+        &self,
+        history: &dyn HistorySource,
+        caps: &ModelCaps,
+        used_tokens: u32,
+    ) -> Result<bool, StorageError> {
+        let items = raw_items(history)?;
+        let Some((policy, _, epoch)) = self
+            .candidates()
             .into_iter()
             .find(|(p, _, _)| !matches!(p.availability(caps), Availability::Unavailable(_)))
-            .is_some_and(|(policy, _, epoch)| {
-                let input =
-                    ContextInput { base: self.base(&items, epoch), items: &items, caps, used_tokens };
-                policy.should_compact(&input)
-            })
+        else {
+            return Ok(false);
+        };
+        let input = ContextInput { base: self.base(&items, epoch)?, items: &items, caps, used_tokens };
+        Ok(policy.should_compact(&input))
     }
 
     /// Prepare with the preferred usable strategy, falling back on unavailable,
@@ -152,11 +176,11 @@ impl PolicyRegistry {
         history: &dyn HistorySource,
         caps: &ModelCaps,
         used_tokens: u32,
-    ) -> Result<(PreparedWindow, Vec<Attempt>), NoUsablePolicy> {
-        let items = raw_items(history);
+    ) -> Result<(PreparedWindow, Vec<Attempt>), PrepareError> {
+        let items = raw_items(history)?;
         let items = &items[..];
         let current: u32 =
-            self.ledger.current().materialize(history).iter().map(WindowEntry::tokens).sum();
+            self.ledger.current()?.materialize(history)?.iter().map(WindowEntry::tokens).sum();
         let ceiling = current - (current as f32 * MIN_GAIN_RATIO) as u32;
         let mut attempts = Vec::new();
         for (policy, manifest, epoch) in self.candidates() {
@@ -167,7 +191,7 @@ impl PolicyRegistry {
                 });
                 continue;
             }
-            let input = ContextInput { base: self.base(items, epoch), items, caps, used_tokens };
+            let input = ContextInput { base: self.base(items, epoch)?, items, caps, used_tokens };
             let result = policy.prepare(&input).and_then(|window| {
                 let limit = if window.derivatives.is_empty() {
                     caps.max_context
@@ -190,7 +214,7 @@ impl PolicyRegistry {
                 Err(error) => attempts.push(Attempt { policy: manifest.id, outcome: Err(error) }),
             }
         }
-        Err(NoUsablePolicy { attempts })
+        Err(PrepareError::NoUsablePolicy { attempts })
     }
 
     /// Commit only if the preparing installation is still current, then let
@@ -219,8 +243,11 @@ impl PolicyRegistry {
 /// Smallest share of the current window a new window must save.
 pub const MIN_GAIN_RATIO: f32 = 0.05;
 
-fn raw_items(history: &dyn HistorySource) -> Vec<HistoryItem> {
-    history.leaf_seq().map_or_else(Vec::new, |leaf| history.read_range(0, leaf))
+fn raw_items(history: &dyn HistorySource) -> Result<Vec<HistoryItem>, StorageError> {
+    match history.leaf_seq()? {
+        Some(leaf) => history.read_range(0, leaf),
+        None => Ok(Vec::new()),
+    }
 }
 
 /// Install `policy` into the registry for the lifetime of this Fiber
