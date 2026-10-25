@@ -8,6 +8,7 @@ use std::ops::Range;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
+use shenko_types::operation::{EffectStatus, OperationOutcome, OperationState};
 
 /// Stable address of one committed raw event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -29,6 +30,36 @@ pub enum CallStatus {
 impl CallStatus {
     pub fn is_resolved(self) -> bool {
         matches!(self, Self::Executed { .. } | Self::Cancelled)
+    }
+
+    /// Status as the execution ledger records it (SPEC §41.4 X03), which
+    /// overrides whatever a session event claims. Only a resolved operation
+    /// without contradictory evidence is Executed or Cancelled; an operation
+    /// being reconciled, interrupted, resolved without outcome, or failed with
+    /// effects of unknown extent stays Unknown so it is never shown as settled.
+    pub fn from_operation(
+        state: OperationState,
+        outcome: Option<OperationOutcome>,
+        outcome_conflict: bool,
+        effect: EffectStatus,
+    ) -> Self {
+        match (state, outcome) {
+            (OperationState::Prepared | OperationState::InFlight, _) => Self::Pending,
+            (OperationState::Reconciling, _) => Self::Unknown,
+            _ if outcome_conflict => Self::Unknown,
+            (OperationState::Resolved, Some(OperationOutcome::Succeeded)) => Self::Executed { ok: true },
+            (OperationState::Resolved, Some(OperationOutcome::Failed))
+                if effect != EffectStatus::Unknown =>
+            {
+                Self::Executed { ok: false }
+            }
+            (OperationState::Resolved, Some(OperationOutcome::Cancelled))
+                if effect == EffectStatus::None =>
+            {
+                Self::Cancelled
+            }
+            (OperationState::Resolved, _) => Self::Unknown,
+        }
     }
 }
 
@@ -171,4 +202,28 @@ pub fn unit_is_unfinished(items: &[HistoryItem], unresolved: &HashSet<String>) -
         }
         _ => false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ledger_status_never_reads_as_settled_while_uncertain() {
+        use EffectStatus as E;
+        use OperationOutcome as O;
+        use OperationState as S;
+        let status = |state, outcome, conflict, effect| CallStatus::from_operation(state, outcome, conflict, effect);
+        assert_eq!(status(S::InFlight, None, false, E::Unknown), CallStatus::Pending);
+        assert_eq!(status(S::Reconciling, Some(O::Succeeded), false, E::Complete), CallStatus::Unknown);
+        assert_eq!(status(S::Resolved, Some(O::Succeeded), false, E::Complete), CallStatus::Executed { ok: true });
+        assert_eq!(status(S::Resolved, Some(O::Succeeded), true, E::Complete), CallStatus::Unknown);
+        assert_eq!(status(S::Resolved, Some(O::Failed), false, E::None), CallStatus::Executed { ok: false });
+        assert_eq!(status(S::Resolved, Some(O::Failed), false, E::Unknown), CallStatus::Unknown);
+        // Cancelled does not imply no effect.
+        assert_eq!(status(S::Resolved, Some(O::Cancelled), false, E::None), CallStatus::Cancelled);
+        assert_eq!(status(S::Resolved, Some(O::Cancelled), false, E::Partial), CallStatus::Unknown);
+        assert_eq!(status(S::Resolved, Some(O::Interrupted), false, E::None), CallStatus::Unknown);
+        assert_eq!(status(S::Resolved, None, false, E::None), CallStatus::Unknown);
+    }
 }

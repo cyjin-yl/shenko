@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repository": "https://github.com/Proto-UI/Proto-UI.git",
+    "commit": "7181a93a5ec5cad43936a72e31d5477d5488733a",
+    "previous_reviewed_commit": "2962d4ee877f5a3544a13d4deaa09b6a2b038fb7",
+    "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
+    "source_checkout": "/workspace/c11-proto-ui-upstream-7181a93",
+    "build_receipt": {
+      "script": "scripts/build/public-packages.mjs",
+      "selected_package_count": 42,
+      "receipt_path": "/workspace/c11-build-audit-20261025/build-result.json",
+      "receipt_sha256": "17f15987a747cd454cc7309decfc9d09e2a0144299d86ae2a12e3445ff1b32d9"
+    }
+  },
+  "packages": [
+    "@proto.ui/adapter-react@0.3.0-alpha.1",
+    "@proto.ui/prototypes-shadcn@0.3.0-alpha.1",
+    "@proto.ui/cli@0.3.0-alpha.1"
+  ],
+  "adopted_families": [
+    "button",
+    "textarea",
+    "scroll-area",
+    "collapsible"
+  ],
+  "adoption": {
+    "runtime": "createReactAdapter({ ...React, createPortal })",
+    "why": "Current main provides a real React runtime adapter and family exports; the older npm next tarball lacks current main profiles and family exports.",
+    "style_profile": "rhea (explicit); no Shadow split profile",
+    "source_assets": [
+      "packages/adapters/react/dist/index.js",
+      "packages/prototypes/shadcn/dist/button/index.js",
+      "packages/prototypes/shadcn/dist/textarea/index.js",
+      "packages/prototypes/shadcn/dist/scroll-area/index.js",
+      "packages/prototypes/shadcn/dist/collapsible/index.js",
+      "packages/cli/bin/proto-ui.js"
+    ],
+    "shadcn_provenance": {
+      "rhea_luma": "shadcn-ui/ui@25af02b1b467fcd53b63e0c6d6d324c57c16ef18",
+      "new_york": "shadcn-ui/ui@02cad61166c4c20edbc8a3f71bd720eed4c1f49b",
+      "api_baseline": "shadcn-ui/ui@f31ed81983653919dd4fe77aee4b4859f610f1dc"
+    }
+  },
+  "compiler": {
+    "status": "seam_only",
+    "runtime_imported": false,
+    "upstream_visibility": "private source package; no published compiler profile"
+  },
+  "toolchain": {
+    "node": "v24.22.1",
+    "pnpm": "10.32.1",
+    "esbuild": "0.25.12",
+    "react": "19.3.1",
+    "react_dom": "19.3.1"
+  },
+  "web_root": "/workspace/shenko-c11-proto-first-20261025/crates/shenko-ui/web",
+  "built_at": "2026-10-25T04:38:17.564Z",
+  "artifacts": {
+    "app.js": {
+      "bytes": 852866,
+      "sha256": "533c57e3721a5516b76ad91467f259cb72db3f40d1f9b3ea73eab7c42c99bfd8"
+    },
+    "app.css": {
+      "bytes": 27627,
+      "sha256": "58683e43033de09065b6c3cc5424fb07dde3ac958b89a412167aef8e83afa08d"
+    },
+    "proto-ui-style.css": {
+      "bytes": 294,
+      "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
+    },
+    "proto-ui-tokens.generated.css": {
+      "bytes": 80071,
+      "sha256": "8b923b0d655f73712d6f341295381b41a54e8e9a6ee6a0565b761e653eeeca20"
+    },
+    "shadcn-theme.css": {
+      "bytes": 6441,
+      "sha256": "e2227f3997af25e86135908350179e96754902b0aca0e3da247843a12052848f"
+    },
+    "licenses/PROTO-UI-LICENSE": {
+      "bytes": 1078,
+      "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
+    },
+    "licenses/SHADCN-NOTICES.md": {
+      "bytes": 4617,
+      "sha256": "4ef0fe32ba2210147ddecc94c3cbfa9d54cd5e95ac20964e5d12081ea1a435e2"
+    },
+    "licenses/REACT-LICENSE": {
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    },
+    "licenses/REACT-DOM-LICENSE": {
+      "bytes": 1088,
+      "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+    }
+  }
+}

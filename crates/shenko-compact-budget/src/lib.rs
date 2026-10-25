@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use cordis_core::{Context, InjectSpec, Plugin, Service};
+use cordis_core::{Context, InjectSpec, Plugin, PreparedChange, Service};
 use shenko_context_policy::{
     Availability, CONTRACT_VERSION, ContextInput, ContextPolicy, CostReport, ItemKind, ModelCaps,
     PolicyError, PolicyManifest, PolicyRegistry, PreparedWindow, WindowEntry, estimate_tokens,
@@ -136,13 +136,33 @@ impl ContextPolicy for BudgetCompact {
     }
 }
 
-/// The installable plugin. Updating its config is a Cordis restart/update of
-/// this Fiber only; disposing it uninstalls budget compact and nothing else.
+/// A config that passed [`BudgetCompactPlugin`]'s `prepare`. It is the
+/// plugin's only Cordis Input, so a same-Fiber update cannot skip validation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValidBudgetConfig(BudgetConfig);
+
+impl ValidBudgetConfig {
+    pub fn config(&self) -> BudgetConfig {
+        self.0
+    }
+}
+
+/// The installable plugin. Updating its config is a Cordis update of this
+/// Fiber only; disposing it uninstalls budget compact and nothing else.
 pub struct BudgetCompactPlugin;
+
+impl BudgetCompactPlugin {
+    /// Validate `config` and seal it as an in-place update for this plugin's
+    /// Fiber (`FiberHandle::update`). The new generation installs a new
+    /// epoch; windows prepared by the old one can no longer commit.
+    pub fn update(config: BudgetConfig) -> Result<PreparedChange, std::io::Error> {
+        Ok(PreparedChange::from_input::<Self>(Self.prepare(config)?))
+    }
+}
 
 impl Plugin for BudgetCompactPlugin {
     type Config = BudgetConfig;
-    type Input = BudgetConfig;
+    type Input = ValidBudgetConfig;
     type PrepareError = std::io::Error;
     type ApplyError = std::io::Error;
 
@@ -154,16 +174,16 @@ impl Plugin for BudgetCompactPlugin {
         InjectSpec::none().require(PolicyRegistry::NAME)
     }
 
-    fn prepare(&self, config: BudgetConfig) -> Result<BudgetConfig, std::io::Error> {
+    fn prepare(&self, config: BudgetConfig) -> Result<ValidBudgetConfig, std::io::Error> {
         let valid = |r: f32| r > 0.0 && r <= 1.0;
         if !valid(config.trigger_ratio) || !valid(config.recent_ratio) {
             return Err(std::io::Error::other("budget compact ratios must be in (0, 1]"));
         }
-        Ok(config)
+        Ok(ValidBudgetConfig(config))
     }
 
-    async fn apply(&self, ctx: Context, input: &BudgetConfig) -> Result<(), std::io::Error> {
-        install_on(&ctx, Arc::new(BudgetCompact::new(*input)))?;
+    async fn apply(&self, ctx: Context, input: &ValidBudgetConfig) -> Result<(), std::io::Error> {
+        install_on(&ctx, Arc::new(BudgetCompact::new(input.0)))?;
         Ok(())
     }
 }

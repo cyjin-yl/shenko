@@ -1,8 +1,46 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-25（PR41 已 normal merge 父38；C01/C22 F2 整合与历史证据分列）**
+**更新时间：2026-10-25（PR51 raw session 写入口与 PR53 C20 持久历史已合入；完整 C01/C20 仍开放）**
 
-## 当前 C01/C22 F2：已独立复核并整合（非完整包完成）
+> **2026-10-25 配额交接（模型额度耗尽，loop 停止）**
+>
+> 当前 provider 5 小时额度耗尽（HTTP 429），工作流停止；主控已完成本节的提交/推送/PR 保存，供 dot 或其他贡献者接续。不要声称本文件所列局部切片已完成完整 SPEC。
+>
+> **主线**：`df68c7cbf9ab0546aac59969c1e330fc7f306697`。
+>
+> **本次实际合入**
+> - C20 窗口恢复修复：PR [#53](https://github.com/cyjin-yl/shenko/pull/53)（`9965b912`）——generation 与 append 同一 CAS、无需 operation 凭据时 Unknown、derivative 提交前 hash 校验、head DESC LIMIT1；PR [#50](https://github.com/cyjin-yl/shenko/pull/50) 随之显示 merged，朋友原提交/作者保留。17 项相关测试通过。
+> - C01 raw session 写入口：PR [#51](https://github.com/cyjin-yl/shenko/pull/51)（merge `a2510c2497c6c2ebc65159b566b7a84ee0530b45`）——父行与事件同事务、幂等重放、冲突整批回滚；候选+当时最新 main 组合 16 tests 通过；closed-writer 语义保留。完整 #6 仍 OPEN。
+>
+> **开放 Draft PR（可直接接续，勿重复实现）**
+> - C02 有限 native child：PR [#55](https://github.com/cyjin-yl/shenko/pull/55)，head `9eb26e1bb48c152af4922c682640bb6246fa7350`，base main。仅显式 `host.printf/v1` deterministic kind；两条 focused 场景通过；非通用 LLM child/生产 SSH/seat。完整 C02 未完成。
+> - C04 Broker 公平并发与 wire 封口：PR [#57](https://github.com/cyjin-yl/shenko/pull/57)，head `5190d07`（含合并 main `a2510c2`）。 fairness/sealed-wire 修复；验证与真实后端 KV/四流证据仍需补齐。
+> - C11 Proto-UI WIP：PR [#58](https://github.com/cyjin-yl/shenko/pull/58)，head `832b0e8e1e0f8c015ff6c5c06e42773ee9a4a522`，**未验证且不可合并**：基于旧 main `5ddc0ee`，在该基线不编译（`OutputAction::Delegate.definition` 漂移先于本 diff）。接续须从最新 main 重新应用 5 个 shenko-ui 文件、完成真实 Proto-UI `2962d4ee877f5a3544a13d4deaa09b6b2b038fb7`（Node24/pnpm10.32.1）构建与浏览器验收。
+> - #52 朋友原地 update 校验：仍 OPEN/Draft，head `3271121`，定向验证因额度未完成，未合并。
+>
+> **未完成的治理决定（owner 已明确方向，文本未落地）**
+> - 许可：owner 本人 `cyjin-yl` 作为再许可主体；社区 AGPL-3.0-or-later + owner 保留闭源/商业双许可；DCO 仅证明来源，不自动等于商业再许可。公开讨论 [#54](https://github.com/cyjin-yl/shenko/issues/54) 朋友尚未回复；当前未改 Cargo.toml（仍 Apache-2.0 元数据、无 LICENSE 正文），cordis-rs 为 MIT。
+> - 协作规则：每个 agent 必须 monitor 自己创建/认领的 issue/PR；需回应评论 3 小时内回复或明确“正在处理+进度+下一 checkpoint”；超时无回应允许主控接管/转派，保留原作者/commit、以原 PR 来源+正常 merge 交接。尚未写入 AGENTS/GOAL/PROMPT。
+>
+> **可复用研究（容器 `shenko-dev-live`）**
+> - OMP/Codex compact 对照已完成：OMP main=`0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0`（包 18.12.6；tag `45c35e40`），Codex=`a3d93e1e692f1144cf8685175a5d1f6bf7294f57`；OMP 已有 Silver TTF CJK/52 shadcn family/compiler private；NPM `next` 0.3.0-alpha.1 仅 12 family，不可冒充 main。源码缓存 `/workspace/omp-compact-source-20261025-K12GSjIy`（`metadata/source-manifest.json` 含所有 SHA/permalink）。
+> - Proto-UI：main=`2962d4ee877f5a3544a13d4deaa09b6a2b038fb7`；Rhea 来源 shadcn-ui `25af02b1`，New York `02cad611`；源码 `/workspace/c11-proto-ui-upstream-2962d4ee`。
+> - 视觉端点：Tailnet vLLM `qwen3.8-27b`（OpenAI）/`qwen3.8-27b-anth`（Anthropic）已用真实 snap 帧验证可读图中英/数字/路径；证据见 #25 comment6389530566；非完整视觉精度/KV 验收。
+> - 本地快照（未推送，仅供追溯）：`/tmp/shenko-c22-control-s1-20261025`（13 文件 554 行，已被 corrected lineage 成熟吸收）、`/tmp/shenko-c22-dispatch-candidate-3eqan12g`（基于已纠正的 wrong-author `3e6ad79`，勿推）、`/tmp/shenko-frozen-input-qxrlc_bp`（patch SHA `6136d8c0…`）。
+>
+> **下一动作优先级**：① 预算法恢复后继续 #52 定向验证与合入；② C04 补真实公平/KV/unknown 证据；③ C02 接真实 child handler→C07/T2；④ C11 从最新 main 重建 Proto-UI seam；⑤ 落地许可与 monitor/3h 规则文档；⑥ C20 执行 ledger join/版本 payload/正式 loop；⑦ #6/#12/#22 与 S1–S5 其余正式义务。
+
+
+## 当前 C01 raw session 写入口与 C20 接续（非完整包完成）
+
+- **实际 main 与原作者**：[PR51](https://github.com/cyjin-yl/shenko/pull/51) 已 normal merge，原 head `5255e5bc18fae86d6d9fa7caf227281599ba6c4f`，merge／本次产品基线 `a2510c2497c6c2ebc65159b566b7a84ee0530b45`，tree `93745c763e443ee68a4f029c6a70a28477f6c718`，另一 parent 是当时 main `9965b9125a11c2b87185aca0dbca644bebd1f33f`。原 commit 的 author/committer 均为 `shwgdysjsvg <2738635606@qq.com>`，且已是 main 祖先；未 squash、强推或改写朋友分支。
+- **focused 交付边界**：main 现有 `RawSession` 与 `WriteBatch.raw_session_upserts`；ledger `try_commit` 在同一个 Immediate 事务内先写 raw session 父行、再写 `session_event_upserts`。同事实 replay 为 no-op；既有行的 agent/started_at/data 不一致，或同一 `(session,seq)` 对应不同 event_id，会报错并回滚整个 batch。原事件写入会静默忽略后一类冲突的问题已在此切片修复，不另设旁路 writer 或关闭外键。
+- **已有验证，不由本文升级**：精确候选与独立 normal-merge 组合 `9965b912 + 5255e5bc` 的 tree 均为上述 `93745c76`；两轮指定 `cargo test --locked -p shenko-store -p shenko-types -j1` 均实际 exit 0，各 16 tests passed。首次 ezra 构建因 root-owned target 在编译前 exit 101，不计为通过；有效结果由 root 构建席位取得。命令环境与日志见 [PR51 合并说明](https://github.com/cyjin-yl/shenko/pull/51#issuecomment-6392010544)，路径为 `/tmp/shenko-pr51-review-5255e5bc/`。本次只更新文档，没有重跑 cargo、全 workspace 或新增测试，不声称 `verified_real`、完整 C01/C20 或 CI 通过。
+- **closed-writer 语义保留**：同 seq/agent 等冲突继续沿既有 `with_mutation(|_| true)` 路径关闭写入方，测试重开 store 后核对回滚；这是当前合同下的既有行为，不误报为本 PR 新 bug。若需区分逻辑冲突与 `storage_failure`，可另做独立小切片；不要求 PR51 增加兼容模式或扩大范围。
+- **C20 真实接续**：[PR50](https://github.com/cyjin-yl/shenko/pull/50) 原 head `3a1e63aeda0d4091dfbb1ed5f7ca4c421208ff92` 已是 main 祖先，[PR53](https://github.com/cyjin-yl/shenko/pull/53) 的修复 head `74732c6b6b82a9e884fe8ff30bc306e043c3c7a1` 已 normal merge 为 `9965b9125a11c2b87185aca0dbca644bebd1f33f`。PR51 已解除 raw session 父行写入阻塞；HistorySource／窗口 fixture 现在可以读取正式 `WriteBatch` 产生的原始会话，不再以独立连接模拟未来 writer，见 [#25 交付说明](https://github.com/cyjin-yl/shenko/issues/25#issuecomment-6392011548)。版本化 payload 读取、完整 OperationRecord/attempt/T2 关联与 `ended_at`、正式 loop、真实 KV/prefill／模型读图和包闭包仍是各自后继义务。本 checkpoint 读回时 [PR52](https://github.com/cyjin-yl/shenko/pull/52) 为 OPEN/DRAFT、head `3271121a2c2f68db6e94026ea40d20373a130fb4`；本文不对它新增 review 或合并声明。
+- **状态与下一最小工作**：#6、#25 均保持 OPEN。C01 继续真实 child/T2、outbox/selector 与实际恢复交接；C20 从当前 main 接续版本化 payload 和执行 ledger 关联，再接正式 loop 安全边界。局部写接口、持久适配及本 docs checkpoint 均不关闭完整工作包或 S1–S5。
+
+## 既有 C01/C22 F2 基线（较早 checkpoint；已独立复核并整合，非完整包完成）
 
 - **真实栈/作者**：[PR41](https://github.com/cyjin-yl/shenko/pull/41) 已从 ready 正常合入 corrected 父38，merge `e7e26a6bd799584b98982cb859da3328cf0634e7`，完整 tree 等于被审查 head `2529968b56c92dcd044db3596628f6a5b0d04d60`（tree `031d1ff2af036e44d3cab79bfbcc97335f939785`）。七个朋友原 commits/作者与父图均保留；wrong-author `3e6ad79` 没有进入新图，旧来源 PR29/34 分支未改写/删除。
 - **独立审查实际完成**：只读 `/tmp/shenko-c01-intent-review-sND5Yz69` 实际读回上述 SHA/tree，检查完整 `29fa07b..2529968b` composition 与 `feab9b6..2529968b` focused implementation，结论 `approved_slice`、findings=[]。不是只启动 reviewer 或创建 clone；不代表完整 C01/C22、生产 child/QQ 或 S1–S5 通过。

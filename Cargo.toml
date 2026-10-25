@@ -29,7 +29,7 @@ members = [
 edition = "2024"
 version = "0.1.0"
 authors = ["Shenko Contributors"]
-license = "Apache-2.0"
+license = "AGPL-3.0-or-later"
 repository = "https://github.com/cyjin-yl/shenko"
 rust-version = "1.85"
 

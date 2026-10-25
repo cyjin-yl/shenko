@@ -439,6 +439,7 @@ async fn execute_step(
                 messages: build_messages(state, events),
                 max_tokens: Some(state.max_tokens),
                 tools: vec![],
+                native_options: Default::default(),
             },
             in_semantic_wait,
             identity: state.identity.clone(),
@@ -562,12 +563,58 @@ async fn execute_step(
                     "provider rejection persisted; same frozen request may resume",
                 ));
             }
-            InferenceStatus::Success => {}
+            InferenceStatus::Rejected { http_status } => {
+                return Err(ShenkoError::Protocol(
+                    shenko_types::error::ProtocolError::new(
+                        "PROVIDER_REJECTED",
+                        shenko_types::error::ErrorScope::Request,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    )
+                    .with_details(serde_json::json!({"http_status":http_status})),
+                ));
+            }
+            InferenceStatus::InvalidRequest { code } => {
+                return Err(ShenkoError::Protocol(
+                    shenko_types::error::ProtocolError::new(
+                        code.as_str(),
+                        shenko_types::error::ErrorScope::Request,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    ),
+                ));
+            }
+            InferenceStatus::Unavailable => {
+                return Err(ShenkoError::other(
+                    "MODEL_PROVIDER_UNAVAILABLE: no provider was dispatched",
+                ));
+            }
+            InferenceStatus::Success
+                if result.termination.kind
+                    == shenko_broker::request::TerminationKind::ProviderTerminal => {}
+            InferenceStatus::Success => {
+                return Err(ShenkoError::conflict(
+                    "successful model result lacks provider terminal evidence",
+                ));
+            }
             _ => {
                 return Err(ShenkoError::other(
                     "model outcome not conclusive; preserve original awaiting_model for reconciliation",
                 ));
             }
+        }
+        if !result.effective.matches_seal(
+            input
+                .provider_binding
+                .as_ref()
+                .expect("broker binding checked"),
+            &input.payload,
+        ) {
+            return Err(ShenkoError::Protocol(
+                shenko_types::error::ProtocolError::new(
+                    "MODEL_PROVIDER_BINDING_MISMATCH",
+                    shenko_types::error::ErrorScope::Request,
+                    shenko_types::error::RetryStrategy::NewRevision,
+                ),
+            ));
         }
         let response = result
             .response
@@ -676,15 +723,18 @@ async fn execute_step(
     let mut identity_action_ids = vec![];
     for control in &output.controls {
         match &control.action {
-            OutputAction::Delegate { text } => decision_delegation_intents.push(DelegationIntent {
-                intent_id: control.action_id,
-                goal: text.clone(),
-                system_prompt: text.clone(),
-                model: None,
-                capabilities: vec![],
-                budget_hint: None,
-                reply_grant: None,
-            }),
+            OutputAction::Delegate { text, definition } => {
+                decision_delegation_intents.push(DelegationIntent {
+                    intent_id: control.action_id,
+                    goal: text.clone(),
+                    system_prompt: text.clone(),
+                    model: None,
+                    capabilities: vec![],
+                    budget_hint: None,
+                    reply_grant: None,
+                    definition: definition.clone(),
+                })
+            }
             OutputAction::Remember { text } => {
                 let content_ref = seal_step_object(
                     &store,
@@ -755,7 +805,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
-        schema_version: 3,
+        schema_version: 4,
         step_id,
         output: output.clone(),
         identity_intent,

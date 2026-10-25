@@ -1,14 +1,17 @@
 //! Local model provider — OpenAI-compatible /v1/chat/completions. SPEC §22.1
-//!
-//! Targets the user's Qwen3.8-27B via Tailnet vLLM endpoint. Auth is not required
-//! (the Tailnet address is a private network address, not a secret).
+//! Native local sampling options remain intact; Claude-only API restrictions do
+//! not leak into this binding. Endpoint and model are read once at construction.
 use anyhow::{Result, anyhow};
 use tracing::{info, instrument};
 
-use crate::request::{InferencePayload, InferenceResponse, TokenUsage};
+use crate::provider::merge_native_options;
+use crate::request::{
+    InferenceRequest, InferenceResponse, ProviderBinding, ProviderRejection, ProviderWireError,
+    TokenUsage,
+};
 
-const DEFAULT_BASE_URL: &str = "https://doesvm.icefish-exponential.ts.net:8446";
 const DEFAULT_MODEL: &str = "qwen3.8-27b";
+pub(crate) const SERIALIZER_REVISION: u32 = 2;
 
 #[derive(Debug, Clone)]
 pub struct LocalModelProvider {
@@ -26,54 +29,86 @@ impl LocalModelProvider {
         }
     }
 
-    /// Build from environment. SHENKO_LOCAL_MODEL_URL overrides the Tailnet default.
-    pub fn from_env() -> Self {
-        let base_url = std::env::var("SHENKO_LOCAL_MODEL_URL")
-            .unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
-        Self {
+    /// Build from environment without embedding a private deployment endpoint.
+    /// Later environment changes do not alter an existing or recovered binding.
+    pub fn from_env() -> Result<Self> {
+        let base_url = std::env::var("SHENKO_LOCAL_MODEL_URL").map_err(|_| {
+            anyhow!("SHENKO_LOCAL_MODEL_URL is required when SHENKO_USE_LOCAL_MODEL=1")
+        })?;
+        let model =
+            std::env::var("SHENKO_LOCAL_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        anyhow::ensure!(!model.is_empty(), "SHENKO_LOCAL_MODEL must not be empty");
+        Ok(Self {
             base_url,
-            model: DEFAULT_MODEL.to_string(),
+            model,
             allow_invalid_certs: std::env::var("SHENKO_LOCAL_INSECURE").as_deref() == Ok("1"),
-        }
+        })
     }
 
-    #[instrument(skip(self, payload))]
-    pub async fn complete(&self, payload: &InferencePayload) -> Result<InferenceResponse> {
+    fn validate_binding<'a>(&self, req: &'a InferenceRequest) -> Result<&'a ProviderBinding> {
+        let ProviderBinding::Local {
+            base_url,
+            model,
+            allow_invalid_certs,
+            serializer_revision,
+            default_max_tokens,
+        } = &req.provider_binding
+        else {
+            return Err(ProviderWireError::BindingMismatch.into());
+        };
+        if base_url != &self.base_url
+            || model != &self.model
+            || allow_invalid_certs != &self.allow_invalid_certs
+            || *serializer_revision != SERIALIZER_REVISION
+            || *default_max_tokens != crate::request::DEFAULT_MAX_TOKENS
+        {
+            return Err(ProviderWireError::BindingMismatch.into());
+        }
+        Ok(&req.provider_binding)
+    }
+
+    #[instrument(skip(self, req))]
+    pub async fn complete(&self, req: &InferenceRequest) -> Result<InferenceResponse> {
+        self.validate_binding(req)?;
+        let ProviderBinding::Local {
+            base_url, model, ..
+        } = &req.provider_binding
+        else {
+            unreachable!("binding checked above")
+        };
+        let payload = &req.payload;
         let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(180));
 
         if self.allow_invalid_certs {
             builder = builder.danger_accept_invalid_certs(true);
         }
 
-        let client = builder.build()?;
-
-        // Convert InferencePayload to OpenAI chat messages.
         let mut messages: Vec<serde_json::Value> = Vec::new();
-
         if !payload.system_prompt.is_empty() {
             messages.push(serde_json::json!({
                 "role": "system",
                 "content": payload.system_prompt,
             }));
         }
-
-        for m in &payload.messages {
+        for message in &payload.messages {
             messages.push(serde_json::json!({
-                "role": m.role,
-                "content": m.content,
+                "role": message.role,
+                "content": message.content,
             }));
         }
 
-        let body = serde_json::json!({
-            "model": self.model,
+        let mut body = serde_json::json!({
+            "model": model,
             "max_tokens": payload.max_tokens.unwrap_or(crate::request::DEFAULT_MAX_TOKENS),
             "messages": messages,
         });
-
+        merge_native_options(&mut body, &payload.native_options, false)?;
+        let client = builder.build()?;
         let resp = client
-            .post(format!("{}/v1/chat/completions", self.base_url))
-            // Tailnet endpoint requires no real key; an empty string is accepted.
-            .header("x-api-key", "")
+            .post(format!(
+                "{}/v1/chat/completions",
+                base_url.trim_end_matches('/')
+            ))
             .header("content-type", "application/json")
             .json(&body)
             .send()
@@ -81,34 +116,29 @@ impl LocalModelProvider {
 
         if !resp.status().is_success() {
             let status = resp.status();
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                return Err(crate::request::ProviderRejection {
-                    http_status: status.as_u16(),
-                }
-                .into());
+            if let Some(rejection) = ProviderRejection::from_status(status) {
+                return Err(rejection.into());
             }
-            let text = resp.text().await.unwrap_or_default();
-            return Err(anyhow!("local model API error {status}: {text}"));
+            return Err(anyhow!(
+                "local model API HTTP {status}; terminal outcome unknown"
+            ));
         }
 
         let raw_response = resp.text().await?;
         let raw: serde_json::Value = serde_json::from_str(&raw_response)?;
-
         let content = raw["choices"]
             .as_array()
-            .and_then(|arr| arr.first())
-            .and_then(|c| c["message"]["content"].as_str())
-            .unwrap_or("")
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice["message"]["content"].as_str())
+            .unwrap_or_default()
             .to_string();
-
         let finish_reason = raw["choices"]
             .as_array()
-            .and_then(|arr| arr.first())
-            .and_then(|c| c["finish_reason"].as_str())
-            .unwrap_or("unknown")
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice["finish_reason"].as_str())
+            .unwrap_or_default()
             .to_string();
 
-        // OpenAI usage shape: prompt_tokens / completion_tokens.
         let usage = raw["usage"].as_object().map(|u| TokenUsage {
             input_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
             output_tokens: u
@@ -120,7 +150,7 @@ impl LocalModelProvider {
         });
 
         info!(
-            model = %self.model,
+            model = %model,
             finish_reason = %finish_reason,
             in_tokens = ?usage.as_ref().map(|u| u.input_tokens),
             out_tokens = ?usage.as_ref().map(|u| u.output_tokens),

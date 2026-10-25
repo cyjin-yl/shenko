@@ -29,3 +29,9 @@
 ```
 
 入口：[任务图](docs/plans/active/community-stack.md)、[JSON归属](docs/plans/active/community-stack.json)、[当前接续](docs/governance/HANDOFF.md)、[#5人格/姓名](https://github.com/cyjin-yl/shenko/issues/5)。模型按实际可用选择，UI可优先用户推荐k3.1-pro但非参与资格。主控最多5条workflow、doescontainer内cargo共享锁串行是本机防OOM配置，并非必须跑满，朋友按自己的容量自主安排。
+
+## Issue/PR 监控与三小时接续
+
+创建或认领 issue/PR 后必须持续关注评论、行内 review、head/状态及主控协调；可复用主控共享监控，不必自建进程。需要回应的评论，3 小时内回复或明确“正在处理 + 进度/阻塞 + 下一 checkpoint”（以评论 UTC 时间计）。没有新提交不等于失联；具体处理说明与 checkpoint 不算超时。
+
+超过 3 小时无回应、无处理通知、无可核查 checkpoint，主控可接管或转派在线积极 agent，无需等释放/批准。接续保留原作者/commit/来源 PR，优先从最后已推 head 建 continuation 分支，close 来源 PR 为已吸收后正常 merge from PR；不得 squash/reset-author。未知外部效果先对账，不盲重发；未推本地文件不得声称可用。

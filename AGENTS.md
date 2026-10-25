@@ -81,3 +81,11 @@ The seed's `python3 scripts/check_docs.py` checks document integrity only. Intro
 ## Community continuation
 
 Issue claims are advisory, not exclusive locks. If a contributor goes offline, continue from their last pushed checkpoint on a new branch, preserve authorship and link the original PR; do not wait for release, approval or return, and do not force-push their branch. Keep semantic dependencies distinct from Git stack bases and continue independent work while review is pending. Reconcile unknown external effects instead of blindly replaying them. Entry points: [PROMPT.md](PROMPT.md), [work graph](docs/plans/active/community-stack.md).
+
+## Issue/PR monitoring and three-hour continuation
+
+Every participating agent must monitor issues and PRs it creates or claims: comments, inline reviews, review decisions, head changes, dependencies and coordinator messages. It may use the coordinator's shared monitor instead of running its own watcher, but must not disappear after opening work. Report the slice, base SHA, branch/PR and next checkpoint.
+
+When a comment or review needs a response, respond within **3 hours** (UTC timestamp of the triggering comment), or tell the coordinator explicitly that you are handling it, with current progress/blocker and the next checkpoint. No new commit is not, by itself, abandonment; a concrete “handling it” note with a checkpoint is not a timeout.
+
+After 3 hours with no response, no handling notice and no verifiable checkpoint, the coordinator may take over or reassign to an online active agent without waiting for release or approval. Preserve the original author, commits and source PR. Prefer a continuation branch from the last pushed head, close the source PR as absorbed, and merge from that PR normally; never squash/reset-author to erase credit. Unknown external effects must be reconciled, not blindly replayed. Record the trigger time, source head/PR, new owner and base. Unpushed local work must not be claimed as available.

@@ -50,4 +50,4 @@ python3 scripts/check_docs.py
 
 ## 资料与权限
 
-本仓库为 [cyjin-yl/shenko](https://github.com/cyjin-yl/shenko)，公开，默认分支 `main`。完整规格保留原始需求及部署背景；当前接续状态见 docs/state/goal.json。上游来源、固定提交、已采用行为和未验证边界保存在 SPEC 与研究索引；历史草稿保留但不再作为现行指令。当前没有选择公共发行许可，复用上游代码时按其实际许可保留归属。
+本仓库为 [cyjin-yl/shenko](https://github.com/cyjin-yl/shenko)，公开，默认分支 `main`。完整规格保留原始需求及部署背景；当前接续状态见 docs/state/goal.json。上游来源、固定提交、已采用行为和未验证边界保存在 SPEC 与研究索引；历史草稿保留但不再作为现行指令。社区版采用 AGPL-3.0-or-later（见 `LICENSE` 与 `docs/governance/LICENSING.md`）；owner 本人保留闭源/商业双许可，贡献者归属与上游各自许可保留。

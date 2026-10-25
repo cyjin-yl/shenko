@@ -139,6 +139,10 @@ impl Store {
             "stale_invocation"
         );
         ensure!(
+            !task.memos.contains_key("native_settlement_only"),
+            "settlement_invocation_cannot_arm"
+        );
+        ensure!(
             op.task_id == ctx.task_id
                 && op.state == OperationState::InFlight
                 && att.operation_id == op.operation_id
@@ -284,5 +288,37 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(op)
+    }
+    pub fn external_operation_attempts(&self, id: EntityId) -> Result<Vec<AttemptRecord>> {
+        let c = self.ledger.conn.lock();
+        let mut q = c.prepare("SELECT data FROM attempts WHERE operation_id=?1 ORDER BY rowid")?;
+        let rows = q
+            .query_map([id.to_string()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|data| serde_json::from_str(&data).map_err(Into::into))
+            .collect()
+    }
+
+    pub fn external_evidence(&self, id: EntityId) -> Result<EvidenceReceipt> {
+        let c = self.ledger.conn.lock();
+        let data: String = c.query_row(
+            "SELECT data FROM evidence_receipts WHERE receipt_id=?1",
+            [id.to_string()],
+            |r| r.get(0),
+        )?;
+        Ok(serde_json::from_str(&data)?)
+    }
+
+    pub fn external_operation_evidence(&self, id: EntityId) -> Result<Vec<EvidenceReceipt>> {
+        let c = self.ledger.conn.lock();
+        let mut q =
+            c.prepare("SELECT data FROM evidence_receipts WHERE operation_id=?1 ORDER BY rowid")?;
+        let rows = q
+            .query_map([id.to_string()], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|data| serde_json::from_str(&data).map_err(Into::into))
+            .collect()
     }
 }

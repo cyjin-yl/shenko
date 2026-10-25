@@ -25,12 +25,6 @@ use shenko_store::store::Store;
 use crate::playground::PlaygroundState;
 use crate::ws::LiveStatus;
 
-/// How recent an observed subject outbox message must be for `/api/self` to
-/// call the subject `thinking`. Longer silence is reported as `idle`; the
-/// window matches the maximum semantic wait (600 s), so a deliberate wait is
-/// not mislabelled as idle.
-const STATUS_ACTIVE_WINDOW_SECS: i64 = 600;
-
 /// Actual provider selection supplied by the production bootstrap. Configured
 /// means a provider can be constructed, not that a probe or capacity succeeded.
 #[derive(Clone, Debug)]
@@ -42,16 +36,6 @@ pub struct InferenceStatus {
 impl InferenceStatus {
     pub fn new(model: Option<String>, configured: bool) -> Self {
         Self { model, configured }
-    }
-
-    fn from_env() -> Self {
-        if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
-            return Self::new(Some("qwen3.8-27b".into()), true);
-        }
-        if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-            return Self::new(Some("claude-opus-5-5".into()), true);
-        }
-        Self::new(None, false)
     }
 
     fn model_label(&self) -> &str {
@@ -81,7 +65,7 @@ pub struct ApiState {
     /// Real observations about the subject loop and WebSocket clients.
     pub live: Option<Arc<LiveStatus>>,
     /// Provider binding from the same bootstrap that decided whether to start
-    /// the subject loop. None uses the same environment selection for tests.
+    /// the subject loop. None means no runtime binding was supplied.
     pub inference: Option<InferenceStatus>,
 }
 
@@ -174,30 +158,29 @@ struct ConfigValues {
     data_dir: Option<String>,
     api_key_configured: bool,
     generation: String,
-    model_configured: bool,
+    model_configured: Option<bool>,
     inference_capacity: &'static str,
 }
 
 fn config_values(state: &ApiState) -> ConfigValues {
     // Only presence is reported; the key value is never read into a response.
     let api_key_configured = std::env::var("ANTHROPIC_API_KEY").is_ok();
-    let inference = state
-        .inference
-        .clone()
-        .unwrap_or_else(InferenceStatus::from_env);
+    // Only an explicit binding is evidence. An API key's presence does not
+    // prove a model, provider, online state, or effective sampling profile.
+    let inference = state.inference.as_ref();
     let data_dir = state
         .data_dir
         .clone()
         .or_else(|| std::env::var_os("SHENKO_DATA_DIR").map(PathBuf::from))
         .map(|p| p.display().to_string());
-    let generation = std::env::var("SHENKO_GENERATION").unwrap_or_else(|_| "seed".to_string());
+    let generation = std::env::var("SHENKO_GENERATION").unwrap_or_else(|_| "unknown".to_string());
     ConfigValues {
-        model: inference.model_label().into(),
+        model: inference.map(InferenceStatus::model_label).unwrap_or("unknown").into(),
         data_dir,
         api_key_configured,
         generation,
-        model_configured: inference.configured,
-        inference_capacity: inference.capacity(),
+        model_configured: inference.map(|binding| binding.configured),
+        inference_capacity: inference.map(InferenceStatus::capacity).unwrap_or("unknown"),
     }
 }
 
@@ -215,28 +198,6 @@ async fn config_handler(State(state): State<ApiState>) -> Json<Value> {
     }))
 }
 
-/// Derive the subject status from real observations:
-/// - no outbox wired → the UI cannot see the loop at all → `starting`;
-/// - outbox wired but nothing observed yet → `starting` (fresh process);
-/// - an outbox message within [`STATUS_ACTIVE_WINDOW_SECS`] → `thinking`;
-/// - observed activity, but none recently → `idle`.
-fn subject_status(live: Option<&LiveStatus>, model_configured: bool) -> &'static str {
-    if !model_configured {
-        return "blocked";
-    }
-    let Some(live) = live else {
-        return "starting";
-    };
-    if !live.is_wired() {
-        return "starting";
-    }
-    match live.seconds_since_activity() {
-        None => "starting",
-        Some(secs) if secs <= STATUS_ACTIVE_WINDOW_SECS => "thinking",
-        Some(_) => "idle",
-    }
-}
-
 /// `GET /api/self` → honest node/self status for the new WebUI.
 ///
 /// Known today:
@@ -252,9 +213,15 @@ fn subject_status(live: Option<&LiveStatus>, model_configured: bool) -> &'static
 /// exist yet, so `activities` is empty.
 async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
     let values = config_values(&state);
-    let status = subject_status(state.live.as_deref(), values.model_configured);
+    // Recent output is not evidence of current thinking or idleness.
+    let status = if values.model_configured == Some(false) { "blocked" } else { "unknown" };
     let connected_clients = state.live.as_ref().map(|live| live.connections());
     let step = state.live.as_ref().and_then(|live| live.last_step());
+    let last_outbox_observed_at = state
+        .live
+        .as_ref()
+        .and_then(|live| live.last_outbox_observed_at());
+    let outbox_wired = state.live.as_ref().is_some_and(|live| live.is_wired());
 
     let artifacts: Vec<Value> = match state.playground.as_ref() {
         Some(playground) => playground
@@ -272,13 +239,21 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
     };
 
     // Instance identity (SPEC §6): the name is the instance's, not the brand.
+    let subject_id = state
+        .store
+        .as_ref()
+        .and_then(|store| store.get_existing_agent_id().ok().flatten());
     let identity = state.store.as_ref().and_then(|store| {
-        let agent_id = store.get_existing_agent_id().ok()??;
+        let agent_id = subject_id?;
         store.latest_identity(agent_id).ok()?
     });
 
     Json(json!({
         "status": status,
+        "status_source": "no live subject-state binding; recent outbox is not a thinking signal",
+        "subject_id": subject_id.map(|id| id.to_string()),
+        "outbox_wired": outbox_wired,
+        "last_outbox_observed_at": last_outbox_observed_at,
         "identity": identity.map(|p| json!({
             "agent_id": p.agent_id.to_string(),
             "revision": p.revision,
@@ -292,11 +267,10 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         "model_configured": values.model_configured,
         "inference_capacity": values.inference_capacity,
         "data_dir": values.data_dir,
-        // Honest: only the local node is known. SPEC §5.4 multi-device
-        // discovery is not wired into the UI yet.
-        "devices": [
-            { "id": "local", "label": "本机", "online": true, "kind": "host" }
-        ],
+        // Device discovery is not wired. The UI must not turn loopback HTTP
+        // reachability into a fabricated green device presence signal.
+        "devices": [],
+        "device_discovery": "not_wired",
         "activities": [],
         "artifacts": artifacts,
     }))

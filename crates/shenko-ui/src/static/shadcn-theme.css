@@ -1,0 +1,145 @@
+:root {
+    --pui-radius: 0.625rem;
+    --pui-radius-2xl: calc(var(--pui-radius) + 8px);
+    --pui-radius-4xl: calc(var(--pui-radius) + 16px);
+    --pui-radius-xl: calc(var(--pui-radius) + 4px);
+    --pui-radius-lg: var(--pui-radius);
+    --pui-radius-md: max(calc(var(--pui-radius) - 2px), 0px);
+    --pui-radius-sm: max(calc(var(--pui-radius) - 4px), 0px);
+    --pui-background: lab(100% 0 0);
+    --pui-foreground: lab(2.75381% 0 0);
+    --pui-card: lab(100% 0 0);
+    --pui-card-foreground: lab(2.75381% 0 0);
+    --pui-popover: lab(100% 0 0);
+    --pui-popover-foreground: lab(2.75381% 0 0);
+    --pui-primary: lab(7.78201% -0.0000149012 0);
+    --pui-primary-foreground: lab(98.26% 0 0);
+    --pui-secondary: lab(96.52% -0.0000298023 0.0000119209);
+    --pui-secondary-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-muted: lab(96.52% -0.0000298023 0.0000119209);
+    --pui-muted-foreground: lab(48.496% 0 0);
+    --pui-accent: lab(96.52% -0.0000298023 0.0000119209);
+    --pui-accent-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-destructive: lab(48.4493% 77.4328 61.5452);
+    --pui-destructive-foreground: lab(96.4152% 3.22586 1.14673);
+    --pui-border: lab(90.952% 0 -0.0000119209);
+    --pui-input: lab(90.952% 0 -0.0000119209);
+    --pui-ring: lab(66.128% -0.0000298023 0.0000119209);
+    --pui-chart-1: #93c5fd;
+    --pui-chart-2: #3b82f6;
+    --pui-chart-3: #2563eb;
+    --pui-chart-4: #1d4ed8;
+    --pui-chart-5: #1e40af;
+    --pui-sidebar: lab(98.26% 0 0);
+    --pui-sidebar-foreground: lab(2.75381% 0 0);
+    --pui-sidebar-primary: lab(7.78201% -0.0000149012 0);
+    --pui-sidebar-primary-foreground: lab(98.26% 0 0);
+    --pui-sidebar-accent: lab(96.52% -0.0000298023 0.0000119209);
+    --pui-sidebar-accent-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-sidebar-border: lab(90.952% 0 -0.0000119209);
+    --pui-sidebar-ring: lab(66.128% -0.0000298023 0.0000119209);
+    --pui-surface: lab(97.68% -0.0000298023 0.0000119209);
+    --pui-surface-foreground: var(--pui-foreground);
+    --pui-code: var(--pui-surface);
+    --pui-code-foreground: var(--pui-surface-foreground);
+    --pui-code-highlight: lab(95.36% 0 0);
+    --pui-code-number: lab(48.96% 0 0);
+    --pui-selection: lab(2.75381% 0 0);
+    --pui-selection-foreground: lab(100% 0 0);
+  }
+  
+  :root.dark,
+  :root[data-theme='dark'] {
+    --pui-background: lab(2.75381% 0 0);
+    --pui-foreground: lab(98.26% 0 0);
+    --pui-card: lab(7.78201% -0.0000149012 0);
+    --pui-card-foreground: lab(98.26% 0 0);
+    --pui-popover: lab(7.78201% -0.0000149012 0);
+    --pui-popover-foreground: lab(98.26% 0 0);
+    --pui-primary: lab(90.952% 0 -0.0000119209);
+    --pui-primary-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-secondary: lab(15.204% 0 -0.00000596046);
+    --pui-secondary-foreground: lab(98.26% 0 0);
+    --pui-muted: lab(15.204% 0 -0.00000596046);
+    --pui-muted-foreground: lab(66.128% -0.0000298023 0.0000119209);
+    --pui-accent: lab(27.036% 0 0);
+    --pui-accent-foreground: lab(98.26% 0 0);
+    --pui-destructive: lab(63.7053% 60.745 31.3109);
+    --pui-destructive-foreground: lab(49.0747% 69.3434 49.6251);
+    --pui-border: lab(100% 0 0 / 0.1);
+    --pui-input: lab(100% 0 0 / 0.15);
+    --pui-ring: lab(48.496% 0 0);
+    --pui-chart-1: #93c5fd;
+    --pui-chart-2: #3b82f6;
+    --pui-chart-3: #2563eb;
+    --pui-chart-4: #1d4ed8;
+    --pui-chart-5: #1e40af;
+    --pui-sidebar: lab(7.78201% -0.0000149012 0);
+    --pui-sidebar-foreground: lab(98.26% 0 0);
+    --pui-sidebar-primary: lab(36.9089% 35.0961 -85.6872);
+    --pui-sidebar-primary-foreground: lab(98.26% 0 0);
+    --pui-sidebar-accent: lab(15.204% 0 -0.00000596046);
+    --pui-sidebar-accent-foreground: lab(98.26% 0 0);
+    --pui-sidebar-border: lab(100% 0 0 / 0.1);
+    --pui-sidebar-ring: lab(34.924% 0 0);
+    --pui-surface: lab(7.22637% -0.0000149012 0);
+    --pui-surface-foreground: lab(66.128% -0.0000298023 0.0000119209);
+    --pui-code: var(--pui-surface);
+    --pui-code-foreground: var(--pui-surface-foreground);
+    --pui-code-highlight: lab(15.32% 0 0);
+    --pui-code-number: lab(67.52% -0.0000298023 0);
+    --pui-selection: lab(90.952% 0 -0.0000119209);
+    --pui-selection-foreground: lab(7.78201% -0.0000149012 0);
+  }
+  /* Theme-owned default; component selection utilities keep precedence. */
+  @layer theme {
+    ::selection {
+      background-color: var(--pui-selection);
+      color: var(--pui-selection-foreground);
+    }
+  }
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.dark):not(.light):not([data-theme='dark']):not([data-theme='light']) {
+    --pui-background: lab(2.75381% 0 0);
+    --pui-foreground: lab(98.26% 0 0);
+    --pui-card: lab(7.78201% -0.0000149012 0);
+    --pui-card-foreground: lab(98.26% 0 0);
+    --pui-popover: lab(7.78201% -0.0000149012 0);
+    --pui-popover-foreground: lab(98.26% 0 0);
+    --pui-primary: lab(90.952% 0 -0.0000119209);
+    --pui-primary-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-secondary: lab(15.204% 0 -0.00000596046);
+    --pui-secondary-foreground: lab(98.26% 0 0);
+    --pui-muted: lab(15.204% 0 -0.00000596046);
+    --pui-muted-foreground: lab(66.128% -0.0000298023 0.0000119209);
+    --pui-accent: lab(27.036% 0 0);
+    --pui-accent-foreground: lab(98.26% 0 0);
+    --pui-destructive: lab(63.7053% 60.745 31.3109);
+    --pui-destructive-foreground: lab(49.0747% 69.3434 49.6251);
+    --pui-border: lab(100% 0 0 / 0.1);
+    --pui-input: lab(100% 0 0 / 0.15);
+    --pui-ring: lab(48.496% 0 0);
+    --pui-chart-1: #93c5fd;
+    --pui-chart-2: #3b82f6;
+    --pui-chart-3: #2563eb;
+    --pui-chart-4: #1d4ed8;
+    --pui-chart-5: #1e40af;
+    --pui-sidebar: lab(7.78201% -0.0000149012 0);
+    --pui-sidebar-foreground: lab(98.26% 0 0);
+    --pui-sidebar-primary: lab(36.9089% 35.0961 -85.6872);
+    --pui-sidebar-primary-foreground: lab(98.26% 0 0);
+    --pui-sidebar-accent: lab(15.204% 0 -0.00000596046);
+    --pui-sidebar-accent-foreground: lab(98.26% 0 0);
+    --pui-sidebar-border: lab(100% 0 0 / 0.1);
+    --pui-sidebar-ring: lab(34.924% 0 0);
+    --pui-surface: lab(7.22637% -0.0000149012 0);
+    --pui-surface-foreground: lab(66.128% -0.0000298023 0.0000119209);
+    --pui-code: var(--pui-surface);
+    --pui-code-foreground: var(--pui-surface-foreground);
+    --pui-code-highlight: lab(15.32% 0 0);
+    --pui-code-number: lab(67.52% -0.0000298023 0);
+    --pui-selection: lab(90.952% 0 -0.0000119209);
+    --pui-selection-foreground: lab(7.78201% -0.0000149012 0);
+  }
+}

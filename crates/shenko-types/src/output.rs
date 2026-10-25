@@ -28,6 +28,9 @@ pub enum OutputAction {
     },
     Delegate {
         text: String,
+        /// Explicit child definition; no shell/SSH authority is exposed to the subject.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        definition: Option<crate::task::NativeTaskDefinition>,
     },
     Identity {
         change: IdentityChange,
