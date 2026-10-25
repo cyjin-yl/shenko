@@ -6,9 +6,12 @@ use shenko_compact_budget::{BudgetCompactPlugin, BudgetConfig};
 use shenko_compact_snap::{SnapCompact, SnapCompactPlugin, SnapConfig};
 use shenko_context_policy::{
     Availability, ContextInput, ContextPolicy, ContextPolicyHost, ItemKind, MemoryHistory,
-    ModelCaps, PolicyError, PolicyRegistry, VisionCaps, WindowBase, WindowEntry, WindowLedger,
+    MemoryWindowLog, ModelCaps, PolicyError, PolicyRegistry, StoreWindowLog, VisionCaps,
+    WindowAppend, WindowBase, WindowEntry, WindowLedger, WindowLog,
 };
 use shenko_kernel::{FiberHandle, PluginRegistry};
+use shenko_store::Store;
+use shenko_types::ids::EntityId;
 use tokio_util::sync::CancellationToken;
 
 fn history(text: impl Fn(usize) -> String) -> MemoryHistory {
@@ -94,22 +97,28 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     snap.dispose().await.unwrap();
     let ids: Vec<_> = registry.installed().into_iter().map(|(m, _)| m.id).collect();
     assert_eq!(ids, vec!["budget-compact".to_string()]);
-    assert_eq!(registry.ledger().current().derivatives, window.derivatives);
+    assert_eq!(registry.ledger().current().unwrap().derivatives, window.derivatives);
     h.append(ItemKind::User, "after uninstall", 10);
     // Only budget compact is consulted now, and it is judged against the
     // committed frame window: its text-only window would be larger, so it
     // is refused rather than swapped in.
     let refused = registry.prepare(&h, &VISION, used).unwrap_err();
-    assert_eq!(refused.attempts.len(), 1);
-    assert_eq!(refused.attempts[0].policy, "budget-compact");
-    assert_eq!(refused.attempts[0].outcome, Err(PolicyError::NoReduction));
+    assert_eq!(refused.attempts().len(), 1);
+    assert_eq!(refused.attempts()[0].policy, "budget-compact");
+    assert_eq!(refused.attempts()[0].outcome, Err(PolicyError::NoReduction));
     host.stop().await.unwrap();
 
     // Prefix reuse follows the actual input: identical entries whose PNG bytes
     // differ (2000 vs 1999 output chars) are not reusable, nor is anything
-    // built under a previous model/template/encoder generation.
+    // built under a previous model/template/encoder generation. The chain and
+    // its frames live in a real SQLite store and survive a reopen.
     let raw = h.snapshot();
-    let ledger = WindowLedger::new();
+    let dir = std::env::temp_dir().join(format!("shenko-c20-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (db, cas, scope) = (dir.join("shenko.db"), dir.join("cas"), EntityId::new());
+    let store = Arc::new(Store::open(db.clone(), cas.clone()).unwrap());
+    let log = Arc::new(StoreWindowLog::new(store.clone(), scope));
+    let ledger = WindowLedger::new(log.clone());
     let cut = |chars, source_window, model_generation| {
         let config = SnapConfig { max_tool_output_chars: chars, ..SnapConfig::default() };
         let base = WindowBase {
@@ -121,16 +130,55 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
         let input = ContextInput { base, items: &raw, caps: &VISION, used_tokens: used };
         SnapCompact::new(config).prepare(&input).unwrap()
     };
-    let a = ledger.commit(cut(2000, ledger.current().id, 0), &h).unwrap();
+    let a = ledger.commit(cut(2000, ledger.current().unwrap().id, 0), &h).unwrap();
     let b = cut(1999, a.id, 0);
     assert_eq!(b.entries, a.entries, "same ranges, indices and token counts");
     assert_ne!(b.derivatives, a.derivatives, "different pixels");
+    let mut bad = cut(1999, a.id, 0);
+    bad.derivatives[0].blake3.clear();
+    assert!(ledger.commit(bad, &h).is_err(), "bad derivative hash cannot commit");
+    assert_eq!(ledger.current().unwrap().id, a.id, "bad derivative did not move the head");
     let b = ledger.commit(b, &h).unwrap();
     let first_image = b.entries.iter().position(|e| matches!(e, WindowEntry::Image { .. })).unwrap();
     let text_prefix: u32 = b.entries[..first_image].iter().map(WindowEntry::tokens).sum();
     assert_eq!(b.cost.reusable_prefix_tokens, text_prefix);
-    ledger.set_model_generation(1);
+    ledger.set_model_generation(1).unwrap();
     let c = ledger.commit(cut(1999, b.id, 1), &h).unwrap();
     assert_eq!((c.entries == b.entries, c.derivatives == b.derivatives), (true, true));
     assert_eq!(c.cost.reusable_prefix_tokens, 0, "new binding: nothing reusable");
+
+    let mut stale = c.clone();
+    stale.id = EntityId::new();
+    stale.generation += 1;
+    stale.model_generation = 0;
+    let mut stale_base = c.base.unwrap();
+    stale_base.source_window = c.id;
+    stale_base.model_generation = 0;
+    stale.base = Some(stale_base);
+    assert_eq!(
+        log.append(c.id, 0, &stale).unwrap(),
+        WindowAppend::ModelGenerationChanged { current: 1 }
+    );
+    assert_eq!(ledger.current().unwrap().id, c.id, "stale generation did not append");
+
+    let memory = MemoryWindowLog::default();
+    let genesis = memory.head().unwrap();
+    memory.set_model_generation(1).unwrap();
+    let mut stale = genesis.clone();
+    stale.id = EntityId::new();
+    stale.generation = 1;
+    assert_eq!(
+        memory.append(genesis.id, 0, &stale).unwrap(),
+        WindowAppend::ModelGenerationChanged { current: 1 }
+    );
+    drop((ledger, log, store));
+
+    let store = Arc::new(Store::open(db, cas).unwrap());
+    let reopened = WindowLedger::new(Arc::new(StoreWindowLog::new(store, scope)));
+    let chain = reopened.all().unwrap();
+    let ids: Vec<_> = chain.iter().skip(1).map(|w| w.id).collect();
+    assert_eq!(ids, vec![a.id, b.id, c.id], "genesis + three windows, in order");
+    assert_eq!(chain[3], c, "frames and body read back byte-identical");
+    assert_eq!(reopened.model_generation().unwrap(), 1);
+    let _ = std::fs::remove_dir_all(dir);
 }
