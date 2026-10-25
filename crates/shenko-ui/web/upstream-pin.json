@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/Proto-UI/Proto-UI.git",
+  "commit": "7181a93a5ec5cad43936a72e31d5477d5488733a",
+  "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
+  "packages": [
+    "@proto.ui/adapter-react@0.3.0-alpha.1",
+    "@proto.ui/prototypes-shadcn@0.3.0-alpha.1",
+    "@proto.ui/cli@0.3.0-alpha.1"
+  ],
+  "adopted_families": [
+    "button",
+    "textarea",
+    "scroll-area",
+    "collapsible"
+  ],
+  "compiler": {
+    "status": "seam_only",
+    "runtime_imported": false,
+    "upstream_visibility": "private source package; no published compiler profile"
+  }
+}
