@@ -1088,7 +1088,7 @@ mod recovery_integration_tests {
     }
 
     fn open_native_fixture(dir: &std::path::Path) -> shenko_store::store::Store {
-        shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap()
+        shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap()
     }
 
     /// Deterministic model-output fixture admitted through the real parser and S1
