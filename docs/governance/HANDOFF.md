@@ -1,8 +1,17 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-25（PR41 已 normal merge 父38；C01/C22 F2 整合与历史证据分列）**
+**更新时间：2026-10-25（PR51 raw session 写入口与 PR53 C20 持久历史已合入；完整 C01/C20 仍开放）**
 
-## 当前 C01/C22 F2：已独立复核并整合（非完整包完成）
+## 当前 C01 raw session 写入口与 C20 接续（非完整包完成）
+
+- **实际 main 与原作者**：[PR51](https://github.com/cyjin-yl/shenko/pull/51) 已 normal merge，原 head `5255e5bc18fae86d6d9fa7caf227281599ba6c4f`，merge／本次产品基线 `a2510c2497c6c2ebc65159b566b7a84ee0530b45`，tree `93745c763e443ee68a4f029c6a70a28477f6c718`，另一 parent 是当时 main `9965b9125a11c2b87185aca0dbca644bebd1f33f`。原 commit 的 author/committer 均为 `shwgdysjsvg <2738635606@qq.com>`，且已是 main 祖先；未 squash、强推或改写朋友分支。
+- **focused 交付边界**：main 现有 `RawSession` 与 `WriteBatch.raw_session_upserts`；ledger `try_commit` 在同一个 Immediate 事务内先写 raw session 父行、再写 `session_event_upserts`。同事实 replay 为 no-op；既有行的 agent/started_at/data 不一致，或同一 `(session,seq)` 对应不同 event_id，会报错并回滚整个 batch。原事件写入会静默忽略后一类冲突的问题已在此切片修复，不另设旁路 writer 或关闭外键。
+- **已有验证，不由本文升级**：精确候选与独立 normal-merge 组合 `9965b912 + 5255e5bc` 的 tree 均为上述 `93745c76`；两轮指定 `cargo test --locked -p shenko-store -p shenko-types -j1` 均实际 exit 0，各 16 tests passed。首次 ezra 构建因 root-owned target 在编译前 exit 101，不计为通过；有效结果由 root 构建席位取得。命令环境与日志见 [PR51 合并说明](https://github.com/cyjin-yl/shenko/pull/51#issuecomment-6392010544)，路径为 `/tmp/shenko-pr51-review-5255e5bc/`。本次只更新文档，没有重跑 cargo、全 workspace 或新增测试，不声称 `verified_real`、完整 C01/C20 或 CI 通过。
+- **closed-writer 语义保留**：同 seq/agent 等冲突继续沿既有 `with_mutation(|_| true)` 路径关闭写入方，测试重开 store 后核对回滚；这是当前合同下的既有行为，不误报为本 PR 新 bug。若需区分逻辑冲突与 `storage_failure`，可另做独立小切片；不要求 PR51 增加兼容模式或扩大范围。
+- **C20 真实接续**：[PR50](https://github.com/cyjin-yl/shenko/pull/50) 原 head `3a1e63aeda0d4091dfbb1ed5f7ca4c421208ff92` 已是 main 祖先，[PR53](https://github.com/cyjin-yl/shenko/pull/53) 的修复 head `74732c6b6b82a9e884fe8ff30bc306e043c3c7a1` 已 normal merge 为 `9965b9125a11c2b87185aca0dbca644bebd1f33f`。PR51 已解除 raw session 父行写入阻塞；HistorySource／窗口 fixture 现在可以读取正式 `WriteBatch` 产生的原始会话，不再以独立连接模拟未来 writer，见 [#25 交付说明](https://github.com/cyjin-yl/shenko/issues/25#issuecomment-6392011548)。版本化 payload 读取、完整 OperationRecord/attempt/T2 关联与 `ended_at`、正式 loop、真实 KV/prefill／模型读图和包闭包仍是各自后继义务。本 checkpoint 读回时 [PR52](https://github.com/cyjin-yl/shenko/pull/52) 为 OPEN/DRAFT、head `3271121a2c2f68db6e94026ea40d20373a130fb4`；本文不对它新增 review 或合并声明。
+- **状态与下一最小工作**：#6、#25 均保持 OPEN。C01 继续真实 child/T2、outbox/selector 与实际恢复交接；C20 从当前 main 接续版本化 payload 和执行 ledger 关联，再接正式 loop 安全边界。局部写接口、持久适配及本 docs checkpoint 均不关闭完整工作包或 S1–S5。
+
+## 既有 C01/C22 F2 基线（较早 checkpoint；已独立复核并整合，非完整包完成）
 
 - **真实栈/作者**：[PR41](https://github.com/cyjin-yl/shenko/pull/41) 已从 ready 正常合入 corrected 父38，merge `e7e26a6bd799584b98982cb859da3328cf0634e7`，完整 tree 等于被审查 head `2529968b56c92dcd044db3596628f6a5b0d04d60`（tree `031d1ff2af036e44d3cab79bfbcc97335f939785`）。七个朋友原 commits/作者与父图均保留；wrong-author `3e6ad79` 没有进入新图，旧来源 PR29/34 分支未改写/删除。
 - **独立审查实际完成**：只读 `/tmp/shenko-c01-intent-review-sND5Yz69` 实际读回上述 SHA/tree，检查完整 `29fa07b..2529968b` composition 与 `feab9b6..2529968b` focused implementation，结论 `approved_slice`、findings=[]。不是只启动 reviewer 或创建 clone；不代表完整 C01/C22、生产 child/QQ 或 S1–S5 通过。
