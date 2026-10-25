@@ -228,12 +228,41 @@ async fn main() -> Result<()> {
             store.start_subject_dispatcher()?;
             store.settle_subject_memory()?;
             store.reconcile_subject_publications()?;
+            // Native finite children use the same Cordis root and persistent
+            // ledger. The handler is deliberately narrow; generic model goals
+            // remain parked instead of becoming a fictitious completed LLM run.
+            let _native_child_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeChildPlugin,
+                    (
+                        Arc::clone(&store),
+                        shenko_types::ids::RuntimeGeneration::default(),
+                    ),
+                )
+                .await?;
+            let printf_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::HostPrintfHandler::new(Arc::clone(&store)));
+            let _native_printf_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, printf_handler)
+                .await?;
+            let native_child = supervisor
+                .context()
+                .try_service::<shenko_subject::NativeChildService>()?;
+            native_child.recover()?;
             let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
+            let dispatch_native = Arc::clone(&native_child);
+            let dispatch_results = subject_inbox.sender();
             let dispatch_stop = consumer_cancel.clone();
             let failure_cancel = cancel.clone();
             let dispatcher_task = tokio::spawn(async move {
-                let result = shenko_subject::dispatch::run_committed_dispatcher(dispatch_store, dispatch_stop).await;
+                let result = shenko_subject::dispatch::run_committed_dispatcher(
+                    dispatch_store,
+                    dispatch_native,
+                    agent_id,
+                    dispatch_results,
+                    dispatch_stop,
+                ).await;
                 if result.is_err() { failure_cancel.cancel(); }
                 result
             });
@@ -708,7 +737,12 @@ fn bootstrap_genesis(
 mod recovery_integration_tests {
     use super::*;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
-    use shenko_types::{ids::*, subject::*};
+    use shenko_types::{
+        ids::*,
+        operation::{EffectStatus, OperationOutcome, OperationState},
+        subject::*,
+        task::{AbortScope, TaskOutcome, TaskState},
+    };
 
     // Local I/L/CAS simulation: crash after S1, before I mirrors its ACK.
     // No provider, external account, model inference or production data is used.
@@ -811,7 +845,7 @@ mod recovery_integration_tests {
             .unwrap();
         let identity_service = identity_context.try_service::<IdentityService>().unwrap();
         let decision = StepDecision {
-            schema_version: 3,
+            schema_version: 4,
             output: shenko_subject::output::parse_output(
                 step.step_id,
                 object.clone(),
@@ -888,6 +922,635 @@ mod recovery_integration_tests {
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
         assert!(spool.ingest(received.raw).unwrap().is_none());
         // Temporary evidence files are deliberately retained for inspection.
+    }
+
+    fn open_native_fixture(dir: &std::path::Path) -> shenko_store::store::Store {
+        shenko_store::store::Store::open(dir.join("control.sqlite"), dir.join("cas")).unwrap()
+    }
+
+    /// Deterministic model-output fixture admitted through the real parser and S1
+    /// transaction. No model provider is invoked by this test helper.
+    fn commit_native_fixture_step(
+        store: &shenko_store::store::Store,
+        model_text: &str,
+        task_ids: &[EntityId],
+        event_dispositions: Vec<EventDisposition>,
+    ) -> shenko_types::commit::CommitRef {
+        let (head, mut step) = store
+            .load_subject(store.get_existing_agent_id().unwrap().unwrap())
+            .unwrap();
+        let object = store
+            .cas
+            .seal_object(model_text.as_bytes(), "text/plain", "test", "raw", 1)
+            .unwrap()
+            .object;
+        step.input_plan_ref = Some(object.clone());
+        step.state = SubjectStepState::Preparing;
+        step.record_revision = RecordRevision(1);
+        store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
+        step.state = SubjectStepState::AwaitingModel;
+        step.active_request_id = Some(EntityId::new());
+        step.record_revision = RecordRevision(2);
+        store.upsert_step(&step, &head, RecordRevision(1)).unwrap();
+        step.state = SubjectStepState::ResultRecorded;
+        step.model_result_ref = Some(object.clone());
+        step.model_outcome_ref = Some(
+            store
+                .cas
+                .seal_object(
+                    &serde_json::to_vec(&SubjectModelOutcome {
+                        schema_version: 2,
+                        request_id: step.active_request_id.unwrap(),
+                        result_ref: object.clone(),
+                        stop_reason: "end_turn".into(),
+                        raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
+                        usage: None,
+                    })
+                    .unwrap(),
+                    "application/json",
+                    "model_outcomes",
+                    "SubjectModelOutcome",
+                    2,
+                )
+                .unwrap()
+                .object,
+        );
+        step.record_revision = RecordRevision(3);
+        store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
+
+        let identity = IdentityService::new(Arc::new(shenko_identity::DefaultIdentityPolicy));
+        let output = shenko_subject::output::parse_output(
+            step.step_id,
+            object.clone(),
+            model_text,
+            &identity,
+        )
+        .unwrap();
+        let mut delegated_task_intents = vec![];
+        for control in &output.controls {
+            if let shenko_types::output::OutputAction::Delegate { text, definition } =
+                &control.action
+            {
+                delegated_task_intents.push(DelegationIntent {
+                    intent_id: task_ids[delegated_task_intents.len()],
+                    goal: text.clone(),
+                    system_prompt: text.clone(),
+                    model: None,
+                    capabilities: vec![],
+                    budget_hint: None,
+                    reply_grant: None,
+                    definition: definition.clone(),
+                });
+            }
+        }
+        assert_eq!(delegated_task_intents.len(), task_ids.len());
+        let next = EntityId::new();
+        let decision = StepDecision {
+            schema_version: 4,
+            output,
+            identity_intent: None,
+            step_id: step.step_id,
+            input_plan_ref: object.clone(),
+            model_result_ref: Some(object),
+            applied_steering_refs: vec![],
+            event_dispositions,
+            delegated_task_intents,
+            child_dialogue_intents: vec![],
+            memory_intents: vec![],
+            policy_intents: vec![],
+            publication_intents: vec![],
+            pending_obligations: vec![],
+            evidence_refs: vec![],
+            successor_step_id: next,
+        };
+        step.decision_ref = Some(
+            store
+                .cas
+                .seal_object(
+                    &serde_json::to_vec(&decision).unwrap(),
+                    "application/json",
+                    "test",
+                    "StepDecision",
+                    4,
+                )
+                .unwrap()
+                .object,
+        );
+        step.state = SubjectStepState::Committed;
+        step.record_revision = RecordRevision(4);
+        store
+            .commit_step_and_advance_head(&step, &head, next)
+            .unwrap()
+            .commit_ref
+    }
+
+    async fn native_fixture_helper(dir: &std::path::Path) -> Result<()> {
+        let store = Arc::new(open_native_fixture(dir));
+        store.start_subject_dispatcher()?;
+        let supervisor = shenko_kernel::Supervisor::new(RuntimeGeneration::default());
+        let _child = supervisor
+            .spawn(
+                shenko_subject::NativeChildPlugin,
+                (store.clone(), RuntimeGeneration::default()),
+            )
+            .await?;
+        let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            Arc::new(shenko_exec_host::HostPrintfHandler::new(store.clone()));
+        let _handler = supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await?;
+        let native = supervisor
+            .context()
+            .try_service::<shenko_subject::NativeChildService>()?;
+        native.recover()?;
+        native.run_once().await?;
+        supervisor.stop().await?;
+        Ok(())
+    }
+
+    // Real local process boundary: one process executes the committed Pending
+    // task and exits; its parent reopens the ledger and must not execute it again.
+    // The model output is a deterministic fixture, not production-model evidence.
+    #[tokio::test]
+    async fn native_printf_result_survives_real_process_reopen() {
+        const HELPER: &str = "SHENKO_NATIVE_PRINTF_REOPEN_HELPER";
+        if let Some(dir) = std::env::var_os(HELPER) {
+            native_fixture_helper(std::path::Path::new(&dir))
+                .await
+                .unwrap();
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("shenko-native-reopen-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let store = open_native_fixture(&dir);
+        let agent = bootstrap_genesis(&store, None).unwrap();
+        store.start_subject_dispatcher().unwrap();
+        let printf_task = EntityId::new();
+        let missing_task = EntityId::new();
+        let natural_task = EntityId::new();
+        let expected = "native child 真实结果\nwith spaces";
+        let model_text = format!(
+            "[delegate:host.printf:1] {}\n[delegate:example.missing:1] {{\"text\":\"missing\"}}\n[delegate] 保留自然语言目标而不伪造执行",
+            serde_json::json!({"text":expected,"timeout_secs":5})
+        );
+        commit_native_fixture_step(
+            &store,
+            &model_text,
+            &[printf_task, missing_task, natural_task],
+            vec![],
+        );
+        let pending = store.external_task(printf_task).unwrap();
+        assert!(matches!(pending.state, TaskState::Pending { .. }));
+        assert_eq!(pending.kind, "host.printf");
+        assert!(store.native_task_result(printf_task).unwrap().is_none());
+        drop(store);
+
+        let status = tokio::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--exact")
+            .arg("recovery_integration_tests::native_printf_result_survives_real_process_reopen")
+            .arg("--nocapture")
+            .env(HELPER, &dir)
+            .status()
+            .await
+            .unwrap();
+        assert!(status.success(), "native helper process failed: {status}");
+
+        let store = Arc::new(open_native_fixture(&dir));
+        assert_eq!(bootstrap_genesis(&store, None).unwrap(), agent);
+        store.start_subject_dispatcher().unwrap();
+        let supervisor = shenko_kernel::Supervisor::new(RuntimeGeneration::default());
+        let _child = supervisor
+            .spawn(
+                shenko_subject::NativeChildPlugin,
+                (store.clone(), RuntimeGeneration::default()),
+            )
+            .await
+            .unwrap();
+        let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            Arc::new(shenko_exec_host::HostPrintfHandler::new(store.clone()));
+        let _handler = supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await
+            .unwrap();
+        let native = supervisor
+            .context()
+            .try_service::<shenko_subject::NativeChildService>()
+            .unwrap();
+        native.recover().unwrap();
+        native.run_once().await.unwrap();
+        native.run_once().await.unwrap();
+
+        let result = store.native_task_result(printf_task).unwrap().unwrap();
+        assert!(matches!(&result.outcome, TaskOutcome::Succeeded));
+        assert_eq!(result.task_id, printf_task);
+        assert_eq!(
+            result
+                .result
+                .as_ref()
+                .and_then(|value| value.get("stdout_utf8"))
+                .and_then(serde_json::Value::as_str),
+            Some(expected)
+        );
+        let task = store.external_task(printf_task).unwrap();
+        assert!(task.is_terminal());
+        assert_eq!(task.updated_commit, result.commit_ref);
+        let attempts = store
+            .external_operation_attempts(result.operation_id)
+            .unwrap();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].invocation_id, result.invocation_id);
+        let evidence = store
+            .external_operation_evidence(result.operation_id)
+            .unwrap();
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].receipt_id, result.receipt_id);
+        assert_eq!(
+            shenko_store::child::park_reason(&store.external_task(missing_task).unwrap()),
+            Some("handler_unavailable")
+        );
+        assert_eq!(
+            shenko_store::child::park_reason(&store.external_task(natural_task).unwrap()),
+            Some("definition_unavailable")
+        );
+        assert!(store.native_task_result(missing_task).unwrap().is_none());
+        assert!(store.native_task_result(natural_task).unwrap().is_none());
+        assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 1);
+
+        let inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let dispatcher = tokio::spawn(shenko_subject::dispatch::run_committed_dispatcher(
+            store.clone(),
+            native.clone(),
+            agent,
+            inbox.sender(),
+            cancel.clone(),
+        ));
+        let events = inbox.recv_batch(1, 2_000).await;
+        cancel.cancel();
+        dispatcher.await.unwrap().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, result.result_id);
+        assert_eq!(
+            events[0].kind,
+            shenko_subject::inbox::InboxEventKind::TaskResult
+        );
+        assert_eq!(
+            events[0]
+                .payload
+                .get("result")
+                .and_then(|value| value.get("stdout_utf8"))
+                .and_then(serde_json::Value::as_str),
+            Some(expected)
+        );
+        assert_eq!(
+            store
+                .external_operation_attempts(result.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        supervisor.stop().await.unwrap();
+
+        commit_native_fixture_step(
+            &store,
+            "已接收并核对 child 结果",
+            &[],
+            vec![EventDisposition {
+                event_id: events[0].event_id,
+                disposition: Disposition::Acknowledged,
+            }],
+        );
+        assert!(store.ready_native_results(agent, 8).unwrap().is_empty());
+        assert_eq!(
+            store
+                .external_operation_attempts(result.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        // The process/ledger/evidence directory is retained for readback.
+    }
+
+    /// Arm the existing T1 record without spawning a process. This is explicitly
+    /// a fault/interleaving simulation; only the preceding test is real process
+    /// execution evidence. It verifies fencing and recovery, not SSH or a model.
+    fn arm_simulated_native_operation(
+        store: &shenko_store::store::Store,
+        claim: &shenko_store::NativeTaskClaim,
+        implementation: shenko_types::task::ImplementationRef,
+    ) -> Result<(
+        shenko_types::operation::OperationRecord,
+        shenko_types::operation::AttemptRecord,
+    )> {
+        use shenko_types::{commit::CommitRef, object::*, operation::*};
+        let seal =
+            |value: &serde_json::Value, schema: &str| -> Result<shenko_types::object::ObjectRef> {
+                Ok(store
+                    .cas
+                    .seal_object(
+                        &serde_json::to_vec(value)?,
+                        "application/json",
+                        "native-fault-simulation",
+                        schema,
+                        1,
+                    )?
+                    .object)
+            };
+        let input_ref = seal(&serde_json::json!({"text":"simulated"}), "input")?;
+        let bindings = ResourceBindings {
+            provider: "simulation.only".into(),
+            account_identity: String::new(),
+            runtime_node: claim.invocation.node_id.to_string(),
+            mount_generation: 0,
+            capability_level: "no_process_was_started".into(),
+            extra: serde_json::json!({"simulation":true}),
+        };
+        let resource = seal(&serde_json::to_value(bindings)?, "bindings")?;
+        let acceptance = seal(
+            &serde_json::json!("original simulated result"),
+            "acceptance",
+        )?;
+        let retry = seal(&serde_json::json!("no automatic replay"), "retry")?;
+        let version = VersionRef {
+            artifact: ArtifactRef {
+                digest: implementation.artifact_digest.clone(),
+                locator: "simulation:host-printf-v1".into(),
+            },
+            symbol: "host.printf.execute".into(),
+            schema: SchemaRef {
+                name: "host-printf-observation-v1".into(),
+                major: 1,
+                digest: implementation.artifact_digest.clone(),
+            },
+        };
+        let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
+        let mut operation = OperationRecord {
+            record_schema_version: 1,
+            operation_id: claim.operation_id,
+            record_revision: RecordRevision(0),
+            task_id: claim.task.task_id,
+            logical_key: "native-handler".into(),
+            operation_name: "host.printf.v1".into(),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            final_input_ref: input_ref.clone(),
+            input_digest: input_ref.digest.clone(),
+            contract_ref: OperationContractRef {
+                plugin_id: implementation.plugin_id,
+                artifact_digest: implementation.artifact_digest.clone(),
+                contract_digest: implementation.artifact_digest.clone(),
+                receipt_reader_ref: version.clone(),
+            },
+            resource_bindings_ref: resource,
+            authority_ref: AuthorityRef {
+                delegation_id: claim.task.task_id,
+                delegation_revision: RecordRevision(claim.invocation.task_revision.0),
+                decision_ref: claim
+                    .task
+                    .created_by_step_id
+                    .unwrap_or(claim.invocation.invocation_id),
+            },
+            acceptance_predicate_ref: acceptance,
+            retry_contract_ref: retry,
+            checkpoint_scope_ref: None,
+            state: OperationState::InFlight,
+            outcome: None,
+            outcome_conflict: false,
+            effect_status: EffectStatus::Unknown,
+            retry_of: None,
+            compensates: None,
+            possible_duplicate_of: vec![],
+            prepared_commit: zero,
+            evidence_through: None,
+        };
+        let mut attempt = AttemptRecord {
+            record_schema_version: 1,
+            attempt_id: EntityId::new(),
+            operation_id: claim.operation_id,
+            attempt_no: 1,
+            invocation_id: claim.invocation.invocation_id,
+            worker_id: claim.invocation.worker_id,
+            node_id: claim.invocation.node_id,
+            epoch: claim.invocation.epoch,
+            implementation_ref: version,
+            dispatch_stage: AttemptDispatchStage::Armed,
+            armed_commit: zero,
+            provider_handle: None,
+            provider_idempotency: None,
+            transport_ref: None,
+            started_at: None,
+            last_observed_at: None,
+            final_receipt_id: None,
+        };
+        assert!(
+            store
+                .arm_external_operation(&claim.invocation, &mut operation, &mut attempt)?
+                .is_none()
+        );
+        Ok((operation, attempt))
+    }
+
+    #[tokio::test]
+    async fn native_cancel_late_evidence_and_unknown_recovery_are_fenced() {
+        let dir = std::env::temp_dir().join(format!("shenko-native-fencing-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let old_store = Arc::new(open_native_fixture(&dir));
+        bootstrap_genesis(&old_store, None).unwrap();
+        old_store.start_subject_dispatcher().unwrap();
+        let cancelled_task = EntityId::new();
+        let unknown_task = EntityId::new();
+        commit_native_fixture_step(
+            &old_store,
+            "[delegate:host.printf:1] {\"text\":\"cancel\"}\n[delegate:host.printf:1] {\"text\":\"unknown\"}",
+            &[cancelled_task, unknown_task],
+            vec![],
+        );
+        let descriptor = shenko_subject::NativeTaskHandler::descriptor(
+            &shenko_exec_host::HostPrintfHandler::new(old_store.clone()),
+        );
+        let cancelled_claim = old_store
+            .claim_native_task(cancelled_task, descriptor.implementation_ref.clone(), false)
+            .unwrap()
+            .unwrap();
+        let unknown_claim = old_store
+            .claim_native_task(unknown_task, descriptor.implementation_ref.clone(), false)
+            .unwrap()
+            .unwrap();
+        let (cancelled_operation, cancelled_attempt) = arm_simulated_native_operation(
+            &old_store,
+            &cancelled_claim,
+            descriptor.implementation_ref.clone(),
+        )
+        .unwrap();
+        let (_unknown_operation, _unknown_attempt) = arm_simulated_native_operation(
+            &old_store,
+            &unknown_claim,
+            descriptor.implementation_ref.clone(),
+        )
+        .unwrap();
+        let old_native = shenko_subject::NativeChildService::new(
+            old_store.clone(),
+            RuntimeGeneration::default(),
+        );
+        assert_eq!(
+            old_native
+                .cancel(
+                    cancelled_task,
+                    "test cancellation",
+                    AbortScope::SubtreeOrdinary
+                )
+                .unwrap()
+                .cancelled,
+            vec![cancelled_task]
+        );
+
+        // A late original result is durable E1, not authority for the cancelled
+        // invocation to create T2 or a subject result.
+        let raw = old_store
+            .cas
+            .seal_object(
+                br#"{"simulated_late_result":true}"#,
+                "application/json",
+                "native-fault-simulation",
+                "late-result",
+                1,
+            )
+            .unwrap()
+            .object;
+        let late = shenko_types::evidence::EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: EntityId::new(),
+            operation_id: Some(cancelled_operation.operation_id),
+            attempt_id: Some(cancelled_attempt.attempt_id),
+            source_id: "simulation.original".into(),
+            source_instance_id: cancelled_attempt.node_id.to_string(),
+            source_event_key: Some("late-original-result".into()),
+            producer_epoch: Some(cancelled_attempt.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw,
+            decoder_ref: Some(cancelled_operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: shenko_types::evidence::DecodeStatus::Decoded,
+            observation_level: Some(
+                shenko_types::evidence::ObservationLevel::PostconditionVerified,
+            ),
+            normalized_ref: None,
+            observed_at: Some(chrono::Utc::now()),
+            received_commit: cancelled_operation.prepared_commit,
+        };
+        let resolved = old_store
+            .record_external_evidence(
+                cancelled_operation.operation_id,
+                cancelled_attempt.attempt_id,
+                late,
+                Some(OperationOutcome::Succeeded),
+                EffectStatus::None,
+            )
+            .unwrap();
+        assert_eq!(resolved.state, OperationState::Resolved);
+        assert!(
+            old_store
+                .complete_native_task(&cancelled_claim, &resolved)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            old_store
+                .native_task_result(cancelled_task)
+                .unwrap()
+                .is_none()
+        );
+
+        let reopened = Arc::new(open_native_fixture(&dir));
+        reopened.start_subject_dispatcher().unwrap();
+        assert!(
+            old_store
+                .complete_native_task(&cancelled_claim, &resolved)
+                .is_err()
+        );
+        drop(old_native);
+        drop(old_store);
+
+        let supervisor = shenko_kernel::Supervisor::new(RuntimeGeneration::default());
+        let _child = supervisor
+            .spawn(
+                shenko_subject::NativeChildPlugin,
+                (reopened.clone(), RuntimeGeneration::default()),
+            )
+            .await
+            .unwrap();
+        let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+            Arc::new(shenko_exec_host::HostPrintfHandler::new(reopened.clone()));
+        let _handler = supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await
+            .unwrap();
+        let native = supervisor
+            .context()
+            .try_service::<shenko_subject::NativeChildService>()
+            .unwrap();
+        native.recover().unwrap();
+        native.run_once().await.unwrap();
+        native.run_once().await.unwrap();
+
+        let unknown = reopened
+            .external_operation(unknown_claim.operation_id)
+            .unwrap();
+        assert_eq!(unknown.state, OperationState::Reconciling);
+        assert_eq!(unknown.effect_status, EffectStatus::Unknown);
+        assert_eq!(unknown.outcome, None);
+        let unknown_task_record = reopened.external_task(unknown_task).unwrap();
+        assert!(matches!(
+            unknown_task_record.state,
+            TaskState::Pending { .. }
+        ));
+        assert_eq!(
+            shenko_store::child::park_reason(&unknown_task_record),
+            Some("reconciling")
+        );
+        assert_eq!(
+            reopened
+                .external_operation_attempts(unknown_claim.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .external_operation_evidence(unknown_claim.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(reopened.native_task_result(unknown_task).unwrap().is_none());
+        assert!(
+            reopened
+                .native_task_result(cancelled_task)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            reopened
+                .external_operation_attempts(cancelled_operation.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            reopened
+                .external_operation_evidence(cancelled_operation.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            reopened
+                .external_task(cancelled_task)
+                .unwrap()
+                .abort_request
+                .is_some()
+        );
+        supervisor.stop().await.unwrap();
+        // Simulated fault artifacts and all original receipts remain on disk.
     }
 }
 

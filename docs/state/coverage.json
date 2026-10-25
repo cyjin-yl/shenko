@@ -1923,20 +1923,23 @@
         "crates/shenko-context-policy/src/window.rs",
         "crates/shenko-compact-budget/src/lib.rs",
         "crates/shenko-compact-snap/src/lib.rs",
-        "crates/shenko-compact-snap/src/render.rs"
+        "crates/shenko-compact-snap/src/render.rs",
+        "crates/shenko-context-policy/src/store_history.rs",
+        "crates/shenko-store/src/session_events.rs",
+        "crates/shenko-store/src/context_windows.rs"
       ],
       "evidence_refs": [
         "crates/shenko-compact-budget/tests/budget_plugin.rs",
-        "crates/shenko-compact-snap/tests/independent_plugins.rs"
+        "crates/shenko-compact-snap/tests/independent_plugins.rs",
+        "crates/shenko-compact-budget/tests/store_history.rs"
       ],
       "blockers": [
-        "main 原始历史仍为进程内 MemoryHistory；朋友已推 HistorySource/WindowLog checkpoint a3b2af2 尚未合入或独立复核，#6 会话写入口/执行状态关联和 #14 history child 仍待接续",
         "正式主循环尚未调用 ContextPolicy",
         "真实 KV/prefill 与视觉阅读正确率未测",
         "BMP 外字符（emoji 等）无字形，按记录判不可读并回退"
       ],
       "satisfied": false,
-      "note": "C20 切片1已由 PR42/PR47 合入 main d9dce22c0bda81c207259bf7a047ac8afc78a8b2；复用 c7585e2/e5054b8 三包各 3/3、exit 0 的确定性证据，本次未重跑。budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG。收益按当前物化窗口比较，5% 是工程默认而非实测最优；前缀按实际引用/文本/pointer/图像身份及模型相关代际计算。reusable_prefix_tokens/recompute_tokens 和 vision patch token 都是估算，非真实 cache-hit/prefill。GNU Unifont 15.1.05 覆盖 BMP/CJK，BMP 外逐记录回退；人工目检不证明模型读图。窗口持久化/正式 loop/真实成本仍未完成，完整 R115 未满足。"
+      "note": "C20 切片1：budget 走 Codex 新窗口路径(0 模型调用)，snapcompact 走 OMP 有界文本→PNG；窗口保留原始引用/未完成调用单元，前缀复用按逐项相同计算。成本中 vision token 为 patch 估算，非实测。 帧字形为 GNU Unifont 15.1.05（BMP 全覆盖，CJK 16×16），中英数字路径混排人工目检可读；模型读图正确率未测。 切片2：原始历史经 session_events 只读、窗口链持久化于 context_windows（帧 BLOB 同事务、blake3 读回校验），重开存储后不经插件仍可物化并寻址全部原始 seq；调用状态以执行 ledger OperationRecord 为准，缺失/不确定一律 Unknown。"
     },
     {
       "requirement_id": "R116",
@@ -1970,7 +1973,7 @@
         "未在正式运行时或真实模型上启用"
       ],
       "satisfied": false,
-      "note": "C20 切片1已由 PR42/PR47 正常合入，保留朋友原作者/提交。两个独立 cordis Plugin 经 PluginRegistry 分别 spawn/restart/dispose；替换后旧 epoch 提交被拒，卸载后已提交内存窗口仍可物化；无视觉/帧不可读时报告并回退 budget。复用已有确定性证据，不等于重启后的持久恢复或包管理器交付；独立安装包/依赖闭包、正式 loop 和真实模型启用仍未交付，#25 保持 OPEN，完整 R116 未满足。"
+      "note": "C20 切片1：两个独立 cordis Plugin，经已合入 PluginRegistry 分别 spawn/restart/dispose；替换后旧 epoch 窗口提交被拒；卸载后已提交窗口仍可物化。无视觉/帧不可读时报告并回退 budget。 已提交窗口及其派生帧持久化于 store，插件卸载/替换后仍可恢复。"
     },
     {
       "requirement_id": "R117",

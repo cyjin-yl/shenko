@@ -723,15 +723,18 @@ async fn execute_step(
     let mut identity_action_ids = vec![];
     for control in &output.controls {
         match &control.action {
-            OutputAction::Delegate { text } => decision_delegation_intents.push(DelegationIntent {
-                intent_id: control.action_id,
-                goal: text.clone(),
-                system_prompt: text.clone(),
-                model: None,
-                capabilities: vec![],
-                budget_hint: None,
-                reply_grant: None,
-            }),
+            OutputAction::Delegate { text, definition } => {
+                decision_delegation_intents.push(DelegationIntent {
+                    intent_id: control.action_id,
+                    goal: text.clone(),
+                    system_prompt: text.clone(),
+                    model: None,
+                    capabilities: vec![],
+                    budget_hint: None,
+                    reply_grant: None,
+                    definition: definition.clone(),
+                })
+            }
             OutputAction::Remember { text } => {
                 let content_ref = seal_step_object(
                     &store,
@@ -802,7 +805,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
-        schema_version: 3,
+        schema_version: 4,
         step_id,
         output: output.clone(),
         identity_intent,

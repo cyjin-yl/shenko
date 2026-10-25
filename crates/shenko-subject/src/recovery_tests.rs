@@ -562,7 +562,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 3,
+        schema_version: 4,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
