@@ -20,9 +20,9 @@
 
 - 2026-10-25 01:25 UTC：在 issue #54 征求当时唯一外部贡献者 `shwgdysjsvg` 对 AGPL＋owner 双许可的意见。
 - 2026-10-25 04:45 UTC：提案文档经 PR #61 合入 main，明确标注 PROPOSED 并再次邀请讨论。
-- 其后超过 12 小时无回应、无可核查 checkpoint。按 AGENTS.md／GOAL.md 的 **3 小时接管规则**，主控执行 owner 已明确的决策，正式采用本方案并补齐 LICENSE 与包元数据。
+- 征求意见超过 3 小时后，主控按 owner 已明确的决定采用本方案；PR #64 补齐 LICENSE 与包元数据。接管开发决策不冒充另一贡献者作出授权，其明确确认记录如下。
 - **既有贡献**：此前仓库仅有 `Apache-2.0` 元数据、无完整 LICENSE 正文。Apache-2.0 贡献可在保留版权与许可声明的前提下并入 AGPL-3.0 项目；所有原作者、提交与来源 PR 均保留，未改写历史。
-- **既有贡献的商业再许可**：不表述为贡献者已同意。#54 的授权请求保持公开，`shwgdysjsvg` 仍可回应或提出异议；owner 对其既有贡献行使闭源/商业双许可以取得其明确授权为前提。2026-10-25 之后的新贡献按 `CONTRIBUTOR_LICENSE.md` 与 `DCO.md` 的提交确认机制处理。
+- **贡献者明确授权**：`shwgdysjsvg` 于 **2026-10-25 12:20:53 UTC** 在 [#54 原始确认](https://github.com/cyjin-yl/shenko/issues/54#issuecomment-6397563508) 写明：“我同意 docs/governance/CONTRIBUTOR_LICENSE.md 的条款，并仅就我有权贡献给 Shenko 的部分授予上述非独占再许可。”所指协议位于当时 main `d9a6ebcf64`，Git blob 为 `f9d9bf1a8e0ff364afe1a21c81d3c75448ae4d98`。主控已[回复确认](https://github.com/cyjin-yl/shenko/issues/54#issuecomment-6397601162)。授权仅覆盖其有权贡献给 Shenko 的部分，不扩展到第三方作品；原作者、原始 commits 和来源 PR 保留。其他贡献者仍各自按 `CONTRIBUTOR_LICENSE.md` 与 `DCO.md` 确认，不能沿用他人的授权。
 - 依赖核查：`cordis-rs` 为 **MIT**，不改写上游许可；第三方依赖与前端资源（字体、组件、构建产物）各自许可与 NOTICE 保留，持续在引入时核对。
 
 ## 权利边界
