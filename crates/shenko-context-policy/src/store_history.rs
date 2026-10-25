@@ -18,12 +18,14 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-use shenko_store::{Store, StoredContextWindow, StoredDerivative, StoredSessionEvent};
+use shenko_store::{
+    ContextWindowAppend, Store, StoredContextWindow, StoredDerivative, StoredSessionEvent,
+};
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
 use crate::policy::Derivative;
-use crate::window::{CommittedWindow, WindowLog};
+use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
 #[derive(Default, Deserialize)]
 struct Payload {
@@ -71,7 +73,7 @@ impl StoreHistory {
             });
         }
         let status = match payload.operation_id.as_deref() {
-            None => payload.status.unwrap_or(CallStatus::Unknown),
+            None => CallStatus::Unknown,
             Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {
                 Some(Ok(Some(op))) => CallStatus::from_operation(
                     op.state,
@@ -187,16 +189,28 @@ impl StoreWindowLog {
 
 impl WindowLog for StoreWindowLog {
     fn head(&self) -> Result<CommittedWindow, StorageError> {
-        if let Some(head) = self.all()?.pop() {
-            return Ok(head);
+        if let Some(head) = self.store.context_window_head(self.scope_id).map_err(storage)? {
+            return Self::decode(head);
         }
         // Lazily persist genesis. Losing the race to another writer is fine:
         // whoever landed first is the genesis everyone then reads.
         let genesis = CommittedWindow::genesis();
+        match self
+            .store
+            .append_context_window(self.scope_id, None, None, &Self::encode(&genesis)?)
+            .map_err(storage)?
+        {
+            ContextWindowAppend::Appended | ContextWindowAppend::HeadChanged => {}
+            ContextWindowAppend::ModelGenerationChanged { .. } => {
+                return Err(storage("genesis append unexpectedly checked model generation"));
+            }
+        }
         self.store
-            .append_context_window(self.scope_id, None, &Self::encode(&genesis)?)
-            .map_err(storage)?;
-        self.all()?.pop().ok_or_else(|| storage("genesis window missing after append"))
+            .context_window_head(self.scope_id)
+            .map_err(storage)?
+            .map(Self::decode)
+            .transpose()?
+            .ok_or_else(|| storage("genesis window missing after append"))
     }
 
     fn all(&self) -> Result<Vec<CommittedWindow>, StorageError> {
@@ -208,10 +222,31 @@ impl WindowLog for StoreWindowLog {
             .collect()
     }
 
-    fn append(&self, expected: EntityId, window: &CommittedWindow) -> Result<bool, StorageError> {
-        self.store
-            .append_context_window(self.scope_id, Some(expected), &Self::encode(window)?)
-            .map_err(storage)
+    fn append(
+        &self,
+        expected: EntityId,
+        expected_model_generation: u64,
+        window: &CommittedWindow,
+    ) -> Result<WindowAppend, StorageError> {
+        let expected_model_generation = i64::try_from(expected_model_generation).map_err(storage)?;
+        match self
+            .store
+            .append_context_window(
+                self.scope_id,
+                Some(expected),
+                Some(expected_model_generation),
+                &Self::encode(window)?,
+            )
+            .map_err(storage)?
+        {
+            ContextWindowAppend::Appended => Ok(WindowAppend::Appended),
+            ContextWindowAppend::HeadChanged => Ok(WindowAppend::SourceChanged),
+            ContextWindowAppend::ModelGenerationChanged { current } => {
+                Ok(WindowAppend::ModelGenerationChanged {
+                    current: u64::try_from(current).map_err(storage)?,
+                })
+            }
+        }
     }
 
     fn model_generation(&self) -> Result<u64, StorageError> {
