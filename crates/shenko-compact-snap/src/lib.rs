@@ -11,7 +11,7 @@ use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::Instant;
 
-use cordis_core::{Context, InjectSpec, Plugin, Service};
+use cordis_core::{Context, InjectSpec, Plugin, PreparedChange, Service};
 use shenko_context_policy::{
     Availability, CONTRACT_VERSION, ContextInput, ContextPolicy, CostReport, Derivative,
     HistoryItem, ItemKind, ModelCaps, PolicyError, PolicyManifest, PolicyRegistry,
@@ -260,9 +260,28 @@ impl ContextPolicy for SnapCompact {
 /// installed, updated, disposed or replaced without the other.
 pub struct SnapCompactPlugin;
 
+/// A config that passed [`SnapCompactPlugin`]'s `prepare`. It is the plugin's
+/// only Cordis Input, so a same-Fiber update cannot skip validation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValidSnapConfig(SnapConfig);
+
+impl ValidSnapConfig {
+    pub fn config(&self) -> SnapConfig {
+        self.0
+    }
+}
+
+impl SnapCompactPlugin {
+    /// Validate `config` and seal it as an in-place update for this plugin's
+    /// Fiber (`FiberHandle::update`), independent of budget compact.
+    pub fn update(config: SnapConfig) -> Result<PreparedChange, std::io::Error> {
+        Ok(PreparedChange::from_input::<Self>(Self.prepare(config)?))
+    }
+}
+
 impl Plugin for SnapCompactPlugin {
     type Config = SnapConfig;
-    type Input = SnapConfig;
+    type Input = ValidSnapConfig;
     type PrepareError = std::io::Error;
     type ApplyError = std::io::Error;
 
@@ -274,15 +293,22 @@ impl Plugin for SnapCompactPlugin {
         InjectSpec::none().require(PolicyRegistry::NAME)
     }
 
-    fn prepare(&self, config: SnapConfig) -> Result<SnapConfig, std::io::Error> {
+    fn prepare(&self, config: SnapConfig) -> Result<ValidSnapConfig, std::io::Error> {
         if config.columns < 2 || config.rows_per_frame == 0 {
             return Err(std::io::Error::other("snapcompact frames need at least 2 columns and 1 row"));
         }
-        Ok(config)
+        let ratio = |r: f32| r > 0.0 && r <= 1.0;
+        if !ratio(config.trigger_ratio)
+            || !ratio(config.tail_ratio)
+            || !(0.0..=1.0).contains(&config.max_unrenderable_ratio)
+        {
+            return Err(std::io::Error::other("snapcompact ratios must be in range"));
+        }
+        Ok(ValidSnapConfig(config))
     }
 
-    async fn apply(&self, ctx: Context, input: &SnapConfig) -> Result<(), std::io::Error> {
-        install_on(&ctx, Arc::new(SnapCompact::new(*input)))?;
+    async fn apply(&self, ctx: Context, input: &ValidSnapConfig) -> Result<(), std::io::Error> {
+        install_on(&ctx, Arc::new(SnapCompact::new(input.0)))?;
         Ok(())
     }
 }
