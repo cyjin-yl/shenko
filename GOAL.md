@@ -59,3 +59,11 @@ Rust2024/真实cordis-rs、持久WASM家园、单连续串行主体与有限chil
 ```
 
 朋友单项任务入口见 [PROMPT.md](PROMPT.md)。
+
+## Issue/PR 监控与三小时接续
+
+每个创建或认领 issue/PR 的 agent 必须持续关注其评论、行内 review、head/状态和主控协调信息；可以使用主控共享监控，不要求自建 watcher。开工及进展中公开切片、base SHA、分支/PR 与下一 checkpoint。
+
+需要回应的评论，以其 UTC 时间起 **3 小时内**回复实质处理，或明确告知主控“正在处理该评论”，给出进度/阻塞与下一 checkpoint。没有新提交不等于失联；已有具体处理说明与 checkpoint 不算超时。
+
+超过 3 小时无回应、无正在处理通知、无可核查 checkpoint，主控可接管或转派在线积极 agent，无需等释放/批准。接续保留原作者、原 commit 和来源 PR，优先从最后已推 head 建 continuation 分支，原 PR 可 close 为已吸收，再正常 merge from PR；不得 squash/reset-author 夺取 credit。未知外部效果先对账，不盲重发。未推送的本地文件不得声称可取得。

@@ -108,6 +108,13 @@ pub enum CommitError {
     Storage(#[from] StorageError),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowAppend {
+    Appended,
+    SourceChanged,
+    ModelGenerationChanged { current: u64 },
+}
+
 /// Durable home of one scope's window chain. The ledger validates; the log
 /// stores and enforces the head compare-and-append, so two writers cannot
 /// both extend the same head.
@@ -116,8 +123,13 @@ pub trait WindowLog: Send + Sync {
     fn head(&self) -> Result<CommittedWindow, StorageError>;
     /// Every committed window, oldest first; none is ever discarded.
     fn all(&self) -> Result<Vec<CommittedWindow>, StorageError>;
-    /// Append `window` only while `expected` is the head; Ok(false) if it moved.
-    fn append(&self, expected: EntityId, window: &CommittedWindow) -> Result<bool, StorageError>;
+    /// Atomically append while both the source head and model generation match.
+    fn append(
+        &self,
+        expected: EntityId,
+        expected_model_generation: u64,
+        window: &CommittedWindow,
+    ) -> Result<WindowAppend, StorageError>;
     fn model_generation(&self) -> Result<u64, StorageError>;
     fn set_model_generation(&self, generation: u64) -> Result<(), StorageError>;
 }
@@ -142,13 +154,21 @@ impl WindowLog for MemoryWindowLog {
         Ok(self.state.lock().0.clone())
     }
 
-    fn append(&self, expected: EntityId, window: &CommittedWindow) -> Result<bool, StorageError> {
+    fn append(
+        &self,
+        expected: EntityId,
+        expected_model_generation: u64,
+        window: &CommittedWindow,
+    ) -> Result<WindowAppend, StorageError> {
         let mut state = self.state.lock();
         if state.0.last().map(|w| w.id) != Some(expected) {
-            return Ok(false);
+            return Ok(WindowAppend::SourceChanged);
+        }
+        if state.1 != expected_model_generation {
+            return Ok(WindowAppend::ModelGenerationChanged { current: state.1 });
         }
         state.0.push(window.clone());
-        Ok(true)
+        Ok(WindowAppend::Appended)
     }
 
     fn model_generation(&self) -> Result<u64, StorageError> {
@@ -256,11 +276,16 @@ impl WindowLedger {
         let total: u32 = next.iter().map(WindowEntry::tokens).sum();
         window.cost.reusable_prefix_tokens = reused;
         window.cost.recompute_tokens = total - reused;
-        if !self.log.append(current.id, &window)? {
-            let current = self.log.head()?.id;
-            return Err(CommitError::StaleSource { prepared: prepared.base.source_window, current });
+        match self.log.append(current.id, window.model_generation, &window)? {
+            WindowAppend::Appended => Ok(window),
+            WindowAppend::SourceChanged => {
+                let current = self.log.head()?.id;
+                Err(CommitError::StaleSource { prepared: prepared.base.source_window, current })
+            }
+            WindowAppend::ModelGenerationChanged { current } => {
+                Err(CommitError::ModelGenerationChanged { prepared: window.model_generation, current })
+            }
         }
-        Ok(window)
     }
 }
 

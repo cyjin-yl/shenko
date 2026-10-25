@@ -8,14 +8,16 @@
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
   "branch": "main",
-  "head_commit": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
-  "pr_url": "https://github.com/cyjin-yl/shenko/pull/38",
+  "head_commit": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
+  "pr_url": "https://github.com/cyjin-yl/shenko/pull/51",
   "claude_session_id": null,
   "active_workers": [],
   "blockers": [],
   "next_actions": [
-    "Continue from actual merged C01/C22 product baseline9d6c1af (PR38; child PR41 merged at e7e26a6); complete native durable child admission/handler -> C07/T2 and remaining authority/cancel/residual coordination. This is not full C01/C22 completion.",
+    "Continue from actual product baseline a2510c2497c6c2ebc65159b566b7a84ee0530b45 (PR51 raw session writer); complete remaining C01 child/T2, outbox/selector and real recovery handoffs. #6 stays open; the focused writer is not full C01.",
     "Use durable native Pending TaskRecord -> production child admission/handler -> C07/T2, current authority/ancestor cancel/node fencing and residual supervisor; do not add a parallel task/outbox path.",
+    "C20 PR50/PR53 durable history/window code and PR51 formal raw session writer are in main; continue versioned payload reading and OperationRecord/attempt/T2 association before formal loop wiring. #25 stays open and interfaces alone do not prove the production loop uses durable history.",
+    "Preserve the existing closed-writer behavior after conflicts; optional logical-conflict versus storage_failure classification is a separate small slice, not a PR51 compatibility-mode requirement.",
     "Historical unknown/unlinked postcommit effects and mixed-ledger provenance remain explicit reconciliation work, never unconditional replay.",
     "Full physical compute/submission/chunk-stream, production provider query/cancel, QQ/model/child and all remaining S1–S5/7–30-day obligations stay open; #5/#6/#12/#22 remain open.",
     "C17 PR40 repairs only database ownership and authenticated known-schema E1/T2 separation. A42/A47/A48/A49, physical second-node, election/privacy/full export/image recovery and 7/30-day evidence remain incomplete.",
@@ -30,28 +32,51 @@
   "notes": "18 workspace packages: 17 library crates under crates/ plus bin/shenko. Verified 2026-10-23 at HEAD fa74614: cargo test --workspace = 26 passed, 0 failed, 0 ignored across 8 crates (shenko-store 11, shenko-wasm 3, shenko-awareness-core 3, shenko-types 2, shenko-channel-napcat 2, shenko-memory 2, shenko-update 2, shenko-ui 1); the other 9 crates have no tests yet. PR #3 is merged. coverage.json: 27 partial / 120 not_assessed / 0 satisfied (147 requirements). Community work ownership updated 2026-10-24; prior test counts remain historical and were not rerun for this doc increment.",
   "current_checkpoint": {
     "work_ids": [
-      "C01",
-      "C22"
+      "C01"
     ],
     "issues": [
-      6,
-      5
+      6
     ],
-    "child_pr": 41,
-    "child_reviewed_head": "2529968b56c92dcd044db3596628f6a5b0d04d60",
-    "child_merge": "e7e26a6bd799584b98982cb859da3328cf0634e7",
-    "integration_pr": 38,
-    "main_input": "011cce9b81cb3a14306c9bd9aae451742f2f6bf2",
-    "product_candidate": "2169615684c30c5e2d8ef76e12090303c781d595",
+    "related_issues": [
+      25
+    ],
+    "integration_pr": 51,
+    "main_input": "9965b9125a11c2b87185aca0dbca644bebd1f33f",
+    "product_candidate": "5255e5bc18fae86d6d9fa7caf227281599ba6c4f",
     "status": "focused_slice_verified_pushed_and_merged",
     "full_work_package_complete": false,
     "full_goal_complete": false,
-    "evidence": "docs/evidence/c01-committed-intent-handoff-20261025.json",
-    "delivered_pr_head": "5c8cb8c3a00d37ab8e0fcb3b5c2501ae38c4cd0b",
-    "merge_commit": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
-    "remote_main_observed_at_checkpoint": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330"
+    "evidence": "https://github.com/cyjin-yl/shenko/pull/51#issuecomment-6392010544",
+    "delivered_pr_head": "5255e5bc18fae86d6d9fa7caf227281599ba6c4f",
+    "merge_commit": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
+    "validated_integration_tree": "93745c763e443ee68a4f029c6a70a28477f6c718",
+    "remote_main_observed_at_checkpoint": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
+    "verification_scope": "Locked shenko-store/shenko-types tests on the exact candidate and independent normal-merge integration; 16 tests passed and exit 0 for each. This doc-only successor does not rerun product tests or claim verified_real/full-workspace completion."
   },
   "checkpoints": {
+    "previous_C01_C22": {
+      "work_ids": [
+        "C01",
+        "C22"
+      ],
+      "issues": [
+        6,
+        5
+      ],
+      "child_pr": 41,
+      "child_reviewed_head": "2529968b56c92dcd044db3596628f6a5b0d04d60",
+      "child_merge": "e7e26a6bd799584b98982cb859da3328cf0634e7",
+      "integration_pr": 38,
+      "main_input": "011cce9b81cb3a14306c9bd9aae451742f2f6bf2",
+      "product_candidate": "2169615684c30c5e2d8ef76e12090303c781d595",
+      "status": "focused_slice_verified_pushed_and_merged",
+      "full_work_package_complete": false,
+      "full_goal_complete": false,
+      "evidence": "docs/evidence/c01-committed-intent-handoff-20261025.json",
+      "delivered_pr_head": "5c8cb8c3a00d37ab8e0fcb3b5c2501ae38c4cd0b",
+      "merge_commit": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330",
+      "remote_main_observed_at_checkpoint": "9d6c1af980ded1c4e8c7cd4dc24acd7405b92330"
+    },
     "previous_C17": {
       "work_id": "C17",
       "issue": 22,

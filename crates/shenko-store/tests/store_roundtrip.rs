@@ -217,7 +217,7 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
-        schema_version: 3,
+        schema_version: 4,
         output: shenko_types::output::ParsedOutput {
             schema_version: 1,
             step_id: step.step_id,

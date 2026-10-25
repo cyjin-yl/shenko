@@ -15,6 +15,7 @@ shenko-identity = { path = "../../crates/shenko-identity" }
 shenko-types = { path = "../../crates/shenko-types" }
 shenko-kernel = { path = "../../crates/shenko-kernel" }
 shenko-store = { path = "../../crates/shenko-store" }
+shenko-exec-host = { path = "../../crates/shenko-exec-host" }
 shenko-broker = { path = "../../crates/shenko-broker" }
 shenko-subject = { path = "../../crates/shenko-subject" }
 shenko-memory = { path = "../../crates/shenko-memory" }

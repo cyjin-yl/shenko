@@ -50,8 +50,45 @@ pub struct StoredContextWindow {
     pub derivatives: Vec<StoredDerivative>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextWindowAppend {
+    Appended,
+    HeadChanged,
+    ModelGenerationChanged { current: i64 },
+}
+
 fn storage(e: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(e.to_string())
+}
+
+fn read_derivatives(conn: &rusqlite::Connection, window_id: EntityId) -> Result<Vec<StoredDerivative>, ShenkoError> {
+    conn.prepare_cached(
+        "SELECT media_type, blake3, bytes FROM context_window_derivatives
+         WHERE window_id = ?1 ORDER BY idx",
+    )
+    .map_err(storage)?
+    .query_map(params![window_id.to_string()], |r| {
+        Ok(StoredDerivative { media_type: r.get(0)?, blake3: r.get(1)?, bytes: r.get(2)? })
+    })
+    .map_err(storage)?
+    .collect::<rusqlite::Result<Vec<_>>>()
+    .map_err(storage)
+}
+
+fn read_window(
+    conn: &rusqlite::Connection,
+    id: String,
+    generation: i64,
+    body: String,
+) -> Result<StoredContextWindow, ShenkoError> {
+    let window_id = id.parse::<EntityId>().map_err(storage)?;
+    let derivatives = read_derivatives(conn, window_id)?;
+    for d in &derivatives {
+        if blake3::hash(&d.bytes).to_hex().as_str() != d.blake3 {
+            return Err(storage(format!("derivative of window {window_id} fails blake3")));
+        }
+    }
+    Ok(StoredContextWindow { window_id, generation, body, derivatives })
 }
 
 impl Store {
@@ -59,7 +96,7 @@ impl Store {
     /// against their recorded blake3.
     pub fn context_windows(&self, scope_id: EntityId) -> Result<Vec<StoredContextWindow>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let mut windows = conn
+        let rows = conn
             .prepare_cached(
                 "SELECT window_id, generation, body FROM context_windows
                  WHERE scope_id = ?1 ORDER BY generation",
@@ -70,46 +107,49 @@ impl Store {
             })
             .map_err(storage)?
             .collect::<rusqlite::Result<Vec<_>>>()
-            .map_err(storage)?
-            .into_iter()
-            .map(|(id, generation, body)| {
-                let window_id = id.parse::<EntityId>().map_err(storage)?;
-                Ok(StoredContextWindow { window_id, generation, body, derivatives: Vec::new() })
-            })
-            .collect::<Result<Vec<_>, ShenkoError>>()?;
-        let mut stmt = conn
-            .prepare_cached(
-                "SELECT media_type, blake3, bytes FROM context_window_derivatives
-                 WHERE window_id = ?1 ORDER BY idx",
-            )
             .map_err(storage)?;
-        for window in &mut windows {
-            window.derivatives = stmt
-                .query_map(params![window.window_id.to_string()], |r| {
-                    Ok(StoredDerivative { media_type: r.get(0)?, blake3: r.get(1)?, bytes: r.get(2)? })
-                })
-                .map_err(storage)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(storage)?;
-            for d in &window.derivatives {
-                if blake3::hash(&d.bytes).to_hex().as_str() != d.blake3 {
-                    return Err(storage(format!("derivative of window {} fails blake3", window.window_id)));
-                }
-            }
+        let mut windows = Vec::with_capacity(rows.len());
+        for (id, generation, body) in rows {
+            windows.push(read_window(&conn, id, generation, body)?);
         }
         Ok(windows)
     }
 
+    /// Only the current window and its derivatives, verified like `all`.
+    pub fn context_window_head(&self, scope_id: EntityId) -> Result<Option<StoredContextWindow>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        conn.query_row(
+            "SELECT window_id, generation, body FROM context_windows
+             WHERE scope_id = ?1 ORDER BY generation DESC LIMIT 1",
+            params![scope_id.to_string()],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)),
+        )
+        .optional()
+        .map_err(storage)?
+        .map(|(id, generation, body)| read_window(&conn, id, generation, body))
+        .transpose()
+    }
+
     /// Append `window` as generation `head + 1` only if the current head is
-    /// `expected_head` (None: the chain is empty). Ok(false) means the head
-    /// moved and nothing was written. A storage error closes the writer:
-    /// reopen and read the chain to learn whether the append landed.
+    /// `expected_head` (None: the chain is empty) and the model generation is
+    /// still `expected_model_generation` (None only for genesis creation).
+    /// A storage error closes the writer: reopen and read the chain to learn
+    /// whether the append landed.
     pub fn append_context_window(
         &self,
         scope_id: EntityId,
         expected_head: Option<EntityId>,
+        expected_model_generation: Option<i64>,
         window: &StoredContextWindow,
-    ) -> Result<bool, ShenkoError> {
+    ) -> Result<ContextWindowAppend, ShenkoError> {
+        for (idx, d) in window.derivatives.iter().enumerate() {
+            if blake3::hash(&d.bytes).to_hex().as_str() != d.blake3 {
+                return Err(ShenkoError::conflict(format!(
+                    "derivative {idx} of window {} fails blake3",
+                    window.window_id
+                )));
+            }
+        }
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -126,7 +166,21 @@ impl Store {
                     .optional()
                     .map_err(storage)?;
                 if head.as_ref().map(|(id, _)| id.clone()) != expected_head.map(|id| id.to_string()) {
-                    return Ok(false);
+                    return Ok(ContextWindowAppend::HeadChanged);
+                }
+                if let Some(expected) = expected_model_generation {
+                    let current: i64 = tx
+                        .query_row(
+                            "SELECT model_generation FROM context_window_scopes WHERE scope_id = ?1",
+                            params![scope_id.to_string()],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(storage)?
+                        .unwrap_or(0);
+                    if current != expected {
+                        return Ok(ContextWindowAppend::ModelGenerationChanged { current });
+                    }
                 }
                 let generation = head.map_or(0, |(_, generation)| generation + 1);
                 if generation != window.generation {
@@ -167,7 +221,7 @@ impl Store {
                 )
                 .map_err(storage)?;
                 tx.commit().map_err(storage)?;
-                Ok(true)
+                Ok(ContextWindowAppend::Appended)
             },
             |_| true,
         )

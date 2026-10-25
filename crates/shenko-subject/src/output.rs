@@ -12,7 +12,8 @@ use shenko_types::{
 
 pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
 [reply:group:群号] 正文 或 [reply:private:QQ号] 正文，后续普通行续接正文；\n\
-[remember] 要保存的内容；[delegate] 有限子任务的完整目标与提示。\n\
+[remember] 要保存的内容；[delegate] 有限自然语言委派（保持未绑定）；\n\
+[delegate:已注册kind:版本] 仅用于显式 deterministic native definition 的 JSON 输入，由 child handler 执行。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
 只支持此协议；[memory]、dispatch: 等旧伪协议不执行。";
 
@@ -107,7 +108,7 @@ pub fn parse_output(
             && (tag.is_some_and(|h| {
                 h.bytes().next().is_some_and(|c| c.is_ascii_alphabetic())
                     && h.bytes()
-                        .all(|c| c.is_ascii_alphanumeric() || b":_-".contains(&c))
+                        .all(|c| c.is_ascii_alphanumeric() || b":_-.".contains(&c))
             }) || (tag.is_none()
                 && line
                     .strip_prefix('[')
@@ -166,7 +167,38 @@ pub fn parse_output(
                     },
                     "[delegate" => OutputAction::Delegate {
                         text: value.to_owned(),
+                        definition: None,
                     },
+                    _ if header.starts_with("[delegate:") => {
+                        let spec = header.trim_start_matches("[delegate:");
+                        let (kind, version) = spec.rsplit_once(':').ok_or_else(|| {
+                            invalid(line_no, "native delegation requires kind and version")
+                        })?;
+                        let valid_kind = !kind.is_empty()
+                            && kind != "delegation"
+                            && kind.bytes().all(|c| {
+                                c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')
+                            });
+                        if !valid_kind {
+                            return Err(invalid(line_no, "invalid native definition kind"));
+                        }
+                        let definition_version = version
+                            .parse::<u32>()
+                            .ok()
+                            .filter(|v| *v > 0)
+                            .ok_or_else(|| invalid(line_no, "invalid native definition version"))?;
+                        let input = serde_json::from_str(value).map_err(|_| {
+                            invalid(line_no, "native delegation input must be one JSON value")
+                        })?;
+                        OutputAction::Delegate {
+                            text: value.to_owned(),
+                            definition: Some(shenko_types::task::NativeTaskDefinition {
+                                kind: kind.to_owned(),
+                                definition_version,
+                                input,
+                            }),
+                        }
+                    }
                     _ => return Err(invalid(line_no, "unknown control")),
                 }
             };

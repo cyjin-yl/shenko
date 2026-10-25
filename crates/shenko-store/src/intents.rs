@@ -83,15 +83,32 @@ impl Store {
             }
         }
         for intent in &decision.delegated_task_intents {
+            let contract = intent.definition.as_ref().map_or_else(
+                || "shenko.task/delegation-queue/1".to_string(),
+                |definition| {
+                    format!(
+                        "shenko.task/native/{}/{}",
+                        definition.kind, definition.definition_version
+                    )
+                },
+            );
             insert(
                 intent.intent_id,
                 "delegation",
-                "shenko.task/delegation-queue/1",
+                &contract,
                 serde_json::to_value(intent)?,
             )?;
             if !historical {
                 // A durable handoff is NOT a claim that a child/seat has run.
-                let task = self.intent_task(head, step, intent.intent_id, "delegation", commit);
+                let mut task = self.intent_task(head, step, intent.intent_id, "delegation", commit);
+                if let Some(definition) = &intent.definition {
+                    task.kind = definition.kind.clone();
+                    task.definition_version = definition.definition_version;
+                    task.memos.insert(
+                        "native_input".into(),
+                        serde_json::Value::String("subject_decision".into()),
+                    );
+                }
                 insert_task(tx, &task, commit)?;
                 tx.execute(
                     "UPDATE subject_intents SET state='settled',result_ref=?2 WHERE intent_id=?1",

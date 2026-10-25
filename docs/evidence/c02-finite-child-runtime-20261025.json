@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "evidence_id": "C02-finite-native-child-20261025",
+  "work_id": "C02",
+  "issue": "https://github.com/cyjin-yl/shenko/issues/7",
+  "draft_pr": "https://github.com/cyjin-yl/shenko/pull/55",
+  "branch": "feat/c02-finite-child-runtime-20261025",
+  "git_base": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
+  "implementation_commit": "504937a81b4f94f1b6f29c2126d5715ce1e334d4",
+  "reviewed_product_head": "5095fd11bca62ff6a6858d1ea275e3c036b8ab60",
+  "reviewed_product_tree": "4493be6ad1507a4064bfa60e0734fea2127e245f",
+  "reviewed_source_inputs": {
+    "files": 126,
+    "sha256": "8e72c6539f391c1bf0992f40bcb6708dda1003849db24ed20a77241c2ad823c8",
+    "method": "sorted tracked Rust/Cargo.toml/Cargo.lock paths + NUL + bytes + NUL at reviewed_product_head"
+  },
+  "scope": "Committed S1 Pending native task through Cordis registry, CAS claim, one deterministic host.printf process, E1/T2 and durable subject-ready result; focused slice, not complete C02.",
+  "full_c02_complete": false,
+  "full_product_complete": false,
+  "production_model_tested": false,
+  "production_ssh_tested": false,
+  "new_test_scenarios": 2,
+  "environment": {
+    "host": "doescontainer",
+    "container": "shenko-dev-live",
+    "limits": "8 CPU / 6 GiB",
+    "cargo": "CARGO_BUILD_JOBS=1 CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/tmp/shenko-live-target; shared flock /tmp/shenko-cargo.lock"
+  },
+  "checks": [
+    {
+      "source": "5095fd11bca62ff6a6858d1ea275e3c036b8ab60",
+      "command": "cargo test -p shenko-exec-host -p shenko-subject -p shenko-store -p shenko",
+      "exit_code": 0,
+      "passed": 24,
+      "failed": 0,
+      "log": "host=doescontainer/container=shenko-dev-live/path=/tmp/shenko-c02-integrated-suites-r3.log"
+    },
+    {
+      "source": "5095fd11bca62ff6a6858d1ea275e3c036b8ab60",
+      "command": "cargo test --locked -p shenko recovery_integration_tests::native_ -- --nocapture",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "snapshot": "host=doescontainer/container=shenko-dev-live/path=/tmp/shenko-c02-review-20261025-7QDwzE/repo",
+      "snapshot_status": "detached reviewed head; clean before and after tests; no author edits",
+      "log": "host=doescontainer/container=shenko-dev-live/path=/tmp/shenko-c02-review-native-tests-r1.log"
+    },
+    {
+      "source": "5095fd11bca62ff6a6858d1ea275e3c036b8ab60",
+      "command": "git diff --check a2510c2...5095fd1 and read-only SQLite result readback",
+      "exit_code": 0
+    }
+  ],
+  "real_process_journey": {
+    "boundary": "Deterministic model-output fixture admitted through the real parser/S1 transaction; real local /usr/bin/printf child and real helper-process exit/reopen. No production model, SSH, QQ, network provider or SIGKILL claim.",
+    "result": "PASS",
+    "evidence_dir": "host=doescontainer/container=shenko-dev-live/path=/tmp/shenko-native-reopen-481a4705-b33f-4930-8953-8e6d6f2537c1",
+    "task_id": "13c1fc01-1df5-4874-b5e7-58019e6ae757",
+    "result_id": "89c52f8f-3ebb-4e3b-a280-25794837d221",
+    "operation_id": "5920b7fd-7355-455e-94e2-178543a0b85c",
+    "invocation_id": "183906a5-ff88-4116-b0db-f853ff62c3b2",
+    "receipt_id": "92377d74-ad48-4653-b23e-7dd96a403e8b",
+    "commit_ref": {
+      "ledger_id": "4f1d19e0-73e2-4418-aebc-b50fc8d6a3fe",
+      "seq": 11
+    },
+    "outcome": "succeeded",
+    "stdout_utf8": "native child 真实结果\nwith spaces",
+    "attempts_after_reopen_and_duplicate_ready": 1,
+    "evidence_receipts": 1,
+    "missing_handler": "pending/parked handler_unavailable; no result",
+    "natural_language_goal": "pending/parked definition_unavailable; no fabricated execution",
+    "ready_disposition": "task_result delivered from the durable ready projection after reopen, then acknowledged by a real S1 disposition; ready set empty"
+  },
+  "fault_interleaving_simulation": {
+    "boundary": "Existing T1 records armed without starting a process; explicitly simulated cancellation/late E1/old-owner/unknown interleavings. This is not real process, SSH or model evidence.",
+    "result": "PASS",
+    "evidence_dir": "host=doescontainer/container=shenko-dev-live/path=/tmp/shenko-native-fencing-374d83f0-874b-43fb-aee3-0b301a23f9a6",
+    "cancelled": {
+      "task_id": "24f826e3-5fa4-4ecf-a36a-ea50ff9fd914",
+      "operation_id": "f590b721-1f08-4ecd-8336-e250456c6dc5",
+      "late_operation_fact": "resolved/succeeded preserved as E1",
+      "task_result_count": 0,
+      "task_state": "pending/parked cancel_requested",
+      "old_dispatcher_t2": "rejected",
+      "attempts": 1
+    },
+    "unknown": {
+      "task_id": "53203739-d989-4773-850c-3f7ea55c2db7",
+      "operation_id": "31e7057d-a14d-4cd7-9777-54f1de6c8cbd",
+      "operation_state": "reconciling",
+      "effect_status": "unknown",
+      "outcome": null,
+      "task_state": "pending/parked reconciling",
+      "task_result_count": 0,
+      "attempts_after_repeat_recovery": 1,
+      "recovery_receipts": 1
+    }
+  },
+  "implementation_invariants": [
+    "Native definitions contain kind/version/input only; Cordis typed Service supplies role and authority.",
+    "TaskOwner remains semantic ownership; execution assignment separately records worker/node/invocation/epoch/implementation/commit.",
+    "Claim and T2 use the existing SQLite mutation line and CAS records; external process execution is outside the write transaction.",
+    "Raw observation and bounded normalized result are sealed before T2; result/event identities are stable across reopen.",
+    "Cancellation and stale invocation/epoch/revision block new settlement while EvidenceIngress retains late facts.",
+    "An armed operation without conclusive evidence is reconciled as unknown, never blindly replayed or marked successful.",
+    "Previously bound plugin/artifact must match during recovery; missing implementation parks the task.",
+    "Old unbound running delegations are quarantined; old schema-v3 delegated output remains decodable while new S1 uses schema v4."
+  ],
+  "remaining": [
+    "Only host.printf/v1 is registered; no arbitrary natural-language or generic LLM child execution is claimed.",
+    "No production SSH/SSH server, seat, OMP/Claude, production model, heterogeneous node or long-run observation was exercised.",
+    "Complete abort invocation, descendant convergence, compensation and residual reconciliation supervision remain follow-up work.",
+    "Additional deterministic native definitions and an SshTaskRunner-backed production definition still need explicit binding and acceptance predicates.",
+    "Power-loss-local durability and full C02 semantic-wait/dialogue/DND/continuous-loop acceptance are not established by this focused slice."
+  ],
+  "preservation": "No data, old candidates or failure logs were deleted. No SSH listener or persistent product service was left running. Review and fault artifacts remain on the managed container disk."
+}

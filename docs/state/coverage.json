@@ -1934,7 +1934,6 @@
         "crates/shenko-compact-budget/tests/store_history.rs"
       ],
       "blockers": [
-        "raw_sessions 无 WriteBatch 写入方（#6），原始会话事件当前无法经正式写路径提交",
         "正式主循环尚未调用 ContextPolicy",
         "真实 KV/prefill 与视觉阅读正确率未测",
         "BMP 外字符（emoji 等）无字形，按记录判不可读并回退"

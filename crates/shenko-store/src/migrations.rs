@@ -48,6 +48,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         tracing::warn!(error = %e, "FTS5 unavailable; memory search will use LIKE fallback");
     }
     conn.execute_batch(crate::intents::SCHEMA)?;
+    conn.execute_batch(crate::child::SCHEMA)?;
     Ok(())
 }
 
