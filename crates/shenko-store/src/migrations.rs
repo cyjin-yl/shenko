@@ -40,6 +40,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
     // Committed context windows (SPEC §12.3): additive, own tables only.
     conn.execute_batch(crate::context_windows::CONTEXT_WINDOWS_SCHEMA)?;
+    ensure_column(conn, "context_window_scopes", "profile_digest", "TEXT")?;
+
+    // Subject raw input links (SPEC §12.1): additive index over the raw
+    // session events, never a second truth store.
+    conn.execute_batch(crate::raw_session::RAW_SESSION_SCHEMA)?;
 
     // Step 3 (best effort): FTS5 index + sync triggers. FTS5 is optional in
     // the SQLite build; when it is missing, migrations must still succeed and
@@ -85,7 +90,7 @@ fn ensure_memory_columns(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
+pub(crate) fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns = stmt
         .query_map([], |row| row.get::<_, String>(1))?

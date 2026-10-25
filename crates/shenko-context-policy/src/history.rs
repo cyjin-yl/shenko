@@ -75,7 +75,7 @@ pub enum ItemKind {
     ToolResult { call_id: String, status: CallStatus },
     /// An event type this contract version does not interpret. Kept, never
     /// dropped, so a window cannot silently lose part of the raw record.
-    Other { event_type: String },
+    Other { event_type: String, role: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,7 +83,8 @@ pub struct HistoryItem {
     pub at: ItemRef,
     pub kind: ItemKind,
     pub text: String,
-    /// Tokenizer count for the current model, supplied by the caller.
+    /// Caller-supplied count; its measurement/estimator provenance belongs
+    /// to the request seal, not to this raw event.
     pub tokens: u32,
 }
 
@@ -124,6 +125,17 @@ impl MemoryHistory {
 
     pub fn snapshot(&self) -> Vec<HistoryItem> {
         self.items.read().clone()
+    }
+
+    #[cfg(test)]
+    pub fn set_call_status(&self, call_id: &str, next: CallStatus) {
+        for item in self.items.write().iter_mut() {
+            match &mut item.kind {
+                ItemKind::ToolCall { call_id: id, status, .. }
+                | ItemKind::ToolResult { call_id: id, status } if id == call_id => *status = next,
+                _ => {}
+            }
+        }
     }
 }
 

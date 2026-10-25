@@ -18,6 +18,9 @@ shenko-store = { path = "../../crates/shenko-store" }
 shenko-exec-host = { path = "../../crates/shenko-exec-host" }
 shenko-broker = { path = "../../crates/shenko-broker" }
 shenko-subject = { path = "../../crates/shenko-subject" }
+shenko-context-policy = { path = "../../crates/shenko-context-policy", features = ["store"] }
+shenko-compact-budget = { path = "../../crates/shenko-compact-budget" }
+shenko-compact-snap = { path = "../../crates/shenko-compact-snap" }
 shenko-memory = { path = "../../crates/shenko-memory" }
 shenko-ui = { path = "../../crates/shenko-ui" }
 shenko-seed = { path = "../../crates/shenko-seed" }

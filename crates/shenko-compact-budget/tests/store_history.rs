@@ -66,12 +66,12 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
     let history = StoreHistory::new(store.clone(), session, count.clone());
     let raw = history.read_range(0, u64::MAX).unwrap();
     assert!(matches!(raw[1].kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. }));
-    assert_eq!(raw[2].kind, ItemKind::Other { event_type: "napcat_image".into() });
-    assert_eq!(raw[3].kind, ItemKind::Other { event_type: "tool_result".into() });
+    assert_eq!(raw[2].kind, ItemKind::Other { event_type: "napcat_image".into(), role: "napcat_image".into() });
+    assert_eq!(raw[3].kind, ItemKind::Other { event_type: "tool_result".into(), role: "tool_result".into() });
     assert_eq!((raw[4].kind.clone(), raw[4].text.as_str()), (ItemKind::User, "plain text, not JSON"));
     let n = raw.len();
     assert!(matches!(raw[n - 2].kind, ItemKind::ToolCall { status: CallStatus::Unknown, .. }));
-    assert_eq!(raw[n - 1].kind, ItemKind::Other { event_type: "user@v2".into() });
+    assert_eq!(raw[n - 1].kind, ItemKind::Other { event_type: "user@v2".into(), role: "user".into() });
     assert!(raw[n - 1].text.contains("future"));
 
     let caps = ModelCaps { model_id: "text-only".into(), max_context: 1000, vision: None };

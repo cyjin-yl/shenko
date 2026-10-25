@@ -21,6 +21,7 @@ parking_lot = { workspace = true }
 bytes = { workspace = true }
 
 [dev-dependencies]
+shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
 shenko-identity = { path = "../shenko-identity" }
 shenko-channel-napcat = { path = "../shenko-channel-napcat" }
 

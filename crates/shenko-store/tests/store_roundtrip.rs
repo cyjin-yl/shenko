@@ -4,6 +4,7 @@
 use shenko_store::store::Store;
 use shenko_types::store::WriteBatch;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 fn tmp_dir() -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -68,7 +69,7 @@ fn empty_batch_commit_returns_receipt() {
     assert!(!receipt.commit_ref.ledger_id.as_uuid().is_nil());
 }
 
-fn initialized_subject() -> (PathBuf, Store, shenko_types::ids::EntityId) {
+fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
     use shenko_types::subject::{
@@ -78,7 +79,7 @@ fn initialized_subject() -> (PathBuf, Store, shenko_types::ids::EntityId) {
     let dir = tmp_dir();
     let db = dir.join("head.db");
     let cas = dir.join("cas");
-    let store = Store::open(db, cas).unwrap();
+    let store = Arc::new(Store::open(db, cas).unwrap());
 
     let agent_id = EntityId::new();
     let branch_id = BranchId::new();
@@ -157,20 +158,44 @@ fn initialized_subject() -> (PathBuf, Store, shenko_types::ids::EntityId) {
 }
 
 fn recorded_result(
-    store: &Store,
+    store: &Arc<Store>,
     head: &shenko_types::subject::SubjectBranchHead,
     mut step: shenko_types::subject::SubjectStep,
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
+    let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
+        shenko_context_policy::StoreWindowLog::new(Arc::clone(store), EntityId(head.branch_id.0)),
+    ));
+    let profile = shenko_types::object::Digest::blake3(b"store-roundtrip-profile");
+    ledger.rebind_model(1, &profile.0).unwrap();
+    let window = ledger.current().unwrap();
+    store.stage_subject_inputs(head, &step, &[]).unwrap();
+    let plan = serde_json::json!({
+        "schema_version":8, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "provider_binding":null, "in_semantic_wait":false, "identity":null,
+        "identity_provider_revision":"shenko.identity/default@1",
+        "context":{"source":{"scope_id":EntityId(head.branch_id.0),
+            "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
+            "input_raw_event_ids":[], "window_id":window.id,
+            "window_generation":window.generation, "model_generation":1},
+        "profile_digest":profile,
+        "estimated_input_tokens":null, "budget_input_tokens":null,
+        "trigger_budget_input_tokens":null,
+        "budget_provenance":"store fixture without measured current input",
+        "reserved_output_tokens":4096, "unfinished_call_ids":[],
+        "capabilities":null, "observed_input_tokens":null,
+        "token_counter":"heuristic:cjk-1-other-4@1; not a provider tokenizer",
+        "policy_contract":shenko_context_policy::CONTRACT_VERSION,
+        "selection":{"outcome":"unavailable","reason":"store_fixture_without_model_capabilities"},
+        },
+        "payload":{"system_prompt":"store recovery fixture", "messages":[],
+            "max_tokens":4096, "tools":[]},
+    });
     step.state = SubjectStepState::Preparing;
     step.record_revision = RecordRevision(1);
-    step.input_plan_ref = Some(
-        store
-            .cas
-            .seal_object(b"plan", "text/plain", "test", "raw", 1)
-            .unwrap()
-            .object,
-    );
+    step.input_plan_ref = Some(store.cas.seal_object(
+        &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
+        "subject_step_input", 8).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);
@@ -346,6 +371,52 @@ fn s1_commit_advances_branch_head() {
     assert_eq!(count, 1);
     let next = reopened.commit(WriteBatch::new()).unwrap();
     assert!(next.commit_ref.seq.0 > receipt.commit_ref.seq.0);
+}
+
+#[test]
+fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
+    use shenko_context_policy::{CallStatus, HistorySource, ItemKind, StoreHistory, estimate_tokens};
+    use shenko_types::{ids::*, subject::*};
+    let (_dir, store, agent) = initialized_subject();
+    let (head, planned) = store.load_subject(agent).unwrap();
+    let result = recorded_result(&store, &head, planned);
+    let next = EntityId::new();
+    let mut step = committed_candidate(&store, result, next);
+    let mut decision: StepDecision = serde_json::from_slice(
+        &store.cas.read_object(&step.decision_ref.as_ref().unwrap().digest).unwrap(),
+    ).unwrap();
+    let intent_id = EntityId::new();
+    let content = store.cas.seal_object(b"remember the actual receipt", "text/plain",
+        "memory", "text", 1).unwrap().object;
+    decision.memory_intents = vec![MemoryIntent {
+        intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
+    }];
+    step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
+        "application/json", "decisions", "StepDecision", 4).unwrap().object);
+    store.commit_step_and_advance_head(&step, &head, next).unwrap();
+    let history = StoreHistory::new(store.clone(), EntityId(head.branch_id.0), Arc::new(estimate_tokens));
+    let pending = history.read_range(0, u64::MAX).unwrap();
+    assert!(pending.iter().any(|item| matches!(&item.kind,
+        ItemKind::ToolCall { call_id, status: CallStatus::Pending, .. } if *call_id == intent_id.to_string())));
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(store.settle_subject_memory().unwrap(), 1);
+    drop(history);
+    drop(store);
+    let reopened = Arc::new(Store::open(_dir.join("head.db"), _dir.join("cas")).unwrap());
+    let history = StoreHistory::new(reopened, EntityId(head.branch_id.0), Arc::new(estimate_tokens));
+    let settled = history.read_range(0, u64::MAX).unwrap();
+    for item in &settled {
+        match &item.kind {
+            ItemKind::ToolCall { call_id, status, .. } | ItemKind::ToolResult { call_id, status }
+                if *call_id == intent_id.to_string() =>
+            {
+                assert_eq!(*status, CallStatus::Executed { ok: true });
+            }
+            _ => {}
+        }
+    }
+    assert!(settled.iter().any(|item| matches!(&item.kind,
+        ItemKind::ToolResult { call_id, .. } if *call_id == intent_id.to_string())));
 }
 
 #[test]

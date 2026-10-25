@@ -2,6 +2,7 @@
 //! Real S0/S1 step state machine. Never terminates on empty inbox.
 //! Semantic wait hard-max 600s. Yields inference slot after each step.
 use crate::inbox::{Inbox, InboxEvent};
+use crate::context_projection::{FrozenContextInput, estimate_payload_tokens, prepare_context};
 use crate::outbox::OutboxMessage;
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
@@ -31,6 +32,7 @@ struct FrozenStepInput {
     events: Vec<InboxEvent>,
     provider_binding: Option<shenko_broker::request::ProviderBinding>,
     payload: shenko_broker::request::InferencePayload,
+    context: FrozenContextInput,
     in_semantic_wait: bool,
     identity: Option<IdentityProfile>,
     identity_provider_revision: String,
@@ -60,7 +62,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 7 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 8 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -117,8 +119,13 @@ pub struct SubjectLoopState {
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
     pub hooks: Option<Arc<HookRegistry>>,
     pub max_tokens: u64,
-    /// Last model output — feeds the next step's attention context.
-    pub last_thought: Option<String>,
+    /// Only provider-reported input usage of the previous committed result.
+    pub(super) previous_input_tokens: Option<u32>,
+    /// Heuristic projection count, never confused with provider usage.
+    pub(super) previous_estimated_input_tokens: Option<u32>,
+    pub(super) previous_input_binding: Option<shenko_broker::request::ProviderBinding>,
+    pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
+    pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
     /// Outbound path for completed model output — SPEC §5.1, §21.12.
@@ -127,7 +134,7 @@ pub struct SubjectLoopState {
     /// at the S0 boundary, so a change applies from the next step on.
     pub identity: Option<IdentityProfile>,
     pub identity_receipt: Option<IdentityReceipt>,
-    identity_context: cordis_core::Context,
+    pub(super) plugin_context: cordis_core::Context,
     identity_service: Arc<IdentityService>,
 }
 
@@ -137,13 +144,15 @@ impl SubjectLoopState {
         agent_id: EntityId,
         inbox: Arc<Inbox>,
         store: Arc<shenko_store::store::Store>,
-        identity_context: cordis_core::Context,
+        plugin_context: cordis_core::Context,
     ) -> Result<Self, ShenkoError> {
         let (head, step) = store.load_subject(agent_id)?;
         let resumed_input = validate_resume(&store, &step)?;
-        let identity_service = identity_context
+        let identity_service = plugin_context
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
+        let context_registry = plugin_context.try_service::<shenko_context_policy::PolicyRegistry>()
+            .map_err(|e| ShenkoError::other(format!("CONTEXT_PROVIDER_UNAVAILABLE: {e}")))?;
         if resumed_input
             .as_ref()
             .is_some_and(|input| input.identity_provider_revision != identity_service.revision())
@@ -152,7 +161,7 @@ impl SubjectLoopState {
                 "IDENTITY_PROVIDER_REVISION_MISMATCH: migrate/reconcile the sealed request before resuming",
             ));
         }
-        let last_thought = if let Some(id) = head.committed_step_id {
+        let (previous_input_tokens, previous_input_binding, previous_estimated_input_tokens) = if let Some(id) = head.committed_step_id {
             let previous = store
                 .get_step(&head.branch_id, id)?
                 .ok_or_else(|| ShenkoError::not_found("committed subject step"))?;
@@ -161,15 +170,11 @@ impl SubjectLoopState {
             {
                 return Err(ShenkoError::conflict("committed head/step mismatch"));
             }
-            previous
-                .model_result_ref
-                .map(|object| {
-                    let bytes = read_sealed(&store, &object)?;
-                    String::from_utf8(bytes).map_err(|e| ShenkoError::storage(e.to_string()))
-                })
-                .transpose()?
+            store.require_subject_raw_coverage(&head, &previous)?;
+            let (binding, estimated) = sealed_previous_projection(&store, &previous)?;
+            (observed_input_tokens(&store.recorded_model_outcome(&previous)?), binding, estimated)
         } else {
-            None
+            (None, None, None)
         };
         let identity = if step.state == SubjectStepState::Planned {
             store.latest_identity(agent_id)?
@@ -191,18 +196,27 @@ impl SubjectLoopState {
             broker: None,
             hooks: None,
             max_tokens: 4096,
-            last_thought,
+            previous_input_tokens,
+            previous_input_binding,
+            previous_estimated_input_tokens,
+            model_capabilities: None,
+            context_registry,
             goals: vec![],
             outbox_tx: None,
             identity,
             identity_receipt,
-            identity_context,
+            plugin_context,
             identity_service,
         })
     }
 
     pub fn with_broker(mut self, broker: shenko_broker::broker::BrokerHandle) -> Self {
         self.broker = Some(broker);
+        self
+    }
+
+    pub fn with_model_capabilities(mut self, capabilities: Option<shenko_broker::request::ProviderCapabilities>) -> Self {
+        self.model_capabilities = capabilities.map(Arc::new);
         self
     }
 
@@ -305,7 +319,7 @@ const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行
 
 /// System prompt for the continuous subject: contract → persona → per-step
 /// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
-fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> String {
+pub(super) fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> String {
     let mut prompt = String::from(SUBJECT_CONTRACT);
     prompt.push_str("\n\n");
     prompt.push_str(crate::output::OUTPUT_CONTRACT);
@@ -330,12 +344,6 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
             prompt.push_str(&serde_json::to_string(receipt).expect("identity receipt serializes"));
         }
     }
-    if let Some(prev) = &state.last_thought {
-        prompt.push_str("\n\n你上一步的想法（继续这条思路，不要重新开始）：\n");
-        prompt.push_str(prev);
-        prompt.push('\n');
-    }
-
     if in_semantic_wait {
         prompt.push_str("\n\n当前处于语义等待：条件尚未满足。继续思考相关可能性，不要空转。\n");
     }
@@ -343,46 +351,33 @@ fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> Stri
     prompt
 }
 
-/// Build the message list from recent events + carried thought.
-///
-/// Event text may arrive under different keys depending on the source:
-/// OneBot/NapCat uses `raw_message`, other channels use `message`, and the
-/// WebUI sends `content` (see `shenko-ui/src/ws.rs`).
-/// 批次内每条输入均呈现；无文本的事件保留 JSON，不能未呈现便在 S1 确认。
-fn build_messages(
-    _state: &SubjectLoopState,
-    events: &[InboxEvent],
-) -> Vec<shenko_broker::request::InferenceMessage> {
-    let mut messages = vec![];
+fn observed_input_tokens(outcome: &shenko_types::subject::SubjectModelOutcome) -> Option<u32> {
+    outcome.usage.as_ref()?.get("input_tokens")?.as_u64()?.try_into().ok()
+}
 
-    for ev in events {
-        let text = ["raw_message", "message", "content", "text"]
-            .iter()
-            .find_map(|key| ev.payload.get(*key).and_then(|v| v.as_str()))
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(|| ev.payload.to_string());
-        let who = ev
-            .payload
-            .get("nickname")
-            .and_then(|v| v.as_str())
-            .unwrap_or(&ev.source);
-        messages.push(shenko_broker::request::InferenceMessage::text(
-            "user",
-            format!("[{who}] {text}"),
-        ));
+fn sealed_previous_projection(
+    store: &shenko_store::store::Store,
+    step: &SubjectStep,
+) -> Result<(Option<shenko_broker::request::ProviderBinding>, Option<u32>), ShenkoError> {
+    let Some(object) = &step.input_plan_ref else { return Ok((None, None)) };
+    let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
+    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(8) {
+        // Older committed history can still be read, but its prior usage is
+        // not silently bound to this new projection.
+        return Ok((None, None));
     }
-
-    if messages.is_empty() {
-        // Continuous thought — no external input. SPEC §5.1
-        messages.push(shenko_broker::request::InferenceMessage::text(
-            "user",
-            "继续。",
-        ));
-    }
-
-    messages
+    let binding = input.get("provider_binding").cloned()
+        .ok_or_else(|| ShenkoError::conflict("sealed provider binding missing"))
+        .and_then(|value| Ok(serde_json::from_value(value)?))?;
+    let estimated = match input.pointer("/context/estimated_input_tokens").and_then(serde_json::Value::as_u64) {
+        Some(value) => Some(u32::try_from(value).map_err(|_| ShenkoError::conflict("sealed estimate overflow"))?),
+        None => {
+            let payload = input.get("payload").cloned()
+                .ok_or_else(|| ShenkoError::conflict("sealed request payload missing"))?;
+            estimate_payload_tokens(&serde_json::from_value(payload)?, 0)
+        }
+    };
+    Ok((binding, estimated))
 }
 
 /// CAS 失败直接返回，绝不制造空 locator 后继续提交。§41.2.2
@@ -424,24 +419,20 @@ async fn execute_step(
     let resumed_input = validate_resume(&store, &step)?;
     let input = if step.state == SubjectStepState::Planned {
         state.identity_service = state
-            .identity_context
+            .plugin_context
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
+        let prepared = prepare_context(state, events, in_semantic_wait)?;
         let input = FrozenStepInput {
-            schema_version: 7,
+            schema_version: 8,
             step_id,
             step_no: seq,
-            events: events.to_vec(),
+            events: prepared.events,
             provider_binding: state.broker.as_ref().map(|b| b.binding().clone()),
-            payload: shenko_broker::request::InferencePayload {
-                system_prompt: build_system_prompt(state, in_semantic_wait),
-                messages: build_messages(state, events),
-                max_tokens: Some(state.max_tokens),
-                tools: vec![],
-                native_options: Default::default(),
-            },
-            in_semantic_wait,
+            payload: prepared.payload,
+            context: prepared.context,
+            in_semantic_wait: prepared.in_semantic_wait,
             identity: state.identity.clone(),
             identity_provider_revision: state.identity_service.revision().into(),
         };
@@ -452,7 +443,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            7,
+            8,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -842,7 +833,9 @@ async fn execute_step(
             let (head, successor) = store.load_subject(state.agent_id)?;
             state.head = head;
             state.step = successor;
-            state.last_thought = model_output.clone();
+            state.previous_input_tokens = observed_input_tokens(&store.recorded_model_outcome(&step)?);
+            state.previous_input_binding = input.provider_binding.clone();
+            state.previous_estimated_input_tokens = input.context.estimated_input_tokens;
 
             // Read our committed receipt, not latest profile. Its revision and
             // typed conflict were settled atomically with this exact S1.
@@ -957,10 +950,7 @@ fn replace_rejected_output(
         ));
     input.payload.messages.push(shenko_broker::request::InferenceMessage::text(
         "user",
-        format!(
-            "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。",
-            rejection.error.code, rejection.error.details,
-        ),
+        shenko_store::control_rejection_feedback(&rejection),
     ));
     let mut replacement = retired.clone();
     replacement.step_id = replacement_id;
@@ -972,7 +962,7 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        7,
+        8,
     )?);
     replacement.context_revision = Some(
         retired

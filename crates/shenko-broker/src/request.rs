@@ -98,6 +98,21 @@ impl ProviderBinding {
     }
 }
 
+/// Advertised capabilities of the exact bound model, not a physical capacity
+/// measurement. Missing metadata stays unknown rather than inferred.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderCapabilities {
+    pub binding: ProviderBinding,
+    pub max_context_tokens: Option<u32>,
+    pub vision: Option<ProviderVisionCaps>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderVisionCaps {
+    pub max_image_context: u32,
+    pub patch_px: u32,
+}
+
 pub struct InferenceRequest {
     pub request_id: EntityId,
     pub agent_id: EntityId,

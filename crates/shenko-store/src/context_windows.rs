@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS context_window_derivatives (
 );
 CREATE TABLE IF NOT EXISTS context_window_scopes (
     scope_id TEXT PRIMARY KEY,
-    model_generation INTEGER NOT NULL
+    model_generation INTEGER NOT NULL,
+    profile_digest TEXT
 );
 ";
 
@@ -86,8 +87,9 @@ fn read_window(
     for d in &derivatives {
         if blake3::hash(&d.bytes).to_hex().as_str() != d.blake3 {
             return Err(storage(format!("derivative of window {window_id} fails blake3")));
-        }
     }
+
+        }
     Ok(StoredContextWindow { window_id, generation, body, derivatives })
 }
 
@@ -140,6 +142,35 @@ impl Store {
         scope_id: EntityId,
         expected_head: Option<EntityId>,
         expected_model_generation: Option<i64>,
+        window: &StoredContextWindow,
+    ) -> Result<ContextWindowAppend, ShenkoError> {
+        self.append_window(scope_id, expected_head, expected_model_generation, None, window)
+    }
+
+    /// Atomically invalidate an old model's window prefix. The new head is a
+    /// full-raw root: an old compressed/image projection cannot leak into a
+    /// different binding merely because automatic compaction is unavailable.
+    pub fn rebind_context_model_generation(
+        &self,
+        scope_id: EntityId,
+        expected_head: EntityId,
+        expected_model_generation: i64,
+        generation: i64,
+        profile_digest: &str,
+        window: &StoredContextWindow,
+    ) -> Result<ContextWindowAppend, ShenkoError> {
+        if generation <= expected_model_generation || profile_digest.is_empty() {
+            return Err(ShenkoError::conflict("context model generation must increase"));
+        }
+        self.append_window(scope_id, Some(expected_head), Some(expected_model_generation), Some((generation, profile_digest)), window)
+    }
+
+    fn append_window(
+        &self,
+        scope_id: EntityId,
+        expected_head: Option<EntityId>,
+        expected_model_generation: Option<i64>,
+        new_model_generation: Option<(i64, &str)>,
         window: &StoredContextWindow,
     ) -> Result<ContextWindowAppend, ShenkoError> {
         for (idx, d) in window.derivatives.iter().enumerate() {
@@ -210,6 +241,14 @@ impl Store {
                     )
                     .map_err(storage)?;
                 }
+                if let Some((generation, profile_digest)) = new_model_generation {
+                    tx.execute(
+                        "INSERT INTO context_window_scopes(scope_id,model_generation,profile_digest) VALUES(?1,?2,?3)
+                         ON CONFLICT(scope_id) DO UPDATE SET model_generation=excluded.model_generation,
+                         profile_digest=excluded.profile_digest",
+                        params![scope_id.to_string(), generation, profile_digest],
+                    ).map_err(storage)?;
+                }
                 tx.execute(
                     "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)
                      VALUES (?1, ?2, ?3, 1)",
@@ -240,19 +279,15 @@ impl Store {
         .map_err(storage)
     }
 
-    pub fn set_context_model_generation(&self, scope_id: EntityId, generation: i64) -> Result<(), ShenkoError> {
-        self.ledger.with_mutation(
-            || {
-                let conn = self.ledger.conn.lock();
-                conn.execute(
-                    "INSERT INTO context_window_scopes (scope_id, model_generation) VALUES (?1, ?2)
-                     ON CONFLICT(scope_id) DO UPDATE SET model_generation = excluded.model_generation",
-                    params![scope_id.to_string(), generation],
-                )
-                .map_err(storage)?;
-                Ok(())
-            },
-            |_| true,
-        )
+    pub fn context_profile(&self, scope_id: EntityId) -> Result<Option<(i64, String)>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        conn.query_row(
+            "SELECT model_generation,profile_digest FROM context_window_scopes WHERE scope_id=?1",
+            params![scope_id.to_string()],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<String>>(1)?)),
+        ).optional().map_err(storage).map(|row| {
+            row.and_then(|(generation, profile)| profile.map(|profile| (generation, profile)))
+        })
     }
+
 }

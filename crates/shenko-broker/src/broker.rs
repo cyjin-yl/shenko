@@ -3,7 +3,8 @@
 //!
 //! Provider selection is fixed at construction. No provider is a typed
 //! unavailable binding, never a synthetic successful model response.
-use anyhow::Result;
+use anyhow::{Result, anyhow, ensure};
+use serde::Deserialize;
 use std::collections::VecDeque;
 #[cfg(test)]
 use std::sync::Arc;
@@ -15,8 +16,58 @@ use crate::local_provider::LocalModelProvider;
 use crate::provider::AnthropicProvider;
 use crate::request::{
     EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
-    ProviderBinding, ProviderRejection, ProviderWireError, TerminationEvidence, TerminationKind,
+    ProviderBinding, ProviderCapabilities, ProviderRejection, ProviderVisionCaps,
+    ProviderWireError, TerminationEvidence, TerminationKind,
 };
+
+#[derive(Deserialize)]
+struct ModelMetadata {
+    id: String,
+    max_model_len: Option<u32>,
+    max_context_tokens: Option<u32>,
+    max_input_tokens: Option<u32>,
+    context_length: Option<u32>,
+    max_image_context: Option<u32>,
+    patch_px: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct ModelMetadataList {
+    data: Vec<ModelMetadata>,
+    has_more: Option<bool>,
+}
+
+impl ProviderCapabilities {
+    fn from_metadata(binding: ProviderBinding, metadata: ModelMetadata) -> Result<Self> {
+        ensure!(metadata.id == binding.model(), "metadata model id differs from bound model");
+        // `max_tokens` is deliberately absent: Anthropic defines that as the
+        // output-parameter ceiling, not the input context window.
+        let limits = [metadata.max_model_len, metadata.max_context_tokens,
+            metadata.max_input_tokens, metadata.context_length]
+            .into_iter().flatten().collect::<Vec<_>>();
+        ensure!(limits.iter().all(|limit| *limit > 0), "model metadata has an invalid context limit");
+        ensure!(limits.iter().all(|limit| Some(*limit) == limits.first().copied()),
+            "model metadata reports conflicting context limits");
+        if let Some(limit) = metadata.max_image_context {
+            ensure!(limit > 0, "model metadata has an invalid image context limit");
+        }
+        if let Some(patch) = metadata.patch_px {
+            ensure!(patch > 0, "model metadata has an invalid vision patch size");
+        }
+        let vision = match (metadata.max_image_context, metadata.patch_px) {
+            (Some(max_image_context), Some(patch_px)) => Some(ProviderVisionCaps { max_image_context, patch_px }),
+            _ => None,
+        };
+        Ok(Self { binding, max_context_tokens: limits.first().copied(), vision })
+    }
+}
+
+async fn metadata_response(request: reqwest::RequestBuilder) -> Result<ModelMetadataList> {
+    let response = request.send().await?;
+    let status = response.status();
+    ensure!(status.is_success(), "model metadata request failed with HTTP {status}");
+    Ok(response.json().await?)
+}
 
 #[cfg(test)]
 #[async_trait::async_trait]
@@ -324,6 +375,46 @@ impl Broker {
     /// returns typed Unavailable rather than a fabricated successful completion.
     pub fn offline() -> (Self, BrokerHandle) {
         Self::with_provider(ActiveProvider::Stub, AdmissionController::nominal())
+    }
+
+    /// Read one bounded native metadata response before dispatch. The model
+    /// must match exactly; no first-card fallback or capability name table.
+    pub async fn discover_capabilities(&self) -> Result<ProviderCapabilities> {
+        let binding = self.provider.binding();
+        let metadata = match &self.provider {
+            ActiveProvider::Local(provider) => {
+                let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10));
+                if provider.allow_invalid_certs {
+                    builder = builder.danger_accept_invalid_certs(true);
+                }
+                let client = builder.build()?;
+                let models = metadata_response(client.get(format!(
+                    "{}/v1/models", provider.base_url.trim_end_matches('/'),
+                ))).await?;
+                (models, None)
+            }
+            ActiveProvider::Anthropic(provider) => {
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(10)).build()?;
+                let models = metadata_response(client.get(format!(
+                    "{}/v1/models", provider.base_url.trim_end_matches('/'),
+                ))
+                    .header("x-api-key", &provider.api_key)
+                    .header("anthropic-version", crate::provider::ANTHROPIC_API_VERSION)
+                    .query(&[("limit", "1000")])).await?;
+                (models, Some("incomplete metadata page; refusing an inexact match"))
+            }
+            ActiveProvider::Stub => return Err(anyhow!("offline binding has no model metadata")),
+            #[cfg(test)]
+            ActiveProvider::Fixture(_) => return Err(anyhow!("fixture binding has no model metadata")),
+        };
+        let (models, incomplete) = metadata;
+        let mut matches = models.data.into_iter().filter(|model| model.id == binding.model());
+        let metadata = matches.next().ok_or_else(|| anyhow!(
+            "bound model metadata not found{}", incomplete.filter(|_| models.has_more == Some(true)).unwrap_or(""),
+        ))?;
+        ensure!(matches.next().is_none(), "duplicate metadata for bound model");
+        ProviderCapabilities::from_metadata(binding, metadata)
     }
 
     fn with_provider(

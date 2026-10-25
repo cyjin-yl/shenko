@@ -193,7 +193,7 @@ pub enum TaskOutcome {
 
 /// Durable result entry and subject-ready event. The evidence object is sealed
 /// before T2; this SQL entry atomically binds it to task/result/commit identity.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskResult {
     pub schema_version: u32,
     pub result_id: EntityId,

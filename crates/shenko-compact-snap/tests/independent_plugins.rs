@@ -142,8 +142,10 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let first_image = b.entries.iter().position(|e| matches!(e, WindowEntry::Image { .. })).unwrap();
     let text_prefix: u32 = b.entries[..first_image].iter().map(WindowEntry::tokens).sum();
     assert_eq!(b.cost.reusable_prefix_tokens, text_prefix);
-    ledger.set_model_generation(1).unwrap();
-    let c = ledger.commit(cut(1999, b.id, 1), &h).unwrap();
+    ledger.rebind_model(1, "snapshot-rebind").unwrap();
+    let durable_rebound = ledger.current().unwrap();
+    assert_eq!(durable_rebound.entries, []);
+    let c = ledger.commit(cut(1999, durable_rebound.id, 1), &h).unwrap();
     assert_eq!((c.entries == b.entries, c.derivatives == b.derivatives), (true, true));
     assert_eq!(c.cost.reusable_prefix_tokens, 0, "new binding: nothing reusable");
 
@@ -162,13 +164,14 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     assert_eq!(ledger.current().unwrap().id, c.id, "stale generation did not append");
 
     let memory = MemoryWindowLog::default();
-    let genesis = memory.head().unwrap();
-    memory.set_model_generation(1).unwrap();
-    let mut stale = genesis.clone();
+    memory.rebind_model(1, "snapshot-rebind").unwrap();
+    let memory_rebound = memory.head().unwrap();
+    let mut stale = memory_rebound.clone();
     stale.id = EntityId::new();
-    stale.generation = 1;
+    stale.generation += 1;
+    stale.model_generation = 0;
     assert_eq!(
-        memory.append(genesis.id, 0, &stale).unwrap(),
+        memory.append(memory_rebound.id, 0, &stale).unwrap(),
         WindowAppend::ModelGenerationChanged { current: 1 }
     );
     drop((ledger, log, store));
@@ -177,9 +180,9 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let reopened = WindowLedger::new(Arc::new(StoreWindowLog::new(store, scope)));
     let chain = reopened.all().unwrap();
     let ids: Vec<_> = chain.iter().skip(1).map(|w| w.id).collect();
-    assert_eq!(ids, vec![a.id, b.id, c.id], "genesis + three windows, in order");
-    assert_eq!(chain[3], c, "frames and body read back byte-identical");
-    let frames: Vec<_> = chain[3]
+    assert_eq!(ids, vec![a.id, b.id, durable_rebound.id, c.id], "genesis + two cuts + model-rebind root + rebound cut");
+    assert_eq!(chain[4], c, "frames and body read back byte-identical");
+    let frames: Vec<_> = chain[4]
         .project(&h)
         .unwrap()
         .into_iter()
@@ -188,7 +191,7 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
             _ => None,
         })
         .collect();
-    assert_eq!(frames, c.derivatives.iter().map(|d| d.bytes.clone()).collect::<Vec<_>>());
+    assert_eq!(frames, c.derivatives.iter().map(|d| Arc::<[u8]>::from(d.bytes.as_slice())).collect::<Vec<_>>());
     assert_eq!(reopened.model_generation().unwrap(), 1);
     let _ = std::fs::remove_dir_all(dir);
 }

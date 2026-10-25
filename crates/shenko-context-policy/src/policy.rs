@@ -5,7 +5,7 @@ use shenko_types::ids::EntityId;
 use crate::history::{HistoryItem, ItemRef};
 
 /// Bumped on any incompatible change to the types in this crate.
-pub const CONTRACT_VERSION: u32 = 1;
+pub const CONTRACT_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyManifest {
@@ -19,7 +19,7 @@ pub struct PolicyManifest {
 /// Actual vision envelope of the bound model, never inferred from text context.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VisionCaps {
-    /// Merged-token envelope for image requests (NInfer: 32768).
+    /// Advertised merged-token envelope for image requests.
     pub max_image_context: u32,
     /// Pixel edge of one vision token patch, used for estimates only.
     pub patch_px: u32,
