@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Context, Result};
+use crate::mount::{MountMode, MountSpec, validate_mounts};
+use anyhow::{Context, Result, anyhow};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -15,13 +16,14 @@ pub const HOME_GUEST_PATH: &str = "/home";
 ///
 /// Holds the engine and an owned store. Modules are compiled by the engine and
 /// instantiated against the store; function calls dispatch through the store's
-/// context. A `home_dir` records the persistent WASM home so checkpoint/restore
-/// can snapshot the marker across sessions and so WASI commands see the same
-/// filesystem state under [`HOME_GUEST_PATH`].
+/// context. A configured mount list binds the persistent home and any other
+/// explicitly granted host directories. Only file home/metadata recovery is
+/// represented here; live module memory, KV and sockets are not checkpoints.
 pub struct WasmRuntime {
     pub engine: Engine,
     pub store: Option<Store<()>>,
     pub home_dir: PathBuf,
+    pub mounts: Vec<MountSpec>,
 }
 
 impl WasmRuntime {
@@ -34,33 +36,38 @@ impl WasmRuntime {
             engine,
             store: Some(store),
             home_dir: PathBuf::new(),
+            mounts: Vec::new(),
         })
+    }
+
+    /// Construct the real WASI home from a managed manifest. There is no
+    /// implicit host-directory fallback and no silent COW-to-RW downgrade.
+    pub fn with_mounts(mounts: Vec<MountSpec>) -> Result<Self> {
+        let home_dir = mounts
+            .iter()
+            .find(|mount| mount.guest_path == HOME_GUEST_PATH)
+            .map(|mount| mount.source.clone())
+            .ok_or_else(|| anyhow!("WASM_PROFILE_UNAVAILABLE: /home mount is missing"))?;
+        validate_mounts(&mounts, &home_dir)?;
+        let mut runtime = Self::new()?;
+        runtime.home_dir = home_dir;
+        runtime.mounts = mounts;
+        Ok(runtime)
     }
 
     /// Compile and instantiate a WAT module against the owned store.
     pub fn instantiate_module(&mut self, wat: &str) -> Result<Instance> {
-        let store = self
-            .store
-            .as_mut()
-            .context("wasm store not initialized")?;
+        let store = self.store.as_mut().context("wasm store not initialized")?;
         let module = Module::new(&self.engine, wat.as_bytes())
             .map_err(|e| anyhow!("compile WAT module: {e}"))?;
-        let instance = Instance::new(store, &module, &[])
-            .map_err(|e| anyhow!("instantiate module: {e}"))?;
+        let instance =
+            Instance::new(store, &module, &[]).map_err(|e| anyhow!("instantiate module: {e}"))?;
         Ok(instance)
     }
 
     /// Call an exported function by name on the given instance.
-    pub fn call_func(
-        &mut self,
-        instance: &Instance,
-        name: &str,
-        args: &[Val],
-    ) -> Result<Vec<Val>> {
-        let store = self
-            .store
-            .as_mut()
-            .context("wasm store not initialized")?;
+    pub fn call_func(&mut self, instance: &Instance, name: &str, args: &[Val]) -> Result<Vec<Val>> {
+        let store = self.store.as_mut().context("wasm store not initialized")?;
         let func = instance
             .get_func(&mut *store, name)
             .ok_or_else(|| anyhow!("exported function `{}` not found", name))?;
@@ -77,21 +84,24 @@ impl WasmRuntime {
     /// Run a WASI preview1 command module and return its exit code.
     ///
     /// `wasm_or_wat` may be either a binary module or WAT text. The persistent
-    /// home directory (`self.home_dir`) is created if missing and preopened as
-    /// the guest's [`HOME_GUEST_PATH`] with read/write access, so anything the
-    /// guest writes survives across sessions and stays visible on the host.
+    /// Every preopen comes from `self.mounts`; source directories must already
+    /// exist and match their canonical managed binding. `/home` and additional
+    /// guest paths retain their declared RO/RW semantics. Guest writes survive
+    /// on the host only where direct RW is explicitly configured.
     /// The module must export `_start`; a normal return is exit code 0 and a
     /// `proc_exit(n)` trap becomes exit code `n` instead of an error.
     pub fn run_wasi_module(&mut self, wasm_or_wat: &[u8]) -> Result<i32> {
         if self.home_dir.as_os_str().is_empty() {
             return Err(anyhow!(
-                "wasm home_dir is not configured; call restore() or set home_dir before running WASI"
+                "WASM_PROFILE_UNAVAILABLE: call with_mounts before running WASI"
             ));
         }
+        validate_mounts(&self.mounts, &self.home_dir)?;
         fs::create_dir_all(&self.home_dir).context("create wasm home dir")?;
 
         let engine = self.engine.clone();
         let home = self.home_dir.clone();
+        let mounts = self.mounts.clone();
         let bytes = wasm_or_wat.to_vec();
         // wasmtime-wasi's synchronous shims call `Handle::block_on`, which
         // panics when the calling thread already drives a tokio runtime. Run
@@ -100,50 +110,45 @@ impl WasmRuntime {
         // callers (the Shenko main loop) as well as from plain tests.
         let joined = std::thread::Builder::new()
             .name("shenko-wasi".into())
-            .spawn(move || run_wasi_blocking(&engine, &home, &bytes))
+            .spawn(move || run_wasi_blocking(&engine, &home, &mounts, &bytes))
             .context("spawn wasi execution thread")?
             .join()
             .map_err(|_| anyhow!("wasi execution thread panicked"))?;
         joined
     }
-
-    /// Write a snapshot marker into the WASM home directory.
-    pub fn checkpoint(&self, home_dir: &Path) -> Result<()> {
-        fs::create_dir_all(home_dir).context("create wasm home dir")?;
-        let marker = home_dir.join(".wasm_checkpoint");
-        let body = format!("wasmtime-45\n{}\n", chrono::Utc::now().to_rfc3339());
-        fs::write(&marker, body).context("write checkpoint marker")?;
-        info!(home_dir = %home_dir.display(), "WASM checkpoint written");
-        Ok(())
-    }
-
-    /// Read the snapshot marker from the WASM home directory and adopt it.
-    pub fn restore(&mut self, home_dir: &Path) -> Result<()> {
-        let marker = home_dir.join(".wasm_checkpoint");
-        let contents = fs::read_to_string(&marker)
-            .with_context(|| format!("read checkpoint marker at {}", marker.display()))?;
-        let mut lines = contents.lines();
-        let version = lines.next().unwrap_or("");
-        if !version.starts_with("wasmtime-") {
-            return Err(anyhow!("checkpoint marker version mismatch: {}", version));
-        }
-        self.home_dir = home_dir.to_path_buf();
-        info!(home_dir = %home_dir.display(), "WASM checkpoint restored");
-        Ok(())
-    }
 }
 
 /// Instantiate a WASI preview1 command with the home preopen and run `_start`.
-fn run_wasi_blocking(engine: &Engine, home: &Path, wasm_or_wat: &[u8]) -> Result<i32> {
-    let module = Module::new(engine, wasm_or_wat)
-        .map_err(|e| anyhow!("compile WASI module: {e}"))?;
+fn run_wasi_blocking(
+    engine: &Engine,
+    home: &Path,
+    mounts: &[MountSpec],
+    wasm_or_wat: &[u8],
+) -> Result<i32> {
+    let canonical_sources = validate_mounts(mounts, home)?;
+    let module =
+        Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
 
     let mut builder = WasiCtxBuilder::new();
-    // wasmtime 45 has its own `Error` type (not `std::error::Error`), so
-    // `anyhow::Context` does not apply here; embed the path in the message.
-    builder
-        .preopened_dir(home, HOME_GUEST_PATH, DirPerms::all(), FilePerms::all())
-        .map_err(|e| anyhow!("preopen {} at {HOME_GUEST_PATH}: {e}", home.display()))?;
+    for (mount, source) in mounts.iter().zip(canonical_sources.iter()) {
+        let (dir_perms, file_perms) = match mount.mode {
+            MountMode::ReadOnly => (DirPerms::READ, FilePerms::READ),
+            MountMode::ReadWrite => (DirPerms::all(), FilePerms::all()),
+            MountMode::CopyOnWrite => unreachable!("validated COW must fail before preopen"),
+        };
+        // wasmtime 45 has its own `Error` type (not `std::error::Error`), so
+        // `anyhow::Context` does not apply here; embed the binding in the message.
+        builder
+            .preopened_dir(source, &mount.guest_path, dir_perms, file_perms)
+            .map_err(|e| {
+                anyhow!(
+                    "preopen {} at {} ({:?}): {e}",
+                    source.display(),
+                    mount.guest_path,
+                    mount.mode
+                )
+            })?;
+    }
     let wasi = builder.build_p1();
 
     let mut linker: Linker<WasiP1Ctx> = Linker::new(engine);
@@ -180,8 +185,7 @@ mod tests {
     use super::*;
 
     fn temp_home(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("shenko-wasm-{tag}-{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("shenko-wasm-{tag}-{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create temp home");
         dir
     }
@@ -210,11 +214,21 @@ mod tests {
     /// `proc_exit(n)` is reported as exit code `n` rather than an error.
     #[test]
     fn wasi_start_runs_and_reports_exit_code() -> Result<()> {
-        let mut rt = WasmRuntime::new()?;
-        rt.home_dir = temp_home("start");
+        let home = temp_home("start");
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home.clone(),
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
 
         let plain = r#"(module (func (export "_start")))"#;
-        assert_eq!(rt.run_wasi_module(plain.as_bytes())?, 0, "empty _start exits 0");
+        assert_eq!(
+            rt.run_wasi_module(plain.as_bytes())?,
+            0,
+            "empty _start exits 0"
+        );
 
         let exit7 = r#"
             (module
@@ -231,7 +245,7 @@ mod tests {
             "proc_exit(7) surfaces as exit code 7"
         );
 
-        fs::remove_dir_all(&rt.home_dir).ok();
+        fs::remove_dir_all(&home).ok();
         Ok(())
     }
 
@@ -241,10 +255,15 @@ mod tests {
     /// distinct code so a broken stage is identifiable.
     #[test]
     fn home_dir_preopened_and_guest_writable() -> Result<()> {
-        let mut rt = WasmRuntime::new()?;
         let home = temp_home("preopen");
         fs::write(home.join("host-visible.txt"), b"persistent")?;
-        rt.home_dir = home.clone();
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home.clone(),
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
 
         let wat = r#"
             (module
@@ -310,6 +329,66 @@ mod tests {
         );
         assert!(home.join("host-visible.txt").exists());
         fs::remove_dir_all(&home).ok();
+        Ok(())
+    }
+
+    /// One focused mount-semantics scenario: a real guest cannot create a file
+    /// through a RO preopen, and requesting unimplemented COW fails instead of
+    /// silently becoming direct RW.
+    #[test]
+    fn read_only_and_cow_mounts_keep_their_semantics() -> Result<()> {
+        let home = temp_home("modes-home");
+        let read_only = temp_home("modes-ro");
+        let mut rt = WasmRuntime::with_mounts(vec![
+            MountSpec::new(
+                home.clone(),
+                HOME_GUEST_PATH,
+                MountMode::ReadWrite,
+                true,
+                false,
+            ),
+            MountSpec::new(
+                read_only.clone(),
+                "/read-only",
+                MountMode::ReadOnly,
+                false,
+                false,
+            ),
+        ])?;
+        let write_attempt = r#"
+            (module
+              (import "wasi_snapshot_preview1" "path_open"
+                (func $path_open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
+              (memory (export "memory") 1)
+              (data (i32.const 200) "blocked.txt")
+              (func (export "_start")
+                ;; The second preopen is fd 4. A successful create on a RO
+                ;; mount is a contract violation; any WASI errno is rejected.
+                (if (i32.eq
+                      (call $path_open
+                        (i32.const 4) (i32.const 0) (i32.const 200) (i32.const 11)
+                        (i32.const 9) (i64.const 64) (i64.const 0) (i32.const 0) (i32.const 300))
+                      (i32.const 0))
+                  (then (call $proc_exit (i32.const 90))))
+              )
+            )
+        "#;
+        assert_eq!(rt.run_wasi_module(write_attempt.as_bytes())?, 0);
+        assert!(!read_only.join("blocked.txt").exists());
+
+        let error = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::CopyOnWrite,
+            true,
+            true,
+        )])
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+        assert!(error.contains("MOUNT_MODE_UNSUPPORTED"), "{error}");
+        assert!(error.contains("no direct-RW fallback"), "{error}");
         Ok(())
     }
 }

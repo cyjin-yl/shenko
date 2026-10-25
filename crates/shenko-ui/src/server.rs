@@ -21,6 +21,7 @@ pub struct UiServer {
     /// Read-only store handle for `/api/tasks`. None = endpoint reports
     /// `available: false` instead of inventing task rows.
     store: Option<std::sync::Arc<shenko_store::store::Store>>,
+    inference: Option<api::InferenceStatus>,
     inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>>,
 }
 
@@ -32,6 +33,7 @@ impl UiServer {
             playground_root: default_playground_root(),
             data_dir: None,
             store: None,
+            inference: None,
             inbox_tx: None,
         }
     }
@@ -53,6 +55,13 @@ impl UiServer {
     pub fn with_store(mut self, store: std::sync::Arc<shenko_store::store::Store>) -> Self {
         self.state.store = Some(Arc::clone(&store));
         self.store = Some(store);
+        self
+    }
+
+    /// Report the same provider selection used by production bootstrap.
+    /// Configured is not a successful model probe or a capacity guarantee.
+    pub fn with_inference_status(mut self, model: Option<String>, configured: bool) -> Self {
+        self.inference = Some(api::InferenceStatus::new(model, configured));
         self
     }
 
@@ -105,6 +114,9 @@ impl UiServer {
         }
         if let Some(data_dir) = self.data_dir.clone() {
             api_state = api_state.with_data_dir(data_dir);
+        }
+        if let Some(inference) = self.inference.clone() {
+            api_state = api_state.with_inference(inference);
         }
         // Shared Arc registries: `/api/self` reports the same live objects the
         // Playground routes and WS handler use, not a second copy.
