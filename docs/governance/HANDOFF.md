@@ -2,6 +2,35 @@
 
 **更新时间：2026-10-25（PR51 raw session 写入口与 PR53 C20 持久历史已合入；完整 C01/C20 仍开放）**
 
+> **2026-10-25 配额交接（模型额度耗尽，loop 停止）**
+>
+> 当前 provider 5 小时额度耗尽（HTTP 429），工作流停止；主控已完成本节的提交/推送/PR 保存，供 dot 或其他贡献者接续。不要声称本文件所列局部切片已完成完整 SPEC。
+>
+> **主线**：`df68c7cbf9ab0546aac59969c1e330fc7f306697`。
+>
+> **本次实际合入**
+> - C20 窗口恢复修复：PR [#53](https://github.com/cyjin-yl/shenko/pull/53)（`9965b912`）——generation 与 append 同一 CAS、无需 operation 凭据时 Unknown、derivative 提交前 hash 校验、head DESC LIMIT1；PR [#50](https://github.com/cyjin-yl/shenko/pull/50) 随之显示 merged，朋友原提交/作者保留。17 项相关测试通过。
+> - C01 raw session 写入口：PR [#51](https://github.com/cyjin-yl/shenko/pull/51)（merge `a2510c2497c6c2ebc65159b566b7a84ee0530b45`）——父行与事件同事务、幂等重放、冲突整批回滚；候选+当时最新 main 组合 16 tests 通过；closed-writer 语义保留。完整 #6 仍 OPEN。
+>
+> **开放 Draft PR（可直接接续，勿重复实现）**
+> - C02 有限 native child：PR [#55](https://github.com/cyjin-yl/shenko/pull/55)，head `9eb26e1bb48c152af4922c682640bb6246fa7350`，base main。仅显式 `host.printf/v1` deterministic kind；两条 focused 场景通过；非通用 LLM child/生产 SSH/seat。完整 C02 未完成。
+> - C04 Broker 公平并发与 wire 封口：PR [#57](https://github.com/cyjin-yl/shenko/pull/57)，head `5190d07`（含合并 main `a2510c2`）。 fairness/sealed-wire 修复；验证与真实后端 KV/四流证据仍需补齐。
+> - C11 Proto-UI WIP：PR [#58](https://github.com/cyjin-yl/shenko/pull/58)，head `832b0e8e1e0f8c015ff6c5c06e42773ee9a4a522`，**未验证且不可合并**：基于旧 main `5ddc0ee`，在该基线不编译（`OutputAction::Delegate.definition` 漂移先于本 diff）。接续须从最新 main 重新应用 5 个 shenko-ui 文件、完成真实 Proto-UI `2962d4ee877f5a3544a13d4deaa09b6b2b038fb7`（Node24/pnpm10.32.1）构建与浏览器验收。
+> - #52 朋友原地 update 校验：仍 OPEN/Draft，head `3271121`，定向验证因额度未完成，未合并。
+>
+> **未完成的治理决定（owner 已明确方向，文本未落地）**
+> - 许可：owner 本人 `cyjin-yl` 作为再许可主体；社区 AGPL-3.0-or-later + owner 保留闭源/商业双许可；DCO 仅证明来源，不自动等于商业再许可。公开讨论 [#54](https://github.com/cyjin-yl/shenko/issues/54) 朋友尚未回复；当前未改 Cargo.toml（仍 Apache-2.0 元数据、无 LICENSE 正文），cordis-rs 为 MIT。
+> - 协作规则：每个 agent 必须 monitor 自己创建/认领的 issue/PR；需回应评论 3 小时内回复或明确“正在处理+进度+下一 checkpoint”；超时无回应允许主控接管/转派，保留原作者/commit、以原 PR 来源+正常 merge 交接。尚未写入 AGENTS/GOAL/PROMPT。
+>
+> **可复用研究（容器 `shenko-dev-live`）**
+> - OMP/Codex compact 对照已完成：OMP main=`0b5c27ab24719c86a5986b95ee55f4e75bc1aaa0`（包 18.12.6；tag `45c35e40`），Codex=`a3d93e1e692f1144cf8685175a5d1f6bf7294f57`；OMP 已有 Silver TTF CJK/52 shadcn family/compiler private；NPM `next` 0.3.0-alpha.1 仅 12 family，不可冒充 main。源码缓存 `/workspace/omp-compact-source-20261025-K12GSjIy`（`metadata/source-manifest.json` 含所有 SHA/permalink）。
+> - Proto-UI：main=`2962d4ee877f5a3544a13d4deaa09b6a2b038fb7`；Rhea 来源 shadcn-ui `25af02b1`，New York `02cad611`；源码 `/workspace/c11-proto-ui-upstream-2962d4ee`。
+> - 视觉端点：Tailnet vLLM `qwen3.8-27b`（OpenAI）/`qwen3.8-27b-anth`（Anthropic）已用真实 snap 帧验证可读图中英/数字/路径；证据见 #25 comment6389530566；非完整视觉精度/KV 验收。
+> - 本地快照（未推送，仅供追溯）：`/tmp/shenko-c22-control-s1-20261025`（13 文件 554 行，已被 corrected lineage 成熟吸收）、`/tmp/shenko-c22-dispatch-candidate-3eqan12g`（基于已纠正的 wrong-author `3e6ad79`，勿推）、`/tmp/shenko-frozen-input-qxrlc_bp`（patch SHA `6136d8c0…`）。
+>
+> **下一动作优先级**：① 预算法恢复后继续 #52 定向验证与合入；② C04 补真实公平/KV/unknown 证据；③ C02 接真实 child handler→C07/T2；④ C11 从最新 main 重建 Proto-UI seam；⑤ 落地许可与 monitor/3h 规则文档；⑥ C20 执行 ledger join/版本 payload/正式 loop；⑦ #6/#12/#22 与 S1–S5 其余正式义务。
+
+
 ## 当前 C01 raw session 写入口与 C20 接续（非完整包完成）
 
 - **实际 main 与原作者**：[PR51](https://github.com/cyjin-yl/shenko/pull/51) 已 normal merge，原 head `5255e5bc18fae86d6d9fa7caf227281599ba6c4f`，merge／本次产品基线 `a2510c2497c6c2ebc65159b566b7a84ee0530b45`，tree `93745c763e443ee68a4f029c6a70a28477f6c718`，另一 parent 是当时 main `9965b9125a11c2b87185aca0dbca644bebd1f33f`。原 commit 的 author/committer 均为 `shwgdysjsvg <2738635606@qq.com>`，且已是 main 祖先；未 squash、强推或改写朋友分支。
