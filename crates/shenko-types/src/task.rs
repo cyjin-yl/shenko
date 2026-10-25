@@ -4,10 +4,29 @@
 use serde::{Deserialize, Serialize};
 
 use crate::commit::CommitRef;
-use crate::ids::{
-    ControllerEpoch, EntityId, RecordRevision, TaskRevision,
-};
+use crate::ids::{ControllerEpoch, EntityId, RecordRevision, TaskRevision};
 use crate::object::ObjectRef;
+
+/// Explicit deterministic native work requested by a delegation. Identity,
+/// role and authority are deliberately absent: the Cordis registry supplies them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeTaskDefinition {
+    pub kind: String,
+    pub definition_version: u32,
+    pub input: serde_json::Value,
+}
+
+/// Runtime assignment is separate from the immutable semantic TaskOwner.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionAssignment {
+    pub worker_id: EntityId,
+    pub node_id: EntityId,
+    pub invocation_id: EntityId,
+    pub epoch: ControllerEpoch,
+    pub implementation_ref: ImplementationRef,
+    pub assigned_commit: CommitRef,
+}
 
 /// 任务所有者 — conversation 或上级 task。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,7 +78,9 @@ pub enum AbortScope {
 #[serde(rename_all = "snake_case", tag = "status")]
 pub enum DispatchEligibility {
     Ready,
-    Blocked { reason_ref: EntityId },
+    Blocked {
+        reason_ref: EntityId,
+    },
     Parked {
         reason_ref: EntityId,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -168,4 +189,24 @@ pub enum TaskOutcome {
     Failed { reason: String },
     Cancelled,
     Interrupted,
+}
+
+/// Durable result entry and subject-ready event. The evidence object is sealed
+/// before T2; this SQL entry atomically binds it to task/result/commit identity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskResult {
+    pub schema_version: u32,
+    pub result_id: EntityId,
+    pub task_id: EntityId,
+    pub task_revision: TaskRevision,
+    pub task_record_revision: RecordRevision,
+    pub invocation_id: EntityId,
+    pub operation_id: EntityId,
+    pub receipt_id: EntityId,
+    pub outcome: TaskOutcome,
+    /// Bounded normalized result projected into the subject event; raw evidence stays separate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result: Option<serde_json::Value>,
+    pub evidence_ref: ObjectRef,
+    pub commit_ref: CommitRef,
 }

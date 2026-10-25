@@ -6,7 +6,7 @@ use crate::ids::{
     BranchId, ControllerEpoch, EntityId, RecordRevision, RuntimeGeneration, TaskRevision,
 };
 use crate::object::ObjectRef;
-use crate::task::WaitJoinPolicy;
+use crate::task::{NativeTaskDefinition, WaitJoinPolicy};
 use serde::{Deserialize, Serialize};
 
 /// How a subject step handled an incoming event.
@@ -35,6 +35,9 @@ pub struct DelegationIntent {
     pub capabilities: Vec<String>,
     pub budget_hint: Option<BudgetHint>,
     pub reply_grant: Option<ReplyGrant>,
+    /// None is an unresolved natural-language delegation, never a fake native run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<NativeTaskDefinition>,
 }
 
 /// Budget hint for a child agent.
