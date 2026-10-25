@@ -5,13 +5,13 @@ use std::collections::BTreeMap;
 use tracing::{info, instrument};
 
 use crate::request::{
-    InferencePayload, InferenceRequest, InferenceResponse, ProviderBinding, ProviderRejection,
-    ProviderWireError, TokenUsage,
+    InferencePart, InferencePayload, InferenceRequest, InferenceResponse, ProviderBinding,
+    ProviderRejection, ProviderWireError, TokenUsage, base64_image_bytes, validate_image_part,
 };
 
 pub(crate) const ANTHROPIC_API_VERSION: &str = "2026-10-21";
 const DEFAULT_MODEL: &str = "claude-opus-5-5";
-pub(crate) const SERIALIZER_REVISION: u32 = 2;
+pub(crate) const SERIALIZER_REVISION: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct AnthropicProvider {
@@ -138,11 +138,13 @@ impl AnthropicProvider {
 }
 
 fn anthropic_body(payload: &InferencePayload, model: &str) -> Result<serde_json::Value> {
-    let messages: Vec<serde_json::Value> = payload
-        .messages
-        .iter()
-        .map(|m| serde_json::json!({ "role": m.role, "content": m.content }))
-        .collect();
+    let mut messages = Vec::with_capacity(payload.messages.len());
+    for message in &payload.messages {
+        messages.push(serde_json::json!({
+            "role": message.role,
+            "content": anthropic_content(&message.parts)?,
+        }));
+    }
 
     let mut body = serde_json::json!({
         "model": model,
@@ -158,6 +160,43 @@ fn anthropic_body(payload: &InferencePayload, model: &str) -> Result<serde_json:
     }
     merge_native_options(&mut body, &payload.native_options, true)?;
     Ok(body)
+}
+
+/// Anthropic message content: the plain string a text-only message keeps, and
+/// ordered blocks once an image part is present.
+fn anthropic_content(parts: &[InferencePart]) -> Result<serde_json::Value> {
+    if !parts.iter().any(InferencePart::is_image) {
+        let text = parts
+            .iter()
+            .filter_map(|part| match part {
+                InferencePart::Text { text } => Some(text.as_str()),
+                InferencePart::Image { .. } => None,
+            })
+            .collect::<String>();
+        return Ok(serde_json::Value::String(text));
+    }
+    let mut blocks = Vec::with_capacity(parts.len());
+    for part in parts {
+        match part {
+            InferencePart::Text { text } => blocks.push(serde_json::json!({
+                "type": "text",
+                "text": text,
+            })),
+            InferencePart::Image { media_type, bytes } => {
+                validate_image_part(media_type, bytes)?;
+                let mut block = serde_json::json!({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                    },
+                });
+                block["source"]["data"] = serde_json::Value::String(base64_image_bytes(bytes));
+                blocks.push(block);
+            }
+        }
+    }
+    Ok(serde_json::Value::Array(blocks))
 }
 
 pub(crate) fn merge_native_options(
@@ -192,3 +231,4 @@ pub(crate) fn merge_native_options(
     );
     Ok(())
 }
+

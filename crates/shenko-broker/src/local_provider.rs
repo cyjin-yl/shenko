@@ -2,16 +2,17 @@
 //! Native local sampling options remain intact; Claude-only API restrictions do
 //! not leak into this binding. Endpoint and model are read once at construction.
 use anyhow::{Result, anyhow};
+use base64::Engine as _;
 use tracing::{info, instrument};
 
 use crate::provider::merge_native_options;
 use crate::request::{
-    InferenceRequest, InferenceResponse, ProviderBinding, ProviderRejection, ProviderWireError,
-    TokenUsage,
+    InferencePart, InferencePayload, InferenceRequest, InferenceResponse, ProviderBinding,
+    ProviderRejection, ProviderWireError, TokenUsage, validate_image_part,
 };
 
 const DEFAULT_MODEL: &str = "qwen3.8-27b";
-pub(crate) const SERIALIZER_REVISION: u32 = 2;
+pub(crate) const SERIALIZER_REVISION: u32 = 3;
 
 #[derive(Debug, Clone)]
 pub struct LocalModelProvider {
@@ -83,26 +84,7 @@ impl LocalModelProvider {
             builder = builder.danger_accept_invalid_certs(true);
         }
 
-        let mut messages: Vec<serde_json::Value> = Vec::new();
-        if !payload.system_prompt.is_empty() {
-            messages.push(serde_json::json!({
-                "role": "system",
-                "content": payload.system_prompt,
-            }));
-        }
-        for message in &payload.messages {
-            messages.push(serde_json::json!({
-                "role": message.role,
-                "content": message.content,
-            }));
-        }
-
-        let mut body = serde_json::json!({
-            "model": model,
-            "max_tokens": payload.max_tokens.unwrap_or(crate::request::DEFAULT_MAX_TOKENS),
-            "messages": messages,
-        });
-        merge_native_options(&mut body, &payload.native_options, false)?;
+        let body = local_body(payload, model)?;
         let client = builder.build()?;
         let resp = client
             .post(format!(
@@ -165,3 +147,68 @@ impl LocalModelProvider {
         })
     }
 }
+
+/// OpenAI-compatible request body: a text-only message keeps the plain string
+/// content, and a message with an image carries ordered content parts.
+fn local_body(payload: &InferencePayload, model: &str) -> Result<serde_json::Value> {
+    let mut messages = Vec::with_capacity(payload.messages.len() + 1);
+    if !payload.system_prompt.is_empty() {
+        messages.push(serde_json::json!({
+            "role": "system",
+            "content": payload.system_prompt,
+        }));
+    }
+    for message in &payload.messages {
+        messages.push(serde_json::json!({
+            "role": message.role,
+            "content": openai_content(&message.parts)?,
+        }));
+    }
+    let mut body = serde_json::json!({
+        "model": model,
+        "max_tokens": payload.max_tokens.unwrap_or(crate::request::DEFAULT_MAX_TOKENS),
+        "messages": messages,
+    });
+    merge_native_options(&mut body, &payload.native_options, false)?;
+    Ok(body)
+}
+
+fn openai_content(parts: &[InferencePart]) -> Result<serde_json::Value> {
+    if !parts.iter().any(InferencePart::is_image) {
+        let text = parts
+            .iter()
+            .filter_map(|part| match part {
+                InferencePart::Text { text } => Some(text.as_str()),
+                InferencePart::Image { .. } => None,
+            })
+            .collect::<String>();
+        return Ok(serde_json::Value::String(text));
+    }
+    let mut blocks = Vec::with_capacity(parts.len());
+    for part in parts {
+        match part {
+            InferencePart::Text { text } => blocks.push(serde_json::json!({
+                "type": "text",
+                "text": text,
+            })),
+            InferencePart::Image { media_type, bytes } => {
+                validate_image_part(media_type, bytes)?;
+                let mut url = String::with_capacity(
+                    13 + media_type.len() + bytes.len().div_ceil(3) * 4,
+                );
+                url.push_str("data:");
+                url.push_str(media_type);
+                url.push_str(";base64,");
+                base64::engine::general_purpose::STANDARD.encode_string(bytes, &mut url);
+                let mut block = serde_json::json!({
+                    "type": "image_url",
+                    "image_url": {},
+                });
+                block["image_url"]["url"] = serde_json::Value::String(url);
+                blocks.push(block);
+            }
+        }
+    }
+    Ok(serde_json::Value::Array(blocks))
+}
+

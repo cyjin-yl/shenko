@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{ControllerEpoch, EntityId};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use tokio::sync::oneshot;
 
 pub(crate) const DEFAULT_MAX_TOKENS: u64 = 8192;
@@ -129,10 +130,80 @@ pub struct InferencePayload {
     pub native_options: BTreeMap<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InferenceMessage {
     pub role: String,
-    pub content: String,
+    /// Ordered native parts. This is the only content shape: a text-only
+    /// message and a message carrying an image use the same list, so the
+    /// order of the parts is the order of the wire blocks.
+    pub parts: Vec<InferencePart>,
+}
+
+impl InferenceMessage {
+    pub fn text(role: impl Into<String>, text: impl Into<String>) -> Self {
+        Self {
+            role: role.into(),
+            parts: vec![InferencePart::text(text)],
+        }
+    }
+}
+
+/// One ordered part of a message body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InferencePart {
+    Text {
+        text: String,
+    },
+    /// Image bytes are shared immutably. Cloning a payload or a request never
+    /// copies them; the bytes are encoded only at the provider wire boundary.
+    Image {
+        media_type: String,
+        bytes: Arc<[u8]>,
+    },
+}
+
+impl InferencePart {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text { text: text.into() }
+    }
+
+    pub fn image(media_type: impl Into<String>, bytes: Arc<[u8]>) -> Self {
+        Self::Image {
+            media_type: media_type.into(),
+            bytes,
+        }
+    }
+
+    pub fn is_image(&self) -> bool {
+        matches!(self, Self::Image { .. })
+    }
+}
+
+/// Media types both real transports carry as an image part.
+pub(crate) const SUPPORTED_IMAGE_MEDIA_TYPES: &[&str] =
+    &["image/gif", "image/jpeg", "image/png", "image/webp"];
+
+/// Minimal image validation: a supported media type and actual bytes. It says
+/// nothing about what a model can perceive.
+pub(crate) fn validate_image_part(media_type: &str, bytes: &[u8]) -> Result<(), ProviderWireError> {
+    if !SUPPORTED_IMAGE_MEDIA_TYPES.contains(&media_type) {
+        return Err(ProviderWireError::InvalidImagePart(format!(
+            "unsupported image media type {media_type:?}"
+        )));
+    }
+    if bytes.is_empty() {
+        return Err(ProviderWireError::InvalidImagePart(
+            "image part carries no bytes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Standard base64 of the shared image bytes, as both transports require.
+pub(crate) fn base64_image_bytes(bytes: &[u8]) -> String {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
 /// The exact non-secret provider/profile interpretation used for one result.
@@ -213,6 +284,7 @@ pub enum WireErrorCode {
     ProviderBindingMismatch,
     ReservedNativeOption,
     ForbiddenSampling,
+    InvalidImagePart,
 }
 
 impl WireErrorCode {
@@ -221,6 +293,7 @@ impl WireErrorCode {
             Self::ProviderBindingMismatch => "MODEL_PROVIDER_BINDING_MISMATCH",
             Self::ReservedNativeOption => "PROVIDER_NATIVE_OPTION_RESERVED",
             Self::ForbiddenSampling => "PROVIDER_SAMPLING_FORBIDDEN",
+            Self::InvalidImagePart => "PROVIDER_IMAGE_PART_INVALID",
         }
     }
 }
@@ -233,6 +306,8 @@ pub enum ProviderWireError {
     ReservedOption(String),
     #[error("PROVIDER_SAMPLING_FORBIDDEN: {0} is forbidden by this Anthropic API binding")]
     ForbiddenSampling(String),
+    #[error("PROVIDER_IMAGE_PART_INVALID: {0}")]
+    InvalidImagePart(String),
 }
 
 impl ProviderWireError {
@@ -241,6 +316,7 @@ impl ProviderWireError {
             Self::BindingMismatch => WireErrorCode::ProviderBindingMismatch,
             Self::ReservedOption(_) => WireErrorCode::ReservedNativeOption,
             Self::ForbiddenSampling(_) => WireErrorCode::ForbiddenSampling,
+            Self::InvalidImagePart(_) => WireErrorCode::InvalidImagePart,
         }
     }
 }
@@ -331,3 +407,5 @@ pub struct TokenUsage {
     pub cache_read_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,
 }
+
+

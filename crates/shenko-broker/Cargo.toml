@@ -7,7 +7,8 @@ license.workspace = true
 
 [dependencies]
 shenko-types = { path = "../shenko-types" }
-serde = { workspace = true }
+# Message parts carry shared image bytes; the rc feature keeps them shared.
+serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -16,6 +17,8 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+# Standard base64 for image parts on both provider wires.
+base64 = { workspace = true }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }

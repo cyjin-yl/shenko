@@ -60,7 +60,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 6 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 7 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -368,18 +368,18 @@ fn build_messages(
             .get("nickname")
             .and_then(|v| v.as_str())
             .unwrap_or(&ev.source);
-        messages.push(shenko_broker::request::InferenceMessage {
-            role: "user".to_string(),
-            content: format!("[{who}] {text}"),
-        });
+        messages.push(shenko_broker::request::InferenceMessage::text(
+            "user",
+            format!("[{who}] {text}"),
+        ));
     }
 
     if messages.is_empty() {
         // Continuous thought — no external input. SPEC §5.1
-        messages.push(shenko_broker::request::InferenceMessage {
-            role: "user".to_string(),
-            content: "继续。".to_string(),
-        });
+        messages.push(shenko_broker::request::InferenceMessage::text(
+            "user",
+            "继续。",
+        ));
     }
 
     messages
@@ -429,7 +429,7 @@ async fn execute_step(
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
         let input = FrozenStepInput {
-            schema_version: 6,
+            schema_version: 7,
             step_id,
             step_no: seq,
             events: events.to_vec(),
@@ -452,7 +452,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            6,
+            7,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -951,17 +951,17 @@ fn replace_rejected_output(
     input
         .payload
         .messages
-        .push(shenko_broker::request::InferenceMessage {
-            role: "assistant".into(),
-            content: raw_output.into(),
-        });
-    input.payload.messages.push(shenko_broker::request::InferenceMessage {
-        role: "user".into(),
-        content: format!(
+        .push(shenko_broker::request::InferenceMessage::text(
+            "assistant",
+            raw_output,
+        ));
+    input.payload.messages.push(shenko_broker::request::InferenceMessage::text(
+        "user",
+        format!(
             "运行时控制协议拒绝：{} {}。此结果的全部动作均未接纳，输入事件仍待处理。请依据原输入纠正完整结果，不要重用旧语法；示例放入引用或代码块。",
             rejection.error.code, rejection.error.details,
         ),
-    });
+    ));
     let mut replacement = retired.clone();
     replacement.step_id = replacement_id;
     replacement.state = SubjectStepState::Preparing;
@@ -972,7 +972,7 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        6,
+        7,
     )?);
     replacement.context_revision = Some(
         retired
