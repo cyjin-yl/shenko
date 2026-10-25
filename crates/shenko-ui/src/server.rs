@@ -3,7 +3,6 @@ use axum::{Extension, Router, routing::get};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
 use tracing::info;
 
 use crate::api::{self, ApiState};
@@ -51,6 +50,13 @@ impl UiServer {
     /// Attach the persistent store for the read-only WebUI task list.
     /// Without this, `/api/tasks` honestly serves `available: false`.
     pub fn with_store(mut self, store: std::sync::Arc<shenko_store::store::Store>) -> Self {
+        self.state.subject_id = match store.get_existing_agent_id() {
+            Ok(subject_id) => subject_id,
+            Err(error) => {
+                tracing::warn!(%error, "UI subject identity could not be read");
+                None
+            }
+        };
         self.state.store = Some(Arc::clone(&store));
         self.store = Some(store);
         self
@@ -113,12 +119,21 @@ impl UiServer {
 
         let app = Router::new()
             .route("/", get(index_handler))
+            .route("/assets/app.js", get(app_js_handler))
+            .route("/assets/app.css", get(app_css_handler))
+            .route("/assets/proto-ui-style.css", get(proto_style_handler))
+            .route("/assets/proto-ui-tokens.generated.css", get(proto_tokens_handler))
+            .route("/assets/shadcn-theme.css", get(shadcn_theme_handler))
+            .route("/assets/build-manifest.json", get(build_manifest_handler))
+            .route("/assets/licenses/PROTO-UI-LICENSE", get(proto_license_handler))
+            .route("/assets/licenses/SHADCN-NOTICES.md", get(shadcn_notices_handler))
+            .route("/assets/licenses/REACT-LICENSE", get(react_license_handler))
+            .route("/assets/licenses/REACT-DOM-LICENSE", get(react_dom_license_handler))
             .route("/health", get(health_handler))
             .route("/ws", get(ws_handler))
             .merge(playground::router(playground_state))
             .merge(api::router(api_state))
-            .layer(Extension(self.state))
-            .layer(CorsLayer::permissive());
+            .layer(Extension(self.state));
         info!(addr=%self.bind, playground=%playground_root.display(), "UI server starting");
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
         axum::serve(listener, app).await?;
