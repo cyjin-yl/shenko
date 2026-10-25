@@ -8,50 +8,50 @@
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
   "branch": "main",
-  "head_commit": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
-  "pr_url": "https://github.com/cyjin-yl/shenko/pull/51",
+  "head_commit": "a059311d9bc2cd82074e61a73b9644fff3efd14c",
+  "pr_url": "https://github.com/cyjin-yl/shenko/pull/67",
   "claude_session_id": null,
   "active_workers": [],
   "blockers": [],
   "next_actions": [
-    "Continue from actual product baseline a2510c2497c6c2ebc65159b566b7a84ee0530b45 (PR51 raw session writer); complete remaining C01 child/T2, outbox/selector and real recovery handoffs. #6 stays open; the focused writer is not full C01.",
-    "Use durable native Pending TaskRecord -> production child admission/handler -> C07/T2, current authority/ancestor cancel/node fencing and residual supervisor; do not add a parallel task/outbox path.",
-    "C20 PR50/PR53 durable history/window code and PR51 formal raw session writer are in main; continue versioned payload reading and OperationRecord/attempt/T2 association before formal loop wiring. #25 stays open and interfaces alone do not prove the production loop uses durable history.",
-    "Preserve the existing closed-writer behavior after conflicts; optional logical-conflict versus storage_failure classification is a separate small slice, not a PR51 compatibility-mode requirement.",
-    "Historical unknown/unlinked postcommit effects and mixed-ledger provenance remain explicit reconciliation work, never unconditional replay.",
+    "Continue from actual main a059311d9bc2cd82074e61a73b9644fff3efd14c (PR67); implement C09 history search/re-read over branch raw sessions and stable event refs, without a second store or mock tool result.",
+    "Implement explicit pre-raw-history migration for old committed instances; current admission intentionally blocks missing raw model-result facts rather than silently dropping conversation history.",
+    "Complete remaining C20 R115/R116: real provider compaction/vision envelopes, backend KV/prefill evidence and package lifecycle/closure. The current real conversation did not trigger compaction; #25 stays open.",
+    "Complete C01 child/T2, outbox/selector and production recovery handoffs; preserve historical unknown effects and never replay them unconditionally.",
     "Full physical compute/submission/chunk-stream, production provider query/cancel, QQ/model/child and all remaining S1–S5/7–30-day obligations stay open; #5/#6/#12/#22 remain open.",
-    "C17 PR40 repairs only database ownership and authenticated known-schema E1/T2 separation. A42/A47/A48/A49, physical second-node, election/privacy/full export/image recovery and 7/30-day evidence remain incomplete.",
-    "Preserve offline contributor commits and source fixtures; resume from pushed checkpoints without approval/release gates. All S1–S5 remains required."
+    "C17 physical second-node, election/privacy/full export/image recovery and 7/30-day evidence remain incomplete.",
+    "Preserve offline contributor commits and source fixtures; monitor replies and resume from pushed checkpoints without approval/release gates. All S1–S5 remains required."
   ],
   "last_checkpoint": "docs/governance/HANDOFF.md",
   "upstream": "cyjin-yl/shenko",
   "upstream_url": "https://github.com/cyjin-yl/shenko",
   "upstream_visibility": "public",
   "upstream_default_branch": "main",
-  "upstream_verified_at": "2026-10-25",
-  "notes": "18 workspace packages: 17 library crates under crates/ plus bin/shenko. Verified 2026-10-23 at HEAD fa74614: cargo test --workspace = 26 passed, 0 failed, 0 ignored across 8 crates (shenko-store 11, shenko-wasm 3, shenko-awareness-core 3, shenko-types 2, shenko-channel-napcat 2, shenko-memory 2, shenko-update 2, shenko-ui 1); the other 9 crates have no tests yet. PR #3 is merged. coverage.json: 27 partial / 120 not_assessed / 0 satisfied (147 requirements). Community work ownership updated 2026-10-24; prior test counts remain historical and were not rerun for this doc increment.",
+  "upstream_verified_at": "2026-10-26",
+  "notes": "2026-10-26 PR67: 42 affected tests passed; real pre-seal recovery, model restart and memory receipt observed. This focused slice does not upgrade coverage.json or claim full workspace/CI/physical KV/live compaction. Historical: 18 workspace packages; prior cargo test --workspace count 26 was not rerun here. coverage.json remains 27 partial / 120 not_assessed / 0 satisfied (147 requirements).",
   "current_checkpoint": {
     "work_ids": [
-      "C01"
+      "C20"
     ],
     "issues": [
-      6
-    ],
-    "related_issues": [
       25
     ],
-    "integration_pr": 51,
-    "main_input": "9965b9125a11c2b87185aca0dbca644bebd1f33f",
-    "product_candidate": "5255e5bc18fae86d6d9fa7caf227281599ba6c4f",
+    "related_issues": [
+      9,
+      14
+    ],
+    "integration_pr": 67,
+    "main_input": "1c51c7b72d417cf53a083b64ecf2e397f1819e9e",
+    "product_candidate": "16654fea5b0da66a68961aed71a785ebf18a632f",
     "status": "focused_slice_verified_pushed_and_merged",
     "full_work_package_complete": false,
     "full_goal_complete": false,
-    "evidence": "https://github.com/cyjin-yl/shenko/pull/51#issuecomment-6392010544",
-    "delivered_pr_head": "5255e5bc18fae86d6d9fa7caf227281599ba6c4f",
-    "merge_commit": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
-    "validated_integration_tree": "93745c763e443ee68a4f029c6a70a28477f6c718",
-    "remote_main_observed_at_checkpoint": "a2510c2497c6c2ebc65159b566b7a84ee0530b45",
-    "verification_scope": "Locked shenko-store/shenko-types tests on the exact candidate and independent normal-merge integration; 16 tests passed and exit 0 for each. This doc-only successor does not rerun product tests or claim verified_real/full-workspace completion."
+    "evidence": "https://github.com/cyjin-yl/shenko/issues/25#issuecomment-6400474189",
+    "delivered_pr_head": "16654fea5b0da66a68961aed71a785ebf18a632f",
+    "merge_commit": "a059311d9bc2cd82074e61a73b9644fff3efd14c",
+    "validated_integration_tree": "d98175d111e211c5800d1b845b0345d6b0951300",
+    "remote_main_observed_at_checkpoint": "a059311d9bc2cd82074e61a73b9644fff3efd14c",
+    "verification_scope": "42 affected tests passed. Real pre-seal recovery, committed-only WS, no-model reopen, exact Preparing model restart, actual memory receipt and exact-model advertised metadata observed. No full-workspace/CI/physical KV/live compaction claim."
   },
   "checkpoints": {
     "previous_C01_C22": {
