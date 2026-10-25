@@ -171,7 +171,7 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
         memory.append(genesis.id, 0, &stale).unwrap(),
         WindowAppend::ModelGenerationChanged { current: 1 }
     );
-    drop((ledger, store));
+    drop((ledger, log, store));
 
     let store = Arc::new(Store::open(db, cas).unwrap());
     let reopened = WindowLedger::new(Arc::new(StoreWindowLog::new(store, scope)));
