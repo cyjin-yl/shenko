@@ -25,12 +25,6 @@ use shenko_store::store::Store;
 use crate::playground::PlaygroundState;
 use crate::ws::LiveStatus;
 
-/// How recent an observed subject outbox message must be for `/api/self` to
-/// call the subject `thinking`. Longer silence is reported as `idle`; the
-/// window matches the maximum semantic wait (600 s), so a deliberate wait is
-/// not mislabelled as idle.
-const STATUS_ACTIVE_WINDOW_SECS: i64 = 600;
-
 /// Shared state for the `/api/*` routes. Every field is optional so the router
 /// stays usable in tests and in early deployments with no store attached.
 #[derive(Clone, Default)]
@@ -129,15 +123,9 @@ async fn memory_handler() -> Json<Value> {
 fn config_values(state: &ApiState) -> (String, Option<String>, bool, String) {
     // Only presence is reported; the key value is never read into a response.
     let api_key_configured = std::env::var("ANTHROPIC_API_KEY").is_ok();
-    // Mirrors the model label main.rs prints for this deployment. There is no
-    // model negotiator wired into the UI yet, so this is the known binding.
-    let model = std::env::var("SHENKO_MODEL").unwrap_or_else(|_| {
-        if api_key_configured {
-            "claude-opus-5-5".to_string()
-        } else {
-            "stub".to_string()
-        }
-    });
+    // Only an explicit binding is evidence. An API key's presence does not
+    // prove a model, provider, online state, or effective sampling profile.
+    let model = std::env::var("SHENKO_MODEL").unwrap_or_else(|_| "unknown".to_string());
     let data_dir = state
         .data_dir
         .clone()
@@ -146,7 +134,7 @@ fn config_values(state: &ApiState) -> (String, Option<String>, bool, String) {
     // RuntimeGeneration is a label whose documented default is "seed"
     // (shenko-types::ids::RuntimeGeneration::default).
     let generation =
-        std::env::var("SHENKO_GENERATION").unwrap_or_else(|_| "seed".to_string());
+        std::env::var("SHENKO_GENERATION").unwrap_or_else(|_| "unknown".to_string());
     (model, data_dir, api_key_configured, generation)
 }
 
@@ -161,25 +149,6 @@ async fn config_handler(State(state): State<ApiState>) -> Json<Value> {
         "generation": generation,
         "api_key_configured": api_key_configured,
     }))
-}
-
-/// Derive the subject status from real observations:
-/// - no outbox wired → the UI cannot see the loop at all → `starting`;
-/// - outbox wired but nothing observed yet → `starting` (fresh process);
-/// - an outbox message within [`STATUS_ACTIVE_WINDOW_SECS`] → `thinking`;
-/// - observed activity, but none recently → `idle`.
-fn subject_status(live: Option<&LiveStatus>) -> &'static str {
-    let Some(live) = live else {
-        return "starting";
-    };
-    if !live.is_wired() {
-        return "starting";
-    }
-    match live.seconds_since_activity() {
-        None => "starting",
-        Some(secs) if secs <= STATUS_ACTIVE_WINDOW_SECS => "thinking",
-        Some(_) => "idle",
-    }
 }
 
 /// `GET /api/self` → honest node/self status for the new WebUI.
@@ -198,9 +167,15 @@ fn subject_status(live: Option<&LiveStatus>) -> &'static str {
 async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
     let (model, data_dir, _api_key_configured, _generation) = config_values(&state);
 
-    let status = subject_status(state.live.as_deref());
+    // Recent output is not evidence of current thinking or idleness.
+    let status = "unknown";
     let connected_clients = state.live.as_ref().map(|live| live.connections());
     let step = state.live.as_ref().and_then(|live| live.last_step());
+    let last_outbox_observed_at = state
+        .live
+        .as_ref()
+        .and_then(|live| live.last_outbox_observed_at());
+    let outbox_wired = state.live.as_ref().is_some_and(|live| live.is_wired());
 
     let artifacts: Vec<Value> = match state.playground.as_ref() {
         Some(playground) => playground
@@ -218,13 +193,21 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
     };
 
     // Instance identity (SPEC §6): the name is the instance's, not the brand.
+    let subject_id = state
+        .store
+        .as_ref()
+        .and_then(|store| store.get_existing_agent_id().ok().flatten());
     let identity = state.store.as_ref().and_then(|store| {
-        let agent_id = store.get_existing_agent_id().ok()??;
+        let agent_id = subject_id?;
         store.latest_identity(agent_id).ok()?
     });
 
     Json(json!({
         "status": status,
+        "status_source": "no live subject-state binding; recent outbox is not a thinking signal",
+        "subject_id": subject_id.map(|id| id.to_string()),
+        "outbox_wired": outbox_wired,
+        "last_outbox_observed_at": last_outbox_observed_at,
         "identity": identity.map(|p| json!({
             "agent_id": p.agent_id.to_string(),
             "revision": p.revision,
@@ -236,11 +219,10 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         "step": step,
         "model": model,
         "data_dir": data_dir,
-        // Honest: only the local node is known. SPEC §5.4 multi-device
-        // discovery is not wired into the UI yet.
-        "devices": [
-            { "id": "local", "label": "本机", "online": true, "kind": "host" }
-        ],
+        // Device discovery is not wired. The UI must not turn loopback HTTP
+        // reachability into a fabricated green device presence signal.
+        "devices": [],
+        "device_discovery": "not_wired",
         "activities": [],
         "artifacts": artifacts,
     }))
