@@ -20,4 +20,7 @@ pub use context_windows::*;
 pub mod external;
 pub use external::TaskInvocation;
 
+pub mod child;
+pub use child::{NativeTaskClaim, TaskCancellation};
+
 pub mod intents;
