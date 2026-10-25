@@ -180,7 +180,7 @@ impl PolicyRegistry {
         let items = raw_items(history)?;
         let items = &items[..];
         let current: u32 =
-            self.ledger.current()?.materialize(history)?.iter().map(WindowEntry::tokens).sum();
+            self.ledger.current()?.effective_entries(history)?.iter().map(WindowEntry::tokens).sum();
         let ceiling = current - (current as f32 * MIN_GAIN_RATIO) as u32;
         let mut attempts = Vec::new();
         for (policy, manifest, epoch) in self.candidates() {

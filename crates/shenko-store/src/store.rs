@@ -235,6 +235,17 @@ impl Store {
             }
         }
         self.verify_step_objects(step)?;
+        if previous.state == Planned {
+            self.validate_subject_context(&tx, &head, step)?;
+        }
+        // A recorded model result is a real fact: its sealed text joins the
+        // branch raw history in the SAME transaction, even when the protocol
+        // rejects it afterwards.
+        if previous.state == SubjectStepState::AwaitingModel
+            && step.state == SubjectStepState::ResultRecorded
+        {
+            self.append_model_result_fact(&tx, &head, step)?;
+        }
         let seq = self.ledger.allocate_seq(&tx)?;
         update_step(&tx, step, expected_revision, seq.0)?;
         let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
@@ -338,6 +349,10 @@ impl Store {
                 "rejection is not bound to recorded result",
             ));
         }
+        // The canonical runtime feedback joins the branch raw history in the
+        // SAME transaction as the retirement and the correction step, so
+        // rejected or incomplete output is never read as accepted work.
+        self.append_rejection_fact(&tx, &head, retired, &rejection)?;
         self.recorded_model_outcome(&previous)?;
         head.next_step_id = replacement.step_id;
         head.record_revision = RecordRevision(head.record_revision.0 + 1);
@@ -456,7 +471,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(7)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(8)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())
@@ -548,6 +563,10 @@ impl Store {
             }
         }
         self.enqueue_subject_intents(&tx, &head, &step, &decision, commit_ref, false)?;
+        // The raw tool call facts of the committed intents are written in the
+        // SAME transaction as the intent rows themselves, so a rolled back S1
+        // leaves neither behind.
+        self.append_committed_intent_facts(&tx, &head, &step, &decision)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;
@@ -636,7 +655,7 @@ impl Store {
         Ok(())
     }
 
-    fn record_subject_commit(
+    pub(crate) fn record_subject_commit(
         &self,
         tx: &rusqlite::Transaction<'_>,
         commit: CommitRef,
@@ -889,11 +908,11 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn storage_error(error: rusqlite::Error) -> ShenkoError {
+pub(crate) fn storage_error(error: rusqlite::Error) -> ShenkoError {
     ShenkoError::storage(error.to_string())
 }
 
-fn read_step(
+pub(crate) fn read_step(
     conn: &Connection,
     branch: &BranchId,
     id: EntityId,
@@ -910,7 +929,7 @@ fn read_step(
         .transpose()
 }
 
-fn checked_head(
+pub(crate) fn checked_head(
     conn: &Connection,
     expected: &SubjectBranchHead,
 ) -> Result<SubjectBranchHead, ShenkoError> {
@@ -941,7 +960,10 @@ fn checked_head(
     Ok(head)
 }
 
-fn validate_step_binding(head: &SubjectBranchHead, step: &SubjectStep) -> Result<(), ShenkoError> {
+pub(crate) fn validate_step_binding(
+    head: &SubjectBranchHead,
+    step: &SubjectStep,
+) -> Result<(), ShenkoError> {
     if step.step_id != head.next_step_id
         || step.branch_id != head.branch_id
         || step.step_no != head.committed_step_no + 1

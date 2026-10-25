@@ -169,25 +169,7 @@ impl Ledger {
         // no-op, a different fact under an existing id or seq is a conflict
         // that rolls the whole batch back, never a silently ignored row.
         for rs in &batch.raw_session_upserts {
-            let inserted = tx.execute(
-                "INSERT OR IGNORE INTO raw_sessions (session_id, agent_id, started_at, data)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![rs.session_id.to_string(), rs.agent_id.to_string(), rs.started_at, rs.data],
-            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            if inserted == 0 {
-                let same: bool = tx.query_row(
-                    "SELECT agent_id = ?2 AND started_at = ?3 AND data = ?4
-                       FROM raw_sessions WHERE session_id = ?1",
-                    params![rs.session_id.to_string(), rs.agent_id.to_string(), rs.started_at, rs.data],
-                    |r| r.get(0),
-                ).map_err(|e| ShenkoError::storage(e.to_string()))?;
-                if !same {
-                    return Err(ShenkoError::conflict(format!(
-                        "raw session {} already exists with different facts",
-                        rs.session_id
-                    )));
-                }
-            }
+            crate::raw_session::write_raw_session(&tx, rs)?;
             updated.push(UpdatedEntity {
                 entity_id: rs.session_id,
                 record_revision: shenko_types::ids::RecordRevision(0),
@@ -195,39 +177,7 @@ impl Ledger {
         }
 
         for se in &batch.session_event_upserts {
-            let inserted = tx.execute(
-                "INSERT OR IGNORE INTO session_events (event_id, session_id, seq, event_type, role, data)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    se.event_id.to_string(),
-                    se.session_id.to_string(),
-                    se.seq,
-                    se.event_type,
-                    se.role,
-                    se.data,
-                ],
-            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            if inserted == 0 {
-                let same: Option<bool> = tx.query_row(
-                    "SELECT session_id = ?2 AND seq = ?3 AND event_type = ?4 AND role = ?5 AND data = ?6
-                       FROM session_events WHERE event_id = ?1",
-                    params![
-                        se.event_id.to_string(),
-                        se.session_id.to_string(),
-                        se.seq,
-                        se.event_type,
-                        se.role,
-                        se.data,
-                    ],
-                    |r| r.get(0),
-                ).optional().map_err(|e| ShenkoError::storage(e.to_string()))?;
-                if same != Some(true) {
-                    return Err(ShenkoError::conflict(format!(
-                        "session {} seq {} already holds a different event than {}",
-                        se.session_id, se.seq, se.event_id
-                    )));
-                }
-            }
+            crate::raw_session::write_session_event(&tx, se)?;
             updated.push(UpdatedEntity {
                 entity_id: se.event_id,
                 record_revision: shenko_types::ids::RecordRevision(0),

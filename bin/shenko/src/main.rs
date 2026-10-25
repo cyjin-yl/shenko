@@ -313,7 +313,34 @@ async fn main() -> Result<()> {
             }
 
             // Start inference only after the model-independent recovery services.
+            let (context_head, _) = store.load_subject(agent_id)?;
+            let context_registry = Arc::new(shenko_context_policy::PolicyRegistry::with_ledger(
+                shenko_context_policy::WindowLedger::new(Arc::new(
+                    shenko_context_policy::StoreWindowLog::new(
+                        Arc::clone(&store), shenko_types::ids::EntityId(context_head.branch_id.0),
+                    ),
+                )),
+            ));
+            context_registry.set_preference(vec![
+                shenko_compact_snap::POLICY_ID.into(), shenko_compact_budget::POLICY_ID.into(),
+            ]);
+            let _context_host = supervisor
+                .spawn(shenko_context_policy::ContextPolicyHost, Arc::clone(&context_registry))
+                .await?;
+            let _budget_policy = supervisor
+                .spawn(shenko_compact_budget::BudgetCompactPlugin, shenko_compact_budget::BudgetConfig::default())
+                .await?;
+            let _snap_policy = supervisor
+                .spawn(shenko_compact_snap::SnapCompactPlugin, shenko_compact_snap::SnapConfig::default())
+                .await?;
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            let capabilities = match broker.discover_capabilities().await {
+                Ok(capabilities) => Some(capabilities),
+                Err(error) => {
+                    tracing::warn!(error=%error, "model metadata unavailable; automatic context compaction disabled");
+                    None
+                }
+            };
             tokio::spawn(broker.run());
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
@@ -326,6 +353,7 @@ async fn main() -> Result<()> {
                 identity_context.clone(),
             )?
             .with_broker(broker_handle)
+            .with_model_capabilities(capabilities)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
 
@@ -934,8 +962,7 @@ mod recovery_integration_tests {
         connector.await.unwrap().unwrap();
         assert_eq!(inbox_event.event_id, received.spool_id);
 
-        let store =
-            shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap();
+        let store = Arc::new(shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
         let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
             data_dir: dir.clone(),
             ..Default::default()
@@ -963,7 +990,11 @@ mod recovery_integration_tests {
             .seal_object(b"continue", "text/plain", "test", "raw", 1)
             .unwrap()
             .object;
-        step.input_plan_ref = Some(object.clone());
+        store.stage_subject_inputs(&head, &step, &[shenko_store::SubjectHistoryInput {
+            event_id: inbox_event.event_id, event_type: "user".into(),
+            data: serde_json::json!({"v":1,"text":inbox_event.payload.to_string(),"inbox_event":&inbox_event}),
+        }]).unwrap();
+        step.input_plan_ref = Some(prepare_fixture_s0(&store, &head, &step));
         step.state = SubjectStepState::Preparing;
         step.record_revision = RecordRevision(1);
         store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
@@ -1004,6 +1035,11 @@ mod recovery_integration_tests {
             ))))
             .unwrap();
         let identity_service = identity_context.try_service::<IdentityService>().unwrap();
+        let _context = identity_context.provide(Arc::new(shenko_context_policy::PolicyRegistry::with_ledger(
+            shenko_context_policy::WindowLedger::new(Arc::new(
+                shenko_context_policy::StoreWindowLog::new(store.clone(), EntityId(head.branch_id.0)),
+            )),
+        ))).unwrap();
         let decision = StepDecision {
             schema_version: 4,
             output: shenko_subject::output::parse_output(
@@ -1015,7 +1051,7 @@ mod recovery_integration_tests {
             .unwrap(),
             identity_intent: None,
             step_id: step.step_id,
-            input_plan_ref: object.clone(),
+            input_plan_ref: step.input_plan_ref.clone().unwrap(),
             model_result_ref: Some(object),
             applied_steering_refs: vec![],
             event_dispositions: vec![EventDisposition {
@@ -1091,10 +1127,61 @@ mod recovery_integration_tests {
         shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap()
     }
 
+    fn prepare_fixture_s0(
+        store: &Arc<shenko_store::store::Store>,
+        head: &shenko_types::subject::SubjectBranchHead,
+        step: &shenko_types::subject::SubjectStep,
+    ) -> shenko_types::object::ObjectRef {
+        let scope = EntityId(head.branch_id.0);
+        let staged = store.stage_subject_inputs(head, step, &[]).unwrap();
+        let input_raw_event_ids = staged.iter().map(|row| row.event_id).collect::<Vec<_>>();
+        let (events, messages): (Vec<_>, Vec<_>) = staged.iter().map(|row| {
+            let data: serde_json::Value = serde_json::from_str(&row.data).unwrap();
+            let text = data.get("text").and_then(serde_json::Value::as_str).unwrap_or(&row.data);
+            (data.get("inbox_event").cloned().unwrap(),
+                shenko_broker::request::InferenceMessage::text("user", text))
+        }).unzip();
+        let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
+            shenko_context_policy::StoreWindowLog::new(store.clone(), scope),
+        ));
+        let profile = shenko_types::object::Digest::blake3(b"native-recovery-fixture");
+        ledger.rebind_model(1, &profile.0).unwrap();
+        let window = ledger.current().unwrap();
+        let leaf_seq = store.session_leaf_seq(scope).unwrap()
+            .map(|seq| u64::try_from(seq).unwrap());
+        let input = serde_json::json!({
+            "schema_version":8, "step_id":step.step_id, "step_no":step.step_no,
+            "events":events, "provider_binding":null,
+            "payload":shenko_broker::request::InferencePayload {
+                system_prompt:"native recovery fixture".into(), messages,
+                max_tokens:Some(4096), tools:vec![], native_options:Default::default(),
+            },
+            "in_semantic_wait":false, "identity":store.latest_identity(head.agent_id).unwrap(),
+            "identity_provider_revision":"shenko.identity/default@1",
+            "context":{
+                "source":shenko_store::SubjectContextRef {
+                    scope_id:scope, source_commit_seq:store.current_commit_seq().unwrap(), leaf_seq,
+                    input_raw_event_ids, window_id:window.id,
+                    window_generation:window.generation, model_generation:1 },
+                "profile_digest":profile,
+                "estimated_input_tokens":null, "budget_input_tokens":null,
+                "trigger_budget_input_tokens":null,
+                "budget_provenance":"native fixture without measured current input",
+                "reserved_output_tokens":4096, "unfinished_call_ids":[],
+                "capabilities":null, "observed_input_tokens":null,
+                "token_counter":"heuristic:cjk-1-other-4@1; not a provider tokenizer",
+                "policy_contract":shenko_context_policy::CONTRACT_VERSION,
+                "selection":{"outcome":"unavailable","reason":"fixture_without_model_capabilities"},
+            },
+        });
+        store.cas.seal_object(&serde_json::to_vec(&input).unwrap(), "application/json",
+            "input_plans", "subject_step_input", 8).unwrap().object
+    }
+
     /// Deterministic model-output fixture admitted through the real parser and S1
     /// transaction. No model provider is invoked by this test helper.
     fn commit_native_fixture_step(
-        store: &shenko_store::store::Store,
+        store: &Arc<shenko_store::store::Store>,
         model_text: &str,
         task_ids: &[EntityId],
         event_dispositions: Vec<EventDisposition>,
@@ -1107,7 +1194,7 @@ mod recovery_integration_tests {
             .seal_object(model_text.as_bytes(), "text/plain", "test", "raw", 1)
             .unwrap()
             .object;
-        step.input_plan_ref = Some(object.clone());
+        step.input_plan_ref = Some(prepare_fixture_s0(store, &head, &step));
         step.state = SubjectStepState::Preparing;
         step.record_revision = RecordRevision(1);
         store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
@@ -1173,7 +1260,7 @@ mod recovery_integration_tests {
             output,
             identity_intent: None,
             step_id: step.step_id,
-            input_plan_ref: object.clone(),
+            input_plan_ref: step.input_plan_ref.clone().unwrap(),
             model_result_ref: Some(object),
             applied_steering_refs: vec![],
             event_dispositions,
@@ -1259,7 +1346,7 @@ mod recovery_integration_tests {
         }
         let dir = std::env::temp_dir().join(format!("shenko-native-reopen-{}", EntityId::new()));
         std::fs::create_dir(&dir).unwrap();
-        let store = open_native_fixture(&dir);
+        let store = Arc::new(open_native_fixture(&dir));
         let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
             data_dir: dir.clone(),
             ..Default::default()

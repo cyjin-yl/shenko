@@ -82,6 +82,12 @@ fn state(
             shenko_identity::DefaultIdentityPolicy,
         ))))
         .unwrap();
+    let (head, _) = store.load_subject(agent)?;
+    let _context = ctx.provide(Arc::new(shenko_context_policy::PolicyRegistry::with_ledger(
+        shenko_context_policy::WindowLedger::new(Arc::new(
+            shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), EntityId(head.branch_id.0)),
+        )),
+    ))).unwrap();
     SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store, ctx)
 }
 
@@ -90,13 +96,33 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let (dir, store, agent) = fixture();
     let (head, mut step) = store.load_subject(agent).unwrap();
     step.state = SubjectStepState::Preparing;
-    step.input_plan_ref = Some(
-        store
-            .cas
-            .seal_object(b"plan", "text/plain", "test", "raw", 1)
-            .unwrap()
-            .object,
-    );
+    let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
+        shenko_context_policy::StoreWindowLog::new(store.clone(), EntityId(head.branch_id.0)),
+    ));
+    let profile = shenko_types::object::Digest::blake3(b"unknown-request-fixture");
+    ledger.rebind_model(1, &profile.0).unwrap();
+    let window = ledger.current().unwrap();
+    let scope_id = EntityId(head.branch_id.0);
+    store.stage_subject_inputs(&head, &step, &[]).unwrap();
+    let plan = serde_json::json!({
+        "schema_version":8, "step_id":step.step_id, "step_no":step.step_no,
+        "events":[], "in_semantic_wait":false,
+        "context":{"source":{"scope_id":scope_id,
+            "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
+            "input_raw_event_ids":[], "window_id":window.id,
+            "window_generation":window.generation, "model_generation":1},
+        "profile_digest":profile,
+        "estimated_input_tokens":null, "budget_input_tokens":null,
+        "trigger_budget_input_tokens":null,
+        "budget_provenance":"recovery fixture without measured current input",
+        "reserved_output_tokens":4096, "unfinished_call_ids":[],
+        },
+        "payload":{"system_prompt":"unknown request fixture", "messages":[],
+            "max_tokens":4096, "tools":[]},
+    });
+    step.input_plan_ref = Some(store.cas.seal_object(
+        &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
+        "subject_step_input", 8).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -123,6 +149,245 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     assert!(unresolved.commit_ref.is_none());
     drop(reopened);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+fn message(content: &str) -> crate::inbox::InboxEvent {
+    crate::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"content":content}), created_at: chrono::Utc::now(),
+        source: "web_ui".into(),
+    }
+}
+
+fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
+    let prepared = crate::context_projection::prepare_context(subject, &[], false).unwrap();
+    let mut step = subject.step.clone();
+    let input = super::FrozenStepInput {
+        schema_version: 8, step_id: step.step_id, step_no: step.step_no,
+        events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
+        payload: prepared.payload, context: prepared.context,
+        in_semantic_wait: prepared.in_semantic_wait,
+        identity: subject.identity.clone(),
+        identity_provider_revision: subject.identity_service.revision().into(),
+    };
+    step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
+        &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
+        "subject_step_input", 8).unwrap());
+    step.state = SubjectStepState::Preparing;
+    step.context_revision = Some(step.step_no);
+    step.record_revision = RecordRevision(1);
+    step
+}
+
+#[tokio::test]
+async fn staged_input_recovers_before_s0_without_duplication() {
+    let (_dir, store, agent) = fixture();
+    let subject = state(store.clone(), agent).unwrap();
+    let original = crate::inbox::InboxEvent {
+        source: "napcat".into(), ..message("recover this exact input")
+    };
+    store.stage_subject_inputs(&subject.head, &subject.step, &[
+        shenko_store::SubjectHistoryInput {
+            event_id: original.event_id, event_type: "user".into(),
+            data: serde_json::json!({"v":1, "text":"[web_ui] recover this exact input", "inbox_event":&original}),
+        },
+    ]).unwrap();
+    drop(subject);
+    drop(store);
+    let store = Arc::new(Store::open(_dir.join("store.db"), _dir.join("cas")).unwrap());
+    let mut reopened = state(store.clone(), agent).unwrap();
+    let replayed = crate::inbox::InboxEvent {
+        created_at: chrono::Utc::now() + chrono::Duration::seconds(5),
+        ..original.clone()
+    };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(1, &[replayed], &mut reopened, false, &cancel).await.unwrap();
+    let sealed = super::frozen_input(&store, &reopened.step).unwrap();
+    assert_eq!(sealed.events, vec![original]);
+    assert_eq!(sealed.context.source.input_raw_event_ids.len(), 1);
+    assert_eq!(sealed.payload.messages.len(), 1, "staged input is neither lost nor duplicated");
+    let shenko_broker::request::InferencePart::Text { text } = &sealed.payload.messages[0].parts[0] else {
+        panic!("native text projection missing")
+    };
+    assert!(text.contains("recover this exact input"));
+}
+
+#[test]
+fn native_result_replay_keeps_first_delivery_metadata() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let original = crate::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::TaskResult,
+        payload: serde_json::json!({"result":"volatile-delivery-fixture"}),
+        created_at: chrono::Utc::now(), source: "native-child".into(),
+    };
+    store.stage_subject_inputs(&subject.head, &subject.step, &[
+        shenko_store::SubjectHistoryInput {
+            event_id: original.event_id, event_type: "tool_result".into(),
+            data: serde_json::json!({"v":1,"text":"delivery fixture, not an execution receipt", "inbox_event":&original}),
+        },
+    ]).unwrap();
+    let replayed = crate::inbox::InboxEvent {
+        created_at: chrono::Utc::now() + chrono::Duration::seconds(5), ..original.clone()
+    };
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed], false).unwrap();
+    assert_eq!(prepared.events, vec![original]);
+    assert_eq!(prepared.context.source.input_raw_event_ids.len(), 1);
+    let events = store.session_events_range(EntityId(subject.head.branch_id.0), 0, i64::MAX).unwrap();
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
+fn late_history_change_rejects_s0_seal_without_advancing_step() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let step = sealed_preparing_step(&mut subject);
+    let late_id = EntityId::new();
+    store.append_subject_raw_fact(&subject.head, late_id, "user",
+        &serde_json::json!({"v":1,"text":"arrived between projection and seal"})).unwrap();
+    let error = store.upsert_step(&step, &subject.head, RecordRevision(0)).unwrap_err();
+    assert!(error.to_string().contains("execution evidence/source commit changed"));
+    let (_, current) = store.load_subject(agent).unwrap();
+    assert_eq!(current.state, SubjectStepState::Planned);
+    assert_eq!(current.input_plan_ref, None);
+    assert_eq!(store.session_event(late_id).unwrap().unwrap().event_id, late_id);
+
+    // An execution-only commit can change a call's outcome without changing
+    // the raw leaf. It must invalidate the projected request just the same.
+    let step = sealed_preparing_step(&mut subject);
+    let scope = EntityId(subject.head.branch_id.0);
+    let leaf = store.session_leaf_seq(scope).unwrap();
+    store.commit(shenko_types::store::WriteBatch::new()).unwrap();
+    let error = store.upsert_step(&step, &subject.head, RecordRevision(0)).unwrap_err();
+    assert!(error.to_string().contains("execution evidence/source commit changed"));
+    assert_eq!(store.session_leaf_seq(scope).unwrap(), leaf);
+    let (_, current) = store.load_subject(agent).unwrap();
+    assert_eq!(current.state, SubjectStepState::Planned);
+}
+
+#[test]
+fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
+    let (_dir, store, agent) = fixture();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let binding = handle.binding().clone();
+    let capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: binding.clone(), max_context_tokens: Some(1000), vision: None,
+    };
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities.clone()));
+    subject.max_tokens = 10;
+    subject.previous_input_binding = Some(binding);
+    subject.previous_input_tokens = Some(700);
+    subject.previous_estimated_input_tokens = Some(1);
+    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+        shenko_compact_budget::BudgetConfig::default(),
+    )));
+    let call_id = EntityId::new();
+    store.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_call", &serde_json::json!({
+        "v":1,"text":"unresolved fixture call", "call_id":call_id,
+        "intent_id":EntityId::new(), "tool":"fixture", "args_ref":"unbound-fixture",
+    })).unwrap();
+    let mut raw_ids = Vec::new();
+    for index in 0..18 {
+        let fact = store.append_subject_raw_fact(&subject.head, EntityId::new(),
+            if index % 2 == 0 { "user" } else { "assistant" },
+            &serde_json::json!({"v":1,"text":format!("history-{index}-{}", "x".repeat(80))})).unwrap();
+        raw_ids.push(fact.event_id);
+    }
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    assert!(prepared.context.trigger_budget_input_tokens.unwrap() > 700);
+    assert_eq!(prepared.context.observed_input_tokens, Some(700));
+    assert_eq!(prepared.context.reserved_output_tokens, 10);
+    assert!(matches!(&prepared.context.selection,
+        crate::context_projection::ContextSelection::Compacted { .. }));
+    let projected = prepared.payload.messages.iter().flat_map(|message| &message.parts)
+        .filter_map(|part| match part {
+            shenko_broker::request::InferencePart::Text { text } => Some(text.as_str()),
+            _ => None,
+        }).collect::<Vec<_>>();
+    assert!(projected.iter().any(|text| text.contains("context derivative/pointer")));
+    assert!(projected.iter().any(|text| text.contains(&call_id.to_string()) && text.contains("Unknown")));
+    assert!(projected.iter().any(|text| text.contains("history-17-")));
+    let source = &prepared.context.source;
+    assert_eq!(source.leaf_seq, Some(19));
+    let head = store.context_window_head(source.scope_id).unwrap().unwrap();
+    assert_eq!((head.window_id, head.generation), (source.window_id, 2));
+    let persisted = store.session_events_range(source.scope_id, 0, i64::MAX).unwrap();
+    assert!(raw_ids.iter().all(|id| persisted.iter().any(|event| event.event_id == *id)));
+    assert_eq!(persisted[0].event_type, "tool_call");
+    let profile = prepared.context.profile_digest.clone();
+    let window_id = source.window_id;
+    drop((subject, offline));
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let mut reopened = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities));
+    reopened.max_tokens = 10;
+    let resumed = crate::context_projection::prepare_context(&mut reopened, &[], false).unwrap();
+    assert_eq!(resumed.context.profile_digest, profile);
+    assert_eq!(resumed.context.source.window_id, window_id);
+    assert_eq!(resumed.context.source.model_generation, 1);
+    assert_eq!(resumed.context.source.window_generation, 2);
+    drop((reopened, offline));
+}
+
+#[test]
+fn retained_calibrated_budget_over_limit_blocks_dispatch() {
+    let (_dir, store, agent) = fixture();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let binding = handle.binding().clone();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(shenko_broker::request::ProviderCapabilities {
+            binding: binding.clone(), max_context_tokens: Some(1000), vision: None,
+        }));
+    subject.max_tokens = 10;
+    subject.previous_input_binding = Some(binding);
+    subject.previous_input_tokens = Some(1000);
+    subject.previous_estimated_input_tokens = Some(1);
+    let error = crate::context_projection::prepare_context(&mut subject, &[], false)
+        .err().expect("calibrated over-budget retention must be rejected");
+    assert!(error.to_string().contains("projected input budget"));
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert_eq!(subject.step.active_request_id, None);
+    drop(offline);
+}
+
+#[test]
+fn execution_commit_during_projection_is_rejected() {
+    struct MutatingHistory {
+        inner: shenko_context_policy::StoreHistory,
+        store: Arc<Store>,
+        fired: std::sync::atomic::AtomicBool,
+    }
+    impl shenko_context_policy::HistorySource for MutatingHistory {
+        fn read_range(&self, from: u64, to: u64) -> Result<Vec<shenko_context_policy::HistoryItem>, shenko_context_policy::StorageError> {
+            if !self.fired.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                self.store.commit(shenko_types::store::WriteBatch::new()).unwrap();
+            }
+            self.inner.read_range(from, to)
+        }
+        fn read_event(&self, id: EntityId) -> Result<Option<shenko_context_policy::HistoryItem>, shenko_context_policy::StorageError> {
+            self.inner.read_event(id)
+        }
+        fn leaf_seq(&self) -> Result<Option<u64>, shenko_context_policy::StorageError> {
+            self.inner.leaf_seq()
+        }
+    }
+    let (_dir, store, agent) = fixture();
+    let (head, _) = store.load_subject(agent).unwrap();
+    let scope = EntityId(head.branch_id.0);
+    store.append_subject_raw_fact(&head, EntityId::new(), "user", &serde_json::json!({"v":1,"text":"source"})).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    let history = MutatingHistory {
+        inner: shenko_context_policy::StoreHistory::new(store.clone(), scope, Arc::new(shenko_context_policy::estimate_tokens)),
+        store: store.clone(), fired: std::sync::atomic::AtomicBool::new(false),
+    };
+    let window = shenko_context_policy::CommittedWindow::genesis();
+    let error = crate::context_projection::project_payload_stable(
+        &store, &window, &history, "fixture".into(), None, 10,
+    ).err().expect("a mutation during execution reads must invalidate the projection");
+    assert!(error.to_string().contains("during projection"));
+    assert_eq!(store.current_commit_seq().unwrap(), before + 1);
 }
 
 #[tokio::test]
@@ -781,6 +1046,14 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     );
     assert_eq!(subject.head.committed_step_no, 2);
     assert!(super::build_system_prompt(&subject, false).contains("上一步身份意图未采用"));
+    drop(subject);
+    // Simulate a pre-raw-history instance without deleting its committed
+    // steps/CAS evidence. Admission must request migration, not thin history.
+    rusqlite::Connection::open(dir.join("store.db")).unwrap().execute_batch(
+        "DELETE FROM subject_raw_inputs; DELETE FROM session_events; DELETE FROM raw_sessions;",
+    ).unwrap();
+    let error = state(store.clone(), agent).err().expect("legacy raw gap must block");
+    assert!(error.to_string().contains("raw history migration required"));
     // Retain this container-disk fixture as crash evidence, not production data.
 }
 
@@ -818,6 +1091,16 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
     }
     let (_dir, store, agent) = fixture();
     let ctx = Context::new();
+    let (head, _) = store.load_subject(agent).unwrap();
+    let registry = Arc::new(shenko_context_policy::PolicyRegistry::with_ledger(
+        shenko_context_policy::WindowLedger::new(Arc::new(
+            shenko_context_policy::StoreWindowLog::new(store.clone(), EntityId(head.branch_id.0)),
+        )),
+    ));
+    let context_plugin = shenko_context_policy::ContextPolicyHost;
+    let context_input = context_plugin.prepare(registry).unwrap();
+    let _context_host = ctx
+        .spawn(PreparedPlugin::from_input(context_plugin, context_input)).await.unwrap();
     let first = ctx.spawn(shenko_identity::default_plugin()).await.unwrap();
     let service = ctx.try_service::<IdentityService>().unwrap();
     store

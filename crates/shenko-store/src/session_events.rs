@@ -18,13 +18,13 @@ pub struct StoredSessionEvent {
     pub data: String,
 }
 
-const COLUMNS: &str = "event_id, session_id, seq, event_type, role, data";
+pub(crate) const COLUMNS: &str = "event_id, session_id, seq, event_type, role, data";
 
-fn row(r: &Row<'_>) -> rusqlite::Result<(String, String, i64, String, String, String)> {
+pub(crate) fn row(r: &Row<'_>) -> rusqlite::Result<(String, String, i64, String, String, String)> {
     Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
 }
 
-fn parse(
+pub(crate) fn parse_row(
     (event_id, session_id, seq, event_type, role, data): (String, String, i64, String, String, String),
 ) -> Result<StoredSessionEvent, ShenkoError> {
     let id = |s: &str| s.parse::<EntityId>().map_err(|e| ShenkoError::storage(format!("bad id {s}: {e}")));
@@ -53,7 +53,7 @@ impl Store {
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
         drop(stmt);
         drop(conn);
-        rows.into_iter().map(parse).collect()
+        rows.into_iter().map(parse_row).collect()
     }
 
     pub fn session_event(&self, event_id: EntityId) -> Result<Option<StoredSessionEvent>, ShenkoError> {
@@ -67,7 +67,7 @@ impl Store {
             .optional()
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
         drop(conn);
-        found.map(parse).transpose()
+        found.map(parse_row).transpose()
     }
 
     /// Highest committed seq of `session_id`, if any.

@@ -3,16 +3,17 @@
 //! `StoreHistory` reads committed `session_events`; `StoreWindowLog` keeps the
 //! committed window chain in `context_windows`.
 //!
-//! Mapping convention until the session event writer (#6) fixes a payload:
+//! Versioned raw-session payload:
 //! `event_type` is one of system / user / assistant / assistant_cancelled /
 //! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?,
-//! operation_id?, status?, v?}` with `status` in [`CallStatus`]'s serde form;
+//! operation_id?, intent_id?, v?}`; payload status claims are not read;
 //! `v` above [`PAYLOAD_VERSION`] keeps the raw data as Other. A call or result
-//! without `status` is Unknown, never success; one without `call_id` cannot be
+//! without execution evidence is Unknown, never success; one without `call_id` cannot be
 //! paired and is kept as [`ItemKind::Other`]; any other event type is kept as
 //! Other too. Non-JSON `data` becomes the text. Nothing is dropped.
 //! When `operation_id` is present the execution ledger is authoritative:
-//! the call's status comes from that OperationRecord, overriding `status`.
+//! a referenced call's status comes from its OperationRecord. Subject intent ids join
+//! the real memory receipt or task/operation/T2 records of this branch.
 //! A referenced operation that is missing, unparsable or unreadable as a
 //! record reads as Unknown, never as the event's own claim.
 use std::sync::Arc;
@@ -24,7 +25,7 @@ use shenko_store::{
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
-use crate::policy::Derivative;
+use crate::policy::{Derivative, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
 #[derive(Default, Deserialize)]
@@ -37,13 +38,13 @@ struct Payload {
     tool: Option<String>,
     args_ref: Option<String>,
     operation_id: Option<String>,
-    status: Option<CallStatus>,
+    intent_id: Option<String>,
 }
 
 /// Highest session event payload version this reader interprets.
 pub const PAYLOAD_VERSION: u32 = 1;
 
-/// Tokenizer of the currently bound model.
+/// Counter chosen by the caller; an estimate is not a measured tokenizer.
 pub type TokenCounter = Arc<dyn Fn(&str) -> u32 + Send + Sync>;
 
 pub struct StoreHistory {
@@ -67,12 +68,18 @@ impl StoreHistory {
         if let Some(v) = payload.v.filter(|v| *v > PAYLOAD_VERSION) {
             return Ok(HistoryItem {
                 at: ItemRef { seq, event_id: event.event_id },
-                kind: ItemKind::Other { event_type: format!("{}@v{v}", event.event_type) },
+                kind: ItemKind::Other { event_type: format!("{}@v{v}", event.event_type), role: event.role },
                 tokens: (self.count)(&event.data),
                 text: event.data,
             });
         }
-        let status = match payload.operation_id.as_deref() {
+        let call_status = match payload.intent_id.as_deref() {
+            Some(id) => match id.parse::<EntityId>() {
+                Ok(id) => self.store.subject_call_evidence(self.session_id, id).map_err(storage)?
+                    .map_or(CallStatus::Unknown, |facts| subject_status(id, &facts)),
+                Err(_) => CallStatus::Unknown,
+            },
+            None => match payload.operation_id.as_deref() {
             None => CallStatus::Unknown,
             Some(id) => match id.parse::<EntityId>().ok().map(|id| self.store.get_operation(id)) {
                 Some(Ok(Some(op))) => CallStatus::from_operation(
@@ -82,6 +89,7 @@ impl StoreHistory {
                     op.effect_status,
                 ),
                 _ => CallStatus::Unknown,
+            },
             },
         };
         let kind = match (event.event_type.as_str(), payload.call_id) {
@@ -93,19 +101,55 @@ impl StoreHistory {
                 call_id,
                 tool: payload.tool.unwrap_or_default(),
                 args_ref: payload.args_ref.unwrap_or_default(),
-                status,
+                status: call_status,
             },
-            ("tool_result", Some(call_id)) => ItemKind::ToolResult { call_id, status },
-            (other, _) => ItemKind::Other { event_type: other.to_owned() },
+            ("tool_result", Some(call_id)) => ItemKind::ToolResult { call_id, status: call_status },
+            (other, _) => ItemKind::Other { event_type: other.to_owned(), role: event.role },
         };
-        let tokens = (self.count)(&payload.text);
+        let text = if matches!(kind, ItemKind::Other { .. }) { event.data } else { payload.text };
+        let tokens = (self.count)(&text);
         Ok(HistoryItem {
             at: ItemRef { seq, event_id: event.event_id },
             kind,
-            text: payload.text,
+            text,
             tokens,
         })
     }
+}
+
+fn subject_status(id: EntityId, facts: &shenko_store::intents::SubjectCallEvidence) -> CallStatus {
+    if matches!(facts.dispatch_state.as_str(), "unknown" | "blocked") {
+        return CallStatus::Unknown;
+    }
+    if facts.kind == "memory" {
+        return match (facts.dispatch_state.as_str(), facts.memory_state.as_deref()) {
+            ("settled", Some("committed")) => CallStatus::Executed { ok: true },
+            (_, Some("accepted")) => CallStatus::Pending,
+            _ => CallStatus::Unknown,
+        };
+    }
+    let Some(operation) = &facts.operation else {
+        return if facts.task_state.is_some() { CallStatus::Pending } else { CallStatus::Unknown };
+    };
+    if operation.task_id != id {
+        return CallStatus::Unknown;
+    }
+    let status = CallStatus::from_operation(operation.state, operation.outcome,
+        operation.outcome_conflict, operation.effect_status);
+    if !status.is_resolved() {
+        return status;
+    }
+    // A finished operation is not yet a finished native task: T2 also waits
+    // for owned children. A queue handoff alone is never a successful call.
+    let terminal = facts.task_state.as_deref() == Some("terminal");
+    let completed = match facts.kind.as_str() {
+        "delegation" => terminal && facts.task_result.as_ref().is_some_and(|result|
+            result.task_id == id && result.operation_id == operation.operation_id
+                && Some(result.task_revision.0) == facts.task_revision),
+        "publication" => terminal && facts.dispatch_state == "settled",
+        _ => false,
+    };
+    if completed { status } else { CallStatus::Pending }
 }
 
 fn storage(error: impl std::fmt::Display) -> StorageError {
@@ -254,8 +298,33 @@ impl WindowLog for StoreWindowLog {
         u64::try_from(generation).map_err(storage)
     }
 
-    fn set_model_generation(&self, generation: u64) -> Result<(), StorageError> {
+    fn model_profile(&self) -> Result<Option<(u64, String)>, StorageError> {
+        self.store.context_profile(self.scope_id).map_err(storage)?
+            .map(|(generation, profile)| Ok((u64::try_from(generation).map_err(storage)?, profile)))
+            .transpose()
+    }
+
+    fn rebind_model(&self, generation: u64, profile_digest: &str) -> Result<(), StorageError> {
         let generation = i64::try_from(generation).map_err(storage)?;
-        self.store.set_context_model_generation(self.scope_id, generation).map_err(storage)
+        let generation_u64 = u64::try_from(generation).map_err(storage)?;
+        let current = self.head()?;
+        if self.model_profile()?.is_some_and(|(current, profile)|
+            current == generation_u64 && profile.as_str() == profile_digest) {
+            return Ok(());
+        }
+        let mut root = CommittedWindow::genesis();
+        root.base = Some(WindowBase {
+            source_window: current.id, leaf_seq: 0,
+            model_generation: current.model_generation, policy_epoch: 0,
+        });
+        root.generation = current.generation + 1;
+        root.model_generation = u64::try_from(generation).map_err(storage)?;
+        match self.store.rebind_context_model_generation(self.scope_id, current.id,
+            i64::try_from(current.model_generation).map_err(storage)?, generation, profile_digest,
+            &Self::encode(&root)?).map_err(storage)? {
+            ContextWindowAppend::Appended => Ok(()),
+            ContextWindowAppend::HeadChanged => Err(storage("context head changed during model rebind")),
+            ContextWindowAppend::ModelGenerationChanged { current } => Err(storage(format!("context model generation changed to {current} during rebind"))),
+        }
     }
 }

@@ -3,7 +3,7 @@ use tokio::sync::{mpsc, Mutex};
 use shenko_types::ids::EntityId;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InboxEvent {
     pub event_id: EntityId,
     pub kind: InboxEventKind,

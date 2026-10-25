@@ -13,6 +13,8 @@ shenko-types = { path = "../shenko-types" }
 shenko-kernel = { path = "../shenko-kernel" }
 shenko-store = { path = "../shenko-store" }
 shenko-broker = { path = "../shenko-broker" }
+shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
+blake3 = { workspace = true }
 # The frozen step input carries inference parts with shared image bytes.
 serde = { workspace = true, features = ["rc"] }
 serde_json = { workspace = true }
@@ -27,5 +29,8 @@ async-trait = { workspace = true }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
+[dev-dependencies]
+shenko-compact-budget = { path = "../shenko-compact-budget" }
+rusqlite = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

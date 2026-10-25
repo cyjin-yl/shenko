@@ -87,7 +87,7 @@ impl SnapCompact {
                 ItemKind::ToolResult { call_id, status } => {
                     (format!("result {call_id} {status:?}"), self.config.max_tool_output_chars)
                 }
-                ItemKind::Other { event_type } => (event_type.clone(), usize::MAX),
+                ItemKind::Other { event_type, role } => (format!("{event_type} (role={role})"), usize::MAX),
             };
             let normalized: String = item
                 .text

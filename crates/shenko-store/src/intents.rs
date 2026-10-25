@@ -30,7 +30,51 @@ pub struct CommittedIntent {
     pub result_ref: Option<String>,
 }
 
+/// Current execution facts, not the status claimed by a model or raw payload.
+#[derive(Debug)]
+pub struct SubjectCallEvidence {
+    pub kind: String,
+    pub dispatch_state: String,
+    pub task_state: Option<String>,
+    pub task_revision: Option<u64>,
+    pub memory_state: Option<String>,
+    pub operation: Option<shenko_types::operation::OperationRecord>,
+    pub task_result: Option<TaskResult>,
+}
+
 impl Store {
+    pub fn subject_call_evidence(
+        &self,
+        scope_id: EntityId,
+        call_id: EntityId,
+    ) -> Result<Option<SubjectCallEvidence>, shenko_types::error::ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let row = conn.query_row(
+            "SELECT i.kind, i.state, json_extract(t.data,'$.state.status'),
+                    json_extract(t.data,'$.task_revision'), m.state, o.data, r.data
+             FROM subject_intents i
+             JOIN subject_steps s ON s.step_id=i.step_id
+             LEFT JOIN tasks t ON t.task_id=i.intent_id
+             LEFT JOIN memory_intents m ON m.intent_id=i.intent_id
+             LEFT JOIN operations o ON o.operation_id=CASE WHEN i.kind='publication'
+                 THEN i.intent_id ELSE json_extract(t.data,'$.memos.native_operation_id') END
+             LEFT JOIN task_results r ON r.task_id=i.intent_id AND r.kind='native_child'
+             WHERE i.intent_id=?1 AND s.branch_id=?2",
+            params![call_id.to_string(), scope_id.to_string()],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?, row.get::<_, Option<u64>>(3)?,
+                row.get::<_, Option<String>>(4)?, row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?)),
+        ).optional().map_err(crate::store::storage_error)?;
+        row.map(|(kind, dispatch_state, task_state, task_revision, memory_state, operation, result)| {
+            Ok(SubjectCallEvidence {
+                kind, dispatch_state, task_state, task_revision, memory_state,
+                operation: operation.map(|data| serde_json::from_str(&data)).transpose()?,
+                task_result: result.map(|data| serde_json::from_str(&data)).transpose()?,
+            })
+        }).transpose()
+    }
+
     /// Same SQL transaction as decision, dispositions, head and successor.
     pub(crate) fn enqueue_subject_intents(
         &self,
@@ -302,6 +346,11 @@ impl Store {
                 Store::write_memory_entry(&tx,&entry,Some(intent.intent_id),seq)?;
                 ensure!(tx.execute("UPDATE subject_intents SET state='settled',owner=?2,revision=revision+1,updated_seq=?3,result_ref=?4 WHERE intent_id=?1 AND state='ready' AND revision=?5",
                     params![id,self.capabilities.incarnation.to_string(),seq.0 as i64,format!("memory:{}",entry.entry_id),rev])?==1,"stale_intent");
+                self.append_intent_result_fact(&tx, intent.intent_id, entry.entry_id, &serde_json::json!({
+                    "kind": "memory_receipt", "entry_id": entry.entry_id,
+                    "commit_ref": CommitRef::new(self.ledger.ledger_id(), seq),
+                    "outcome": "committed",
+                }))?;
             }
             self.intent_log(&tx,CommitRef::new(self.ledger.ledger_id(),seq))?;tx.commit()?;Ok(count)
         },storage_failure)
@@ -452,6 +501,16 @@ impl Store {
                     if let Some(data)=data {let mut task:TaskRecord=serde_json::from_str(&data)?;
                         if !task.is_terminal() && task.abort_request.is_none(){task.state=TaskState::Terminal{outcome_ref:outcomes.get(&op.operation_id).unwrap().1.clone()};task.record_revision=task.record_revision.next();task.updated_commit=commit;task.terminal_at=Some(chrono::Utc::now());
                             tx.execute("UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE task_id=?1",params![id,task.record_revision.0 as i64,serde_json::to_string(&task)?,seq.0 as i64])?;}
+                    }
+                    let receipt: Option<(String, String)> = tx.query_row(
+                        "SELECT receipt_id,data FROM evidence_receipts WHERE operation_id=?1
+                         ORDER BY updated_commit_seq DESC LIMIT 1", [&id],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    ).optional()?;
+                    if let Some((receipt_id, receipt)) = receipt {
+                        self.append_intent_result_fact(&tx, op.operation_id, receipt_id.parse()?,
+                            &serde_json::json!({"kind":"publication_receipt", "operation":op,
+                                "receipt":serde_json::from_str::<serde_json::Value>(&receipt)?}))?;
                     }
                 }
             }
