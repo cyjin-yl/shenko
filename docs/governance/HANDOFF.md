@@ -4,7 +4,7 @@
 
 ## 当前接续：C20 正式 loop／恢复
 
-- 当前候选 base `1c51c7b`：生产 S0 已接原始输入暂存、持久 HistorySource／WindowLog／ContextPolicy。冻结 schema 8 和最终 Store CAS 绑定原始输入、raw leaf、profile／模型代际、source commit seq 与能力／预算来源；同 profile 重启保留窗口，旧实例缺少原始结果事实时明确阻断迁移。状态变化的调用单元重新水合，不从旧摘要推断当前成功。
+- **[PR67](https://github.com/cyjin-yl/shenko/pull/67) 已正常合入**：源 `16654fea5b0da66a68961aed71a785ebf18a632f`，merge `a059311d9bc2cd82074e61a73b9644fff3efd14c`，父链 `[1c51c7b,16654fe]`，main/候选 tree 均 `d98175d111e211c5800d1b845b0345d6b0951300`，checks=0。生产 S0 已接原始输入暂存、持久 HistorySource／WindowLog／ContextPolicy。冻结 schema 8 和最终 Store CAS 绑定原始输入、raw leaf、profile／模型代际、source commit seq 与能力／预算来源；同 profile 重启保留窗口，旧实例缺少原始结果事实时明确阻断迁移。状态变化的调用单元重新水合，不从旧摘要推断当前成功。
 - 最终受影响回归 **42 passed／0 failed／exit 0**，命令为 `cargo test --offline --locked -p shenko-types -p shenko-broker -p shenko-store -p shenko-context-policy -p shenko-compact-budget -p shenko-compact-snap -p shenko-subject -p shenko --lib --tests -j1`。覆盖重放、恢复、竞争、当前预算、旧历史准入、真实 memory 回执和状态重水合；不是全 workspace 或 CI 绿灯。
 - 真实运行：预封存输入经 SIGKILL 后恢复，真实模型提交并进入 WS；模型首次运行与无模型重开均 exit 0，input 439／output 264。随后同目录模型重启 exit 0，后继 `Preparing` 的整份冻结输入一致，同一窗口/profile/`model_generation=1` 保留，上一轮实际输入 439 被恢复。真实 memory intent 的同一 call ID 依次产生 `tool_call`／`tool_result`，重开读到 `memory_receipt outcome=committed`。证据 `shenko-dev-live:/tmp/shenko-context-runtime-yztx927b/{result.json,model-restart-result.json,first-inspect.json,reopen-inspect.json}`；真实元数据证据 `/tmp/shenko-context-cap-consumer-8c1f/metadata-result.json`（广告上限 262144，视觉事实未知）。旧二进制 schema 6 的拒绝证据另存，不冒充本链路通过。
 - 下一步是 C09 历史检索／重读、旧实例显式迁移、真实 KV/prefill 和包闭包；真实会话未触发 compact，不声称真实 Snap／视觉额度／物理 KV 已验收。完整 C20、#9／#25 与 S1–S5 保持开放。
