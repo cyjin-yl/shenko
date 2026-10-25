@@ -456,7 +456,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(6)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(7)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())

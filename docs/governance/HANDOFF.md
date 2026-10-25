@@ -1,15 +1,16 @@
 # Shenko 开发交接状态
 
-**更新时间：2026-10-25（C11 真实 Proto-UI 已合入；C05 恢复整合已验证；贡献者授权已明确确认）**
+**更新时间：2026-10-25（C04 原生图片 wire 已实测；C05/C11 已合入；正式窗口投影接线继续）**
 
-## 当前接续：C05/C11 与社区协作
+## 当前接续：C04 原生多模态 → C20 正式 loop
 
-- 当前已合主线包含 PR #55（有限 native child）、#57（并发公平 broker）、#62（持久历史/窗口）、#64（AGPL 采用）与 #65（真实 Proto-UI，merge `d9a6ebcf64`）。这些是局部交付，不是完整 S1–S5 验收。
+- 当前已合主线包含 PR #55（有限 native child）、#57（并发公平 broker）、#62（持久历史/窗口）、#64（AGPL 采用）、#65（真实 Proto-UI）与 #63（C05，merge `3e3ca0a832`）。这些是局部交付，不是完整 S1–S5 验收。
+- 新增 C04 原生 Text/Image parts：两个 provider revision 3、冻结 S0／Store identity admission 7；旧协议阻断，不留字符串兼容分支。现有 broker 2 项与修复 Store 版本校验后的 store/subject/bin 24 项测试通过。两个真实 Rust consumer 经 payload 持久化重读后，分别走 OpenAI-compatible／Anthropic-protocol HTTP，均读出同一 PNG 的 `271828`；无效 MIME／空图片在发出前拒绝并释放容量。首轮 Anthropic 1024 上限空文本失败仍保留；新 caller 先存完整响应、4096 上限请求通过。精确源输入、证据 locator 与非 Claude／KV／四流验收边界见 [C04](../tasks/C04.md)。正式 projection 尚未接入，#9／#25 均不关闭。
 - C05 交付入口是 [PR #63](https://github.com/cyjin-yl/shenko/pull/63)。整合产品候选 `2a82a8e` 保留原 C05 提交，正常合并上述 main；已解决 API 冲突、全部 4 参 bootstrap 调用和无模型 native child 恢复。没有模型时仍服务配置/UI并处理确定性 child，结果留在持久账本；不启动假推理，不用最近输出猜“正在思考”，不伪造本机在线。此候选的 33 项受影响现有测试通过（含 native 子进程重开）；重新构建的真实 binary 两次无模型启动/退出均通过，genesis/head/identity 不变、`committed_step_no=0`、真实 home ready 与 Git memory 可读、C11 资产字节一致。证据为 `doescontainer/shenko-dev-live:/tmp/shenko-c05-final-_omvoejc/result.json` 与两份启动日志。首次观察窗仅 15 秒，而 Store 初始化已耗 14 秒，未算通过；修正为有限 120 秒观察后约 14 秒完成两次启动。最终合入状态见 PR 的交付评论。
 - C11 已取代旧 WIP #58，具体源码/资产与验收边界见 [C11 卡](../tasks/C11.md)。真实 CLI 改名 r1→r2 后，已打开的 Chromium 页面约 580ms 内自动更新、导航次数仍 1、零浏览器错误；排序/退避/timer 收敛本轮仅代码核对。隔离 fixture 不是生产模型证据。
 - 许可采用见 PR #64；`shwgdysjsvg` 已于 2026-10-25 12:20:53 UTC [明确同意贡献者协议](https://github.com/cyjin-yl/shenko/issues/54#issuecomment-6397563508)，主控已回应。协议版本和本人有权贡献范围见 [许可记录](LICENSING.md)；原作者/原 commits/来源 PR 保留。
 - 全仓贡献者 monitor 在 doescontainer 的 `agent-proto-dev` 运行；脚本 `/tmp/shenko-gh-replies.py`，持久水位/事件为 `/workspace/shenko-gh-replies/`。覆盖普通评论、inline、reviews、新 PR/head/state；按端点完整分页成功后才推进水位。每个有限窗口发现他人新事件即返回主控，或 20 分钟到期后续接；不能把脚本存在当成永久在线。
-- 下一条主链是 C20 projection → broker 原生 Text/Image parts → provider 实际图片 wire → 正式 loop。主控已在 [#9 回复接口需求并明确分工](https://github.com/cyjin-yl/shenko/issues/9#issuecomment-6397517441)。不重写朋友的历史/策略模块，不从文字上下文额度推测视觉能力或实际 KV 成本；其余包闭包、steer/stream、真实模型/QQ/多节点长期证据继续开放。
+- 下一条主链是把已有 C20 HistorySource／WindowLog／ContextPolicy 的正式投影接入 S0 和 thought-loop；原生 Text/Image → 真实 provider 图片 wire 已在上方实测，不重复建设。主控已在 [#9 回复接口需求并明确分工](https://github.com/cyjin-yl/shenko/issues/9#issuecomment-6397517441)。保留原始历史、角色和未完成调用，以 source window／leaf／model generation 绑定安全边界；不重写朋友的历史/策略模块，不从文字上下文额度推测视觉能力或实际 KV 成本。其余包闭包、steer/stream、真实模型/QQ/多节点长期证据继续开放。
 
 ## 历史配额交接（以下为当时状态，已被上方当前接续覆盖）
 

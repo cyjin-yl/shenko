@@ -551,10 +551,10 @@ mod tests {
                     epoch: ControllerEpoch(1),
                     payload: InferencePayload {
                         system_prompt: String::new(),
-                        messages: vec![InferenceMessage {
-                            role: "user".into(),
-                            content: "controlled scheduling fixture".into(),
-                        }],
+                        messages: vec![InferenceMessage::text(
+                            "user",
+                            "controlled scheduling fixture",
+                        )],
                         max_tokens: Some(16),
                         tools: vec![],
                         native_options: BTreeMap::new(),
@@ -705,10 +705,7 @@ mod tests {
         let binding = handle.binding().clone();
         let payload = InferencePayload {
             system_prompt: "fixture system".into(),
-            messages: vec![InferenceMessage {
-                role: "user".into(),
-                content: "fixture input".into(),
-            }],
+            messages: vec![InferenceMessage::text("user", "fixture input")],
             max_tokens: Some(7),
             tools: vec![],
             native_options: BTreeMap::from([

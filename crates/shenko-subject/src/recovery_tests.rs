@@ -359,12 +359,21 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     assert_eq!(rejection.replacement_step_id, subject.step.step_id);
     let correction = super::frozen_input(&store, &subject.step).unwrap();
     assert_eq!(correction.events[0].event_id, event.event_id);
-    assert_eq!(correction.payload.messages[1].content, "[delegate]");
-    assert!(
-        correction.payload.messages[2]
-            .content
-            .contains("CONTROL_PROTOCOL_INVALID")
+    let correction_text = |message: &shenko_broker::request::InferenceMessage| -> String {
+        message
+            .parts
+            .iter()
+            .filter_map(|part| match part {
+                shenko_broker::request::InferencePart::Text { text } => Some(text.as_str()),
+                shenko_broker::request::InferencePart::Image { .. } => None,
+            })
+            .collect::<String>()
+    };
+    assert_eq!(
+        correction_text(&correction.payload.messages[1]),
+        "[delegate]"
     );
+    assert!(correction_text(&correction.payload.messages[2]).contains("CONTROL_PROTOCOL_INVALID"));
     drop(subject);
     drop(store);
     let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
