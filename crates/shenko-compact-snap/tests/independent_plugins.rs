@@ -6,8 +6,8 @@ use shenko_compact_budget::{BudgetCompactPlugin, BudgetConfig};
 use shenko_compact_snap::{SnapCompact, SnapCompactPlugin, SnapConfig};
 use shenko_context_policy::{
     Availability, ContextInput, ContextPolicy, ContextPolicyHost, ItemKind, MemoryHistory,
-    ModelCaps, PolicyError, PolicyRegistry, StoreWindowLog, VisionCaps, WindowBase, WindowEntry,
-    WindowLedger,
+    MemoryWindowLog, ModelCaps, PolicyError, PolicyRegistry, StoreWindowLog, VisionCaps,
+    WindowAppend, WindowBase, WindowEntry, WindowLedger, WindowLog,
 };
 use shenko_kernel::{FiberHandle, PluginRegistry};
 use shenko_store::Store;
@@ -117,7 +117,8 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     std::fs::create_dir_all(&dir).unwrap();
     let (db, cas, scope) = (dir.join("shenko.db"), dir.join("cas"), EntityId::new());
     let store = Arc::new(Store::open(db.clone(), cas.clone()).unwrap());
-    let ledger = WindowLedger::new(Arc::new(StoreWindowLog::new(store.clone(), scope)));
+    let log = Arc::new(StoreWindowLog::new(store.clone(), scope));
+    let ledger = WindowLedger::new(log.clone());
     let cut = |chars, source_window, model_generation| {
         let config = SnapConfig { max_tool_output_chars: chars, ..SnapConfig::default() };
         let base = WindowBase {
@@ -133,6 +134,10 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let b = cut(1999, a.id, 0);
     assert_eq!(b.entries, a.entries, "same ranges, indices and token counts");
     assert_ne!(b.derivatives, a.derivatives, "different pixels");
+    let mut bad = cut(1999, a.id, 0);
+    bad.derivatives[0].blake3.clear();
+    assert!(ledger.commit(bad, &h).is_err(), "bad derivative hash cannot commit");
+    assert_eq!(ledger.current().unwrap().id, a.id, "bad derivative did not move the head");
     let b = ledger.commit(b, &h).unwrap();
     let first_image = b.entries.iter().position(|e| matches!(e, WindowEntry::Image { .. })).unwrap();
     let text_prefix: u32 = b.entries[..first_image].iter().map(WindowEntry::tokens).sum();
@@ -141,6 +146,31 @@ async fn snapcompact_renders_frames_and_uninstalls_independently() {
     let c = ledger.commit(cut(1999, b.id, 1), &h).unwrap();
     assert_eq!((c.entries == b.entries, c.derivatives == b.derivatives), (true, true));
     assert_eq!(c.cost.reusable_prefix_tokens, 0, "new binding: nothing reusable");
+
+    let mut stale = c.clone();
+    stale.id = EntityId::new();
+    stale.generation += 1;
+    stale.model_generation = 0;
+    let mut stale_base = c.base.unwrap();
+    stale_base.source_window = c.id;
+    stale_base.model_generation = 0;
+    stale.base = Some(stale_base);
+    assert_eq!(
+        log.append(c.id, 0, &stale).unwrap(),
+        WindowAppend::ModelGenerationChanged { current: 1 }
+    );
+    assert_eq!(ledger.current().unwrap().id, c.id, "stale generation did not append");
+
+    let memory = MemoryWindowLog::default();
+    let genesis = memory.head().unwrap();
+    memory.set_model_generation(1).unwrap();
+    let mut stale = genesis.clone();
+    stale.id = EntityId::new();
+    stale.generation = 1;
+    assert_eq!(
+        memory.append(genesis.id, 0, &stale).unwrap(),
+        WindowAppend::ModelGenerationChanged { current: 1 }
+    );
     drop((ledger, store));
 
     let store = Arc::new(Store::open(db, cas).unwrap());

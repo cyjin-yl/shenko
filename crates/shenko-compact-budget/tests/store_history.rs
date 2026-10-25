@@ -31,8 +31,8 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
         .unwrap();
     let mut events = vec![
         ("system", r#"{"text":"system prompt"}"#.to_string()),
-        // No status in the payload: must read back as Unknown, not success.
-        ("tool_call", r#"{"text":"ssh host deploy","call_id":"ssh-1","tool":"ssh","args_ref":"ledger://call/ssh-1"}"#.into()),
+        // Payload claims success without an operation link: must remain Unknown.
+        ("tool_call", r#"{"text":"ssh host deploy","call_id":"ssh-1","tool":"ssh","args_ref":"ledger://call/ssh-1","status":{"Executed":{"ok":true}}}"#.into()),
         ("napcat_image", r#"{"text":"[image 1.png]"}"#.into()),
         ("tool_result", r#"{"text":"result without call id"}"#.into()),
         ("user", "plain text, not JSON".into()),

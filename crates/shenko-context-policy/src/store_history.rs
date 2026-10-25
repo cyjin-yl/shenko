@@ -5,22 +5,23 @@
 //!
 //! Mapping convention until the session event writer (#6) fixes a payload:
 //! `event_type` is one of system / user / assistant / assistant_cancelled /
-//! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?,
-//! status?}` with `status` in [`CallStatus`]'s serde form. A call or result
-//! without `status` is Unknown, never success; one without `call_id` cannot be
-//! paired and is kept as [`ItemKind::Other`]; any other event type is kept as
-//! Other too. Non-JSON `data` becomes the text. Nothing is dropped.
-//! Authoritative call status belongs to the execution ledger (operations /
-//! attempts); joining it is a later step.
+//! tool_call / tool_result; `data` is JSON `{text, call_id?, tool?, args_ref?}`.
+//! Calls and results stay Unknown until the operations/attempts association
+//! lands; a payload status is not success evidence. A call or result without
+//! `call_id` cannot be paired and is kept as [`ItemKind::Other`]; any other
+//! event type is kept as Other too. Non-JSON `data` becomes the text. Nothing
+//! is dropped.
 use std::sync::Arc;
 
 use serde::Deserialize;
-use shenko_store::{Store, StoredContextWindow, StoredDerivative, StoredSessionEvent};
+use shenko_store::{
+    ContextWindowAppend, Store, StoredContextWindow, StoredDerivative, StoredSessionEvent,
+};
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
 use crate::policy::Derivative;
-use crate::window::{CommittedWindow, WindowLog};
+use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
 #[derive(Default, Deserialize)]
 struct Payload {
@@ -29,7 +30,6 @@ struct Payload {
     call_id: Option<String>,
     tool: Option<String>,
     args_ref: Option<String>,
-    status: Option<CallStatus>,
 }
 
 /// Tokenizer of the currently bound model.
@@ -51,7 +51,6 @@ impl StoreHistory {
             .map_err(|_| StorageError(format!("event {} has negative seq", event.event_id)))?;
         let payload = serde_json::from_str::<Payload>(&event.data)
             .unwrap_or_else(|_| Payload { text: event.data.clone(), ..Payload::default() });
-        let status = payload.status.unwrap_or(CallStatus::Unknown);
         let kind = match (event.event_type.as_str(), payload.call_id) {
             ("system", _) => ItemKind::System,
             ("user", _) => ItemKind::User,
@@ -61,9 +60,11 @@ impl StoreHistory {
                 call_id,
                 tool: payload.tool.unwrap_or_default(),
                 args_ref: payload.args_ref.unwrap_or_default(),
-                status,
+                status: CallStatus::Unknown,
             },
-            ("tool_result", Some(call_id)) => ItemKind::ToolResult { call_id, status },
+            ("tool_result", Some(call_id)) => {
+                ItemKind::ToolResult { call_id, status: CallStatus::Unknown }
+            }
             (other, _) => ItemKind::Other { event_type: other.to_owned() },
         };
         let tokens = (self.count)(&payload.text);
@@ -157,16 +158,28 @@ impl StoreWindowLog {
 
 impl WindowLog for StoreWindowLog {
     fn head(&self) -> Result<CommittedWindow, StorageError> {
-        if let Some(head) = self.all()?.pop() {
-            return Ok(head);
+        if let Some(head) = self.store.context_window_head(self.scope_id).map_err(storage)? {
+            return Self::decode(head);
         }
         // Lazily persist genesis. Losing the race to another writer is fine:
         // whoever landed first is the genesis everyone then reads.
         let genesis = CommittedWindow::genesis();
+        match self
+            .store
+            .append_context_window(self.scope_id, None, None, &Self::encode(&genesis)?)
+            .map_err(storage)?
+        {
+            ContextWindowAppend::Appended | ContextWindowAppend::HeadChanged => {}
+            ContextWindowAppend::ModelGenerationChanged { .. } => {
+                return Err(storage("genesis append unexpectedly checked model generation"));
+            }
+        }
         self.store
-            .append_context_window(self.scope_id, None, &Self::encode(&genesis)?)
-            .map_err(storage)?;
-        self.all()?.pop().ok_or_else(|| storage("genesis window missing after append"))
+            .context_window_head(self.scope_id)
+            .map_err(storage)?
+            .map(Self::decode)
+            .transpose()?
+            .ok_or_else(|| storage("genesis window missing after append"))
     }
 
     fn all(&self) -> Result<Vec<CommittedWindow>, StorageError> {
@@ -178,10 +191,31 @@ impl WindowLog for StoreWindowLog {
             .collect()
     }
 
-    fn append(&self, expected: EntityId, window: &CommittedWindow) -> Result<bool, StorageError> {
-        self.store
-            .append_context_window(self.scope_id, Some(expected), &Self::encode(window)?)
-            .map_err(storage)
+    fn append(
+        &self,
+        expected: EntityId,
+        expected_model_generation: u64,
+        window: &CommittedWindow,
+    ) -> Result<WindowAppend, StorageError> {
+        let expected_model_generation = i64::try_from(expected_model_generation).map_err(storage)?;
+        match self
+            .store
+            .append_context_window(
+                self.scope_id,
+                Some(expected),
+                Some(expected_model_generation),
+                &Self::encode(window)?,
+            )
+            .map_err(storage)?
+        {
+            ContextWindowAppend::Appended => Ok(WindowAppend::Appended),
+            ContextWindowAppend::HeadChanged => Ok(WindowAppend::SourceChanged),
+            ContextWindowAppend::ModelGenerationChanged { current } => {
+                Ok(WindowAppend::ModelGenerationChanged {
+                    current: u64::try_from(current).map_err(storage)?,
+                })
+            }
+        }
     }
 
     fn model_generation(&self) -> Result<u64, StorageError> {
