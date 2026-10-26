@@ -277,7 +277,9 @@ pub(super) fn project_payload_stable(
         window, history, base_system_prompt, caps, max_tokens,
     )?;
     if store.current_commit_seq()? != source_commit_seq {
-        return Err(ShenkoError::conflict("execution facts changed during projection"));
+        return Err(ShenkoError::ResnapshotRequired {
+            reason: "execution facts changed during projection".into(),
+        });
     }
     Ok((payload, estimate, unfinished, source_commit_seq))
 }

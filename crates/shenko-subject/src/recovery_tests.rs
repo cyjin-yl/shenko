@@ -2,6 +2,7 @@
 use super::{SubjectLoopState, execute_step};
 use crate::inbox::Inbox;
 use shenko_store::store::Store;
+use shenko_types::error::ShenkoError;
 use shenko_types::{commit::CommitRef, ids::*, subject::*};
 use std::{path::PathBuf, sync::Arc};
 
@@ -296,8 +297,8 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
     assert!(!prepared.payload.system_prompt.contains("不记得自己许过什么"));
 }
 
-#[test]
-fn late_history_change_rejects_s0_seal_without_advancing_step() {
+#[tokio::test]
+async fn late_history_change_rejects_s0_seal_without_advancing_step() {
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
     let step = sealed_preparing_step(&mut subject);
@@ -305,7 +306,7 @@ fn late_history_change_rejects_s0_seal_without_advancing_step() {
     store.append_subject_raw_fact(&subject.head, late_id, "user",
         &serde_json::json!({"v":1,"text":"arrived between projection and seal"})).unwrap();
     let error = store.upsert_step(&step, &subject.head, RecordRevision(0)).unwrap_err();
-    assert!(error.to_string().contains("execution evidence/source commit changed"));
+    assert!(matches!(error, ShenkoError::ResnapshotRequired { .. }));
     let (_, current) = store.load_subject(agent).unwrap();
     assert_eq!(current.state, SubjectStepState::Planned);
     assert_eq!(current.input_plan_ref, None);
@@ -318,10 +319,22 @@ fn late_history_change_rejects_s0_seal_without_advancing_step() {
     let leaf = store.session_leaf_seq(scope).unwrap();
     store.commit(shenko_types::store::WriteBatch::new()).unwrap();
     let error = store.upsert_step(&step, &subject.head, RecordRevision(0)).unwrap_err();
-    assert!(error.to_string().contains("execution evidence/source commit changed"));
+    assert!(matches!(error, ShenkoError::ResnapshotRequired { .. }));
     assert_eq!(store.session_leaf_seq(scope).unwrap(), leaf);
     let (_, current) = store.load_subject(agent).unwrap();
     assert_eq!(current.state, SubjectStepState::Planned);
+
+    // A fresh S0 can now seal the same step with the late fact intact and no
+    // model admission. Reprojection is not replay of an already sent request.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(1, &[], &mut subject, false, &cancel).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    assert_eq!(subject.step.active_request_id, None);
+    let input = super::frozen_input(&store, &subject.step).unwrap();
+    assert!(serde_json::to_string(&input.payload).unwrap()
+        .contains("arrived between projection and seal"));
+    assert_eq!(store.session_event(late_id).unwrap().unwrap().event_id, late_id);
 }
 
 #[test]

@@ -282,6 +282,11 @@ async fn main() -> Result<()> {
             let _native_printf_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, printf_handler)
                 .await?;
+            let history_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(&store)));
+            let _native_history_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
+                .await?;
             let native_child = supervisor
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;
@@ -365,7 +370,7 @@ async fn main() -> Result<()> {
             // Awareness is installed capability, not kernel business logic: the
             // shipped seeds plus any packages under data_dir/awareness become
             // advisory perspectives for the model. Nothing here dispatches on
-            // keywords; retrieval only decides which text the step sees.
+            // keywords; every enabled unit travels as bounded advisory text.
             let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
             let awareness_packages = data_dir.join("awareness");
             if awareness_packages.is_dir() {
@@ -385,6 +390,7 @@ async fn main() -> Result<()> {
             )?
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities)
+            .with_native_capabilities(native_child.installed_prompt_sections())
             .with_awareness(awareness)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
