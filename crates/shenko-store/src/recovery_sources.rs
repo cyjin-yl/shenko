@@ -68,6 +68,7 @@ impl Store {
         kind: &str,
         path: &Path,
         expected_application_id: i64,
+        staging_directory: &Path,
     ) -> Result<RecoverySource> {
         let mut source = Connection::open_with_flags(
             path,
@@ -85,7 +86,10 @@ impl Store {
         // concurrent ingress from repeatedly restarting the copied view.
         let _: i64 =
             snapshot.query_row("SELECT count(*) FROM sqlite_schema", [], |row| row.get(0))?;
-        let mut scratch = tempfile::NamedTempFile::new()?;
+        fs::create_dir_all(staging_directory)
+            .context("create the explicitly selected recovery staging directory")?;
+        let mut scratch = tempfile::NamedTempFile::new_in(staging_directory)
+            .context("create recovery snapshot in its declared staging directory")?;
         {
             let mut destination = Connection::open(scratch.path())?;
             {

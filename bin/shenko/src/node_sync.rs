@@ -145,6 +145,7 @@ fn stage_declared_recovery_sources(data_dir: &Path, store: &Store, node: &Node) 
             "napcat_ingress",
             &ingress,
             0x534e4947,
+            &data_dir.join("cognition-staging"),
         )?;
     }
     Ok(())
