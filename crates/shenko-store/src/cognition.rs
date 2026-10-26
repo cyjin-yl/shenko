@@ -120,7 +120,7 @@ CREATE TABLE IF NOT EXISTS cognition_baselines (
     peer_id TEXT NOT NULL,
     table_name TEXT NOT NULL,
     entity_key TEXT NOT NULL,
-    values TEXT NOT NULL,
+    row_values TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (peer_id, table_name, entity_key)
 );
@@ -1813,7 +1813,7 @@ impl Store {
         let conn = self.ledger.conn.lock();
         let stored: Option<String> = conn
             .query_row(
-                "SELECT values FROM cognition_baselines WHERE peer_id=?1 AND table_name='git' AND entity_key='memory'",
+                "SELECT row_values FROM cognition_baselines WHERE peer_id=?1 AND table_name='git' AND entity_key='memory'",
                 [peer_id.to_string()],
                 |row| row.get(0),
             )
@@ -1838,10 +1838,10 @@ impl Store {
         let values = vec![("head".to_string(), Some(head.to_string()))];
         let json = serde_json::to_string(&values)?;
         conn.execute(
-            "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,values,updated_at)
+            "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,row_values,updated_at)
              VALUES(?1,'git','memory',?2,?3)
              ON CONFLICT(peer_id,table_name,entity_key) DO UPDATE SET
-                values=excluded.values,
+                row_values=excluded.row_values,
                 updated_at=excluded.updated_at",
             params![
                 peer_id.to_string(),
@@ -2279,7 +2279,7 @@ fn read_baseline(
 ) -> Result<Option<Vec<(String, Option<String>)>>> {
     let stored: Option<String> = tx
         .query_row(
-            "SELECT values FROM cognition_baselines WHERE peer_id=?1 AND table_name=?2 AND entity_key=?3",
+            "SELECT row_values FROM cognition_baselines WHERE peer_id=?1 AND table_name=?2 AND entity_key=?3",
             params![peer_id.to_string(), table, key],
             |row| row.get(0),
         )
@@ -2303,10 +2303,10 @@ fn write_baseline(
 ) -> Result<()> {
     let json = serde_json::to_string(values)?;
     tx.execute(
-        "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,values,updated_at)
+        "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,row_values,updated_at)
          VALUES(?1,?2,?3,?4,?5)
          ON CONFLICT(peer_id,table_name,entity_key) DO UPDATE SET
-            values=excluded.values,
+            row_values=excluded.row_values,
             updated_at=excluded.updated_at",
         params![
             peer_id.to_string(),

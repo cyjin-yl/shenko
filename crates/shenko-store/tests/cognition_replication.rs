@@ -186,7 +186,7 @@ fn seeded_store() -> Seeded {
             artifact_digest: Digest::blake3(b"delegation implementation"),
             registry_revision: 1,
         },
-        input_ref: input,
+        input_ref: input.clone(),
         state: TaskState::Pending {
             checkpoint_ref: Some(checkpoint.clone()),
         },
@@ -225,7 +225,7 @@ fn seeded_store() -> Seeded {
             decision_ref: EntityId::new(),
         },
         acceptance_predicate_ref: input.clone(),
-        retry_contract_ref: input.clone(),
+        retry_contract_ref: input,
         checkpoint_scope_ref: None,
         state: OperationState::InFlight,
         outcome: None,
