@@ -1,5 +1,7 @@
 # Shenko 许可（AGPL-3.0-or-later，2026-10-25 正式采用）
 
+> 当前仓库的实际许可字段、第三方依赖清单与 DCO 签署现状（实测）见 [LICENSE-INVENTORY](LICENSE-INVENTORY.md)。该记录不改变本提案状态。
+
 状态：**已采用**。根目录 `LICENSE` 为 AGPL-3.0 正文，`Cargo.toml` 工作区许可元数据为 `AGPL-3.0-or-later`。owner **本人 `cyjin-yl`** 保留闭源、商用及另行商业双许可的权利（机制见 `CONTRIBUTOR_LICENSE.md`）。
 
 ## 目标
