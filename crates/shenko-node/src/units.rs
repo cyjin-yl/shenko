@@ -639,9 +639,10 @@ impl Node {
                         serde_json::to_string(&record)?
                     ],
                 )?;
-                let enabled = match enable {
-                    Some(value) => value,
-                    None => previous_enabled[index],
+                let enabled = if descriptor.unit_id == export.root_unit_id {
+                    enable.unwrap_or(previous_enabled[index])
+                } else {
+                    previous_enabled[index]
                 };
                 tx.execute(
                     "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
@@ -1613,9 +1614,10 @@ impl Node {
             )?
             .query_map(params![unit_id, digest.0], |r| r.get(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        rows.into_iter()
+        Ok(rows
+            .into_iter()
             .map(|value| serde_json::from_str::<TrialEvidence>(&value))
-            .collect::<serde_json::Result<Vec<_>>>()?
+            .collect::<serde_json::Result<Vec<_>>>()?)
     }
 
     /// Readiness of an installed unit on this node.

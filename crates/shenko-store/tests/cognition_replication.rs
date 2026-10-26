@@ -21,7 +21,7 @@ use shenko_types::operation::{
     AttemptDispatchStage, AttemptRecord, AuthorityRef, EffectStatus, OperationContractRef,
     OperationRecord, OperationState,
 };
-use shenko_types::store::{RawSession, RawSessionEvent, WriteBatch};
+use shenko_types::store::{RawInboxEvent, RawSession, RawSessionEvent, WriteBatch};
 use shenko_types::subject::{
     GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
 };
@@ -57,6 +57,7 @@ struct Seeded {
     agent_id: EntityId,
     genesis_id: EntityId,
     session_id: EntityId,
+    inbox_event_id: EntityId,
     task_id: EntityId,
     operation_id: EntityId,
     attempt_id: EntityId,
@@ -164,6 +165,7 @@ fn seeded_store() -> Seeded {
 
     let commit = CommitRef::new(ledger_id, LedgerSeq(1));
     let session_id = EntityId::new();
+    let inbox_event_id = EntityId::new();
     let task_id = EntityId::new();
     let operation_id = EntityId::new();
     let attempt_id = EntityId::new();
@@ -288,6 +290,14 @@ fn seeded_store() -> Seeded {
         role: "user".into(),
         data: "{\"text\":\"记得这条未竟的工作\"}".into(),
     });
+    batch.inbox_event_upserts.push(RawInboxEvent {
+        event_id: inbox_event_id,
+        agent_id,
+        source: "user".into(),
+        kind: "message".into(),
+        payload_json: "{\"text\":\"还没处理的用户输入\"}".into(),
+        received_at_ms: 1_800_000_000_000,
+    });
     batch.task_upserts.push(task);
     batch.operation_upserts.push(operation);
     batch.attempt_upserts.push(attempt);
@@ -299,6 +309,7 @@ fn seeded_store() -> Seeded {
         agent_id,
         genesis_id,
         session_id,
+        inbox_event_id,
         task_id,
         operation_id,
         attempt_id,
@@ -371,6 +382,28 @@ fn receiving_store_reads_the_real_facts_after_import() {
     assert_eq!(events.len(), 1);
     assert!(events[0].data.contains("记得"));
 
+    // A pending input is recovery data: it arrives still pending.
+    let inbox: (i64, String) = rusqlite::Connection::open(b_dir.join("b.db"))
+        .unwrap()
+        .query_row(
+            "SELECT consumed,data FROM inbox_events WHERE event_id=?1",
+            [a.inbox_event_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(inbox.0, 0, "a pending input must stay pending");
+    assert!(inbox.1.contains("还没处理"));
+
+    // The subject keeps its own genesis, and the provenance says where it
+    // came from, so the runtime never compares a foreign home manifest.
+    let origin = b
+        .cognition_subject_origin(a.agent_id)
+        .unwrap()
+        .expect("the imported subject has a provenance");
+    assert_eq!(origin.source_ledger_id, a.store.ledger.ledger_id());
+    assert_eq!(origin.genesis_id, a.genesis_id);
+    assert_eq!(origin.fingerprint, receipt.fingerprint);
+
     let operation = b.external_operation(a.operation_id).unwrap();
     assert_eq!(operation.effect_status, EffectStatus::Unknown);
     let attempt = b.external_operation_attempt(a.operation_id).unwrap();
@@ -439,6 +472,16 @@ fn debt_needs_a_verified_closure_and_a_replay_duplicates_nothing() {
     a.store
         .insert_memory_entry(&MemoryEntry::new(a.agent_id, "written while offline"))
         .unwrap();
+    // The source also continues the same task: that is a continuation, not a
+    // divergence.
+    let mut advanced = a.store.external_task(a.task_id).unwrap();
+    advanced.record_revision = advanced.record_revision.next();
+    advanced
+        .memos
+        .insert("source_continued".into(), serde_json::json!("newer"));
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(advanced);
+    a.store.commit(batch).unwrap();
     let status = a.store.cognition_peer_status(peer, &options).unwrap();
     assert!(
         status.unsent_changes,
@@ -487,6 +530,15 @@ fn debt_needs_a_verified_closure_and_a_replay_duplicates_nothing() {
         .import_cognition_archive(&newer[..], &CognitionImportOptions::default())
         .unwrap();
     assert!(outcome.inserted > 0, "the offline fact arrived");
+    assert!(
+        outcome.updated > 0,
+        "the continued task must advance, not look like a divergence"
+    );
+    assert!(
+        outcome.conflicts.is_empty(),
+        "a continuing source is not a divergence: {:?}",
+        outcome.conflicts
+    );
     a.store.record_cognition_ack(&outcome.ack(peer)).unwrap();
     let status = a.store.cognition_peer_status(peer, &options).unwrap();
     assert!(status.verified_recoverable, "the peer holds the same snapshot");

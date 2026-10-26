@@ -17,10 +17,33 @@
 //!   never becomes a fact of the store, so it cannot create new debt;
 //! * imported work is parked, never dispatched here: a replica is not a
 //!   second live writer and an armed or unknown effect is never replayed;
-//! * a fact that already exists with different content is kept on both sides
-//!   and reported as an explicit conflict — never a last-write-wins;
+//! * a fact that this store still holds exactly as the peer last delivered
+//!   it takes the newer value, so a continuing source advances instead of
+//!   looking like a divergence;
+//! * a fact that this store changed on its own is kept on both sides and
+//!   reported as an explicit conflict — never a last-write-wins;
 //! * writer and dispatcher leases, local credentials, provider secrets and
 //!   the working directory are never part of an export.
+//! * a pending input is recovery data: the inbox travels with the state the
+//!   source recorded, while the local consumption cursor stays local.
+//!
+//! What an import does and does not do:
+//!
+//! * it restores the facts and the memory content into the store and the
+//!   given memory root; the receiving installation keeps its own home, its
+//!   own installation identity and its own dispatcher;
+//! * it does not adopt the replicated subject as this installation's own
+//!   subject. That belongs to the election and handoff path, and the
+//!   replicated genesis stays the fact it is: the record of where the
+//!   subject came from;
+//! * it never starts a dispatcher, never re-arms an attempt and never
+//!   replays an unknown effect. Imported work stays parked until an
+//!   explicit decision moves it;
+//! * it does not adopt unknown data into a running home. A home prepares
+//!   itself first — the seed creates the home manifest and the empty memory
+//!   repository — and the import then fills that repository. A memory root
+//!   that already holds other content keeps it: the divergence is reported
+//!   instead of being overwritten.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -81,6 +104,7 @@ CREATE TABLE IF NOT EXISTS cognition_receipts (
     verified_objects INTEGER NOT NULL,
     verified_files INTEGER NOT NULL,
     inserted INTEGER NOT NULL,
+    updated INTEGER NOT NULL DEFAULT 0,
     unchanged INTEGER NOT NULL,
     conflicts INTEGER NOT NULL,
     received_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -91,6 +115,30 @@ CREATE TABLE IF NOT EXISTS cognition_state (
     fingerprint TEXT,
     high_water INTEGER,
     computed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS cognition_baselines (
+    peer_id TEXT NOT NULL,
+    table_name TEXT NOT NULL,
+    entity_key TEXT NOT NULL,
+    values TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (peer_id, table_name, entity_key)
+);
+CREATE TABLE IF NOT EXISTS cognition_file_baselines (
+    peer_id TEXT NOT NULL,
+    origin TEXT NOT NULL,
+    path TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (peer_id, origin, path)
+);
+CREATE TABLE IF NOT EXISTS cognition_origins (
+    agent_id TEXT PRIMARY KEY,
+    source_ledger_id TEXT NOT NULL,
+    delivered_by TEXT,
+    fingerprint TEXT NOT NULL,
+    genesis_id TEXT NOT NULL,
+    imported_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 "#;
 
@@ -231,6 +279,20 @@ pub struct CognitionConflict {
     pub detail: String,
 }
 
+/// What one import did to the replicated facts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CognitionApplyOutcome {
+    /// Facts that were new on this store.
+    pub inserted: usize,
+    /// Facts that took a newer value from the peer, because this store still
+    /// held the value the peer last delivered.
+    pub updated: usize,
+    /// Facts that were already present with the same content.
+    pub unchanged: usize,
+    /// Facts that exist on both sides with different content.
+    pub conflicts: Vec<CognitionConflict>,
+}
+
 /// What an import did.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CognitionImportOutcome {
@@ -238,6 +300,9 @@ pub struct CognitionImportOutcome {
     pub high_water: LedgerSeq,
     /// Rows that were new on this store.
     pub inserted: usize,
+    /// Rows that took a newer value from the peer, because this store still
+    /// held the value the peer last delivered.
+    pub updated: usize,
     /// Rows that were already present with the same content.
     pub unchanged: usize,
     pub conflicts: Vec<CognitionConflict>,
@@ -312,6 +377,25 @@ pub struct PeerCognitionStatus {
     pub last_failure_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// Where an imported subject came from.
+///
+/// A subject that arrived through replication keeps its own genesis: the
+/// record still says where the subject was born. This provenance lets the
+/// runtime tell an imported subject from one this installation created, so
+/// the local home is never compared against a foreign home manifest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CognitionSubjectOrigin {
+    pub agent_id: EntityId,
+    /// The ledger the subject was born in.
+    pub source_ledger_id: EntityId,
+    /// The peer that delivered the subject.
+    pub delivered_by: Option<EntityId>,
+    /// The snapshot that carried the subject.
+    pub fingerprint: Digest,
+    pub genesis_id: EntityId,
+    pub imported_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// How a replicated row is treated on import.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RowKind {
@@ -322,6 +406,9 @@ enum RowKind {
     /// A subject intent. The dispatcher lease is dropped and unfinished
     /// intents become explicitly unknown, so nothing is dispatched here.
     SubjectIntent,
+    /// An inbox event. The pending input is recovery data; the local
+    /// consumption cursor is not.
+    InboxEvent,
 }
 
 /// One replicated table.
@@ -517,6 +604,21 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     TableSpec {
+        name: "inbox_events",
+        key: &["event_id"],
+        columns: &[
+            "event_id",
+            "agent_id",
+            "kind",
+            "source",
+            "consumed",
+            "data",
+            "created_at",
+        ],
+        local_seq: None,
+        kind: RowKind::InboxEvent,
+    },
+    TableSpec {
         name: "tasks",
         key: &["task_id"],
         columns: &["task_id", "record_revision", "data", "created_at"],
@@ -699,7 +801,12 @@ impl Store {
         let mut conflicts: Vec<CognitionConflict> = Vec::new();
         let mut restored_git_history = false;
         if let Some(root) = options.memory_root.clone() {
-            conflicts.extend(self.restore_files(&files, &root, &options.workspace_root)?);
+            conflicts.extend(self.restore_files(
+                &files,
+                &root,
+                &options.workspace_root,
+                peer_id,
+            )?);
             let (restored, conflict) = self.restore_git_history(&git_history, &root, peer_id)?;
             restored_git_history = restored;
             if let Some(conflict) = conflict {
@@ -724,24 +831,32 @@ impl Store {
             bail!("cognition snapshot carries workspace files but no workspace root was given");
         }
 
-        let (inserted, unchanged, row_conflicts) = self.apply_rows(&manifest.rows, &manifest.derivatives, peer_id)?;
-        conflicts.extend(row_conflicts);
+        let applied = self.apply_rows(
+            &manifest.rows,
+            &manifest.derivatives,
+            peer_id,
+            &manifest.fingerprint,
+            manifest.source_ledger_id,
+        )?;
+        conflicts.extend(applied.conflicts.clone());
 
         self.record_receipt(
             peer_id,
             &manifest,
             verified_objects,
             files.len(),
-            inserted,
-            unchanged,
+            applied.inserted,
+            applied.updated,
+            applied.unchanged,
             conflicts.len(),
         )?;
 
         Ok(CognitionImportOutcome {
             fingerprint: manifest.fingerprint.clone(),
             high_water: manifest.high_water,
-            inserted,
-            unchanged,
+            inserted: applied.inserted,
+            updated: applied.updated,
+            unchanged: applied.unchanged,
             conflicts,
             verified_objects,
             verified_files: files.len(),
@@ -981,6 +1096,57 @@ impl Store {
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
     }
 
+    /// Where an imported subject came from.
+    ///
+    /// `None` means this installation created the subject itself: there is no
+    /// foreign home behind it.
+    pub fn cognition_subject_origin(
+        &self,
+        agent_id: EntityId,
+    ) -> Result<Option<CognitionSubjectOrigin>> {
+        let conn = self.ledger.conn.lock();
+        let row: Option<(String, Option<String>, String, String, String)> = conn
+            .query_row(
+                "SELECT source_ledger_id,delivered_by,fingerprint,genesis_id,imported_at
+                 FROM cognition_origins WHERE agent_id=?1",
+                [agent_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((source_ledger_id, delivered_by, fingerprint, genesis_id, imported_at)) = row
+ else {
+            return Ok(None);
+        };
+        Ok(Some(CognitionSubjectOrigin {
+            agent_id,
+            source_ledger_id: source_ledger_id
+                .parse()
+                .map_err(|_| anyhow!("invalid cognition origin ledger {source_ledger_id}"))?,
+            delivered_by: match delivered_by {
+                Some(value) => Some(
+                    value
+                        .parse()
+                        .map_err(|_| anyhow!("invalid cognition origin peer {value}"))?,
+                ),
+                None => None,
+            },
+            fingerprint: Digest(fingerprint),
+            genesis_id: genesis_id
+                .parse()
+                .map_err(|_| anyhow!("invalid cognition origin genesis {genesis_id}"))?,
+            imported_at: parse_time(&imported_at)
+                .ok_or_else(|| anyhow!("invalid cognition origin time {imported_at}"))?,
+        }))
+    }
+
     fn collect_snapshot(&self, options: &CognitionSnapshotOptions) -> Result<Collected> {
         let (rows, derivatives, agent_id, high_water) = self.snapshot_rows()?;
         let mut roots: Vec<ObjectRef> = Vec::new();
@@ -1198,14 +1364,19 @@ impl Store {
     /// Apply the replicated facts to this store.
     ///
     /// A row that already exists with the same content is left alone, so a
-    /// replay never duplicates a fact. A row that exists with different
-    /// content keeps the local value and is reported as a conflict.
+    /// replay never duplicates a fact. A row that this store still holds
+    /// exactly as the peer last delivered it takes the newer value, so a
+    /// continuing source advances instead of looking like a divergence. A row
+    /// that this store changed on its own keeps the local value and is
+    /// reported as a conflict.
     fn apply_rows(
         &self,
         rows: &[CognitionRow],
         derivatives: &[CognitionDerivative],
         peer_id: EntityId,
-    ) -> Result<(usize, usize, Vec<CognitionConflict>)> {
+        fingerprint: &Digest,
+        source_ledger_id: EntityId,
+    ) -> Result<CognitionApplyOutcome> {
         let mut ordered: Vec<&CognitionRow> = rows.iter().collect();
         ordered.sort_by_key(|row| {
             TABLES
@@ -1221,6 +1392,7 @@ impl Store {
                     .map_err(db)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let mut inserted = 0usize;
+                let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
                 for row in &ordered {
@@ -1229,23 +1401,28 @@ impl Store {
                     };
                     let effective = effective_row(row, spec)?;
                     let local = read_existing(&tx, spec, &effective)?;
+                    let baseline = read_baseline(&tx, peer_id, spec.name, &effective.key)?;
                     match local {
-                        Some(local) => {
-                            if rows_equivalent(spec, &local, &effective.values) {
-                                unchanged += 1;
-                            } else {
-                                let detail = describe_difference(&local, &effective.values);
-                                conflicts.push(CognitionConflict {
-                                    table: spec.name.to_string(),
-                                    key: effective.key.clone(),
-                                    detail: detail.clone(),
-                                });
-                                record_conflict(&tx, peer_id, spec.name, &effective.key, &detail)?;
-                            }
-                        }
                         None => {
                             match insert_row(&tx, spec, &effective, seq) {
-                                Ok(()) => inserted += 1,
+                                Ok(()) => {
+                                    inserted += 1;
+                                    write_baseline(
+                                        &tx,
+                                        peer_id,
+                                        spec.name,
+                                        &effective.key,
+                                        &effective.values,
+                                    )?;
+                                    record_origin(
+                                        &tx,
+                                        spec,
+                                        &effective,
+                                        peer_id,
+                                        fingerprint,
+                                        source_ledger_id,
+                                    )?;
+                                }
                                 Err(error) if is_constraint_violation(&error) => {
                                     let detail =
                                         "the imported fact breaks a local uniqueness rule; the local value is kept"
@@ -1264,6 +1441,78 @@ impl Store {
                                     )?;
                                 }
                                 Err(error) => return Err(error),
+                            }
+                        }
+                        Some(local_values) => {
+                            if rows_equivalent(spec, &local_values, &effective.values) {
+                                unchanged += 1;
+                                write_baseline(
+                                    &tx,
+                                    peer_id,
+                                    spec.name,
+                                    &effective.key,
+                                    &effective.values,
+                                )?;
+                            } else if let Some(baseline_values) = baseline.as_ref() {
+                                if rows_equivalent(spec, &local_values, baseline_values) {
+                                    // This store still holds the value the
+                                    // peer last delivered, so the newer
+                                    // value is the peer's continuation, not
+                                    // a divergence.
+                                    update_row(&tx, spec, &effective, seq)?;
+                                    updated += 1;
+                                    write_baseline(
+                                        &tx,
+                                        peer_id,
+                                        spec.name,
+                                        &effective.key,
+                                        &effective.values,
+                                    )?;
+                                    record_origin(
+                                        &tx,
+                                        spec,
+                                        &effective,
+                                        peer_id,
+                                        fingerprint,
+                                        source_ledger_id,
+                                    )?;
+                                } else {
+                                    let detail = describe_difference(
+                                        &local_values,
+                                        &effective.values,
+                                    );
+                                    conflicts.push(CognitionConflict {
+                                        table: spec.name.to_string(),
+                                        key: effective.key.clone(),
+                                        detail: detail.clone(),
+                                    });
+                                    record_conflict(
+                                        &tx,
+                                        peer_id,
+                                        spec.name,
+                                        &effective.key,
+                                        &detail,
+                                    )?;
+                                }
+                            } else {
+                                // The fact was not delivered by this peer, so
+                                // the local value is not a copy of it.
+                                let detail = describe_difference(
+                                    &local_values,
+                                    &effective.values,
+                                );
+                                conflicts.push(CognitionConflict {
+                                    table: spec.name.to_string(),
+                                    key: effective.key.clone(),
+                                    detail: detail.clone(),
+                                });
+                                record_conflict(
+                                    &tx,
+                                    peer_id,
+                                    spec.name,
+                                    &effective.key,
+                                    &detail,
+                                )?;
                             }
                         }
                     }
@@ -1300,7 +1549,7 @@ impl Store {
                         unchanged += 1;
                     }
                 }
-                if inserted > 0 {
+                if inserted > 0 || updated > 0 {
                     tx.execute(
                         "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count)
                          VALUES(?1,?2,?3,?4)",
@@ -1308,13 +1557,18 @@ impl Store {
                             self.ledger.ledger_id().to_string(),
                             seq.0 as i64,
                             self.capabilities.incarnation.to_string(),
-                            inserted as i64,
+                            (inserted + updated) as i64,
                         ],
                     )
                     .map_err(db)?;
                 }
                 tx.commit().map_err(db)?;
-                Ok((inserted, unchanged, conflicts))
+                Ok(CognitionApplyOutcome {
+                    inserted,
+                    updated,
+                    unchanged,
+                    conflicts,
+                })
             },
             storage_failure,
         )
@@ -1322,13 +1576,16 @@ impl Store {
 
     /// Put the memory and workspace files back in place.
     ///
-    /// A file that exists locally with different content keeps the local
-    /// content and is reported as a conflict.
+    /// A file that this store still holds exactly as the peer last delivered
+    /// it takes the newer content, so a continuing source advances. A file
+    /// that this store changed on its own keeps the local content and is
+    /// reported as a conflict.
     fn restore_files(
         &self,
         files: &[(CognitionFileDescriptor, Vec<u8>)],
         memory_root: &Path,
         workspace_root: &Option<PathBuf>,
+        peer_id: EntityId,
     ) -> Result<Vec<CognitionConflict>> {
         let mut conflicts: Vec<CognitionConflict> = Vec::new();
         for (descriptor, bytes) in files {
@@ -1346,10 +1603,30 @@ impl Store {
             };
             let relative = safe_relative_path(&descriptor.path)?;
             let target = root.join(relative);
+            let origin = match descriptor.origin {
+                CognitionFileOrigin::Memory => "memory",
+                CognitionFileOrigin::Workspace => "workspace",
+            };
             if target.exists() {
                 let existing = fs::read(&target)
                     .with_context(|| format!("read local file {}", target.display()))?;
                 if existing == *bytes {
+                    self.write_file_baseline(peer_id, origin, &descriptor.path, &descriptor.digest)?;
+                    continue;
+                }
+                let local_digest = Digest::blake3(&existing);
+                let baseline = self.read_file_baseline(peer_id, origin, &descriptor.path)?;
+                if baseline.as_ref() == Some(&local_digest) {
+                    // The local file is still the one the peer delivered, so
+                    // the newer content is the peer's continuation.
+                    fs::write(&target, bytes)
+                        .with_context(|| format!("write file {}", target.display()))?;
+                    self.write_file_baseline(
+                        peer_id,
+                        origin,
+                        &descriptor.path,
+                        &descriptor.digest,
+                    )?;
                     continue;
                 }
                 conflicts.push(CognitionConflict {
@@ -1365,8 +1642,55 @@ impl Store {
             }
             fs::write(&target, bytes)
                 .with_context(|| format!("write file {}", target.display()))?;
+            self.write_file_baseline(peer_id, origin, &descriptor.path, &descriptor.digest)?;
         }
         Ok(conflicts)
+    }
+
+    /// The content the peer last delivered for one file.
+    fn read_file_baseline(
+        &self,
+        peer_id: EntityId,
+        origin: &str,
+        path: &str,
+    ) -> Result<Option<Digest>> {
+        let conn = self.ledger.conn.lock();
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT digest FROM cognition_file_baselines WHERE peer_id=?1 AND origin=?2 AND path=?3",
+                params![peer_id.to_string(), origin, path],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        Ok(stored.map(Digest))
+    }
+
+    /// Remember the content the peer delivered for one file.
+    fn write_file_baseline(
+        &self,
+        peer_id: EntityId,
+        origin: &str,
+        path: &str,
+        digest: &Digest,
+    ) -> Result<()> {
+        let conn = self.ledger.conn.lock();
+        conn.execute(
+            "INSERT INTO cognition_file_baselines(peer_id,origin,path,digest,updated_at)
+             VALUES(?1,?2,?3,?4,?5)
+             ON CONFLICT(peer_id,origin,path) DO UPDATE SET
+                digest=excluded.digest,
+                updated_at=excluded.updated_at",
+            params![
+                peer_id.to_string(),
+                origin,
+                path,
+                digest.to_string(),
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .map_err(db)?;
+        Ok(())
     }
 
     /// Put the memory repository history back in place.
@@ -1433,6 +1757,7 @@ impl Store {
                 ensure!(ok, "git symbolic-ref failed: {error}");
                 let (ok, _, error) = git(root, &["reset", "--mixed"])?;
                 ensure!(ok, "git reset failed: {error}");
+                self.write_git_baseline(peer_id, sha)?;
             }
             return Ok((true, None));
         }
@@ -1442,6 +1767,23 @@ impl Store {
             .iter()
             .find(|(name, _)| name == "refs/heads/main")
             .map(|(_, sha)| sha.clone());
+        let baseline = self.read_git_baseline(peer_id)?;
+        if let Some(remote) = replicated.as_ref() {
+            // The local history is still the one the peer delivered, so a
+            // newer remote head is the peer's continuation, not a conflict.
+            if baseline.as_deref() == Some(local_head.as_str()) && remote != &local_head {
+                let (ok, _, _) =
+                    git(root, &["merge-base", "--is-ancestor", &local_head, remote])?;
+                if ok {
+                    let (ok, _, error) = git(root, &["update-ref", "refs/heads/main", remote])?;
+                    ensure!(ok, "git update-ref failed: {error}");
+                    let (ok, _, error) = git(root, &["reset", "--mixed"])?;
+                    ensure!(ok, "git reset failed: {error}");
+                    self.write_git_baseline(peer_id, remote)?;
+                    return Ok((true, None));
+                }
+            }
+        }
         let conflict = match replicated {
             Some(remote) if remote != local_head => Some(CognitionConflict {
                 table: "git".into(),
@@ -1452,7 +1794,57 @@ impl Store {
             }),
             _ => None,
         };
+        if conflict.is_none() {
+            if let Some(remote) = replicated.as_ref() {
+                self.write_git_baseline(peer_id, remote)?;
+            }
+        }
         Ok((true, conflict))
+    }
+
+    /// The remote head this store last took from the peer.
+    fn read_git_baseline(&self, peer_id: EntityId) -> Result<Option<String>> {
+        let conn = self.ledger.conn.lock();
+        let stored: Option<String> = conn
+            .query_row(
+                "SELECT values FROM cognition_baselines WHERE peer_id=?1 AND table_name='git' AND entity_key='memory'",
+                [peer_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        match stored {
+            Some(json) => {
+                let values: Vec<(String, Option<String>)> = serde_json::from_str(&json)
+                    .map_err(|error| anyhow!("invalid cognition git baseline: {error}"))?;
+                Ok(values
+                    .into_iter()
+                    .find(|(name, _)| name == "head")
+                    .and_then(|(_, value)| value))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Remember the remote head this store took from the peer.
+    fn write_git_baseline(&self, peer_id: EntityId, head: &str) -> Result<()> {
+        let conn = self.ledger.conn.lock();
+        let values = vec![("head".to_string(), Some(head.to_string()))];
+        let json = serde_json::to_string(&values)?;
+        conn.execute(
+            "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,values,updated_at)
+             VALUES(?1,'git','memory',?2,?3)
+             ON CONFLICT(peer_id,table_name,entity_key) DO UPDATE SET
+                values=excluded.values,
+                updated_at=excluded.updated_at",
+            params![
+                peer_id.to_string(),
+                json,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )
+        .map_err(db)?;
+        Ok(())
     }
 
     fn record_receipt(
@@ -1462,18 +1854,20 @@ impl Store {
         verified_objects: usize,
         verified_files: usize,
         inserted: usize,
+        updated: usize,
         unchanged: usize,
         conflicts: usize,
     ) -> Result<()> {
         let conn = self.ledger.conn.lock();
         conn.execute(
-            "INSERT INTO cognition_receipts(peer_id,fingerprint,high_water,verified_objects,verified_files,inserted,unchanged,conflicts,received_at)
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)
+            "INSERT INTO cognition_receipts(peer_id,fingerprint,high_water,verified_objects,verified_files,inserted,updated,unchanged,conflicts,received_at)
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
              ON CONFLICT(peer_id,fingerprint) DO UPDATE SET
                 high_water=excluded.high_water,
                 verified_objects=excluded.verified_objects,
                 verified_files=excluded.verified_files,
                 inserted=excluded.inserted,
+                updated=excluded.updated,
                 unchanged=excluded.unchanged,
                 conflicts=excluded.conflicts,
                 received_at=excluded.received_at",
@@ -1484,6 +1878,7 @@ impl Store {
                 verified_objects as i64,
                 verified_files as i64,
                 inserted as i64,
+                updated as i64,
                 unchanged as i64,
                 conflicts as i64,
                 chrono::Utc::now().to_rfc3339(),
@@ -1822,6 +2217,158 @@ fn insert_row(
     Ok(())
 }
 
+/// Take a newer value from the peer for a fact this store still holds as the
+/// peer last delivered it.
+fn update_row(
+    tx: &Transaction<'_>,
+    spec: &TableSpec,
+    row: &CognitionRow,
+    seq: LedgerSeq,
+) -> Result<()> {
+    let mut columns: Vec<&str> = spec.columns.to_vec();
+    let mut values: Vec<Option<String>> = row
+        .values
+        .iter()
+        .map(|(_, value)| value.clone())
+        .collect();
+    if let Some(local_seq) = spec.local_seq {
+        columns.push(local_seq);
+        values.push(Some(seq.0.to_string()));
+    }
+    let assignments: Vec<String> = (1..=columns.len())
+        .map(|index| format!("{}=?{index}", columns[index - 1]))
+        .collect();
+    let offset = columns.len();
+    let conditions: Vec<String> = spec
+        .key
+        .iter()
+        .enumerate()
+        .map(|(index, name)| format!("{name}=?{}", offset + index + 1))
+        .collect();
+    let keys: Vec<String> = spec
+        .key
+        .iter()
+        .map(|name| row.value(name).unwrap_or_default().to_string())
+        .collect();
+    let sql = format!(
+        "UPDATE {table} SET {assignments} WHERE {conditions}",
+        table = spec.name,
+        assignments = assignments.join(", "),
+        conditions = conditions.join(" AND ")
+    );
+    tx.execute(
+        &sql,
+        rusqlite::params_from_iter(values.into_iter().chain(keys)),
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// The value the peer last delivered for one fact.
+fn read_baseline(
+    tx: &Transaction<'_>,
+    peer_id: EntityId,
+    table: &str,
+    key: &str,
+) -> Result<Option<Vec<(String, Option<String>)>>> {
+    let stored: Option<String> = tx
+        .query_row(
+            "SELECT values FROM cognition_baselines WHERE peer_id=?1 AND table_name=?2 AND entity_key=?3",
+            params![peer_id.to_string(), table, key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(db)?;
+    match stored {
+        Some(json) => serde_json::from_str(&json)
+            .map(Some)
+            .map_err(|error| anyhow!("invalid cognition baseline: {error}")),
+        None => Ok(None),
+    }
+}
+
+/// Remember the value the peer delivered for one fact.
+fn write_baseline(
+    tx: &Transaction<'_>,
+    peer_id: EntityId,
+    table: &str,
+    key: &str,
+    values: &[(String, Option<String>)],
+) -> Result<()> {
+    let json = serde_json::to_string(values)?;
+    tx.execute(
+        "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,values,updated_at)
+         VALUES(?1,?2,?3,?4,?5)
+         ON CONFLICT(peer_id,table_name,entity_key) DO UPDATE SET
+            values=excluded.values,
+            updated_at=excluded.updated_at",
+        params![
+            peer_id.to_string(),
+            table,
+            key,
+            json,
+            chrono::Utc::now().to_rfc3339(),
+        ],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
+/// Record where an imported subject came from.
+///
+/// The genesis stays untouched: it keeps saying where the subject was born.
+/// The provenance is a separate fact about this store, so the runtime can
+/// tell an imported subject from a local one.
+fn record_origin(
+    tx: &Transaction<'_>,
+    spec: &TableSpec,
+    row: &CognitionRow,
+    peer_id: EntityId,
+    fingerprint: &Digest,
+    source_ledger_id: EntityId,
+) -> Result<()> {
+    if spec.name != "subject_genesis" {
+        return Ok(());
+    }
+    let subject_id = row.value("subject_id").unwrap_or_default();
+    let genesis_id = row.value("genesis_id").unwrap_or_default();
+    if subject_id.is_empty() || genesis_id.is_empty() {
+        return Ok(());
+    }
+    let born_in = row
+        .value("data")
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+        .and_then(|value| {
+            value
+                .get("created_commit")
+                .and_then(|commit| commit.get("ledger_id"))
+                .and_then(|ledger| ledger.as_str())
+                .map(|ledger| ledger.to_string())
+        })
+        .and_then(|ledger| ledger.parse::<EntityId>().ok())
+        .unwrap_or(source_ledger_id);
+    tx.execute(
+        "INSERT INTO cognition_origins(agent_id,source_ledger_id,delivered_by,fingerprint,genesis_id,imported_at)
+         VALUES(?1,?2,?3,?4,?5,?6)
+         ON CONFLICT(agent_id) DO UPDATE SET
+            source_ledger_id=excluded.source_ledger_id,
+            delivered_by=excluded.delivered_by,
+            fingerprint=excluded.fingerprint,
+            genesis_id=excluded.genesis_id,
+            imported_at=excluded.imported_at",
+        params![
+            subject_id,
+            born_in.to_string(),
+            peer_id.to_string(),
+            fingerprint.to_string(),
+            genesis_id,
+            chrono::Utc::now().to_rfc3339(),
+        ],
+    )
+    .map_err(db)?;
+    Ok(())
+}
+
 fn record_conflict(
     tx: &Transaction<'_>,
     peer_id: EntityId,
@@ -1872,7 +2419,32 @@ fn rows_equivalent(
     if spec.kind == RowKind::SubjectIntent {
         return intent_equivalent(local, incoming);
     }
-    local == incoming
+    let cursor = cursor_columns(spec);
+    if cursor.is_empty() {
+        return local == incoming;
+    }
+    if local.len() != incoming.len() {
+        return false;
+    }
+    for (index, (name, value)) in incoming.iter().enumerate() {
+        if cursor.contains(&name.as_str()) {
+            // A local cursor, not a fact of the other store.
+            continue;
+        }
+        let other = local.get(index).and_then(|(_, other)| other.as_ref());
+        if other != value.as_ref() {
+            return false;
+        }
+    }
+    true
+}
+
+/// The columns that are a local cursor rather than a replicated fact.
+fn cursor_columns(spec: &TableSpec) -> &'static [&'static str] {
+    match spec.kind {
+        RowKind::InboxEvent => &["consumed"],
+        _ => &[],
+    }
 }
 
 fn intent_equivalent(
