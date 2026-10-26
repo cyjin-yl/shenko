@@ -58,6 +58,14 @@ pub enum SyncCommand {
     Ack,
     /// Reconcile configured peers once; an interrupted transfer remains debt.
     Push,
+    /// List captured raw recovery sources; no provider is activated.
+    Sources,
+    /// Extract a retained data database at a new path without replaying it.
+    RecoverSource {
+        source_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -123,6 +131,23 @@ fn options(data_dir: &Path, workspace_roots: Vec<PathBuf>) -> CognitionSnapshotO
         workspace_roots,
         include_git_history: true,
     }
+}
+
+fn stage_declared_recovery_sources(data_dir: &Path, store: &Store, node: &Node) -> Result<()> {
+    // This component-owned database contains raw accepted events, observations,
+    // pending input and gaps. Its account number is data, not a provider grant;
+    // no client URL, environment value or credential store is discovered here.
+    let ingress = data_dir.join("napcat-ingress.sqlite");
+    if ingress.try_exists()? {
+        let node_id = node.local_node_id()?.context("node not initialized")?;
+        store.stage_sqlite_recovery_source(
+            &format!("napcat-ingress:{node_id}"),
+            "napcat_ingress",
+            &ingress,
+            0x534e4947,
+        )?;
+    }
+    Ok(())
 }
 
 fn header(node: &Node) -> Result<(Vec<u8>, Digest)> {
@@ -410,6 +435,7 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
             json!({"no_peers_unprotected":true,"peers":[],"global_strong_consistency":false,"zero_loss":false}),
         );
     }
+    stage_declared_recovery_sources(data_dir, store, &node)?;
     let (header, units) = header(&node)?;
     let mut results = Vec::with_capacity(peers.len());
     for state in peers {
@@ -463,9 +489,13 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             json!({"node_id":node.local_node_id()?,"subject_identity":node.local_identity()?,"roles":node.role_status()?})
         ),
         SyncCommand::Status => {
+            let states = node.sync_peers()?;
+            if !states.is_empty() {
+                stage_declared_recovery_sources(&data_dir, &store, &node)?;
+            }
             let (_, units) = header(&node)?;
             let mut peers = Vec::new();
-            for state in node.sync_peers()? {
+            for state in states {
                 let cognition = store.cognition_peer_status(
                     state.peer.node_id,
                     &options(&data_dir, state.peer.workspaces.clone()),
@@ -515,6 +545,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             );
         }
         SyncCommand::Export { peer_id, workspace } => {
+            stage_declared_recovery_sources(&data_dir, &store, &node)?;
             let (header, _) = header(&node)?;
             let export = store.export_cognition(&options(&data_dir, workspace))?;
             let receipt = write_transfer(std::io::stdout().lock(), &header, &export)?;
@@ -564,6 +595,14 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
                 }
             }
             println!("{}", json!({"ack":receipt.cognition_ack}));
+        }
+        SyncCommand::Sources => {
+            stage_declared_recovery_sources(&data_dir, &store, &node)?;
+            println!("{}", json!({"sources":store.recovery_sources()?,"provider_activated":false}));
+        }
+        SyncCommand::RecoverSource { source_id, output } => {
+            let source = store.restore_sqlite_recovery_source(&source_id, &output)?;
+            println!("{}", json!({"source":source,"output":output,"verified":true,"provider_activated":false}));
         }
         SyncCommand::Push => {
             drop(node);

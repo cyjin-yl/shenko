@@ -12,6 +12,7 @@ pub mod context_windows;
 pub mod raw_session;
 pub mod cognition;
 pub mod cognition_archive;
+pub mod recovery_sources;
 
 pub use store::*;
 pub use cas::*;

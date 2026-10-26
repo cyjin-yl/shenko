@@ -2776,6 +2776,7 @@ dependencies = [
  "shenko-context-policy",
  "shenko-identity",
  "shenko-types",
+ "tempfile",
  "thiserror 2.0.21",
  "tracing",
  "uuid",
