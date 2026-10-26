@@ -22,7 +22,7 @@ user-role 传输回合，避免将已完成回答作为 Anthropic assistant pref
 | 原主稿快照 | 完整 v0.5.1，139 R / 48 B / 56 Ref / 189 case，不再是现行工程版本 |
 | 阅读与治理 | README、WHY、AGENTS、CLAUDE、GOAL、HANDOFF；AUTONOMY、COMPLETION、GITHUB、CLAUDE、CONTINUATION |
 | 开发 Skill | [.agents/skills/shenko-dev](../.agents/skills/shenko-dev/SKILL.md) 必读哲学与8个独立原子；`.claude/skills` 指向同一正文，根 `CLAUDE.md` 符号链接到 `AGENTS.md` |
-| 结构化追踪 | requirements/behaviors/sources/acceptance-cases JSON；初始coverage明确尚未验证 |
+| 结构化追踪 | requirements/behaviors/sources/acceptance-cases JSON；coverage 逐项区分 partial、实际证据与未完成义务，不以 focused 通过冒充全产品 |
 | 交接研究与依据 | [8组上游治理](research/agent-development-governance.md)、[Claude/GitHub核验](research/claude-handoff.md)、[编制期完整范围审计（已合入）](research/full-scope-audit.md)、[Claude API迁移](research/claude-api-2026-10-21.md) |
 | 历史研究和专题稿 | 下表逐文件保留，共 46 份；均标记历史/已合入，仍有旧建议或早期未决状态 |
 | 执行与接续 | [完整计划](plans/active/full-product.md)、[goal状态](state/goal.json)、[coverage](state/coverage.json)、[证据入口](evidence/README.md) |
@@ -137,6 +137,18 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 ## 验证记录
 
 [history/manifest.json](history/manifest.json)记录原稿大小和SHA-256；原始U01–U49逐字保留，并追加U50–U62。`python3 scripts/check_docs.py`检查覆盖ID、原话、原稿hash、本地链接、必读Skill及符号链接；它不是产品测试。现有文档没有声称本次已经实现或完成设备/性能验收。
+
+当前跨包接线入口：[统一 Node 与恢复合同](development/managed-node.md)、
+[#71 源码/工件/原生运行证据](evidence/node-sync-cognition-20261026.json)。
+映射 [C17](tasks/C17.md)、[C10](tasks/C10.md)、[C09](tasks/C09.md)、
+[C01](tasks/C01.md)、[C03](tasks/C03.md)；完整包与 S1–S5 仍按各自剩余验收继续。
+
+模型驱动行为的验收方法：[本地模型行为验收](development/local-model-behavior.md)。
+提示词、控制协议或事件投影改变后，用真实本地模型采样成功率；确定性测试不能代替
+“这个本地模型会不会做对”。
+
+能力编写原则：[内核零业务，能力优先写成 perception + awareness](development/awareness-first-plugins.md)。
+内核只做机制，判断交给可安装的觉察与视角；不用关键词表强制动作。
 
 ## 社区任务栈
 

@@ -11,10 +11,13 @@ use shenko_types::{
 };
 
 pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
-[reply:group:群号] 正文 或 [reply:private:QQ号] 正文，后续普通行续接正文；\n\
+[reply:group:群号] 正文 或 [reply:private:QQ号] 正文；回复必须用其中一行开头，只写正文不会送达，后续普通行续接正文；\n\
+用户消息开头会标出发送者与可回复的 QQ 号或群号，回复就用那个号码；\n\
 [remember] 要保存的内容；[delegate] 有限自然语言委派（保持未绑定）；\n\
 [delegate:已注册kind:版本] 仅用于显式 deterministic native definition 的 JSON 输入，由 child handler 执行。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
+普通正文不需要标签：想法、观察和要说的话直接写，不要给它们加方括号标签，未列出的标签会被判为错误；\n\
+即使本步在调整身份或保存记忆，也要写下此刻的想法，不要只有控制行。\n\
 只支持此协议；[memory]、dispatch: 等旧伪协议不执行。";
 
 fn invalid(line: u64, reason: &str) -> ShenkoError {

@@ -14,6 +14,7 @@ shenko-kernel = { path = "../shenko-kernel" }
 shenko-store = { path = "../shenko-store" }
 shenko-broker = { path = "../shenko-broker" }
 shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
+shenko-awareness-core = { path = "../shenko-awareness-core" }
 blake3 = { workspace = true }
 # The frozen step input carries inference parts with shared image bytes.
 serde = { workspace = true, features = ["rc"] }

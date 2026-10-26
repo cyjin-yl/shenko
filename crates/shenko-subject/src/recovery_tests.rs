@@ -316,6 +316,64 @@ fn native_result_replay_keeps_first_delivery_metadata() {
 }
 
 #[test]
+fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
+    fn install(dir: &std::path::Path) -> Arc<shenko_awareness_core::AwarenessRegistry> {
+        let packages = dir.join("awareness");
+        std::fs::create_dir_all(packages.join("check-commitments")).unwrap();
+        std::fs::write(
+            packages.join("check-commitments/AWARENESS.md"),
+            "---\nid: test.check-commitments\nversion: 1\n\
+             capability_card: 约定 承诺 时间冲突\nprovenance: [SPEC §14]\n---\n\
+             承诺一旦给出就落在时间里；不记得自己许过什么，很难说现在还剩下多少余地。\n",
+        )
+        .unwrap();
+        let registry = Arc::new(shenko_awareness_core::AwarenessRegistry::new());
+        registry.install_from_dir(&packages).unwrap();
+        registry
+    }
+
+    let (_dir, store, agent) = fixture();
+    let registry = install(&_dir);
+    let mut subject = state(store.clone(), agent)
+        .unwrap()
+        .with_awareness(Arc::clone(&registry));
+    // The message mentions a word from the unit's own card, as ordinary
+    // conversation would; retrieval must work from real input, not a keyword
+    // command the user has to know.
+    let event = crate::inbox::InboxEvent {
+        source: "napcat".into(),
+        ..message("上次的约定还算数吗？周末一起看展览")
+    };
+    let prepared =
+        crate::context_projection::prepare_context(&mut subject, &[event], false).unwrap();
+    let prompt = &prepared.payload.system_prompt;
+    assert!(
+        prompt.starts_with(&crate::canonical_system_prompt()),
+        "the stable contract stays the prefix so KV/model binding remains reusable"
+    );
+    assert!(prompt.contains("不记得自己许过什么"), "awareness body missing: {prompt}");
+    assert!(prompt.contains("不是命令"), "advisory framing missing: {prompt}");
+    assert!(
+        prompt.find("不记得自己许过什么") > prompt.find("你是一个持续运行的个人 agent"),
+        "per-step material must follow the stable prefix"
+    );
+
+    // Disabled units are not injected at all; no code branch executes either way.
+    registry.disable("test.check-commitments").unwrap();
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store, agent)
+        .unwrap()
+        .with_awareness(Arc::clone(&registry));
+    let event = crate::inbox::InboxEvent {
+        source: "napcat".into(),
+        ..message("上次的约定还算数吗？周末一起看展览")
+    };
+    let prepared =
+        crate::context_projection::prepare_context(&mut subject, &[event], false).unwrap();
+    assert!(!prepared.payload.system_prompt.contains("不记得自己许过什么"));
+}
+
+#[test]
 fn late_history_change_rejects_s0_seal_without_advancing_step() {
     let (_dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
@@ -515,7 +573,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
         ))
         .unwrap();
     let mut subject = state(store.clone(), agent).unwrap();
-    let before = super::build_system_prompt(&subject, false);
+    let before = super::build_system_prompt(&subject, false, &[]);
     assert!(before.starts_with(super::SUBJECT_CONTRACT));
     assert!(!before.contains("你是 Shenko"));
     assert!(before.contains("你还没有名字"));
@@ -554,7 +612,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
     );
     assert_eq!(subject.identity.as_ref().unwrap().revision, 2);
     assert!(subject.step.input_plan_ref.is_some());
-    let after = super::build_system_prompt(&subject, false);
+    let after = super::build_system_prompt(&subject, false, &[]);
     assert!(after.starts_with(super::SUBJECT_CONTRACT));
     assert!(after.contains("「岚」") && after.contains("自己取的"));
     assert_eq!(store.identity_history(agent).unwrap().len(), 2);
@@ -1122,7 +1180,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         Some("operator choice")
     );
     assert_eq!(subject.head.committed_step_no, 2);
-    assert!(super::build_system_prompt(&subject, false).contains("上一步身份意图未采用"));
+    assert!(super::build_system_prompt(&subject, false, &[]).contains("上一步身份意图未采用"));
     drop(subject);
     // Simulate a pre-raw-history instance without deleting its committed
     // steps/CAS evidence. Admission must request migration, not thin history.

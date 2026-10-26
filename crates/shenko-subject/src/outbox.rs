@@ -13,6 +13,10 @@ pub struct OutboxMessage {
     pub step: u64,
     pub step_id: shenko_types::ids::EntityId,
     pub commit_ref: shenko_types::commit::CommitRef,
+    /// Receiver-local commit sequence used only for durable replay. Together
+    /// with `step_id` it pages steps imported in one commit without confusing
+    /// that position with the immutable source `commit_ref` above.
+    pub replay_seq: u64,
     /// The model output text.
     pub text: String,
     /// Already validated and committed publication actions; never reparse text.
@@ -27,12 +31,13 @@ pub struct OutboxMessage {
 pub fn committed_after(
     store: &shenko_store::Store,
     seq: u64,
+    after_step_id: Option<shenko_types::ids::EntityId>,
     limit: usize,
 ) -> anyhow::Result<Vec<OutboxMessage>> {
     store
-        .committed_decisions_after(seq, limit)?
+        .committed_decisions_after(seq, after_step_id, limit)?
         .into_iter()
-        .map(|(step, decision)| {
+        .map(|(replay_seq, step, decision)| {
             let identity_revision = store
                 .identity_receipt(step.step_id)?
                 .and_then(|r| r.outcome.revision());
@@ -43,6 +48,7 @@ pub fn committed_after(
                 commit_ref: step
                     .commit_ref
                     .ok_or_else(|| anyhow::anyhow!("missing committed ref"))?,
+                replay_seq,
                 text: decision.output.text,
                 publications: decision.publication_intents,
                 identity_revision,

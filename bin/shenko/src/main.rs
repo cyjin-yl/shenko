@@ -9,6 +9,8 @@ use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
+mod node_sync;
+
 #[derive(Parser, Debug)]
 #[command(
     name = "shenko",
@@ -57,6 +59,13 @@ enum Command {
         #[arg(long)]
         history: bool,
     },
+    /// Handle a unified Node role/installation request from stdin.
+    Node,
+    /// Model-independent cognition and installation-package replication.
+    Sync {
+        #[command(subcommand)]
+        command: node_sync::SyncCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
@@ -69,6 +78,7 @@ async fn main() -> Result<()> {
 
     fmt()
         .with_env_filter(EnvFilter::new(&cli.log))
+        .with_writer(std::io::stderr)
         .with_target(true)
         .compact()
         .init();
@@ -91,6 +101,8 @@ async fn main() -> Result<()> {
     let identity_service = identity_context.try_service::<IdentityService>()?;
     let result: Result<()> = async {
     match cli.command {
+        Command::Node => node_sync::node_command(&data_dir)?,
+        Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Version => {
             let model = shenko_seed::ModelProfile::from_env();
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
@@ -244,6 +256,8 @@ async fn main() -> Result<()> {
                 "identity ready"
             );
 
+            drop(node_sync::open_node(&data_dir, &store)?);
+            let runtime_instance = shenko_types::ids::EntityId::new();
             // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
@@ -289,7 +303,12 @@ async fn main() -> Result<()> {
                 if result.is_err() { failure_cancel.cancel(); }
                 result
             });
+            let _consumer_stop_on_exit = consumer_cancel.clone().drop_guard();
+            let replication_task = node_sync::spawn_runtime(
+                Arc::clone(&store), data_dir.clone(), consumer_cancel.clone(),
+            );
             if !model_profile.configured {
+                node_sync::observe(&data_dir, &store, runtime_instance, false)?;
                 if napcat.is_some() {
                     tracing::warn!("NapCat not started without a subject model; durable bootstrap remains available");
                 }
@@ -309,6 +328,7 @@ async fn main() -> Result<()> {
                     Ok(result) => result??,
                     Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
                 }
+                replication_task.await?;
                 return runtime_result;
             }
 
@@ -342,6 +362,17 @@ async fn main() -> Result<()> {
                 }
             };
             tokio::spawn(broker.run());
+            // Awareness is installed capability, not kernel business logic: the
+            // shipped seeds plus any packages under data_dir/awareness become
+            // advisory perspectives for the model. Nothing here dispatches on
+            // keywords; retrieval only decides which text the step sees.
+            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
+            let awareness_packages = data_dir.join("awareness");
+            if awareness_packages.is_dir() {
+                for unit in awareness.install_from_dir(&awareness_packages)? {
+                    info!(unit = %unit, "awareness unit installed");
+                }
+            }
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
@@ -354,6 +385,7 @@ async fn main() -> Result<()> {
             )?
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities)
+            .with_awareness(awareness)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
 
@@ -571,6 +603,7 @@ async fn main() -> Result<()> {
                 loop_state,
                 cancel_subject,
             ));
+            node_sync::observe(&data_dir, &store, runtime_instance, true)?;
             info!("subject loop started");
 
 
@@ -639,6 +672,7 @@ async fn main() -> Result<()> {
                 Ok(result) => result??,
                 Err(_) => tracing::warn!("dispatcher stop pending; durable work retained"),
             }
+            replication_task.await?;
             runtime_result?;
             info!("Shenko stopped");
         }
@@ -761,10 +795,19 @@ fn bootstrap_genesis(
         let bytes = std::fs::read(home_path)?;
         match serde_json::from_slice::<shenko_seed::HomeManifest>(&bytes) {
             Ok(stored) => {
-                anyhow::ensure!(
-                    stored == home.clone(),
-                    "DATA_PATH_CONFLICT: genesis and current home manifests differ; data preserved"
-                );
+                if stored != *home {
+                    let origin = store.cognition_subject_origin(agent_id)?;
+                    anyhow::ensure!(origin.as_ref().is_some_and(|origin|
+                        origin.genesis_id == genesis.genesis_id
+                        && origin.source_ledger_id == genesis.created_commit.ledger_id),
+                        "DATA_PATH_CONFLICT: genesis and current home manifests differ without verified replication provenance; data preserved");
+                    anyhow::ensure!(stored.schema_version == home.schema_version
+                        && stored.runtime == home.runtime && stored.wasi == home.wasi
+                        && stored.checkpoint == home.checkpoint,
+                        "WASM_PROFILE_UNAVAILABLE: replicated seed contract differs from this node's verified local home; no runtime success claimed");
+                    info!(agent_id=%agent_id,
+                        "replicated immutable genesis retained; using this node's independently prepared local home, not foreign mount paths");
+                }
             }
             Err(error) => {
                 // Before C05 the genesis contained only a descriptive placeholder
