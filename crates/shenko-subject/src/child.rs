@@ -29,6 +29,8 @@ pub struct NativeTaskDescriptor {
     pub implementation_ref: ImplementationRef,
     pub role_revision: String,
     pub authority_refs: Vec<String>,
+    /// Model-facing usage shown only while this definition is installed.
+    pub prompt_section: Option<String>,
 }
 
 pub struct NativeTaskInvocation {
@@ -124,6 +126,13 @@ impl NativeChildService {
                 && descriptor.definition_version > 0,
             "generic_or_invalid_native_definition"
         );
+        ensure!(
+            descriptor
+                .prompt_section
+                .as_ref()
+                .is_none_or(|section| { !section.trim().is_empty() && section.len() <= 8192 }),
+            "invalid_native_prompt_section"
+        );
         let key = (descriptor.kind.clone(), descriptor.definition_version);
         let mut registry = self.registry.write();
         ensure!(
@@ -175,6 +184,17 @@ impl NativeChildService {
             progressed += usize::from(self.process(task).await?);
         }
         Ok(progressed)
+    }
+
+    /// Deterministic guidance from currently installed handlers, ordered by
+    /// frozen kind/version. No registry entry means no advertised capability.
+    pub fn installed_prompt_sections(&self) -> Vec<String> {
+        self.registry
+            .read()
+            .handlers
+            .values()
+            .filter_map(|registered| registered.descriptor.prompt_section.clone())
+            .collect()
     }
 
     async fn process(&self, task: TaskRecord) -> Result<bool> {

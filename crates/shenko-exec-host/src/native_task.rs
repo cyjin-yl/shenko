@@ -304,6 +304,7 @@ impl NativeTaskHandler for HostPrintfHandler {
             },
             role_revision: "native-child/1".into(),
             authority_refs: vec!["host.process.printf.no_effects/v1".into()],
+            prompt_section: None,
         }
     }
 

@@ -503,7 +503,9 @@ impl Store {
             "SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| row.get(0),
         ).map_err(storage_error)?;
         if u64::try_from(source_commit_seq).ok() != Some(context.source_commit_seq) {
-            return Err(ShenkoError::conflict("S0 execution evidence/source commit changed"));
+            return Err(ShenkoError::ResnapshotRequired {
+                reason: "S0 execution evidence/source commit changed".into(),
+            });
         }
         if context.scope_id != EntityId(head.branch_id.0)
             || context.input_raw_event_ids != staged_event_ids(tx, step.step_id)?

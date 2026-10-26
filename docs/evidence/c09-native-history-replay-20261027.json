@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "evidence_id": "c09-native-history-replay-20261027",
+  "issues": ["https://github.com/cyjin-yl/shenko/issues/14"],
+  "pr": "https://github.com/cyjin-yl/shenko/pull/73",
+  "requirements": ["R006", "R022", "R043", "R066"],
+  "cases_reference_only": ["A10", "A11", "A12", "A20", "A40"],
+  "full_cases_passed": [],
+  "status": "verified_real_replay_not_model_run",
+  "product_commit": "69639fc3afbdd218cf61162faa7895e86187cc1f",
+  "branch": "feat/history-retrieval",
+  "merged_base": "e7b5424c590ec65079877cb55df6c12830890fe7",
+  "what_is_new": [
+    "shenko_store::session_events: committed raw-event search/list/read with CJK substring (LIKE) plus FTS5 where it applies, bounded previews, ascending seq order and a rebuild path from committed events",
+    "shenko_exec_host::history_task: native `history.query/v1` child (op search|list|read, deny_unknown_fields, bounded limit) that freezes its exact input, resolves the original operation on retry and never re-dispatches a second read",
+    "loop_runner: a late raw-history or execution-only commit between projection and seal now yields ResnapshotRequired and a fresh S0 instead of a dead subject; the frozen request is never silently replayed"
+  ],
+  "verification": {
+    "cargo_test_targets": [
+      "shenko (unit + recovery_integration)",
+      "shenko-exec-host (history_task::armed_history_query_recovers_on_original_attempt_without_duplicate_evidence)",
+      "shenko-store (units, cognition_replication, identity_profile, memory_search, raw_session_writer, session_event_search, store_roundtrip)",
+      "shenko-subject (13 recovery/awareness tests incl. late_history_change_rejects_s0_seal_without_advancing_step)",
+      "the two model harnesses skip without an endpoint"
+    ],
+    "cargo_test_result": "0 failed",
+    "binary_built": "build/target-history-retrieval-20261026/debug/shenko",
+    "note": "the previous head 1a15d9b did not compile: the final S0 test used ShenkoError without importing it; the merge repairs the import and the test now runs"
+  },
+  "native_replay": {
+    "data": "retained dataset with 3 committed S1 steps, 8 raw events and one planned step; the pre-fix binary stopped there with `S0 execution evidence/source commit changed`",
+    "path_binding": "the dataset records absolute home/memory mounts, so the copy was bind-mounted at its recorded path /tmp/shenko-history-runtime-923vzb2_/data for the run and unmounted afterwards; no bytes were written outside the persistent copy under build/c09-native-replay-20261027",
+    "provider": "scripted OpenAI-compatible fixture on 127.0.0.1:18901; three authored responses then a fixed continuation message",
+    "duration_seconds": 80,
+    "provider_completions": 295,
+    "before": {"committed_step_no": 3, "planned_steps": 1},
+    "after": {"committed_step_no": 298, "step_rows": 299, "session_events": 306},
+    "s0_conflicts": 0,
+    "history_queries": {
+      "tasks": 3,
+      "all_terminal": true,
+      "scripted_search": {
+        "op": "search",
+        "query": "深刻",
+        "from_seq": 0,
+        "limit": 5,
+        "returned_seqs": [1, 3, 4, 5, 6],
+        "ordered_ascending": true,
+        "matched_of_total": "5 of 306 raw events; later steps do not contain the term",
+        "previews": "bounded data_preview per event, full data only via op=read"
+      }
+    }
+  },
+  "bounds": {
+    "provider": "scripted fixture, not a model run: nothing here measures model behaviour",
+    "scale": "the fixture keeps answering, so the run produced ~295 idle continuations; only the fact of sealing, the CJK search and the read path are observed",
+    "ui": "the run used the real binary and store but the Web UI was not driven; timeline rendering is not claimed",
+    "packages": "this is a C09 slice (raw history retrieval + S0 reprojection), not complete C09: research workers, PMA, reset-to-best, external memory portability and space handling remain open",
+    "cases": "A10/A11/A12/A20/A40 remain reference only"
+  },
+  "reproducer": [
+    "cargo test -p shenko-store -p shenko-subject -p shenko-exec-host -p shenko --no-fail-fast --offline --locked",
+    "mount --bind build/c09-native-replay-20261027/data /tmp/shenko-history-runtime-923vzb2_/data",
+    "SHENKO_USE_LOCAL_MODEL=1 SHENKO_LOCAL_MODEL_URL=http://127.0.0.1:18901 SHENKO_LOCAL_MODEL=c09-scripted-fixture timeout --signal=INT 80s <binary> --log info --data-dir /tmp/shenko-history-runtime-923vzb2_/data start --port 18799"
+  ]
+}

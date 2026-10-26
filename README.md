@@ -42,6 +42,8 @@ claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions
 
 ## 当前可执行检查
 
+主体上下文投影对尚未成功提交的输入使用持久 raw event ID 保护首次正文呈现：即使 Budget 或其他策略选中了历史指针，待处理正文仍进入封存 payload，并计入最终输入预算。策略插件本身不承担 inbox 确认职责。正文补回后整批超限时拒绝派发、保留待处理输入；不以指针代替正文后确认成功，也不声称自动分批。`shenko-subject` 的 `budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1` 与 `oversized_fresh_batch_stays_pending_across_reopen` 是对应的确定性恢复回归；前者消费封存 payload 和持久结果边界，不代表真实供应商网络派发证据。本次修改未运行这些检查。
+
 ```bash
 python3 scripts/check_docs.py
 ```

@@ -5,3 +5,6 @@ pub use build_provider::*;
 
 pub mod native_task;
 pub use native_task::*;
+
+pub mod history_task;
+pub use history_task::*;

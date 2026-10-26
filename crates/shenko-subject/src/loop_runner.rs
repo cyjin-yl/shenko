@@ -126,6 +126,7 @@ pub struct SubjectLoopState {
     pub(super) previous_input_binding: Option<shenko_broker::request::ProviderBinding>,
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
+    native_capability_sections: Vec<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
     /// Outbound path for completed model output — SPEC §5.1, §21.12.
@@ -204,6 +205,7 @@ impl SubjectLoopState {
             previous_estimated_input_tokens,
             model_capabilities: None,
             context_registry,
+            native_capability_sections: vec![],
             goals: vec![],
             outbox_tx: None,
             identity,
@@ -229,9 +231,16 @@ impl SubjectLoopState {
         self
     }
 
-    /// Attach the installed awareness units. Each step retrieves the bodies
-    /// whose capability card matches its actual input; the model decides what
-    /// that perspective means, so no kernel branch is created per topic.
+    /// Installed native definitions the child registry actually exposes. They
+    /// belong to the tool contract, so they travel with the sealed request.
+    pub fn with_native_capabilities(mut self, sections: Vec<String>) -> Self {
+        self.native_capability_sections = sections;
+        self
+    }
+
+    /// Attach the installed awareness units. Every enabled unit travels as
+    /// advisory material for the step; the model decides what it means here, so
+    /// no kernel branch is created per topic.
     pub fn with_awareness(
         mut self,
         registry: Arc<shenko_awareness_core::AwarenessRegistry>,
@@ -334,11 +343,20 @@ pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 age
 
 /// System prompt for the continuous subject: contract → persona → per-step
 /// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
-/// Stable prefix: role contract plus persona. SPEC §13.5 keeps it first so the
-/// model/template binding stays reusable across steps; the context profile
-/// digest covers this text, not the per-step suffix.
+/// Stable prefix: role contract, the installed native definitions and the
+/// persona. SPEC §13.5 keeps it first so the model/template binding stays
+/// reusable across steps; the context profile digest covers this text, not the
+/// per-step suffix.
 pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
     let mut prompt = crate::canonical_system_prompt();
+
+    if !state.native_capability_sections.is_empty() {
+        prompt.push_str("\n\n当前实际注册的 native definitions：\n");
+        for section in &state.native_capability_sections {
+            prompt.push_str(section);
+            prompt.push('\n');
+        }
+    }
     if let Some(identity) = &state.identity {
         prompt.push_str("\n\n");
         prompt.push_str(&state.identity_service.persona_section(identity));
@@ -472,7 +490,16 @@ async fn execute_step(
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
-        let prepared = prepare_context(state, events, in_semantic_wait)?;
+        let prepared = match prepare_context(state, events, in_semantic_wait) {
+            Ok(prepared) => prepared,
+            Err(ShenkoError::ResnapshotRequired { reason }) => {
+                // No S0 seal or model admission exists. The outer loop yields
+                // and rebuilds this same Planned step from durable staging.
+                tracing::debug!(seq, %reason, "S0 source advanced; reprojecting planned step");
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
         let input = FrozenStepInput {
             schema_version: 8,
             step_id,
@@ -498,7 +525,14 @@ async fn execute_step(
         step.state = SubjectStepState::Preparing;
         let expected = step.record_revision;
         step.record_revision = RecordRevision(expected.0 + 1);
-        store.upsert_step(&step, &state.head, expected)?;
+        match store.upsert_step(&step, &state.head, expected) {
+            Ok(_) => {}
+            Err(ShenkoError::ResnapshotRequired { reason }) => {
+                tracing::debug!(seq, %reason, "S0 CAS rejected stale source; reprojecting planned step");
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        }
         state.step = step.clone();
         input
     } else {
