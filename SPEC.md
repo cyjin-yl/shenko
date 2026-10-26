@@ -1073,6 +1073,18 @@ R0 是所有 backend 的最低保证；有状态会话在进程存活时保留�
 
 REPL 僵死可单独终止并恢复，不拖垮主体。输出包含结构化错误、stdout/stderr、表格/图像/文件引用与截断标记；大对象按需读取，防止塞满模型 context。插件关闭时不占常驻解释器内存，热实例数量受设备 profile 控制。
 
+## 19.1 多 kernel 与统一会话生命周期
+
+2026-10-26 用户补充：需要 Python、Node、Bun、QuickJS 等各种 REPL kernel，并明确要求提交设计。它们是独立可替换的 kernel 插件，共用能力发现、任务绑定和会话生命周期，继续沿用本章 REPLProvider 与 §41 的执行/恢复合同；不新增一套主体，也不把解释器嵌成不可替换的核心。
+
+统一的是语义接口，不是运行时兼容性。Python、Node、Bun、QuickJS 分别报告实际语言/runtime/ABI、模块与包能力、原生扩展、异步机制、网络和文件能力。JavaScript 不等于 Node API，QuickJS 不冒充 Node/Bun；native、SSH 与 WASM 后端分别标识，不能默认全部 kernel 在 WASM 内或拥有同一种沙箱。包安装与环境变更仍复用既有 PackageProvider/generation，不扩大底座或修改现有安全模型。
+
+除一次性执行外，可选择保留变量和对象的长寿 session；允许多个相互隔离的 session。会话、cell/执行与异步输出分别有稳定标识和归属，统一提供执行、检查、中断、重置、关闭语义：沿用 create/execute/inspect/cancel/dispose，interrupt/reset/close 等前端名称由 adapter 映射，不声称当前已有新的可调用 API。中断请求、任务取消、执行已停止、外部效果已确认与结果未知分别报告；不能用 interrupt 的成功返回证明所有工作都已停止。并发 cell、后台任务和迟到输出按 session/执行身份归属，不串入另一会话；adapter 明示其串行/并行能力。
+
+重置或关闭会话时说明哪些变量、对象和后台任务会失去或仍未决，保留既有工作记录和效果责任。checkpoint/restore/fork 按本章 R0/R1/R2 的实际能力报告；活内存对象不会因统一接口自动跨 runtime 或节点迁移。跨节点接续须显式绑定目标环境、可用 checkpoint、依赖及外部资源恢复条件；仅重放代码不冒称恢复了原内存状态。
+
+主体与 worker 的工具职责不变：主体发现能力、理解结果并委派，worker 通过相应 kernel 执行。浏览器可在合适的 Eval/REPL facade 中自然调用（§24.6），但 facade 不给主体新增绕开委派直接执行代码的路径，也不要求每个 kernel 支持相同宿主 API。
+
 # 20 实时通话与课堂旁听扩展
 
 原生预留 RealtimeSessionProvider、MediaIngress、AudioOutput 和 SpeakerIdentity 等能力接口。这里的“预留槽位”是稳定插件扩展点，不代表不开通话时永久空占一个模型请求或 GPU slot。卸载媒体插件后，内核不应携带音视频框架、声纹模型或持续采样线程。
@@ -1475,6 +1487,49 @@ Shizuku 与 Dhizuku 不是“普通权限 → Shizuku → Dhizuku → root”的
 适配器优先考虑低副作用的一致性只读快照或应用支持的导出，再在副本上分析；识别 SQLite WAL/并发写入等一致性因素，不能把随手拷贝一个活跃主库文件当作完整快照。可行时复用 [SQLite Online Backup API](https://www.sqlite.org/backup.html) 等一致性机制，方法仍须适配实际格式和可用连接。这是让主体按风险、收益、资源成本与后果自主选择的工程建议，不是禁止探索其他方法或新增人类审批的硬 gate。
 
 观察保留采集时间、应用/格式版本、方法、缺失与不确定性，支持后续撤回误判和重新分析。可信本地节点可依既有同步合同共享认知，但复制数据或结论不证明接收端已经获得该手机的 OS 权限。此次设计修订没有读取私人数据库、提取密钥、安装插件或变更任何设备权限。
+
+## 24.6 原生浏览器能力、持久身份与人类接管
+
+2026-10-26 用户要求浏览器像 OMP 自带能力一样自然，支持多个持久状态及有头/无头运行，人类可以接管有头会话。本节与 §19.1 是**设计补充，尚未实现或完成验收**；沿用统一 Node、最小核心、Cordis 插件、能力目录和主委派合同，关联 [#71](https://github.com/cyjin-yl/shenko/issues/71) 及既有 REPL/OS 工作包。
+
+浏览器是原生可发现、可解释的能力：worker 可通过类型化工具或 Eval/REPL facade 打开/复用标签页、导航、观察、交互和取得结构化结果，无需每次通过 shell 临时拼脚本。facade 与底层 adapter 分离；Camofox/Camoufox 是拟适配路线，不固定在核心，也不把反检测特征当作通用访问成功保证。Browser 能力与可替换 kernel 可以组合，但不要求所有 kernel 都执行相同浏览器脚本或具备完整 Node API。
+
+参考 [OMP 固定 browser 文档](https://github.com/can1357/oh-my-pi/blob/9519abfe7d5068868555ef6d9cbe00beccddf519/docs/tools/browser.md)：其 browser 默认在启用 Eval 时提供 facade，并非独立 AgentTool；managed 后端为 Chromium，不是 Camoufox。采用的是自然发现、具名句柄、结构化观察与会话复用的交互思路，不原样移植其工具权限制度或宣称后端已经兼容。
+
+### 24.6.1 身份、运行会话和真实持久化范围
+
+以下为设计概念，不是已发布 API：
+
+| 标识 | 含义 |
+| --- | --- |
+| profile_id | 长期浏览器身份及其持久状态归属，可存在多个隔离身份 |
+| session_id | 一次实际运行的 browser/context 会话；重启后形成新运行身份 |
+| tab_group / tab_id | 同一会话内的分组与标签页，不自动形成独立登录身份 |
+| controller_epoch / input lease | 当前输入控制权和观察有效期，不是登录状态或 profile 版本 |
+
+默认支持多个持久浏览器身份，按需启动会话，而不是要求所有身份常驻。持久状态、活进程状态和恢复完成分别报告。不同身份的 cookies/storage 隔离；同 profile 只能有一个实际写入所有者，跨进程/节点接续也须核对原 writer 状态，不能同时打开同一 profile 目录写入。
+
+[jo-inc/camofox-browser](https://github.com/jo-inc/camofox-browser/tree/39c82094013480b373df6600d44c7f036f58356e) 与 [daijro/camoufox](https://github.com/daijro/camoufox/tree/8589f980fda690af63181350e7904bd621bf088e) 是不同项目。前者在该快照中按 userId 建独立 context；sessionKey 只是 context 内 tab group，不能作为第二个独立账号身份。[persistence 插件](https://github.com/jo-inc/camofox-browser/blob/39c82094013480b373df6600d44c7f036f58356e/plugins/persistence/README.md) 保存 cookies、localStorage，可选 IndexedDB；这是 storageState 恢复，不是完整浏览器 profile 或 RAM、表单、WebSocket、所有标签页运行态的跨重启恢复。
+
+需要 profile 级持久化时，可另做 Camoufox persistent_context/user_data_dir adapter：[Python API](https://github.com/daijro/camoufox/blob/8589f980fda690af63181350e7904bd621bf088e/python/src/camoufox/sync_api.py) 走 launch_persistent_context；当前 [launch_server](https://github.com/daijro/camoufox/blob/8589f980fda690af63181350e7904bd621bf088e/python/src/camoufox/server.py) 明确拒绝 persistent_context/user_data_dir，不得假定服务端接口直接支持。完整 profile 仍不等于活页面内存恢复；adapter 要明示恢复覆盖、缺口和候选版本。
+
+Cookies/profile 包含敏感登录持久态，不因 §5.4 的记忆同步自动复制凭据、扩大账号或节点访问权。只同步任务/认知不表示已转移浏览器登录身份；实际持久态保全、恢复和迁移按既有凭据/数据合同单独表达。本次设计未创建任何用户凭据。
+
+### 24.6.2 virtual-headed 默认与同会话接管
+
+默认采用可显示的 virtual-headed 路线，在实际支持的节点上让 Agent 与人类操作同一 live session；true headless 保留为可选模式。virtual-headed 是虚拟显示上的有头浏览器，不等于 true headless。若节点缺少显示能力，报告真实条件并选择可行 adapter，不按设备名硬拒绝。模式切换可需要重启并恢复持久状态，不承诺 headless/headed 无损热切换或恢复活表单与 WebSocket。
+
+人类接管沿用 §24.3：暂停旧 Agent 的新输入，撤销旧 controller epoch/lease，使其迟到输入失效；人类交回后取得新观察和新 lease，再继续任务。只暂停受接管显示域的执行，不把整条主体思考改成人工等待，也不把“允许接管”变成每次操作必须人类审批。多个接管者共享同一显示域控制锁，不能同时与 Agent 双写；跨显示域可以独立控制。
+
+可用 [Camofox VNC 插件](https://github.com/jo-inc/camofox-browser/blob/39c82094013480b373df6600d44c7f036f58356e/plugins/vnc/README.md) 等作为 adapter 参考，但不能把 VNC 端口本身当作安全共享入口。接管只向用户显式选定的对象提供受认证、受保护传输的入口，准确限定能看到和控制的 session/显示域；不广泛公开带登录态的桌面，也不能在实际共享整个显示域时声称只暴露一个 tab。认证传输、控制权与观察锁是已有会话边界的实现，不是新增产品决策的人类 gate。
+
+### 24.6.3 崩溃恢复与待验收行为
+
+浏览器崩溃或断线后，恢复 profile/storageState 与恢复任务事实分别处理。提交、发送、付款等动作结果未知时先观察/对账，不因为重新打开页面、profile 恢复或 cell replay 自动重发。保留旧 session、输入 epoch、操作及实际回执的关联；新观察不抹去原先未知结果。
+
+后续以固定源码/环境验证：多个身份与 tab group 的登录隔离、正常重启恢复及真实覆盖缺口；人类接管/交回时旧输入失效且无双写；profile 崩溃与未知提交的对账；多 REPL session 的变量保持、中断/取消、并发与迟到输出、失败以及跨节点显式恢复。沿用现有 R0/R1/R2 和效果证据，少量针对性检查即可，不为本次设计新增测试工厂。
+
+上游资料静态核查于 2026-10-26；源码可见能力不等于 Shenko 已集成或实测。本次仅改设计，没有运行浏览器、REPL、VNC 或任何项目源码，没有安装服务、建立登录态或改变权限。
 
 # 25 NInfer 接入教程 中文与 English
 
