@@ -423,6 +423,92 @@ fn retained_calibrated_budget_over_limit_blocks_dispatch() {
     drop(offline);
 }
 
+#[tokio::test]
+async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
+    let (dir, store, agent) = fixture();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: handle.binding().clone(), max_context_tokens: Some(4000), vision: None,
+    };
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities));
+    subject.max_tokens = 10;
+    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
+    )));
+    for index in 0..20 {
+        store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
+            &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
+    }
+    let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"content":format!("fresh-{index}-{}", "z".repeat(80))}),
+        source: "batch-fixture".into(), created_at: chrono::Utc::now(),
+    }).collect();
+    // Interrupt after S0. No input may be disposed just because the window
+    // has committed a compact derivative.
+    let close = tokio_util::sync::CancellationToken::new();
+    close.cancel();
+    execute_step(1, &events, &mut subject, false, &close).await.unwrap();
+    let frozen = super::frozen_input(&store, &subject.step).unwrap();
+    assert!(matches!(frozen.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
+    let text = frozen.payload.messages.iter().flat_map(|message| &message.parts)
+        .filter_map(|part| match part {
+            shenko_broker::request::InferencePart::Text { text } => Some(text.as_str()),
+            _ => None,
+        }).collect::<Vec<_>>().join("\n");
+    assert!(text.contains("context derivative/pointer"));
+    let mut previous = 0;
+    for event in &events {
+        let body = event.payload["content"].as_str().unwrap();
+        let position = text.find(body).expect("every acknowledged input needs its first body presentation");
+        assert!(position >= previous);
+        previous = position;
+        assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
+    }
+    let raw_ids = frozen.context.source.input_raw_event_ids.clone();
+    assert_eq!(raw_ids.len(), events.len());
+    let sealed_payload = serde_json::to_vec(&frozen.payload).unwrap();
+    drop((subject, offline, store));
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap();
+    let resumed = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(resumed.events, events);
+    assert_eq!(resumed.context.source.input_raw_event_ids, raw_ids);
+    assert_eq!(serde_json::to_vec(&resumed.payload).unwrap(), sealed_payload);
+    // Feed the same durable result boundary used by recovery: this fixture
+    // exercises real S1, not a live provider or network claim.
+    let mut step = subject.step.clone();
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    let revision = step.record_revision;
+    step.record_revision = RecordRevision(revision.0 + 1);
+    store.upsert_step(&step, &subject.head, revision).unwrap();
+    step.state = SubjectStepState::ResultRecorded;
+    step.model_result_ref = Some(store.cas.seal_object(b"batch understood", "text/plain", "model_results", "text", 1).unwrap().object);
+    step.model_outcome_ref = Some(store.cas.seal_object(&serde_json::to_vec(&SubjectModelOutcome {
+        schema_version: 2, request_id: step.active_request_id.unwrap(),
+        result_ref: step.model_result_ref.clone().unwrap(), stop_reason: "end_turn".into(),
+        raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(), usage: None,
+    }).unwrap(), "application/json", "model_outcomes", "SubjectModelOutcome", 2).unwrap().object);
+    let revision = step.record_revision;
+    step.record_revision = RecordRevision(revision.0 + 1);
+    store.upsert_step(&step, &subject.head, revision).unwrap();
+    subject.step = step;
+    execute_step(1, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await.unwrap().unwrap();
+    assert_eq!(subject.head.committed_step_no, 1);
+    for event in &events {
+        assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
+    }
+    let raw = store.session_events_range(EntityId(subject.head.branch_id.0), 0, i64::MAX).unwrap();
+    let retained: Vec<_> = raw.iter().filter(|record| raw_ids.contains(&record.event_id)).collect();
+    assert_eq!(retained.iter().map(|record| record.event_id).collect::<Vec<_>>(), raw_ids);
+    for (record, event) in retained.iter().zip(&events) {
+        let staged: serde_json::Value = serde_json::from_str(&record.data).unwrap();
+        assert_eq!(staged["inbox_event"]["payload"], event.payload);
+    }
+}
+
 #[test]
 fn execution_commit_during_projection_is_rejected() {
     struct MutatingHistory {
@@ -455,10 +541,49 @@ fn execution_commit_during_projection_is_rejected() {
     };
     let window = shenko_context_policy::CommittedWindow::genesis();
     let error = crate::context_projection::project_payload_stable(
-        &store, &window, &history, "fixture".into(), None, 10,
+        &store, &window, &history, "fixture".into(), None, 10, &[],
     ).err().expect("a mutation during execution reads must invalidate the projection");
     assert!(error.to_string().contains("during projection"));
     assert_eq!(store.current_commit_seq().unwrap(), before + 1);
+}
+
+#[test]
+fn oversized_fresh_batch_stays_pending_across_reopen() {
+    let (dir, store, agent) = fixture();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: handle.binding().clone(), max_context_tokens: Some(1000), vision: None,
+    };
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities.clone()));
+    subject.max_tokens = 10;
+    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
+    )));
+    let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
+        event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),
+        source: "batch-fixture".into(), created_at: chrono::Utc::now(),
+    }).collect();
+    let error = crate::context_projection::prepare_context(&mut subject, &events, false).err().unwrap();
+    assert!(error.to_string().contains("projected input budget"));
+    let pending = store.stage_subject_inputs(&subject.head, &subject.step, &[]).unwrap();
+    let original: Vec<_> = pending.iter().map(|record| (record.event_id, record.data.clone())).collect();
+    assert_eq!(original.len(), events.len());
+    drop((subject, offline, store));
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities));
+    subject.max_tokens = 10;
+    let pending = store.stage_subject_inputs(&subject.head, &subject.step, &[]).unwrap();
+    assert_eq!(pending.iter().map(|record| (record.event_id, record.data.clone())).collect::<Vec<_>>(), original);
+    assert!(crate::context_projection::prepare_context(&mut subject, &[], false).is_err());
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    for event in &events {
+        assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
+    }
+    drop(offline);
 }
 
 #[tokio::test]

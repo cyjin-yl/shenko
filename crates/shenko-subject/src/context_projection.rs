@@ -186,12 +186,42 @@ fn project_payload(
     base_system_prompt: String,
     caps: Option<&ModelCaps>,
     max_tokens: u64,
+    fresh_ids: &[EntityId],
 ) -> Result<(InferencePayload, Option<u32>, Vec<String>), ShenkoError> {
     let mut system_prompt = base_system_prompt;
     let mut messages = Vec::new();
     let mut has_user = false;
     let mut unfinished = std::collections::BTreeSet::new();
+    // Policy derivatives may summarize old experience, but never constitute
+    // first presentation of a pending input. Keep the derivative's provenance
+    // and follow it with the pending raw bodies in their original order.
+    // This is a subject delivery invariant, independent of installed policies.
+    let mut fresh_items = std::collections::BTreeMap::new();
+    for id in fresh_ids {
+        let item = history.read_event(*id).map_err(storage)?
+            .ok_or_else(|| ShenkoError::conflict("pending raw input missing from bounded history"))?;
+        fresh_items.insert(item.at.seq, item);
+    }
+    let mut projection = Vec::new();
     for projected in window.project(history).map_err(storage)? {
+        let range = match &projected {
+            Projected::Note { from, to, .. } | Projected::Frame { from, to, .. }
+                if fresh_items.range(*from..=*to).next().is_some() => Some((*from, *to)),
+            _ => None,
+        };
+        projection.push(projected);
+        if let Some((from, to)) = range {
+            projection.extend(fresh_items.range(from..=to).map(|(_, item)| Projected::Event(item.clone())));
+        }
+    }
+    let mut missing: std::collections::HashSet<_> = fresh_ids.iter().copied().collect();
+    for item in &projection {
+        if let Projected::Event(item) = item { missing.remove(&item.at.event_id); }
+    }
+    if !missing.is_empty() {
+        return Err(ShenkoError::conflict("pending raw input absent from projection; no dispatch"));
+    }
+    for projected in projection {
         match projected {
             Projected::Event(item) => {
                 match &item.kind {
@@ -269,12 +299,13 @@ pub(super) fn project_payload_stable(
     base_system_prompt: String,
     caps: Option<&ModelCaps>,
     max_tokens: u64,
+    fresh_ids: &[EntityId],
 ) -> Result<(InferencePayload, Option<u32>, Vec<String>, u64), ShenkoError> {
     // The revision is acquired BEFORE any execution-status read. Equality
     // after projection is what permits this exact revision to enter the seal.
     let source_commit_seq = store.current_commit_seq()?;
     let (payload, estimate, unfinished) = project_payload(
-        window, history, base_system_prompt, caps, max_tokens,
+        window, history, base_system_prompt, caps, max_tokens, fresh_ids,
     )?;
     if store.current_commit_seq()? != source_commit_seq {
         return Err(ShenkoError::ResnapshotRequired {
@@ -384,7 +415,7 @@ pub(super) fn prepare_context(
     let observed_input_tokens = state.previous_input_tokens.filter(|_|
         binding.is_some() && state.previous_input_binding.as_ref() == binding);
     let (mut payload, mut estimated_input_tokens, mut unfinished_call_ids, mut source_commit_seq) = project_payload_stable(
-        &state.store, &window, &history, system_prompt.clone(), caps.as_ref(), state.max_tokens,
+        &state.store, &window, &history, system_prompt.clone(), caps.as_ref(), state.max_tokens, &input_raw_event_ids,
     )?;
     let current_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
@@ -400,7 +431,7 @@ pub(super) fn prepare_context(
                     Ok((prepared, attempts)) => {
                         window = registry.commit(prepared, &history).map_err(storage)?;
                         (payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq) = project_payload_stable(
-                            &state.store, &window, &history, system_prompt, Some(caps), state.max_tokens,
+                            &state.store, &window, &history, system_prompt, Some(caps), state.max_tokens, &input_raw_event_ids,
                         )?;
                         selected_budget_input_tokens = estimated_input_tokens
                             .ok_or_else(|| ShenkoError::conflict("compacted projection has no trustworthy token estimate"))?;
