@@ -28,8 +28,10 @@ use serde_json::{Value, json};
 use shenko_types::{ids::EntityId, object::Digest};
 use std::cmp::Ordering;
 use std::io::Read;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// Wire and storage schema of the installation-unit records.
@@ -44,8 +46,8 @@ CREATE TABLE unit_versions(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact
 CREATE TABLE unit_current(unit_id TEXT PRIMARY KEY,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,enabled INTEGER NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE unit_edges(unit_id TEXT NOT NULL,revision TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,edge_id));
 CREATE TABLE unit_materializations(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,root TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,detail TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
-CREATE TABLE unit_attempts(attempt_id TEXT PRIMARY KEY,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,data TEXT NOT NULL);
-CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT NOT NULL,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,outcome TEXT NOT NULL,data TEXT NOT NULL);";
+CREATE TABLE unit_attempts(attempt_id TEXT PRIMARY KEY,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);
+CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT NOT NULL,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,outcome TEXT NOT NULL,artifact_bound INTEGER NOT NULL,artifact_verified INTEGER NOT NULL,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);";
 
 /// Bounded limits. Every one of them bounds memory or time; none of them is
 /// a product permission decision.
@@ -328,6 +330,10 @@ pub struct TrialEnvironment {
 }
 
 /// Append-only trial evidence of one attempt.
+///
+/// A trial is either an investigation of the environment or a readiness proof
+/// for the installed artifact. Only an artifact-bound trial, whose artifact
+/// digest was verified before and after the run, can prove readiness.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct TrialEvidence {
@@ -337,7 +343,11 @@ pub struct TrialEvidence {
     pub outcome: TrialOutcome,
     pub environment_digest: Digest,
     pub environment: TrialEnvironment,
+    /// The command that actually ran, after the artifact placeholder was
+    /// expanded.
     pub argv: Vec<String>,
+    /// The command the caller asked for, before expansion.
+    pub requested_argv: Vec<String>,
     pub cwd: Option<String>,
     pub risk: String,
     pub benefit: String,
@@ -349,6 +359,21 @@ pub struct TrialEvidence {
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
     pub interrupted: bool,
+    /// The run referenced the materialized artifact of this unit.
+    pub artifact_bound: bool,
+    pub artifact_path: Option<String>,
+    /// The materialized artifact matched the installed digest before the run.
+    pub artifact_verified_before: bool,
+    /// The materialized artifact still matched the installed digest after it.
+    pub artifact_verified_after: bool,
+    /// The output could not be read completely, so the result is not trusted.
+    pub reader_failed: bool,
+    /// The whole process group was signalled on the deadline.
+    pub group_signalled: bool,
+    /// Descendants outside the signalled group may still be running.
+    pub descendants_unknown: bool,
+    pub owner_pid: i64,
+    pub owner_runtime: String,
     pub reason: String,
 }
 
@@ -450,7 +475,7 @@ impl Node {
         // A crash between persisting an attempt and recording its result
         // leaves an unresolved attempt. It becomes unknown here and is never
         // replayed automatically.
-        let reconciled = self.reconcile_unit_attempts()?;
+        let reconciled = self.retire_unknown_trials()?;
         let mut result = match request {
             UnitRequest::Import {
                 export,
@@ -497,79 +522,6 @@ impl Node {
             }
         }
         Ok(result)
-    }
-
-    /// Turn attempts left behind by a crash into durable unknown evidence.
-    fn reconcile_unit_attempts(&mut self) -> Result<u32> {
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let pending: Vec<(String, String, String, String, String, String, String)> = tx
-            .prepare(
-                "SELECT attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,data \
-                 FROM unit_attempts WHERE state IN ('prepared','spawning','running') ORDER BY started_at",
-            )?
-            .query_map([], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                    r.get(6)?,
-                ))
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        if pending.is_empty() {
-            tx.commit()?;
-            return Ok(0);
-        }
-        let finished = now();
-        for (attempt_id, unit_id, revision, digest, environment, started_at, data) in pending {
-            let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
-            let evidence = json!({
-                "attempt_id": attempt_id,
-                "started_at": started_at,
-                "finished_at": finished,
-                "outcome": "unknown",
-                "environment_digest": environment,
-                "environment": stored.get("environment").cloned().unwrap_or(Value::Null),
-                "argv": stored.get("argv").cloned().unwrap_or(json!([])),
-                "cwd": stored.get("cwd").cloned().unwrap_or(Value::Null),
-                "risk": stored.get("risk").cloned().unwrap_or(json!("")),
-                "benefit": stored.get("benefit").cloned().unwrap_or(json!("")),
-                "consequence": stored.get("consequence").cloned().unwrap_or(json!("")),
-                "exit_code": Value::Null,
-                "signal": Value::Null,
-                "stdout": "",
-                "stderr": "",
-                "stdout_truncated": false,
-                "stderr_truncated": false,
-                "interrupted": true,
-                "reason": "the node stopped before this attempt was resolved; a child may have run, so the outcome is unknown and is never replayed automatically",
-            });
-            tx.execute(
-                "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,data) \
-                 VALUES(?1,?2,?3,?4,?5,?6,?7,'unknown',?8)",
-                params![
-                    attempt_id,
-                    unit_id,
-                    revision,
-                    digest,
-                    environment,
-                    started_at,
-                    finished,
-                    serde_json::to_string(&evidence)?
-                ],
-            )?;
-            tx.execute(
-                "UPDATE unit_attempts SET state='unknown',finished_at=?2 WHERE attempt_id=?1",
-                params![attempt_id, finished],
-            )?;
-        }
-        tx.commit()?;
-        Ok(pending.len() as u32)
     }
 
     // ---------------------------------------------------------- import -----
@@ -958,6 +910,12 @@ impl Node {
     /// allowlist and no approval step: the caller states the risk, the
     /// expected benefit and the consequence, and the run is recorded with its
     /// real exit status and output.
+    ///
+    /// A run that references the materialized artifact of this unit, either by
+    /// passing its path or by using the `{artifact}` placeholder, is a
+    /// readiness proof: the artifact digest is verified before and after the
+    /// run. Any other command is an investigation of the environment. It is
+    /// allowed, it is recorded, and it never promotes readiness.
     fn unit_trial(
         &mut self,
         unit_id: &str,
@@ -998,16 +956,32 @@ impl Node {
         let unit = self
             .installed_unit(unit_id)?
             .context("unit is not installed on this node")?;
-        let environment = probe_environment(&argv[0])?;
+        let artifact = unit
+            .materialization
+            .as_ref()
+            .filter(|m| m.state == "materialized")
+            .map(|m| m.path.clone())
+            .filter(|path| !path.is_empty());
+        let expanded = expand_artifact(argv, artifact.as_deref())?;
+        let artifact_bound = match &artifact {
+            Some(path) => references_artifact(&expanded, path),
+            None => false,
+        };
+        let environment = probe_environment(&expanded[0])?;
         let attempt_id = EntityId::new().to_string();
         let started_at = now();
+        let owner_pid = i64::from(std::process::id());
+        let owner_runtime = runtime_id(&self.conn)?;
         let attempt_data = json!({
-            "argv": argv,
+            "argv": expanded,
+            "requested_argv": argv,
             "cwd": cwd,
             "environment": environment,
             "risk": risk,
             "benefit": benefit,
             "consequence": consequence,
+            "artifact_bound": artifact_bound,
+            "artifact_path": artifact,
             "timeout_ms": timeout,
         });
         // The attempt is durable before any child can exist.
@@ -1016,8 +990,8 @@ impl Node {
                 .conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)?;
             tx.execute(
-                "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,data) \
-                 VALUES(?1,?2,?3,?4,?5,'prepared',?6,NULL,?7)",
+                "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
+                 VALUES(?1,?2,?3,?4,?5,'prepared',?6,NULL,?7,?8,?9)",
                 params![
                     attempt_id,
                     unit.unit_id,
@@ -1025,6 +999,8 @@ impl Node {
                     unit.artifact_digest.0,
                     environment.digest.0,
                     started_at,
+                    owner_pid,
+                    owner_runtime,
                     serde_json::to_string(&attempt_data)?
                 ],
             )?;
@@ -1041,6 +1017,12 @@ impl Node {
             )?;
             tx.commit()?;
         }
+        // A readiness proof only counts when the materialized artifact really
+        // is the installed artifact.
+        let artifact_verified_before = match (&artifact, artifact_bound) {
+            (Some(path), true) => verify_artifact(path, &unit.artifact_digest),
+            _ => false,
+        };
         let workdir = match cwd {
             Some(value) => PathBuf::from(value),
             None => self
@@ -1054,51 +1036,59 @@ impl Node {
                 })
                 .unwrap_or_else(|| PathBuf::from(".")),
         };
-        let mut command = Command::new(&argv[0]);
+        let mut command = Command::new(&expanded[0]);
         command
-            .args(&argv[1..])
+            .args(&expanded[1..])
             .current_dir(&workdir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // The child leads its own process group, so the deadline can stop the
+        // whole tree instead of only the direct child.
+        command.process_group(0);
         let spawn = command.spawn();
         let mut child = match spawn {
             Ok(child) => child,
             Err(e) => {
-                let evidence = json!({
-                    "attempt_id": attempt_id,
-                    "started_at": started_at,
-                    "finished_at": now(),
-                    "outcome": "failed",
-                    "environment_digest": environment.digest.0,
-                    "environment": environment,
-                    "argv": argv,
-                    "cwd": cwd,
-                    "risk": risk,
-                    "benefit": benefit,
-                    "consequence": consequence,
-                    "exit_code": Value::Null,
-                    "signal": Value::Null,
-                    "stdout": "",
-                    "stderr": format!("{e}"),
-                    "stdout_truncated": false,
-                    "stderr_truncated": false,
-                    "interrupted": false,
-                    "reason": "the trial command could not be started",
-                });
-                self.record_trial(
-                    &attempt_id,
-                    &unit,
-                    &environment,
-                    started_at,
-                    &evidence,
-                    "failed",
-                )?;
+                let evidence = TrialEvidence {
+                    attempt_id: attempt_id.clone(),
+                    started_at: started_at.clone(),
+                    finished_at: Some(now()),
+                    outcome: TrialOutcome::Failed,
+                    environment_digest: environment.digest.clone(),
+                    environment: environment.clone(),
+                    argv: expanded.clone(),
+                    requested_argv: argv.to_vec(),
+                    cwd: cwd.map(|value| value.to_string()),
+                    risk: risk.to_string(),
+                    benefit: benefit.to_string(),
+                    consequence: consequence.to_string(),
+                    exit_code: None,
+                    signal: None,
+                    stdout: String::new(),
+                    stderr: format!("{e}"),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                    interrupted: false,
+                    artifact_bound,
+                    artifact_path: artifact.clone(),
+                    artifact_verified_before,
+                    artifact_verified_after: false,
+                    reader_failed: false,
+                    group_signalled: false,
+                    descendants_unknown: false,
+                    owner_pid,
+                    owner_runtime: owner_runtime.clone(),
+                    reason: "the trial command could not be started".to_string(),
+                };
+                self.record_trial(&attempt_id, &unit, started_at, &evidence, "failed")?;
                 let (readiness, reason) = self.readiness_of(&unit)?;
                 return Ok(json!({
                     "attempt_id": attempt_id,
                     "outcome": "failed",
                     "error": format!("{e}"),
+                    "artifact_bound": artifact_bound,
+                    "readiness_proof": false,
                     "readiness": readiness,
                     "reason": reason,
                 }));
@@ -1116,10 +1106,19 @@ impl Node {
         }
         let stdout = child.stdout.take().context("trial stdout pipe missing")?;
         let stderr = child.stderr.take().context("trial stderr pipe missing")?;
-        let out_handle = std::thread::spawn(move || drain(stdout, MAX_OUTPUT_BYTES));
-        let err_handle = std::thread::spawn(move || drain(stderr, MAX_OUTPUT_BYTES));
+        let (out_tx, out_rx) = mpsc::channel();
+        let (err_tx, err_rx) = mpsc::channel();
+        let _out_reader = std::thread::spawn(move || {
+            let result = drain(stdout, MAX_OUTPUT_BYTES);
+            let _ = out_tx.send(result);
+        });
+        let _err_reader = std::thread::spawn(move || {
+            let result = drain(stderr, MAX_OUTPUT_BYTES);
+            let _ = err_tx.send(result);
+        });
         let deadline = Instant::now() + Duration::from_millis(timeout);
         let mut timed_out = false;
+        let mut group_signalled = false;
         let mut wait_error: Option<String> = None;
         let status = loop {
             match child.try_wait() {
@@ -1127,6 +1126,9 @@ impl Node {
                 Ok(None) => {
                     if Instant::now() >= deadline {
                         timed_out = true;
+                        // Stop the whole group: a descendant that still holds
+                        // the output pipe must not keep the trial alive.
+                        group_signalled = signal_process_group(child.id());
                         let _ = child.kill();
                         break child.wait().ok();
                     }
@@ -1134,15 +1136,33 @@ impl Node {
                 }
                 Err(e) => {
                     wait_error = Some(format!("{e}"));
-                    break None;
+                    group_signalled = signal_process_group(child.id());
+                    let _ = child.kill();
+                    break child.wait().ok();
                 }
             }
         };
-        let (out_bytes, out_truncated) = out_handle.join().unwrap_or_default();
-        let (err_bytes, err_truncated) = err_handle.join().unwrap_or_default();
-        use std::os::unix::process::ExitStatusExt;
+        // The readers are bounded: a descendant that escaped the group cannot
+        // hold the trial open forever, and an unread output is never treated
+        // as a successful result.
+        let (out_bytes, out_truncated, out_failed) =
+            out_rx
+                .recv_timeout(READ_TIMEOUT)
+                .unwrap_or((Vec::new(), false, true));
+        let (err_bytes, err_truncated, err_failed) =
+            err_rx
+                .recv_timeout(READ_TIMEOUT)
+                .unwrap_or((Vec::new(), false, true));
+        let reader_failed = out_failed || err_failed;
+        let artifact_verified_after = match (&artifact, artifact_bound) {
+            (Some(path), true) => verify_artifact(path, &unit.artifact_digest),
+            _ => false,
+        };
         let (outcome, exit_code, signal) = match &status {
             Some(status) if timed_out => (TrialOutcome::TimedOut, status.code(), status.signal()),
+            Some(status) if status.code() == Some(0) && reader_failed => {
+                (TrialOutcome::Unknown, Some(0), None)
+            }
             Some(status) if status.code() == Some(0) => (TrialOutcome::Succeeded, Some(0), None),
             Some(status) => match status.code() {
                 Some(code) => (TrialOutcome::Failed, Some(code), None),
@@ -1160,45 +1180,63 @@ impl Node {
             TrialOutcome::Failed => "the trial command ran and reported failure",
             TrialOutcome::Signaled => "the trial command was terminated by a signal",
             TrialOutcome::TimedOut => {
-                "the trial command exceeded its bounded deadline and was stopped"
+                "the trial command exceeded its bounded deadline and its process group was stopped"
             }
-            TrialOutcome::Unknown => "the trial outcome is unknown",
+            TrialOutcome::Unknown => {
+                "the trial result could not be read completely, so its outcome is unknown"
+            }
         };
-        let evidence = json!({
-            "attempt_id": attempt_id,
-            "started_at": started_at,
-            "finished_at": now(),
-            "outcome": outcome.as_str(),
-            "environment_digest": environment.digest.0,
-            "environment": environment,
-            "argv": argv,
-            "cwd": cwd,
-            "risk": risk,
-            "benefit": benefit,
-            "consequence": consequence,
-            "exit_code": exit_code,
-            "signal": signal,
-            "stdout": stdout_text,
-            "stderr": stderr_text,
-            "stdout_truncated": out_truncated,
-            "stderr_truncated": err_truncated,
-            "interrupted": timed_out,
-            "reason": reason,
-        });
-        self.record_trial(
-            &attempt_id,
-            &unit,
-            &environment,
-            started_at,
-            &evidence,
-            outcome.as_str(),
-        )?;
+        let evidence = TrialEvidence {
+            attempt_id: attempt_id.clone(),
+            started_at: started_at.clone(),
+            finished_at: Some(now()),
+            outcome,
+            environment_digest: environment.digest.clone(),
+            environment: environment.clone(),
+            argv: expanded.clone(),
+            requested_argv: argv.to_vec(),
+            cwd: cwd.map(|value| value.to_string()),
+            risk: risk.to_string(),
+            benefit: benefit.to_string(),
+            consequence: consequence.to_string(),
+            exit_code,
+            signal,
+            stdout: stdout_text.clone(),
+            stderr: stderr_text.clone(),
+            stdout_truncated: out_truncated,
+            stderr_truncated: err_truncated,
+            interrupted: timed_out,
+            artifact_bound,
+            artifact_path: artifact.clone(),
+            artifact_verified_before,
+            artifact_verified_after,
+            reader_failed,
+            group_signalled,
+            descendants_unknown: group_signalled,
+            owner_pid,
+            owner_runtime: owner_runtime.clone(),
+            reason: reason.to_string(),
+        };
+        let readiness_proof = artifact_bound
+            && artifact_verified_before
+            && artifact_verified_after
+            && outcome == TrialOutcome::Succeeded;
+        self.record_trial(&attempt_id, &unit, started_at, &evidence, outcome.as_str())?;
         let (readiness, readiness_reason) = self.readiness_of(&unit)?;
         Ok(json!({
             "attempt_id": attempt_id,
             "outcome": outcome.as_str(),
             "exit_code": exit_code,
             "signal": signal,
+            "argv": expanded,
+            "artifact_bound": artifact_bound,
+            "artifact_path": artifact,
+            "artifact_verified_before": artifact_verified_before,
+            "artifact_verified_after": artifact_verified_after,
+            "readiness_proof": readiness_proof,
+            "reader_failed": reader_failed,
+            "group_signalled": group_signalled,
+            "descendants_unknown": group_signalled,
             "stdout": stdout_text,
             "stderr": stderr_text,
             "stdout_truncated": out_truncated,
@@ -1210,13 +1248,150 @@ impl Node {
         }))
     }
 
+    /// Retire attempts whose owning process is provably gone.
+    ///
+    /// An attempt that another live command still owns is left untouched: a
+    /// concurrent command on the same installation is not a crash, and its
+    /// attempt must not be relabelled as one.
+    pub fn retire_unknown_trials(&mut self) -> Result<u32> {
+        let my_runtime = runtime_id(&self.conn)?;
+        let my_pid = i64::from(std::process::id());
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let pending: Vec<(String, String, String, String, String, String, String, i64, String)> = tx
+            .prepare(
+                "SELECT attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,data,owner_pid,owner_runtime \
+                 FROM unit_attempts WHERE state IN ('prepared','spawning','running') ORDER BY started_at",
+            )?
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                    r.get(8)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if pending.is_empty() {
+            tx.commit()?;
+            return Ok(0);
+        }
+        let finished = now();
+        let mut retired = 0u32;
+        for (
+            attempt_id,
+            unit_id,
+            revision,
+            digest,
+            environment,
+            started_at,
+            data,
+            owner_pid,
+            owner_runtime,
+        ) in pending
+        {
+            let mine = owner_runtime == my_runtime && owner_pid == my_pid;
+            if !mine && !process_gone(owner_pid) {
+                // Another command may still be running this attempt.
+                continue;
+            }
+            let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
+            let environment_digest = Digest(environment.clone());
+            let evidence = TrialEvidence {
+                attempt_id: attempt_id.clone(),
+                started_at: started_at.clone(),
+                finished_at: Some(finished.clone()),
+                outcome: TrialOutcome::Unknown,
+                environment_digest: environment_digest.clone(),
+                environment: stored
+                    .get("environment")
+                    .and_then(|value| serde_json::from_value(value.clone()).ok())
+                    .unwrap_or_else(|| fallback_environment(environment_digest)),
+                argv: string_list(stored.get("argv")),
+                requested_argv: string_list(stored.get("requested_argv")),
+                cwd: stored
+                    .get("cwd")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                risk: stored
+                    .get("risk")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                benefit: stored
+                    .get("benefit")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                consequence: stored
+                    .get("consequence")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                exit_code: None,
+                signal: None,
+                stdout: String::new(),
+                stderr: String::new(),
+                stdout_truncated: false,
+                stderr_truncated: false,
+                interrupted: true,
+                artifact_bound: stored
+                    .get("artifact_bound")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false),
+                artifact_path: stored
+                    .get("artifact_path")
+                    .and_then(|value| value.as_str())
+                    .map(|value| value.to_string()),
+                artifact_verified_before: false,
+                artifact_verified_after: false,
+                reader_failed: false,
+                group_signalled: false,
+                descendants_unknown: true,
+                owner_pid,
+                owner_runtime: owner_runtime.clone(),
+                reason: "the owning command ended before this attempt was resolved; a child may have run, so the outcome is unknown and is never replayed automatically"
+                    .to_string(),
+            };
+            tx.execute(
+                "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,artifact_bound,artifact_verified,owner_pid,owner_runtime,data) \
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,'unknown',?8,0,?9,?10,?11)",
+                params![
+                    attempt_id,
+                    unit_id,
+                    revision,
+                    digest,
+                    environment,
+                    started_at,
+                    finished,
+                    i64::from(evidence.artifact_bound),
+                    owner_pid,
+                    owner_runtime,
+                    serde_json::to_string(&evidence)?
+                ],
+            )?;
+            tx.execute(
+                "UPDATE unit_attempts SET state='unknown',finished_at=?2 WHERE attempt_id=?1",
+                params![attempt_id, finished],
+            )?;
+            retired += 1;
+        }
+        tx.commit()?;
+        Ok(retired)
+    }
+
     fn record_trial(
         &mut self,
         attempt_id: &str,
         unit: &InstalledUnit,
-        environment: &TrialEnvironment,
         started_at: String,
-        evidence: &Value,
+        evidence: &TrialEvidence,
         state: &str,
     ) -> Result<()> {
         let finished = now();
@@ -1224,17 +1399,23 @@ impl Node {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
-            "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,data) \
-             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,artifact_bound,artifact_verified,owner_pid,owner_runtime,data) \
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
             params![
                 attempt_id,
                 unit.unit_id,
                 unit.revision,
                 unit.artifact_digest.0,
-                environment.digest.0,
+                evidence.environment_digest.0,
                 started_at,
                 finished,
                 state,
+                i64::from(evidence.artifact_bound),
+                i64::from(
+                    evidence.artifact_verified_before && evidence.artifact_verified_after
+                ),
+                evidence.owner_pid,
+                evidence.owner_runtime,
                 serde_json::to_string(evidence)?
             ],
         )?;
@@ -1375,7 +1556,7 @@ impl Node {
             .collect::<rusqlite::Result<Vec<_>>>()?
             .into_iter()
             .map(|value| serde_json::from_str::<ResolvedDependency>(&value))
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<serde_json::Result<Vec<_>>>()?;
         let materialization: Option<Materialization> = self
             .conn
             .query_row(
@@ -1434,7 +1615,7 @@ impl Node {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         rows.into_iter()
             .map(|value| serde_json::from_str::<TrialEvidence>(&value))
-            .collect::<Result<Vec<_>>>()
+            .collect::<serde_json::Result<Vec<_>>>()?
     }
 
     /// Readiness of an installed unit on this node.
@@ -1470,19 +1651,34 @@ impl Node {
                 },
             ));
         }
-        let last: Option<(String, String, String)> = self
+        // Only a trial that ran the materialized artifact is a readiness
+        // proof; an unbound investigation is evidence, not proof.
+        let last: Option<(String, String, i64, String)> = self
             .conn
             .query_row(
-                "SELECT environment_digest,outcome,data FROM unit_trials \
-                 WHERE unit_id=?1 AND artifact_digest=?2 ORDER BY seq DESC LIMIT 1",
+                "SELECT environment_digest,outcome,artifact_verified,data FROM unit_trials \
+                 WHERE unit_id=?1 AND artifact_digest=?2 AND artifact_bound=1 ORDER BY seq DESC LIMIT 1",
                 params![unit.unit_id, unit.artifact_digest.0],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        let Some((environment_digest, outcome, data)) = last else {
+        let Some((environment_digest, outcome, artifact_verified, data)) = last else {
+            let investigations: i64 = self
+                .conn
+                .query_row(
+                    "SELECT count(*) FROM unit_trials WHERE unit_id=?1 AND artifact_digest=?2 AND artifact_bound=0",
+                    params![unit.unit_id, unit.artifact_digest.0],
+                    |r| r.get(0),
+                )?;
             return Ok((
                 ReadinessState::Unverified,
-                "no local trial has run this artifact on this node yet".into(),
+                if investigations > 0 {
+                    "only unbound investigation commands have run here; they are not a readiness proof"
+                        .to_string()
+                } else {
+                    "no local trial of the materialized artifact has run on this node yet"
+                        .to_string()
+                },
             ));
         };
         let evidence: TrialEvidence = match serde_json::from_str(&data) {
@@ -1506,9 +1702,14 @@ impl Node {
         }
         let outcome = TrialOutcome::parse(&outcome)?;
         Ok(match outcome {
-            TrialOutcome::Succeeded => (
+            TrialOutcome::Succeeded if artifact_verified != 0 => (
                 ReadinessState::Ready,
-                "a local trial of this exact artifact succeeded in this environment".into(),
+                "a local trial of the materialized artifact succeeded in this environment".into(),
+            ),
+            TrialOutcome::Succeeded => (
+                ReadinessState::Failed,
+                "the materialized artifact did not match the installed digest during the trial"
+                    .into(),
             ),
             TrialOutcome::Failed | TrialOutcome::Signaled | TrialOutcome::TimedOut => (
                 ReadinessState::Failed,
@@ -1963,11 +2164,13 @@ fn probe_environment(program: &str) -> Result<TrialEnvironment> {
     })
 }
 
-/// Read at most `cap` bytes and report whether output was dropped.
-fn drain<R: Read>(mut reader: R, cap: usize) -> (Vec<u8>, bool) {
+/// Read at most `cap` bytes. The third value reports a failed read, which
+/// makes the captured output untrustworthy.
+fn drain<R: Read>(mut reader: R, cap: usize) -> (Vec<u8>, bool, bool) {
     let mut kept: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 8192];
     let mut truncated = false;
+    let mut failed = false;
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => break,
@@ -1983,10 +2186,119 @@ fn drain<R: Read>(mut reader: R, cap: usize) -> (Vec<u8>, bool) {
                     truncated = true;
                 }
             }
-            Err(_) => break,
+            Err(_) => {
+                failed = true;
+                break;
+            }
         }
     }
-    (kept, truncated)
+    (kept, truncated, failed)
+}
+
+/// How long a trial waits for its captured output before it stops trusting it.
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Expand the `{artifact}` placeholder to the materialized package path.
+fn expand_artifact(argv: &[String], artifact: Option<&str>) -> Result<Vec<String>> {
+    let mut expanded = Vec::with_capacity(argv.len());
+    for argument in argv {
+        if argument.contains("{artifact}") {
+            let path = artifact.context(
+                "the unit is not materialized in a package root, so {artifact} cannot be expanded",
+            )?;
+            expanded.push(argument.replace("{artifact}", path));
+        } else {
+            expanded.push(argument.clone());
+        }
+    }
+    Ok(expanded)
+}
+
+/// Whether a command references the materialized artifact of a unit.
+fn references_artifact(argv: &[String], artifact: &str) -> bool {
+    argv.iter()
+        .any(|argument| argument.split_whitespace().any(|token| token == artifact))
+}
+
+/// Whether the materialized file still is the installed artifact.
+fn verify_artifact(path: &str, expected: &Digest) -> bool {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.len() as usize <= MAX_ARTIFACT_BYTES => {}
+        _ => return false,
+    }
+    match std::fs::read(path) {
+        Ok(bytes) => Digest::blake3(&bytes) == *expected,
+        Err(_) => false,
+    }
+}
+
+/// Stop a whole process group. A descendant that left the group may survive.
+fn signal_process_group(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) == 0 }
+}
+
+/// Whether a process is provably gone.
+fn process_gone(pid: i64) -> bool {
+    if pid <= 0 {
+        return true;
+    }
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return false;
+    }
+    // EPERM means the process exists but belongs to another user.
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM)
+}
+
+/// Identity of the running command. It stays the same for the lifetime of the
+/// process, so a reused process id cannot be mistaken for the same command.
+fn runtime_id(conn: &rusqlite::Connection) -> Result<String> {
+    let installation: Option<String> = conn
+        .query_row("SELECT v FROM meta WHERE k='installation'", [], |r| {
+            r.get(0)
+        })
+        .optional()?;
+    Ok(format!(
+        "{}:{}:{}",
+        installation.unwrap_or_else(|| "uninitialized".to_string()),
+        std::process::id(),
+        process_start_ticks().unwrap_or(0)
+    ))
+}
+
+/// The start time of this process in clock ticks since boot.
+fn process_start_ticks() -> Option<u64> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let tail = stat.rsplit_once(") ")?.1;
+    let fields: Vec<&str> = tail.split_whitespace().collect();
+    fields.get(19)?.parse().ok()
+}
+
+/// A minimal environment record for evidence whose original was lost.
+fn fallback_environment(digest: Digest) -> TrialEnvironment {
+    TrialEnvironment {
+        os: std::env::consts::OS.into(),
+        arch: std::env::consts::ARCH.into(),
+        kernel: None,
+        programs: vec![],
+        digest,
+    }
+}
+
+/// Read a list of strings from a stored value.
+fn string_list(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|text| text.to_string()))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -2094,11 +2406,16 @@ mod tests {
             enable: None,
         })
         .unwrap();
-        // The origin node proves the unit locally.
+        // The origin node proves the unit by running the materialized artifact.
         let proven = a
-            .handle_unit_request(trial("demo.skill.root", vec!["/bin/sh", "-c", "exit 0"]))
+            .handle_unit_request(trial(
+                "demo.skill.root",
+                vec!["/bin/sh", "-c", "cat {artifact}"],
+            ))
             .unwrap();
         assert_eq!(proven["outcome"], json!("succeeded"));
+        assert_eq!(proven["artifact_bound"], json!(true));
+        assert_eq!(proven["readiness_proof"], json!(true));
         assert_eq!(proven["readiness"], json!("ready"));
         let exported = a
             .handle_unit_request(UnitRequest::Export {
@@ -2136,10 +2453,24 @@ mod tests {
         // The advisory label does not deny the trial.
         let notes = status["advisory"].as_array().unwrap();
         assert!(notes.iter().any(|n| n.as_str().unwrap().contains("plan9")));
-        let proven = b
+        // An unbound investigation is allowed and recorded, but it is not a
+        // readiness proof.
+        let investigation = b
             .handle_unit_request(trial("demo.skill.root", vec!["/bin/sh", "-c", "exit 0"]))
             .unwrap();
+        assert_eq!(investigation["outcome"], json!("succeeded"));
+        assert_eq!(investigation["artifact_bound"], json!(false));
+        assert_eq!(investigation["readiness_proof"], json!(false));
+        assert_eq!(investigation["readiness"], json!("unverified"));
+        // The local proof of the artifact makes this node ready.
+        let proven = b
+            .handle_unit_request(trial(
+                "demo.skill.root",
+                vec!["/bin/sh", "-c", "cat {artifact}"],
+            ))
+            .unwrap();
         assert_eq!(proven["outcome"], json!("succeeded"));
+        assert_eq!(proven["readiness_proof"], json!(true));
         assert_eq!(proven["readiness"], json!("ready"));
         let _ = std::fs::remove_dir_all(&dir_a);
         let _ = std::fs::remove_dir_all(&dir_b);
@@ -2165,15 +2496,18 @@ mod tests {
         let good = node
             .handle_unit_request(trial(
                 "demo.skill.trial",
-                vec!["/bin/sh", "-c", "printf ok"],
+                vec!["/bin/sh", "-c", "cat {artifact}"],
             ))
             .unwrap();
         assert_eq!(good["outcome"], json!("succeeded"));
-        assert_eq!(good["stdout"], json!("ok"));
+        assert_eq!(good["readiness_proof"], json!(true));
         assert_eq!(good["readiness"], json!("ready"));
 
         let bad = node
-            .handle_unit_request(trial("demo.skill.trial", vec!["/bin/sh", "-c", "exit 3"]))
+            .handle_unit_request(trial(
+                "demo.skill.trial",
+                vec!["/bin/sh", "-c", "exit 3; cat {artifact}"],
+            ))
             .unwrap();
         assert_eq!(bad["outcome"], json!("failed"));
         assert_eq!(bad["exit_code"], json!(3));
@@ -2186,6 +2520,8 @@ mod tests {
             ))
             .unwrap();
         assert_eq!(missing["outcome"], json!("failed"));
+        assert_eq!(missing["artifact_bound"], json!(false));
+        // An unbound failure does not change the readiness of the artifact.
         assert_eq!(missing["readiness"], json!("failed"));
 
         let evidence = node
@@ -2222,23 +2558,51 @@ mod tests {
         .unwrap();
         let environment = probe_environment("/bin/sh").unwrap();
         let digest = Digest::blake3(b"crash-bytes");
-        let attempt_id = EntityId::new().to_string();
+        let artifact_path = node
+            .installed_unit("demo.skill.crash")
+            .unwrap()
+            .unwrap()
+            .materialization
+            .unwrap()
+            .path;
+        let runtime = runtime_id(&node.conn).unwrap();
+        let mine = EntityId::new().to_string();
+        let foreign = EntityId::new().to_string();
         let data = serde_json::to_string(&json!({
-            "argv": ["/bin/sh", "-c", "exit 0"],
+            "argv": ["/bin/sh", "-c", "cat {artifact}"],
+            "requested_argv": ["/bin/sh", "-c", "cat {artifact}"],
             "cwd": Value::Null,
             "environment": environment,
             "risk": "runs a trivial interpreter command",
             "benefit": "proves the unit can run in this environment",
             "consequence": "a failed command leaves the unit unready here",
+            "artifact_bound": true,
+            "artifact_path": artifact_path,
         }))
         .unwrap();
-        // An attempt whose child may have run, left behind by a crash.
+        // An attempt of this command, whose child may have run.
         node.conn
             .execute(
-                "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,data) \
-                 VALUES(?1,'demo.skill.crash','1.0.0',?2,?3,'spawning',?4,NULL,?5)",
+                "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
+                 VALUES(?1,'demo.skill.crash','1.0.0',?2,?3,'spawning',?4,NULL,?5,?6,?7)",
                 params![
-                    attempt_id,
+                    mine,
+                    digest.0,
+                    environment.digest.0,
+                    now(),
+                    i64::from(std::process::id()),
+                    runtime,
+                    data
+                ],
+            )
+            .unwrap();
+        // An attempt of another command that is still alive.
+        node.conn
+            .execute(
+                "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
+                 VALUES(?1,'demo.skill.crash','1.0.0',?2,?3,'spawning',?4,NULL,1,'other-command',?5)",
+                params![
+                    foreign,
                     digest.0,
                     environment.digest.0,
                     now(),
@@ -2246,7 +2610,7 @@ mod tests {
                 ],
             )
             .unwrap();
-        // The next request reconciles the unresolved attempt.
+        // The next request retires only the attempt whose owner is gone.
         let status = node
             .handle_unit_request(UnitRequest::Status {
                 unit_id: "demo.skill.crash".into(),
@@ -2264,13 +2628,23 @@ mod tests {
         let rows = evidence["evidence"].as_array().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0]["outcome"], json!("unknown"));
-        assert_eq!(rows[0]["attempt_id"], json!(attempt_id));
-        // Nothing was replayed: the unknown attempt is still the only one.
+        assert_eq!(rows[0]["attempt_id"], json!(mine));
+        // Nothing was replayed, and the live attempt of the other command was
+        // not relabelled as a crash.
         let attempts: i64 = node
             .conn
             .query_row("SELECT count(*) FROM unit_attempts", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(attempts, 1);
+        assert_eq!(attempts, 2);
+        let pending: i64 = node
+            .conn
+            .query_row(
+                "SELECT count(*) FROM unit_attempts WHERE state='spawning'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(pending, 1);
         // The facts are durable in the node's own store.
         let store = rusqlite::Connection::open(dir.join("node.sqlite3")).unwrap();
         let unknown: i64 = store
