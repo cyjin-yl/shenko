@@ -23,6 +23,9 @@ pub struct Store {
     pub ledger: Arc<Ledger>,
     pub cas: Arc<ContentStore>,
     pub capabilities: StoreCapabilities,
+    /// A separate SQLite admission transaction orders complete file/Git/row
+    /// import publication across handles without holding the ledger write lock.
+    pub(crate) cognition_import_gate: Mutex<Connection>,
 }
 
 impl Store {
@@ -68,11 +71,18 @@ impl Store {
         let conn = Arc::new(Mutex::new(conn));
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation)?);
         let cas = Arc::new(ContentStore::new(cas_dir));
+        let mut import_lock_path = db_path.as_os_str().to_os_string();
+        import_lock_path.push(".cognition-import.sqlite");
+        let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
+        cognition_import_gate.execute_batch(
+            "CREATE TABLE IF NOT EXISTS import_gate(singleton INTEGER PRIMARY KEY);",
+        )?;
 
         Ok(Self {
             ledger,
             cas,
             capabilities,
+            cognition_import_gate: Mutex::new(cognition_import_gate),
         })
     }
 
