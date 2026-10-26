@@ -130,6 +130,13 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 
 [history/manifest.json](history/manifest.json)记录原稿大小和SHA-256；原始U01–U49逐字保留，并追加U50–U62。`python3 scripts/check_docs.py`检查覆盖ID、原话、原稿hash、本地链接、必读Skill及符号链接；它不是产品测试。现有文档没有声称本次已经实现或完成设备/性能验收。
 
+模型驱动行为的验收方法：[本地模型行为验收](development/local-model-behavior.md)。
+提示词、控制协议或事件投影改变后，用真实本地模型采样成功率；确定性测试不能代替
+“这个本地模型会不会做对”。
+
+能力编写原则：[内核零业务，能力优先写成 perception + awareness](development/awareness-first-plugins.md)。
+内核只做机制，判断交给可安装的觉察与视角；不用关键词表强制动作。
+
 ## 社区任务栈
 
 - [朋友可复制PROMPT](../PROMPT.md)

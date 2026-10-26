@@ -89,13 +89,7 @@ impl ActiveProvider {
     fn binding(&self) -> ProviderBinding {
         match self {
             Self::Stub => ProviderBinding::Stub { codec: 2 },
-            Self::Local(provider) => ProviderBinding::Local {
-                base_url: provider.base_url.clone(),
-                model: provider.model.clone(),
-                allow_invalid_certs: provider.allow_invalid_certs,
-                serializer_revision: crate::local_provider::SERIALIZER_REVISION,
-                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
-            },
+            Self::Local(provider) => provider.binding(),
             Self::Anthropic(provider) => ProviderBinding::Anthropic {
                 base_url: provider.base_url.clone(),
                 model: provider.model.clone(),

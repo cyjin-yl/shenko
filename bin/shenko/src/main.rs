@@ -362,6 +362,17 @@ async fn main() -> Result<()> {
                 }
             };
             tokio::spawn(broker.run());
+            // Awareness is installed capability, not kernel business logic: the
+            // shipped seeds plus any packages under data_dir/awareness become
+            // advisory perspectives for the model. Nothing here dispatches on
+            // keywords; retrieval only decides which text the step sees.
+            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
+            let awareness_packages = data_dir.join("awareness");
+            if awareness_packages.is_dir() {
+                for unit in awareness.install_from_dir(&awareness_packages)? {
+                    info!(unit = %unit, "awareness unit installed");
+                }
+            }
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
@@ -374,6 +385,7 @@ async fn main() -> Result<()> {
             )?
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities)
+            .with_awareness(awareness)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
 
