@@ -171,20 +171,21 @@ try:
     if legacy_source:
         migrated=root/'migrated-installation';migrated.mkdir(mode=0o700)
         with sqlite3.connect('file:'+str(legacy_source/'node.sqlite3')+'?mode=ro&immutable=1',uri=True) as old:
-            assert old.execute('PRAGMA user_version').fetchone()[0]==1
+            source_schema=old.execute('PRAGMA user_version').fetchone()[0]
+            assert source_schema in (1,2)
             tables=[r[0] for r in old.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT GLOB 'sqlite_*' ORDER BY name")]
             rows={t:old.execute('SELECT * FROM '+t+' ORDER BY rowid').fetchall() for t in tables}
             with sqlite3.connect(migrated/'node.sqlite3') as backup:old.backup(backup)
         migrated_status=node(migrated,{'command':'status'})
         with sqlite3.connect(migrated/'node.sqlite3') as db:
-            assert db.execute('PRAGMA user_version').fetchone()[0]==2
+            assert db.execute('PRAGMA user_version').fetchone()[0]==migrated_status['storage']['schema']>source_schema
             assert db.execute('PRAGMA application_id').fetchone()[0]==0x53484e4b
             for t,old_rows in rows.items():
                 new_rows=db.execute('SELECT * FROM '+t+' ORDER BY rowid').fetchall()
-                if t=='meta':new_rows=[r for r in new_rows if r[0]!='installation']
+                if t=='meta' and source_schema==1:new_rows=[r for r in new_rows if r[0]!='installation']
                 assert new_rows==old_rows,t
         assert node(migrated,{'command':'status'})['metadata']==migrated_status['metadata']
-        migration={'storage_schema':2,'old_tables_preserved':len(tables),'source_readonly':True}
+        migration={'source_schema':source_schema,'storage_schema':migrated_status['storage']['schema'],'old_tables_preserved':len(tables),'source_readonly':True}
     marker[0]=(plan,op)
     # Interleave A and B on the SAME registered target/root with different ELF
     # bytes. A must survive B's stage and then retry every upload without replay.

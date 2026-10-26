@@ -8,8 +8,8 @@ use parking_lot::RwLock;
 use shenko_store::{
     Store, TaskCancellation,
     child::{
-        NATIVE_CHILD, NATIVE_INPUT, NATIVE_OPERATION_ID, NATIVE_RECOVERY, memo_flag, memo_uuid,
-        park_reason,
+        COGNITION_IMPORTED, NATIVE_CHILD, NATIVE_INPUT, NATIVE_OPERATION_ID, NATIVE_RECOVERY,
+        memo_flag, memo_uuid, park_reason,
     },
 };
 use shenko_types::{
@@ -198,6 +198,11 @@ impl NativeChildService {
     }
 
     async fn process(&self, task: TaskRecord) -> Result<bool> {
+        if task.memos.contains_key(COGNITION_IMPORTED) {
+            // Do not even rewrite the import into an ordinary retryable park.
+            // Only an explicit local continuation may remove this marker.
+            return Ok(false);
+        }
         if matches!(task.state, TaskState::Completing { .. }) {
             return Ok(self.store.finish_native_completing(task.task_id)?.is_some());
         }

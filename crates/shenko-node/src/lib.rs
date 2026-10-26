@@ -1,6 +1,6 @@
-//! Connected, credential-controlled native node journey, not an ElectionProvider.
-//! Only a pure blake3 child is implemented: no arbitrary external effects, no
-//! model/secret synchronization, no competing subject loop or background daemon.
+//! Device-neutral native Node: mutable runtime roles, installation packages,
+//! per-node trial evidence and replication routes. The original finite child
+//! protocol remains distinct from a subject controller or ElectionProvider.
 use anyhow::{Context, Result, ensure};
 use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
@@ -10,8 +10,17 @@ use serde_json::{Value, json};
 use shenko_types::{commit::CommitRef, ids::*, object::*, task::*};
 use std::path::Path;
 
+mod roles;
+pub use roles::*;
+mod peers;
+pub use peers::*;
+pub mod units;
+pub use units::*;
+
+pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
+
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 2;
+const STORAGE_SCHEMA: u32 = 3;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -154,6 +163,13 @@ pub enum Request {
         after: String,
         limit: u32,
     },
+    AssignRoles {
+        request: RoleAssignmentRequest,
+    },
+    Roles,
+    Units {
+        request: UnitRequest,
+    },
 }
 
 pub struct Node {
@@ -245,8 +261,13 @@ impl Node {
                 // read-only. Preserve all existing rows, identities and ledger seq.
                 validate_installation(&tx)?;
             }
-            tx.execute_batch(RECEIPT_TABLE)?;
-            set(&tx, "installation", &EntityId::new())?;
+            if version < 2 {
+                tx.execute_batch(RECEIPT_TABLE)?;
+                set(&tx, "installation", &EntityId::new())?;
+            }
+            tx.execute_batch(roles::ROLE_SCHEMA)?;
+            tx.execute_batch(peers::SYNC_SCHEMA)?;
+            tx.execute_batch(units::UNIT_TABLES)?;
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
             tx.commit()?;
@@ -272,6 +293,11 @@ impl Node {
     }
     fn handle_inner(&mut self, request: Request) -> Result<Value> {
         match request {
+            Request::AssignRoles { request } => {
+                Ok(serde_json::to_value(self.assign_roles(request)?)?)
+            }
+            Request::Roles => self.role_status(),
+            Request::Units { request } => self.handle_unit_request(request),
             Request::Initialize { node_id, identity } => {
                 let tx = self
                     .conn
@@ -860,7 +886,7 @@ impl Node {
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         Ok(
-            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
+            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v2","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
         )
     }
 }
@@ -870,13 +896,18 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     let app: u32 = conn.query_row("PRAGMA application_id", [], |r| r.get(0))?;
     ensure!(
-        (version == 1 && app == 0) || (version == STORAGE_SCHEMA && app == APPLICATION_ID),
+        (version == 1 && app == 0) || ((2..=STORAGE_SCHEMA).contains(&version) && app == APPLICATION_ID),
         "unrecognized node installation/application/schema"
     );
     let expected = Connection::open_in_memory()?;
     expected.execute_batch(NODE_TABLES)?;
-    if version == STORAGE_SCHEMA {
+    if version >= 2 {
         expected.execute_batch(RECEIPT_TABLE)?;
+    }
+    if version >= 3 {
+        expected.execute_batch(roles::ROLE_SCHEMA)?;
+        expected.execute_batch(peers::SYNC_SCHEMA)?;
+        expected.execute_batch(units::UNIT_TABLES)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
@@ -891,7 +922,7 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         let s: String = conn.query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))?;
         Ok(serde_json::from_str(&s)?)
     }
-    if version == STORAGE_SCHEMA {
+    if version >= 2 {
         let _: EntityId = value(conn, "installation")?;
     } else {
         let _: EntityId = value(conn, "node")?;

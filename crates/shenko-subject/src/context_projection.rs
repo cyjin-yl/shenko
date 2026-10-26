@@ -11,7 +11,12 @@ use shenko_store::{Store, SubjectContextRef, SubjectHistoryInput};
 use shenko_types::{error::ShenkoError, ids::EntityId, object::Digest, task::TaskResult};
 
 use crate::inbox::{InboxEvent, InboxEventKind};
-use crate::loop_runner::{SubjectLoopState, build_system_prompt};
+use crate::loop_runner::{SubjectLoopState, build_system_prompt, stable_system_prompt};
+
+/// The user turn the product adds when a step has no external event. It keeps
+/// the thought loop going without inventing an instruction, and behavior
+/// evaluation samples this exact sentence.
+pub const IDLE_CONTINUATION_PROMPT: &str = "[运行时连续思考提示；不是新外部消息] 继续。";
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
@@ -72,6 +77,49 @@ impl HistorySource for BoundedHistory<'_> {
     }
 }
 
+/// The visible text one accepted ingress event contributes to the model
+/// history.
+///
+/// The header carries the speaker and the reply target the platform actually
+/// reported. A local model can only emit `[reply:private:QQ号]` /
+/// `[reply:group:群号]` with a number it has seen, so omitting it would make a
+/// control that parses correctly yet can never be executed. This is a
+/// projection only: `inbox_event` keeps the untrusted payload verbatim, and an
+/// event that declares no account keeps the plain `[speaker]` header.
+pub fn staged_message_text(payload: &serde_json::Value, source: &str) -> String {
+    let sender = payload.get("sender");
+    let who = sender
+        .and_then(|sender| sender.get("nickname"))
+        .or_else(|| payload.get("nickname"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|who| !who.is_empty())
+        .unwrap_or(source);
+    let body = ["raw_message", "message", "content", "text"]
+        .iter()
+        .find_map(|key| payload.get(*key).and_then(serde_json::Value::as_str))
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| payload.to_string());
+    let account = |key: &str| {
+        payload
+            .get(key)
+            .or_else(|| sender.and_then(|sender| sender.get(key)))
+            .and_then(serde_json::Value::as_u64)
+            .filter(|id| *id > 0)
+    };
+    let target = match payload.get("message_type").and_then(serde_json::Value::as_str) {
+        Some("group") => account("group_id").map(|id| format!("群 {id}")),
+        Some("private") => account("user_id").map(|id| format!("私聊 QQ {id}")),
+        _ => None,
+    };
+    match target {
+        Some(target) => format!("[{who} · {target}] {body}"),
+        None => format!("[{who}] {body}"),
+    }
+}
+
 fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHistoryInput, ShenkoError> {
     let mut data = serde_json::json!({"v":1, "inbox_event":event});
     let event_type = if matches!(&event.kind, InboxEventKind::TaskResult) && event.source == "native-child" {
@@ -97,14 +145,7 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
         }
         "tool_result"
     } else {
-        let text = ["raw_message", "message", "content", "text"].iter()
-            .find_map(|key| event.payload.get(*key).and_then(serde_json::Value::as_str))
-            .map(str::trim).filter(|text| !text.is_empty());
-        let who = event.payload.get("nickname").and_then(serde_json::Value::as_str).unwrap_or(&event.source);
-        data["text"] = serde_json::Value::String(match text {
-            Some(text) => format!("[{who}] {text}"),
-            None => format!("[{who}] {}", event.payload),
-        });
+        data["text"] = serde_json::Value::String(staged_message_text(&event.payload, &event.source));
         // Untrusted ingress kinds never acquire system/assistant authority.
         "user"
     };
@@ -198,7 +239,7 @@ fn project_payload(
         }
     }
     if !has_user {
-        messages.push(InferenceMessage::text("user", "[运行时连续思考提示；不是新外部消息] 继续。"));
+        messages.push(InferenceMessage::text("user", IDLE_CONTINUATION_PROMPT));
     }
     let payload = InferencePayload { system_prompt, messages, max_tokens: Some(max_tokens),
         tools: Vec::new(), native_options: Default::default() };
@@ -283,14 +324,24 @@ pub(super) fn prepare_context(
     }
     let in_semantic_wait = in_semantic_wait && recovered.is_empty();
     if !recovered.is_empty() { state.active_wait = None; }
-    let system_prompt = build_system_prompt(state, in_semantic_wait);
+    // Awareness is installed material, not a keyword lookup: the model receives
+    // every enabled perspective (bounded) and decides what, if anything, it means
+    // here. A word-matching gate would withhold the unit precisely when the
+    // message names a symptom instead of the concept.
+    let awareness: Vec<String> = state
+        .awareness
+        .as_ref()
+        .map(|registry| registry.active_intuitions())
+        .unwrap_or_default();
+    let stable_prompt = stable_system_prompt(state);
+    let system_prompt = build_system_prompt(state, in_semantic_wait, &awareness);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.broker.as_ref().map(|broker| broker.binding());
     if state.model_capabilities.as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
         return Err(ShenkoError::conflict("context capabilities/provider binding mismatch"));
     }
     let profile_digest = Digest::blake3(&serde_json::to_vec(&(
-        binding, &state.model_capabilities, &system_prompt, state.max_tokens,
+        binding, &state.model_capabilities, &stable_prompt, state.max_tokens,
         "heuristic:cjk-1-other-4@1", CONTRACT_VERSION,
     ))?);
     let current_generation = registry.ledger().model_generation().map_err(storage)?;

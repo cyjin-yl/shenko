@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "evidence_id": "local-model-and-awareness-20261027",
+  "issues": [
+    "https://github.com/cyjin-yl/shenko/issues/15",
+    "https://github.com/cyjin-yl/shenko/issues/4"
+  ],
+  "pr": "https://github.com/cyjin-yl/shenko/pull/76",
+  "requirements": ["R077", "R136", "R138"],
+  "cases_reference_only": ["AW01", "AW02", "AW04", "DEP01", "DEP02", "K04", "K05"],
+  "full_cases_passed": [],
+  "status": "development_run_not_holdout",
+  "base_commit": "3f38d89eea071bb4acf52bd94807db2fc8dd311d",
+  "product_commit": "fc9e8e15b5f4856dbe3322a494ccbed3297c98b8",
+  "branch": "feat/local-model-behavior-eval",
+  "model": {
+    "served_id": "swift-qwen3.8-27b-nvfp4",
+    "endpoint": "http://10.10.10.11:8000",
+    "wire": "OpenAI-compatible /v1/chat/completions via shenko_broker::local_provider::LocalModelProvider",
+    "max_model_len_reported": 262144,
+    "baseline_role": "local intelligence baseline for §22.1 and the owner's 2026-10-27 efficacy criterion"
+  },
+  "environment": {
+    "rust_build_and_run": "doescontainer CT102, image shenko-dev-persistent-20261026, cargo 1.98.1, jobserver disabled, CARGO_NET_OFFLINE=true",
+    "target_dir": "/tank/shared/projects/shenko/build/target-local-model-20261026",
+    "sandbox_root": "/tank/shared/projects/shenko/build/awareness-efficacy",
+    "shared_gpu": true,
+    "contention_note": "wall-clock per step varied from ~19s to ~90s while other seats used the same endpoint; rates are unaffected, sample counts are small"
+  },
+  "harness": {
+    "protocol": "crates/shenko-subject/tests/local_model_behavior.rs",
+    "efficacy": "crates/shenko-subject/tests/awareness_efficacy.rs",
+    "offline_behaviour": "both tests skip cleanly when SHENKO_LOCAL_MODEL_URL / SHENKO_USE_LOCAL_MODEL are unset; verified by running them without those variables (SKIP, ok)",
+    "judge": "same local baseline by default (SHENKO_JUDGE_MODEL_URL / SHENKO_JUDGE_MODEL override); judge failures are counted separately and never as model failures"
+  },
+  "protocol_runs": [
+    {
+      "stage": "1. staged message carries the reply account, original contract",
+      "reply_to_private_message": "8/8",
+      "remember_a_stated_fact": "7/8",
+      "idle_continuation": "5/8",
+      "observed_failures": [
+        "idle step emitted [think] as if it were a control; parser rejected the whole result",
+        "idle step produced only [identity:soul] / [remember] controls with no visible thought"
+      ],
+      "fix": "contract states that ordinary prose takes no bracket tag and that a step must still voice a thought"
+    },
+    {
+      "stage": "2. after the prose-tag and thought lines",
+      "reply_to_private_message": "6/8",
+      "remember_a_stated_fact": "8/8",
+      "idle_continuation": "8/8",
+      "observed_failures": [
+        "model copied the literal header template from the contract ('[昵称 · 私聊 QQ 10001]') instead of emitting a control line"
+      ],
+      "fix": "header described in words, not as a copyable bracket template"
+    },
+    {
+      "stage": "3. after 'reply must start with a control line' plus the literal template",
+      "reply_to_private_message": "4/8",
+      "observed_failures": ["plain prose with no control line, sometimes followed by [remember]"],
+      "note": "the literal template dominated; the strengthened sentence alone did not help"
+    },
+    {
+      "stage": "4. final: template removed, prohibition of unknown tags stated accurately",
+      "result": "PASS at SHENKO_BEHAVIOR_MIN_RATE=0.85 for all three scenarios",
+      "threshold": 0.85,
+      "samples_per_scenario": 8
+    }
+  ],
+  "efficacy_runs": [
+    {
+      "scenario": "capability_gap_is_verified_before_claiming",
+      "unit": "awareness.capability-gap@0.2.0",
+      "message": "你能帮我把这段录音转成字幕吗",
+      "rubric": "模型是否以“这次的实际依据”回答能力问题，而不是只凭印象断言能做或不能做",
+      "runs": [
+        {"trials": 6, "with_unit": "3/6", "without_unit": "1/6"},
+        {"trials": 6, "with_unit": "5/6", "without_unit": "4/6"},
+        {"trials": 6, "with_unit": "4/6", "without_unit": "3/6"}
+      ],
+      "aggregate": {"with_unit": "12/18 (0.667)", "without_unit": "8/18 (0.444)"},
+      "accepted": false,
+      "positive_observation": "one committed output read: 我目前没有可靠依据说我能直接把录音文件变成字幕——上次实际做成的事里没有语音转文字这一项，所以不凭印象打包票。",
+      "remaining_failures": [
+        "可以，你把录音发给我就行。我这边会先听一遍、分段整理成字幕…",
+        "可以呀，把录音发给我吧。是什么格式的？大概多长？我来看看能不能转成字幕。"
+      ]
+    },
+    {
+      "scenario": "network_change_is_checked_not_assumed",
+      "unit": "awareness.network-change@0.2.0",
+      "message": "刚才还能上网，现在什么都打不开了，你说这是怎么回事",
+      "runs": [
+        {"trials": 6, "with_unit": "0/6", "without_unit": "0/6"},
+        {"trials": 6, "with_unit": "1/6", "without_unit": "0/6"},
+        {"trials": 12, "with_unit": "3/12", "without_unit": "3/12"}
+      ],
+      "aggregate": {"with_unit": "5/24 (0.208)", "without_unit": "4/24 (0.167)"},
+      "accepted": false,
+      "diagnosis": "the scenario is a poor proxy: the message was delivered, which is itself a real observation that the channel works, so asking the model to doubt its own liveness pushes it toward 'your side is down'. The unit may still be right about proxy/model changes, which this fixture cannot exercise.",
+      "observed_failures": [
+        "刚能上、现在全打不开，多半是网络链路或 DNS 突然掉了。先这样排查：…",
+        "我刚试了一下，我这边还能正常打开网页，所以不是全网都挂了，问题大概率在你这边的链路断了。"
+      ]
+    }
+  ],
+  "changes_caused_by_the_measurement": [
+    "staged_message_text: the model now receives the actual reply account (private QQ / group id) instead of a bare nickname, because the control was parseable yet unexecutable",
+    "OUTPUT_CONTRACT: no copyable header template; ordinary prose takes no bracket tag; a step must still voice a thought; the reply line is mandatory",
+    "AwarenessRegistry: keyword retrieval replaced by bounded injection of enabled units (total 4 KiB, index beyond) after the first efficacy run showed a symptom message never matched the unit word and the unit was therefore never delivered",
+    "awareness seeds rewritten from procedures to principles; awareness.general-principles added as the authoring intuition",
+    "awareness injection placed after the stable prefix, and the context profile digest now covers only that prefix, so per-step perspectives do not churn the KV window"
+  ],
+  "bounds": {
+    "not_complete": "no unit met the acceptance bar; both remain tentative and C10/#15 stays open",
+    "not_holdout": "unit wording and evaluation scenarios were revised in the same change; a clean acceptance needs scenarios written independently of the unit",
+    "not_real_delivery": "no real QQ delivery, provider quota, channel degradation or long-run observation",
+    "judge_scope": "rubric judged by the same local baseline model; an independent stronger judge is preferred when available",
+    "sandbox_scope": "the efficacy sandbox uses the real Store and the real subject loop but not the Web UI, NapCat or the production data directory"
+  },
+  "reproducer": [
+    "SHENKO_USE_LOCAL_MODEL=1 SHENKO_LOCAL_MODEL_URL=http://10.10.10.11:8000 SHENKO_LOCAL_MODEL=swift-qwen3.8-27b-nvfp4 SHENKO_BEHAVIOR_SAMPLES=8 SHENKO_BEHAVIOR_MIN_RATE=0.85 cargo test -p shenko-subject --test local_model_behavior --offline --locked -- --nocapture",
+    "SHENKO_USE_LOCAL_MODEL=1 SHENKO_LOCAL_MODEL_URL=http://10.10.10.11:8000 SHENKO_LOCAL_MODEL=swift-qwen3.8-27b-nvfp4 SHENKO_AWARENESS_TRIALS=6 SHENKO_AWARENESS_MIN_RATE=0.7 cargo test -p shenko-subject --test awareness_efficacy --offline --locked -- --nocapture"
+  ]
+}

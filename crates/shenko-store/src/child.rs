@@ -35,6 +35,7 @@ pub const NATIVE_PARK: &str = "native_park";
 pub const NATIVE_COMPLETION: &str = "native_completion";
 pub const NATIVE_ASSIGNMENT: &str = "native_execution_assignment";
 pub const NATIVE_SETTLEMENT_ONLY: &str = "native_settlement_only";
+pub const COGNITION_IMPORTED: &str = "cognition_imported";
 
 #[derive(Debug, Clone)]
 pub struct NativeTaskClaim {
@@ -222,6 +223,11 @@ impl Store {
                 let Some(mut task) = read_task(&tx, task_id)? else {
                     return Ok(None);
                 };
+                if task.memos.contains_key(COGNITION_IMPORTED) {
+                    // Replication is not a continuation decision. This fence
+                    // covers fresh execution and settlement/reconciliation.
+                    return Ok(None);
+                }
                 if task.is_terminal()
                     || task.abort_request.is_some()
                     || !matches!(task.state, TaskState::Pending { .. })
@@ -795,6 +801,7 @@ fn read_candidates_tx(conn: &rusqlite::Connection, limit: usize) -> Result<Vec<T
     let mut query = conn.prepare(
         "SELECT data FROM tasks
          WHERE json_extract(data,'$.kind')!='subject_publication'
+           AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
          ORDER BY created_at,task_id LIMIT ?1",
     )?;

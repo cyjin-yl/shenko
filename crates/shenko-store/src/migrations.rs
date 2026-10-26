@@ -60,6 +60,16 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     }
     conn.execute_batch(crate::intents::SCHEMA)?;
     conn.execute_batch(crate::child::SCHEMA)?;
+    // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
+    // a replicated fact, so it never enters a snapshot fingerprint.
+    conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;
+    ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
+    ensure_column(
+        conn,
+        "cognition_file_baselines",
+        "state",
+        "TEXT NOT NULL DEFAULT 'present'",
+    )?;
     Ok(())
 }
 
