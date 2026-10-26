@@ -939,8 +939,7 @@ impl Node {
                 continue;
             }
             seen.push(current.clone());
-            let Some(unit) =
-                self.installed_unit_version(&current.0, &current.1, &current.2)?
+            let Some(unit) = self.installed_unit_version(&current.0, &current.1, &current.2)?
             else {
                 continue;
             };
@@ -1220,11 +1219,7 @@ impl Node {
             // A departed group leader is not completion while a descendant
             // remains or a reader is still waiting for captured output.
             let group_finished = status.is_some() && process_group_gone(child.id());
-            if status.is_some()
-                && group_finished
-                && out_result.is_some()
-                && err_result.is_some()
-            {
+            if status.is_some() && group_finished && out_result.is_some() && err_result.is_some() {
                 break;
             }
             if Instant::now() >= deadline {
@@ -1242,18 +1237,18 @@ impl Node {
         // descendant can still hold a pipe, but its result is unknown rather
         // than an unbounded wait or a successful proof.
         if out_result.is_none() {
-            out_result = Some(
-                out_rx
-                    .recv_timeout(READ_TIMEOUT)
-                    .unwrap_or((Vec::new(), false, true)),
-            );
+            out_result = Some(out_rx.recv_timeout(READ_TIMEOUT).unwrap_or((
+                Vec::new(),
+                false,
+                true,
+            )));
         }
         if err_result.is_none() {
-            err_result = Some(
-                err_rx
-                    .recv_timeout(READ_TIMEOUT)
-                    .unwrap_or((Vec::new(), false, true)),
-            );
+            err_result = Some(err_rx.recv_timeout(READ_TIMEOUT).unwrap_or((
+                Vec::new(),
+                false,
+                true,
+            )));
         }
         let (out_bytes, out_truncated, out_failed) =
             out_result.unwrap_or((Vec::new(), false, true));
@@ -1890,7 +1885,9 @@ impl Node {
         if let Some(problem) = closure.unmaterialized.first() {
             return Ok((
                 ReadinessState::Unmaterialized,
-                format!("a required dependency is not materialized with its selected bytes: {problem}"),
+                format!(
+                    "a required dependency is not materialized with its selected bytes: {problem}"
+                ),
             ));
         }
         // Only a trial that ran the materialized artifact is a readiness
@@ -1944,8 +1941,7 @@ impl Node {
         if !workdir.is_dir() {
             return Ok((
                 ReadinessState::Unverified,
-                "the last local trial's effective working directory is no longer available"
-                    .into(),
+                "the last local trial's effective working directory is no longer available".into(),
             ));
         }
         let current = probe_environment(
@@ -2266,10 +2262,7 @@ fn advisory_notes(applicability: Option<&Applicability>) -> Value {
 
 /// Remote evidence retained for provenance. It never counts as local
 /// readiness.
-fn unit_remote_evidence(
-    conn: &rusqlite::Connection,
-    unit: &InstalledUnit,
-) -> Result<Vec<Value>> {
+fn unit_remote_evidence(conn: &rusqlite::Connection, unit: &InstalledUnit) -> Result<Vec<Value>> {
     let data: String = conn.query_row(
         "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
         params![unit.unit_id, unit.revision, unit.artifact_digest.0],
@@ -2540,11 +2533,13 @@ fn verify_artifact(path: &str, expected: &Digest) -> bool {
 }
 
 fn materialization_matches(unit: &InstalledUnit) -> bool {
-    unit.materialization.as_ref().is_some_and(|materialization| {
-        materialization.state == "materialized"
-            && !materialization.path.is_empty()
-            && verify_artifact(&materialization.path, &unit.artifact_digest)
-    })
+    unit.materialization
+        .as_ref()
+        .is_some_and(|materialization| {
+            materialization.state == "materialized"
+                && !materialization.path.is_empty()
+                && verify_artifact(&materialization.path, &unit.artifact_digest)
+        })
 }
 
 /// Stop a whole process group. A descendant that left the group may survive.

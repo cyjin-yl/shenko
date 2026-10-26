@@ -598,11 +598,17 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
         }
         SyncCommand::Sources => {
             stage_declared_recovery_sources(&data_dir, &store, &node)?;
-            println!("{}", json!({"sources":store.recovery_sources()?,"provider_activated":false}));
+            println!(
+                "{}",
+                json!({"sources":store.recovery_sources()?,"provider_activated":false})
+            );
         }
         SyncCommand::RecoverSource { source_id, output } => {
             let source = store.restore_sqlite_recovery_source(&source_id, &output)?;
-            println!("{}", json!({"source":source,"output":output,"verified":true,"provider_activated":false}));
+            println!(
+                "{}",
+                json!({"source":source,"output":output,"verified":true,"provider_activated":false})
+            );
         }
         SyncCommand::Push => {
             drop(node);

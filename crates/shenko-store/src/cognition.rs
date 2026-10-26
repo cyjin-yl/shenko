@@ -62,13 +62,13 @@ use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
 use shenko_types::task::{DispatchEligibility, TaskRecord, TaskState};
 
+use crate::cas::ContentStore;
+use crate::child::COGNITION_IMPORTED;
 use crate::cognition_archive::{
     CognitionDerivative, CognitionFileDescriptor, CognitionFileOrigin, CognitionGap,
     CognitionGitDescriptor, CognitionManifest, CognitionObjectDescriptor, CognitionRow,
     read_archive, write_manifest, write_payload,
 };
-use crate::cas::ContentStore;
-use crate::child::COGNITION_IMPORTED;
 use crate::store::Store;
 
 /// Local bookkeeping of the replication exchange, plus the declared recovery
@@ -351,7 +351,10 @@ impl CognitionImportOutcome {
             note: if self.conflicts.is_empty() {
                 None
             } else {
-                Some(format!("{} conflicting facts kept on both sides", self.conflicts.len()))
+                Some(format!(
+                    "{} conflicting facts kept on both sides",
+                    self.conflicts.len()
+                ))
             },
         }
     }
@@ -457,7 +460,13 @@ const TABLES: &[TableSpec] = &[
     TableSpec {
         name: "subject_genesis",
         key: &["genesis_id"],
-        columns: &["genesis_id", "subject_id", "bootstrap_id", "data", "created_at"],
+        columns: &[
+            "genesis_id",
+            "subject_id",
+            "bootstrap_id",
+            "data",
+            "created_at",
+        ],
         local_seq: Some("created_commit_seq"),
         kind: RowKind::Verbatim,
     },
@@ -506,7 +515,13 @@ const TABLES: &[TableSpec] = &[
     TableSpec {
         name: "subject_event_dispositions",
         key: &["branch_id", "event_id"],
-        columns: &["branch_id", "event_id", "step_id", "disposition", "commit_seq"],
+        columns: &[
+            "branch_id",
+            "event_id",
+            "step_id",
+            "disposition",
+            "commit_seq",
+        ],
         local_seq: None,
         kind: RowKind::Verbatim,
     },
@@ -776,10 +791,7 @@ impl Store {
     /// verified object by object, recursively: every referenced object must
     /// exist and must hash to its digest, otherwise the snapshot is
     /// incomplete and cannot be claimed recoverable.
-    pub fn export_cognition(
-        &self,
-        options: &CognitionSnapshotOptions,
-    ) -> Result<CognitionExport> {
+    pub fn export_cognition(&self, options: &CognitionSnapshotOptions) -> Result<CognitionExport> {
         let collected = self.collect_snapshot(options, true)?;
         let fingerprint = fingerprint_of(&collected);
         let source_snapshot_seq = collected
@@ -902,7 +914,9 @@ impl Store {
             "cognition snapshot covers memory files but no memory root was given"
         );
         ensure!(
-            !manifest.file_origins.contains(&CognitionFileOrigin::Workspace)
+            !manifest
+                .file_origins
+                .contains(&CognitionFileOrigin::Workspace)
                 || options.workspace_root.is_some(),
             "cognition snapshot covers workspace files but no workspace root was given"
         );
@@ -1018,8 +1032,7 @@ impl Store {
             .optional()?;
         let matches_sent = match &sent {
             Some((Some(fingerprint), Some(high_water))) => {
-                fingerprint == &ack.fingerprint.0
-                    && *high_water == ack.high_water.0 as i64
+                fingerprint == &ack.fingerprint.0 && *high_water == ack.high_water.0 as i64
             }
             _ => false,
         };
@@ -1174,7 +1187,9 @@ impl Store {
         };
         let mut out = Vec::new();
         for peer in peers {
-            let peer_id: EntityId = peer.parse().map_err(|_| anyhow!("invalid peer id {peer}"))?;
+            let peer_id: EntityId = peer
+                .parse()
+                .map_err(|_| anyhow!("invalid peer id {peer}"))?;
             out.push(self.cognition_peer_status(peer_id, options)?);
         }
         Ok(out)
@@ -1194,7 +1209,8 @@ impl Store {
                 detail: row.get(2)?,
             })
         })?;
-        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(Into::into)
     }
 
     /// Where an imported subject came from.
@@ -1223,7 +1239,7 @@ impl Store {
             )
             .optional()?;
         let Some((source_ledger_id, delivered_by, fingerprint, genesis_id, imported_at)) = row
- else {
+        else {
             return Ok(None);
         };
         Ok(Some(CognitionSubjectOrigin {
@@ -1277,7 +1293,8 @@ impl Store {
         let retired_roots = {
             let conn = self.ledger.conn.lock();
             let mut stmt = conn.prepare("SELECT path FROM cognition_retirements")?;
-            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?
+            let rows = stmt
+                .query_map([], |row| row.get::<_, String>(0))?
                 .collect::<std::result::Result<Vec<_>, _>>()?;
             rows.into_iter().map(PathBuf::from).collect::<BTreeSet<_>>()
         };
@@ -1285,12 +1302,24 @@ impl Store {
         let mut gaps: Vec<CognitionGap> = Vec::new();
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
-            collect_files(root, CognitionFileOrigin::Memory, &retired_roots, &mut files, &mut gaps)?;
+            collect_files(
+                root,
+                CognitionFileOrigin::Memory,
+                &retired_roots,
+                &mut files,
+                &mut gaps,
+            )?;
         }
         if !options.workspace_roots.is_empty() {
             file_origins.push(CognitionFileOrigin::Workspace);
             for root in &options.workspace_roots {
-                collect_files(root, CognitionFileOrigin::Workspace, &retired_roots, &mut files, &mut gaps)?;
+                collect_files(
+                    root,
+                    CognitionFileOrigin::Workspace,
+                    &retired_roots,
+                    &mut files,
+                    &mut gaps,
+                )?;
             }
         }
         file_origins.sort_unstable();
@@ -1389,13 +1418,17 @@ impl Store {
         }
         let derivatives = read_derivatives(&tx)?;
         let agent_id: Option<String> = tx
-            .query_row("SELECT subject_id FROM subject_genesis LIMIT 1", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT subject_id FROM subject_genesis LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
             .optional()
             .map_err(db)?;
         let high_water: i64 = tx
-            .query_row("SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| row.get(0))
+            .query_row("SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| {
+                row.get(0)
+            })
             .map_err(db)?;
         tx.commit().map_err(db)?;
         let agent_id = match agent_id {
@@ -1509,8 +1542,7 @@ impl Store {
                     continue;
                 }
             };
-            if bytes.len() as u64 != descriptor.bytes
-                || Digest::blake3(&bytes) != descriptor.digest
+            if bytes.len() as u64 != descriptor.bytes || Digest::blake3(&bytes) != descriptor.digest
             {
                 gaps.push(CognitionGap {
                     kind: "corrupt_retained_object".into(),
@@ -1958,8 +1990,8 @@ impl Store {
         target: &Path,
         expected: &Digest,
     ) -> Result<()> {
-        let retirement_root = fs::canonicalize(root)?
-            .join(format!(".shenko-retired-{}", EntityId::new()));
+        let retirement_root =
+            fs::canonicalize(root)?.join(format!(".shenko-retired-{}", EntityId::new()));
         fs::create_dir(&retirement_root)?;
         self.ledger.conn.lock().execute(
             "INSERT INTO cognition_retirements(path) VALUES(?1)",
@@ -1991,11 +2023,7 @@ impl Store {
         Ok(())
     }
 
-    fn read_file_baselines(
-        &self,
-        peer_id: EntityId,
-        origin: &str,
-    ) -> Result<Vec<FileBaseline>> {
+    fn read_file_baselines(&self, peer_id: EntityId, origin: &str) -> Result<Vec<FileBaseline>> {
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT path,digest,state FROM cognition_file_baselines
@@ -2094,7 +2122,8 @@ impl Store {
         let Some((descriptor, bytes)) = git_history.as_ref() else {
             return Ok((false, None));
         };
-        let temp = std::env::temp_dir().join(format!("shenko-cognition-{}.bundle", EntityId::new()));
+        let temp =
+            std::env::temp_dir().join(format!("shenko-cognition-{}.bundle", EntityId::new()));
         fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
         let outcome = self.restore_git_history_inner(root, peer_id, descriptor, &temp);
         let _ = fs::remove_file(&temp);
@@ -2187,8 +2216,10 @@ impl Store {
             let fast_forward = if replicated == local_head {
                 true
             } else {
-                let (ok, _, _) =
-                    git(root, &["merge-base", "--is-ancestor", &local_head, &replicated])?;
+                let (ok, _, _) = git(
+                    root,
+                    &["merge-base", "--is-ancestor", &local_head, &replicated],
+                )?;
                 ok
             };
             if fast_forward {
@@ -2276,11 +2307,7 @@ impl Store {
              ON CONFLICT(peer_id,table_name,entity_key) DO UPDATE SET
                 row_values=excluded.row_values,
                 updated_at=excluded.updated_at",
-            params![
-                peer_id.to_string(),
-                json,
-                chrono::Utc::now().to_rfc3339(),
-            ],
+            params![peer_id.to_string(), json, chrono::Utc::now().to_rfc3339(),],
         )
         .map_err(db)?;
         Ok(())
@@ -2575,7 +2602,9 @@ fn transform_task(data: &str) -> Result<(String, Option<u64>)> {
             }
             let checkpoint = checkpoint_of(&task.state);
             let source_state = serde_json::to_string(&task.state)?;
-            task.state = TaskState::Pending { checkpoint_ref: checkpoint };
+            task.state = TaskState::Pending {
+                checkpoint_ref: checkpoint,
+            };
             task.dispatch_eligibility = DispatchEligibility::Parked {
                 reason_ref: task.task_id,
                 until_utc: None,
@@ -2588,10 +2617,7 @@ fn transform_task(data: &str) -> Result<(String, Option<u64>)> {
                     "note": "imported work is parked on the receiving store",
                 }),
             );
-            Ok((
-                serde_json::to_string(&task)?,
-                Some(task.record_revision.0),
-            ))
+            Ok((serde_json::to_string(&task)?, Some(task.record_revision.0)))
         }
         Err(_) => {
             // The stored fact stays, but it must not become dispatchable here.
@@ -2654,7 +2680,10 @@ fn set_value(row: &mut CognitionRow, column: &str, value: Option<String>) {
 fn read_table(conn: &rusqlite::Connection, spec: &TableSpec) -> Result<Vec<CognitionRow>> {
     let columns = spec.columns.join(", ");
     let order = spec.key.join(", ");
-    let sql = format!("SELECT {columns} FROM {table} ORDER BY {order}", table = spec.name);
+    let sql = format!(
+        "SELECT {columns} FROM {table} ORDER BY {order}",
+        table = spec.name
+    );
     let mut stmt = conn.prepare(&sql).map_err(db)?;
     let mut rows: Vec<CognitionRow> = Vec::new();
     let mut cursor = stmt.query([]).map_err(db)?;
@@ -2711,7 +2740,9 @@ fn column_text(row: &rusqlite::Row<'_>, index: usize) -> Result<Option<String>> 
         ValueRef::Integer(value) => Ok(Some(value.to_string())),
         ValueRef::Real(value) => Ok(Some(value.to_string())),
         ValueRef::Text(value) => Ok(Some(String::from_utf8_lossy(value).into_owned())),
-        ValueRef::Blob(_) => Err(anyhow!("column {index} holds binary data and is not replicated")),
+        ValueRef::Blob(_) => Err(anyhow!(
+            "column {index} holds binary data and is not replicated"
+        )),
     }
 }
 
@@ -2754,23 +2785,23 @@ fn insert_row(
     seq: LedgerSeq,
 ) -> Result<()> {
     let mut columns: Vec<&str> = spec.columns.to_vec();
-    let mut values: Vec<Option<String>> = row
-        .values
-        .iter()
-        .map(|(_, value)| value.clone())
-        .collect();
+    let mut values: Vec<Option<String>> =
+        row.values.iter().map(|(_, value)| value.clone()).collect();
     if let Some(local_seq) = spec.local_seq {
         columns.push(local_seq);
         values.push(Some(seq.0.to_string()));
     }
-    let placeholders: Vec<String> = (1..=columns.len()).map(|index| format!("?{index}")).collect();
+    let placeholders: Vec<String> = (1..=columns.len())
+        .map(|index| format!("?{index}"))
+        .collect();
     let sql = format!(
         "INSERT INTO {table} ({columns}) VALUES ({placeholders})",
         table = spec.name,
         columns = columns.join(", "),
         placeholders = placeholders.join(", ")
     );
-    tx.execute(&sql, rusqlite::params_from_iter(values)).map_err(db)?;
+    tx.execute(&sql, rusqlite::params_from_iter(values))
+        .map_err(db)?;
     Ok(())
 }
 
@@ -2783,11 +2814,8 @@ fn update_row(
     seq: LedgerSeq,
 ) -> Result<()> {
     let mut columns: Vec<&str> = spec.columns.to_vec();
-    let mut values: Vec<Option<String>> = row
-        .values
-        .iter()
-        .map(|(_, value)| value.clone())
-        .collect();
+    let mut values: Vec<Option<String>> =
+        row.values.iter().map(|(_, value)| value.clone()).collect();
     if let Some(local_seq) = spec.local_seq {
         columns.push(local_seq);
         values.push(Some(seq.0.to_string()));
@@ -3085,7 +3113,9 @@ fn object_ref_from(map: &serde_json::Map<String, serde_json::Value>) -> Option<O
     let digest = parse_digest(digest)?;
     let bytes = map.get("bytes").and_then(serde_json::Value::as_u64)?;
     let media_type = map.get("media_type").and_then(serde_json::Value::as_str)?;
-    let store_namespace = map.get("store_namespace").and_then(serde_json::Value::as_str)?;
+    let store_namespace = map
+        .get("store_namespace")
+        .and_then(serde_json::Value::as_str)?;
     let codec: SchemaRef = serde_json::from_value(map.get("codec")?.clone()).ok()?;
     Some(ObjectRef {
         digest,
@@ -3229,9 +3259,7 @@ fn collect_files(
 ///
 /// The bundle carries the objects and the refs only. The repository's own
 /// configuration, and with it any local credential, never leaves the node.
-fn capture_git_history(
-    root: &Path,
-) -> Result<Option<(CognitionGitDescriptor, Vec<u8>)>> {
+fn capture_git_history(root: &Path) -> Result<Option<(CognitionGitDescriptor, Vec<u8>)>> {
     if !root.join(".git").exists() {
         return Ok(None);
     }
@@ -3286,9 +3314,8 @@ fn capture_git_history(
         }
     }
     ensure!(
-        refs.iter().any(|(name, sha)| {
-            name == &head && sha == head_id.trim()
-        }),
+        refs.iter()
+            .any(|(name, sha)| { name == &head && sha == head_id.trim() }),
         "memory repository HEAD {head} is not bound to its advertised commit"
     );
     let descriptor = CognitionGitDescriptor {
@@ -3317,11 +3344,10 @@ fn git(root: &Path, args: &[&str]) -> Result<(bool, String, String)> {
 }
 
 fn verify_restored_file(target: &Path, descriptor: &CognitionFileDescriptor) -> Result<()> {
-    let retained = fs::read(target)
-        .with_context(|| format!("read restored file {}", target.display()))?;
+    let retained =
+        fs::read(target).with_context(|| format!("read restored file {}", target.display()))?;
     ensure!(
-        retained.len() as u64 == descriptor.bytes
-            && Digest::blake3(&retained) == descriptor.digest,
+        retained.len() as u64 == descriptor.bytes && Digest::blake3(&retained) == descriptor.digest,
         "restored file {} does not match its verified descriptor",
         target.display()
     );

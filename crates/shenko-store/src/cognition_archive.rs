@@ -199,18 +199,18 @@ where
     F: FnMut(&CognitionObjectDescriptor, &[u8]) -> Result<()>,
 {
     let magic = read_line(reader)?;
-    ensure!(
-        magic == ARCHIVE_MAGIC,
-        "not a cognition archive: {magic}"
-    );
+    ensure!(magic == ARCHIVE_MAGIC, "not a cognition archive: {magic}");
     let (kind, args) = read_frame_header(reader)?;
-    ensure!(kind == "manifest", "cognition archive must start with its manifest");
+    ensure!(
+        kind == "manifest",
+        "cognition archive must start with its manifest"
+    );
     let length = frame_length(&args)?;
     let mut manifest_bytes = vec![0u8; length];
     reader.read_exact(&mut manifest_bytes)?;
     expect_newline(reader)?;
-    let manifest: CognitionManifest = serde_json::from_slice(&manifest_bytes)
-        .context("decode cognition archive manifest")?;
+    let manifest: CognitionManifest =
+        serde_json::from_slice(&manifest_bytes).context("decode cognition archive manifest")?;
     ensure!(
         manifest.schema == ARCHIVE_SCHEMA,
         "unsupported cognition archive schema {}",
@@ -332,6 +332,9 @@ fn frame_length(args: &[String]) -> Result<usize> {
 fn expect_newline<R: Read>(reader: &mut R) -> Result<()> {
     let mut byte = [0u8; 1];
     let read = reader.read(&mut byte)?;
-    ensure!(read == 1 && byte[0] == b'\n', "cognition archive frame is not terminated");
+    ensure!(
+        read == 1 && byte[0] == b'\n',
+        "cognition archive frame is not terminated"
+    );
     Ok(())
 }
