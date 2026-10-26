@@ -35,7 +35,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// Wire and storage schema of the installation-unit records.
-pub const UNIT_SCHEMA: u32 = 1;
+pub const UNIT_SCHEMA: u32 = 2;
 
 /// Tables owned by this module. The integration owner adds this DDL to the
 /// node create batch and to the installation fingerprint, and migrates an
@@ -203,13 +203,14 @@ pub struct UnitDescriptor {
 }
 
 /// One unit inside a transferable package: descriptor, actual bytes and the
-/// origin node's own trial evidence.
+/// origin node's safe trial provenance. Raw arguments, environment details,
+/// paths and captured output never leave the node's local evidence log.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct UnitPackage {
     pub unit: UnitDescriptor,
     pub artifact_base64: String,
-    pub evidence: Vec<TrialEvidence>,
+    pub evidence: Vec<TrialProvenance>,
 }
 
 /// A transferable closure: the requested unit plus the dependency units this
@@ -377,6 +378,55 @@ pub struct TrialEvidence {
     pub reason: String,
 }
 
+/// The explicit, node-safe projection of local trial evidence that may travel
+/// with a package. This is deliberately a separate type rather than a set of
+/// redaction heuristics: arbitrary arguments, environment probes, local paths,
+/// free-form trial descriptions and captured stdout/stderr cannot be exported
+/// through this interface.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct TrialProvenance {
+    pub attempt_id: String,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+    pub outcome: TrialOutcome,
+    pub environment_digest: Digest,
+    pub exit_code: Option<i32>,
+    pub signal: Option<i32>,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+    pub interrupted: bool,
+    pub artifact_bound: bool,
+    pub artifact_verified_before: bool,
+    pub artifact_verified_after: bool,
+    pub reader_failed: bool,
+    pub group_signalled: bool,
+    pub descendants_unknown: bool,
+}
+
+impl From<&TrialEvidence> for TrialProvenance {
+    fn from(evidence: &TrialEvidence) -> Self {
+        Self {
+            attempt_id: evidence.attempt_id.clone(),
+            started_at: evidence.started_at.clone(),
+            finished_at: evidence.finished_at.clone(),
+            outcome: evidence.outcome,
+            environment_digest: evidence.environment_digest.clone(),
+            exit_code: evidence.exit_code,
+            signal: evidence.signal,
+            stdout_truncated: evidence.stdout_truncated,
+            stderr_truncated: evidence.stderr_truncated,
+            interrupted: evidence.interrupted,
+            artifact_bound: evidence.artifact_bound,
+            artifact_verified_before: evidence.artifact_verified_before,
+            artifact_verified_after: evidence.artifact_verified_after,
+            reader_failed: evidence.reader_failed,
+            group_signalled: evidence.group_signalled,
+            descendants_unknown: evidence.descendants_unknown,
+        }
+    }
+}
+
 // ---------------------------------------------------------------- request ---
 
 /// Request surface of the installation-unit handler.
@@ -427,8 +477,9 @@ pub enum UnitRequest {
 struct StoredVersion {
     unit: UnitDescriptor,
     /// Evidence produced on the origin node. It is retained as provenance and
-    /// never counts as local readiness.
-    remote_evidence: Vec<TrialEvidence>,
+    /// never counts as local readiness. Values also preserve schema-1 records
+    /// whose raw captures remain node-local and are never projected on export.
+    remote_evidence: Vec<Value>,
     imported_at: String,
     origin_node: Option<String>,
 }
@@ -450,6 +501,13 @@ struct InstalledUnit {
     descriptor: UnitDescriptor,
     edges: Vec<ResolvedDependency>,
     materialization: Option<Materialization>,
+}
+
+#[derive(Default)]
+struct RequiredClosure {
+    unresolved: Vec<String>,
+    unmaterialized: Vec<String>,
+    root_materialized: bool,
 }
 
 // ----------------------------------------------------------------- node ----
@@ -540,7 +598,7 @@ impl Node {
         let root = normalize_root(package_root)?;
         // Verify every member before touching storage: a package with a wrong
         // digest is rejected as a whole.
-        let mut members: Vec<(UnitDescriptor, Vec<u8>, Vec<TrialEvidence>)> = Vec::new();
+        let mut members: Vec<(UnitDescriptor, Vec<u8>, Vec<TrialProvenance>)> = Vec::new();
         for package in &export.packages {
             let bytes = b64_decode(&package.artifact_base64)?;
             ensure!(
@@ -623,7 +681,10 @@ impl Node {
                 );
                 let record = StoredVersion {
                     unit: descriptor.clone(),
-                    remote_evidence: _evidence.clone(),
+                    remote_evidence: _evidence
+                        .iter()
+                        .map(serde_json::to_value)
+                        .collect::<serde_json::Result<Vec<_>>>()?,
                     imported_at: imported_at.clone(),
                     origin_node: export.origin_node.clone(),
                 };
@@ -786,7 +847,8 @@ impl Node {
     }
 
     fn status_value(&self, unit: &InstalledUnit) -> Result<Value> {
-        let (readiness, reason) = self.readiness_of(unit)?;
+        let closure = self.required_closure(unit)?;
+        let (readiness, reason) = self.readiness_with_closure(unit, &closure)?;
         let local_trials = self.local_trial_count(&unit.unit_id, &unit.artifact_digest)?;
         let remote_evidence = unit_remote_evidence(&self.conn, unit)?.len() as u32;
         Ok(json!({
@@ -796,7 +858,7 @@ impl Node {
             "artifact_digest": unit.artifact_digest,
             "installed": true,
             "enabled": unit.enabled,
-            "materialized": unit.materialization.as_ref().map(|m| m.state == "materialized").unwrap_or(false),
+            "materialized": closure.root_materialized,
             "package_root": unit.materialization.as_ref().map(|m| m.root.clone()).unwrap_or_default(),
             "package_path": unit.materialization.as_ref().map(|m| m.path.clone()).unwrap_or_default(),
             "materialization_detail": unit.materialization.as_ref().map(|m| m.detail.clone()).unwrap_or_default(),
@@ -804,7 +866,7 @@ impl Node {
             "config": unit.descriptor.config,
             "applicability": unit.descriptor.applicability,
             "advisory": advisory_notes(unit.descriptor.applicability.as_ref()),
-            "closure": closure_value(&unit.edges),
+            "closure": closure_value(&unit.edges, &closure),
             "readiness": {
                 "state": readiness,
                 "reason": reason,
@@ -866,34 +928,44 @@ impl Node {
     /// Build the transferable closure of one installed unit.
     fn export_unit_closure(&self, root: &InstalledUnit) -> Result<UnitExport> {
         let mut packages: Vec<UnitPackage> = Vec::new();
-        let mut seen: Vec<String> = Vec::new();
-        let mut queue: Vec<String> = vec![root.unit_id.clone()];
+        let mut seen: Vec<(String, String, Digest)> = Vec::new();
+        let mut queue: Vec<(String, String, Digest)> = vec![(
+            root.unit_id.clone(),
+            root.revision.clone(),
+            root.artifact_digest.clone(),
+        )];
         while let Some(current) = queue.pop() {
             if seen.contains(&current) || packages.len() >= MAX_PACKAGES {
                 continue;
             }
             seen.push(current.clone());
-            let Some(unit) = self.installed_unit(&current)? else {
+            let Some(unit) =
+                self.installed_unit_version(&current.0, &current.1, &current.2)?
+            else {
                 continue;
             };
             let bytes = self.object_bytes(&unit.artifact_digest)?;
             packages.push(UnitPackage {
                 unit: unit.descriptor.clone(),
                 artifact_base64: b64_encode(&bytes),
-                evidence: self.local_evidence(&unit.unit_id, &unit.artifact_digest)?,
+                evidence: self.local_provenance(&unit.unit_id, &unit.artifact_digest)?,
             });
             for edge in &unit.edges {
-                if let Some(selected) = &edge.selected_unit_id {
-                    if !seen.contains(selected) {
-                        queue.push(selected.clone());
+                if edge.status == EdgeStatus::Satisfied {
+                    if let (Some(unit_id), Some(revision), Some(digest)) = (
+                        &edge.selected_unit_id,
+                        &edge.selected_revision,
+                        &edge.selected_artifact_digest,
+                    ) {
+                        let selected = (unit_id.clone(), revision.clone(), digest.clone());
+                        if !seen.contains(&selected) {
+                            queue.push(selected);
+                        }
                     }
                 }
             }
         }
-        let origin_node: Option<String> = self
-            .conn
-            .query_row("SELECT v FROM meta WHERE k='node'", [], |r| r.get(0))
-            .optional()?;
+        let origin_node = self.local_node_id()?.map(|node| node.to_string());
         Ok(UnitExport {
             schema: UNIT_SCHEMA,
             root_unit_id: root.unit_id.clone(),
@@ -968,7 +1040,9 @@ impl Node {
             Some(path) => references_artifact(&expanded, path),
             None => false,
         };
-        let environment = probe_environment(&expanded[0])?;
+        let workdir = trial_workdir(cwd, &unit)?;
+        let workdir_text = workdir.to_string_lossy().into_owned();
+        let environment = probe_environment(&expanded[0], &workdir)?;
         let attempt_id = EntityId::new().to_string();
         let started_at = now();
         let owner_pid = i64::from(std::process::id());
@@ -976,7 +1050,7 @@ impl Node {
         let attempt_data = json!({
             "argv": expanded,
             "requested_argv": argv,
-            "cwd": cwd,
+            "cwd": workdir_text,
             "environment": environment,
             "risk": risk,
             "benefit": benefit,
@@ -1024,19 +1098,6 @@ impl Node {
             (Some(path), true) => verify_artifact(path, &unit.artifact_digest),
             _ => false,
         };
-        let workdir = match cwd {
-            Some(value) => PathBuf::from(value),
-            None => self
-                .installed_unit(unit_id)?
-                .and_then(|u| u.materialization.map(|m| PathBuf::from(m.path)))
-                .filter(|p| !p.as_os_str().is_empty())
-                .map(|p| {
-                    p.parent()
-                        .map(Path::to_path_buf)
-                        .unwrap_or_else(|| p.clone())
-                })
-                .unwrap_or_else(|| PathBuf::from(".")),
-        };
         let mut command = Command::new(&expanded[0]);
         command
             .args(&expanded[1..])
@@ -1060,7 +1121,7 @@ impl Node {
                     environment: environment.clone(),
                     argv: expanded.clone(),
                     requested_argv: argv.to_vec(),
-                    cwd: cwd.map(|value| value.to_string()),
+                    cwd: Some(workdir_text.clone()),
                     risk: risk.to_string(),
                     benefit: benefit.to_string(),
                     consequence: consequence.to_string(),
@@ -1121,40 +1182,85 @@ impl Node {
         let mut timed_out = false;
         let mut group_signalled = false;
         let mut wait_error: Option<String> = None;
-        let status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
-                Ok(None) => {
-                    if Instant::now() >= deadline {
-                        timed_out = true;
-                        // Stop the whole group: a descendant that still holds
-                        // the output pipe must not keep the trial alive.
+        let mut status = None;
+        let mut out_result = None;
+        let mut err_result = None;
+        loop {
+            if status.is_none() {
+                match child.try_wait() {
+                    Ok(Some(done)) => status = Some(done),
+                    Ok(None) => {}
+                    Err(e) => {
+                        wait_error = Some(format!("{e}"));
                         group_signalled = signal_process_group(child.id());
                         let _ = child.kill();
-                        break child.wait().ok();
+                        status = child.wait().ok();
+                        break;
                     }
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(e) => {
-                    wait_error = Some(format!("{e}"));
-                    group_signalled = signal_process_group(child.id());
-                    let _ = child.kill();
-                    break child.wait().ok();
                 }
             }
-        };
-        // The readers are bounded: a descendant that escaped the group cannot
-        // hold the trial open forever, and an unread output is never treated
-        // as a successful result.
+            if out_result.is_none() {
+                match out_rx.try_recv() {
+                    Ok(result) => out_result = Some(result),
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        out_result = Some((Vec::new(), false, true));
+                    }
+                }
+            }
+            if err_result.is_none() {
+                match err_rx.try_recv() {
+                    Ok(result) => err_result = Some(result),
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        err_result = Some((Vec::new(), false, true));
+                    }
+                }
+            }
+            // A departed group leader is not completion while a descendant
+            // remains or a reader is still waiting for captured output.
+            let group_finished = status.is_some() && process_group_gone(child.id());
+            if status.is_some()
+                && group_finished
+                && out_result.is_some()
+                && err_result.is_some()
+            {
+                break;
+            }
+            if Instant::now() >= deadline {
+                timed_out = true;
+                group_signalled = signal_process_group(child.id());
+                if status.is_none() {
+                    let _ = child.kill();
+                    status = child.wait().ok();
+                }
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        // After a group stop, reader teardown remains bounded. An escaped
+        // descendant can still hold a pipe, but its result is unknown rather
+        // than an unbounded wait or a successful proof.
+        if out_result.is_none() {
+            out_result = Some(
+                out_rx
+                    .recv_timeout(READ_TIMEOUT)
+                    .unwrap_or((Vec::new(), false, true)),
+            );
+        }
+        if err_result.is_none() {
+            err_result = Some(
+                err_rx
+                    .recv_timeout(READ_TIMEOUT)
+                    .unwrap_or((Vec::new(), false, true)),
+            );
+        }
         let (out_bytes, out_truncated, out_failed) =
-            out_rx
-                .recv_timeout(READ_TIMEOUT)
-                .unwrap_or((Vec::new(), false, true));
+            out_result.unwrap_or((Vec::new(), false, true));
         let (err_bytes, err_truncated, err_failed) =
-            err_rx
-                .recv_timeout(READ_TIMEOUT)
-                .unwrap_or((Vec::new(), false, true));
+            err_result.unwrap_or((Vec::new(), false, true));
         let reader_failed = out_failed || err_failed;
+        let descendants_unknown = timed_out || group_signalled || reader_failed;
         let artifact_verified_after = match (&artifact, artifact_bound) {
             (Some(path), true) => verify_artifact(path, &unit.artifact_digest),
             _ => false,
@@ -1181,7 +1287,7 @@ impl Node {
             TrialOutcome::Failed => "the trial command ran and reported failure",
             TrialOutcome::Signaled => "the trial command was terminated by a signal",
             TrialOutcome::TimedOut => {
-                "the trial command exceeded its bounded deadline and its process group was stopped"
+                "the trial exceeded its bounded deadline while waiting for the command, descendants, or captured output"
             }
             TrialOutcome::Unknown => {
                 "the trial result could not be read completely, so its outcome is unknown"
@@ -1196,7 +1302,7 @@ impl Node {
             environment: environment.clone(),
             argv: expanded.clone(),
             requested_argv: argv.to_vec(),
-            cwd: cwd.map(|value| value.to_string()),
+            cwd: Some(workdir_text.clone()),
             risk: risk.to_string(),
             benefit: benefit.to_string(),
             consequence: consequence.to_string(),
@@ -1213,7 +1319,7 @@ impl Node {
             artifact_verified_after,
             reader_failed,
             group_signalled,
-            descendants_unknown: group_signalled,
+            descendants_unknown,
             owner_pid,
             owner_runtime: owner_runtime.clone(),
             reason: reason.to_string(),
@@ -1230,6 +1336,7 @@ impl Node {
             "exit_code": exit_code,
             "signal": signal,
             "argv": expanded,
+            "cwd": workdir_text,
             "artifact_bound": artifact_bound,
             "artifact_path": artifact,
             "artifact_verified_before": artifact_verified_before,
@@ -1237,7 +1344,7 @@ impl Node {
             "readiness_proof": readiness_proof,
             "reader_failed": reader_failed,
             "group_signalled": group_signalled,
-            "descendants_unknown": group_signalled,
+            "descendants_unknown": descendants_unknown,
             "stdout": stdout_text,
             "stderr": stderr_text,
             "stdout_truncated": out_truncated,
@@ -1298,7 +1405,7 @@ impl Node {
         ) in pending
         {
             let mine = owner_runtime == my_runtime && owner_pid == my_pid;
-            if !mine && !process_gone(owner_pid) {
+            if !mine && !process_gone(owner_pid, &owner_runtime) {
                 // Another command may still be running this attempt.
                 continue;
             }
@@ -1542,11 +1649,49 @@ impl Node {
         let Some((revision, digest, enabled)) = row else {
             return Ok(None);
         };
-        let data: String = self.conn.query_row(
-            "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
-            params![unit_id, revision, digest],
-            |r| r.get(0),
-        )?;
+        let unit = self
+            .load_installed_unit(unit_id, &revision, &Digest(digest), enabled != 0)?
+            .context("current unit version is not retained")?;
+        Ok(Some(unit))
+    }
+
+    fn installed_unit_version(
+        &self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: &Digest,
+    ) -> Result<Option<InstalledUnit>> {
+        let enabled = self
+            .conn
+            .query_row(
+                "SELECT enabled FROM unit_current WHERE unit_id=?1",
+                [unit_id],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .unwrap_or(0)
+            != 0;
+        self.load_installed_unit(unit_id, revision, artifact_digest, enabled)
+    }
+
+    fn load_installed_unit(
+        &self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: &Digest,
+        enabled: bool,
+    ) -> Result<Option<InstalledUnit>> {
+        let data: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit_id, revision, artifact_digest.0],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else {
+            return Ok(None);
+        };
         let stored: StoredVersion = serde_json::from_str(&data)?;
         let edges: Vec<ResolvedDependency> = self
             .conn
@@ -1562,7 +1707,7 @@ impl Node {
             .conn
             .query_row(
                 "SELECT root,path,state,detail FROM unit_materializations WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
-                params![unit_id, revision, digest],
+                params![unit_id, revision, artifact_digest.0],
                 |r| {
                     Ok(Materialization {
                         root: r.get(0)?,
@@ -1575,9 +1720,9 @@ impl Node {
             .optional()?;
         Ok(Some(InstalledUnit {
             unit_id: unit_id.to_string(),
-            revision,
-            artifact_digest: Digest(digest),
-            enabled: enabled != 0,
+            revision: revision.to_string(),
+            artifact_digest: artifact_digest.clone(),
+            enabled,
             descriptor: stored.unit,
             edges,
             materialization,
@@ -1606,7 +1751,7 @@ impl Node {
         Ok(count as u32)
     }
 
-    fn local_evidence(&self, unit_id: &str, digest: &Digest) -> Result<Vec<TrialEvidence>> {
+    fn local_provenance(&self, unit_id: &str, digest: &Digest) -> Result<Vec<TrialProvenance>> {
         let rows: Vec<String> = self
             .conn
             .prepare(
@@ -1616,7 +1761,10 @@ impl Node {
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows
             .into_iter()
-            .map(|value| serde_json::from_str::<TrialEvidence>(&value))
+            .map(|value| {
+                serde_json::from_str::<TrialEvidence>(&value)
+                    .map(|evidence| TrialProvenance::from(&evidence))
+            })
             .collect::<serde_json::Result<Vec<_>>>()?)
     }
 
@@ -1625,20 +1773,105 @@ impl Node {
     /// Only local trial evidence of the exact artifact digest counts. Remote
     /// evidence and imported success never make a unit ready here.
     fn readiness_of(&self, unit: &InstalledUnit) -> Result<(ReadinessState, String)> {
-        if unit.edges.iter().any(|edge| {
-            edge.strength == DependencyStrength::Required && edge.status != EdgeStatus::Satisfied
-        }) {
-            return Ok((
-                ReadinessState::Unresolved,
-                "a required dependency is unresolved on this node".into(),
+        let closure = self.required_closure(unit)?;
+        self.readiness_with_closure(unit, &closure)
+    }
+
+    fn required_closure(&self, root: &InstalledUnit) -> Result<RequiredClosure> {
+        let root_materialized = materialization_matches(root);
+        let mut closure = RequiredClosure {
+            root_materialized,
+            ..RequiredClosure::default()
+        };
+        if !root_materialized {
+            closure.unmaterialized.push(format!(
+                "{} revision {} does not have its selected artifact bytes",
+                root.unit_id, root.revision
             ));
         }
-        let materialized = unit
-            .materialization
-            .as_ref()
-            .map(|m| m.state == "materialized")
-            .unwrap_or(false);
-        if !materialized {
+        let mut visited = Vec::new();
+        self.inspect_required_dependencies(root, &mut visited, &mut closure)?;
+        Ok(closure)
+    }
+
+    fn inspect_required_dependencies(
+        &self,
+        unit: &InstalledUnit,
+        visited: &mut Vec<(String, String, Digest)>,
+        closure: &mut RequiredClosure,
+    ) -> Result<()> {
+        let current = (
+            unit.unit_id.clone(),
+            unit.revision.clone(),
+            unit.artifact_digest.clone(),
+        );
+        if visited.contains(&current) {
+            return Ok(());
+        }
+        visited.push(current);
+        for edge in unit
+            .edges
+            .iter()
+            .filter(|edge| edge.strength == DependencyStrength::Required)
+        {
+            if edge.status != EdgeStatus::Satisfied {
+                closure.unresolved.push(format!(
+                    "{} revision {} edge {}: {}",
+                    unit.unit_id, unit.revision, edge.edge_id, edge.reason
+                ));
+                continue;
+            }
+            let selected = match (
+                &edge.selected_unit_id,
+                &edge.selected_revision,
+                &edge.selected_artifact_digest,
+            ) {
+                (Some(unit_id), Some(revision), Some(digest)) => {
+                    (unit_id.clone(), revision.clone(), digest.clone())
+                }
+                _ => {
+                    closure.unresolved.push(format!(
+                        "{} revision {} edge {} has an incomplete selected reference",
+                        unit.unit_id, unit.revision, edge.edge_id
+                    ));
+                    continue;
+                }
+            };
+            if visited.contains(&selected) {
+                continue;
+            }
+            let Some(dependency) =
+                self.installed_unit_version(&selected.0, &selected.1, &selected.2)?
+            else {
+                closure.unresolved.push(format!(
+                    "{} revision {} edge {} selects a version that is not retained",
+                    unit.unit_id, unit.revision, edge.edge_id
+                ));
+                continue;
+            };
+            if !materialization_matches(&dependency) {
+                closure.unmaterialized.push(format!(
+                    "{} revision {} does not have its selected artifact bytes",
+                    dependency.unit_id, dependency.revision
+                ));
+            }
+            self.inspect_required_dependencies(&dependency, visited, closure)?;
+        }
+        Ok(())
+    }
+
+    fn readiness_with_closure(
+        &self,
+        unit: &InstalledUnit,
+        closure: &RequiredClosure,
+    ) -> Result<(ReadinessState, String)> {
+        if let Some(problem) = closure.unresolved.first() {
+            return Ok((
+                ReadinessState::Unresolved,
+                format!("a required dependency is unresolved on this node: {problem}"),
+            ));
+        }
+        if !closure.root_materialized {
             let detail = unit
                 .materialization
                 .as_ref()
@@ -1647,10 +1880,17 @@ impl Node {
             return Ok((
                 ReadinessState::Unmaterialized,
                 if detail.is_empty() {
-                    "the package bytes are not materialized in a package root yet".to_string()
+                    "the current package bytes are missing or do not match the installed artifact digest"
+                        .to_string()
                 } else {
                     format!("the package bytes are not materialized: {detail}")
                 },
+            ));
+        }
+        if let Some(problem) = closure.unmaterialized.first() {
+            return Ok((
+                ReadinessState::Unmaterialized,
+                format!("a required dependency is not materialized with its selected bytes: {problem}"),
             ));
         }
         // Only a trial that ran the materialized artifact is a readiness
@@ -1694,7 +1934,24 @@ impl Node {
         };
         // The environment is part of the proof: a changed interpreter, OS or
         // architecture does not inherit the previous result.
-        let current = probe_environment(evidence.argv.first().map(|v| v.as_str()).unwrap_or(""))?;
+        let Some(workdir) = evidence_workdir(&evidence) else {
+            return Ok((
+                ReadinessState::Unverified,
+                "the last local trial did not retain an absolute effective working directory"
+                    .into(),
+            ));
+        };
+        if !workdir.is_dir() {
+            return Ok((
+                ReadinessState::Unverified,
+                "the last local trial's effective working directory is no longer available"
+                    .into(),
+            ));
+        }
+        let current = probe_environment(
+            evidence.argv.first().map(|v| v.as_str()).unwrap_or(""),
+            &workdir,
+        )?;
         if current.digest != Digest(environment_digest) {
             return Ok((
                 ReadinessState::Unverified,
@@ -1948,16 +2205,12 @@ fn compare_versions(left: &str, right: &str) -> Ordering {
     Ordering::Equal
 }
 
-fn closure_value(edges: &[ResolvedDependency]) -> Value {
-    let unresolved = edges
-        .iter()
-        .filter(|edge| {
-            edge.strength == DependencyStrength::Required && edge.status != EdgeStatus::Satisfied
-        })
-        .count();
+fn closure_value(edges: &[ResolvedDependency], closure: &RequiredClosure) -> Value {
+    let complete = closure.unresolved.is_empty() && closure.unmaterialized.is_empty();
     json!({
-        "state": if unresolved == 0 { "complete" } else { "incomplete" },
-        "unresolved_required": unresolved,
+        "state": if complete { "complete" } else { "incomplete" },
+        "unresolved_required": closure.unresolved.len(),
+        "unmaterialized_required": closure.unmaterialized.len(),
         "edges": edges,
     })
 }
@@ -2016,7 +2269,7 @@ fn advisory_notes(applicability: Option<&Applicability>) -> Value {
 fn unit_remote_evidence(
     conn: &rusqlite::Connection,
     unit: &InstalledUnit,
-) -> Result<Vec<TrialEvidence>> {
+) -> Result<Vec<Value>> {
     let data: String = conn.query_row(
         "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
         params![unit.unit_id, unit.revision, unit.artifact_digest.0],
@@ -2066,6 +2319,7 @@ fn normalize_root(root: &str) -> Result<String> {
             .mode(0o700)
             .create(&path)?;
     }
+    let path = std::fs::canonicalize(path)?;
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -2104,13 +2358,18 @@ fn write_package(directory: &Path, bytes: &[u8], descriptor: &UnitDescriptor) ->
     Ok(artifact.to_string_lossy().into_owned())
 }
 
-/// Resolve the program a trial will run, if it exists at all.
-fn resolve_program(program: &str) -> Option<String> {
+/// Resolve the program a trial will run in its actual child working directory.
+fn resolve_program(program: &str, cwd: &Path) -> Option<String> {
     if program.is_empty() {
         return None;
     }
     if program.contains('/') {
         let path = Path::new(program);
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            cwd.join(path)
+        };
         return if path.is_file() {
             Some(path.to_string_lossy().into_owned())
         } else {
@@ -2120,6 +2379,11 @@ fn resolve_program(program: &str) -> Option<String> {
     let path = std::env::var_os("PATH")?;
     for directory in std::env::split_paths(&path) {
         let candidate = directory.join(program);
+        let candidate = if candidate.is_absolute() {
+            candidate
+        } else {
+            cwd.join(candidate)
+        };
         if candidate.is_file() {
             return Some(candidate.to_string_lossy().into_owned());
         }
@@ -2130,8 +2394,8 @@ fn resolve_program(program: &str) -> Option<String> {
 /// The environment a trial is bound to. It changes when the interpreter, the
 /// operating system or the architecture changes, so a previous result cannot
 /// be inherited silently.
-fn probe_environment(program: &str) -> Result<TrialEnvironment> {
-    let resolved = resolve_program(program);
+fn probe_environment(program: &str, cwd: &Path) -> Result<TrialEnvironment> {
+    let resolved = resolve_program(program, cwd);
     let mut probe = ProgramProbe {
         program: program.to_string(),
         resolved: resolved.clone(),
@@ -2200,6 +2464,47 @@ fn drain<R: Read>(mut reader: R, cap: usize) -> (Vec<u8>, bool, bool) {
 /// How long a trial waits for its captured output before it stops trusting it.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Resolve the effective child working directory before probing or spawning.
+/// Persisting this canonical path makes later environment rechecks independent
+/// of the Node process's subsequent working directory.
+fn trial_workdir(cwd: Option<&str>, unit: &InstalledUnit) -> Result<PathBuf> {
+    let path = match cwd {
+        Some(value) => PathBuf::from(value),
+        None => unit
+            .materialization
+            .as_ref()
+            .map(|materialization| PathBuf::from(&materialization.path))
+            .filter(|path| !path.as_os_str().is_empty())
+            .map(|path| {
+                path.parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_else(|| path.clone())
+            })
+            .unwrap_or_else(|| PathBuf::from(".")),
+    };
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let path = std::fs::canonicalize(path)?;
+    ensure!(path.is_dir(), "trial working directory is not a directory");
+    Ok(path)
+}
+
+/// Recover the effective directory retained with an older default-cwd trial.
+/// A relative historical value is not guessed against a later Node process.
+fn evidence_workdir(evidence: &TrialEvidence) -> Option<PathBuf> {
+    let path = match &evidence.cwd {
+        Some(cwd) => PathBuf::from(cwd),
+        None => evidence
+            .artifact_path
+            .as_ref()
+            .and_then(|artifact| Path::new(artifact).parent().map(Path::to_path_buf))?,
+    };
+    path.is_absolute().then_some(path)
+}
+
 /// Expand the `{artifact}` placeholder to the materialized package path.
 fn expand_artifact(argv: &[String], artifact: Option<&str>) -> Result<Vec<String>> {
     let mut expanded = Vec::with_capacity(argv.len());
@@ -2234,6 +2539,14 @@ fn verify_artifact(path: &str, expected: &Digest) -> bool {
     }
 }
 
+fn materialization_matches(unit: &InstalledUnit) -> bool {
+    unit.materialization.as_ref().is_some_and(|materialization| {
+        materialization.state == "materialized"
+            && !materialization.path.is_empty()
+            && verify_artifact(&materialization.path, &unit.artifact_digest)
+    })
+}
+
 /// Stop a whole process group. A descendant that left the group may survive.
 fn signal_process_group(pid: u32) -> bool {
     if pid == 0 {
@@ -2242,41 +2555,116 @@ fn signal_process_group(pid: u32) -> bool {
     unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) == 0 }
 }
 
-/// Whether a process is provably gone.
-fn process_gone(pid: i64) -> bool {
+fn process_group_gone(pid: u32) -> bool {
+    if pid == 0 {
+        return true;
+    }
+    let rc = unsafe { libc::kill(-(pid as libc::pid_t), 0) };
+    if rc == 0 {
+        return false;
+    }
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM)
+}
+
+struct OwnerIncarnation<'a> {
+    pid: i64,
+    start_ticks: u64,
+    boot_id: Option<&'a str>,
+}
+
+fn parse_owner_incarnation(runtime: &str) -> Option<OwnerIncarnation<'_>> {
+    // New identities append a boot id. Schema-1 identities are still parsed
+    // by pid/start ticks so a live pre-upgrade command is not retired merely
+    // for having the older representation.
+    let parts: Vec<&str> = runtime.rsplitn(4, ':').collect();
+    if parts.len() == 4 {
+        Some(OwnerIncarnation {
+            pid: parts[2].parse().ok()?,
+            start_ticks: parts[1].parse().ok()?,
+            boot_id: Some(parts[0]),
+        })
+    } else if parts.len() == 3 {
+        Some(OwnerIncarnation {
+            pid: parts[1].parse().ok()?,
+            start_ticks: parts[0].parse().ok()?,
+            boot_id: None,
+        })
+    } else {
+        None
+    }
+}
+
+/// Whether the persisted owner incarnation, rather than merely its numeric
+/// pid, is provably gone. EPERM or an unavailable /proc record leaves a live
+/// candidate untouched because it cannot prove crash recovery is safe.
+fn process_gone(pid: i64, owner_runtime: &str) -> bool {
     if pid <= 0 {
         return true;
     }
     let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
-    if rc == 0 {
+    if rc != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM) {
+        return true;
+    }
+    let Some(expected) = parse_owner_incarnation(owner_runtime) else {
+        // A malformed owner coordinate cannot keep an attempt pending forever.
+        return true;
+    };
+    if expected.pid != pid {
+        return true;
+    }
+    if let Some(expected_boot) = expected.boot_id.filter(|boot| *boot != "unknown") {
+        let Some(actual_boot) = boot_id() else {
+            return false;
+        };
+        if actual_boot != expected_boot {
+            return true;
+        }
+    }
+    if expected.start_ticks == 0 {
         return false;
     }
-    // EPERM means the process exists but belongs to another user.
-    std::io::Error::last_os_error().raw_os_error() != Some(libc::EPERM)
+    match process_start_ticks_for(pid) {
+        Some(actual) => actual != expected.start_ticks,
+        None => false,
+    }
 }
 
 /// Identity of the running command. It stays the same for the lifetime of the
 /// process, so a reused process id cannot be mistaken for the same command.
 fn runtime_id(conn: &rusqlite::Connection) -> Result<String> {
+    runtime_id_for_process(conn, i64::from(std::process::id()))
+}
+
+fn runtime_id_for_process(conn: &rusqlite::Connection, pid: i64) -> Result<String> {
     let installation: Option<String> = conn
         .query_row("SELECT v FROM meta WHERE k='installation'", [], |r| {
             r.get(0)
         })
         .optional()?;
     Ok(format!(
-        "{}:{}:{}",
+        "{}:{}:{}:{}",
         installation.unwrap_or_else(|| "uninitialized".to_string()),
-        std::process::id(),
-        process_start_ticks().unwrap_or(0)
+        pid,
+        process_start_ticks_for(pid).unwrap_or(0),
+        boot_id().unwrap_or_else(|| "unknown".to_string())
     ))
 }
 
 /// The start time of this process in clock ticks since boot.
-fn process_start_ticks() -> Option<u64> {
-    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+fn process_start_ticks_for(pid: i64) -> Option<u64> {
+    if pid <= 0 {
+        return None;
+    }
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let tail = stat.rsplit_once(") ")?.1;
     let fields: Vec<&str> = tail.split_whitespace().collect();
     fields.get(19)?.parse().ok()
+}
+
+fn boot_id() -> Option<String> {
+    std::fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .ok()
+        .map(|value| value.trim().to_string())
 }
 
 /// A minimal environment record for evidence whose original was lost.
@@ -2558,7 +2946,7 @@ mod tests {
             enable: None,
         })
         .unwrap();
-        let environment = probe_environment("/bin/sh").unwrap();
+        let environment = probe_environment("/bin/sh", Path::new("/")).unwrap();
         let digest = Digest::blake3(b"crash-bytes");
         let artifact_path = node
             .installed_unit("demo.skill.crash")
@@ -2568,6 +2956,7 @@ mod tests {
             .unwrap()
             .path;
         let runtime = runtime_id(&node.conn).unwrap();
+        let foreign_runtime = runtime_id_for_process(&node.conn, 1).unwrap();
         let mine = EntityId::new().to_string();
         let foreign = EntityId::new().to_string();
         let data = serde_json::to_string(&json!({
@@ -2602,12 +2991,13 @@ mod tests {
         node.conn
             .execute(
                 "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
-                 VALUES(?1,'demo.skill.crash','1.0.0',?2,?3,'spawning',?4,NULL,1,'other-command',?5)",
+                 VALUES(?1,'demo.skill.crash','1.0.0',?2,?3,'spawning',?4,NULL,1,?5,?6)",
                 params![
                     foreign,
                     digest.0,
                     environment.digest.0,
                     now(),
+                    foreign_runtime,
                     data
                 ],
             )

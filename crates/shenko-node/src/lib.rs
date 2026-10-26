@@ -886,7 +886,7 @@ impl Node {
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         Ok(
-            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v1","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
+            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v2","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
         )
     }
 }
