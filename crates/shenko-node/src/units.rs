@@ -743,6 +743,41 @@ impl Node {
                     ],
                 )?;
             }
+            // A later package may complete an older unit's required closure.
+            // Keep successful exact selections pinned to their retained bytes;
+            // only retry unresolved/omitted edges against this import's facts.
+            let pending_edges = tx
+                .prepare(
+                    "SELECT unit_id,revision,edge_id,data FROM unit_edges \
+                     WHERE json_extract(data,'$.status')!='satisfied'",
+                )?
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for (unit_id, revision, edge_id, data) in pending_edges {
+                let previous: ResolvedDependency = serde_json::from_str(&data)?;
+                let updated = resolve_edge(
+                    &DependencySpec {
+                        edge_id: previous.edge_id.clone(),
+                        strength: previous.strength,
+                        selector: previous.selector.clone(),
+                        purpose: None,
+                    },
+                    &available,
+                );
+                if updated != previous {
+                    tx.execute(
+                        "UPDATE unit_edges SET data=?4 WHERE unit_id=?1 AND revision=?2 AND edge_id=?3",
+                        params![unit_id, revision, edge_id, serde_json::to_string(&updated)?],
+                    )?;
+                }
+            }
             tx.commit()?;
         }
         // Materialization happens outside the database transaction; a partial
@@ -2786,7 +2821,7 @@ mod tests {
             }],
         );
         a.handle_unit_request(UnitRequest::Import {
-            export: export(vec![root, dependency]),
+            export: export(vec![root]),
             package_root: root_a.to_string_lossy().into_owned(),
             enable: None,
         })
@@ -2801,7 +2836,20 @@ mod tests {
         assert_eq!(proven["outcome"], json!("succeeded"));
         assert_eq!(proven["artifact_bound"], json!(true));
         assert_eq!(proven["readiness_proof"], json!(true));
-        assert_eq!(proven["readiness"], json!("ready"));
+        assert_eq!(proven["readiness"], json!("unresolved"));
+        a.handle_unit_request(UnitRequest::Import {
+            export: export(vec![dependency]),
+            package_root: root_a.to_string_lossy().into_owned(),
+            enable: None,
+        })
+        .unwrap();
+        let resolved = a
+            .handle_unit_request(UnitRequest::Status {
+                unit_id: "demo.skill.root".into(),
+            })
+            .unwrap();
+        assert_eq!(resolved["closure"]["state"], json!("complete"));
+        assert_eq!(resolved["readiness"]["state"], json!("ready"));
         let exported = a
             .handle_unit_request(UnitRequest::Export {
                 unit_id: "demo.skill.root".into(),
