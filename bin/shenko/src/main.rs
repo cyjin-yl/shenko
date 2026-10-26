@@ -268,6 +268,11 @@ async fn main() -> Result<()> {
             let _native_printf_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, printf_handler)
                 .await?;
+            let history_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(&store)));
+            let _native_history_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
+                .await?;
             let native_child = supervisor
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;
@@ -354,6 +359,7 @@ async fn main() -> Result<()> {
             )?
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities)
+            .with_native_capabilities(native_child.installed_prompt_sections())
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
 

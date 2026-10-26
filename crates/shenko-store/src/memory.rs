@@ -426,7 +426,7 @@ fn parse_entity(value: &str) -> Result<EntityId, ShenkoError> {
 
 /// `unicode61` cannot segment Han text, so queries containing CJK code points
 /// take the substring-capable LIKE path.
-fn contains_cjk(s: &str) -> bool {
+pub(crate) fn contains_cjk(s: &str) -> bool {
     s.chars().any(|c| {
         matches!(
             c as u32,
@@ -439,7 +439,7 @@ fn contains_cjk(s: &str) -> bool {
 }
 
 /// Escape LIKE metacharacters so user text matches literally.
-fn like_pattern(query: &str) -> String {
+pub(crate) fn like_pattern(query: &str) -> String {
     let mut pattern = String::with_capacity(query.len() + 2);
     pattern.push('%');
     for c in query.chars() {

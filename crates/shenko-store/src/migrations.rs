@@ -46,6 +46,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // session events, never a second truth store.
     conn.execute_batch(crate::raw_session::RAW_SESSION_SCHEMA)?;
 
+    // Raw-session FTS is a rebuildable projection, never another history
+    // store. Committed rows remain readable through LIKE when FTS5 is absent.
+    if let Err(e) = apply_session_event_fts(conn) {
+        tracing::warn!(error = %e, "FTS5 unavailable; raw history search will use LIKE fallback");
+    }
+
     // Step 3 (best effort): FTS5 index + sync triggers. FTS5 is optional in
     // the SQLite build; when it is missing, migrations must still succeed and
     // searches fall back to a LIKE scan.
@@ -90,7 +96,12 @@ fn ensure_memory_columns(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn ensure_column(conn: &Connection, table: &str, column: &str, decl: &str) -> Result<()> {
+pub(crate) fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<()> {
     let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns = stmt
         .query_map([], |row| row.get::<_, String>(1))?
@@ -123,7 +134,7 @@ fn apply_memory_fts(conn: &Connection) -> Result<()> {
     // leave committed memories missing from every FTS search forever;
     // reopening the store repairs the index. A plain `count(*)` cannot detect
     // this: for an external-content table it scans `memory_entries` itself.
-    let stale = existed != 0 && fts_index_is_stale(conn);
+    let stale = existed != 0 && fts_index_is_stale(conn, "memory_entries_fts");
     if existed == 0 || stale {
         conn.execute_batch(
             "INSERT INTO memory_entries_fts(memory_entries_fts) VALUES('rebuild');",
@@ -132,12 +143,28 @@ fn apply_memory_fts(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Ask FTS5 to compare its index with the external `memory_entries` content.
+fn apply_session_event_fts(conn: &Connection) -> Result<()> {
+    let existed: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='session_events_fts'",
+        [],
+        |r| r.get(0),
+    )?;
+    conn.execute_batch(SESSION_EVENT_FTS_SCHEMA)?;
+    let stale = existed != 0 && fts_index_is_stale(conn, "session_events_fts");
+    if existed == 0 || stale {
+        conn.execute_batch(
+            "INSERT INTO session_events_fts(session_events_fts) VALUES('rebuild');",
+        )?;
+    }
+    Ok(())
+}
+
+/// Ask FTS5 to compare an index with its external content table.
 /// The `rank` argument `1` selects the external-content consistency check; it
 /// fails when the index is missing rows the content table has (or vice versa).
-fn fts_index_is_stale(conn: &Connection) -> bool {
+fn fts_index_is_stale(conn: &Connection, table: &str) -> bool {
     conn.execute(
-        "INSERT INTO memory_entries_fts(memory_entries_fts, rank) VALUES('integrity-check', 1)",
+        &format!("INSERT INTO {table}({table}, rank) VALUES('integrity-check', 1)"),
         [],
     )
     .is_err()
@@ -332,5 +359,28 @@ CREATE TRIGGER IF NOT EXISTS memory_entries_au AFTER UPDATE ON memory_entries BE
     INSERT INTO memory_entries_fts(memory_entries_fts, rowid, content)
         VALUES ('delete', old.rowid, old.content);
     INSERT INTO memory_entries_fts(rowid, content) VALUES (new.rowid, new.content);
+END;
+"#;
+
+/// The raw payload is indexed verbatim. Search results always join back to
+/// session_events and retain its session, seq, identity and original data.
+const SESSION_EVENT_FTS_SCHEMA: &str = r#"
+CREATE VIRTUAL TABLE IF NOT EXISTS session_events_fts USING fts5(
+    data,
+    content='session_events',
+    content_rowid='rowid',
+    tokenize='unicode61'
+);
+CREATE TRIGGER IF NOT EXISTS session_events_fts_ai AFTER INSERT ON session_events BEGIN
+    INSERT INTO session_events_fts(rowid, data) VALUES (new.rowid, new.data);
+END;
+CREATE TRIGGER IF NOT EXISTS session_events_fts_ad AFTER DELETE ON session_events BEGIN
+    INSERT INTO session_events_fts(session_events_fts, rowid, data)
+        VALUES ('delete', old.rowid, old.data);
+END;
+CREATE TRIGGER IF NOT EXISTS session_events_fts_au AFTER UPDATE ON session_events BEGIN
+    INSERT INTO session_events_fts(session_events_fts, rowid, data)
+        VALUES ('delete', old.rowid, old.data);
+    INSERT INTO session_events_fts(rowid, data) VALUES (new.rowid, new.data);
 END;
 "#;

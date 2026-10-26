@@ -126,6 +126,7 @@ pub struct SubjectLoopState {
     pub(super) previous_input_binding: Option<shenko_broker::request::ProviderBinding>,
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
+    native_capability_sections: Vec<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
     /// Outbound path for completed model output — SPEC §5.1, §21.12.
@@ -201,6 +202,7 @@ impl SubjectLoopState {
             previous_estimated_input_tokens,
             model_capabilities: None,
             context_registry,
+            native_capability_sections: vec![],
             goals: vec![],
             outbox_tx: None,
             identity,
@@ -222,6 +224,11 @@ impl SubjectLoopState {
 
     pub fn with_hooks(mut self, registry: Arc<HookRegistry>) -> Self {
         self.hooks = Some(registry);
+        self
+    }
+
+    pub fn with_native_capabilities(mut self, sections: Vec<String>) -> Self {
+        self.native_capability_sections = sections;
         self
     }
 
@@ -324,6 +331,14 @@ pub(super) fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bo
     prompt.push_str("\n\n");
     prompt.push_str(crate::output::OUTPUT_CONTRACT);
 
+    if !state.native_capability_sections.is_empty() {
+        prompt.push_str("\n\n当前实际注册的 native definitions：\n");
+        for section in &state.native_capability_sections {
+            prompt.push_str(section);
+            prompt.push('\n');
+        }
+    }
+
     if let Some(identity) = &state.identity {
         prompt.push_str("\n\n");
         prompt.push_str(&state.identity_service.persona_section(identity));
@@ -423,7 +438,16 @@ async fn execute_step(
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
-        let prepared = prepare_context(state, events, in_semantic_wait)?;
+        let prepared = match prepare_context(state, events, in_semantic_wait) {
+            Ok(prepared) => prepared,
+            Err(ShenkoError::ResnapshotRequired { reason }) => {
+                // No S0 seal or model admission exists. The outer loop yields
+                // and rebuilds this same Planned step from durable staging.
+                tracing::debug!(seq, %reason, "S0 source advanced; reprojecting planned step");
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
         let input = FrozenStepInput {
             schema_version: 8,
             step_id,
@@ -449,7 +473,14 @@ async fn execute_step(
         step.state = SubjectStepState::Preparing;
         let expected = step.record_revision;
         step.record_revision = RecordRevision(expected.0 + 1);
-        store.upsert_step(&step, &state.head, expected)?;
+        match store.upsert_step(&step, &state.head, expected) {
+            Ok(_) => {}
+            Err(ShenkoError::ResnapshotRequired { reason }) => {
+                tracing::debug!(seq, %reason, "S0 CAS rejected stale source; reprojecting planned step");
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        }
         state.step = step.clone();
         input
     } else {
