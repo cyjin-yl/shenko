@@ -856,6 +856,7 @@ async fn execute_step(
                         step: seq,
                         step_id,
                         commit_ref: receipt.commit_ref.clone(),
+                        replay_seq: receipt.commit_ref.seq.0,
                         text: decision.output.text.clone(),
                         publications: publication_intents.clone(),
                         identity_revision,

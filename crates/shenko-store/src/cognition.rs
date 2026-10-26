@@ -68,13 +68,19 @@ use crate::cognition_archive::{
     read_archive, write_manifest, write_payload,
 };
 use crate::cas::ContentStore;
+use crate::child::COGNITION_IMPORTED;
 use crate::store::Store;
 
-/// Local bookkeeping of the replication exchange. These tables are never
-/// replicated and never enter the fingerprint: recording an export or an
-/// acknowledgement must not create a new fact and therefore must not create
-/// new debt.
+/// Local bookkeeping of the replication exchange, plus the declared recovery
+/// source facts. Bookkeeping never enters the fingerprint: recording an
+/// export or acknowledgement must not create new debt. `recovery_sources`
+/// is replicated through `TABLES` and its typed references join the closure.
 pub(crate) const COGNITION_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS recovery_sources (
+    source_id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cognition_peers (
     peer_id TEXT PRIMARY KEY,
     exported_fingerprint TEXT,
@@ -116,6 +122,20 @@ CREATE TABLE IF NOT EXISTS cognition_state (
     high_water INTEGER,
     computed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS cognition_export_order (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    sequence INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cognition_retirements (
+    path TEXT PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS cognition_import_order (
+    source_ledger_id TEXT PRIMARY KEY,
+    peer_id TEXT NOT NULL,
+    snapshot_seq INTEGER NOT NULL,
+    high_water INTEGER NOT NULL,
+    fingerprint TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cognition_baselines (
     peer_id TEXT NOT NULL,
     table_name TEXT NOT NULL,
@@ -129,6 +149,7 @@ CREATE TABLE IF NOT EXISTS cognition_file_baselines (
     origin TEXT NOT NULL,
     path TEXT NOT NULL,
     digest TEXT NOT NULL,
+    state TEXT NOT NULL DEFAULT 'present',
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (peer_id, origin, path)
 );
@@ -473,6 +494,16 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     TableSpec {
+        name: "subject_identity_receipts",
+        key: &["step_id"],
+        columns: &["step_id", "data"],
+        // The receipt's local commit position follows the receiving store's
+        // import commit. Its identity outcome, step binding and source
+        // `data.committed_at` coordinate stay verbatim.
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
         name: "subject_event_dispositions",
         key: &["branch_id", "event_id"],
         columns: &["branch_id", "event_id", "step_id", "disposition", "commit_seq"],
@@ -571,6 +602,13 @@ const TABLES: &[TableSpec] = &[
         name: "raw_sessions",
         key: &["session_id"],
         columns: &["session_id", "agent_id", "started_at", "ended_at", "data"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "recovery_sources",
+        key: &["source_id"],
+        columns: &["source_id", "kind", "data"],
         local_seq: None,
         kind: RowKind::Verbatim,
     },
@@ -683,12 +721,52 @@ struct Collected {
     derivatives: Vec<CognitionDerivative>,
     objects: Vec<CognitionObjectDescriptor>,
     files: Vec<(CognitionFileDescriptor, PathBuf)>,
+    file_origins: Vec<CognitionFileOrigin>,
     git_history: Option<CognitionGitDescriptor>,
     git_bundle: Option<Vec<u8>>,
-    git_refs: Vec<(String, String)>,
     gaps: Vec<CognitionGap>,
     agent_id: Option<EntityId>,
     high_water: LedgerSeq,
+    snapshot_seq: Option<u64>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileBaselineState {
+    Present,
+    LocalDeleted,
+    Deleted,
+}
+
+impl FileBaselineState {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Present => "present",
+            Self::LocalDeleted => "local_deleted",
+            Self::Deleted => "deleted",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "present" => Ok(Self::Present),
+            "local_deleted" => Ok(Self::LocalDeleted),
+            "deleted" => Ok(Self::Deleted),
+            _ => bail!("invalid cognition file baseline state {value}"),
+        }
+    }
+}
+
+struct FileBaseline {
+    path: String,
+    digest: Digest,
+    state: FileBaselineState,
+}
+
+struct GitBaseline {
+    head: String,
+    // Older local baselines did not record the symbolic ref. Their commit is
+    // still useful; the next matching import binds the exact source ref.
+    reference: Option<String>,
 }
 
 impl Store {
@@ -702,8 +780,11 @@ impl Store {
         &self,
         options: &CognitionSnapshotOptions,
     ) -> Result<CognitionExport> {
-        let collected = self.collect_snapshot(options)?;
+        let collected = self.collect_snapshot(options, true)?;
         let fingerprint = fingerprint_of(&collected);
+        let source_snapshot_seq = collected
+            .snapshot_seq
+            .ok_or_else(|| anyhow!("cognition export did not allocate its durable order"))?;
         let files: Vec<CognitionFileDescriptor> = collected
             .files
             .iter()
@@ -715,12 +796,14 @@ impl Store {
             fingerprint,
             source_ledger_id: self.ledger.ledger_id(),
             source_incarnation: self.capabilities.incarnation,
+            source_snapshot_seq,
             agent_id: collected.agent_id,
             created_at: chrono::Utc::now(),
             high_water: collected.high_water,
             rows: collected.rows,
             derivatives: collected.derivatives,
             objects: collected.objects,
+            file_origins: collected.file_origins,
             files,
             git_history,
             gaps: collected.gaps,
@@ -761,6 +844,8 @@ impl Store {
         reader: R,
         options: &CognitionImportOptions,
     ) -> Result<CognitionImportOutcome> {
+        let mut import_gate = self.cognition_import_gate.lock();
+        let _gate_tx = import_gate.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let peer_id = options.peer_id.unwrap_or(EntityId::nil());
         let mut files: Vec<(CognitionFileDescriptor, Vec<u8>)> = Vec::new();
         let mut git_history: Option<(CognitionGitDescriptor, Vec<u8>)> = None;
@@ -783,6 +868,11 @@ impl Store {
             )?
         };
         let verified_objects = manifest.objects.len();
+        let fingerprint = fingerprint_of_manifest(&manifest);
+        ensure!(
+            fingerprint == manifest.fingerprint,
+            "cognition manifest fingerprint does not match its received rows and verified payload descriptors"
+        );
 
         let mut gaps = manifest.gaps.clone();
         gaps.extend(self.verify_manifest_closure(&manifest));
@@ -797,54 +887,59 @@ impl Store {
                 blocking.join(", ")
             );
         }
+        self.check_import_order(&manifest)?;
+
+        for descriptor in &manifest.files {
+            ensure!(
+                manifest.file_origins.contains(&descriptor.origin),
+                "cognition file {} has an origin outside the declared snapshot coverage",
+                descriptor.path
+            );
+        }
+        ensure!(
+            !manifest.file_origins.contains(&CognitionFileOrigin::Memory)
+                || options.memory_root.is_some(),
+            "cognition snapshot covers memory files but no memory root was given"
+        );
+        ensure!(
+            !manifest.file_origins.contains(&CognitionFileOrigin::Workspace)
+                || options.workspace_root.is_some(),
+            "cognition snapshot covers workspace files but no workspace root was given"
+        );
+        ensure!(
+            manifest.git_history.is_none() || options.memory_root.is_some(),
+            "cognition snapshot carries memory history but no memory root was given"
+        );
 
         let mut conflicts: Vec<CognitionConflict> = Vec::new();
         let mut restored_git_history = false;
+        let (verified_files, file_conflicts) = self.restore_files(
+            &files,
+            &options.memory_root,
+            &options.workspace_root,
+            &manifest.file_origins,
+            peer_id,
+        )?;
+        conflicts.extend(file_conflicts);
         if let Some(root) = options.memory_root.clone() {
-            conflicts.extend(self.restore_files(
-                &files,
-                &root,
-                &options.workspace_root,
-                peer_id,
-            )?);
-            let (restored, conflict) = self.restore_git_history(&git_history, &root, peer_id)?;
-            restored_git_history = restored;
-            if let Some(conflict) = conflict {
-                conflicts.push(conflict);
+            if git_history.is_some() {
+                let (restored, conflict) =
+                    self.restore_git_history(&git_history, &root, peer_id)?;
+                restored_git_history = restored;
+                if let Some(conflict) = conflict {
+                    conflicts.push(conflict);
+                }
             }
-        } else if files
-            .iter()
-            .any(|(descriptor, _)| descriptor.origin == CognitionFileOrigin::Memory)
-        {
-            bail!("cognition snapshot carries memory files but no memory root was given");
-        } else if let Some((descriptor, bytes)) = git_history.as_ref() {
-            // No memory root: the history cannot be placed, so the snapshot is
-            // not complete.
-            let _ = (descriptor, bytes);
-            bail!("cognition snapshot carries memory history but no memory root was given");
-        }
-        if files
-            .iter()
-            .any(|(descriptor, _)| descriptor.origin == CognitionFileOrigin::Workspace)
-            && options.workspace_root.is_none()
-        {
-            bail!("cognition snapshot carries workspace files but no workspace root was given");
         }
 
-        let applied = self.apply_rows(
-            &manifest.rows,
-            &manifest.derivatives,
-            peer_id,
-            &manifest.fingerprint,
-            manifest.source_ledger_id,
-        )?;
+        let applied = self.apply_rows(&manifest, peer_id)?;
         conflicts.extend(applied.conflicts.clone());
 
         self.record_receipt(
             peer_id,
             &manifest,
             verified_objects,
-            files.len(),
+            verified_files,
             applied.inserted,
             applied.updated,
             applied.unchanged,
@@ -852,14 +947,14 @@ impl Store {
         )?;
 
         Ok(CognitionImportOutcome {
-            fingerprint: manifest.fingerprint.clone(),
+            fingerprint,
             high_water: manifest.high_water,
             inserted: applied.inserted,
             updated: applied.updated,
             unchanged: applied.unchanged,
             conflicts,
             verified_objects,
-            verified_files: files.len(),
+            verified_files,
             restored_git_history,
             gaps,
         })
@@ -874,7 +969,7 @@ impl Store {
         &self,
         options: &CognitionSnapshotOptions,
     ) -> Result<(Digest, LedgerSeq)> {
-        let collected = self.collect_snapshot(options)?;
+        let collected = self.collect_snapshot(options, false)?;
         let fingerprint = fingerprint_of(&collected);
         let high_water = collected.high_water;
         self.store_local_fingerprint(&fingerprint, high_water)?;
@@ -1153,8 +1248,13 @@ impl Store {
         }))
     }
 
-    fn collect_snapshot(&self, options: &CognitionSnapshotOptions) -> Result<Collected> {
-        let (rows, derivatives, agent_id, high_water) = self.snapshot_rows()?;
+    fn collect_snapshot(
+        &self,
+        options: &CognitionSnapshotOptions,
+        allocate_order: bool,
+    ) -> Result<Collected> {
+        let (rows, derivatives, agent_id, high_water, snapshot_seq) =
+            self.snapshot_rows(allocate_order)?;
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
         for row in &rows {
@@ -1174,21 +1274,32 @@ impl Store {
         let (objects, missing) = self.collect_closure(&roots)?;
 
         let mut files: Vec<(CognitionFileDescriptor, PathBuf)> = Vec::new();
+        let retired_roots = {
+            let conn = self.ledger.conn.lock();
+            let mut stmt = conn.prepare("SELECT path FROM cognition_retirements")?;
+            let rows = stmt.query_map([], |row| row.get::<_, String>(0))?
+                .collect::<std::result::Result<Vec<_>, _>>()?;
+            rows.into_iter().map(PathBuf::from).collect::<BTreeSet<_>>()
+        };
+        let mut file_origins = Vec::new();
         let mut gaps: Vec<CognitionGap> = Vec::new();
         if let Some(root) = &options.memory_root {
-            collect_files(root, CognitionFileOrigin::Memory, &mut files, &mut gaps)?;
+            file_origins.push(CognitionFileOrigin::Memory);
+            collect_files(root, CognitionFileOrigin::Memory, &retired_roots, &mut files, &mut gaps)?;
         }
-        for root in &options.workspace_roots {
-            collect_files(root, CognitionFileOrigin::Workspace, &mut files, &mut gaps)?;
+        if !options.workspace_roots.is_empty() {
+            file_origins.push(CognitionFileOrigin::Workspace);
+            for root in &options.workspace_roots {
+                collect_files(root, CognitionFileOrigin::Workspace, &retired_roots, &mut files, &mut gaps)?;
+            }
         }
+        file_origins.sort_unstable();
         let mut git_history: Option<CognitionGitDescriptor> = None;
         let mut git_bundle: Option<Vec<u8>> = None;
-        let mut git_refs: Vec<(String, String)> = Vec::new();
         if options.include_git_history {
             if let Some(root) = &options.memory_root {
                 match capture_git_history(root) {
-                    Ok(Some((descriptor, bytes, refs))) => {
-                        git_refs = refs;
+                    Ok(Some((descriptor, bytes))) => {
                         git_bundle = Some(bytes);
                         git_history = Some(descriptor);
                     }
@@ -1222,21 +1333,56 @@ impl Store {
             derivatives,
             objects,
             files,
+            file_origins,
             git_history,
             git_bundle,
-            git_refs,
             gaps,
             agent_id,
             high_water,
+            snapshot_seq,
         })
     }
 
     /// One consistent read snapshot of the replicated facts.
     fn snapshot_rows(
         &self,
-    ) -> Result<(Vec<CognitionRow>, Vec<CognitionDerivative>, Option<EntityId>, LedgerSeq)> {
+        allocate_order: bool,
+    ) -> Result<(
+        Vec<CognitionRow>,
+        Vec<CognitionDerivative>,
+        Option<EntityId>,
+        LedgerSeq,
+        Option<u64>,
+    )> {
         let mut conn = self.ledger.conn.lock();
-        let tx = conn.transaction().map_err(db)?;
+        let behavior = if allocate_order {
+            TransactionBehavior::Immediate
+        } else {
+            TransactionBehavior::Deferred
+        };
+        let tx = conn.transaction_with_behavior(behavior).map_err(db)?;
+        let snapshot_seq = if allocate_order {
+            let current: Option<i64> = tx
+                .query_row(
+                    "SELECT sequence FROM cognition_export_order WHERE singleton=1",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(db)?;
+            let next = current.unwrap_or(0).checked_add(1).ok_or_else(|| {
+                anyhow!("cognition export order exhausted its durable integer range")
+            })?;
+            tx.execute(
+                "INSERT INTO cognition_export_order(singleton,sequence) VALUES(1,?1)
+                 ON CONFLICT(singleton) DO UPDATE SET sequence=excluded.sequence",
+                [next],
+            )
+            .map_err(db)?;
+            Some(u64::try_from(next)?)
+        } else {
+            None
+        };
         let mut rows: Vec<CognitionRow> = Vec::new();
         for spec in TABLES {
             rows.extend(read_table(&tx, spec)?);
@@ -1260,7 +1406,13 @@ impl Store {
             ),
             None => None,
         };
-        Ok((rows, derivatives, agent_id, LedgerSeq(high_water as u64)))
+        Ok((
+            rows,
+            derivatives,
+            agent_id,
+            LedgerSeq(high_water as u64),
+            snapshot_seq,
+        ))
     }
 
     /// The verified CAS closure of the given roots, recursively.
@@ -1346,13 +1498,32 @@ impl Store {
             }
         }
         for descriptor in &manifest.objects {
-            if let Ok(bytes) = self.cas.read_object(&descriptor.digest) {
-                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                    let mut nested: Vec<ObjectRef> = Vec::new();
-                    let mut _nested_external: Vec<Digest> = Vec::new();
-                    collect_references(&json, &mut nested, &mut _nested_external);
-                    roots.extend(nested);
+            let bytes = match self.cas.read_object(&descriptor.digest) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    gaps.push(CognitionGap {
+                        kind: "unreadable_retained_object".into(),
+                        detail: format!("{}: {error}", descriptor.digest),
+                        blocking: true,
+                    });
+                    continue;
                 }
+            };
+            if bytes.len() as u64 != descriptor.bytes
+                || Digest::blake3(&bytes) != descriptor.digest
+            {
+                gaps.push(CognitionGap {
+                    kind: "corrupt_retained_object".into(),
+                    detail: descriptor.digest.to_string(),
+                    blocking: true,
+                });
+                continue;
+            }
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                let mut nested: Vec<ObjectRef> = Vec::new();
+                let mut _nested_external: Vec<Digest> = Vec::new();
+                collect_references(&json, &mut nested, &mut _nested_external);
+                roots.extend(nested);
             }
         }
         for object in &roots {
@@ -1367,6 +1538,11 @@ impl Store {
         gaps
     }
 
+    fn check_import_order(&self, manifest: &CognitionManifest) -> Result<()> {
+        let conn = self.ledger.conn.lock();
+        check_import_order_conn(&conn, manifest)
+    }
+
     /// Apply the replicated facts to this store.
     ///
     /// A row that already exists with the same content is left alone, so a
@@ -1377,13 +1553,10 @@ impl Store {
     /// reported as a conflict.
     fn apply_rows(
         &self,
-        rows: &[CognitionRow],
-        derivatives: &[CognitionDerivative],
+        manifest: &CognitionManifest,
         peer_id: EntityId,
-        fingerprint: &Digest,
-        source_ledger_id: EntityId,
     ) -> Result<CognitionApplyOutcome> {
-        let mut ordered: Vec<&CognitionRow> = rows.iter().collect();
+        let mut ordered: Vec<&CognitionRow> = manifest.rows.iter().collect();
         ordered.sort_by_key(|row| {
             TABLES
                 .iter()
@@ -1396,6 +1569,7 @@ impl Store {
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(db)?;
+                check_import_order_conn(&tx, manifest)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let mut inserted = 0usize;
                 let mut updated = 0usize;
@@ -1425,8 +1599,8 @@ impl Store {
                                         spec,
                                         &effective,
                                         peer_id,
-                                        fingerprint,
-                                        source_ledger_id,
+                                        &manifest.fingerprint,
+                                        manifest.source_ledger_id,
                                     )?;
                                 }
                                 Err(error) if is_constraint_violation(&error) => {
@@ -1479,8 +1653,8 @@ impl Store {
                                         spec,
                                         &effective,
                                         peer_id,
-                                        fingerprint,
-                                        source_ledger_id,
+                                        &manifest.fingerprint,
+                                        manifest.source_ledger_id,
                                     )?;
                                 } else {
                                     let detail = describe_difference(
@@ -1523,7 +1697,7 @@ impl Store {
                         }
                     }
                 }
-                for derivative in derivatives {
+                for derivative in &manifest.derivatives {
                     ensure!(
                         derivative.blake3.as_str()
                             == blake3::hash(&derivative.bytes).to_hex().as_str(),
@@ -1568,6 +1742,7 @@ impl Store {
                     )
                     .map_err(db)?;
                 }
+                record_import_order(&tx, peer_id, manifest)?;
                 tx.commit().map_err(db)?;
                 Ok(CognitionApplyOutcome {
                     inserted,
@@ -1589,109 +1764,314 @@ impl Store {
     fn restore_files(
         &self,
         files: &[(CognitionFileDescriptor, Vec<u8>)],
-        memory_root: &Path,
+        memory_root: &Option<PathBuf>,
         workspace_root: &Option<PathBuf>,
+        origins: &[CognitionFileOrigin],
         peer_id: EntityId,
-    ) -> Result<Vec<CognitionConflict>> {
+    ) -> Result<(usize, Vec<CognitionConflict>)> {
+        let mut verified = 0usize;
         let mut conflicts: Vec<CognitionConflict> = Vec::new();
-        for (descriptor, bytes) in files {
-            let root = match descriptor.origin {
-                CognitionFileOrigin::Memory => Some(memory_root.to_path_buf()),
+        for file_origin in origins {
+            let origin = file_origin_name(*file_origin);
+            let root = match file_origin {
+                CognitionFileOrigin::Memory => memory_root.clone(),
                 CognitionFileOrigin::Workspace => workspace_root.clone(),
-            };
-            let Some(root) = root else {
-                conflicts.push(CognitionConflict {
-                    table: "file".into(),
-                    key: descriptor.path.clone(),
-                    detail: "no target root configured for this file origin".into(),
-                });
-                continue;
-            };
-            let relative = safe_relative_path(&descriptor.path)?;
-            let target = root.join(relative);
-            let origin = match descriptor.origin {
-                CognitionFileOrigin::Memory => "memory",
-                CognitionFileOrigin::Workspace => "workspace",
-            };
-            if target.exists() {
-                let existing = fs::read(&target)
-                    .with_context(|| format!("read local file {}", target.display()))?;
-                if existing == *bytes {
-                    self.write_file_baseline(peer_id, origin, &descriptor.path, &descriptor.digest)?;
+            }
+            .ok_or_else(|| anyhow!("no target root configured for {origin} files"))?;
+            let incoming_paths: BTreeSet<&str> = files
+                .iter()
+                .filter(|(descriptor, _)| descriptor.origin == *file_origin)
+                .map(|(descriptor, _)| descriptor.path.as_str())
+                .collect();
+            let baselines = self.read_file_baselines(peer_id, origin)?;
+            for (descriptor, bytes) in files
+                .iter()
+                .filter(|(descriptor, _)| descriptor.origin == *file_origin)
+            {
+                let relative = safe_relative_path(&descriptor.path)?;
+                let target = root.join(&relative);
+                let baseline = self.read_file_baseline(peer_id, origin, &descriptor.path)?;
+                if target.exists() {
+                    if !fs::symlink_metadata(&target)?.file_type().is_file() {
+                        conflicts.push(CognitionConflict {
+                            table: "file".into(),
+                            key: descriptor.path.clone(),
+                            detail: "the local path is no longer a regular file; its independent replacement is kept".into(),
+                        });
+                        continue;
+                    }
+                    let existing = fs::read(&target)
+                        .with_context(|| format!("read local file {}", target.display()))?;
+                    if existing == *bytes {
+                        self.write_file_baseline(
+                            peer_id,
+                            origin,
+                            &descriptor.path,
+                            &descriptor.digest,
+                            FileBaselineState::Present,
+                        )?;
+                        verified += 1;
+                        continue;
+                    }
+                    let local_digest = Digest::blake3(&existing);
+                    if baseline.as_ref().is_some_and(|baseline| {
+                        baseline.state == FileBaselineState::Present
+                            && baseline.digest == local_digest
+                    }) {
+                        // Only an untouched peer baseline may advance. A local
+                        // recreation after a deletion is independent content.
+                        fs::write(&target, bytes)
+                            .with_context(|| format!("write file {}", target.display()))?;
+                        verify_restored_file(&target, descriptor)?;
+                        self.write_file_baseline(
+                            peer_id,
+                            origin,
+                            &descriptor.path,
+                            &descriptor.digest,
+                            FileBaselineState::Present,
+                        )?;
+                        verified += 1;
+                        continue;
+                    }
+                    conflicts.push(CognitionConflict {
+                        table: "file".into(),
+                        key: descriptor.path.clone(),
+                        detail: "local file differs; the local content is kept".into(),
+                    });
                     continue;
                 }
-                let local_digest = Digest::blake3(&existing);
-                let baseline = self.read_file_baseline(peer_id, origin, &descriptor.path)?;
-                if baseline.as_ref() == Some(&local_digest) {
-                    // The local file is still the one the peer delivered, so
-                    // the newer content is the peer's continuation.
-                    fs::write(&target, bytes)
-                        .with_context(|| format!("write file {}", target.display()))?;
+                if let Some(baseline) = baseline {
+                    if baseline.state != FileBaselineState::Deleted {
+                        self.write_file_baseline(
+                            peer_id,
+                            origin,
+                            &descriptor.path,
+                            &baseline.digest,
+                            FileBaselineState::LocalDeleted,
+                        )?;
+                        conflicts.push(CognitionConflict {
+                            table: "file".into(),
+                            key: descriptor.path.clone(),
+                            detail: "the peer file exists but was independently deleted here; the local deletion is kept"
+                                .into(),
+                        });
+                        continue;
+                    }
+                }
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("create directory {}", parent.display()))?;
+                }
+                fs::write(&target, bytes)
+                    .with_context(|| format!("write file {}", target.display()))?;
+                verify_restored_file(&target, descriptor)?;
+                self.write_file_baseline(
+                    peer_id,
+                    origin,
+                    &descriptor.path,
+                    &descriptor.digest,
+                    FileBaselineState::Present,
+                )?;
+                verified += 1;
+            }
+
+            // An origin declared by the manifest is a complete current file
+            // set. A baseline path absent from that set is a source deletion,
+            // not a path that happened to be omitted from the export options.
+            for baseline in baselines {
+                if incoming_paths.contains(baseline.path.as_str()) {
+                    continue;
+                }
+                let relative = safe_relative_path(&baseline.path)?;
+                let target = root.join(&relative);
+                if baseline.state == FileBaselineState::Deleted {
+                    if target.exists() {
+                        conflicts.push(CognitionConflict {
+                            table: "file".into(),
+                            key: baseline.path,
+                            detail: "a local file was recreated where the peer deletion was already applied; the local content is kept"
+                                .into(),
+                        });
+                    }
+                    continue;
+                }
+                if !target.exists() {
+                    // Both sides now independently agree on absence. Retain a
+                    // tombstone so a later source recreation is distinguishable
+                    // from an unchanged source file deleted only by the receiver.
                     self.write_file_baseline(
                         peer_id,
                         origin,
-                        &descriptor.path,
-                        &descriptor.digest,
+                        &baseline.path,
+                        &baseline.digest,
+                        FileBaselineState::Deleted,
                     )?;
                     continue;
                 }
-                conflicts.push(CognitionConflict {
-                    table: "file".into(),
-                    key: descriptor.path.clone(),
-                    detail: "local file differs; the local content is kept".into(),
-                });
-                continue;
+                if !fs::symlink_metadata(&target)?.file_type().is_file() {
+                    conflicts.push(CognitionConflict {
+                        table: "file".into(),
+                        key: baseline.path,
+                        detail: "the peer deleted a file but the local path was independently replaced; the local replacement is kept".into(),
+                    });
+                    continue;
+                }
+                let existing = fs::read(&target)
+                    .with_context(|| format!("read local file {}", target.display()))?;
+                if baseline.state == FileBaselineState::Present
+                    && Digest::blake3(&existing) == baseline.digest
+                {
+                    self.retire_deleted_file(
+                        peer_id,
+                        origin,
+                        &root,
+                        &relative,
+                        &target,
+                        &baseline.digest,
+                    )?;
+                    self.write_file_baseline(
+                        peer_id,
+                        origin,
+                        &baseline.path,
+                        &baseline.digest,
+                        FileBaselineState::Deleted,
+                    )?;
+                } else {
+                    conflicts.push(CognitionConflict {
+                        table: "file".into(),
+                        key: baseline.path,
+                        detail: "the peer deleted this path but the local file changed independently; the local content is kept"
+                            .into(),
+                    });
+                }
             }
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("create directory {}", parent.display()))?;
-            }
-            fs::write(&target, bytes)
-                .with_context(|| format!("write file {}", target.display()))?;
-            self.write_file_baseline(peer_id, origin, &descriptor.path, &descriptor.digest)?;
         }
-        Ok(conflicts)
+        Ok((verified, conflicts))
     }
 
-    /// The content the peer last delivered for one file.
+    fn retire_deleted_file(
+        &self,
+        peer_id: EntityId,
+        origin: &str,
+        root: &Path,
+        relative: &Path,
+        target: &Path,
+        expected: &Digest,
+    ) -> Result<()> {
+        let retirement_root = fs::canonicalize(root)?
+            .join(format!(".shenko-retired-{}", EntityId::new()));
+        fs::create_dir(&retirement_root)?;
+        self.ledger.conn.lock().execute(
+            "INSERT INTO cognition_retirements(path) VALUES(?1)",
+            [retirement_root.to_string_lossy().as_ref()],
+        )?;
+        let retired = retirement_root
+            .join(peer_id.to_string())
+            .join(origin)
+            .join(EntityId::new().to_string())
+            .join(relative);
+        if let Some(parent) = retired.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("create retirement directory {}", parent.display()))?;
+        }
+        fs::rename(target, &retired).with_context(|| {
+            format!(
+                "preserve deleted file {} by moving it to {}",
+                target.display(),
+                retired.display()
+            )
+        })?;
+        let retained = fs::read(&retired)
+            .with_context(|| format!("read retired file {}", retired.display()))?;
+        ensure!(
+            Digest::blake3(&retained) == *expected,
+            "retired file {} does not preserve its original bytes",
+            retired.display()
+        );
+        Ok(())
+    }
+
+    fn read_file_baselines(
+        &self,
+        peer_id: EntityId,
+        origin: &str,
+    ) -> Result<Vec<FileBaseline>> {
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT path,digest,state FROM cognition_file_baselines
+             WHERE peer_id=?1 AND origin=?2 ORDER BY path",
+        )?;
+        let rows = stmt
+            .query_map(params![peer_id.to_string(), origin], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(path, digest, state)| {
+                Ok(FileBaseline {
+                    path,
+                    digest: Digest(digest),
+                    state: FileBaselineState::parse(&state)?,
+                })
+            })
+            .collect()
+    }
+
+    /// The content and reconciliation state the peer last delivered for one file.
     fn read_file_baseline(
         &self,
         peer_id: EntityId,
         origin: &str,
         path: &str,
-    ) -> Result<Option<Digest>> {
+    ) -> Result<Option<FileBaseline>> {
         let conn = self.ledger.conn.lock();
-        let stored: Option<String> = conn
+        let stored: Option<(String, String)> = conn
             .query_row(
-                "SELECT digest FROM cognition_file_baselines WHERE peer_id=?1 AND origin=?2 AND path=?3",
+                "SELECT digest,state FROM cognition_file_baselines
+                 WHERE peer_id=?1 AND origin=?2 AND path=?3",
                 params![peer_id.to_string(), origin, path],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(db)?;
-        Ok(stored.map(Digest))
+        stored
+            .map(|(digest, state)| {
+                Ok(FileBaseline {
+                    path: path.to_string(),
+                    digest: Digest(digest),
+                    state: FileBaselineState::parse(&state)?,
+                })
+            })
+            .transpose()
     }
 
-    /// Remember the content the peer delivered for one file.
+    /// Remember the content and reconciliation state the peer delivered.
     fn write_file_baseline(
         &self,
         peer_id: EntityId,
         origin: &str,
         path: &str,
         digest: &Digest,
+        state: FileBaselineState,
     ) -> Result<()> {
         let conn = self.ledger.conn.lock();
         conn.execute(
-            "INSERT INTO cognition_file_baselines(peer_id,origin,path,digest,updated_at)
-             VALUES(?1,?2,?3,?4,?5)
+            "INSERT INTO cognition_file_baselines(peer_id,origin,path,digest,state,updated_at)
+             VALUES(?1,?2,?3,?4,?5,?6)
              ON CONFLICT(peer_id,origin,path) DO UPDATE SET
                 digest=excluded.digest,
+                state=excluded.state,
                 updated_at=excluded.updated_at",
             params![
                 peer_id.to_string(),
                 origin,
                 path,
                 digest.to_string(),
+                state.as_str(),
                 chrono::Utc::now().to_rfc3339(),
             ],
         )
@@ -1728,9 +2108,26 @@ impl Store {
         descriptor: &CognitionGitDescriptor,
         bundle: &Path,
     ) -> Result<(bool, Option<CognitionConflict>)> {
+        let branch = descriptor
+            .head
+            .strip_prefix("refs/heads/")
+            .filter(|branch| !branch.is_empty())
+            .ok_or_else(|| anyhow!("cognition Git HEAD is not a branch: {}", descriptor.head))?;
+        let replicated = descriptor
+            .refs
+            .iter()
+            .find(|(name, _)| name == &descriptor.head)
+            .map(|(_, sha)| sha.clone())
+            .ok_or_else(|| {
+                anyhow!(
+                    "cognition Git descriptor does not bind HEAD {} to a replicated commit",
+                    descriptor.head
+                )
+            })?;
         if !root.join(".git").exists() {
             fs::create_dir_all(root)?;
-            let (ok, _, error) = git(root, &["init", "--quiet", "--initial-branch=main"])?;
+            let initial_branch = format!("--initial-branch={branch}");
+            let (ok, _, error) = git(root, &["init", "--quiet", initial_branch.as_str()])?;
             ensure!(ok, "git init failed: {error}");
         }
         let label = peer_id.to_string();
@@ -1748,68 +2145,96 @@ impl Store {
             ],
         )?;
         ensure!(ok, "git fetch of the memory history failed: {error}");
+        let (has_destination, destination_out, _) =
+            git(root, &["rev-parse", "--verify", &descriptor.head])?;
+        let (_, current_ref, _) = git(root, &["symbolic-ref", "--quiet", "HEAD"])?;
+        if has_destination
+            && destination_out.trim() != replicated
+            && current_ref.trim() != descriptor.head
+        {
+            return Ok((true, Some(CognitionConflict {
+                table: "git".into(),
+                key: descriptor.head.clone(),
+                detail: "the source HEAD branch already has an independent local tip; both histories are kept".into(),
+            })));
+        }
         let (has_head, head_out, _) = git(root, &["rev-parse", "--verify", "HEAD"])?;
         if !has_head {
-            if let Some((_, sha)) = descriptor
-                .refs
-                .iter()
-                .find(|(name, _)| name == "refs/heads/main")
-                .or_else(|| descriptor.refs.first())
-            {
-                let (ok, _, error) =
-                    git(root, &["update-ref", "refs/heads/main", sha.as_str()])?;
-                ensure!(ok, "git update-ref failed: {error}");
-                let (ok, _, error) = git(root, &["symbolic-ref", "HEAD", "refs/heads/main"])?;
-                ensure!(ok, "git symbolic-ref failed: {error}");
-                let (ok, _, error) = git(root, &["reset", "--mixed"])?;
-                ensure!(ok, "git reset failed: {error}");
-                self.write_git_baseline(peer_id, sha)?;
-            }
+            self.adopt_git_head(root, peer_id, descriptor, &replicated)?;
             return Ok((true, None));
         }
         let local_head = head_out.trim().to_string();
-        let replicated = descriptor
-            .refs
-            .iter()
-            .find(|(name, _)| name == "refs/heads/main")
-            .map(|(_, sha)| sha.clone());
+        let (_, local_ref_out, _) = git(root, &["symbolic-ref", "--quiet", "HEAD"])?;
+        let local_ref = local_ref_out
+            .lines()
+            .next()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let baseline = self.read_git_baseline(peer_id)?;
-        if let Some(remote) = replicated.as_ref() {
+        let unchanged = baseline.as_ref().is_some_and(|baseline| {
+            baseline.head == local_head
+                && baseline
+                    .reference
+                    .as_deref()
+                    .is_none_or(|reference| Some(reference) == local_ref.as_deref())
+        });
+        if unchanged
+            && (replicated != local_head || local_ref.as_deref() != Some(descriptor.head.as_str()))
+        {
             // The local history is still the one the peer delivered, so a
             // newer remote head is the peer's continuation, not a conflict.
-            if baseline.as_deref() == Some(local_head.as_str()) && remote != &local_head {
+            let fast_forward = if replicated == local_head {
+                true
+            } else {
                 let (ok, _, _) =
-                    git(root, &["merge-base", "--is-ancestor", &local_head, remote])?;
-                if ok {
-                    let (ok, _, error) = git(root, &["update-ref", "refs/heads/main", remote])?;
-                    ensure!(ok, "git update-ref failed: {error}");
-                    let (ok, _, error) = git(root, &["reset", "--mixed"])?;
-                    ensure!(ok, "git reset failed: {error}");
-                    self.write_git_baseline(peer_id, remote)?;
-                    return Ok((true, None));
-                }
+                    git(root, &["merge-base", "--is-ancestor", &local_head, &replicated])?;
+                ok
+            };
+            if fast_forward {
+                self.adopt_git_head(root, peer_id, descriptor, &replicated)?;
+                return Ok((true, None));
             }
         }
-        let conflict = match replicated.as_ref() {
-            Some(remote) if remote != &local_head => Some(CognitionConflict {
+        let conflict = if replicated != local_head
+            || local_ref.as_deref() != Some(descriptor.head.as_str())
+        {
+            Some(CognitionConflict {
                 table: "git".into(),
                 key: "memory".into(),
                 detail: format!(
-                    "local head {local_head} differs from the replicated head {remote}; both histories are kept"
+                    "local HEAD {} ({local_head}) differs from replicated HEAD {} ({replicated}); both histories are kept",
+                    local_ref.as_deref().unwrap_or("detached"),
+                    descriptor.head
                 ),
-            }),
-            _ => None,
+            })
+        } else {
+            None
         };
         if conflict.is_none() {
-            if let Some(remote) = replicated.as_ref() {
-                self.write_git_baseline(peer_id, remote)?;
-            }
+            self.write_git_baseline(peer_id, &replicated, &descriptor.head)?;
         }
         Ok((true, conflict))
     }
 
+    fn adopt_git_head(
+        &self,
+        root: &Path,
+        peer_id: EntityId,
+        descriptor: &CognitionGitDescriptor,
+        head: &str,
+    ) -> Result<()> {
+        let (ok, _, error) = git(root, &["update-ref", &descriptor.head, head])?;
+        ensure!(ok, "git update-ref failed: {error}");
+        let (ok, _, error) = git(root, &["symbolic-ref", "HEAD", &descriptor.head])?;
+        ensure!(ok, "git symbolic-ref failed: {error}");
+        let (ok, _, error) = git(root, &["reset", "--mixed"])?;
+        ensure!(ok, "git reset failed: {error}");
+        self.write_git_baseline(peer_id, head, &descriptor.head)
+    }
+
     /// The remote head this store last took from the peer.
-    fn read_git_baseline(&self, peer_id: EntityId) -> Result<Option<String>> {
+    fn read_git_baseline(&self, peer_id: EntityId) -> Result<Option<GitBaseline>> {
         let conn = self.ledger.conn.lock();
         let stored: Option<String> = conn
             .query_row(
@@ -1823,19 +2248,27 @@ impl Store {
             Some(json) => {
                 let values: Vec<(String, Option<String>)> = serde_json::from_str(&json)
                     .map_err(|error| anyhow!("invalid cognition git baseline: {error}"))?;
-                Ok(values
-                    .into_iter()
+                let head = values
+                    .iter()
                     .find(|(name, _)| name == "head")
-                    .and_then(|(_, value)| value))
+                    .and_then(|(_, value)| value.clone());
+                let reference = values
+                    .into_iter()
+                    .find(|(name, _)| name == "ref")
+                    .and_then(|(_, value)| value);
+                Ok(head.map(|head| GitBaseline { head, reference }))
             }
             None => Ok(None),
         }
     }
 
     /// Remember the remote head this store took from the peer.
-    fn write_git_baseline(&self, peer_id: EntityId, head: &str) -> Result<()> {
+    fn write_git_baseline(&self, peer_id: EntityId, head: &str, reference: &str) -> Result<()> {
         let conn = self.ledger.conn.lock();
-        let values = vec![("head".to_string(), Some(head.to_string()))];
+        let values = vec![
+            ("head".to_string(), Some(head.to_string())),
+            ("ref".to_string(), Some(reference.to_string())),
+        ];
         let json = serde_json::to_string(&values)?;
         conn.execute(
             "INSERT INTO cognition_baselines(peer_id,table_name,entity_key,row_values,updated_at)
@@ -1912,6 +2345,67 @@ impl Store {
     }
 }
 
+fn check_import_order_conn(
+    conn: &rusqlite::Connection,
+    manifest: &CognitionManifest,
+) -> Result<()> {
+    let previous: Option<(i64, i64, String)> = conn
+        .query_row(
+            "SELECT snapshot_seq,high_water,fingerprint FROM cognition_import_order
+             WHERE source_ledger_id=?1",
+            [manifest.source_ledger_id.to_string()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let snapshot_seq = i64::try_from(manifest.source_snapshot_seq)?;
+    let high_water = i64::try_from(manifest.high_water.0)?;
+    if let Some((previous_seq, previous_high_water, previous_fingerprint)) = previous {
+        ensure!(
+            snapshot_seq >= previous_seq,
+            "stale cognition snapshot from {}: durable export order {snapshot_seq} precedes {previous_seq}",
+            manifest.source_ledger_id
+        );
+        ensure!(
+            high_water >= previous_high_water,
+            "stale cognition snapshot from {}: source high-water {high_water} precedes {previous_high_water}",
+            manifest.source_ledger_id
+        );
+        if snapshot_seq == previous_seq {
+            ensure!(
+                high_water == previous_high_water
+                    && manifest.fingerprint.0.as_str() == previous_fingerprint.as_str(),
+                "conflicting cognition snapshots share source ledger {} and durable export order {snapshot_seq}",
+                manifest.source_ledger_id
+            );
+        }
+    }
+    Ok(())
+}
+
+fn record_import_order(
+    tx: &Transaction<'_>,
+    peer_id: EntityId,
+    manifest: &CognitionManifest,
+) -> Result<()> {
+    tx.execute(
+        "INSERT INTO cognition_import_order(source_ledger_id,peer_id,snapshot_seq,high_water,fingerprint)
+         VALUES(?1,?2,?3,?4,?5)
+         ON CONFLICT(source_ledger_id) DO UPDATE SET
+            peer_id=excluded.peer_id,
+            snapshot_seq=excluded.snapshot_seq,
+            high_water=excluded.high_water,
+            fingerprint=excluded.fingerprint",
+        params![
+            manifest.source_ledger_id.to_string(),
+            peer_id.to_string(),
+            i64::try_from(manifest.source_snapshot_seq)?,
+            i64::try_from(manifest.high_water.0)?,
+            manifest.fingerprint.to_string(),
+        ],
+    )?;
+    Ok(())
+}
+
 /// Content fingerprint of a snapshot.
 ///
 /// The fingerprint covers the replicated facts, the verified object closure
@@ -1921,9 +2415,35 @@ impl Store {
 /// debt and an identity or memory change is visible even when the ledger
 /// sequence did not move.
 fn fingerprint_of(collected: &Collected) -> Digest {
+    fingerprint_parts(
+        &collected.rows,
+        &collected.objects,
+        collected.files.iter().map(|(descriptor, _)| descriptor),
+        &collected.file_origins,
+        collected.git_history.as_ref(),
+    )
+}
+
+fn fingerprint_of_manifest(manifest: &CognitionManifest) -> Digest {
+    fingerprint_parts(
+        &manifest.rows,
+        &manifest.objects,
+        manifest.files.iter(),
+        &manifest.file_origins,
+        manifest.git_history.as_ref(),
+    )
+}
+
+fn fingerprint_parts<'a>(
+    rows: &[CognitionRow],
+    objects: &[CognitionObjectDescriptor],
+    files: impl IntoIterator<Item = &'a CognitionFileDescriptor>,
+    file_origins: &[CognitionFileOrigin],
+    git_history: Option<&CognitionGitDescriptor>,
+) -> Digest {
     let mut buffer: Vec<u8> = Vec::new();
-    buffer.extend_from_slice(b"shenko-cognition-fingerprint/1\n");
-    let mut rows: Vec<&CognitionRow> = collected.rows.iter().collect();
+    buffer.extend_from_slice(b"shenko-cognition-fingerprint/2\n");
+    let mut rows: Vec<&CognitionRow> = rows.iter().collect();
     rows.sort_by(|a, b| a.table.cmp(&b.table).then(a.key.cmp(&b.key)));
     for row in rows {
         buffer.extend_from_slice(b"row\t");
@@ -1940,40 +2460,58 @@ fn fingerprint_of(collected: &Collected) -> Digest {
         }
         buffer.push(b'\n');
     }
-    let mut digests: Vec<String> = collected
-        .objects
-        .iter()
-        .map(|descriptor| descriptor.digest.to_string())
-        .collect();
-    digests.sort();
-    for digest in digests {
+    let mut objects: Vec<&CognitionObjectDescriptor> = objects.iter().collect();
+    objects.sort_by(|a, b| a.digest.0.cmp(&b.digest.0));
+    for descriptor in objects {
         buffer.extend_from_slice(b"object\t");
-        buffer.extend_from_slice(digest.as_bytes());
+        buffer.extend_from_slice(descriptor.digest.0.as_bytes());
         buffer.push(b'\n');
     }
-    let mut files: Vec<(String, String)> = collected
-        .files
-        .iter()
-        .map(|(descriptor, _)| (descriptor.path.clone(), descriptor.digest.to_string()))
-        .collect();
-    files.sort();
-    for (path, digest) in files {
+    let mut file_origins = file_origins.to_vec();
+    file_origins.sort_unstable();
+    for origin in file_origins {
+        buffer.extend_from_slice(b"file-origin\t");
+        buffer.extend_from_slice(file_origin_name(origin).as_bytes());
+        buffer.push(b'\n');
+    }
+    let mut files: Vec<&CognitionFileDescriptor> = files.into_iter().collect();
+    files.sort_by(|a, b| {
+        a.path
+            .cmp(&b.path)
+            .then(file_origin_name(a.origin).cmp(file_origin_name(b.origin)))
+            .then(a.digest.0.cmp(&b.digest.0))
+    });
+    for descriptor in files {
         buffer.extend_from_slice(b"file\t");
-        buffer.extend_from_slice(path.as_bytes());
+        buffer.extend_from_slice(file_origin_name(descriptor.origin).as_bytes());
         buffer.push(b'\t');
-        buffer.extend_from_slice(digest.as_bytes());
+        buffer.extend_from_slice(descriptor.path.as_bytes());
+        buffer.push(b'\t');
+        buffer.extend_from_slice(descriptor.digest.0.as_bytes());
         buffer.push(b'\n');
     }
-    let mut refs: Vec<&(String, String)> = collected.git_refs.iter().collect();
-    refs.sort();
-    for (name, sha) in refs {
-        buffer.extend_from_slice(b"git\t");
-        buffer.extend_from_slice(name.as_bytes());
-        buffer.push(b'\t');
-        buffer.extend_from_slice(sha.as_bytes());
+    if let Some(descriptor) = git_history {
+        buffer.extend_from_slice(b"git-head\t");
+        buffer.extend_from_slice(descriptor.head.as_bytes());
         buffer.push(b'\n');
+        let mut refs: Vec<&(String, String)> = descriptor.refs.iter().collect();
+        refs.sort();
+        for (name, sha) in refs {
+            buffer.extend_from_slice(b"git\t");
+            buffer.extend_from_slice(name.as_bytes());
+            buffer.push(b'\t');
+            buffer.extend_from_slice(sha.as_bytes());
+            buffer.push(b'\n');
+        }
     }
     Digest::blake3(&buffer)
+}
+
+fn file_origin_name(origin: CognitionFileOrigin) -> &'static str {
+    match origin {
+        CognitionFileOrigin::Memory => "memory",
+        CognitionFileOrigin::Workspace => "workspace",
+    }
 }
 
 fn spec_for(table: &str) -> Option<&'static TableSpec> {
@@ -2025,7 +2563,7 @@ fn transform_task(data: &str) -> Result<(String, Option<u64>)> {
             if task.is_terminal() {
                 return Ok((data.to_string(), None));
             }
-            if task.memos.contains_key("cognition_imported")
+            if task.memos.contains_key(COGNITION_IMPORTED)
                 && matches!(
                     task.dispatch_eligibility,
                     DispatchEligibility::Parked { .. }
@@ -2044,7 +2582,7 @@ fn transform_task(data: &str) -> Result<(String, Option<u64>)> {
             };
             task.record_revision = task.record_revision.next();
             task.memos.insert(
-                "cognition_imported".into(),
+                COGNITION_IMPORTED.into(),
                 serde_json::json!({
                     "source_state": source_state,
                     "note": "imported work is parked on the receiving store",
@@ -2075,6 +2613,19 @@ fn transform_task(data: &str) -> Result<(String, Option<u64>)> {
                 "reason_ref": task_id,
                 "until_utc": null,
             });
+            if let Some(object) = value.as_object_mut() {
+                let memos = object
+                    .entry("memos")
+                    .or_insert_with(|| serde_json::json!({}));
+                if let Some(memos) = memos.as_object_mut() {
+                    memos.insert(
+                        COGNITION_IMPORTED.into(),
+                        serde_json::json!({
+                            "note": "imported work is parked on the receiving store"
+                        }),
+                    );
+                }
+            }
             Ok((serde_json::to_string(&value)?, None))
         }
     }
@@ -2572,6 +3123,7 @@ fn raw_codec() -> SchemaRef {
 fn collect_files(
     root: &Path,
     origin: CognitionFileOrigin,
+    retired_roots: &BTreeSet<PathBuf>,
     out: &mut Vec<(CognitionFileDescriptor, PathBuf)>,
     gaps: &mut Vec<CognitionGap>,
 ) -> Result<()> {
@@ -2583,7 +3135,7 @@ fn collect_files(
         });
         return Ok(());
     }
-    let mut stack: Vec<(PathBuf, String)> = vec![(root.to_path_buf(), String::new())];
+    let mut stack: Vec<(PathBuf, String)> = vec![(fs::canonicalize(root)?, String::new())];
     while let Some((dir, prefix)) = stack.pop() {
         let entries = match fs::read_dir(&dir) {
             Ok(entries) => entries,
@@ -2613,6 +3165,9 @@ fn collect_files(
                 continue;
             }
             let path = entry.path();
+            if retired_roots.contains(&path) {
+                continue;
+            }
             let relative = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -2676,17 +3231,38 @@ fn collect_files(
 /// configuration, and with it any local credential, never leaves the node.
 fn capture_git_history(
     root: &Path,
-) -> Result<Option<(CognitionGitDescriptor, Vec<u8>, Vec<(String, String)>)>> {
+) -> Result<Option<(CognitionGitDescriptor, Vec<u8>)>> {
     if !root.join(".git").exists() {
         return Ok(None);
     }
-    let (has_head, _, _) = git(root, &["rev-parse", "--verify", "HEAD"])?;
+    let (has_head, head_id, _) = git(root, &["rev-parse", "--verify", "HEAD"])?;
     if !has_head {
         return Ok(None);
     }
+    let (symbolic, head, _) = git(root, &["symbolic-ref", "--quiet", "HEAD"])?;
+    ensure!(
+        symbolic,
+        "memory repository HEAD is detached; replication requires an actual source branch"
+    );
+    let head = head.trim().to_string();
+    ensure!(
+        head.starts_with("refs/heads/"),
+        "memory repository HEAD is not a branch: {head}"
+    );
     let temp = std::env::temp_dir().join(format!("shenko-cognition-{}.bundle", EntityId::new()));
     let temp_path = temp.to_string_lossy().into_owned();
-    let (ok, _, error) = git(root, &["bundle", "create", temp_path.as_str(), "--all"])?;
+    // Replicated peer refs are receiver-local bookkeeping, not the source's
+    // memory history. Including them would make every re-export look changed.
+    let (ok, _, error) = git(
+        root,
+        &[
+            "bundle",
+            "create",
+            temp_path.as_str(),
+            "--branches",
+            "--tags",
+        ],
+    )?;
     if !ok {
         let _ = fs::remove_file(&temp);
         bail!("git bundle create failed: {error}");
@@ -2694,20 +3270,34 @@ fn capture_git_history(
     let bytes = fs::read(&temp).with_context(|| format!("read {}", temp.display()))?;
     let _ = fs::remove_file(&temp);
     let mut refs: Vec<(String, String)> = Vec::new();
-    let (ok, out, _) = git(root, &["for-each-ref", "--format=%(refname) %(objectname)"])?;
-    if ok {
-        for line in out.lines() {
-            if let Some((name, sha)) = line.split_once(' ') {
-                refs.push((name.to_string(), sha.to_string()));
-            }
+    let (ok, out, error) = git(
+        root,
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname)",
+            "refs/heads",
+            "refs/tags",
+        ],
+    )?;
+    ensure!(ok, "git ref enumeration failed: {error}");
+    for line in out.lines() {
+        if let Some((name, sha)) = line.split_once(' ') {
+            refs.push((name.to_string(), sha.to_string()));
         }
     }
+    ensure!(
+        refs.iter().any(|(name, sha)| {
+            name == &head && sha == head_id.trim()
+        }),
+        "memory repository HEAD {head} is not bound to its advertised commit"
+    );
     let descriptor = CognitionGitDescriptor {
         bytes: bytes.len() as u64,
         digest: Digest::blake3(&bytes),
-        refs: refs.clone(),
+        head,
+        refs,
     };
-    Ok(Some((descriptor, bytes, refs)))
+    Ok(Some((descriptor, bytes)))
 }
 
 fn git(root: &Path, args: &[&str]) -> Result<(bool, String, String)> {
@@ -2724,6 +3314,18 @@ fn git(root: &Path, args: &[&str]) -> Result<(bool, String, String)> {
         String::from_utf8_lossy(&output.stdout).into_owned(),
         String::from_utf8_lossy(&output.stderr).into_owned(),
     ))
+}
+
+fn verify_restored_file(target: &Path, descriptor: &CognitionFileDescriptor) -> Result<()> {
+    let retained = fs::read(target)
+        .with_context(|| format!("read restored file {}", target.display()))?;
+    ensure!(
+        retained.len() as u64 == descriptor.bytes
+            && Digest::blake3(&retained) == descriptor.digest,
+        "restored file {} does not match its verified descriptor",
+        target.display()
+    );
+    Ok(())
 }
 
 fn safe_relative_path(path: &str) -> Result<PathBuf> {

@@ -31,7 +31,7 @@ use shenko_types::object::{Digest, SchemaRef};
 /// Magic line that opens every archive.
 pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// Wire schema of the archive and of its manifest.
-pub const ARCHIVE_SCHEMA: u32 = 1;
+pub const ARCHIVE_SCHEMA: u32 = 2;
 
 /// One replicated table row.
 ///
@@ -56,7 +56,7 @@ impl CognitionRow {
 }
 
 /// Where a replicated file came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CognitionFileOrigin {
     /// The managed memory root. It is recovery data by default.
@@ -90,6 +90,9 @@ pub struct CognitionFileDescriptor {
 pub struct CognitionGitDescriptor {
     pub bytes: u64,
     pub digest: Digest,
+    /// The source repository's symbolic HEAD, such as `refs/heads/master`.
+    /// Ref names alone cannot tell the receiver which branch to continue.
+    pub head: String,
     /// Ref name and object id as the source repository reports them.
     pub refs: Vec<(String, String)>,
 }
@@ -125,6 +128,10 @@ pub struct CognitionManifest {
     pub fingerprint: Digest,
     pub source_ledger_id: EntityId,
     pub source_incarnation: EntityId,
+    /// Durable, source-local export order. Unlike wall-clock timestamps this
+    /// orders same-ledger snapshots even when the commit watermark is equal.
+    /// It is transfer bookkeeping, not snapshot content, so it is not hashed.
+    pub source_snapshot_seq: u64,
     pub agent_id: Option<EntityId>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// Local ledger sequence the snapshot was taken at.
@@ -132,6 +139,10 @@ pub struct CognitionManifest {
     pub rows: Vec<CognitionRow>,
     pub derivatives: Vec<CognitionDerivative>,
     pub objects: Vec<CognitionObjectDescriptor>,
+    /// Origins whose complete current file sets are represented by `files`.
+    /// This distinguishes an authoritative source deletion from an origin
+    /// that was simply not included in this export.
+    pub file_origins: Vec<CognitionFileOrigin>,
     pub files: Vec<CognitionFileDescriptor>,
     pub git_history: Option<CognitionGitDescriptor>,
     pub gaps: Vec<CognitionGap>,

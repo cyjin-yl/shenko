@@ -521,16 +521,27 @@ impl Store {
     pub fn committed_decisions_after(
         &self,
         seq: u64,
+        after_step_id: Option<EntityId>,
         limit: usize,
-    ) -> Result<Vec<(SubjectStep, StepDecision)>> {
+    ) -> Result<Vec<(u64, SubjectStep, StepDecision)>> {
         let rows = {
             let c = self.ledger.conn.lock();
-            let mut q=c.prepare("SELECT data FROM subject_steps WHERE state='committed' AND updated_commit_seq>?1 ORDER BY updated_commit_seq LIMIT ?2")?;
-            q.query_map(params![seq as i64, limit as i64], |r| r.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?
+            let mut q=c.prepare(
+                "SELECT updated_commit_seq,data FROM subject_steps
+                 WHERE state='committed'
+                   AND (updated_commit_seq>?1
+                        OR (?2 IS NOT NULL AND updated_commit_seq=?1 AND step_id>?2))
+                 ORDER BY updated_commit_seq,step_id LIMIT ?3",
+            )?;
+            q.query_map(
+                params![seq as i64, after_step_id.map(|id| id.to_string()), limit as i64],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?
         };
         rows.into_iter()
-            .map(|data| {
+            .map(|(replay_seq, data)| {
+                let replay_seq = u64::try_from(replay_seq)?;
                 let step: SubjectStep = serde_json::from_str(&data)?;
                 let object = step
                     .decision_ref
@@ -542,7 +553,7 @@ impl Store {
                     "decision_object_corruption"
                 );
                 let decision = serde_json::from_slice(&bytes)?;
-                Ok((step, decision))
+                Ok((replay_seq, step, decision))
             })
             .collect()
     }
