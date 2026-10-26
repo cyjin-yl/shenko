@@ -135,6 +135,13 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 映射 [C17](tasks/C17.md)、[C10](tasks/C10.md)、[C09](tasks/C09.md)、
 [C01](tasks/C01.md)、[C03](tasks/C03.md)；完整包与 S1–S5 仍按各自剩余验收继续。
 
+模型驱动行为的验收方法：[本地模型行为验收](development/local-model-behavior.md)。
+提示词、控制协议或事件投影改变后，用真实本地模型采样成功率；确定性测试不能代替
+“这个本地模型会不会做对”。
+
+能力编写原则：[内核零业务，能力优先写成 perception + awareness](development/awareness-first-plugins.md)。
+内核只做机制，判断交给可安装的觉察与视角；不用关键词表强制动作。
+
 ## 社区任务栈
 
 - [朋友可复制PROMPT](../PROMPT.md)
