@@ -8,50 +8,61 @@
   "scope": "All formal requirements and S1–S5; complete product, not only developer release.",
   "upstream_verified": true,
   "branch": "main",
-  "head_commit": "a059311d9bc2cd82074e61a73b9644fff3efd14c",
-  "pr_url": "https://github.com/cyjin-yl/shenko/pull/67",
+  "head_commit": "95db5ebe4d1fc63dba7f1dae7332e6cc86d2f782",
+  "pr_url": "https://github.com/cyjin-yl/shenko/pull/76",
   "claude_session_id": null,
   "active_workers": [],
   "blockers": [],
   "next_actions": [
-    "Continue from actual main a059311d9bc2cd82074e61a73b9644fff3efd14c (PR67); implement C09 history search/re-read over branch raw sessions and stable event refs, without a second store or mock tool result.",
-    "Implement explicit pre-raw-history migration for old committed instances; current admission intentionally blocks missing raw model-result facts rather than silently dropping conversation history.",
-    "Complete remaining C20 R115/R116: real provider compaction/vision envelopes, backend KV/prefill evidence and package lifecycle/closure. The current real conversation did not trigger compaction; #25 stays open.",
-    "Complete C01 child/T2, outbox/selector and production recovery handoffs; preserve historical unknown effects and never replay them unconditionally.",
-    "Full physical compute/submission/chunk-stream, production provider query/cancel, QQ/model/child and all remaining S1–S5/7–30-day obligations stay open; #5/#6/#12/#22 remain open.",
-    "C17 physical second-node, election/privacy/full export/image recovery and 7/30-day evidence remain incomplete.",
-    "Preserve offline contributor commits and source fixtures; monitor replies and resume from pushed checkpoints without approval/release gates. All S1–S5 remains required."
+    "C10/C22 follow-ups: make an awareness unit earn 'accepted' on hold-out scenarios (capability-gap is 12/18 vs 8/18 baseline, tentative), redesign or retire the network-change scenario, and wire perception runtime + Skill retrieval.",
+    "C09 remains open beyond the merged history slice: research workers, PMA, reset-to-best, external memory portability and space handling.",
+    "C01 child/T2, outbox/selector and production recovery handoffs remain open; never replay unknown effects unconditionally.",
+    "C02 idle/turn boundaries now have a regression, but real child admission,双向续接 and 600s semantic wait with the same model still need production evidence.",
+    "C20 R115/R116: real provider compaction/vision envelopes and backend KV/prefill evidence still missing; #25 stays open.",
+    "C17 physical second node, election/privacy, image recovery and 7/30-day evidence remain incomplete.",
+    "Remaining packages #5,#6,#7,#8,#9,#10,#11,#12,#13,#16,#17,#18,#19,#20,#21,#23,#24,#25,#26 and #54 need per-package verification and genuine PRs; #71 design tracking is closed."
   ],
   "last_checkpoint": "docs/governance/HANDOFF.md",
   "upstream": "cyjin-yl/shenko",
   "upstream_url": "https://github.com/cyjin-yl/shenko",
   "upstream_visibility": "public",
   "upstream_default_branch": "main",
-  "upstream_verified_at": "2026-10-26",
-  "notes": "2026-10-26 PR67: 42 affected tests passed; real pre-seal recovery, model restart and memory receipt observed. This focused slice does not upgrade coverage.json or claim full workspace/CI/physical KV/live compaction. Historical: 18 workspace packages; prior cargo test --workspace count 26 was not rerun here. coverage.json remains 27 partial / 120 not_assessed / 0 satisfied (147 requirements).",
+  "upstream_verified_at": "2026-10-27",
+  "notes": "2026-10-27 merged stack on main: #72 (unified Node, unit sync, cognition recovery), #76 (local-model behaviour + awareness efficacy harnesses, awareness wiring), #73 (C09 history.query child + S0 ResnapshotRequired), #74 (#69 fresh batch), #75 (#70 idle turn). Merged main 95db5eb re-tested in an independent worktree: store/subject/exec-host/compact-budget/bin all 0 failed, binary built offline; model harnesses skip without an endpoint. Issue #71 closed with per-item evidence; #69/#70 closed. Awareness units remain tentative: capability-gap 12/18 with unit vs 8/18 disabled, network-change 5/24 vs 4/24 (scenario invalid). coverage.json keeps satisfied:false.",
   "current_checkpoint": {
     "work_ids": [
-      "C20"
+      "C17",
+      "C10",
+      "C09",
+      "C20",
+      "C25"
     ],
     "issues": [
-      25
+      22,
+      15,
+      14,
+      25,
+      71
     ],
-    "related_issues": [
-      9,
-      14
-    ],
-    "integration_pr": 67,
-    "main_input": "1c51c7b72d417cf53a083b64ecf2e397f1819e9e",
-    "product_candidate": "16654fea5b0da66a68961aed71a785ebf18a632f",
-    "status": "focused_slice_verified_pushed_and_merged",
+    "merge_commits": {
+      "unified_node": "71a7d46b7a2dbfc661bb541b9e5c23462e1c0654",
+      "local_model_and_awareness": "e7b5424c590ec65079877cb55df6c12830890fe7",
+      "c09_history": "f55e756b7494d843244f0e89d4ed61ba9044702e",
+      "fresh_input_69": "28fa5cbd06396b931d4f3552598a526c0d8b6c7d",
+      "idle_turn_70": "95db5ebe4d1fc63dba7f1dae7332e6cc86d2f782"
+    },
+    "main_input": "2d2cab8a7acaf46ba42b5299a63164c82c816251",
+    "status": "four_focused_slices_and_two_harnesses_verified_and_merged",
     "full_work_package_complete": false,
     "full_goal_complete": false,
-    "evidence": "https://github.com/cyjin-yl/shenko/issues/25#issuecomment-6400474189",
-    "delivered_pr_head": "16654fea5b0da66a68961aed71a785ebf18a632f",
-    "merge_commit": "a059311d9bc2cd82074e61a73b9644fff3efd14c",
-    "validated_integration_tree": "d98175d111e211c5800d1b845b0345d6b0951300",
-    "remote_main_observed_at_checkpoint": "a059311d9bc2cd82074e61a73b9644fff3efd14c",
-    "verification_scope": "42 affected tests passed. Real pre-seal recovery, committed-only WS, no-model reopen, exact Preparing model restart, actual memory receipt and exact-model advertised metadata observed. No full-workspace/CI/physical KV/live compaction claim."
+    "evidence": [
+      "docs/evidence/node-sync-cognition-20261026.json",
+      "docs/evidence/local-model-and-awareness-20261027.json",
+      "docs/evidence/c09-native-history-replay-20261027.json"
+    ],
+    "merged_main_tested": "95db5ebe4d1fc63dba7f1dae7332e6cc86d2f782",
+    "verified_in_worktree": "worktrees/main-verify-20261027",
+    "verification_scope": "Affected cargo targets (store/subject/exec-host/compact-budget/bin) 0 failed with --locked --offline in an independent worktree at main 95db5eb; shenko binary built offline. Native evidence is bound to earlier candidate commits and their retained artifacts; no full-workspace, CI, live-provider or long-run claim."
   },
   "checkpoints": {
     "previous_C01_C22": {

@@ -224,3 +224,18 @@
 - 当前公开代码盘点基线`d4b612b`；此文档增量不含产品实现和新构建结果。
 - 恢复线暂停，本地`291d5a5`候选及ACK接线保留，32入站只渲染10却全ACK的问题仍待验证。Broker/SSH、UI和cordis候选排队，不当作已merge。先#6，再#12，再#22第二节点接走任务。
 - 朋友离线不锁任务：从最后已推checkpoint开continuation分支，保留作者/提交/PR，不等交还/审批，未知effects先对账。
+
+## 已合并栈与当前接续（2026-10-27）
+
+main `95db5eb` 已包含本轮全部 focused 切片，且合入后在独立 worktree
+`worktrees/main-verify-20261027` 复跑受影响全套（store/subject/exec-host/compact-budget/bin）
+0 failed、`shenko` 二进制离线构建成功：
+
+- [#72](https://github.com/cyjin-yl/shenko/pull/72) 统一 Node、安装单元同步与认知恢复闭包（合并 `71a7d46`）；[#71](https://github.com/cyjin-yl/shenko/issues/71) 已按六项验收逐条关闭。
+- [#76](https://github.com/cyjin-yl/shenko/pull/76) 本地模型行为 harness + 觉察接线（合并 `e7b5424`）。方法写在 `docs/development/local-model-behavior.md` 与 `awareness-first-plugins.md`。
+- [#73](https://github.com/cyjin-yl/shenko/pull/73) `history.query/v1` 与 S0 `ResnapshotRequired`（合并 `f55e756`），保留数据重放见 `docs/evidence/c09-native-history-replay-20261027.json`。
+- [#74](https://github.com/cyjin-yl/shenko/pull/74) #69 fresh-batch compact（合并 `28fa5cb`）；[#75](https://github.com/cyjin-yl/shenko/pull/75) #70 空闲续轮（合并 `95db5eb`）。#69/#70 均已关闭。
+
+接续要点：觉察单元尚未达到接受门槛（capability-gap 12/18 对停用 8/18，network-change 场景无效），
+C09/C01/C02/C10/C17/C20 的剩余义务仍按各 issue 跟踪；`coverage.json` 继续 `satisfied:false`。
+下一批工作是 #5 起的逐包核实与真实 PR，`docs/state/goal.json` 保存当前 checkpoint。
