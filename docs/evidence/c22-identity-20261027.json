@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "evidence_id": "c22-identity-20261027",
+  "issues": ["https://github.com/cyjin-yl/shenko/issues/5"],
+  "pr": "https://github.com/cyjin-yl/shenko/pull/78",
+  "requirements": ["R053", "R054", "R105", "R117"],
+  "cases_reference_only": ["A11", "A12", "A20"],
+  "full_cases_passed": [],
+  "status": "verified_real_cli_and_sealed_payload",
+  "product_commit": "467f491df4f4ff4afbeaa3ecc699806df6282556",
+  "branch": "c22/acceptance-20261027",
+  "installation": {
+    "data_dir": "build/c22-acceptance-20261027/data (fresh sandbox instance, no model for the naming steps)",
+    "agent_id": "94bf2b2a-a8ce-4775-9e14-e4e4a0c6dae6",
+    "ledger": "d4fd54a9-e7c7-440f-bab8-e3070fee961a (exactly one ledger row for the whole run)",
+    "final": {"identity_revisions": 5, "steps": 197, "committed_head": 196, "session_events": 196, "commit_log": "seq 1..794, 794 entries"},
+    "continuity": "every rename, soul edit and self-naming kept the same agent_id, ledger and append-only history; no reset or re-genesis"
+  },
+  "observations": [
+    {
+      "step": "genesis identity",
+      "command": "shenko --data-dir DATA identity",
+      "result": "revision 1, display_name null, naming unnamed, source genesis"
+    },
+    {
+      "step": "human rename",
+      "command": "shenko --data-dir DATA identity --set-name 岚 --expected-revision 1",
+      "result": "revision 2, naming user_given, source operator; agent_id unchanged"
+    },
+    {
+      "step": "stale editor rejected",
+      "command": "… --set-name 另一个 --expected-revision 1",
+      "result": "exit non-zero, IDENTITY_REVISION_CONFLICT: expected 1, actual 2; no new revision"
+    },
+    {
+      "step": "soul + personality by operator",
+      "command": "… --set-name 岚 --set-soul … --set-personality … --expected-revision 2",
+      "result": "revision 3 with both fields, source operator"
+    },
+    {
+      "step": "self-naming through the documented control",
+      "provider": "scripted fixture emitting `[identity:name] 小满`",
+      "result": "revision 4, display_name 小满, naming self_chosen, source subject{step_id, step_no 1}; soul and personality preserved"
+    },
+    {
+      "step": "self soul edit",
+      "provider": "scripted fixture emitting `[identity:soul] …` on the frozen binding",
+      "result": "revision 5, soul replaced by the subject's own sentence, source subject{step_id, step_no 112}; personality preserved"
+    },
+    {
+      "step": "provider fence on a frozen step",
+      "command": "restart with a different model id/port while step 112 was frozen",
+      "result": "MODEL_PROVIDER_BINDING_MISMATCH, subject loop stopped for reconciliation instead of sending the sealed request elsewhere — a new binding requires a new sealed revision"
+    }
+  ],
+  "payload_check": {
+    "where": "sealed S0 input of step 1 (CAS object referenced by input_plan_ref)",
+    "tools": [],
+    "messages": 1,
+    "system_prompt_order": "stable contract first, then installed native definitions, then persona (name/soul/personality), then per-step suffix",
+    "protocol_intact": "the shipped control contract, the mandatory reply line and the history.query/v1 description are present unchanged",
+    "persona_text_present": ["先核实再断言", "话少、直接"],
+    "why_it_matters": "R053/R054: the persona is prompt material after the stable core; it adds no tool, changes no protocol and grants no permission"
+  },
+  "regression_added": "crates/shenko-subject/src/recovery_tests.rs::personality_stays_out_of_the_tool_contract asserts tools stay empty, the contract remains the exact prefix, native definitions precede the persona, and the persona never leaks into the contract bytes",
+  "bounds": {
+    "provider": "scripted fixtures for the self-edit steps: this proves the product applies a documented identity intent at a step boundary, not that a model would pick a good name",
+    "child_choice": "per-child prompt/model selection belongs to the child/admission path and is not exercised here",
+    "memory_visibility": "R104 (unified experience without audience filtering) is a memory-projection contract and is not claimed by this run",
+    "scale": "the fixtures keep answering, so the step count grows quickly; only identity boundaries and the sealed payload are asserted",
+    "cases": "A11/A12/A20 remain reference only"
+  },
+  "reproducer": [
+    "build/target-main-verify-20261027/debug/shenko --data-dir DATA identity --set-name 岚 --expected-revision 1",
+    "SHENKO_USE_LOCAL_MODEL=1 SHENKO_LOCAL_MODEL_URL=http://127.0.0.1:18902 SHENKO_LOCAL_MODEL=c22-scripted-fixture <binary> --data-dir DATA start --port 18802",
+    "cargo test -p shenko-subject personality_stays_out_of_the_tool_contract --offline --locked"
+  ]
+}
