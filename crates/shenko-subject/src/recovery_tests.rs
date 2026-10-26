@@ -374,6 +374,46 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
     assert!(!prepared.payload.system_prompt.contains("不记得自己许过什么"));
 }
 
+#[test]
+fn personality_stays_out_of_the_tool_contract() {
+    use shenko_types::identity::{IdentityChange, IdentitySource};
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let genesis = shenko_identity::DefaultIdentityPolicy::genesis(agent, Some("岚"));
+    subject.identity = Some(
+        shenko_identity::DefaultIdentityPolicy::successor(
+            &genesis,
+            &IdentityChange::Personality("话少、直接，不把猜测说成事实".into()),
+            IdentitySource::Operator,
+        )
+        .unwrap(),
+    );
+    subject = subject.with_native_capabilities(vec![
+        "history.query/v1 只读检索已提交的原始历史".into(),
+    ]);
+    let event = crate::inbox::InboxEvent {
+        source: "napcat".into(),
+        ..message("你在吗")
+    };
+    let prepared =
+        crate::context_projection::prepare_context(&mut subject, &[event], false).unwrap();
+    let prompt = &prepared.payload.system_prompt;
+    // The persona is prompt text only: it never adds a tool, never changes the
+    // sealed protocol, and it is placed after the stable contract plus the
+    // installed native definitions (SPEC §6 ordering, R053/R054).
+    assert!(prepared.payload.tools.is_empty());
+    let contract = crate::canonical_system_prompt();
+    assert!(prompt.starts_with(&contract));
+    assert!(!prompt[..contract.len()].contains("话少"));
+    assert!(prompt.contains("history.query/v1 只读检索已提交的原始历史"));
+    assert!(prompt.contains("话少、直接，不把猜测说成事实"));
+    assert!(
+        prompt.find("话少、直接，不把猜测说成事实")
+            > prompt.find("history.query/v1 只读检索已提交的原始历史"),
+        "persona must follow the tool contract: {prompt}"
+    );
+}
+
 #[tokio::test]
 async fn late_history_change_rejects_s0_seal_without_advancing_step() {
     let (_dir, store, agent) = fixture();
