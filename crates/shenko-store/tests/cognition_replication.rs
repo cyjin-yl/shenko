@@ -155,7 +155,7 @@ fn seeded_store() -> Seeded {
             agent_id,
             revision: 1,
             display_name: Some("Recovering Self".into()),
-            naming: NamingOrigin::Genesis,
+            naming: NamingOrigin::UserGiven,
             soul: Some("keep the thread".into()),
             personality: None,
             source: IdentitySource::Genesis,
