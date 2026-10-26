@@ -12,9 +12,13 @@ use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
-/// Maximum number of bytes of an intuition body returned by
+/// Maximum number of bytes of one intuition body returned by
 /// [`AwarenessRegistry::active_intuitions`].
 pub const MAX_INTUITION_BYTES: usize = 2048;
+
+/// Total bytes of intuition text a step may carry. Beyond it, the remaining
+/// units are named (id + capability card) so the model knows they exist.
+pub const MAX_TOTAL_INTUITION_BYTES: usize = 4096;
 
 /// One independently installable awareness unit — SPEC §45.1–45.2.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -210,6 +214,10 @@ impl AwarenessRegistry {
                 "seed-awareness/capability-gap/AWARENESS.md",
                 include_str!("../seed-awareness/capability-gap/AWARENESS.md"),
             ),
+            (
+                "seed-awareness/general-principles/AWARENESS.md",
+                include_str!("../seed-awareness/general-principles/AWARENESS.md"),
+            ),
         ];
 
         let registry = Self::new();
@@ -314,50 +322,39 @@ impl AwarenessRegistry {
         self.units.read().get(id).cloned()
     }
 
-    /// Retrieval entry point for the subject and children.
+    /// Every enabled unit's perspective, bounded, for one subject step.
     ///
-    /// Returns the bodies of enabled units whose id or capability card matches
-    /// any keyword of `context_hint`. Matching is deliberately simple substring
-    /// matching; each body is capped at [`MAX_INTUITION_BYTES`].
-    pub fn active_intuitions(&self, context_hint: &str) -> Vec<String> {
-        let keywords = hint_keywords(context_hint);
-        if keywords.is_empty() {
-            return Vec::new();
+    /// There is deliberately no keyword gate: a message describing a symptom
+    /// ("什么都打不开了") does not contain the word its unit is named after
+    /// ("网络"), so matching words would silently withhold exactly the
+    /// perspective that was supposed to help. Selection is the model's
+    /// judgement; this returns installed material in a deterministic order and
+    /// degrades to an index when the budget is exceeded, so a large library is
+    /// discoverable rather than truncated invisibly.
+    pub fn active_intuitions(&self) -> Vec<String> {
+        let mut intuitions = Vec::new();
+        let mut index = Vec::new();
+        let mut used = 0_usize;
+        for unit in self.list().into_iter().filter(|unit| unit.enabled) {
+            let body = cap_body(&unit.body, MAX_INTUITION_BYTES);
+            if used + body.len() > MAX_TOTAL_INTUITION_BYTES {
+                index.push(format!("{} — {}", unit.id, unit.capability_card));
+                continue;
+            }
+            used += body.len();
+            intuitions.push(body);
         }
-
-        let mut units: Vec<_> = self.units.read().values().cloned().collect();
-        units.sort_by(|a, b| a.id.cmp(&b.id));
-
-        units
-            .into_iter()
-            .filter(|unit| unit.enabled)
-            .filter(|unit| {
-                let haystack = format!("{} {}", unit.id, unit.capability_card).to_lowercase();
-                keywords.iter().any(|keyword| haystack.contains(keyword.as_str()))
-            })
-            .map(|unit| cap_body(&unit.body, MAX_INTUITION_BYTES))
-            .collect()
+        if !index.is_empty() {
+            intuitions.push(format!(
+                "其余已安装的觉察（需要时可查阅）：{}",
+                index.join("；")
+            ));
+        }
+        intuitions
     }
 }
 
-fn hint_keywords(hint: &str) -> Vec<String> {
-    const PUNCTUATION: &[char] = &[
-        '，', ',', '。', '.', ';', '；', ':', '：', '/', '、', '|', '(', ')', '[', ']', '{', '}', '<',
-        '>', '"', '\'', '`', '\n', '\r', '\t',
-    ];
-    let mut keywords: Vec<String> = hint
-        .split(|c: char| c.is_whitespace() || PUNCTUATION.contains(&c))
-        .map(|token| token.trim().to_lowercase())
-        .filter(|token| !token.is_empty())
-        .collect();
-
-    let whole = hint.trim().to_lowercase();
-    if !whole.is_empty() && !keywords.contains(&whole) {
-        keywords.push(whole);
-    }
-    keywords
-}
-
+/// Cap one body at `max_bytes` without splitting a UTF-8 character.
 fn cap_body(body: &str, max_bytes: usize) -> String {
     if body.len() <= max_bytes {
         return body.to_string();
@@ -385,11 +382,11 @@ mod tests {
     fn parses_seed_awareness_md() {
         let unit = parse_awareness_md(seed_file("network-change")).unwrap();
         assert_eq!(unit.id, "awareness.network-change");
-        assert_eq!(unit.version, "0.1.0");
+        assert_eq!(unit.version, "0.2.0");
         assert_eq!(unit.provenance, vec!["SPEC §9.4".to_string()]);
         assert!(unit.dependencies.is_empty());
         assert!(unit.capability_card.contains("网络"));
-        assert!(unit.body.contains("切断"));
+        assert!(unit.body.contains("通路"));
         assert!(unit.enabled);
     }
 
@@ -401,38 +398,41 @@ mod tests {
             installed,
             vec![
                 "awareness.capability-gap".to_string(),
+                "awareness.general-principles".to_string(),
                 "awareness.network-change".to_string()
             ]
         );
 
         let listed = registry.list();
-        assert_eq!(listed.len(), 2);
+        assert_eq!(listed.len(), 3);
         assert_eq!(listed[0].id, "awareness.capability-gap");
-        assert_eq!(listed[1].id, "awareness.network-change");
+        assert_eq!(listed[2].id, "awareness.network-change");
         assert!(registry.get("awareness.network-change").unwrap().enabled);
 
         registry.disable("awareness.network-change").unwrap();
         assert!(!registry.get("awareness.network-change").unwrap().enabled);
-        assert!(registry.active_intuitions("网络").is_empty());
+        assert!(!registry.active_intuitions().iter().any(|body| body.contains("通路")));
         registry.enable("awareness.network-change").unwrap();
         assert!(registry.get("awareness.network-change").unwrap().enabled);
 
         assert!(registry.enable("awareness.missing").is_err());
         let removed = registry.uninstall("awareness.capability-gap").unwrap();
         assert_eq!(removed.id, "awareness.capability-gap");
-        assert_eq!(registry.list().len(), 1);
+        assert_eq!(registry.list().len(), 2);
     }
 
     #[test]
-    fn active_intuitions_matches_network_unit_only() {
+    fn active_intuitions_returns_every_enabled_unit_without_a_keyword_gate() {
         let registry = AwarenessRegistry::with_seeds();
-        let intuitions = registry.active_intuitions("网络");
-        assert_eq!(intuitions.len(), 1);
-        assert!(intuitions[0].contains("切断"));
-        assert!(!intuitions[0].contains("能力目录"));
+        // A symptom message never names the concept; the unit still arrives.
+        let intuitions = registry.active_intuitions();
+        assert_eq!(intuitions.len(), 3);
+        assert!(intuitions.iter().any(|body| body.contains("通路")));
+        assert!(intuitions.iter().any(|body| body.contains("最近一次实际做成")));
 
-        let gap = registry.active_intuitions("能力 工具");
-        assert_eq!(gap.len(), 1);
-        assert!(gap[0].contains("能力目录"));
+        registry.disable("awareness.capability-gap").unwrap();
+        let after = registry.active_intuitions();
+        assert_eq!(after.len(), 2);
+        assert!(!after.iter().any(|body| body.contains("最近一次实际做成")));
     }
 }

@@ -46,6 +46,19 @@ impl LocalModelProvider {
         })
     }
 
+    /// The exact frozen binding this provider executes. Callers (broker or
+    /// behavior evaluation) seal requests with it instead of rebuilding the
+    /// non-secret envelope by hand.
+    pub fn binding(&self) -> ProviderBinding {
+        ProviderBinding::Local {
+            base_url: self.base_url.clone(),
+            model: self.model.clone(),
+            allow_invalid_certs: self.allow_invalid_certs,
+            serializer_revision: SERIALIZER_REVISION,
+            default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+        }
+    }
+
     fn validate_binding<'a>(&self, req: &'a InferenceRequest) -> Result<&'a ProviderBinding> {
         let ProviderBinding::Local {
             base_url,

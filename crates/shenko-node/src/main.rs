@@ -14,9 +14,9 @@ fn main() -> Result<()> {
         .context("usage: shenko-node PRIVATE_DATA_DIR < request.json")?;
     let mut bytes = Vec::new();
     std::io::stdin()
-        .take(1024 * 1024 + 1)
+        .take(shenko_node::MAX_NODE_REQUEST as u64 + 1)
         .read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= 1024 * 1024, "request exceeds 1MiB");
+    ensure!(bytes.len() <= shenko_node::MAX_NODE_REQUEST, "request exceeds 16MiB");
     let request = serde_json::from_slice(&bytes)?;
     let mut node = shenko_node::Node::open(std::path::Path::new(&dir))?;
     println!("{}", node.handle(request)?);

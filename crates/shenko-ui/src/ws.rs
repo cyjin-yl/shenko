@@ -338,7 +338,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     }
 
     let mut identity_revision: Option<u64> = None;
-    let mut committed_seq = 0u64;
+    let mut committed_cursor = (0u64, None);
     let mut history = std::collections::VecDeque::new();
     loop {
         tokio::select! {
@@ -356,7 +356,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                     Err(_) => break,
                 }
             }
-            out = recv_committed(&state, &mut committed_seq, &mut history, &mut outbox_rx) => {
+            out = recv_committed(&state, &mut committed_cursor, &mut history, &mut outbox_rx) => {
                 match out {
                     Some(out) => {
                         if out.identity_revision.is_some() && out.identity_revision != identity_revision {
@@ -458,7 +458,7 @@ async fn recv_outbox(rx: &mut Option<broadcast::Receiver<OutboxMessage>>) -> Opt
 
 async fn recv_committed(
     state: &WsState,
-    seq: &mut u64,
+    cursor: &mut (u64, Option<EntityId>),
     history: &mut std::collections::VecDeque<OutboxMessage>,
     wake: &mut Option<broadcast::Receiver<OutboxMessage>>,
 ) -> Option<OutboxMessage> {
@@ -467,11 +467,11 @@ async fn recv_committed(
     };
     loop {
         if let Some(out) = history.pop_front() {
-            *seq = out.commit_ref.seq.0;
+            *cursor = (out.replay_seq, Some(out.step_id));
             state.live.record_outbox(out.step);
             return Some(out);
         }
-        match shenko_subject::outbox::committed_after(store, *seq, 64) {
+        match shenko_subject::outbox::committed_after(store, cursor.0, cursor.1, 64) {
             Ok(messages) => history.extend(messages),
             Err(e) => {
                 tracing::error!(err=%e,"committed timeline read failed; no guessed replay");
@@ -526,6 +526,7 @@ mod tests {
             step: 3,
             step_id,
             commit_ref,
+            replay_seq: 7,
             text: "已提交正文".into(),
             publications: vec![],
             identity_revision: None,

@@ -37,3 +37,58 @@ description: 用最少有效证据回答 Shenko 改动的具体风险；用于�
 一条命令结果、界面观察或已有证据引用可以足够，不强制新建测试文件和报告。
 区分静态检查、模拟、真实环境和长期运行；文档检查不证明产品可运行。
 具体风险已解决就停止可选验证；仍未解决的事实如实保留并继续有关工作。
+
+## 本地模型行为驱动验证
+
+Shenko 由本地模型驱动，所以对提示词、控制协议、事件可见文本这类会被模型读到的改动，
+"测试通过"不是足够的结果。要回答的问题是：**这个本地模型在若干次采样里，能不能
+较高成功率地做出这个行为。**
+
+```sh
+SHENKO_LOCAL_MODEL_URL=<served OpenAI-compatible endpoint> \
+SHENKO_LOCAL_MODEL=<served model id> \
+SHENKO_BEHAVIOR_SAMPLES=8 SHENKO_BEHAVIOR_MIN_RATE=0.85 \
+cargo test -p shenko-subject --test local_model_behavior -- --nocapture
+```
+
+`crates/shenko-subject/tests/local_model_behavior.rs` 使用产品真实的
+`canonical_system_prompt`、`staged_message_text`、`IDLE_CONTINUATION_PROMPT`、
+`LocalModelProvider` 和 `parse_output`，按场景采样并给出成功率；未设置端点时跳过，
+所以常规 `cargo test` 仍然离线和确定性。
+
+- 换模型不改测试代码，只改环境变量；断言只看协议与语义，不看具体措辞。
+- 改前跑基线、改后复跑，两次成功率都记录；失败原文保留，失败的运行同样保留。
+- 失败在产品侧修：模型缺信息就补上下文，规则有歧义就把规则写清楚。
+- 不要把它变成测试工厂：一个 harness 加一张小场景表；只有真正独立的新行为才加场景。
+- 证据按 [COMPLETION](../../../docs/governance/COMPLETION.md) 记录模型、端点、prompt
+  digest、样本数、成功率和未覆盖范围，例如
+  [本地模型行为验收](../../../docs/development/local-model-behavior.md)。
+
+它不证明完整产品验收、真实渠道送达或长期稳定；它只回答"这个提示词在这个真实模型上
+是否可用"。
+
+## perception / awareness 的成效自测
+
+一个觉察能被解析、能被检索到，都不算有效。有效的判据是在**真实 Shenko 沙箱**里用
+本地基线模型重复验证出来的行为结果：
+
+1. 真实沙箱：真实 Store、真实 subject 步骤（S0 → 真实 provider → S1）、真实输出解析。
+   mock 模型、手拼提示词、只调用 `active_intuitions` 都不算证据。
+2. baseline 明确：以 **Qwen 3.8 27B NVFP4** 的智能水平为参照，不是随便换个弱模型或
+   用云端最强模型代替。
+3. 多个场景 × 多次试验：每个场景重复采样，统计有效结果比例并保留失败原文。
+4. 可判定的结果：判据落在产品产物上——模型是否真的先检查、先回忆、发出有界检查控制，
+   或提交了什么决定。同一场景在**停用该单元**时复跑，说明贡献不是本来就会。
+
+记录：单元 id/version、模型 id、沙箱数据目录、源码候选、启用/停用样本数与比例、
+失败原文、prompt 摘要、日期。模型或单元正文变化都要重测；为过关放宽判据等于伪造证据。
+
+主体自己写单元时同样要先跑这套自测，未跑过只能标 tentative。方法与边界见
+[内核零业务](../../../docs/development/awareness-first-plugins.md#一个-perceptionawareness-怎样才算有效)。
+
+评测的防作弊要求：**留出场景**（写单元用的场景不能当验收场景，测的是迁移不是复述）、
+单元里不得出现期望动作或输出格式、判定用 rubric 让模型判断而不是关键词表、必须与停用
+基线对比，verdict 和原文一并留证。不要为了过关放宽评分说明或加提示。
+
+同样不要写一个"通用性检测器"：禁用词/步骤词表只是把关键词分派挪进评审代码。机制只
+检查结构事实，通用性是判断出来的。

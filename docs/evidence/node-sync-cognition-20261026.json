@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "evidence_id": "node-sync-cognition-20261026",
+  "issues": [
+    "https://github.com/cyjin-yl/shenko/issues/71",
+    "https://github.com/cyjin-yl/shenko/issues/22"
+  ],
+  "pr": "https://github.com/cyjin-yl/shenko/pull/72",
+  "requirements": ["R077", "R138", "R145", "R147", "R026", "R003", "R022"],
+  "cases_reference_only": ["A42", "A47", "A48", "A49", "DEP01", "DEP02", "DEP03", "AW01", "AW04"],
+  "full_cases_passed": [],
+  "status": "verified_real_slice_same_failure_domain",
+  "product_commit": "3f38d89eea071bb4acf52bd94807db2fc8dd311d",
+  "branch": "feat/node-sync-71",
+  "base_commit": "2d2cab8a7acaf46ba42b5299a63164c82c816251",
+  "nothing_claimed_from_earlier_candidates": [
+    "0e474dc (staging-path fix) native journey failed at dependency resolution; retained as failure history",
+    "3702e8e (dependency-resolution fix) passed the native journeys but replayed imported same-sequence steps out of chronological order (2,3,1) in the UI",
+    "a031949 (chronological replay fix) is the code under test here"
+  ],
+  "artifacts": {
+    "binary_sha256": "6480242010bce960b0a459548b1c1ddc43e87e715872f2e573d9c436a54e3c3f",
+    "binary_bytes": 140543392,
+    "binary_path": "build/artifacts/shenko-3f38d89",
+    "consumer_sha256": "fe3776cc5427cae73d1e0af134413e43cfee7ab27e5ed1d6e9e92cbfda5b3df2",
+    "deployed_to": "doesworkstation (Fedora VM), /home/ezra/shenko-issue71-native-3702e8e-20261026/shenko-3f38d89",
+    "deployed_sha256_readback": "6480242010bce960b0a459548b1c1ddc43e87e715872f2e573d9c436a54e3c3f"
+  },
+  "environment": {
+    "build": "doescontainer CT102, image shenko-dev-persistent-20261026, rust/cargo 1.98.1, private CARGO_TARGET_DIR build/target-node-sync-71-20261026, CARGO_NET_OFFLINE=true, jobs 1, debuginfo 0",
+    "source_node": "PVE kernel 7.0.14, node 759aa25a-f683-4dd0-a1d3-6d56d1a79afb",
+    "receiver_node": "Fedora VM kernel 7.2.11, node bdaf607f-d4b0-47af-ba99-fa7309263828",
+    "physical_second_machine": false,
+    "models": "none configured during the native runs; recovery and export are model-independent",
+    "transport": "real strict-host-key OpenSSH"
+  },
+  "verification": {
+    "cargo_test_targets": [
+      "shenko (bin unit + recovery_integration)",
+      "shenko-node",
+      "shenko-store (units + cognition_replication + identity_profile + memory_search + raw_session_writer + store_roundtrip)",
+      "shenko-subject",
+      "shenko-ui"
+    ],
+    "cargo_test_result": "0 failed",
+    "cargo_build_bins": ["shenko", "shenko-issue71-native-consumer-final"],
+    "wall_seconds": 487.25,
+    "build_registry_downloads": 0,
+    "replay_regression": {
+      "test": "crates/shenko-store/tests/store_roundtrip.rs::imported_committed_steps_replay_in_step_order_with_a_one_item_page",
+      "what_it_proves": "two real S1 commits imported into a fresh store keep chronological order when the second step UUID sorts before the first, the page size is one, and no step is skipped"
+    }
+  },
+  "native_journey_3702": {
+    "note": "3702e8e passed these; they are recorded here because a031949 keeps them and only changes replay ordering",
+    "events_log": "build/issue71-native-3702e8e-20261026/events.jsonl",
+    "passed": [
+      "Plan9/unknown-arch label still ran a real local trial instead of being refused by a label",
+      "a unit missing >=2 required dependency versions stayed unresolved, then an imported matching version made the parent resolvable without replacing an already selected exact edge",
+      "foreign-node trial evidence never became local readiness; the receiver produced its own artifact-bound trial",
+      "raw local canary argv/environment/output stayed out of the exported package while authored config bytes were preserved",
+      "live NapCat ingress spool snapshotted through an online backup including committed WAL (185432 bytes) and restored all rows without activating a provider",
+      "strict-SSH enrollment bound the peer's real Node ID, fingerprint and high-water acknowledgement",
+      "exported-but-unacknowledged cognition reported unverified_transfer=true while the local work stayed available"
+    ]
+  },
+  "replay_order_a031": {
+    "receipt": "build/issue71-native-3702e8e-20261026/final-3f38d89-page-one-replay.json",
+    "consumer": "shenko-issue71-native-consumer-final, built against a031949/3f38d89",
+    "data": "retained real receiver from the 3702 native run (agent 5fd04e86-6d70-4147-aa66-09f45ac7d7fc)",
+    "original_commit_seqs_in_replay_order": [9, 14, 23],
+    "shared_local_replay_seq": [1, 1, 1],
+    "original_ledger": "a06a7251-303c-411a-8d11-b7df5102a4b1",
+    "result": "page size one, chronological order, no gap, every disposition still resolved to its original S1 receipt",
+    "not_claimed": "a fresh Web-UI session against this binary was not replayed; the 3702 UI observation (order 2,3,1) is the failure this fix targets and is retained as such"
+  },
+  "documentation": {
+    "contract": "docs/development/managed-node.md",
+    "packages": [
+      "docs/tasks/C17.md",
+      "docs/tasks/C10.md",
+      "docs/tasks/C09.md",
+      "docs/tasks/C01.md",
+      "docs/tasks/C03.md"
+    ],
+    "coverage": "docs/state/coverage.json (R138/R145/R147), satisfied stays false"
+  },
+  "bounds": {
+    "same_failure_domain": "source and receiver are separate kernels but the same PVE host; not physical two-machine continuity",
+    "no_election": "no partition authority, recursive smart-node election or isolated-branch merge",
+    "no_arbitrary_fencing": "effect fencing covers the bounded pure task contract, not arbitrary external resources",
+    "no_image_recovery": "no encrypted disk-image resurrection",
+    "no_long_run": "no 7/30-day observation",
+    "platforms": "two Linux kernels only; Android/Windows/macOS deployment untested",
+    "provider_activation": "no provider was activated and no model replay was performed"
+  },
+  "reproducer": [
+    "SHENKO_SOURCE_REVISION=3f38d89eea071bb4acf52bd94807db2fc8dd311d cargo test -p shenko-node -p shenko-store -p shenko-subject -p shenko-ui -p shenko --no-fail-fast --offline --locked",
+    "cargo build -p shenko --bin shenko --offline --locked",
+    "cargo build --manifest-path build/issue71-native-consumer-final-20261026/Cargo.toml --offline",
+    "build/artifacts/shenko-issue71-native-consumer-final-3f38d89 replay build/issue71-native-3702e8e-20261026/local-replay-receiver"
+  ]
+}

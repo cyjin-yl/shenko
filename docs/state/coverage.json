@@ -1288,14 +1288,30 @@
         "B26"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "implemented",
+        "buildable",
+        "verified_real"
+      ],
+      "acceptance_case_ids": [
+        "K04",
+        "K05"
+      ],
+      "implementation_refs": [
+        "crates/shenko-subject/tests/local_model_behavior.rs",
+        "crates/shenko-subject/tests/awareness_efficacy.rs",
+        "crates/shenko-subject/src/output.rs",
+        "crates/shenko-subject/src/loop_runner.rs",
+        "crates/shenko-awareness-core/src/awareness_unit.rs",
+        "bin/shenko/src/main.rs"
+      ],
+      "evidence_refs": [
+        "docs/evidence/local-model-and-awareness-20261027.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Local 27B-class baseline is now measured, not assumed: the shipped system prompt, staged message text, provider wire and parser are sampled against the real served model, and each behaviour must reach a success rate. The measurement changed the product (the reply control had no reachable account; a literal header template made the model echo the header) and the control protocol now passes at 0.85. Awareness efficacy is measured in a real sandbox against the unit-disabled baseline; none of the two units met the acceptance bar yet, so the optimisation claim stays partial. K04/K05 remain reference only."
     },
     {
       "requirement_id": "R078",
@@ -2322,17 +2338,26 @@
         "B43"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "implemented",
+        "buildable"
+      ],
       "acceptance_case_ids": [
         "AW08",
         "AW09"
       ],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "crates/shenko-awareness-core/src/awareness_unit.rs",
+        "crates/shenko-subject/src/context_projection.rs",
+        "bin/shenko/src/main.rs"
+      ],
+      "evidence_refs": [
+        "docs/evidence/local-model-and-awareness-20261027.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "Installable awareness units now reach the running subject as a bounded per-step perspective (enabled units only, index beyond the budget), which they never did before: the registry had no production caller. Units are advisory text, not dispatch. Awareness arising from arbitrary input and being autonomously distilled remains unimplemented, so this stays partial."
     },
     {
       "requirement_id": "R137",
@@ -2360,14 +2385,26 @@
         "B45"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "buildable",
+        "verified_real"
+      ],
+      "acceptance_case_ids": [
+        "DEP01",
+        "DEP02",
+        "DEP03"
+      ],
+      "implementation_refs": [
+        "crates/shenko-node/src/units.rs",
+        "bin/shenko/src/node_sync.rs"
+      ],
+      "evidence_refs": [
+        "docs/evidence/node-sync-cognition-20261026.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "#71 focused main-app installation synchronization: exact authored bytes/config, versioned required/recommended closure, later dependency resolution and local artifact/environment-bound readiness. Unknown platform labels permit real trials; foreign evidence is not local readiness. Full provider runtime assembly, ecology and DEP01–DEP03 remain incomplete."
     },
     {
       "requirement_id": "R139",
@@ -2491,7 +2528,10 @@
       ],
       "specification_state": "specified",
       "implementation_state": "partial",
-      "evidence_state": [],
+      "evidence_state": [
+        "buildable",
+        "verified_real"
+      ],
       "acceptance_case_ids": [
         "A42",
         "A47",
@@ -2499,14 +2539,20 @@
       ],
       "implementation_refs": [
         "crates/shenko-node/src/lib.rs",
-        "scripts/managed_node.py"
+        "scripts/managed_node.py",
+        "crates/shenko-node/src/roles.rs",
+        "crates/shenko-node/src/units.rs",
+        "crates/shenko-node/src/peers.rs",
+        "crates/shenko-store/src/cognition.rs",
+        "bin/shenko/src/node_sync.rs"
       ],
       "evidence_refs": [
-        "docs/evidence/c17-native-first-journey-20261025.json"
+        "docs/evidence/c17-native-first-journey-20261025.json",
+        "docs/evidence/node-sync-cognition-20261026.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
+      "note": "Earlier isolated pure-task journey retained; #71 adds one installation Node, mutable role intent versus actual runtime observations, main-app strict-SSH package/cognition replication, local readiness and debt/high-water reconciliation. Native source and Fedora receiver remain in one PVE failure domain. Full election, partition authority/merge, heterogeneous model placement, all platforms, physical-machine and long-run cases remain incomplete."
     },
     {
       "requirement_id": "R146",
@@ -2538,20 +2584,28 @@
       ],
       "specification_state": "specified",
       "implementation_state": "partial",
-      "evidence_state": [],
+      "evidence_state": [
+        "buildable",
+        "verified_real"
+      ],
       "acceptance_case_ids": [
         "A49"
       ],
       "implementation_refs": [
         "crates/shenko-node/src/lib.rs",
-        "scripts/managed_node.py"
+        "scripts/managed_node.py",
+        "crates/shenko-store/src/cognition.rs",
+        "crates/shenko-store/src/recovery_sources.rs",
+        "crates/shenko-store/src/intents.rs",
+        "bin/shenko/src/node_sync.rs"
       ],
       "evidence_refs": [
-        "docs/evidence/c17-native-first-journey-20261025.json"
+        "docs/evidence/c17-native-first-journey-20261025.json",
+        "docs/evidence/node-sync-cognition-20261026.json"
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "C17 native first-journey slice only: real isolated OpenSSH deployment-loss recovery, virgin identity adoption, pure task epoch-fenced result acceptance and bounded raw-event export. Fixture parent/identity; no production scheduler/election/model/privacy/platform/image or full case completion. All formal remaining scope preserved in C17 and evidence."
+      "note": "#71 adds model-independent main-app export/import of durable cognition and recursive CAS, Git memory, original S1 receipts, declared live NapCat ingress committed WAL and verified extraction without provider activation. Unavailable-source native recovery is a bounded same-PVE observation, not encrypted disk-image resurrection, arbitrary provider-store discovery, zero loss or full A49 completion."
     }
   ]
 }

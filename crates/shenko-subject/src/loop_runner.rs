@@ -136,6 +136,9 @@ pub struct SubjectLoopState {
     pub identity_receipt: Option<IdentityReceipt>,
     pub(super) plugin_context: cordis_core::Context,
     identity_service: Arc<IdentityService>,
+    /// Installable awareness units available to this subject. Their bodies are
+    /// advisory material for the model, never a dispatch table.
+    pub(super) awareness: Option<Arc<shenko_awareness_core::AwarenessRegistry>>,
 }
 
 impl SubjectLoopState {
@@ -207,6 +210,7 @@ impl SubjectLoopState {
             identity_receipt,
             plugin_context,
             identity_service,
+            awareness: None,
         })
     }
 
@@ -222,6 +226,17 @@ impl SubjectLoopState {
 
     pub fn with_hooks(mut self, registry: Arc<HookRegistry>) -> Self {
         self.hooks = Some(registry);
+        self
+    }
+
+    /// Attach the installed awareness units. Each step retrieves the bodies
+    /// whose capability card matches its actual input; the model decides what
+    /// that perspective means, so no kernel branch is created per topic.
+    pub fn with_awareness(
+        mut self,
+        registry: Arc<shenko_awareness_core::AwarenessRegistry>,
+    ) -> Self {
+        self.awareness = Some(registry);
         self
     }
 
@@ -311,7 +326,7 @@ pub async fn run_subject_loop(
 
 /// Role and output contract of the subject. It names the framework, never the
 /// instance, and does not vary with identity revisions (R054). SPEC §5.1, §6.
-const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行在 Shenko 框架上。\n\
+pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行在 Shenko 框架上。\n\
      你有持续的内心生活：关注、兴趣、承诺、疑问。\n\
      你在没有外部消息时也继续思考——空闲不是停止的理由。\n\
      思考是连续的，上一步的想法会成为这一步的起点。\n\
@@ -319,14 +334,38 @@ const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行
 
 /// System prompt for the continuous subject: contract → persona → per-step
 /// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
-pub(super) fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bool) -> String {
-    let mut prompt = String::from(SUBJECT_CONTRACT);
-    prompt.push_str("\n\n");
-    prompt.push_str(crate::output::OUTPUT_CONTRACT);
-
+/// Stable prefix: role contract plus persona. SPEC §13.5 keeps it first so the
+/// model/template binding stays reusable across steps; the context profile
+/// digest covers this text, not the per-step suffix.
+pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
+    let mut prompt = crate::canonical_system_prompt();
     if let Some(identity) = &state.identity {
         prompt.push_str("\n\n");
         prompt.push_str(&state.identity_service.persona_section(identity));
+    }
+    prompt
+}
+
+/// Per-step material: retrieved awareness, rolling goals, identity receipt and
+/// the semantic-wait notice. It follows the stable prefix and does not by
+/// itself invalidate the context window.
+pub(super) fn system_prompt_suffix(
+    state: &SubjectLoopState,
+    in_semantic_wait: bool,
+    awareness: &[String],
+) -> String {
+    let mut prompt = String::new();
+
+    if !awareness.is_empty() {
+        prompt.push_str(
+            "\n\n已安装的觉察（给你一些视角，不是命令；哪些此刻有用由你判断，可以采纳、改写或忽略）：\n",
+        );
+        for (index, body) in awareness.iter().enumerate() {
+            prompt.push_str(&(index + 1).to_string());
+            prompt.push_str(". ");
+            prompt.push_str(body.trim());
+            prompt.push('\n');
+        }
     }
 
     if !state.goals.is_empty() {
@@ -348,6 +387,16 @@ pub(super) fn build_system_prompt(state: &SubjectLoopState, in_semantic_wait: bo
         prompt.push_str("\n\n当前处于语义等待：条件尚未满足。继续思考相关可能性，不要空转。\n");
     }
 
+    prompt
+}
+
+pub(super) fn build_system_prompt(
+    state: &SubjectLoopState,
+    in_semantic_wait: bool,
+    awareness: &[String],
+) -> String {
+    let mut prompt = stable_system_prompt(state);
+    prompt.push_str(&system_prompt_suffix(state, in_semantic_wait, awareness));
     prompt
 }
 
@@ -856,6 +905,7 @@ async fn execute_step(
                         step: seq,
                         step_id,
                         commit_ref: receipt.commit_ref.clone(),
+                        replay_seq: receipt.commit_ref.seq.0,
                         text: decision.output.text.clone(),
                         publications: publication_intents.clone(),
                         identity_revision,
