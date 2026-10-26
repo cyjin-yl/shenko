@@ -1,19 +1,128 @@
-# Native managed-node journey / 原生受管节点旅程
+# Unified Node and native recovery / 统一节点与原生恢复
 
 ## Purpose and limits / 用途与边界
 
-`shenko-node` is an optional Rust 2024 installation-control adapter. It is not
-linked into `bin/shenko`, not an ElectionProvider, not a replacement subject,
-and not a model-facing tool. Its only handler is `node.blake3.v1`: <=64KiB bytes
-to a deterministic digest, with no external effect. This deliberately makes
-unknown computation transferable without pretending arbitrary effects are safe.
+`bin/shenko` links the Rust 2024 `shenko-node` library. One Node identifies an
+installation, not a device class: there is no PhoneNode or ServerNode.
+`primary`, `executor`, `replica` and `recovery` are mutable roles. A persisted
+role assignment is intent; a separately timestamped observation records the
+roles started by an actual runtime. Neither is proof of current liveness,
+model access, election authority or completed external work.
 
-这是 C17 首条有限旅程，不是完整 A42/A47/A48/A49。SSH 使用已合入 C07 原生
-OpenSSH/receipt API，不冒称 WASM。节点独立目录、身份和进程不等于物理两机容灾。
-没有已核验模型 profile 时 capability 返回 `not_configured_or_probed` 和
-`smart_node_evidence=false`，不以节点名赋予智能资格。
+The earlier standalone `shenko-node` binary and C07 managed-installation journey
+below exercise the pure `node.blake3.v1` task contract (at most 64KiB, no external
+effect). That bounded contract does not make arbitrary effects transferable.
+The main-app path additionally handles installable units and cognition recovery;
+it is not a replacement subject or a complete ElectionProvider.
 
-## Authority / 权限来源
+这是 #71 的跨包接线，不是完整 C17/A42/A47/A48/A49。SSH 是实际 OpenSSH，不冒称
+WASM。不同内核的源/接收端仍在同一 PVE 故障域，不等于物理两机容灾。没有真实可用
+模型时不声明智能资格；恢复和导出本身不依赖模型。
+
+## Main-app control and replication / 主应用控制与复制
+
+Use the real application's data directory, not the standalone adapter's private
+directory. The Node identity is bound to the Store's actual subject genesis and
+branch. An evolved conflicting identity is retained for reconciliation rather
+than silently overwritten.
+
+```sh
+shenko --data-dir DATA node < NODE_REQUEST.json
+shenko --data-dir DATA sync identity
+shenko --data-dir DATA sync enroll SSH_HOST \
+  --remote-data-dir REMOTE_DATA --remote-binary REMOTE_SHENKO
+shenko --data-dir DATA sync push
+shenko --data-dir DATA sync status
+shenko --data-dir DATA sync sources
+shenko --data-dir DATA sync recover-source SOURCE_ID --output NEW_DATABASE
+```
+
+`node` consumes a bounded JSON request; its role and unit commands use the same
+Node, not device-specific services. `sync enroll` queries the peer's actual Node
+ID over the already-authorized strict-host-key SSH connection. `sync push` sends
+the recovery closure and installation packages and requires an identity-,
+fingerprint- and high-water-bound verified receipt. Interrupted or rejected
+transfers retain debt and exit unsuccessfully. `start` also reconciles configured
+peers every 15 seconds independently of inference; one SSH exchange is bounded
+to 120 seconds. An already-confirmed unchanged closure needs no new transfer;
+its historical ACK is explicitly not a fresh peer-liveness probe.
+
+`sync export` writes the framed transfer to stdout; `sync receive` reads stdin
+and returns a receipt without dispatching imported work. `sync ack` accepts only
+the exact previously exported and completely verified closure. Workspace paths
+are opt-in (`--workspace` at export/enrollment and an explicit receiving root),
+not a prerequisite for cognition recovery. Protect transfer bytes as private
+data, even when the transport is already authenticated.
+
+### Installation units and local readiness
+
+Unit schema 2 carries `perception`, `awareness`, `skill` and `code` packages:
+identity, revision, exact artifact bytes/digest, declared configuration,
+applicability, required/recommended dependencies and safe trial provenance.
+Exact selectors retain the chosen revision/digest; capability/topic selectors
+resolve against actual declarations. A later matching import re-resolves
+unresolved/omitted edges without replacing an already selected exact version.
+
+Copied/enabled is not ready. Readiness requires the currently materialized bytes,
+a successful local artifact-bound trial in the current observed environment,
+and the recursively satisfied exact required dependency closure. A successful
+environment investigation alone or a foreign node's trial cannot prove local
+readiness. Changed bytes and unresolved, failed or unknown attempts remain
+visible. Unknown/foreign OS, arch or runtime labels are advisory: the caller may
+investigate and try the actual artifact rather than receive a static denial.
+
+Trials record risk, expected benefit and consequences for autonomous judgment;
+there is no new human approval or product permission allowlist. Actual OS access
+and missing programs still produce real failures. Time/output/package limits
+bound resources, not product authority. A deadline signals the process group;
+escaped-descendant uncertainty is retained instead of claiming universal kill.
+
+Local raw trial arguments, output, paths and environment probes remain local.
+Only typed `TrialProvenance` travels. No environment credential or provider grant
+is discovered for export. Authored package bytes/configuration are copied
+exactly, however: a secret explicitly authored there is part of that package,
+not silently filtered by key name. This is not a credential-synchronization
+policy or a claim that installing a package activates every Cordis plugin.
+
+### Cognition recovery closure and debt
+
+The Store snapshot includes durable experiences/raw sessions, decisions, identity
+revisions, goals, tasks, inbox/outbox facts, execution checkpoints and the
+recursively referenced CAS bodies. Memory working-tree files and actual Git
+HEAD/history are included; independent source refs are retained under a
+source-specific namespace. Deletions apply only against the known source
+baseline and preserve prior bytes in a registered retirement directory.
+Receiver divergence is retained and prevents a complete-recovery ACK.
+
+The declared `napcat-ingress.sqlite` is captured through an online read-only
+SQLite backup, including committed WAL contents, pending raw events,
+observations, cursor and gaps. Its chunked CAS root is part of the closure.
+`sync sources` lists it; `recover-source` verifies and extracts a new SQLite
+path without activating a provider or replaying an input. This does not scan
+arbitrary provider databases, private environment files or credential stores.
+
+Manifest schema 2 binds source ledger/high water, durable snapshot order,
+fingerprint, object descriptors and file origins. Stale order, missing/corrupt
+retained CAS and forged fingerprints are rejected before file publication.
+Imported S1 history keeps original ledger/commit references, while local replay
+uses its own sequence and a step-order cursor so an imported same-sequence page
+cannot reorder or skip committed steps. Imported unknown effects are not
+automatically redispatched.
+
+`sync status` separates `local_durable`, peer ACK watermarks, `unsent_changes`,
+`unverified_transfer` and `verified_recoverable`. Exported but unacknowledged
+changes may have `unsent_changes=false` while `unverified_transfer=true`; they
+are not protected merely because export finished. No configured peer means
+unprotected. Offline availability remains; global strong consistency and zero
+loss are not claimed.
+
+Source/artifact-bound observations, failures and remaining scope are recorded in
+[the #71 evidence](../evidence/node-sync-cognition-20261026.json) and
+[C17](../tasks/C17.md). Full election, partition authority, every platform,
+arbitrary-effect fencing, encrypted disk-image recovery and 7/30-day observations
+remain separate acceptance obligations.
+
+## Standalone journey authority / 独立旅程权限来源
 
 The control CLI requires a private OS account/data directory or its already
 authorized strict-host-key SSH channel. `register`, `join`, `create`, `transfer`
@@ -47,11 +156,11 @@ If stripping/copying it, inspect the final executable again. Unbound source or
 mismatched bytes/platform/schema cannot join. This is a builder provenance
 contract, not remote attestation or a substitute for verifying the source tree.
 
-## Local control wire / 本地控制协议
+## Standalone pure-task wire / 独立纯任务控制协议
 
-`shenko-node PRIVATE_DATA_DIR` reads one <=1MiB JSON request on stdin and returns
+`shenko-node PRIVATE_DATA_DIR` reads one bounded JSON request on stdin and returns
 one JSON response after committed work. Existing unrelated data is rejected;
-never use a live main-app directory. Storage schema **2** is separate from
+never use a live main-app directory. Storage schema **3** is separate from
 record/wire schema **1**. Existing databases first undergo an immutable/read-only
 application/schema/installation preflight: even WAL sidecar creation or journal
 recovery is not allowed for an unknown database. Then the writable open rechecks
@@ -62,7 +171,8 @@ The only unmarked legacy format eligible for migration is the exact original v1
 schema (all non-SQLite schema objects) with valid durable node/ledger/identity
 metadata. Its rows, node/self IDs, ledger and seq remain unchanged. One migration
 transaction adds the installation UUID, SHNK application_id, receipts table and
-storage version 2. This is a trusted local format migration, not cryptographic
+the current storage version. Role/unit/peer tables are added without replacing
+old facts. This is a trusted local format migration, not cryptographic
 proof of remote ownership. Unknown, corrupt or incomplete uninitialized databases
 fail closed; this adapter does not overwrite them or repair arbitrary data. New counters on the wire are canonical
 unsigned decimal strings. Node UUIDs, agent/branch UUIDs and task UUIDs are distinct.
