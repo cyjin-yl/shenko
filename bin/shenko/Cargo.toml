@@ -15,6 +15,7 @@ shenko-identity = { path = "../../crates/shenko-identity" }
 shenko-types = { path = "../../crates/shenko-types" }
 shenko-kernel = { path = "../../crates/shenko-kernel" }
 shenko-store = { path = "../../crates/shenko-store" }
+shenko-node = { path = "../../crates/shenko-node" }
 shenko-exec-host = { path = "../../crates/shenko-exec-host" }
 shenko-broker = { path = "../../crates/shenko-broker" }
 shenko-subject = { path = "../../crates/shenko-subject" }
@@ -36,6 +37,7 @@ clap = { version = "4", features = ["derive", "env"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
 dirs-next = "2"
+libc = "0.2"
 
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

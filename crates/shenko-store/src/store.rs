@@ -23,6 +23,9 @@ pub struct Store {
     pub ledger: Arc<Ledger>,
     pub cas: Arc<ContentStore>,
     pub capabilities: StoreCapabilities,
+    /// A separate SQLite admission transaction orders complete file/Git/row
+    /// import publication across handles without holding the ledger write lock.
+    pub(crate) cognition_import_gate: Mutex<Connection>,
 }
 
 impl Store {
@@ -68,11 +71,18 @@ impl Store {
         let conn = Arc::new(Mutex::new(conn));
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation)?);
         let cas = Arc::new(ContentStore::new(cas_dir));
+        let mut import_lock_path = db_path.as_os_str().to_os_string();
+        import_lock_path.push(".cognition-import.sqlite");
+        let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
+        cognition_import_gate.execute_batch(
+            "CREATE TABLE IF NOT EXISTS import_gate(singleton INTEGER PRIMARY KEY);",
+        )?;
 
         Ok(Self {
             ledger,
             cas,
             capabilities,
+            cognition_import_gate: Mutex::new(cognition_import_gate),
         })
     }
 
@@ -709,19 +719,44 @@ impl Store {
         agent_id: EntityId,
         event_id: EntityId,
     ) -> Result<Option<CommitRef>, ShenkoError> {
+        #[derive(serde::Deserialize)]
+        struct StepCommit {
+            commit_ref: Option<CommitRef>,
+        }
+
         let conn = self.ledger.conn.lock();
-        let seq: Option<u64> = conn
+        let commit: Option<Option<CommitRef>> = conn
             .query_row(
-                "SELECT d.commit_seq FROM subject_event_dispositions d
+                "SELECT s.data FROM subject_event_dispositions d
              JOIN subject_branch_heads h ON h.branch_id=d.branch_id
+             JOIN subject_steps s ON s.step_id=d.step_id
              WHERE h.agent_id=?1 AND d.event_id=?2 AND d.disposition!='\"deferred\"'",
                 params![agent_id.to_string(), event_id.to_string()],
-                |row| row.get(0),
+                |row| {
+                    let data = row.get_ref(0)?.as_str().map_err(|error| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0, rusqlite::types::Type::Text, Box::new(error),
+                        )
+                    })?;
+                    serde_json::from_str::<StepCommit>(data)
+                        .map(|step| step.commit_ref)
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                0, rusqlite::types::Type::Text, Box::new(error),
+                            )
+                        })
+                },
             )
             .optional()
             .map_err(storage_error)?;
-        Ok(seq
-            .map(|seq| CommitRef::new(self.ledger.ledger_id(), shenko_types::ids::LedgerSeq(seq))))
+        // Imported steps keep their immutable S1 reference. A source sequence
+        // must never be combined with this receiver's unrelated ledger ID.
+        match commit {
+            None => Ok(None),
+            Some(commit) => commit.map(Some).ok_or_else(|| {
+                ShenkoError::storage("committed disposition has no authoritative step commit")
+            }),
+        }
     }
 
     pub fn get_step(
