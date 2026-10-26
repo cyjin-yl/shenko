@@ -10,6 +10,8 @@ pub mod identity;
 pub mod session_events;
 pub mod context_windows;
 pub mod raw_session;
+pub mod cognition;
+pub mod cognition_archive;
 
 pub use store::*;
 pub use cas::*;
@@ -18,6 +20,8 @@ pub use memory::*;
 pub use session_events::*;
 pub use context_windows::*;
 pub use raw_session::*;
+pub use cognition::*;
+pub use cognition_archive::*;
 
 pub mod external;
 pub use external::TaskInvocation;
