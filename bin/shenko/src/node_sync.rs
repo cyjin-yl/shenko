@@ -478,7 +478,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
             }
             println!(
                 "{}",
-                json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"workspace_default":"not_replicated","secrets_and_provider_grants":"node_local","global_strong_consistency":false,"zero_loss":false})
+                json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"workspace_default":"not_replicated","local_credential_stores_and_grants":"not_discovered_or_copied","global_strong_consistency":false,"zero_loss":false})
             );
         }
         SyncCommand::Enroll {

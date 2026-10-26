@@ -921,10 +921,10 @@ impl Store {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
-        let matches_sent = match sent {
+        let matches_sent = match &sent {
             Some((Some(fingerprint), Some(high_water))) => {
-                fingerprint == ack.fingerprint.to_string()
-                    && high_water == ack.high_water.0 as i64
+                fingerprint == &ack.fingerprint.0
+                    && *high_water == ack.high_water.0 as i64
             }
             _ => false,
         };
@@ -1047,10 +1047,16 @@ impl Store {
             local_fingerprint: fingerprint,
             local_high_water: high_water,
             exported_fingerprint: exported,
-            exported_high_water: exported_high_water.map(LedgerSeq),
+            exported_high_water: exported_high_water
+                .map(|value| u64::try_from(value).map(LedgerSeq))
+                .transpose()
+                .context("invalid exported high water")?,
             exported_at: exported_at.and_then(|value| parse_time(&value)),
             acked_fingerprint: acked,
-            acked_high_water: acked_high_water.map(LedgerSeq),
+            acked_high_water: acked_high_water
+                .map(|value| u64::try_from(value).map(LedgerSeq))
+                .transpose()
+                .context("invalid acknowledged high water")?,
             acked_at: acked_at.and_then(|value| parse_time(&value)),
             verified_recoverable,
             unsent_changes,
@@ -1784,8 +1790,8 @@ impl Store {
                 }
             }
         }
-        let conflict = match replicated {
-            Some(remote) if remote != local_head => Some(CognitionConflict {
+        let conflict = match replicated.as_ref() {
+            Some(remote) if remote != &local_head => Some(CognitionConflict {
                 table: "git".into(),
                 key: "memory".into(),
                 detail: format!(
@@ -1981,7 +1987,7 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
 fn effective_row(row: &CognitionRow, spec: &TableSpec) -> Result<CognitionRow> {
     let mut effective = row.clone();
     match spec.kind {
-        RowKind::Verbatim => {}
+        RowKind::Verbatim | RowKind::InboxEvent => {}
         RowKind::SubjectIntent => {
             let state = row.value("state").unwrap_or_default().to_string();
             if state == "ready" || state == "claimed" {
@@ -2258,7 +2264,7 @@ fn update_row(
     );
     tx.execute(
         &sql,
-        rusqlite::params_from_iter(values.into_iter().chain(keys)),
+        rusqlite::params_from_iter(values.into_iter().chain(keys.into_iter().map(Some))),
     )
     .map_err(db)?;
     Ok(())
