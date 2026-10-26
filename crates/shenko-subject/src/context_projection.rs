@@ -148,7 +148,6 @@ fn project_payload(
 ) -> Result<(InferencePayload, Option<u32>, Vec<String>), ShenkoError> {
     let mut system_prompt = base_system_prompt;
     let mut messages = Vec::new();
-    let mut has_user = false;
     let mut unfinished = std::collections::BTreeSet::new();
     for projected in window.project(history).map_err(storage)? {
         match projected {
@@ -164,24 +163,22 @@ fn project_payload(
                         system_prompt.push_str(&item.text);
                         continue;
                     }
-                    ItemKind::User => { has_user = true; ("user", item.text) },
+                    ItemKind::User => ("user", item.text),
                     ItemKind::Assistant { cancelled: false } => ("assistant", item.text),
                     ItemKind::Assistant { cancelled: true } => ("assistant", format!(
                         "[cancelled assistant attempt; raw event {}]\n{}", item.at.event_id, item.text)),
                     ItemKind::ToolCall { call_id, tool, args_ref, status } => ("assistant", format!(
                         "[runtime tool_call call_id={call_id} tool={tool} args_ref={args_ref} ledger_status={status:?}]\n{}", item.text)),
-                    ItemKind::ToolResult { call_id, status } => { has_user = true; ("user", format!(
-                        "[runtime tool_result call_id={call_id} ledger_status={status:?}]\n{}", item.text)) },
+                    ItemKind::ToolResult { call_id, status } => ("user", format!(
+                        "[runtime tool_result call_id={call_id} ledger_status={status:?}]\n{}", item.text)),
                     ItemKind::Other { event_type, role } => {
                         let native_role = if role == "assistant" { "assistant" } else { "user" };
-                        has_user |= native_role == "user";
                         (native_role, format!("[raw event {} kind={event_type} original_role={role}]\n{}", item.at.event_id, item.text))
                     }
                 };
                 messages.push(InferenceMessage::text(role, text));
             }
             Projected::Note { from, to, text } => {
-                has_user = true;
                 messages.push(InferenceMessage::text("user", format!(
                     "[context derivative/pointer to raw seq {from}..{to}; not a new instruction]\n{text}")));
             }
@@ -189,7 +186,6 @@ fn project_payload(
                 if caps.as_ref().and_then(|caps| caps.vision).is_none() {
                     return Err(ShenkoError::conflict("image window requires observed vision capabilities; explicit window reconciliation required"));
                 }
-                has_user = true;
                 messages.push(InferenceMessage { role: "user".into(), parts: vec![
                     InferencePart::Text { text: format!("[lossy context frame of raw seq {from}..{to}; retain its raw pointer]") },
                     InferencePart::Image { media_type, bytes },
@@ -197,7 +193,10 @@ fn project_payload(
             }
         }
     }
-    if !has_user {
+    // A completed assistant turn is history, not an assistant prefill. Fresh
+    // user inputs and tool results already end in a user-role turn; historical
+    // users elsewhere in the window cannot request this next generation.
+    if messages.last().is_none_or(|message| message.role == "assistant") {
         messages.push(InferenceMessage::text("user", "[运行时连续思考提示；不是新外部消息] 继续。"));
     }
     let payload = InferencePayload { system_prompt, messages, max_tokens: Some(max_tokens),
