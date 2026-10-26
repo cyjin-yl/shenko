@@ -530,8 +530,10 @@ impl Store {
                 "SELECT updated_commit_seq,data FROM subject_steps
                  WHERE state='committed'
                    AND (updated_commit_seq>?1
-                        OR (?2 IS NOT NULL AND updated_commit_seq=?1 AND step_id>?2))
-                 ORDER BY updated_commit_seq,step_id LIMIT ?3",
+                        OR (?2 IS NOT NULL AND updated_commit_seq=?1
+                            AND (step_no,step_id)>(
+                                SELECT step_no,step_id FROM subject_steps WHERE step_id=?2)))
+                 ORDER BY updated_commit_seq,step_no,step_id LIMIT ?3",
             )?;
             q.query_map(
                 params![seq as i64, after_step_id.map(|id| id.to_string()), limit as i64],

@@ -374,6 +374,46 @@ fn s1_commit_advances_branch_head() {
 }
 
 #[test]
+fn imported_committed_steps_replay_in_step_order_with_a_one_item_page() {
+    use shenko_store::cognition::{CognitionImportOptions, CognitionSnapshotOptions};
+    use shenko_types::ids::EntityId;
+
+    let (dir, source, agent) = initialized_subject();
+    let (head, first) = source.load_subject(agent).unwrap();
+    // The second UUID sorts before every generated v4 UUID. Ordering only by
+    // local import sequence + UUID would deterministically return step 2 first.
+    let second_id: EntityId = "00000000-0000-0000-0000-000000000001".parse().unwrap();
+    let first_id = first.step_id;
+    let result = recorded_result(&source, &head, first);
+    let first = committed_candidate(&source, result, second_id);
+    let first_receipt = source.commit_step_and_advance_head(&first, &head, second_id).unwrap();
+    let (head, second) = source.load_subject(agent).unwrap();
+    let third_id = EntityId::new();
+    let result = recorded_result(&source, &head, second);
+    let second = committed_candidate(&source, result, third_id);
+    let second_receipt = source.commit_step_and_advance_head(&second, &head, third_id).unwrap();
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&CognitionSnapshotOptions::default(), None, &mut archive).unwrap();
+    let target = Store::open(dir.join("replay.db"), dir.join("replay-cas")).unwrap();
+    target.import_cognition_archive(&archive[..], &CognitionImportOptions::default()).unwrap();
+
+    let first_page = target.committed_decisions_after(0, None, 1).unwrap();
+    assert_eq!(first_page.len(), 1);
+    let (local_seq, first, _) = &first_page[0];
+    assert_eq!(first.step_id, first_id);
+    assert_eq!(first.step_no, 1);
+    assert_eq!(first.commit_ref, Some(first_receipt.commit_ref));
+    let second_page = target.committed_decisions_after(*local_seq, Some(first.step_id), 1).unwrap();
+    assert_eq!(second_page.len(), 1);
+    let (next_seq, second, _) = &second_page[0];
+    assert_eq!(*next_seq, *local_seq);
+    assert_eq!(second.step_id, second_id);
+    assert_eq!(second.step_no, 2);
+    assert_eq!(second.commit_ref, Some(second_receipt.commit_ref));
+    assert!(target.committed_decisions_after(*next_seq, Some(second.step_id), 1).unwrap().is_empty());
+}
+
+#[test]
 fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
     use shenko_context_policy::{CallStatus, HistorySource, ItemKind, StoreHistory, estimate_tokens};
     use shenko_types::{ids::*, subject::*};
