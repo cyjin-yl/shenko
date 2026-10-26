@@ -8,6 +8,14 @@ README 负责入口，WHY 解释意图，AGENTS 和 CLAUDE 负责开发规则，
 
 ## 当前文件组
 
+持续推理的上下文投影保留历史 user/assistant 的真实角色；窗口以已完成的
+assistant 回合结束时，另附明确标注「运行时连续思考提示；不是新外部消息」的
+user-role 传输回合，避免将已完成回答作为 Anthropic assistant prefill。
+新用户输入或工具结果已构成末尾 user-role 回合时不追加该提示。提示只属于
+推理投影，不写成新的 inbox/raw 事实；其文本照常计入输入预算，S0 冻结与恢复
+仍使用已封存 payload。离线 wire/reopen 回归位于
+`crates/shenko-subject/src/recovery_tests.rs`；此变更尚待协调者执行验证，不代表线上事件或所有 provider 均有同一故障。
+
 | 组 | 内容与状态 |
 | --- | --- |
 | 主 SPEC | 47章，147 R、55 B、59 Ref记录（含历史拼写别名）、216具名case、U01–U62原话 |

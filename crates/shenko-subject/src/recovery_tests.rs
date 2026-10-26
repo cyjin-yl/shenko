@@ -160,6 +160,83 @@ fn message(content: &str) -> crate::inbox::InboxEvent {
     }
 }
 
+#[tokio::test]
+async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
+    use shenko_broker::{provider::AnthropicProvider, request::*};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    async fn wire(payload: InferencePayload) -> serde_json::Value {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = Vec::new();
+            let (start, length) = loop {
+                let mut chunk = [0_u8; 1024];
+                let read = socket.read(&mut chunk).await.unwrap();
+                assert_ne!(read, 0);
+                bytes.extend_from_slice(&chunk[..read]);
+                if let Some(end) = bytes.windows(4).position(|part| part == b"\r\n\r\n") {
+                    let headers = std::str::from_utf8(&bytes[..end]).unwrap();
+                    let length: usize = headers.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length").then(|| value.trim().parse().unwrap())
+                    }).unwrap();
+                    if bytes.len() >= end + 4 + length { break (end + 4, length); }
+                }
+            };
+            let body = serde_json::from_slice(&bytes[start..start + length]).unwrap();
+            let raw = r#"{"content":[{"type":"text","text":"fixture"}],"stop_reason":"end_turn"}"#;
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", raw.len(), raw).as_bytes()).await.unwrap();
+            body
+        });
+        let provider = AnthropicProvider { api_key: "offline-fixture".into(), base_url: base_url.clone(), model: "fixture".into() };
+        let (result_tx, _) = tokio::sync::oneshot::channel();
+        provider.complete(&InferenceRequest {
+            request_id: EntityId::new(), agent_id: EntityId::new(), conversation_id: EntityId::new(),
+            provider_binding: ProviderBinding::Anthropic { base_url, model: "fixture".into(),
+                api_version: "2026-10-21".into(), serializer_revision: 3, default_max_tokens: 8192 },
+            priority: InferencePriority::Subject, epoch: ControllerEpoch(7), payload, result_tx,
+        }).await.unwrap();
+        server.await.unwrap()
+    }
+
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    store.append_subject_raw_fact(&subject.head, EntityId::new(), "user", &serde_json::json!({"v":1,"text":"earlier question"})).unwrap();
+    store.append_subject_raw_fact(&subject.head, EntityId::new(), "assistant", &serde_json::json!({"v":1,"text":"completed answer"})).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    assert!(prepared.events.is_empty());
+    assert!(prepared.context.source.input_raw_event_ids.is_empty());
+    let estimate = crate::context_projection::estimate_payload_tokens(&prepared.payload, 0);
+    assert_eq!(prepared.context.estimated_input_tokens, estimate);
+    let body = wire(prepared.payload).await;
+    assert_eq!(body["messages"][0]["role"], "user");
+    assert_eq!(body["messages"][1]["role"], "assistant");
+    assert_eq!(body["messages"][1]["content"], "completed answer");
+    assert_eq!(body["messages"][2]["role"], "user");
+    assert!(body["messages"][2]["content"].as_str().unwrap().contains("不是新外部消息"));
+    drop(subject);
+    drop(store);
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    let resumed = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    assert_eq!(wire(resumed.payload).await, body);
+    let fresh = crate::context_projection::prepare_context(&mut subject, &[message("new question")], false).unwrap();
+    let fresh_body = wire(fresh.payload).await;
+    assert_eq!(fresh_body["messages"].as_array().unwrap().len(), 3);
+    assert!(fresh_body["messages"][2]["content"].as_str().unwrap().contains("new question"));
+    reopened.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_result", &serde_json::json!({
+        "v":1,"text":"observed tool output","call_id":EntityId::new().to_string()
+    })).unwrap();
+    let tool = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    let tool_body = wire(tool.payload).await;
+    let last = tool_body["messages"].as_array().unwrap().last().unwrap();
+    assert_eq!(last["role"], "user");
+    assert!(last["content"].as_str().unwrap().contains("runtime tool_result"));
+    assert!(last["content"].as_str().unwrap().contains("observed tool output"));
+}
+
 fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[], false).unwrap();
     let mut step = subject.step.clone();
