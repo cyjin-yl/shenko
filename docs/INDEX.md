@@ -18,7 +18,7 @@ user-role 传输回合，避免将已完成回答作为 Anthropic assistant pref
 
 | 组 | 内容与状态 |
 | --- | --- |
-| 主 SPEC | 47章，147 R、55 B、59 Ref记录（含历史拼写别名）、216具名case、U01–U63原话 |
+| 主 SPEC | 47章，147 R、55 B、59 Ref记录（含历史拼写别名）、216具名case、U01–U62原话及 U63 协作席记录 |
 | 原主稿快照 | 完整 v0.5.1，139 R / 48 B / 56 Ref / 189 case，不再是现行工程版本 |
 | 阅读与治理 | README、WHY、AGENTS、CLAUDE、GOAL、HANDOFF；AUTONOMY、COMPLETION、GITHUB、CLAUDE、CONTINUATION |
 | 开发 Skill | [.agents/skills/shenko-dev](../.agents/skills/shenko-dev/SKILL.md) 必读哲学与8个独立原子；`.claude/skills` 指向同一正文，根 `CLAUDE.md` 符号链接到 `AGENTS.md` |
@@ -136,7 +136,7 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 
 ## 验证记录
 
-[history/manifest.json](history/manifest.json)记录原稿大小和SHA-256；原始U01–U49逐字保留，并追加U50–U63。`python3 scripts/check_docs.py`检查覆盖ID、原话、原稿hash、本地链接、必读Skill及符号链接；它不是产品测试。现有文档没有声称本次已经实现或完成设备/性能验收。
+[history/manifest.json](history/manifest.json)记录原稿大小和SHA-256；原始U01–U49逐字保留，并追加U50–U62及协作席记录的U63。`python3 scripts/check_docs.py`检查覆盖ID、原始U01–U49、U50–U63标题、原稿hash、本地链接、必读Skill及符号链接；它不核验U63原始会话，也不是产品测试。现有文档没有声称本次已经实现或完成设备/性能验收。
 
 当前跨包接线入口：[统一 Node 与恢复合同](development/managed-node.md)、
 [#71 源码/工件/原生运行证据](evidence/node-sync-cognition-20261026.json)。
@@ -158,7 +158,7 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 
 ## 2026-10-27 非阻塞 thought 与时间环境感知设计澄清
 
-用户原话追加为 [SPEC U63](../SPEC.md#u63-非阻塞-thought时间环境感知与插件化)，不改写 U01–U62。
+协作席报告的用户原话追加为 [SPEC U63](../SPEC.md#u63-非阻塞-thought时间环境感知与插件化)，不改写 U01–U62；原始会话尚未由集成席独立回读。
 正式合同位于 [§5.6](../SPEC.md#56-非阻塞-thought-接口与事实投影) 与
 [§45.13](../SPEC.md#4513-可替换的时间与环境感知)，§37.8 同步澄清机制有限等待与 thought 非阻塞的边界。
 这是既有 R048/R051/R099/R143/R138/R144 的细化，不新增 R/B/case ID 或改变机器索引分母、完成状态。
