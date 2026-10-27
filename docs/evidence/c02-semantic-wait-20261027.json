@@ -4,7 +4,7 @@
   "work_id": "C02",
   "issue": "https://github.com/cyjin-yl/shenko/issues/7",
   "pull_request": "https://github.com/cyjin-yl/shenko/pull/82",
-  "implementation_commit": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+  "implementation_commit": "8b584174d3c424fd728f095d1a3983e12629578d",
   "scope": "Subject-selected bounded semantic wait on the existing serial subject loop, S1 wait receipts, frozen provider binding, fixed expiry and cognition archive; not complete C02 or RT16.",
   "full_c02_complete": false,
   "full_rt16_complete": false,
@@ -23,7 +23,7 @@
   },
   "offline_checks": [
     {
-      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
       "command": "cargo test -p shenko-store --test store_roundtrip semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1 --offline --locked -- --test-threads=1",
       "passed": 1,
       "failed": 0,
@@ -31,7 +31,7 @@
       "boundary": "Real SQLite/CAS transaction, fixed deadline, stale rejection, restart and cognition-archive transfer; fixture outputs are not live-model proof."
     },
     {
-      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
       "command": "cargo test -p shenko-subject --lib --offline --locked -- --test-threads=1",
       "passed": 18,
       "failed": 0,
@@ -39,7 +39,7 @@
       "boundary": "Includes S0 model-binding mismatch, bare wait controls, atomic replacement, cap inheritance and rejection of same-condition renewal."
     },
     {
-      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
       "command": "cargo test -p shenko --bin shenko --offline --locked -- --test-threads=1",
       "passed": 5,
       "failed": 0,
@@ -47,33 +47,56 @@
       "boundary": "Includes parser boundaries and pre-existing native-child process/recovery scenarios; not full C02."
     },
     {
-      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
       "command": "cargo build -p shenko --bin shenko --offline --locked",
       "exit_code": 0,
-      "binary_sha256": "3b33ff85075937e065bb5d4fb0d679a9df4e9ea815183917ddf360684af6004f"
+      "binary_sha256": "d8b09990eb09b2173f97480a7f3b63f07ee97604d2a066147a3a4fbc2cb0ad07"
     }
   ],
   "real_model_trials": {
     "method": "Fresh real CLI process, SQLite/CAS, real S0 and product prompt, real local provider, product output parser and S1. Each scenario sends a wait request, waits for an idle successor, sends unrelated context, then sends a qualifying result. A success requires an actually committed start or explicit replacement, the same new wait still active after unrelated context, an ended S1 receipt on the qualifying input, and no deadline extension including across replacement identities.",
     "threshold": 0.85,
     "samples": 9,
-    "started": 8,
-    "correct_lifecycles": 8,
-    "rate": 0.8888888888888888,
+    "started": 9,
+    "correct_lifecycles": 9,
+    "rate": 1.0,
     "no_deadline_extension_observed": 9,
-    "replacement_observed": 1,
+    "replacement_observed": 0,
     "transport_or_driver_errors": 0,
     "scenarios": [
-      {"id": "download", "samples": 3, "started": 2, "correct_lifecycles": 2},
+      {"id": "download", "samples": 3, "started": 3, "correct_lifecycles": 3},
       {"id": "render", "samples": 3, "started": 3, "correct_lifecycles": 3},
       {"id": "invitation-holdout", "samples": 3, "started": 3, "correct_lifecycles": 3}
     ],
-    "failure": "In one download trial the model emitted a new start while a prior wait was active instead of explicitly replacing/ending it; S1 rejected it and the run did not claim a started wait.",
-    "verdict_boundary": "8/9 exceeds the overall 0.85 development threshold, but download 2/3 does not demonstrate each scenario individually reaches that threshold. Nine short synthetic trials do not establish long-running or cross-partition acceptance.",
+    "failure": null,
+    "verdict_boundary": "9/9 meets the 0.85 development threshold across these three short scenarios. No replacement was emitted in this final batch; a real capped replacement was observed in the prior f4217db batch. Neither batch establishes long-running or cross-partition acceptance.",
     "raw_evidence_dir": "/tank/shared/projects/shenko/build/semantic-wait-20261027",
-    "final_summary_file": "coder390-wait-cap-f4217db-20261027.json",
-    "final_summary_sha256": "6b97e3ae8d6a4fde5ba0b8671a26de7f7f6957c4d8a552ecab639d57e793d16d",
+    "final_summary_file": "coder390-wait-reply-8b58417-20261028.json",
+    "final_summary_sha256": "24415e8756fd7da02233de8156d4be97083f5fab4c67fa1a273c6dfff99c1345",
     "trial_driver_sha256": "01e95b28ab185a47be8ea875773b4f992516cc2aabf1b2ffe732a6ca0cd873bd"
+  },
+  "reply_protocol_regression": {
+    "method": "The existing local_model_behavior harness uses the real product system prompt, event projection, provider and parser; eight default-temperature samples per scenario.",
+    "threshold": 0.85,
+    "before": {
+      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "reply": "6/8",
+      "remember": "8/8",
+      "idle": "8/8",
+      "exit_code": 101,
+      "log": "coder390-protocol-f4217db-20261027.log",
+      "sha256": "bfa0531e0232ae5c613b11d108a72f2a37bb052f8153ef1df801d1625ddb1b45"
+    },
+    "after": {
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
+      "reply": "8/8",
+      "remember": "8/8",
+      "idle": "8/8",
+      "exit_code": 0,
+      "prompt_digest": "blake3:c50fd4476ceb6ebcf3e65a979d3f071fb408d004d12481f1715876cba707198b",
+      "log": "coder390-protocol-8b58417-20261028.log",
+      "sha256": "7b87916928cd30e0ba001d50f6caad7ad9b186ac5c123f606ab5d504097455bc"
+    }
   },
   "prior_measurements": [
     {
@@ -99,6 +122,12 @@
       "result": "9/9 committed starts; 8/9 strict lifecycles. The failing holdout paraphrased a condition and replaced it with a deadline 52.09 seconds later; a per-ID-only check initially missed this cross-ID renewal.",
       "summary": "coder390-wait-contextual-f36b8a4-20261027.json",
       "sha256": "2f049a393dd7a5bc9620b26fdd712a33514d93c314a640530f05c79c47354983"
+    },
+    {
+      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "result": "8/9 complete lifecycles, including one real replacement capped at or before the old deadline. One new start was rejected while a prior wait was active. Download 2/3; rendering and invitation 3/3 each.",
+      "summary": "coder390-wait-cap-f4217db-20261027.json",
+      "sha256": "6b97e3ae8d6a4fde5ba0b8671a26de7f7f6957c4d8a552ecab639d57e793d16d"
     }
   ],
   "remaining_boundaries": [
