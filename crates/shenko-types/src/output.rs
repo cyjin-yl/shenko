@@ -35,6 +35,10 @@ pub enum OutputAction {
     Identity {
         change: IdentityChange,
     },
+    /// The subject's own semantic wait decision. One wait control per result.
+    SemanticWait {
+        change: crate::subject::SemanticWaitChange,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

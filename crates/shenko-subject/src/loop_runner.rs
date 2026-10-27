@@ -16,8 +16,9 @@ use shenko_types::object::ObjectRef;
 use shenko_types::output::OutputAction;
 use shenko_types::subject::{
     DelegationIntent, Disposition, EventDisposition, InferenceRetryFact, MemoryIntent,
-    MemoryIntentKind, SemanticWait, StepDecision, SubjectBranchHead, SubjectRetryEvidence,
-    SubjectStep, SubjectStepState,
+    MemoryIntentKind, PolicyIntent, PolicyKind, SemanticWait, SemanticWaitReceipt,
+    SemanticWaitOutcome, StepDecision, SubjectBranchHead, SubjectRetryEvidence, SubjectStep,
+    SubjectStepState,
 };
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -33,7 +34,7 @@ struct FrozenStepInput {
     provider_binding: Option<shenko_broker::request::ProviderBinding>,
     payload: shenko_broker::request::InferencePayload,
     context: FrozenContextInput,
-    in_semantic_wait: bool,
+    semantic_wait: Option<SemanticWait>,
     identity: Option<IdentityProfile>,
     identity_provider_revision: String,
 }
@@ -62,7 +63,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 8 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 10 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -114,7 +115,8 @@ pub struct SubjectLoopState {
     pub head: SubjectBranchHead,
     pub step: SubjectStep,
     pub inbox: Arc<Inbox>,
-    pub active_wait: Option<SemanticWait>,
+    pub semantic_wait: Option<SemanticWait>,
+    pub semantic_wait_receipt: Option<SemanticWaitReceipt>,
     pub store: Arc<shenko_store::store::Store>,
     pub broker: Option<shenko_broker::broker::BrokerHandle>,
     pub hooks: Option<Arc<HookRegistry>>,
@@ -190,12 +192,19 @@ impl SubjectLoopState {
             .map(|id| store.identity_receipt(id))
             .transpose()?
             .flatten();
+        let semantic_wait = store.semantic_wait(agent_id)?;
+        let semantic_wait_receipt = head
+            .committed_step_id
+            .map(|id| store.semantic_wait_receipt(id))
+            .transpose()?
+            .flatten();
         Ok(Self {
             agent_id,
             head,
             step,
             inbox,
-            active_wait: None,
+            semantic_wait,
+            semantic_wait_receipt,
             store,
             broker: None,
             hooks: None,
@@ -298,25 +307,8 @@ pub async fn run_subject_loop(
             Ok(events) => events.into_iter().flatten().collect(),
             Err(error) => break Err(error),
         };
-        let has_events = !events.is_empty();
-
-        // Check semantic wait — SPEC §5.1/U55, §41.5
-        let in_semantic_wait = match state.active_wait.as_ref() {
-            Some(wait) if wait.is_expired() => {
-                info!(seq, "semantic wait expired — resuming normal thought");
-                state.active_wait = None;
-                false
-            }
-            Some(_) if has_events => {
-                state.active_wait = None;
-                false
-            }
-            Some(_) => true,
-            None => false,
-        };
-
         // Execute one subject step (S0 → AwaitingModel → Committed)
-        if let Err(error) = execute_step(seq, &events, &mut state, in_semantic_wait, &cancel).await
+        if let Err(error) = execute_step(seq, &events, &mut state, &cancel).await
         {
             // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
             warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
@@ -339,7 +331,7 @@ pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 age
      你有持续的内心生活：关注、兴趣、承诺、疑问。\n\
      你在没有外部消息时也继续思考——空闲不是停止的理由。\n\
      思考是连续的，上一步的想法会成为这一步的起点。\n\
-     回复 QQ 时输出 \"[reply:group:群号] 内容\" 或 \"[reply:private:QQ号] 内容\"。";
+     普通正文是自己的想法，可显示在系统时间线，但不会作为 QQ 消息发送。要让 QQ 对方收到的话，必须通过回复控制行发送。";
 
 /// System prompt for the continuous subject: contract → persona → per-step
 /// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
@@ -369,7 +361,6 @@ pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
 /// itself invalidate the context window.
 pub(super) fn system_prompt_suffix(
     state: &SubjectLoopState,
-    in_semantic_wait: bool,
     awareness: &[String],
 ) -> String {
     let mut prompt = String::new();
@@ -401,8 +392,34 @@ pub(super) fn system_prompt_suffix(
             prompt.push_str(&serde_json::to_string(receipt).expect("identity receipt serializes"));
         }
     }
-    if in_semantic_wait {
-        prompt.push_str("\n\n当前处于语义等待：条件尚未满足。继续思考相关可能性，不要空转。\n");
+    if let Some(wait) = &state.semantic_wait {
+        prompt.push_str("\n\n语义等待的持久事实（不是条件已经成立或尚未成立的判断）：\n");
+        // Only the decision-relevant facts belong in the prompt. The sealed
+        // S0 keeps the full record (context ref/commit) for Store admission;
+        // CAS locators and digests are not useful model context.
+        prompt.push_str(&serde_json::to_string(&serde_json::json!({
+            "condition": wait.condition,
+            "started_at": wait.started_at,
+            "deadline_at": wait.deadline_at,
+            "status": wait.status,
+            "last_observed_at": wait.last_observed_at,
+        })).expect("semantic wait view serializes"));
+        if wait.is_active() {
+            prompt.push_str("\n你仍沿同一思考流接续。结合前文与本轮上下文判断条件是否成立或关注是否改变；收到消息不会自动结束，但若满足条件就用 [wait:end] 控制行结束。需要关注新的等待条件时可用 [wait:replace] 明确改变判断，切换不延长原截止时间。操作自动绑定当前等待，不需要复制 ID；继续也不会改变原始截止时间。\n");
+        } else {
+            prompt.push_str("\n这个等待已结束或失效，按正常思考接续。不要重开同一条件或换 ID 续期；新的等待只能是基于当下上下文的新判断。\n");
+        }
+    }
+    if let Some(receipt) = &state.semantic_wait_receipt {
+        // A step that never touched a wait must not manufacture wait chatter.
+        if receipt.intent_id.is_some()
+            || !matches!(receipt.outcome, SemanticWaitOutcome::Unchanged)
+        {
+            prompt.push_str("\n上一步等待操作回执：");
+            prompt.push_str(&serde_json::to_string(&receipt.outcome)
+                .expect("semantic wait receipt serializes"));
+            prompt.push('\n');
+        }
     }
 
     prompt
@@ -410,11 +427,10 @@ pub(super) fn system_prompt_suffix(
 
 pub(super) fn build_system_prompt(
     state: &SubjectLoopState,
-    in_semantic_wait: bool,
     awareness: &[String],
 ) -> String {
     let mut prompt = stable_system_prompt(state);
-    prompt.push_str(&system_prompt_suffix(state, in_semantic_wait, awareness));
+    prompt.push_str(&system_prompt_suffix(state, awareness));
     prompt
 }
 
@@ -428,7 +444,7 @@ fn sealed_previous_projection(
 ) -> Result<(Option<shenko_broker::request::ProviderBinding>, Option<u32>), ShenkoError> {
     let Some(object) = &step.input_plan_ref else { return Ok((None, None)) };
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
-    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(8) {
+    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
         return Ok((None, None));
@@ -469,7 +485,6 @@ async fn execute_step(
     seq: u64,
     events: &[InboxEvent],
     state: &mut SubjectLoopState,
-    in_semantic_wait: bool,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<Option<CommitRef>, ShenkoError> {
     let store = Arc::clone(&state.store);
@@ -492,7 +507,7 @@ async fn execute_step(
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
         state.identity = store.latest_identity(state.agent_id)?;
-        let prepared = match prepare_context(state, events, in_semantic_wait) {
+        let prepared = match prepare_context(state, events) {
             Ok(prepared) => prepared,
             Err(ShenkoError::ResnapshotRequired { reason }) => {
                 // No S0 seal or model admission exists. The outer loop yields
@@ -503,14 +518,14 @@ async fn execute_step(
             Err(error) => return Err(error),
         };
         let input = FrozenStepInput {
-            schema_version: 8,
+            schema_version: 10,
             step_id,
             step_no: seq,
             events: prepared.events,
             provider_binding: state.broker.as_ref().map(|b| b.binding().clone()),
             payload: prepared.payload,
             context: prepared.context,
-            in_semantic_wait: prepared.in_semantic_wait,
+            semantic_wait: prepared.semantic_wait,
             identity: state.identity.clone(),
             identity_provider_revision: state.identity_service.revision().into(),
         };
@@ -521,7 +536,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            8,
+            10,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -541,7 +556,7 @@ async fn execute_step(
         resumed_input.ok_or_else(|| ShenkoError::conflict("missing validated S0"))?
     };
     let events = input.events.as_slice();
-    let in_semantic_wait = input.in_semantic_wait;
+    let in_semantic_wait = input.semantic_wait.as_ref().is_some_and(SemanticWait::is_active);
     let input_identity = input.identity.clone();
     let (model_output, stop_reason) = if step.state == SubjectStepState::ResultRecorded {
         // The actual sealed result is authoritative; no broker admission on this path.
@@ -757,6 +772,7 @@ async fn execute_step(
                 .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
             model_output.as_deref().unwrap_or(""),
             &state.identity_service,
+            input.semantic_wait.as_ref().map(|wait| wait.wait_id),
         )
     } else {
         Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
@@ -795,6 +811,7 @@ async fn execute_step(
     let mut decision_delegation_intents = vec![];
     let mut memory_candidates = vec![];
     let mut publication_intents = vec![];
+    let mut policy_intents = vec![];
     let mut identity_changes = vec![];
     let mut identity_action_ids = vec![];
     for control in &output.controls {
@@ -843,6 +860,14 @@ async fn execute_step(
                 identity_changes.push(change.clone());
                 identity_action_ids.push(control.action_id);
             }
+            OutputAction::SemanticWait { change } => {
+                policy_intents.push(PolicyIntent {
+                    intent_id: control.action_id,
+                    kind: PolicyKind::SemanticWait { change: change.clone() },
+                    description: "subject semantic wait".into(),
+                    target_revision: None,
+                });
+            }
             _ => {}
         }
     }
@@ -881,7 +906,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
-        schema_version: 4,
+        schema_version: 6,
         step_id,
         output: output.clone(),
         identity_intent,
@@ -895,7 +920,7 @@ async fn execute_step(
         delegated_task_intents: decision_delegation_intents.clone(),
         child_dialogue_intents: vec![],
         memory_intents: memory_candidates.iter().map(|(i, _)| i.clone()).collect(),
-        policy_intents: vec![],
+        policy_intents,
         publication_intents: publication_intents.clone(),
         pending_obligations: vec![],
         evidence_refs: vec![],
@@ -909,7 +934,7 @@ async fn execute_step(
         "application/json",
         "decisions",
         "StepDecision",
-        3,
+        6,
     )?);
 
     match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {
@@ -921,6 +946,8 @@ async fn execute_step(
             state.previous_input_tokens = observed_input_tokens(&store.recorded_model_outcome(&step)?);
             state.previous_input_binding = input.provider_binding.clone();
             state.previous_estimated_input_tokens = input.context.estimated_input_tokens;
+            state.semantic_wait = store.semantic_wait(state.agent_id)?;
+            state.semantic_wait_receipt = store.semantic_wait_receipt(step_id)?;
 
             // Read our committed receipt, not latest profile. Its revision and
             // typed conflict were settled atomically with this exact S1.
@@ -1048,7 +1075,7 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        8,
+        10,
     )?);
     replacement.context_revision = Some(
         retired

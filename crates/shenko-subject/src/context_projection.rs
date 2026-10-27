@@ -46,7 +46,7 @@ pub(super) struct FrozenContextInput {
 
 pub(super) struct PreparedContextInput {
     pub events: Vec<InboxEvent>,
-    pub in_semantic_wait: bool,
+    pub semantic_wait: Option<shenko_types::subject::SemanticWait>,
     pub payload: InferencePayload,
     pub context: FrozenContextInput,
 }
@@ -317,8 +317,19 @@ pub(super) fn project_payload_stable(
 pub(super) fn prepare_context(
     state: &mut SubjectLoopState,
     events: &[InboxEvent],
-    in_semantic_wait: bool,
 ) -> Result<PreparedContextInput, ShenkoError> {
+    // Observe the durable cap before taking this new S0 snapshot. New input is
+    // evidence for the model, not an automatic semantic-wait exit.
+    state.semantic_wait = state.store.observe_semantic_wait(&state.head)?;
+    if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
+        let binding = serde_json::to_value(state.broker.as_ref().map(|broker| broker.binding()))?;
+        let digest = Digest::blake3(&serde_json::to_vec(&binding)?);
+        if digest != wait.model_binding_digest {
+            return Err(ShenkoError::conflict(
+                "semantic wait model binding changed; preserve the wait and reconcile the real provider before continuing",
+            ));
+        }
+    }
     // Delivery timestamps describe each volatile replay, not a new source
     // fact. Recover the first durable original and never overwrite it with a
     // replay's Utc::now(). Every stable source field still has to match.
@@ -352,8 +363,6 @@ pub(super) fn prepare_context(
         });
         input_raw_event_ids.push(record.event_id);
     }
-    let in_semantic_wait = in_semantic_wait && recovered.is_empty();
-    if !recovered.is_empty() { state.active_wait = None; }
     // Awareness is installed material, not a keyword lookup: the model receives
     // every enabled perspective (bounded) and decides what, if anything, it means
     // here. A word-matching gate would withhold the unit precisely when the
@@ -364,7 +373,7 @@ pub(super) fn prepare_context(
         .map(|registry| registry.active_intuitions())
         .unwrap_or_default();
     let stable_prompt = stable_system_prompt(state);
-    let system_prompt = build_system_prompt(state, in_semantic_wait, &awareness);
+    let system_prompt = build_system_prompt(state, &awareness);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.broker.as_ref().map(|broker| broker.binding());
     if state.model_capabilities.as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
@@ -458,7 +467,7 @@ pub(super) fn prepare_context(
         )));
     }
     Ok(PreparedContextInput {
-        events: recovered, in_semantic_wait,
+        events: recovered, semantic_wait: state.semantic_wait.clone(),
         payload,
         context: FrozenContextInput {
             source: SubjectContextRef { scope_id, source_commit_seq,

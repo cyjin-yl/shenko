@@ -235,12 +235,7 @@ async fn local_model_follows_the_shipped_control_protocol() {
             .await
             {
                 Ok(Ok(response)) => {
-                    let parsed = parse_output(
-                        request.request_id,
-                        raw_object(&response.content),
-                        &response.content,
-                        &identity,
-                    );
+                    let parsed = parse_output(request.request_id, raw_object(&response.content), &response.content, &identity, None);
                     match parsed {
                         Ok(parsed) => (scenario.check)(&response.content, &parsed),
                         Err(error) => {

@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "evidence_id": "C02-semantic-wait-20261027",
+  "work_id": "C02",
+  "issue": "https://github.com/cyjin-yl/shenko/issues/7",
+  "pull_request": "https://github.com/cyjin-yl/shenko/pull/82",
+  "implementation_commit": "8b584174d3c424fd728f095d1a3983e12629578d",
+  "scope": "Subject-selected bounded semantic wait on the existing serial subject loop, S1 wait receipts, frozen provider binding, fixed expiry and cognition archive; not complete C02 or RT16.",
+  "full_c02_complete": false,
+  "full_rt16_complete": false,
+  "environment": {
+    "host": "doescontainer",
+    "container": "shenko-dev-persistent-20261026",
+    "worktree": "/tank/shared/projects/shenko/worktrees/main-verify-20261027",
+    "target": "/tank/shared/projects/shenko/build/target-main-verify-20261027",
+    "cargo": "offline, locked, one job, shared heavy-work lock",
+    "model_family": "Coder 390, post-trained from Qwen3.8, itself post-trained from Qwen3.5",
+    "model_root": "/tank/hot/models/Merkyor-Coder390-NVFP4-W4A16-3e644f23",
+    "model_architecture": "Qwen3_5ForConditionalGeneration",
+    "model_id": "swift-qwen3.8-27b-nvfp4",
+    "model_quantization": "ModelOpt mixed; W4A16_NVFP4 text layers",
+    "model_identity_boundary": "The API alias is not the checkpoint name. The requested Coder 390 root was read from /v1/models before and after each final trial; this does not prove immutable weights behind an alias."
+  },
+  "offline_checks": [
+    {
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
+      "command": "cargo test -p shenko-store --test store_roundtrip semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1 --offline --locked -- --test-threads=1",
+      "passed": 1,
+      "failed": 0,
+      "exit_code": 0,
+      "boundary": "Real SQLite/CAS transaction, fixed deadline, stale rejection, restart and cognition-archive transfer; fixture outputs are not live-model proof."
+    },
+    {
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
+      "command": "cargo test -p shenko-subject --lib --offline --locked -- --test-threads=1",
+      "passed": 18,
+      "failed": 0,
+      "exit_code": 0,
+      "boundary": "Includes S0 model-binding mismatch, bare wait controls, atomic replacement, cap inheritance and rejection of same-condition renewal."
+    },
+    {
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
+      "command": "cargo test -p shenko --bin shenko --offline --locked -- --test-threads=1",
+      "passed": 5,
+      "failed": 0,
+      "exit_code": 0,
+      "boundary": "Includes parser boundaries and pre-existing native-child process/recovery scenarios; not full C02."
+    },
+    {
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
+      "command": "cargo build -p shenko --bin shenko --offline --locked",
+      "exit_code": 0,
+      "binary_sha256": "d8b09990eb09b2173f97480a7f3b63f07ee97604d2a066147a3a4fbc2cb0ad07"
+    }
+  ],
+  "real_model_trials": {
+    "method": "Fresh real CLI process, SQLite/CAS, real S0 and product prompt, real local provider, product output parser and S1. Each scenario sends a wait request, waits for an idle successor, sends unrelated context, then sends a qualifying result. A success requires an actually committed start or explicit replacement, the same new wait still active after unrelated context, an ended S1 receipt on the qualifying input, and no deadline extension including across replacement identities.",
+    "threshold": 0.85,
+    "samples": 9,
+    "started": 9,
+    "correct_lifecycles": 9,
+    "rate": 1.0,
+    "no_deadline_extension_observed": 9,
+    "replacement_observed": 0,
+    "transport_or_driver_errors": 0,
+    "scenarios": [
+      {"id": "download", "samples": 3, "started": 3, "correct_lifecycles": 3},
+      {"id": "render", "samples": 3, "started": 3, "correct_lifecycles": 3},
+      {"id": "invitation-holdout", "samples": 3, "started": 3, "correct_lifecycles": 3}
+    ],
+    "failure": null,
+    "verdict_boundary": "9/9 meets the 0.85 development threshold across these three short scenarios. No replacement was emitted in this final batch; a real capped replacement was observed in the prior f4217db batch. Neither batch establishes long-running or cross-partition acceptance.",
+    "raw_evidence_dir": "/tank/shared/projects/shenko/build/semantic-wait-20261027",
+    "final_summary_file": "coder390-wait-reply-8b58417-20261028.json",
+    "final_summary_sha256": "24415e8756fd7da02233de8156d4be97083f5fab4c67fa1a273c6dfff99c1345",
+    "trial_driver_sha256": "01e95b28ab185a47be8ea875773b4f992516cc2aabf1b2ffe732a6ca0cd873bd"
+  },
+  "reply_protocol_regression": {
+    "method": "The existing local_model_behavior harness uses the real product system prompt, event projection, provider and parser; eight default-temperature samples per scenario.",
+    "threshold": 0.85,
+    "before": {
+      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "reply": "6/8",
+      "remember": "8/8",
+      "idle": "8/8",
+      "exit_code": 101,
+      "log": "coder390-protocol-f4217db-20261027.log",
+      "sha256": "bfa0531e0232ae5c613b11d108a72f2a37bb052f8153ef1df801d1625ddb1b45"
+    },
+    "after": {
+      "source": "8b584174d3c424fd728f095d1a3983e12629578d",
+      "reply": "8/8",
+      "remember": "8/8",
+      "idle": "8/8",
+      "exit_code": 0,
+      "prompt_digest": "blake3:c50fd4476ceb6ebcf3e65a979d3f071fb408d004d12481f1715876cba707198b",
+      "log": "coder390-protocol-8b58417-20261028.log",
+      "sha256": "7b87916928cd30e0ba001d50f6caad7ad9b186ac5c123f606ab5d504097455bc"
+    }
+  },
+  "prior_measurements": [
+    {
+      "source": "e3ac8d34f92b9dd080de62cee4d35386d7ed120c",
+      "result": "Old CLI: 0/6 durable semantic-wait starts.",
+      "summary": "baseline-e3ac8d3.json",
+      "sha256": "3a16ebd549669da7f8ba2c06df050950e89af0fd31ba673eee9c5afc987c9dd6"
+    },
+    {
+      "source": "dbb2faf7e28d446a02167d952a6523ee15b82631",
+      "result": "6/6 started; 4/6 ended the original wait when the qualifying message was processed. One model imitated a runtime tool-call record; another misread a genuine input as a code example.",
+      "summary": "coder390-wait-candidate-20261027.json",
+      "sha256": "5762ac311ec06a0e6ad749916b34030636e5552d0fd7b9b36e57347730996a7e"
+    },
+    {
+      "source": "4dbea41191b77f2b6fd87f00c48cd49cb440b147",
+      "result": "8/9 starts actually committed; 7/9 complete lifecycles. One start conflicted with an existing wait; another model correction request remained unknown after a bounded shutdown timeout.",
+      "summary": "coder390-wait-retest-4dbea41-20261027.json",
+      "sha256": "1cdd71334585ed23152f033b3459575b0dd2216c2f2fd36eeac58308eb021960"
+    },
+    {
+      "source": "f36b8a458d28129bc9164d0718874e1fe0dcd39c",
+      "result": "9/9 committed starts; 8/9 strict lifecycles. The failing holdout paraphrased a condition and replaced it with a deadline 52.09 seconds later; a per-ID-only check initially missed this cross-ID renewal.",
+      "summary": "coder390-wait-contextual-f36b8a4-20261027.json",
+      "sha256": "2f049a393dd7a5bc9620b26fdd712a33514d93c314a640530f05c79c47354983"
+    },
+    {
+      "source": "f4217db2e148dec68c5811270f864d8f4a5d6e26",
+      "result": "8/9 complete lifecycles, including one real replacement capped at or before the old deadline. One new start was rejected while a prior wait was active. Download 2/3; rendering and invitation 3/3 each.",
+      "summary": "coder390-wait-cap-f4217db-20261027.json",
+      "sha256": "6b97e3ae8d6a4fde5ba0b8671a26de7f7f6957c4d8a552ecab639d57e793d16d"
+    }
+  ],
+  "remaining_boundaries": [
+    "The deadline cap is inherited across an atomic replacement. Semantic equivalence across separately ended and newly started waits is still a model judgment, not a complete machine-enforced semantic anti-renewal proof.",
+    "Persisted high-water observations and a live monotonic anchor cannot establish elapsed time during an unobserved shutdown combined with clock rollback; cross-partition convergence remains unverified.",
+    "Old schema-8/9 in-flight S0 requests require explicit reconciliation; old schema-4 native-child decisions retain their reader. No historical CAS object is silently rewritten.",
+    "General LLM child routing, child dialogue/DND, production QQ, long-running observations and the rest of C02 remain open."
+  ]
+}

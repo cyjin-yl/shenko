@@ -489,11 +489,30 @@ impl Store {
         let object = step.input_plan_ref.as_ref()
             .ok_or_else(|| ShenkoError::conflict("S0 input plan missing"))?;
         let input: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&object.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(8)
+        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10)
             || input.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || input.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
         {
             return Err(ShenkoError::conflict("S0 schema/step identity mismatch"));
+        }
+        let frozen_wait: Option<shenko_types::subject::SemanticWait> = serde_json::from_value(
+            input.get("semantic_wait").cloned()
+                .ok_or_else(|| ShenkoError::conflict("S0 semantic wait snapshot missing"))?,
+        )?;
+        let current_wait = crate::semantic_wait::read_latest(tx, head.agent_id)?;
+        if frozen_wait != current_wait {
+            return Err(ShenkoError::ResnapshotRequired {
+                reason: "S0 semantic wait changed during projection".into(),
+            });
+        }
+        if let Some(wait) = current_wait.as_ref().filter(|wait| wait.is_active()) {
+            let binding = input.get("provider_binding")
+                .ok_or_else(|| ShenkoError::conflict("S0 semantic wait provider binding missing"))?;
+            if shenko_types::object::Digest::blake3(&serde_json::to_vec(binding)?)
+                != wait.model_binding_digest
+            {
+                return Err(ShenkoError::conflict("S0 semantic wait model binding changed"));
+            }
         }
         let context: SubjectContextRef = serde_json::from_value(
             input.pointer("/context/source").cloned()
@@ -875,6 +894,9 @@ impl Store {
         for intent in &decision.publication_intents {
             append("publication", intent.intent_id, &intent.content)?;
         }
+        // Semantic wait is a subject policy decision, not a tool call. Its
+        // original control is already in the recorded assistant result; S1
+        // stores the outcome in the typed wait receipt and intent rows.
         Ok(())
     }
 }

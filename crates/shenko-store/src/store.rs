@@ -18,6 +18,7 @@ use shenko_types::subject::{
 
 use crate::cas::ContentStore;
 use crate::ledger::Ledger;
+use crate::semantic_wait::WaitClock;
 
 pub struct Store {
     pub ledger: Arc<Ledger>,
@@ -26,6 +27,10 @@ pub struct Store {
     /// A separate SQLite admission transaction orders complete file/Git/row
     /// import publication across handles without holding the ledger write lock.
     pub(crate) cognition_import_gate: Mutex<Connection>,
+    /// Clock bookkeeping of the semantic waits (SPEC §5.1). The high water
+    /// mark of a wait lives here for the lifetime of this handle; the durable
+    /// part is the observation mark stored with the wait record itself.
+    pub(crate) semantic_wait_clock: Mutex<WaitClock>,
 }
 
 impl Store {
@@ -83,6 +88,7 @@ impl Store {
             cas,
             capabilities,
             cognition_import_gate: Mutex::new(cognition_import_gate),
+            semantic_wait_clock: Mutex::new(WaitClock::new()),
         })
     }
 
@@ -456,8 +462,8 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("S1 missing decision"))?;
         let decision: shenko_types::subject::StepDecision =
             serde_json::from_slice(&self.cas.read_object(&decision_ref.digest)?)?;
-        if decision.schema_version != 4
-            || decision.output.schema_version != 1
+        if decision.schema_version != 6
+            || decision.output.schema_version != 3
             || decision.output.step_id != step.step_id
             || Some(&decision.output.raw_ref) != step.model_result_ref.as_ref()
             || decision.step_id != step.step_id
@@ -481,7 +487,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(8)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(10)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())
@@ -530,6 +536,18 @@ impl Store {
             ],
         )
         .map_err(storage_error)?;
+        // The semantic wait is settled in the SAME transaction as the decision,
+        // the dispositions, the head and the successor. The current wait is
+        // read inside this transaction, and a stale or late change is settled
+        // as a typed receipt instead of failing the whole S1.
+        let wait_receipt = self.apply_semantic_wait(
+            &tx,
+            &head,
+            step,
+            &decision,
+            commit_ref,
+            seq.0,
+        )?;
         let mut step = step.clone();
         step.commit_ref = Some(commit_ref);
         let successor = SubjectStep {
@@ -577,6 +595,9 @@ impl Store {
         // SAME transaction as the intent rows themselves, so a rolled back S1
         // leaves neither behind.
         self.append_committed_intent_facts(&tx, &head, &step, &decision)?;
+        // The handled wait policy intent carries the exact receipt of this
+        // step. It is settled, never left ready and never left blocked.
+        self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;

@@ -1090,13 +1090,8 @@ mod recovery_integration_tests {
             )),
         ))).unwrap();
         let decision = StepDecision {
-            schema_version: 4,
-            output: shenko_subject::output::parse_output(
-                step.step_id,
-                object.clone(),
-                "continue",
-                &identity_service,
-            )
+            schema_version: 6,
+            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, None)
             .unwrap(),
             identity_intent: None,
             step_id: step.step_id,
@@ -1124,7 +1119,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    1,
+                    6,
                 )
                 .unwrap()
                 .object,
@@ -1199,13 +1194,13 @@ mod recovery_integration_tests {
         let leaf_seq = store.session_leaf_seq(scope).unwrap()
             .map(|seq| u64::try_from(seq).unwrap());
         let input = serde_json::json!({
-            "schema_version":8, "step_id":step.step_id, "step_no":step.step_no,
+            "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
             "events":events, "provider_binding":null,
             "payload":shenko_broker::request::InferencePayload {
                 system_prompt:"native recovery fixture".into(), messages,
                 max_tokens:Some(4096), tools:vec![], native_options:Default::default(),
             },
-            "in_semantic_wait":false, "identity":store.latest_identity(head.agent_id).unwrap(),
+            "semantic_wait":store.semantic_wait(head.agent_id).unwrap(), "identity":store.latest_identity(head.agent_id).unwrap(),
             "identity_provider_revision":"shenko.identity/default@1",
             "context":{
                 "source":shenko_store::SubjectContextRef {
@@ -1224,7 +1219,7 @@ mod recovery_integration_tests {
             },
         });
         store.cas.seal_object(&serde_json::to_vec(&input).unwrap(), "application/json",
-            "input_plans", "subject_step_input", 8).unwrap().object
+            "input_plans", "subject_step_input", 10).unwrap().object
     }
 
     /// Deterministic model-output fixture admitted through the real parser and S1
@@ -1278,12 +1273,7 @@ mod recovery_integration_tests {
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
 
         let identity = IdentityService::new(Arc::new(shenko_identity::DefaultIdentityPolicy));
-        let output = shenko_subject::output::parse_output(
-            step.step_id,
-            object.clone(),
-            model_text,
-            &identity,
-        )
+        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, None)
         .unwrap();
         let mut delegated_task_intents = vec![];
         for control in &output.controls {
@@ -1305,7 +1295,7 @@ mod recovery_integration_tests {
         assert_eq!(delegated_task_intents.len(), task_ids.len());
         let next = EntityId::new();
         let decision = StepDecision {
-            schema_version: 4,
+            schema_version: 6,
             output,
             identity_intent: None,
             step_id: step.step_id,
@@ -1330,7 +1320,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    4,
+                    6,
                 )
                 .unwrap()
                 .object,
@@ -1906,7 +1896,7 @@ mod reply_directive_tests {
             shenko_identity::DefaultIdentityPolicy,
         ));
         let parsed =
-            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity)
+            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, None)
                 .unwrap();
         assert_eq!(parsed.controls.len(), 6); // two replies, two identity, one memory, one task
         let first = &parsed.controls[0];
@@ -1938,11 +1928,81 @@ mod reply_directive_tests {
                 EntityId::new(),
                 obsolete,
                 "[memory] obsolete",
-                &identity
+                &identity,
+                None,
             )
             .unwrap_err()
             .to_string()
             .contains("CONTROL_PROTOCOL_INVALID")
         );
+    }
+
+    /// The semantic wait protocol is one typed control per result.
+    ///
+    /// Malformed or duplicate wait controls reject the whole result, while
+    /// a quoted or fenced wait line remains literal prose.
+    #[test]
+    fn semantic_wait_controls_are_typed_and_atomic() {
+        use shenko_types::subject::SemanticWaitChange;
+
+        let dir = std::env::temp_dir().join(format!("shenko-wait-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let store = shenko_store::store::Store::open(dir.join("s.db"), dir.join("cas")).unwrap();
+        let identity = shenko_identity::IdentityService::new(std::sync::Arc::new(
+            shenko_identity::DefaultIdentityPolicy,
+        ));
+        let parse = |raw: &str| {
+            let raw_ref = store
+                .cas
+                .seal_object(raw.as_bytes(), "text/plain", "test", "text", 1)
+                .unwrap()
+                .object;
+            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, None)
+        };
+
+        // A start names the condition and its cap, next to an ordinary action.
+        let started = parse(
+            "先想清楚再等\n[wait] {\"condition\":\"实验出现足够判断的结果\",\"max_wait_secs\":120}\n[remember] 记住等待条件",
+        )
+        .unwrap();
+        assert_eq!(started.schema_version, 3);
+        assert_eq!(started.controls.len(), 2);
+        let OutputAction::SemanticWait { change } = &started.controls[0].action else {
+            panic!("the wait control must be a typed semantic wait action")
+        };
+        assert_eq!(
+            change,
+            &SemanticWaitChange::Start {
+                condition: "实验出现足够判断的结果".into(),
+                max_wait_secs: 120,
+            }
+        );
+        assert!(!started.text.contains("max_wait_secs"));
+
+        // An out-of-range cap rejects the whole result, not just this action.
+        let invalid = parse("[remember] 先记下\n[wait] {\"condition\":\"x\",\"max_wait_secs\":601}");
+        assert!(invalid.unwrap_err().to_string().contains("CONTROL_PROTOCOL_INVALID"));
+
+        // One wait control per result: a second one rejects the whole result.
+        let duplicate = parse(
+            "[wait] {\"condition\":\"x\",\"max_wait_secs\":10}\n[wait] {\"condition\":\"y\",\"max_wait_secs\":10}",
+        );
+        assert!(
+            duplicate
+                .unwrap_err()
+                .to_string()
+                .contains("CONTROL_PROTOCOL_INVALID")
+        );
+
+        // A quoted wait line is prose, not a control.
+        let quoted = parse("> [wait] {\"condition\":\"引用不执行\",\"max_wait_secs\":10}\n").unwrap();
+        assert!(quoted.controls.is_empty());
+        assert!(quoted.text.contains("[wait] {\"condition\":\"引用不执行\""));
+
+        // A fenced wait line is prose, not a control.
+        let fenced = parse("```text\n[wait:end] 代码不执行\n```\n")
+        .unwrap();
+        assert!(fenced.controls.is_empty());
+        assert!(fenced.text.contains("[wait:end]"));
     }
 }

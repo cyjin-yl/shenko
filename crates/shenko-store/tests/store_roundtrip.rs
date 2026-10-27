@@ -160,7 +160,18 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
 fn recorded_result(
     store: &Arc<Store>,
     head: &shenko_types::subject::SubjectBranchHead,
+    step: shenko_types::subject::SubjectStep,
+) -> shenko_types::subject::SubjectStep {
+    recorded_result_with_wait(store, head, step, None)
+}
+
+/// The frozen S0 input of one step, with the semantic wait snapshot the model
+/// was shown.
+fn recorded_result_with_wait(
+    store: &Arc<Store>,
+    head: &shenko_types::subject::SubjectBranchHead,
     mut step: shenko_types::subject::SubjectStep,
+    semantic_wait: Option<shenko_types::subject::SemanticWait>,
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let ledger = shenko_context_policy::WindowLedger::new(Arc::new(
@@ -171,8 +182,8 @@ fn recorded_result(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":8, "step_id":step.step_id, "step_no":step.step_no, "events":[],
-        "provider_binding":null, "in_semantic_wait":false, "identity":null,
+        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
             "source_commit_seq":store.current_commit_seq().unwrap(),
@@ -196,7 +207,7 @@ fn recorded_result(
     step.record_revision = RecordRevision(1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 8).unwrap().object);
+        "subject_step_input", 10).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);
@@ -243,9 +254,9 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
-        schema_version: 4,
+        schema_version: 6,
         output: shenko_types::output::ParsedOutput {
-            schema_version: 1,
+            schema_version: 3,
             step_id: step.step_id,
             raw_ref: step.model_result_ref.clone().unwrap(),
             text: "继续先前关注".into(),
@@ -277,7 +288,7 @@ fn committed_candidate(
                 "application/json",
                 "test",
                 "StepDecision",
-                1,
+                6,
             )
             .unwrap()
             .object,
@@ -285,6 +296,54 @@ fn committed_candidate(
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
     step
+}
+
+/// Attach one semantic wait change to a committed candidate, exactly as the
+/// subject does: the parsed control and the policy intent carry the same
+/// action id and the same change.
+fn attach_wait(
+    step: &mut shenko_types::subject::SubjectStep,
+    store: &Store,
+    change: &shenko_types::subject::SemanticWaitChange,
+    action_id: shenko_types::ids::EntityId,
+) {
+    use shenko_types::output::{OutputAction, OutputControl};
+    use shenko_types::subject::{PolicyIntent, PolicyKind, StepDecision};
+    let mut decision: StepDecision = serde_json::from_slice(
+        &store
+            .cas
+            .read_object(&step.decision_ref.as_ref().unwrap().digest)
+            .unwrap(),
+    )
+    .unwrap();
+    decision.output.controls.push(OutputControl {
+        action_id,
+        spans: vec![],
+        action: OutputAction::SemanticWait {
+            change: change.clone(),
+        },
+    });
+    decision.policy_intents.push(PolicyIntent {
+        intent_id: action_id,
+        kind: PolicyKind::SemanticWait {
+            change: change.clone(),
+        },
+        description: "subject semantic wait".into(),
+        target_revision: None,
+    });
+    step.decision_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&decision).unwrap(),
+                "application/json",
+                "decisions",
+                "StepDecision",
+                6,
+            )
+            .unwrap()
+            .object,
+    );
 }
 
 #[test]
@@ -433,7 +492,7 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
         intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
     }];
     step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
-        "application/json", "decisions", "StepDecision", 4).unwrap().object);
+        "application/json", "decisions", "StepDecision", 6).unwrap().object);
     store.commit_step_and_advance_head(&step, &head, next).unwrap();
     let history = StoreHistory::new(store.clone(), EntityId(head.branch_id.0), Arc::new(estimate_tokens));
     let pending = history.read_range(0, u64::MAX).unwrap();
@@ -530,6 +589,199 @@ fn competing_s1_rejects_stale_writer_without_partial_commit() {
         .unwrap()
         .unwrap();
     assert_eq!(committed.commit_ref, Some(head.committed_at));
+}
+
+#[test]
+fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
+    use shenko_types::{ids::*, subject::*};
+    let (dir, store, agent) = initialized_subject();
+    let (head, planned) = store.load_subject(agent).unwrap();
+    let wait_id = EntityId::new();
+    let next = EntityId::new();
+    let condition = "实验出现足以判断的结果".to_string();
+
+    // S1 #1 — the subject starts a semantic wait.
+    let result = recorded_result_with_wait(&store, &head, planned, None);
+    let mut step = committed_candidate(&store, result, next);
+    attach_wait(
+        &mut step,
+        &store,
+        &SemanticWaitChange::Start {
+            condition: condition.clone(),
+            max_wait_secs: 3,
+        },
+        wait_id,
+    );
+    store
+        .commit_step_and_advance_head(&step, &head, next)
+        .unwrap();
+
+    let wait = store.semantic_wait(agent).unwrap().expect("durable wait");
+    assert_eq!(wait.wait_id, wait_id);
+    assert_eq!(wait.condition, condition);
+    assert!(matches!(wait.status, SemanticWaitStatus::Active));
+    // The store owns the deadline: it is fixed once, when the wait starts.
+    assert_eq!(
+        wait.deadline_at,
+        wait.started_at + chrono::TimeDelta::seconds(3)
+    );
+    let receipt = store
+        .semantic_wait_receipt(step.step_id)
+        .unwrap()
+        .expect("exact receipt");
+    assert!(matches!(receipt.outcome, SemanticWaitOutcome::Started));
+    // The handled wait intent is settled with that receipt, never blocked.
+    let intents = store.committed_intents(Some("policy"), None, 16).unwrap();
+    let settled = intents
+        .iter()
+        .find(|intent| intent.intent_id == wait_id)
+        .expect("wait policy intent");
+    assert_eq!(settled.state, "settled");
+    assert_eq!(settled.contract, "shenko.subject/semantic-wait/1");
+
+    // S1 #2 — a new wait id with the same condition cannot renew the wait.
+    let (head2, second) = store.load_subject(agent).unwrap();
+    let conn = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    let before: i64 = conn
+        .query_row("SELECT count(*) FROM commit_log", [], |r| r.get(0))
+        .unwrap();
+    // The observed wall-clock high water is durable before the next S0.
+    let observed = store.observe_semantic_wait(&head2).unwrap().unwrap();
+    assert!(matches!(observed.status, SemanticWaitStatus::Active));
+    assert!(observed.last_observed_at >= wait.last_observed_at);
+    let after_observe: i64 = conn
+        .query_row("SELECT count(*) FROM commit_log", [], |r| r.get(0))
+        .unwrap();
+    assert!(after_observe > before);
+    assert_eq!(store.load_subject(agent).unwrap().0.record_revision, head2.record_revision);
+
+    let result2 = recorded_result_with_wait(&store, &head2, second, Some(observed));
+    let next2 = EntityId::new();
+    let mut step2 = committed_candidate(&store, result2, next2);
+    attach_wait(
+        &mut step2,
+        &store,
+        &SemanticWaitChange::Start {
+            condition: condition.clone(),
+            max_wait_secs: 3,
+        },
+        EntityId::new(),
+    );
+    // The stale wait change does not fail the whole S1: the step and its
+    // unique successor are still committed.
+    store
+        .commit_step_and_advance_head(&step2, &head2, next2)
+        .unwrap();
+    let receipt2 = store
+        .semantic_wait_receipt(step2.step_id)
+        .unwrap()
+        .expect("exact receipt");
+    assert!(matches!(
+        receipt2.outcome,
+        SemanticWaitOutcome::Rejected { .. }
+    ));
+    let wait2 = store.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(wait2.wait_id, wait_id);
+    // The capped deadline of the running wait was not renewed.
+    assert_eq!(wait2.deadline_at, wait.deadline_at);
+    assert_eq!(wait2.started_at, wait.started_at);
+    let (head3, _) = store.load_subject(agent).unwrap();
+    assert_eq!(head3.next_step_id, next2);
+
+    // S1 #3 — after the deadline a continue expires the wait instead of
+    // reviving it.
+    std::thread::sleep(std::time::Duration::from_millis(3100));
+    let (head4, third) = store.load_subject(agent).unwrap();
+    let result3 = recorded_result_with_wait(&store, &head4, third, Some(wait2.clone()));
+    let next3 = EntityId::new();
+    let mut step3 = committed_candidate(&store, result3, next3);
+    attach_wait(
+        &mut step3,
+        &store,
+        &SemanticWaitChange::Continue { wait_id },
+        EntityId::new(),
+    );
+    store
+        .commit_step_and_advance_head(&step3, &head4, next3)
+        .unwrap();
+    let receipt3 = store
+        .semantic_wait_receipt(step3.step_id)
+        .unwrap()
+        .expect("exact receipt");
+    assert!(matches!(
+        receipt3.outcome,
+        SemanticWaitOutcome::Rejected { .. }
+    ));
+    let expired = store.semantic_wait(agent).unwrap().unwrap();
+    assert!(matches!(expired.status, SemanticWaitStatus::Expired { .. }));
+    assert_eq!(expired.deadline_at, wait.deadline_at);
+    drop(store);
+
+    // Reopening keeps the original deadline and the terminal fact: a finished
+    // wait is never resurrected and its deadline is never reset.
+    let reopened = Arc::new(Store::open(dir.join("head.db"), dir.join("cas")).unwrap());
+    let restored = reopened.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(restored.wait_id, wait_id);
+    assert_eq!(restored.started_at, wait.started_at);
+    assert_eq!(restored.deadline_at, wait.deadline_at);
+    assert!(matches!(restored.status, SemanticWaitStatus::Expired { .. }));
+    // Observing a finished wait changes nothing, commits nothing and leaves
+    // the branch head exactly as the subject left it.
+    let (head5, _) = reopened.load_subject(agent).unwrap();
+    let before: i64 = conn
+        .query_row("SELECT count(*) FROM commit_log", [], |r| r.get(0))
+        .unwrap();
+    let observed = reopened.observe_semantic_wait(&head5).unwrap().unwrap();
+    assert!(matches!(observed.status, SemanticWaitStatus::Expired { .. }));
+    let after: i64 = conn
+        .query_row("SELECT count(*) FROM commit_log", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(after, before);
+    let (head6, _) = reopened.load_subject(agent).unwrap();
+    assert_eq!(head6.record_revision, head5.record_revision);
+
+    // A fresh id must not turn the just-expired identical condition into an
+    // automatic renewal, even when it is proposed in a later committed step.
+    let (head, planned) = reopened.load_subject(agent).unwrap();
+    let result = recorded_result_with_wait(&reopened, &head, planned, Some(restored.clone()));
+    let next = EntityId::new();
+    let mut repeated = committed_candidate(&reopened, result, next);
+    attach_wait(&mut repeated, &reopened, &SemanticWaitChange::Start {
+        condition: condition.clone(), max_wait_secs: 120,
+    }, EntityId::new());
+    reopened.commit_step_and_advance_head(&repeated, &head, next).unwrap();
+    assert!(matches!(reopened.semantic_wait_receipt(repeated.step_id).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Rejected { .. }));
+    assert_eq!(reopened.semantic_wait(agent).unwrap().unwrap().wait_id, wait_id);
+
+    // A different new decision may start a distinct wait. A cognition archive
+    // must carry both wait records and choose the later one on the receiver,
+    // even though all imported rows receive the same local import sequence.
+    let (head, planned) = reopened.load_subject(agent).unwrap();
+    let result = recorded_result_with_wait(&reopened, &head, planned, Some(restored));
+    let next = EntityId::new();
+    let mut distinct = committed_candidate(&reopened, result, next);
+    let next_wait_id = EntityId::new();
+    attach_wait(&mut distinct, &reopened, &SemanticWaitChange::Start {
+        condition: "收到新的独立观察".into(), max_wait_secs: 120,
+    }, next_wait_id);
+    reopened.commit_step_and_advance_head(&distinct, &head, next).unwrap();
+    let before_migration = reopened.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(before_migration.wait_id, next_wait_id);
+    let mut archive = Vec::new();
+    reopened.write_cognition_archive(
+        &shenko_store::cognition::CognitionSnapshotOptions::default(), None, &mut archive,
+    ).unwrap();
+    let receiver = Store::open(dir.join("wait-receiver.db"), dir.join("wait-receiver-cas")).unwrap();
+    receiver.import_cognition_archive(
+        &archive[..], &shenko_store::cognition::CognitionImportOptions::default(),
+    ).unwrap();
+    let migrated = receiver.semantic_wait(agent).unwrap().expect("wait imported");
+    assert_eq!(migrated.wait_id, next_wait_id);
+    assert_eq!(migrated.started_at, before_migration.started_at);
+    assert_eq!(migrated.deadline_at, before_migration.deadline_at);
+    assert!(matches!(receiver.semantic_wait_receipt(distinct.step_id).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Started));
 }
 
 #[test]

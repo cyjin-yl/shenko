@@ -79,37 +79,95 @@ pub enum MemoryIntentKind {
     Recall,
 }
 
-/// Semantic wait — subject voluntarily waits on a condition.
-/// Max 600 seconds per SPEC §5.1/U55.
-/// Still polls with same model + prior+new context during wait.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Semantic wait — the subject voluntarily waits on a condition it named.
+/// SPEC §5.1, §41.5, R143: one wait lasts at most 600 seconds and keeps
+/// polling the same model with prior and new context. The Store owns the
+/// deadline; this type only carries the durable fact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SemanticWait {
-    pub condition_description: String,
-    pub max_wait_secs: u64, // ≤ 600
+    pub wait_id: EntityId,
+    pub condition: String,
     pub started_at: chrono::DateTime<chrono::Utc>,
+    pub deadline_at: chrono::DateTime<chrono::Utc>,
+    pub context_ref: ObjectRef,
+    /// Digest of the original S0 provider/model binding, not an assertion
+    /// about a provider's mutable alias or the model weights behind it.
+    pub model_binding_digest: crate::object::Digest,
+    pub status: SemanticWaitStatus,
+    pub last_observed_at: chrono::DateTime<chrono::Utc>,
+    pub created_step_id: EntityId,
+    pub updated_commit: CommitRef,
 }
 
 impl SemanticWait {
+    /// The upper bound of one semantic wait. It is a cap, never a renewal.
     pub const MAX_WAIT_SECS: u64 = 600;
 
-    pub fn new(condition: impl Into<String>, max_wait_secs: u64) -> Self {
-        assert!(
-            max_wait_secs <= Self::MAX_WAIT_SECS,
-            "semantic wait max 600s"
-        );
-        Self {
-            condition_description: condition.into(),
-            max_wait_secs,
-            started_at: chrono::Utc::now(),
-        }
+    /// A wait is active only while the Store still holds it as active.
+    /// Expiry is decided by the Store against its own clock bookkeeping.
+    pub fn is_active(&self) -> bool {
+        matches!(self.status, SemanticWaitStatus::Active)
     }
+}
 
-    pub fn is_expired(&self) -> bool {
-        let elapsed = chrono::Utc::now()
-            .signed_duration_since(self.started_at)
-            .num_seconds() as u64;
-        elapsed >= self.max_wait_secs
-    }
+/// The durable state of one semantic wait.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum SemanticWaitStatus {
+    Active,
+    Ended { reason: String },
+    Expired { reason: String },
+}
+
+/// One semantic wait change requested by a committed model result.
+///
+/// A start names the condition and its cap; a continue and an end address
+/// the wait the model was shown. A continue never renews the deadline.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum SemanticWaitChange {
+    Start {
+        condition: String,
+        max_wait_secs: u64,
+    },
+    Continue {
+        wait_id: EntityId,
+    },
+    End {
+        wait_id: EntityId,
+        reason: String,
+    },
+    /// The subject changes attention explicitly. The old wait ends and the
+    /// new condition starts in the same S1; the old deadline is not renewed.
+    Replace {
+        wait_id: EntityId,
+        condition: String,
+        max_wait_secs: u64,
+        reason: String,
+    },
+}
+
+/// The settled result of one step's semantic wait handling.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum SemanticWaitOutcome {
+    Unchanged,
+    Started,
+    Replaced,
+    Continued,
+    Ended,
+    Expired,
+    Rejected { reason: String },
+}
+
+/// The exact result one committed step produced for the semantic wait.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SemanticWaitReceipt {
+    pub step_id: EntityId,
+    pub intent_id: Option<EntityId>,
+    pub outcome: SemanticWaitOutcome,
+    pub wait: Option<SemanticWait>,
+    pub committed_at: CommitRef,
 }
 
 /// Subject branch head — tracks the continuous subject loop state. SPEC §41.5
@@ -306,7 +364,7 @@ pub struct PolicyIntent {
     pub target_revision: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PolicyKind {
     ResourceShare,
@@ -314,6 +372,8 @@ pub enum PolicyKind {
     NetworkPolicy,
     RetentionPolicy,
     InterruptPolicy,
+    /// The subject's own semantic wait decision.
+    SemanticWait { change: SemanticWaitChange },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
