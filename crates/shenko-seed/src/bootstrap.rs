@@ -194,7 +194,10 @@ impl ModelProfile {
         if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
             return Self {
                 provider: Some("local".into()),
-                model: Some("qwen3.8-27b".into()),
+                model: Some(
+                    std::env::var("SHENKO_LOCAL_MODEL")
+                        .unwrap_or_else(|_| "qwen3.8-27b".into()),
+                ),
                 configured: true,
                 capacity: ModelCapacity::Unprobed,
             };
