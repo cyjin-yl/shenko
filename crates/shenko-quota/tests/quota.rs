@@ -64,7 +64,7 @@ fn subscription_percent_and_api_buckets_stay_separate() {
     assert_eq!(reason("api:requests"), Some(AbsentReason::Invalid));
 
     let f = forecast(&api, &[], &HashMap::new(), now, fresh());
-    assert!(matches!(f.windows[0].planning, Planning::Replenishing { remaining, .. } if Some(remaining) == Range::point(39000.0)));
+    assert!(matches!(f.windows[0].planning, Planning::Replenishing { remaining, .. } if Some(remaining) == Range::new(38500.0, 39500.0)));
     let f = forecast(&sub, &[], &HashMap::new(), now, fresh());
     let Planning::Period { available, per_hour, .. } = f.windows.iter().find(|w| w.window_key == "seven_day").unwrap().planning
     else {
@@ -237,6 +237,11 @@ fn contradictory_overflowing_and_sensitive_observations_remain_unknown() {
     let huge = Measurement { value: Some(f64::MAX), lower: None, upper: None,
         basis: Basis::ProviderReported, precision: Some(f64::MAX) };
     assert_eq!(huge.range(), None, "finite inputs may overflow when widened");
+    let tiny_pad_at_max = Measurement { precision: Some(1.0), ..huge };
+    assert_eq!(tiny_pad_at_max.range(), None, "rounding away a positive uncertainty is not a finite bound");
+    let tiny_pad = Measurement { value: Some(1.0), precision: Some(f64::EPSILON / 4.0), ..huge };
+    let tiny_range = tiny_pad.range().unwrap();
+    assert!(tiny_range.lower < 1.0 && tiny_range.upper > 1.0);
     assert_eq!(Range::new(f64::NAN, 1.0), None);
     assert_eq!(Range::new(2.0, 1.0), None);
     assert_eq!(Range::point(f64::MAX).unwrap().checked_add(Range::point(f64::MAX).unwrap()), None);
@@ -258,17 +263,23 @@ fn contradictory_overflowing_and_sensitive_observations_remain_unknown() {
     assert_eq!(failure.observation_error, Some(ObservationError::RateLimited));
 
     let exact = 9_007_199_254_740_995_u64;
-    let large = from_api_headers(&c, [("anthropic-ratelimit-tokens-remaining", "9007199254740995")]);
-    let interval = large.window("api:tokens").unwrap().remaining_range().unwrap();
+    let large = from_api_headers(&c, [("anthropic-ratelimit-requests-remaining", "9007199254740995")]);
+    let interval = large.window("api:requests").unwrap().remaining_range().unwrap();
     assert!((interval.lower as u128) <= u128::from(exact));
     assert!((interval.upper as u128) >= u128::from(exact));
     assert!(interval.lower < interval.upper, "inexact f64 must remain a conservative range");
     let contradictory = from_api_headers(&c, [
-        ("anthropic-ratelimit-tokens-limit", "9007199254740992"),
-        ("anthropic-ratelimit-tokens-remaining", "9007199254740993"),
+        ("anthropic-ratelimit-requests-limit", "9007199254740992"),
+        ("anthropic-ratelimit-requests-remaining", "9007199254740993"),
     ]);
-    assert!(contradictory.window("api:tokens").is_none());
-    assert!(contradictory.absent_windows.iter().any(|a| a.expected_window_key == "api:tokens" && a.reason == AbsentReason::Invalid));
+    assert!(contradictory.window("api:requests").is_none());
+    assert!(contradictory.absent_windows.iter().any(|a| a.expected_window_key == "api:requests" && a.reason == AbsentReason::Invalid));
+    let rounded = from_api_headers(&c, [
+        ("anthropic-ratelimit-tokens-limit", "800"),
+        ("anthropic-ratelimit-tokens-remaining", "1000"),
+    ]);
+    assert_eq!(rounded.window("api:tokens").unwrap().remaining_range(), Range::new(500.0, 800.0),
+        "rounding can produce a reported count above the exact limit");
 
     snapshot.windows[0].remaining = None;
     snapshot.windows[0].used = Some(Measurement::reported(50.0));

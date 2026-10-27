@@ -120,6 +120,20 @@ pub struct Measurement {
     pub precision: Option<f64>,
 }
 
+/// One directed bound for a finite sum. TwoSum recovers the rounding error so
+/// a small precision at large magnitudes cannot silently disappear.
+fn outward_sum(left: f64, right: f64, upward: bool) -> Option<f64> {
+    let sum = left + right;
+    if !sum.is_finite() { return None; }
+    let part = sum - left;
+    let error = (left - (sum - part)) + (right - part);
+    if !error.is_finite() { return None; }
+    let bound = if upward && error > 0.0 { sum.next_up() }
+        else if !upward && error < 0.0 { sum.next_down() }
+        else { sum };
+    bound.is_finite().then_some(bound)
+}
+
 impl Measurement {
     pub fn reported(value: f64) -> Self {
         Self { value: Some(value), lower: None, upper: None, basis: Basis::ProviderReported, precision: None }
@@ -141,7 +155,10 @@ impl Measurement {
             _ => return None,
         };
         let range = Range::new(lower, upper)?;
-        Range::new((range.lower - pad).max(0.0), range.upper + pad)
+        if pad == 0.0 { return Some(range); }
+        let lower = if range.lower <= pad { 0.0 } else { outward_sum(range.lower, -pad, false)? };
+        let upper = outward_sum(range.upper, pad, true)?;
+        Range::new(lower, upper)
     }
 }
 

@@ -134,19 +134,20 @@ const HEADER_RESOURCES: [(&str, Metric, &str); 4] = [
 ];
 const HEADER_FIELDS: [&str; 3] = ["limit", "remaining", "reset"];
 
-/// Integer headers can exceed the exact integer range of f64. Preserve an
-/// enclosing interval so its lower bound never overstates the reported count.
-fn count_measurement(value: u64) -> Measurement {
-    let rounded = value as f64;
-    let integer = rounded as u128;
-    if integer == u128::from(value) {
-        return Measurement::reported(rounded);
-    }
-    let (lower, upper) = if integer < u128::from(value) {
-        (rounded, rounded.next_up())
-    } else {
-        (rounded.next_down(), rounded)
+/// Enclose the exact integer plus any documented provider rounding, even when
+/// those values cannot be represented exactly by f64.
+fn count_measurement(value: u64, half_width: u64) -> Measurement {
+    let bounds = |value: u128| {
+        let rounded = value as f64;
+        match (rounded as u128).cmp(&value) {
+            std::cmp::Ordering::Equal => (rounded, rounded),
+            std::cmp::Ordering::Less => (rounded, rounded.next_up()),
+            std::cmp::Ordering::Greater => (rounded.next_down(), rounded),
+        }
     };
+    let lower = bounds(u128::from(value.saturating_sub(half_width))).0;
+    let upper = bounds(u128::from(value) + u128::from(half_width)).1;
+    if lower == upper { return Measurement::reported(lower); }
     Measurement { value: None, lower: Some(lower), upper: Some(upper),
         basis: Basis::ProviderReported, precision: None }
 }
@@ -174,8 +175,10 @@ fn field<'a>(headers: &'a [(String, String)], name: &str) -> Field<'a> {
 ///
 /// Only the exact `anthropic-ratelimit-{resource}-{limit,remaining,reset}`
 /// names are read; any other header, credentials and unknown extensions
-/// included, is ignored. Counts must be non-negative integers with
-/// remaining ≤ limit. Evidence holds the parsed values, never header text.
+/// included, is ignored. Counts are non-negative integers. Documented token
+/// remaining is rounded to the nearest thousand, so its conservative range
+/// must overlap the limit; request remaining has no documented rounding here.
+/// Evidence holds parsed values and rounding basis, never header text.
 pub fn from_api_headers<'a>(
     ctx: &ObservationContext,
     headers: impl IntoIterator<Item = (&'a str, &'a str)>,
@@ -193,6 +196,9 @@ pub fn from_api_headers<'a>(
     let mut evidence = Vec::new();
     for (resource, metric, unit) in HEADER_RESOURCES {
         let key = format!("api:{resource}");
+        // Anthropic documents token-remaining headers as nearest-thousand;
+        // request counts and the advertised limits are not documented so.
+        let remaining_half_width = if metric == Metric::Requests { 0 } else { 500 };
         let get = |suffix: &str| field(&kept, &format!("{HEADER_PREFIX}{resource}-{suffix}"));
         let count = |f: Field| match f {
             Field::Missing => Ok(None),
@@ -214,7 +220,8 @@ pub fn from_api_headers<'a>(
                 continue;
             }
             (Ok(limit), Ok(remaining), Ok(reset))
-                if limit.zip(remaining).is_none_or(|(limit, remaining)| remaining <= limit) =>
+                if limit.zip(remaining).is_none_or(|(limit, remaining)|
+                    remaining.saturating_sub(remaining_half_width) <= limit) =>
             {
                 (limit, remaining, reset)
             }
@@ -225,9 +232,10 @@ pub fn from_api_headers<'a>(
         };
         let show = |v: Option<u64>| v.map_or("absent".to_string(), |n| n.to_string());
         evidence.push(format!(
-            "{key} limit={} remaining={} reset={}",
+            "{key} limit={} remaining={} remaining_rounding_half_width={} reset={}",
             show(limit),
             show(remaining),
+            remaining_half_width,
             reset.map_or("absent".into(), |r| r.to_rfc3339())
         ));
         s.windows.push(QuotaWindow {
@@ -237,8 +245,8 @@ pub fn from_api_headers<'a>(
             metric,
             unit: unit.into(),
             used: None,
-            remaining: remaining.map(count_measurement),
-            capacity: limit.map(count_measurement),
+            remaining: remaining.map(|value| count_measurement(value, remaining_half_width)),
+            capacity: limit.map(|value| count_measurement(value, 0)),
             resets_at: None,
             replenishes_by: reset,
             enforcement: Enforcement::ProviderHardLimit,
