@@ -92,6 +92,16 @@ fn decide_fixture(policy: &QuotaPolicy, forecasts: &[QuotaForecast], local: bool
     decide(policy, forecasts, &availability(policy, local), previous, at).unwrap()
 }
 
+fn single_window_policy(key: &str, unit: &str, costs: &[(&str, f64)]) -> QuotaPolicy {
+    let mut p = policy();
+    p.min_progress_per_hour = 0.0;
+    p.profiles = costs.iter().map(|(id, cost)| ModelProfile {
+        profile_id: (*id).into(), model_ref: format!("model/{id}"), local: false,
+        cost_per_request: vec![WindowCost { window: wref(key), unit: unit.into(), amount: Range::point(*cost).unwrap() }],
+    }).collect();
+    p
+}
+
 fn admit_fixture(policy: &QuotaPolicy, decision: &PolicyDecision, request_id: EntityId,
     pacer: &mut Pacer, at: DateTime<Utc>) -> AdmissionOutcome {
     let available = decision.availability.iter().map(|item| (item.profile_id.clone(), item.state)).collect();
@@ -413,11 +423,132 @@ fn bucket_reservations_survive_replay_cancel_and_coverage() {
     mark_armed(&mut pacer, &first, &[attempt.clone()]).unwrap();
     let duplicate = forecast(&larger, &[attempt.clone(), attempt.clone()], &HashMap::new(), now(), options);
     assert!(matches!(duplicate.windows[0].planning, Planning::Unknown { .. }));
-    let unreflected = forecast(&larger, &[attempt], &HashMap::new(), now(), options);
+    let unreflected = forecast(&larger, &[attempt.clone()], &HashMap::new(), now(), options);
     assert!(!unreflected.windows[0].accounted_attempts[0].covered);
     let decision = decide(&p, &[unreflected], &available, None, now()).unwrap();
     assert!(matches!(admit(&p, &decision, EntityId::new(), &mut pacer, &available, now()),
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted));
+
+    // A newer covered observation must not free a charge for a decision
+    // frozen against the older, pre-charge snapshot.
+    let old_snapshot = from_api_headers(&ctx, [
+        ("anthropic-ratelimit-requests-limit", "1"),
+        ("anthropic-ratelimit-requests-remaining", "1"),
+    ]);
+    let old_forecast = forecast(&old_snapshot, &[], &HashMap::new(), now(), options);
+    let old_decision = decide(&p, &[old_forecast], &available, None, now()).unwrap();
+    let mut stale_pacer = Pacer::default();
+    let old_id = EntityId::new();
+    let AdmissionOutcome::Quota(old_admission) = admit(&p, &old_decision, old_id, &mut stale_pacer, &available, now()) else { panic!("initial admission expected") };
+    let old_attempt = LocalAttempt { request_id: old_id, ledger_commit: CommitRef::new(EntityId::new(), LedgerSeq(5)), ..attempt.clone() };
+    mark_armed(&mut stale_pacer, &old_admission, &[old_attempt.clone()]).unwrap();
+    let later = now() + Duration::seconds(1);
+    let later_ctx = ObservationContext { observed_at: later, ..ctx.clone() };
+    let mut spent = from_api_headers(&later_ctx, [
+        ("anthropic-ratelimit-requests-limit", "1"),
+        ("anthropic-ratelimit-requests-remaining", "0"),
+    ]);
+    spent.covered_through = Some(CoveredThrough { local_ledger_commit: old_attempt.ledger_commit });
+    let newer = forecast(&spent, &[old_attempt], &HashMap::new(), later, options);
+    stale_pacer.reconcile_covered(&newer);
+    assert!(!matches!(admit(&p, &old_decision, EntityId::new(), &mut stale_pacer, &available, later),
+        AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted),
+        "a prior decision cannot reuse a charge removed by a newer coverage observation");
+}
+
+#[test]
+fn persisted_fractional_policy_preserves_its_bound_decision() {
+    let mut p = single_window_policy("five_hour", "percent", &[("cloud", 1.0)]);
+    p.min_progress_per_hour = 51.248178375505404;
+    let forecast = forecast_of(vec![("five_hour", period(100.0, 10.0, 10), Range::point(100.0))]);
+    let available = availability(&p, false);
+    let decision = decide(&p, &[forecast], &available, None, now()).unwrap();
+    let reopened: QuotaPolicy = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+    let decision: PolicyDecision = serde_json::from_str(&serde_json::to_string(&decision).unwrap()).unwrap();
+    assert_eq!(reopened.min_progress_per_hour.to_bits(), p.min_progress_per_hour.to_bits());
+    assert!(matches!(admit(&reopened, &decision, EntityId::new(), &mut Pacer::default(), &available, now()),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Admitted));
+}
+
+#[test]
+fn source_freshness_expires_both_forecasts_and_decisions() {
+    let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
+    let available = availability(&p, false);
+    let ctx = ObservationContext { provider_id: "anthropic".into(), account_scope_ref: "sub".into(),
+        source_version: None, attribution: Attribution::Exclusive, observed_at: now() };
+    let snapshot = from_api_headers(&ctx, [("anthropic-ratelimit-requests-limit", "1"),
+        ("anthropic-ratelimit-requests-remaining", "1")]);
+    let options = ForecastOptions { ttl: Duration::minutes(5), stale: StaleUse::Refuse };
+    let original = forecast(&snapshot, &[], &HashMap::new(), now(), options);
+    let decision = decide(&p, &[original.clone()], &available, None, now()).unwrap();
+    let later = now() + Duration::minutes(6);
+    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &available, later),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Eligible));
+    let expired = decide(&p, &[original], &available, None, later).unwrap();
+    assert!(matches!(expired.choice, Choice::ObservationBlocked { .. }));
+    let last_known = forecast(&snapshot, &[], &HashMap::new(), later,
+        ForecastOptions { stale: StaleUse::LastKnown, ..options });
+    assert_eq!(last_known.freshness, Freshness::Stale);
+    assert!(matches!(decide(&p, &[last_known], &available, None, later).unwrap().choice, Choice::Cloud { .. }));
+}
+
+#[test]
+fn profile_switch_preserves_the_prior_request_pacing_debt() {
+    let p = single_window_policy("five_hour", "percent", &[("expensive", 90.0), ("cheap", 1.0)]);
+    let f = forecast_of(vec![("five_hour", period(100.0, 10.0, 10), Range::point(100.0))]);
+    let mut available = availability(&p, false);
+    let expensive = decide(&p, &[f.clone()], &available, None, now()).unwrap();
+    let mut pacer = Pacer::default();
+    assert!(matches!(admit(&p, &expensive, EntityId::new(), &mut pacer, &available, now()),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Admitted));
+    available.insert("expensive".into(), BackendState::Unavailable);
+    let later = now() + Duration::minutes(7);
+    let cheap = decide(&p, &[f], &available, None, later).unwrap();
+    assert!(matches!(admit(&p, &cheap, EntityId::new(), &mut pacer, &available, later),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::QuotaPolicyWait));
+}
+
+#[test]
+fn corrected_period_end_does_not_erase_pacing_debt() {
+    let p = single_window_policy("five_hour", "percent", &[("cloud", 1.0)]);
+    let old = forecast_of(vec![("five_hour", period(100.0, 10.0, 10), Range::point(100.0))]);
+    let available = availability(&p, false);
+    let first = decide(&p, &[old], &available, None, now()).unwrap();
+    let mut pacer = Pacer::default();
+    assert!(matches!(admit(&p, &first, EntityId::new(), &mut pacer, &available, now()),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Admitted));
+    let later = now() + Duration::minutes(1);
+    let changed = forecast_of(vec![("five_hour", Planning::Period { available: 100.0, per_hour: 10.0,
+        resets_at: now() + Duration::hours(10) - Duration::minutes(1) }, Range::point(100.0))]);
+    let corrected = decide(&p, &[changed], &available, None, later).unwrap();
+    assert!(matches!(admit(&p, &corrected, EntityId::new(), &mut pacer, &available, later),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::QuotaPolicyWait));
+}
+
+#[test]
+fn losing_selected_backend_does_not_hide_an_available_fallback() {
+    let p = single_window_policy("five_hour", "percent", &[("smart", 2.0), ("cheap", 1.0)]);
+    let f = forecast_of(vec![("five_hour", period(100.0, 10.0, 10), Range::point(100.0))]);
+    let mut available = availability(&p, false);
+    let original = decide(&p, &[f.clone()], &available, None, now()).unwrap();
+    available.insert("smart".into(), BackendState::Unavailable);
+    let mut pacer = Pacer::default();
+    assert!(matches!(admit(&p, &original, EntityId::new(), &mut pacer, &available, now()),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Eligible));
+    let fallback = decide(&p, &[f], &available, None, now()).unwrap();
+    assert_eq!(cloud(&fallback).0, "cheap");
+    assert!(matches!(admit(&p, &fallback, EntityId::new(), &mut pacer, &available, now()),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Admitted));
+}
+
+#[test]
+fn unknown_backend_is_not_hidden_by_an_unusable_available_one() {
+    let p = single_window_policy("five_hour", "percent", &[("smart", 2.0), ("cheap", 1.0)]);
+    let available = HashMap::from([("smart".into(), BackendState::Available), ("cheap".into(), BackendState::Unknown)]);
+    let decision = decide(&p, &[], &available, None, now()).unwrap();
+    assert!(matches!(decision.choice, Choice::CapacityUnknown { .. }));
+    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &available, now()),
+        AdmissionOutcome::CapacityUnknown { .. }));
 }
 
 #[test]
