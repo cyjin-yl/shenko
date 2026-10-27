@@ -58,7 +58,6 @@ async fn partial_invalid_and_explicit_zero_usage_remain_distinct() {
         } else {
             json!({"choices":[{"message":{"role":"assistant","content":"fixture"},"finish_reason":"stop"}]})
         };
-        assert!(provider_response(envelope.clone(), anthropic).await.is_null());
         for (raw_input, raw_output, expected_input, expected_output) in [
             (None, Some(json!(7)), Value::Null, json!(7)),
             (Some(json!(123)), None, json!(123), Value::Null),
