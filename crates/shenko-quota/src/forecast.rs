@@ -65,7 +65,7 @@ impl Default for WindowAssumptions {
 }
 
 impl WindowAssumptions {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         let amount = |v: f64| v.is_finite() && v >= 0.0;
         amount(self.reserve)
             && amount(self.margin)
@@ -103,12 +103,26 @@ pub enum Planning {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountedAttempt {
+    pub request_id: EntityId,
+    pub ledger_commit: CommitRef,
+    /// Conservative upper bound already considered in this window.
+    pub cost_upper: f64,
+    /// Only a same-ledger provider coverage proof can set this to true.
+    pub covered: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowForecast {
     pub window_key: String,
     pub unit: String,
     pub remaining: Option<Range>,
     pub unreflected_own_cost: Option<Range>,
     pub external_cost: Option<Range>,
+    /// Exact inputs used to produce this window's plan.
+    pub assumptions: WindowAssumptions,
+    /// Attempts whose cost or provider coverage is already reflected here.
+    pub accounted_attempts: Vec<AccountedAttempt>,
     /// Freshness of the reading this window was planned from.
     pub basis: Freshness,
     pub planning: Planning,
@@ -131,8 +145,10 @@ pub struct QuotaForecast {
 /// A coverage proof only settles attempts committed in the same ledger;
 /// for any other attempt the overlap stays open (from nothing to its upper
 /// bound), so neither double counting nor premature settling.
-fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[LocalAttempt]) -> Option<Range> {
+fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[LocalAttempt]) -> Option<(Range, Vec<AccountedAttempt>)> {
     let mut total = Range::zero();
+    let mut accounted = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     let mine = attempts.iter().filter(|a| {
         a.provider_id == snapshot.provider_id
             && a.account_scope_ref == snapshot.account_scope_ref
@@ -142,8 +158,13 @@ fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[Local
         if attempt.unit != window.unit {
             return None;
         }
+        if !seen.insert((attempt.request_id, attempt.ledger_commit)) { return None; }
         let charge = attempt.charge()?;
         let proof = snapshot.covered_through.map(|c| c.local_ledger_commit);
+        let covered = proof.is_some_and(|c| c.ledger_id == attempt.ledger_commit.ledger_id
+            && attempt.ledger_commit.seq <= c.seq);
+        accounted.push(AccountedAttempt { request_id: attempt.request_id, ledger_commit: attempt.ledger_commit,
+            cost_upper: charge.upper, covered });
         match proof {
             Some(c) if c.ledger_id == attempt.ledger_commit.ledger_id => {
                 if attempt.ledger_commit.seq > c.seq {
@@ -153,7 +174,7 @@ fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[Local
             _ => total = total.checked_add(Range::new(0.0, charge.upper)?)?,
         }
     }
-    Some(total)
+    Some((total, accounted))
 }
 
 pub fn forecast(
@@ -170,7 +191,10 @@ pub fn forecast(
         .map(|window| {
             let assume = assumptions.get(&window.window_key).copied().unwrap_or_default();
             let remaining = window.remaining_range();
-            let own = unreflected(snapshot, window, attempts);
+            let (own, accounted_attempts) = match unreflected(snapshot, window, attempts) {
+                Some((cost, attempts)) => (Some(cost), attempts),
+                None => (None, Vec::new()),
+            };
             let external = match snapshot.attribution {
                 Attribution::Exclusive => Some(Range::zero()),
                 _ => assume.external,
@@ -189,6 +213,8 @@ pub fn forecast(
                 remaining,
                 unreflected_own_cost: own,
                 external_cost: external,
+                assumptions: assume,
+                accounted_attempts,
                 basis: freshness,
                 planning,
             }
