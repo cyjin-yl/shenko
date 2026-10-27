@@ -190,15 +190,24 @@ impl Store {
             )?;
         }
         for intent in &decision.policy_intents {
+            // The semantic wait policy is handled by the Store itself: it is
+            // settled with the exact receipt of this step. The other policy
+            // contracts have no installed dispatcher and stay blocked.
+            let contract = match &intent.kind {
+                shenko_types::subject::PolicyKind::SemanticWait { .. } => {
+                    crate::semantic_wait::SEMANTIC_WAIT_CONTRACT
+                }
+                _ => "unbound/policy/1",
+            };
             insert(
                 intent.intent_id,
                 "policy",
-                "unbound/policy/1",
+                contract,
                 serde_json::to_value(intent)?,
             )?;
         }
         if !historical {
-            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND (kind IN ('dialogue','policy') OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",[step.step_id.to_string()]).map_err(|e|ShenkoError::storage(e.to_string()))?;
+            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract<>?2) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
         }
         tx.execute(
             "INSERT INTO subject_intent_steps(step_id,migration) VALUES(?1,?2)",

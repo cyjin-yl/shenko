@@ -512,6 +512,22 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
+    // Wait facts and receipts travel with the branch and their referenced
+    // sealed inputs; their local commit positions belong to the receiver.
+    TableSpec {
+        name: "semantic_waits",
+        key: &["wait_id"],
+        columns: &["wait_id", "agent_id", "status", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "semantic_wait_receipts",
+        key: &["step_id"],
+        columns: &["step_id", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
     TableSpec {
         name: "subject_event_dispositions",
         key: &["branch_id", "event_id"],

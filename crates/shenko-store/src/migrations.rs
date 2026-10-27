@@ -60,6 +60,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     }
     conn.execute_batch(crate::intents::SCHEMA)?;
     conn.execute_batch(crate::child::SCHEMA)?;
+    // Semantic waits (SPEC §5.1, R143): additive, own tables only. The wait
+    // history and its per step receipts are never rewritten by a migration.
+    conn.execute_batch(crate::semantic_wait::SEMANTIC_WAIT_SCHEMA)?;
     // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
     // a replicated fact, so it never enters a snapshot fingerprint.
     conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;

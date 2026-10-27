@@ -106,8 +106,8 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":8, "step_id":step.step_id, "step_no":step.step_no,
-        "events":[], "in_semantic_wait":false,
+        "schema_version":9, "step_id":step.step_id, "step_no":step.step_no,
+        "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
             "input_raw_event_ids":[], "window_id":window.id,
@@ -123,7 +123,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 8).unwrap().object);
+        "subject_step_input", 9).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -205,7 +205,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     let mut subject = state(store.clone(), agent).unwrap();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "user", &serde_json::json!({"v":1,"text":"earlier question"})).unwrap();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "assistant", &serde_json::json!({"v":1,"text":"completed answer"})).unwrap();
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     assert!(prepared.events.is_empty());
     assert!(prepared.context.source.input_raw_event_ids.is_empty());
     let estimate = crate::context_projection::estimate_payload_tokens(&prepared.payload, 0);
@@ -220,16 +220,16 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     drop(store);
     let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
     let mut subject = state(reopened.clone(), agent).unwrap();
-    let resumed = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    let resumed = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     assert_eq!(wire(resumed.payload).await, body);
-    let fresh = crate::context_projection::prepare_context(&mut subject, &[message("new question")], false).unwrap();
+    let fresh = crate::context_projection::prepare_context(&mut subject, &[message("new question")]).unwrap();
     let fresh_body = wire(fresh.payload).await;
     assert_eq!(fresh_body["messages"].as_array().unwrap().len(), 3);
     assert!(fresh_body["messages"][2]["content"].as_str().unwrap().contains("new question"));
     reopened.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_result", &serde_json::json!({
         "v":1,"text":"observed tool output","call_id":EntityId::new().to_string()
     })).unwrap();
-    let tool = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    let tool = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     let tool_body = wire(tool.payload).await;
     let last = tool_body["messages"].as_array().unwrap().last().unwrap();
     assert_eq!(last["role"], "user");
@@ -238,19 +238,19 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
 }
 
 fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
-    let prepared = crate::context_projection::prepare_context(subject, &[], false).unwrap();
+    let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 8, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 9, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
-        in_semantic_wait: prepared.in_semantic_wait,
+        semantic_wait: prepared.semantic_wait,
         identity: subject.identity.clone(),
         identity_provider_revision: subject.identity_service.revision().into(),
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 8).unwrap());
+        "subject_step_input", 9).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -280,7 +280,7 @@ async fn staged_input_recovers_before_s0_without_duplication() {
     };
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    execute_step(1, &[replayed], &mut reopened, false, &cancel).await.unwrap();
+    execute_step(1, &[replayed], &mut reopened, &cancel).await.unwrap();
     let sealed = super::frozen_input(&store, &reopened.step).unwrap();
     assert_eq!(sealed.events, vec![original]);
     assert_eq!(sealed.context.source.input_raw_event_ids.len(), 1);
@@ -309,7 +309,7 @@ fn native_result_replay_keeps_first_delivery_metadata() {
     let replayed = crate::inbox::InboxEvent {
         created_at: chrono::Utc::now() + chrono::Duration::seconds(5), ..original.clone()
     };
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed], false).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed]).unwrap();
     assert_eq!(prepared.events, vec![original]);
     assert_eq!(prepared.context.source.input_raw_event_ids.len(), 1);
     let events = store.session_events_range(EntityId(subject.head.branch_id.0), 0, i64::MAX).unwrap();
@@ -346,7 +346,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         ..message("上次的约定还算数吗？周末一起看展览")
     };
     let prepared =
-        crate::context_projection::prepare_context(&mut subject, &[event], false).unwrap();
+        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
     let prompt = &prepared.payload.system_prompt;
     assert!(
         prompt.starts_with(&crate::canonical_system_prompt()),
@@ -370,7 +370,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         ..message("上次的约定还算数吗？周末一起看展览")
     };
     let prepared =
-        crate::context_projection::prepare_context(&mut subject, &[event], false).unwrap();
+        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
     assert!(!prepared.payload.system_prompt.contains("不记得自己许过什么"));
 }
 
@@ -396,7 +396,7 @@ fn personality_stays_out_of_the_tool_contract() {
         ..message("你在吗")
     };
     let prepared =
-        crate::context_projection::prepare_context(&mut subject, &[event], false).unwrap();
+        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
     let prompt = &prepared.payload.system_prompt;
     // The persona is prompt text only: it never adds a tool, never changes the
     // sealed protocol, and it is placed after the stable contract plus the
@@ -445,7 +445,7 @@ async fn late_history_change_rejects_s0_seal_without_advancing_step() {
     // model admission. Reprojection is not replay of an already sent request.
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
-    execute_step(1, &[], &mut subject, false, &cancel).await.unwrap();
+    execute_step(1, &[], &mut subject, &cancel).await.unwrap();
     assert_eq!(subject.step.state, SubjectStepState::Preparing);
     assert_eq!(subject.step.active_request_id, None);
     let input = super::frozen_input(&store, &subject.step).unwrap();
@@ -460,7 +460,10 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let (offline, handle) = shenko_broker::broker::Broker::offline();
     let binding = handle.binding().clone();
     let capabilities = shenko_broker::request::ProviderCapabilities {
-        binding: binding.clone(), max_context_tokens: Some(1000), vision: None,
+        // The wait controls add to the mandatory system prefix. Keep enough
+        // room for that prefix and the preserved unknown call while still
+        // exercising compaction under the same default threshold.
+        binding: binding.clone(), max_context_tokens: Some(1500), vision: None,
     };
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities.clone()));
@@ -469,7 +472,9 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     subject.previous_input_tokens = Some(700);
     subject.previous_estimated_input_tokens = Some(1);
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
-        shenko_compact_budget::BudgetConfig::default(),
+        // The larger context still needs a bounded tail that actually drops
+        // old history; the behavior under test is preserving unresolved calls.
+        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.85, recent_ratio: 0.1 },
     )));
     let call_id = EntityId::new();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_call", &serde_json::json!({
@@ -483,7 +488,7 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
             &serde_json::json!({"v":1,"text":format!("history-{index}-{}", "x".repeat(80))})).unwrap();
         raw_ids.push(fact.event_id);
     }
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[], false).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     assert!(prepared.context.trigger_budget_input_tokens.unwrap() > 700);
     assert_eq!(prepared.context.observed_input_tokens, Some(700));
     assert_eq!(prepared.context.reserved_output_tokens, 10);
@@ -511,7 +516,7 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let mut reopened = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities));
     reopened.max_tokens = 10;
-    let resumed = crate::context_projection::prepare_context(&mut reopened, &[], false).unwrap();
+    let resumed = crate::context_projection::prepare_context(&mut reopened, &[]).unwrap();
     assert_eq!(resumed.context.profile_digest, profile);
     assert_eq!(resumed.context.source.window_id, window_id);
     assert_eq!(resumed.context.source.model_generation, 1);
@@ -532,7 +537,7 @@ fn retained_calibrated_budget_over_limit_blocks_dispatch() {
     subject.previous_input_binding = Some(binding);
     subject.previous_input_tokens = Some(1000);
     subject.previous_estimated_input_tokens = Some(1);
-    let error = crate::context_projection::prepare_context(&mut subject, &[], false)
+    let error = crate::context_projection::prepare_context(&mut subject, &[])
         .err().expect("calibrated over-budget retention must be rejected");
     assert!(error.to_string().contains("projected input budget"));
     assert_eq!(subject.step.state, SubjectStepState::Planned);
@@ -566,7 +571,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     // has committed a compact derivative.
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
-    execute_step(1, &events, &mut subject, false, &close).await.unwrap();
+    execute_step(1, &events, &mut subject, &close).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
     assert!(matches!(frozen.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
     let text = frozen.payload.messages.iter().flat_map(|message| &message.parts)
@@ -612,7 +617,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     step.record_revision = RecordRevision(revision.0 + 1);
     store.upsert_step(&step, &subject.head, revision).unwrap();
     subject.step = step;
-    execute_step(1, &[], &mut subject, false, &tokio_util::sync::CancellationToken::new()).await.unwrap().unwrap();
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap().unwrap();
     assert_eq!(subject.head.committed_step_no, 1);
     for event in &events {
         assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
@@ -682,7 +687,7 @@ fn oversized_fresh_batch_stays_pending_across_reopen() {
         payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
-    let error = crate::context_projection::prepare_context(&mut subject, &events, false).err().unwrap();
+    let error = crate::context_projection::prepare_context(&mut subject, &events).err().unwrap();
     assert!(error.to_string().contains("projected input budget"));
     let pending = store.stage_subject_inputs(&subject.head, &subject.step, &[]).unwrap();
     let original: Vec<_> = pending.iter().map(|record| (record.event_id, record.data.clone())).collect();
@@ -695,7 +700,7 @@ fn oversized_fresh_batch_stays_pending_across_reopen() {
     subject.max_tokens = 10;
     let pending = store.stage_subject_inputs(&subject.head, &subject.step, &[]).unwrap();
     assert_eq!(pending.iter().map(|record| (record.event_id, record.data.clone())).collect::<Vec<_>>(), original);
-    assert!(crate::context_projection::prepare_context(&mut subject, &[], false).is_err());
+    assert!(crate::context_projection::prepare_context(&mut subject, &[]).is_err());
     assert_eq!(subject.step.state, SubjectStepState::Planned);
     for event in &events {
         assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
@@ -715,13 +720,7 @@ async fn cas_seal_failure_returns_error_without_head_advance_or_publication() {
     // 用普通文件占据 CAS 根，确定性触发 mkdir 错误，不依赖进程权限。
     std::fs::remove_dir_all(dir.join("cas")).unwrap();
     std::fs::write(dir.join("cas"), b"not a directory").unwrap();
-    let result = execute_step(
-        planned.step_no,
-        &[],
-        &mut subject,
-        false,
-        &tokio_util::sync::CancellationToken::new(),
-    )
+    let result = execute_step(planned.step_no, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
     .await;
     assert!(result.is_err());
     assert!(matches!(
@@ -751,7 +750,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
         ))
         .unwrap();
     let mut subject = state(store.clone(), agent).unwrap();
-    let before = super::build_system_prompt(&subject, false, &[]);
+    let before = super::build_system_prompt(&subject, &[]);
     assert!(before.starts_with(super::SUBJECT_CONTRACT));
     assert!(!before.contains("你是 Shenko"));
     assert!(before.contains("你还没有名字"));
@@ -782,7 +781,6 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
             planned,
             &[],
             &mut subject,
-            false,
             &tokio_util::sync::CancellationToken::new()
         )
         .await
@@ -790,7 +788,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
     );
     assert_eq!(subject.identity.as_ref().unwrap().revision, 2);
     assert!(subject.step.input_plan_ref.is_some());
-    let after = super::build_system_prompt(&subject, false, &[]);
+    let after = super::build_system_prompt(&subject, &[]);
     assert!(after.starts_with(super::SUBJECT_CONTRACT));
     assert!(after.contains("「岚」") && after.contains("自己取的"));
     assert_eq!(store.identity_history(agent).unwrap().len(), 2);
@@ -817,7 +815,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     assert!(
-        execute_step(1, &[event.clone()], &mut subject, false, &close)
+        execute_step(1, &[event.clone()], &mut subject, &close)
             .await
             .unwrap()
             .is_none()
@@ -900,7 +898,6 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
             1,
             &[],
             &mut subject,
-            false,
             &tokio_util::sync::CancellationToken::new(),
         )
         .await
@@ -1011,13 +1008,7 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
     let mut subject = state(store.clone(), agent).unwrap();
     let (tx, mut rx) = tokio::sync::broadcast::channel(8);
     subject = subject.with_outbox(tx);
-    execute_step(
-        1,
-        &[],
-        &mut subject,
-        false,
-        &tokio_util::sync::CancellationToken::new(),
-    )
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
     .await
     .unwrap()
     .unwrap();
@@ -1089,7 +1080,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     let mut subject = state(store.clone(), agent).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
-    execute_step(1, &[event.clone()], &mut subject, false, &close)
+    execute_step(1, &[event.clone()], &mut subject, &close)
         .await
         .unwrap();
     let head = subject.head.clone();
@@ -1149,7 +1140,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 4,
+        schema_version: 5,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1193,7 +1184,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                3,
+                5,
             )
             .unwrap()
             .object,
@@ -1222,7 +1213,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                3,
+                5,
             )
             .unwrap()
             .object,
@@ -1270,7 +1261,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         raw.as_bytes()
     );
     let mut subject = state(store.clone(), agent).unwrap();
-    execute_step(2, &[], &mut subject, false, &close)
+    execute_step(2, &[], &mut subject, &close)
         .await
         .unwrap();
     let sealed = super::frozen_input(&store, &subject.step).unwrap();
@@ -1330,13 +1321,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
     let mut subject = state(store.clone(), agent).unwrap();
     let (tx, mut rx) = tokio::sync::broadcast::channel(4);
     subject = subject.with_outbox(tx);
-    execute_step(
-        2,
-        &[],
-        &mut subject,
-        false,
-        &tokio_util::sync::CancellationToken::new(),
-    )
+    execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
     .await
     .unwrap();
     assert_eq!(rx.try_recv().unwrap().identity_revision, Some(3));
@@ -1358,7 +1343,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         Some("operator choice")
     );
     assert_eq!(subject.head.committed_step_no, 2);
-    assert!(super::build_system_prompt(&subject, false, &[]).contains("上一步身份意图未采用"));
+    assert!(super::build_system_prompt(&subject, &[]).contains("上一步身份意图未采用"));
     drop(subject);
     // Simulate a pre-raw-history instance without deleting its committed
     // steps/CAS evidence. Admission must request migration, not thin history.
@@ -1423,7 +1408,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone()).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
-    execute_step(1, &[], &mut subject, false, &close)
+    execute_step(1, &[], &mut subject, &close)
         .await
         .unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
@@ -1499,11 +1484,11 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
     );
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
     subject.step = step;
-    execute_step(1, &[], &mut subject, false, &close)
+    execute_step(1, &[], &mut subject, &close)
         .await
         .unwrap();
     assert_eq!(store.latest_identity(agent).unwrap().unwrap().revision, 2);
-    execute_step(2, &[], &mut subject, false, &close)
+    execute_step(2, &[], &mut subject, &close)
         .await
         .unwrap();
     let next = super::frozen_input(&store, &subject.step).unwrap();
@@ -1516,4 +1501,199 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
     assert!(!next.payload.system_prompt.contains("你还没有名字"));
     second.dispose().await.unwrap();
     assert!(ctx.try_service::<IdentityService>().is_err());
+}
+
+/// Feed one already-recorded model result through the real S1 admission path.
+/// This is a deterministic product-mechanics fixture, not live-model proof.
+fn record_result(
+    store: &Arc<Store>,
+    subject: &mut SubjectLoopState,
+    raw: &str,
+) -> shenko_types::ids::EntityId {
+    let head = subject.head.clone();
+    let mut step = subject.step.clone();
+    let step_id = step.step_id;
+    step.state = SubjectStepState::AwaitingModel;
+    step.active_request_id = Some(EntityId::new());
+    let revision = step.record_revision;
+    step.record_revision = RecordRevision(revision.0 + 1);
+    store.upsert_step(&step, &head, revision).unwrap();
+    let raw_ref = store
+        .cas
+        .seal_object(raw.as_bytes(), "text/plain", "model_results", "text", 1)
+        .unwrap()
+        .object;
+    step.state = SubjectStepState::ResultRecorded;
+    step.model_result_ref = Some(raw_ref.clone());
+    step.model_outcome_ref = Some(
+        store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(&SubjectModelOutcome {
+                    schema_version: 2,
+                    request_id: step.active_request_id.unwrap(),
+                    result_ref: raw_ref,
+                    stop_reason: "end_turn".into(),
+                    raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
+                    usage: None,
+                })
+                .unwrap(),
+                "application/json",
+                "model_outcomes",
+                "SubjectModelOutcome",
+                2,
+            )
+            .unwrap()
+            .object,
+    );
+    let revision = step.record_revision;
+    step.record_revision = RecordRevision(revision.0 + 1);
+    store.upsert_step(&step, &head, revision).unwrap();
+    subject.step = step;
+    step_id
+}
+
+/// R143/§41.5: a wait is a durable subject decision, not an in-memory flag.
+/// Polling never renews its deadline, an unrelated message does not end it and
+/// a late continue cannot resurrect a wait that already ended.
+async fn commit_output(
+    store: &Arc<Store>,
+    subject: &mut SubjectLoopState,
+    seq: u64,
+    events: &[crate::inbox::InboxEvent],
+    raw: &str,
+) -> shenko_types::ids::EntityId {
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(seq, events, subject, &cancel).await.unwrap();
+    let step_id = record_result(store, subject, raw);
+    execute_step(
+        seq,
+        &[],
+        subject,
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .unwrap()
+    .expect("S1 commits");
+    step_id
+}
+
+#[tokio::test]
+async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let first = commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[wait] {\"condition\":\"实验出现足以判断的结果\",\"max_wait_secs\":120}\n继续观察，不作无依据的结论。",
+    )
+    .await;
+    let wait = store
+        .semantic_wait(agent)
+        .unwrap()
+        .expect("the start control creates a durable wait");
+    assert!(wait.is_active());
+    assert_eq!(wait.condition, "实验出现足以判断的结果");
+    assert_eq!(wait.created_step_id, first);
+    assert_eq!(
+        wait.deadline_at
+            .signed_duration_since(wait.started_at)
+            .num_seconds(),
+        120
+    );
+    assert!(matches!(
+        store.semantic_wait_receipt(first).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Started
+    ));
+    let original_deadline = wait.deadline_at;
+    let original_start = wait.started_at;
+
+    // The next S0 must freeze the same wait and show its id to the model.
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel();
+    execute_step(2, &[], &mut subject, &cancel).await.unwrap();
+    let frozen = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(frozen.schema_version, 9);
+    let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
+    assert_eq!(sealed_wait.wait_id, wait.wait_id);
+    assert_eq!(sealed_wait.deadline_at, original_deadline);
+    assert!(frozen.payload.system_prompt.contains(&wait.wait_id.to_string()));
+    // Discard this sealed input only by completing it: the recorded result is
+    // bound to the same S0, exactly as after a process reopen.
+    let continued = record_result(
+        &store,
+        &mut subject,
+        &format!("[wait:continue] {}\n条件尚未满足，继续等待。", wait.wait_id),
+    );
+    execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await
+        .unwrap()
+        .expect("continue commits");
+    let after_continue = store.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(after_continue.wait_id, wait.wait_id);
+    assert_eq!(after_continue.started_at, original_start);
+    assert_eq!(after_continue.deadline_at, original_deadline);
+    assert!(matches!(
+        store.semantic_wait_receipt(continued).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Continued
+    ));
+
+    // A new message is context for the model, not an automatic wait exit.
+    let event = message("还有别的事要说，但实验结果仍未出来");
+    let with_event = commit_output(
+        &store,
+        &mut subject,
+        3,
+        &[event.clone()],
+        "我记下了新消息，实验仍未完成。",
+    )
+    .await;
+    assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_some());
+    let after_event = store.semantic_wait(agent).unwrap().unwrap();
+    assert!(after_event.is_active());
+    assert_eq!(after_event.deadline_at, original_deadline);
+    assert!(store.semantic_wait_receipt(with_event).unwrap().is_none());
+
+    let ended = commit_output(
+        &store,
+        &mut subject,
+        4,
+        &[],
+        &format!("[wait:end] {{\"wait_id\":\"{}\",\"reason\":\"条件已经满足\"}}\n回到正常思考。", wait.wait_id),
+    )
+    .await;
+    let after_end = store.semantic_wait(agent).unwrap().unwrap();
+    assert!(matches!(
+        &after_end.status,
+        SemanticWaitStatus::Ended { reason } if reason == "条件已经满足"
+    ));
+    assert_eq!(after_end.deadline_at, original_deadline);
+    assert!(matches!(
+        store.semantic_wait_receipt(ended).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Ended
+    ));
+
+    let late = commit_output(
+        &store,
+        &mut subject,
+        5,
+        &[],
+        &format!("[wait:continue] {}\n迟到的继续。", wait.wait_id),
+    )
+    .await;
+    assert!(matches!(
+        store.semantic_wait_receipt(late).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Rejected { .. }
+    ));
+    assert!(matches!(
+        store.semantic_wait(agent).unwrap().unwrap().status,
+        SemanticWaitStatus::Ended { .. }
+    ));
+    // Rejecting the stale control never costs the subject its successor.
+    assert_eq!(subject.head.committed_step_no, 5);
+    assert_eq!(subject.step.step_no, 6);
+    // Keep the fixture on container disk for independent inspection.
 }

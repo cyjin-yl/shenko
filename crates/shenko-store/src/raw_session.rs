@@ -20,8 +20,8 @@ use shenko_types::error::ShenkoError;
 use shenko_types::ids::{BranchId, EntityId};
 use shenko_types::store::{RawSession, RawSessionEvent};
 use shenko_types::subject::{
-    ControlOutputRejection, MemoryIntentKind, StepDecision, SubjectBranchHead, SubjectStep,
-    SubjectStepState,
+    ControlOutputRejection, MemoryIntentKind, PolicyKind, StepDecision, SubjectBranchHead,
+    SubjectStep, SubjectStepState,
 };
 
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
@@ -489,7 +489,7 @@ impl Store {
         let object = step.input_plan_ref.as_ref()
             .ok_or_else(|| ShenkoError::conflict("S0 input plan missing"))?;
         let input: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&object.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(8)
+        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(9)
             || input.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || input.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
         {
@@ -874,6 +874,13 @@ impl Store {
         }
         for intent in &decision.publication_intents {
             append("publication", intent.intent_id, &intent.content)?;
+        }
+        // The semantic wait is a real action of the subject, so its raw fact
+        // is preserved next to the other committed intent calls.
+        for intent in &decision.policy_intents {
+            if let PolicyKind::SemanticWait { change } = &intent.kind {
+                append("policy", intent.intent_id, &serde_json::to_string(change)?)?;
+            }
         }
         Ok(())
     }

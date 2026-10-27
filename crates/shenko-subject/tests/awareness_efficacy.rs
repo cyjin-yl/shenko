@@ -86,6 +86,7 @@ async fn judge(
             OutputAction::Remember { text } => format!("remember: {text}"),
             OutputAction::Reply { target, .. } => format!("reply to {target:?}"),
             OutputAction::Identity { .. } => "identity change".to_string(),
+            OutputAction::SemanticWait { change } => format!("semantic wait: {change:?}"),
         }).collect::<Vec<_>>(),
     });
     let (result_tx, _result_rx) = oneshot::channel();
