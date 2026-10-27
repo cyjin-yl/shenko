@@ -1611,6 +1611,16 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     let original_deadline = wait.deadline_at;
     let original_start = wait.started_at;
 
+    // Recovery must not silently continue this wait with a different model
+    // binding. It remains durable rather than pretending the wait ended.
+    let (offline, changed_binding) = shenko_broker::broker::Broker::offline();
+    let mut changed_subject = state(store.clone(), agent).unwrap().with_broker(changed_binding);
+    let error = crate::context_projection::prepare_context(&mut changed_subject, &[])
+        .err().expect("a different model binding cannot continue this wait");
+    assert!(error.to_string().contains("semantic wait model binding changed"));
+    assert!(store.semantic_wait(agent).unwrap().unwrap().is_active());
+    drop((changed_subject, offline));
+
     // The next S0 must freeze the same wait and show its id to the model.
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
@@ -1640,6 +1650,12 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
         store.semantic_wait_receipt(continued).unwrap().unwrap().outcome,
         SemanticWaitOutcome::Continued
     ));
+    let history = store.session_events_range(EntityId(subject.head.branch_id.0), 0, i64::MAX).unwrap();
+    assert!(history.iter().any(|event| event.event_type == "assistant"
+        && event.data.contains("[wait:continue]")));
+    assert!(!history.iter().any(|event| event.event_type == "tool_call"
+        && serde_json::from_str::<serde_json::Value>(&event.data).ok()
+            .is_some_and(|data| data["tool"] == "policy")));
 
     // A new message is context for the model, not an automatic wait exit.
     let event = message("还有别的事要说，但实验结果仍未出来");

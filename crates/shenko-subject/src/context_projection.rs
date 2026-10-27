@@ -321,6 +321,15 @@ pub(super) fn prepare_context(
     // Observe the durable cap before taking this new S0 snapshot. New input is
     // evidence for the model, not an automatic semantic-wait exit.
     state.semantic_wait = state.store.observe_semantic_wait(&state.head)?;
+    if let Some(wait) = state.semantic_wait.as_ref().filter(|wait| wait.is_active()) {
+        let binding = serde_json::to_value(state.broker.as_ref().map(|broker| broker.binding()))?;
+        let digest = Digest::blake3(&serde_json::to_vec(&binding)?);
+        if digest != wait.model_binding_digest {
+            return Err(ShenkoError::conflict(
+                "semantic wait model binding changed; preserve the wait and reconcile the real provider before continuing",
+            ));
+        }
+    }
     // Delivery timestamps describe each volatile replay, not a new source
     // fact. Recover the first durable original and never overwrite it with a
     // replay's Utc::now(). Every stable source field still has to match.

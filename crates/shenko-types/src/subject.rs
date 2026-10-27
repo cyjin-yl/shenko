@@ -83,13 +83,16 @@ pub enum MemoryIntentKind {
 /// SPEC §5.1, §41.5, R143: one wait lasts at most 600 seconds and keeps
 /// polling the same model with prior and new context. The Store owns the
 /// deadline; this type only carries the durable fact.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SemanticWait {
     pub wait_id: EntityId,
     pub condition: String,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub deadline_at: chrono::DateTime<chrono::Utc>,
     pub context_ref: ObjectRef,
+    /// Digest of the original S0 provider/model binding, not an assertion
+    /// about a provider's mutable alias or the model weights behind it.
+    pub model_binding_digest: crate::object::Digest,
     pub status: SemanticWaitStatus,
     pub last_observed_at: chrono::DateTime<chrono::Utc>,
     pub created_step_id: EntityId,

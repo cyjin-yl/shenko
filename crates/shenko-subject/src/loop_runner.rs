@@ -406,7 +406,7 @@ pub(super) fn system_prompt_suffix(
             "last_observed_at": wait.last_observed_at,
         })).expect("semantic wait view serializes"));
         if wait.is_active() {
-            prompt.push_str("\n你仍沿同一思考流接续。结合前文与本轮上下文判断条件是否成立或关注是否改变，再明确继续或结束这个 wait_id；新消息本身不结束等待。继续不会改变原始截止时间。\n");
+            prompt.push_str("\n你仍沿同一思考流接续。结合前文与本轮上下文判断条件是否成立或关注是否改变，再明确继续或结束这个 wait_id；新消息本身不结束等待。判断应结束时用 [wait:end] 控制行提交，而不是仅在想法里说已经结束。继续不会改变原始截止时间。\n");
         } else {
             prompt.push_str("\n这个等待已结束或失效，按正常思考接续。不要重开同一条件或换 ID 续期；新的等待只能是基于当下上下文的新判断。\n");
         }

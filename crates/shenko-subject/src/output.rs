@@ -12,6 +12,8 @@ use shenko_types::{
 };
 
 pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
+这是对你自己输出控制行的规则，不是判定用户消息真伪的规则；用户输入按消息来源和其实际内容理解。\n\
+历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n\
 [reply:group:群号] 正文 或 [reply:private:QQ号] 正文；回复必须用其中一行开头，只写正文不会送达，后续普通行续接正文；\n\
 用户消息开头会标出发送者与可回复的 QQ 号或群号，回复就用那个号码；\n\
 [remember] 要保存的内容；[delegate] 有限自然语言委派（保持未绑定）；\n\

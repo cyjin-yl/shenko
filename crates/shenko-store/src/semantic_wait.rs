@@ -304,9 +304,12 @@ impl Store {
 
         let request = self.resolve_wait_change(decision)?;
         // The sealed S0 input binds the change to the state the model saw.
-        let sealed = match &request {
-            Some(_) => self.sealed_wait_snapshot(decision)?,
-            None => None,
+        let (sealed, binding_digest) = match &request {
+            Some(_) => {
+                let (wait, digest) = self.sealed_wait_snapshot(decision)?;
+                (wait, Some(digest))
+            }
+            None => (None, None),
         };
 
         let mut settled = current.clone();
@@ -321,6 +324,7 @@ impl Store {
                     decision,
                     request,
                     sealed.as_ref(),
+                    binding_digest.as_ref().expect("wait action has a frozen binding"),
                     &settled,
                     now,
                     commit_ref,
@@ -385,19 +389,6 @@ impl Store {
             ],
         )
         .map_err(storage_error)?;
-        // The raw result of the wait action follows its raw call, so the
-        // history never keeps a decided call pending.
-        self.append_intent_result_fact(
-            tx,
-            intent_id,
-            intent_id,
-            &serde_json::json!({
-                "kind": "semantic_wait_receipt",
-                "outcome": receipt.outcome,
-                "wait": receipt.wait,
-                "commit_ref": receipt.committed_at,
-            }),
-        )?;
         Ok(())
     }
 
@@ -456,7 +447,7 @@ impl Store {
     fn sealed_wait_snapshot(
         &self,
         decision: &StepDecision,
-    ) -> Result<Option<SemanticWait>, ShenkoError> {
+    ) -> Result<(Option<SemanticWait>, shenko_types::object::Digest), ShenkoError> {
         let input: serde_json::Value =
             serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
         if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(9) {
@@ -464,10 +455,15 @@ impl Store {
                 "semantic wait change is not bound to its S0 snapshot",
             ));
         }
-        match input.get("semantic_wait") {
-            None | Some(serde_json::Value::Null) => Ok(None),
-            Some(value) => Ok(Some(serde_json::from_value(value.clone())?)),
-        }
+        let binding = input.get("provider_binding").ok_or_else(||
+            ShenkoError::conflict("semantic wait requires its frozen provider binding"))?;
+        let digest = shenko_types::object::Digest::blake3(&serde_json::to_vec(binding)?);
+        let wait = match input.get("semantic_wait") {
+            Some(serde_json::Value::Null) => None,
+            Some(value) => Some(serde_json::from_value(value.clone())?),
+            None => return Err(ShenkoError::conflict("semantic wait snapshot missing from S0")),
+        };
+        Ok((wait, digest))
     }
 
     /// Apply one wait change against the current wait.
@@ -483,11 +479,17 @@ impl Store {
         decision: &StepDecision,
         request: &WaitRequest,
         sealed: Option<&SemanticWait>,
+        binding_digest: &shenko_types::object::Digest,
         current: &Option<SemanticWait>,
         now: DateTime<Utc>,
         commit_ref: CommitRef,
         commit_seq: u64,
     ) -> Result<(SemanticWaitOutcome, Option<SemanticWait>), ShenkoError> {
+        if sealed.is_some_and(|wait| wait.is_active() && &wait.model_binding_digest != binding_digest) {
+            return Ok((SemanticWaitOutcome::Rejected {
+                reason: "the frozen model binding differs from the semantic wait's original binding".into(),
+            }, None));
+        }
         match &request.change {
             SemanticWaitChange::Start {
                 condition,
@@ -558,6 +560,7 @@ impl Store {
                     *max_wait_secs,
                     now,
                     commit_ref,
+                    binding_digest,
                 )?;
                 write_wait(tx, head.agent_id, &wait, commit_seq)?;
                 Ok((SemanticWaitOutcome::Started, Some(wait)))
@@ -657,6 +660,7 @@ impl Store {
         max_wait_secs: u64,
         now: DateTime<Utc>,
         commit_ref: CommitRef,
+        binding_digest: &shenko_types::object::Digest,
     ) -> Result<SemanticWait, ShenkoError> {
         let seconds = i64::try_from(max_wait_secs)
             .map_err(|_| ShenkoError::conflict("semantic wait duration out of range"))?;
@@ -668,6 +672,7 @@ impl Store {
                 + chrono::TimeDelta::try_seconds(seconds)
                     .ok_or_else(|| ShenkoError::conflict("semantic wait duration out of range"))?,
             context_ref: decision.input_plan_ref.clone(),
+            model_binding_digest: binding_digest.clone(),
             status: SemanticWaitStatus::Active,
             last_observed_at: now,
             created_step_id: step.step_id,
@@ -787,6 +792,7 @@ mod tests {
                     digest: Digest::blake3(b"input-plan"),
                 },
             },
+            model_binding_digest: Digest::blake3(b"null"),
             status: SemanticWaitStatus::Active,
             last_observed_at: started_at,
             created_step_id: EntityId::new(),

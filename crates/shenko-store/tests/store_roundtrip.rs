@@ -655,7 +655,7 @@ fn semantic_wait_is_durable_and_a_stale_change_settles_without_failing_s1() {
     assert!(after_observe > before);
     assert_eq!(store.load_subject(agent).unwrap().0.record_revision, head2.record_revision);
 
-    let result2 = recorded_result_with_wait(&store, &head2, second, Some(wait.clone()));
+    let result2 = recorded_result_with_wait(&store, &head2, second, Some(observed));
     let next2 = EntityId::new();
     let mut step2 = committed_candidate(&store, result2, next2);
     attach_wait(

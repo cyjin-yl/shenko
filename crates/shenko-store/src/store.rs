@@ -596,8 +596,7 @@ impl Store {
         // leaves neither behind.
         self.append_committed_intent_facts(&tx, &head, &step, &decision)?;
         // The handled wait policy intent carries the exact receipt of this
-        // step. It is settled, never left ready and never left blocked, and
-        // its raw result follows its raw call.
+        // step. It is settled, never left ready and never left blocked.
         self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;

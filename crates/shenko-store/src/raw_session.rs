@@ -20,8 +20,8 @@ use shenko_types::error::ShenkoError;
 use shenko_types::ids::{BranchId, EntityId};
 use shenko_types::store::{RawSession, RawSessionEvent};
 use shenko_types::subject::{
-    ControlOutputRejection, MemoryIntentKind, PolicyKind, StepDecision, SubjectBranchHead,
-    SubjectStep, SubjectStepState,
+    ControlOutputRejection, MemoryIntentKind, StepDecision, SubjectBranchHead, SubjectStep,
+    SubjectStepState,
 };
 
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
@@ -495,6 +495,25 @@ impl Store {
         {
             return Err(ShenkoError::conflict("S0 schema/step identity mismatch"));
         }
+        let frozen_wait: Option<shenko_types::subject::SemanticWait> = serde_json::from_value(
+            input.get("semantic_wait").cloned()
+                .ok_or_else(|| ShenkoError::conflict("S0 semantic wait snapshot missing"))?,
+        )?;
+        let current_wait = crate::semantic_wait::read_latest(tx, head.agent_id)?;
+        if frozen_wait != current_wait {
+            return Err(ShenkoError::ResnapshotRequired {
+                reason: "S0 semantic wait changed during projection".into(),
+            });
+        }
+        if let Some(wait) = current_wait.as_ref().filter(|wait| wait.is_active()) {
+            let binding = input.get("provider_binding")
+                .ok_or_else(|| ShenkoError::conflict("S0 semantic wait provider binding missing"))?;
+            if shenko_types::object::Digest::blake3(&serde_json::to_vec(binding)?)
+                != wait.model_binding_digest
+            {
+                return Err(ShenkoError::conflict("S0 semantic wait model binding changed"));
+            }
+        }
         let context: SubjectContextRef = serde_json::from_value(
             input.pointer("/context/source").cloned()
                 .ok_or_else(|| ShenkoError::conflict("S0 context source missing"))?
@@ -875,13 +894,9 @@ impl Store {
         for intent in &decision.publication_intents {
             append("publication", intent.intent_id, &intent.content)?;
         }
-        // The semantic wait is a real action of the subject, so its raw fact
-        // is preserved next to the other committed intent calls.
-        for intent in &decision.policy_intents {
-            if let PolicyKind::SemanticWait { change } = &intent.kind {
-                append("policy", intent.intent_id, &serde_json::to_string(change)?)?;
-            }
-        }
+        // Semantic wait is a subject policy decision, not a tool call. Its
+        // original control is already in the recorded assistant result; S1
+        // stores the outcome in the typed wait receipt and intent rows.
         Ok(())
     }
 }
