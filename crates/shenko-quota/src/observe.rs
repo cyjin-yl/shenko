@@ -44,16 +44,16 @@ fn absent(key: impl Into<String>, reason: AbsentReason) -> AbsentWindow {
 
 /// A read that failed (e.g. `/usage` itself rate limited, a timeout). The
 /// quota is unknown, not exhausted; it must not deny inference admission.
-/// `error` should be a short classification, not a raw response body.
+/// Only a typed classification is retained, never a raw error or response.
 pub fn observation_failed(
     ctx: &ObservationContext,
     source_kind: SourceKind,
     expected_windows: &[&str],
-    error: impl Into<String>,
+    error: ObservationError,
 ) -> QuotaSnapshot {
     let mut s = snapshot(ctx, source_kind, String::new());
     s.observation_status = ObservationStatus::Unavailable;
-    s.observation_error = Some(error.into());
+    s.observation_error = Some(error);
     s.absent_windows = expected_windows.iter().map(|key| absent(*key, AbsentReason::Unknown)).collect();
     s
 }
@@ -68,7 +68,7 @@ pub fn observation_failed(
 /// Evidence keeps only the parsed window values.
 pub fn from_statusline(ctx: &ObservationContext, json: &str, first_response_seen: bool) -> QuotaSnapshot {
     let Ok(root) = serde_json::from_str::<Value>(json) else {
-        return observation_failed(ctx, SourceKind::CliStatusline, &STATUSLINE_WINDOWS, "statusline JSON did not parse");
+        return observation_failed(ctx, SourceKind::CliStatusline, &STATUSLINE_WINDOWS, ObservationError::InvalidData);
     };
     let rate_limits = root.get("rate_limits").filter(|v| v.is_object());
     let mut s = snapshot(ctx, SourceKind::CliStatusline, String::new());
@@ -114,8 +114,13 @@ pub fn from_statusline(ctx: &ObservationContext, json: &str, first_response_seen
         });
     }
     s.raw_evidence = evidence.join("\n");
-    if s.windows.is_empty() && rate_limits.is_none() {
-        s.observation_status = ObservationStatus::Unavailable;
+    if s.windows.is_empty() {
+        if s.absent_windows.iter().any(|a| a.reason == AbsentReason::Invalid) {
+            s.observation_status = ObservationStatus::Unavailable;
+            s.observation_error = Some(ObservationError::InvalidData);
+        } else if rate_limits.is_none() {
+            s.observation_status = ObservationStatus::Unavailable;
+        }
     }
     s
 }
@@ -128,6 +133,24 @@ const HEADER_RESOURCES: [(&str, Metric, &str); 4] = [
     ("output-tokens", Metric::OutputTokens, "tokens"),
 ];
 const HEADER_FIELDS: [&str; 3] = ["limit", "remaining", "reset"];
+
+/// Enclose the exact integer plus any documented provider rounding, even when
+/// those values cannot be represented exactly by f64.
+fn count_measurement(value: u64, half_width: u64) -> Measurement {
+    let bounds = |value: u128| {
+        let rounded = value as f64;
+        match (rounded as u128).cmp(&value) {
+            std::cmp::Ordering::Equal => (rounded, rounded),
+            std::cmp::Ordering::Less => (rounded, rounded.next_up()),
+            std::cmp::Ordering::Greater => (rounded.next_down(), rounded),
+        }
+    };
+    let lower = bounds(u128::from(value.saturating_sub(half_width))).0;
+    let upper = bounds(u128::from(value) + u128::from(half_width)).1;
+    if lower == upper { return Measurement::reported(lower); }
+    Measurement { value: None, lower: Some(lower), upper: Some(upper),
+        basis: Basis::ProviderReported, precision: None }
+}
 
 /// The single value of an allowlisted header. Repeats that disagree make the
 /// field unusable instead of picking one.
@@ -152,8 +175,10 @@ fn field<'a>(headers: &'a [(String, String)], name: &str) -> Field<'a> {
 ///
 /// Only the exact `anthropic-ratelimit-{resource}-{limit,remaining,reset}`
 /// names are read; any other header, credentials and unknown extensions
-/// included, is ignored. Counts must be non-negative integers with
-/// remaining ≤ limit. Evidence holds the parsed values, never header text.
+/// included, is ignored. Counts are non-negative integers. Documented token
+/// remaining is rounded to the nearest thousand, so its conservative range
+/// must overlap the limit; request remaining has no documented rounding here.
+/// Evidence holds parsed values and rounding basis, never header text.
 pub fn from_api_headers<'a>(
     ctx: &ObservationContext,
     headers: impl IntoIterator<Item = (&'a str, &'a str)>,
@@ -171,10 +196,13 @@ pub fn from_api_headers<'a>(
     let mut evidence = Vec::new();
     for (resource, metric, unit) in HEADER_RESOURCES {
         let key = format!("api:{resource}");
+        // Anthropic documents token-remaining headers as nearest-thousand;
+        // request counts and the advertised limits are not documented so.
+        let remaining_half_width = if metric == Metric::Requests { 0 } else { 500 };
         let get = |suffix: &str| field(&kept, &format!("{HEADER_PREFIX}{resource}-{suffix}"));
         let count = |f: Field| match f {
             Field::Missing => Ok(None),
-            Field::One(v) => v.parse::<u64>().map(|n| Some(n as f64)).map_err(|_| ()),
+            Field::One(v) => v.parse::<u64>().map(Some).map_err(|_| ()),
             Field::Conflict => Err(()),
         };
         let reset = match get("reset") {
@@ -183,12 +211,17 @@ pub fn from_api_headers<'a>(
             Field::Conflict => Err(()),
         };
         let (limit, remaining, reset) = match (count(get("limit")), count(get("remaining")), reset) {
-            (Ok(None), Ok(None), _) => {
+            (Ok(None), Ok(None), Ok(None)) => {
                 s.absent_windows.push(absent(key, AbsentReason::Unsupported));
                 continue;
             }
+            (Ok(None), Ok(None), Ok(Some(_))) => {
+                s.absent_windows.push(absent(key, AbsentReason::Unknown));
+                continue;
+            }
             (Ok(limit), Ok(remaining), Ok(reset))
-                if limit.zip(remaining).is_none_or(|(limit, remaining)| remaining <= limit) =>
+                if limit.zip(remaining).is_none_or(|(limit, remaining)|
+                    remaining.saturating_sub(remaining_half_width) <= limit) =>
             {
                 (limit, remaining, reset)
             }
@@ -197,11 +230,12 @@ pub fn from_api_headers<'a>(
                 continue;
             }
         };
-        let show = |v: Option<f64>| v.map_or("absent".to_string(), |n| n.to_string());
+        let show = |v: Option<u64>| v.map_or("absent".to_string(), |n| n.to_string());
         evidence.push(format!(
-            "{key} limit={} remaining={} reset={}",
+            "{key} limit={} remaining={} remaining_rounding_half_width={} reset={}",
             show(limit),
             show(remaining),
+            remaining_half_width,
             reset.map_or("absent".into(), |r| r.to_rfc3339())
         ));
         s.windows.push(QuotaWindow {
@@ -211,8 +245,8 @@ pub fn from_api_headers<'a>(
             metric,
             unit: unit.into(),
             used: None,
-            remaining: remaining.map(Measurement::reported),
-            capacity: limit.map(Measurement::reported),
+            remaining: remaining.map(|value| count_measurement(value, remaining_half_width)),
+            capacity: limit.map(|value| count_measurement(value, 0)),
             resets_at: None,
             replenishes_by: reset,
             enforcement: Enforcement::ProviderHardLimit,
@@ -220,7 +254,14 @@ pub fn from_api_headers<'a>(
     }
     s.raw_evidence = evidence.join("\n");
     if s.windows.is_empty() {
-        s.observation_status = ObservationStatus::Unsupported;
+        if s.absent_windows.iter().any(|a| a.reason == AbsentReason::Invalid) {
+            s.observation_status = ObservationStatus::Unavailable;
+            s.observation_error = Some(ObservationError::InvalidData);
+        } else if s.absent_windows.iter().any(|a| a.reason != AbsentReason::Unsupported) {
+            s.observation_status = ObservationStatus::Unavailable;
+        } else {
+            s.observation_status = ObservationStatus::Unsupported;
+        }
     }
     s
 }
