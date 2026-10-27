@@ -417,8 +417,8 @@ pub struct InferenceResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenUsage {
-    pub input_tokens: u64,
-    pub output_tokens: u64,
+    pub input_tokens: Option<u64>,
+    pub output_tokens: Option<u64>,
     pub cache_read_tokens: Option<u64>,
     pub cache_write_tokens: Option<u64>,
 }

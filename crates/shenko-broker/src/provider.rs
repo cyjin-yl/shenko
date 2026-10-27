@@ -119,15 +119,15 @@ impl AnthropicProvider {
         let stop_reason = raw["stop_reason"].as_str().unwrap_or_default().to_string();
 
         let usage = raw["usage"].as_object().map(|u| TokenUsage {
-            input_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-            output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            input_tokens: u.get("input_tokens").and_then(|v| v.as_u64()),
+            output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()),
             cache_read_tokens: u.get("cache_read_input_tokens").and_then(|v| v.as_u64()),
             cache_write_tokens: u
                 .get("cache_creation_input_tokens")
                 .and_then(|v| v.as_u64()),
         });
 
-        info!(model=%model, stop_reason=%stop_reason, in_tokens=?usage.as_ref().map(|u|u.input_tokens), out_tokens=?usage.as_ref().map(|u|u.output_tokens), "inference complete");
+        info!(model=%model, stop_reason=%stop_reason, in_tokens=?usage.as_ref().and_then(|u|u.input_tokens), out_tokens=?usage.as_ref().and_then(|u|u.output_tokens), "inference complete");
         Ok(InferenceResponse {
             content,
             stop_reason,

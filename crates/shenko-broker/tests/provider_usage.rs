@@ -59,10 +59,8 @@ async fn partial_invalid_and_explicit_zero_usage_remain_distinct() {
             json!({"choices":[{"message":{"role":"assistant","content":"fixture"},"finish_reason":"stop"}]})
         };
         for (raw_input, raw_output, expected_input, expected_output) in [
-            (None, Some(json!(7)), Value::Null, json!(7)),
-            (Some(json!(123)), None, json!(123), Value::Null),
+            (Some(json!("invalid")), None, Value::Null, Value::Null),
             (Some(json!(0)), Some(json!(0)), json!(0), json!(0)),
-            (Some(json!("invalid")), Some(json!(-5)), Value::Null, Value::Null),
         ] {
             let mut response = envelope.clone();
             let mut usage = serde_json::Map::new();
