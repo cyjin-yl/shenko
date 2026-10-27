@@ -137,6 +137,14 @@ pub enum SemanticWaitChange {
         wait_id: EntityId,
         reason: String,
     },
+    /// The subject changes attention explicitly. The old wait ends and the
+    /// new condition starts in the same S1; the old deadline is not renewed.
+    Replace {
+        wait_id: EntityId,
+        condition: String,
+        max_wait_secs: u64,
+        reason: String,
+    },
 }
 
 /// The settled result of one step's semantic wait handling.
@@ -145,6 +153,7 @@ pub enum SemanticWaitChange {
 pub enum SemanticWaitOutcome {
     Unchanged,
     Started,
+    Replaced,
     Continued,
     Ended,
     Expired,

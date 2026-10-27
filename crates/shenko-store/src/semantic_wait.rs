@@ -450,7 +450,7 @@ impl Store {
     ) -> Result<(Option<SemanticWait>, shenko_types::object::Digest), ShenkoError> {
         let input: serde_json::Value =
             serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(9) {
+        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10) {
             return Err(ShenkoError::conflict(
                 "semantic wait change is not bound to its S0 snapshot",
             ));
@@ -602,6 +602,34 @@ impl Store {
                     }
                 }
             }
+            SemanticWaitChange::Replace { wait_id, condition, max_wait_secs, reason } => {
+                if condition.trim().is_empty() || reason.trim().is_empty()
+                    || !(1..=SemanticWait::MAX_WAIT_SECS).contains(max_wait_secs)
+                {
+                    return Ok((SemanticWaitOutcome::Rejected {
+                        reason: "a replacement requires a condition, reason and duration between 1 and 600 seconds".into(),
+                    }, None));
+                }
+                if let Err(outcome) = self.check_wait_target(sealed, current, *wait_id) {
+                    return Ok((outcome, None));
+                }
+                let mut previous = current.as_ref().expect("active wait").clone();
+                if previous.condition == condition.trim() {
+                    return Ok((SemanticWaitOutcome::Rejected {
+                        reason: "replacing the same condition would renew the existing wait".into(),
+                    }, None));
+                }
+                previous.status = SemanticWaitStatus::Ended { reason: reason.trim().to_owned() };
+                previous.last_observed_at = now;
+                previous.updated_commit = commit_ref;
+                write_wait(tx, head.agent_id, &previous, commit_seq)?;
+                let replacement = self.start_semantic_wait(
+                    head, step, decision, request, condition.trim(), *max_wait_secs, now,
+                    commit_ref, binding_digest,
+                )?;
+                write_wait(tx, head.agent_id, &replacement, commit_seq)?;
+                Ok((SemanticWaitOutcome::Replaced, Some(replacement)))
+            }
         }
     }
 
@@ -618,6 +646,11 @@ impl Store {
                 reason: "no semantic wait was active in the sealed S0 context".into(),
             });
         };
+        if !sealed.is_active() {
+            return Err(SemanticWaitOutcome::Rejected {
+                reason: "the semantic wait in the sealed S0 context is not active".into(),
+            });
+        }
         if sealed.wait_id != wait_id {
             return Err(SemanticWaitOutcome::Rejected {
                 reason: "the wait change targets a different wait than the sealed S0 context".into(),
@@ -752,6 +785,7 @@ fn outcome_tag(outcome: &SemanticWaitOutcome) -> &'static str {
     match outcome {
         SemanticWaitOutcome::Unchanged => "unchanged",
         SemanticWaitOutcome::Started => "started",
+        SemanticWaitOutcome::Replaced => "replaced",
         SemanticWaitOutcome::Continued => "continued",
         SemanticWaitOutcome::Ended => "ended",
         SemanticWaitOutcome::Expired => "expired",
@@ -788,7 +822,7 @@ mod tests {
                 locator: "file:///input-plan".into(),
                 codec: SchemaRef {
                     name: "input_plans".into(),
-                    major: 9,
+                    major: 10,
                     digest: Digest::blake3(b"input-plan"),
                 },
             },

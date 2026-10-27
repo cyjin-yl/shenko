@@ -63,7 +63,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 9 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 10 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -398,7 +398,6 @@ pub(super) fn system_prompt_suffix(
         // S0 keeps the full record (context ref/commit) for Store admission;
         // CAS locators and digests are not useful model context.
         prompt.push_str(&serde_json::to_string(&serde_json::json!({
-            "wait_id": wait.wait_id,
             "condition": wait.condition,
             "started_at": wait.started_at,
             "deadline_at": wait.deadline_at,
@@ -406,7 +405,7 @@ pub(super) fn system_prompt_suffix(
             "last_observed_at": wait.last_observed_at,
         })).expect("semantic wait view serializes"));
         if wait.is_active() {
-            prompt.push_str("\n你仍沿同一思考流接续。结合前文与本轮上下文判断条件是否成立或关注是否改变，再明确继续或结束这个 wait_id；新消息本身不结束等待。判断应结束时用 [wait:end] 控制行提交，而不是仅在想法里说已经结束。继续不会改变原始截止时间。\n");
+            prompt.push_str("\n你仍沿同一思考流接续。结合前文与本轮上下文判断条件是否成立或关注是否改变；收到消息不会自动结束，但若满足条件就用 [wait:end] 控制行结束。需要关注新的等待条件时用 [wait:replace] 明确改变判断。操作自动绑定当前等待，不需要复制 ID；继续不会改变原始截止时间。\n");
         } else {
             prompt.push_str("\n这个等待已结束或失效，按正常思考接续。不要重开同一条件或换 ID 续期；新的等待只能是基于当下上下文的新判断。\n");
         }
@@ -417,9 +416,8 @@ pub(super) fn system_prompt_suffix(
             || !matches!(receipt.outcome, SemanticWaitOutcome::Unchanged)
         {
             prompt.push_str("\n上一步等待操作回执：");
-            prompt.push_str(&serde_json::to_string(&(
-                receipt.intent_id, &receipt.outcome, receipt.committed_at,
-            )).expect("semantic wait receipt serializes"));
+            prompt.push_str(&serde_json::to_string(&receipt.outcome)
+                .expect("semantic wait receipt serializes"));
             prompt.push('\n');
         }
     }
@@ -446,7 +444,7 @@ fn sealed_previous_projection(
 ) -> Result<(Option<shenko_broker::request::ProviderBinding>, Option<u32>), ShenkoError> {
     let Some(object) = &step.input_plan_ref else { return Ok((None, None)) };
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
-    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(9) {
+    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
         return Ok((None, None));
@@ -520,7 +518,7 @@ async fn execute_step(
             Err(error) => return Err(error),
         };
         let input = FrozenStepInput {
-            schema_version: 9,
+            schema_version: 10,
             step_id,
             step_no: seq,
             events: prepared.events,
@@ -538,7 +536,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            9,
+            10,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -774,6 +772,7 @@ async fn execute_step(
                 .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
             model_output.as_deref().unwrap_or(""),
             &state.identity_service,
+            input.semantic_wait.as_ref().map(|wait| wait.wait_id),
         )
     } else {
         Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
@@ -907,7 +906,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
-        schema_version: 5,
+        schema_version: 6,
         step_id,
         output: output.clone(),
         identity_intent,
@@ -935,7 +934,7 @@ async fn execute_step(
         "application/json",
         "decisions",
         "StepDecision",
-        5,
+        6,
     )?);
 
     match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {
@@ -1076,7 +1075,7 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        9,
+        10,
     )?);
     replacement.context_revision = Some(
         retired

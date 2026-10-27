@@ -462,8 +462,8 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("S1 missing decision"))?;
         let decision: shenko_types::subject::StepDecision =
             serde_json::from_slice(&self.cas.read_object(&decision_ref.digest)?)?;
-        if decision.schema_version != 5
-            || decision.output.schema_version != 2
+        if decision.schema_version != 6
+            || decision.output.schema_version != 3
             || decision.output.step_id != step.step_id
             || Some(&decision.output.raw_ref) != step.model_result_ref.as_ref()
             || decision.step_id != step.step_id
@@ -487,7 +487,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(9)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(10)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())

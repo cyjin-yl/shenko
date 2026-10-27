@@ -182,7 +182,7 @@ fn recorded_result_with_wait(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":9, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no, "events":[],
         "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
@@ -207,7 +207,7 @@ fn recorded_result_with_wait(
     step.record_revision = RecordRevision(1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 9).unwrap().object);
+        "subject_step_input", 10).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);
@@ -254,9 +254,9 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
-        schema_version: 5,
+        schema_version: 6,
         output: shenko_types::output::ParsedOutput {
-            schema_version: 2,
+            schema_version: 3,
             step_id: step.step_id,
             raw_ref: step.model_result_ref.clone().unwrap(),
             text: "继续先前关注".into(),
@@ -288,7 +288,7 @@ fn committed_candidate(
                 "application/json",
                 "test",
                 "StepDecision",
-                1,
+                6,
             )
             .unwrap()
             .object,
@@ -339,7 +339,7 @@ fn attach_wait(
                 "application/json",
                 "decisions",
                 "StepDecision",
-                5,
+                6,
             )
             .unwrap()
             .object,
@@ -492,7 +492,7 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
         intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
     }];
     step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
-        "application/json", "decisions", "StepDecision", 5).unwrap().object);
+        "application/json", "decisions", "StepDecision", 6).unwrap().object);
     store.commit_step_and_advance_head(&step, &head, next).unwrap();
     let history = StoreHistory::new(store.clone(), EntityId(head.branch_id.0), Arc::new(estimate_tokens));
     let pending = history.read_range(0, u64::MAX).unwrap();

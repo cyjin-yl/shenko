@@ -106,7 +106,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":9, "step_id":step.step_id, "step_no":step.step_no,
+        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
         "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
@@ -123,7 +123,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 9).unwrap().object);
+        "subject_step_input", 10).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -241,7 +241,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 9, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 10, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
@@ -250,7 +250,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 9).unwrap());
+        "subject_step_input", 10).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -1120,12 +1120,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .object,
     );
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
-    let output = crate::output::parse_output(
-        step.step_id,
-        raw_ref.clone(),
-        raw,
-        &subject.identity_service,
-    )
+    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw, &subject.identity_service, None)
     .unwrap();
     assert_eq!(output.controls.len(), 2);
     let changes: Vec<_> = output
@@ -1140,7 +1135,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 5,
+        schema_version: 6,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1184,7 +1179,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                5,
+                6,
             )
             .unwrap()
             .object,
@@ -1213,7 +1208,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                5,
+                6,
             )
             .unwrap()
             .object,
@@ -1581,7 +1576,7 @@ async fn commit_output(
 
 #[tokio::test]
 async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
-    let (_dir, store, agent) = fixture();
+    let (dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
     let first = commit_output(
         &store,
@@ -1621,22 +1616,23 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     assert!(store.semantic_wait(agent).unwrap().unwrap().is_active());
     drop((changed_subject, offline));
 
-    // The next S0 must freeze the same wait and show its id to the model.
+    // The next S0 binds the same wait without asking the model to copy its id.
     let cancel = tokio_util::sync::CancellationToken::new();
     cancel.cancel();
     execute_step(2, &[], &mut subject, &cancel).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
-    assert_eq!(frozen.schema_version, 9);
+    assert_eq!(frozen.schema_version, 10);
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
     assert_eq!(sealed_wait.deadline_at, original_deadline);
-    assert!(frozen.payload.system_prompt.contains(&wait.wait_id.to_string()));
+    assert!(frozen.payload.system_prompt.contains(&wait.condition));
+    assert!(!frozen.payload.system_prompt.contains(&wait.wait_id.to_string()));
     // Discard this sealed input only by completing it: the recorded result is
     // bound to the same S0, exactly as after a process reopen.
     let continued = record_result(
         &store,
         &mut subject,
-        &format!("[wait:continue] {}\n条件尚未满足，继续等待。", wait.wait_id),
+        "[wait:continue]\n条件尚未满足，继续等待。",
     );
     execute_step(2, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
         .await
@@ -1678,7 +1674,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
         &mut subject,
         4,
         &[],
-        &format!("[wait:end] {{\"wait_id\":\"{}\",\"reason\":\"条件已经满足\"}}\n回到正常思考。", wait.wait_id),
+        "[wait:end] 条件已经满足\n回到正常思考。",
     )
     .await;
     let after_end = store.semantic_wait(agent).unwrap().unwrap();
@@ -1697,7 +1693,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
         &mut subject,
         5,
         &[],
-        &format!("[wait:continue] {}\n迟到的继续。", wait.wait_id),
+        "[wait:continue]\n迟到的继续。",
     )
     .await;
     assert!(matches!(
@@ -1708,8 +1704,34 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
         store.semantic_wait(agent).unwrap().unwrap().status,
         SemanticWaitStatus::Ended { .. }
     ));
-    // Rejecting the stale control never costs the subject its successor.
-    assert_eq!(subject.head.committed_step_no, 5);
-    assert_eq!(subject.step.step_no, 6);
+    // A changed judgment may replace an active wait in one S1. The original
+    // condition and deadline stay in the old record rather than being renewed.
+    commit_output(&store, &mut subject, 6, &[],
+        "[wait] {\"condition\":\"收到对方的答复\",\"max_wait_secs\":120}\n等待答复。").await;
+    let old = store.semantic_wait(agent).unwrap().unwrap();
+    let replaced = commit_output(&store, &mut subject, 7, &[message("现在请关注另一个独立结果")],
+        "[wait:replace] {\"condition\":\"收到新的独立结果\",\"max_wait_secs\":180,\"reason\":\"关注转向新的结果\"}\n我改变关注。").await;
+    let new = store.semantic_wait(agent).unwrap().unwrap();
+    assert_ne!(new.wait_id, old.wait_id);
+    assert_eq!(new.condition, "收到新的独立结果");
+    assert_eq!(new.deadline_at.signed_duration_since(new.started_at).num_seconds(), 180);
+    assert!(matches!(store.semantic_wait_receipt(replaced).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Replaced));
+    let previous_json: String = rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .query_row("SELECT data FROM semantic_waits WHERE wait_id=?1", [old.wait_id.to_string()], |r| r.get(0)).unwrap();
+    let previous: SemanticWait = serde_json::from_str(&previous_json).unwrap();
+    assert_eq!(previous.deadline_at, old.deadline_at);
+    assert!(matches!(previous.status, SemanticWaitStatus::Ended { .. }));
+
+    let renewal = commit_output(&store, &mut subject, 8, &[],
+        "[wait:replace] {\"condition\":\"收到新的独立结果\",\"max_wait_secs\":600,\"reason\":\"还想等\"}\n继续观察。").await;
+    assert!(matches!(store.semantic_wait_receipt(renewal).unwrap().unwrap().outcome,
+        SemanticWaitOutcome::Rejected { .. }));
+    let after_renewal = store.semantic_wait(agent).unwrap().unwrap();
+    assert_eq!(after_renewal.wait_id, new.wait_id);
+    assert_eq!(after_renewal.deadline_at, new.deadline_at);
+    // Rejecting stale or renewing controls never costs the subject its successor.
+    assert_eq!(subject.head.committed_step_no, 8);
+    assert_eq!(subject.step.step_no, 9);
     // Keep the fixture on container disk for independent inspection.
 }
