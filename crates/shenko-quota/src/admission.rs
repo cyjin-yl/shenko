@@ -6,7 +6,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::EntityId;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::forecast::{AttemptBilling, LocalAttempt, QuotaForecast};
 use crate::model::Range;
@@ -94,7 +94,7 @@ pub struct WindowPace {
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Pacer {
     pacing: Vec<WindowPace>,
-    reservations: HashMap<EntityId, Reservation>,
+    reservations: BTreeMap<EntityId, Reservation>,
 }
 
 impl<'de> Deserialize<'de> for Pacer {
@@ -102,7 +102,7 @@ impl<'de> Deserialize<'de> for Pacer {
         #[derive(Deserialize)]
         struct Stored {
             pacing: Vec<WindowPace>,
-            reservations: HashMap<EntityId, Reservation>,
+            reservations: BTreeMap<EntityId, Reservation>,
         }
         let stored = Stored::deserialize(deserializer)?;
         let pacer = Self { pacing: stored.pacing, reservations: stored.reservations };
@@ -308,6 +308,25 @@ pub fn admit(
         || decision.availability.iter().zip(&policy.profiles).any(|(observed, profile)| observed.profile_id != profile.profile_id)
     {
         return invalid("decision does not bind every backend observation");
+    }
+    let mut changed = false;
+    let mut any_available = false;
+    let mut any_unknown = false;
+    for observed in &decision.availability {
+        let current = availability.get(&observed.profile_id).copied().unwrap_or(BackendState::Unknown);
+        changed |= current != observed.state;
+        any_available |= current == BackendState::Available;
+        any_unknown |= current == BackendState::Unknown;
+    }
+    if changed {
+        if let Choice::Cloud { profile_id, .. } | Choice::Local { profile_id } = &decision.choice {
+            if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
+        }
+        if !any_available {
+            return if any_unknown { AdmissionOutcome::CapacityUnknown { reason: "backend availability is unknown".into() } }
+                else { AdmissionOutcome::CapacityBlocked { reason: "no configured backend can run".into() } };
+        }
+        return invalid("backend availability changed; recompute the decision");
     }
     match &decision.choice {
         Choice::Cloud { profile_id, rate_per_hour, unbounded_windows } => {

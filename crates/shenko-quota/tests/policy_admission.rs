@@ -94,7 +94,8 @@ fn decide_fixture(policy: &QuotaPolicy, forecasts: &[QuotaForecast], local: bool
 
 fn admit_fixture(policy: &QuotaPolicy, decision: &PolicyDecision, request_id: EntityId,
     pacer: &mut Pacer, at: DateTime<Utc>) -> AdmissionOutcome {
-    admit(policy, decision, request_id, pacer, &availability(policy, true), at)
+    let available = decision.availability.iter().map(|item| (item.profile_id.clone(), item.state)).collect();
+    admit(policy, decision, request_id, pacer, &available, at)
 }
 
 /// QA05: every overlapping window bounds the rate, the weekly window can
@@ -318,6 +319,8 @@ fn policy_rejects_unbound_costs_conflicts_and_invalid_rates() {
     assert_eq!(decide(&p, &[full.clone()], &unavailable, None, now()).unwrap().choice, Choice::NoBackend);
     assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &unavailable, now()),
         AdmissionOutcome::CapacityBlocked { .. }));
+    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &HashMap::new(), now()),
+        AdmissionOutcome::CapacityUnknown { .. }));
 
     let json = serde_json::to_string(&p).unwrap();
     let reopened: QuotaPolicy = serde_json::from_str(&json).unwrap();
