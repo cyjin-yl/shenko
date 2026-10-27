@@ -94,7 +94,7 @@ check('## U50 文档仓库与完整开发交接' in new_originals, 'U50 missing'
 check('## U51 fork 内自主开发与权限模式澄清' in new_originals, 'U51 missing')
 check('## U52 拥有者创建交接仓库' in new_originals, 'U52 missing')
 check('## U53 Claude API 2026-10-21 迁移提醒' in new_originals, 'U53 missing')
-for number in range(54, 63):
+for number in range(54, 64):
     check(re.search(rf'^## U{number} ', new_originals, re.MULTILINE) is not None,
           f'U{number} missing')
 original_case_ids = {item['case_id'] for item in read_json('docs/history/acceptance-source-v0.5.1.json')['cases']}
