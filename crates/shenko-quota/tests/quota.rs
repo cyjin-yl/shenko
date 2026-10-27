@@ -184,11 +184,10 @@ fn shared_usage_and_unreflected_attempts_keep_ranges() {
     let f = forecast(&snap, &attempts, &assume(5.0), now, fresh());
     assert_eq!(window(&f).unreflected_own_cost, Range::new(0.0, 11.0));
     // A = 70 − 11 − 10 − 5 − 2 = 42 over 10 hours.
-    assert_eq!(window(&f).planning, Planning::Period {
-        available: 42.0,
-        per_hour: 4.2,
-        resets_at: Utc.timestamp_opt(reset, 0).unwrap(),
-    });
+    let Planning::Period { available, per_hour, resets_at } = window(&f).planning else { panic!("period expected") };
+    assert_eq!(available, 42.0);
+    assert!(per_hour <= 4.2 && 4.2 - per_hour < 1e-12);
+    assert_eq!(resets_at, Utc.timestamp_opt(reset, 0).unwrap());
     // A negative reserve cannot enlarge the budget.
     let f = forecast(&snap, &attempts, &assume(-50.0), now, fresh());
     assert!(matches!(window(&f).planning, Planning::Unknown { .. }));
@@ -300,4 +299,53 @@ fn contradictory_overflowing_and_sensitive_observations_remain_unknown() {
     snapshot.windows[0].resets_at = Some(c.observed_at + Duration::seconds(1));
     assert!(matches!(forecast(&snapshot, &[], &HashMap::new(), c.observed_at, fresh()).windows[0].planning,
         Planning::Unknown { .. }), "an infinite hourly rate is not a usable forecast");
+}
+
+#[test]
+fn shared_token_bucket_needs_an_external_usage_bound() {
+    let c = ctx("shared-key", Attribution::SharedUnobserved);
+    let snapshot = from_api_headers(&c, [
+        ("anthropic-ratelimit-requests-limit", "100"),
+        ("anthropic-ratelimit-requests-remaining", "10"),
+    ]);
+    let absent = forecast(&snapshot, &[], &HashMap::new(), c.observed_at, fresh());
+    assert!(matches!(absent.windows[0].planning, Planning::Unknown { .. }));
+    let assumptions = HashMap::from([("api:requests".into(), WindowAssumptions {
+        reserve: 0.0, margin: 0.0, external: Range::new(1.0, 3.0),
+    })]);
+    let bounded = forecast(&snapshot, &[], &assumptions, c.observed_at, fresh());
+    assert!(matches!(bounded.windows[0].planning, Planning::Replenishing { remaining, .. }
+        if Some(remaining) == Range::new(7.0, 9.0)));
+    let reserved = HashMap::from([("api:requests".into(), WindowAssumptions {
+        reserve: 1.0, margin: 0.5, external: Range::new(1.0, 3.0),
+    })]);
+    let bounded = forecast(&snapshot, &[], &reserved, c.observed_at, fresh());
+    assert!(matches!(bounded.windows[0].planning, Planning::Replenishing { remaining, .. }
+        if Some(remaining) == Range::new(5.5, 7.5)));
+}
+
+#[test]
+fn floating_point_costs_cannot_raise_the_conservative_budget() {
+    let c = ctx("sub", Attribution::Exclusive);
+    let reset = (c.observed_at + Duration::hours(1)).timestamp();
+    let mut snapshot = from_statusline(&c,
+        &format!(r#"{{"rate_limits":{{"five_hour":{{"used_percentage":50,"resets_at":{reset}}}}}}}"#), true);
+    snapshot.windows[0].capacity = None;
+    snapshot.windows[0].used = None;
+    snapshot.windows[0].remaining = Some(Measurement::reported(1.0));
+    let attempt = LocalAttempt {
+        request_id: EntityId::new(), provider_id: c.provider_id.clone(), account_scope_ref: c.account_scope_ref.clone(),
+        window_key: "five_hour".into(), unit: "percent".into(),
+        ledger_commit: CommitRef::new(EntityId::new(), LedgerSeq(1)),
+        cost: Range::point(f64::EPSILON / 4.0).unwrap(), billing: AttemptBilling::Settled,
+    };
+    let result = forecast(&snapshot, &[attempt], &HashMap::new(), c.observed_at, fresh());
+    let Planning::Period { available, .. } = result.windows[0].planning else { panic!("finite period expected") };
+    assert!(available < 1.0, "a positive unreflected charge cannot disappear by rounding");
+    let sum = Range::point(1.0).unwrap().checked_add(Range::point(f64::EPSILON / 4.0).unwrap()).unwrap();
+    assert!(sum.upper > 1.0, "the upper cost bound must contain the exact sum");
+    snapshot.windows[0].resets_at = Some(c.observed_at + Duration::milliseconds(1500));
+    let result = forecast(&snapshot, &[], &HashMap::new(), c.observed_at, fresh());
+    let Planning::Period { per_hour, .. } = result.windows[0].planning else { panic!("subsecond period expected") };
+    assert!(per_hour <= 2400.0 && per_hour > 2399.999, "fractional seconds must not shorten the period");
 }

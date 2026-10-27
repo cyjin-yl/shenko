@@ -122,7 +122,7 @@ pub struct Measurement {
 
 /// One directed bound for a finite sum. TwoSum recovers the rounding error so
 /// a small precision at large magnitudes cannot silently disappear.
-fn outward_sum(left: f64, right: f64, upward: bool) -> Option<f64> {
+pub(crate) fn outward_sum(left: f64, right: f64, upward: bool) -> Option<f64> {
     let sum = left + right;
     if !sum.is_finite() { return None; }
     let part = sum - left;
@@ -188,7 +188,19 @@ impl Range {
     pub fn checked_add(self, other: Range) -> Option<Range> {
         let left = Self::new(self.lower, self.upper)?;
         let right = Self::new(other.lower, other.upper)?;
-        Self::new(left.lower + right.lower, left.upper + right.upper)
+        Self::new(outward_sum(left.lower, right.lower, false)?,
+                  outward_sum(left.upper, right.upper, true)?)
+    }
+
+    /// Conservative non-negative difference between two validated intervals.
+    pub fn checked_sub(self, other: Range) -> Option<Range> {
+        let left = Self::new(self.lower, self.upper)?;
+        let right = Self::new(other.lower, other.upper)?;
+        let difference = |a: f64, b: f64, upward: bool| {
+            if a <= b { Some(0.0) } else { outward_sum(a, -b, upward) }
+        };
+        Self::new(difference(left.lower, right.upper, false)?,
+                  difference(left.upper, right.lower, true)?)
     }
 }
 
@@ -221,7 +233,7 @@ impl QuotaWindow {
         let derived = match (capacity, used) {
             (Some(capacity), Some(used)) => {
                 if used.lower > capacity.upper { return None; }
-                Some(Range::new((capacity.lower - used.upper).max(0.0), capacity.upper - used.lower)?)
+                Some(capacity.checked_sub(used)?)
             }
             _ => None,
         };

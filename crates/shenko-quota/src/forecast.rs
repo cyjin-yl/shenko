@@ -53,8 +53,8 @@ impl LocalAttempt {
 pub struct WindowAssumptions {
     pub reserve: f64,
     pub margin: f64,
-    /// Expected consumption by other clients until the period ends. Needed
-    /// whenever the account is not exclusive; absent means unknown.
+    /// Expected consumption by other clients over the caller's planning
+    /// horizon. Needed for any shared window; absent means unknown.
     pub external: Option<Range>,
 }
 
@@ -210,6 +210,13 @@ fn unknown(reason: &str) -> Planning {
     Planning::Unknown { reason: reason.into() }
 }
 
+fn net_budget(remaining: Range, own: Range, external: Range, assume: WindowAssumptions) -> Option<Range> {
+    remaining.checked_sub(own)?
+        .checked_sub(external)?
+        .checked_sub(Range::point(assume.reserve)?)?
+        .checked_sub(Range::point(assume.margin)?)
+}
+
 fn plan(
     window: &QuotaWindow,
     remaining: Option<Range>,
@@ -223,12 +230,12 @@ fn plan(
     }
     match window.kind {
         WindowKind::TokenBucket => {
-            return match (remaining, own) {
-                (Some(r), Some(o)) => match Range::new((r.lower - o.upper).max(0.0), (r.upper - o.lower).max(0.0)) {
+            return match (remaining, own, external) {
+                (Some(r), Some(o), Some(e)) => match net_budget(r, o, e, assume) {
                     Some(remaining) => Planning::Replenishing { remaining, refill_by: window.replenishes_by },
                     None => unknown("bucket arithmetic overflow or inconsistent interval"),
                 },
-                _ => unknown("bucket remaining or own usage unknown"),
+                _ => unknown("bucket remaining, own usage, or shared external usage unknown"),
             };
         }
         WindowKind::Fixed | WindowKind::Rolling | WindowKind::Calendar => {}
@@ -237,15 +244,25 @@ fn plan(
     let Some(resets_at) = window.resets_at else {
         return unknown("no period end observed");
     };
-    let hours = (resets_at - now).num_seconds() as f64 / 3600.0;
-    if hours <= 0.0 {
+    let duration = resets_at - now;
+    if duration <= chrono::Duration::zero() {
         return unknown("period ended; awaiting a new observation");
     }
+    // An upper time bound keeps the resulting spending rate conservative;
+    // preserve subsecond duration instead of truncating it to whole seconds.
+    let fraction = duration.subsec_nanos() as f64 / 1_000_000_000.0;
+    let fraction_upper = if fraction > 0.0 { fraction.next_up() } else { 0.0 };
+    let Some(seconds_upper) = outward_sum(duration.num_seconds() as f64, fraction_upper, true) else {
+        return unknown("period duration cannot be represented");
+    };
+    let hours = (seconds_upper / 3600.0).next_up();
     let Some(r) = remaining else { return unknown("remaining unknown") };
     let Some(u) = own else { return unknown("own usage in this unit unknown") };
     let Some(e) = external else { return unknown("shared account without an external usage assumption") };
-    let available = (r.lower - u.upper - e.upper - assume.reserve - assume.margin).max(0.0);
-    let per_hour = available / hours;
+    let Some(net) = net_budget(r, u, e, assume) else { return unknown("period planning arithmetic overflow") };
+    let available = net.lower;
+    let rate = available / hours;
+    let per_hour = if rate > 0.0 && rate.is_finite() { rate.next_down() } else { rate };
     if !available.is_finite() || !per_hour.is_finite() {
         return unknown("period planning arithmetic overflow");
     }
