@@ -16,6 +16,7 @@ members = [
     "crates/shenko-node",
     "crates/shenko-wasm",
     "crates/shenko-context-policy",
+    "crates/shenko-quota",
     "crates/shenko-compact-budget",
     "crates/shenko-compact-snap",
     "crates/shenko-awareness-core",

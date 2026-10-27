@@ -2225,14 +2225,34 @@
         "B20"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
-      "evidence_state": [],
-      "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
-      "blockers": [],
+      "implementation_state": "partial",
+      "evidence_state": [
+        "implemented",
+        "buildable",
+        "simulated"
+      ],
+      "acceptance_case_ids": [
+        "QA01",
+        "QA02",
+        "QA03",
+        "QA05"
+      ],
+      "implementation_refs": [
+        "crates/shenko-quota/src/model.rs",
+        "crates/shenko-quota/src/observe.rs",
+        "crates/shenko-quota/src/forecast.rs"
+      ],
+      "evidence_refs": [
+        "crates/shenko-quota/tests/quota.rs"
+      ],
+      "blockers": [
+        "QuotaPolicy/QuotaAdmission（quota_policy_wait）、模型/effort/轮数路由与 quota.* 事件未实现",
+        "未接 broker/RequestSeal（依赖 C04 #9）",
+        "快照/预测未持久化",
+        "未对真实 CLI statusline 或 API 响应采集（fixture 按文档字段形态）"
+      ],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "C18 切片1：statusline rate_limits 与 API rate-limit headers 的非 LLM 观测，缺失/过期/查询失败如实为 unknown/expired/unavailable；token bucket 只给 refill 不套周期公式；预测按 §42.5 A=max(0,R_lower−U_upper−E−reserve−margin)、r=A/T，无覆盖证明时本地费用保留 overlap 区间，单位不符或共享账户无外部假设时为 unknown。"
     },
     {
       "requirement_id": "R131",
