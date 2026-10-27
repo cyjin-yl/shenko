@@ -40,11 +40,11 @@ pub struct LocalAttempt {
 
 impl LocalAttempt {
     fn charge(&self) -> Option<Range> {
-        let cost = Range::checked(self.cost.lower, self.cost.upper)?;
-        Some(match self.billing {
-            AttemptBilling::Settled => cost,
+        let cost = Range::new(self.cost.lower, self.cost.upper)?;
+        match self.billing {
+            AttemptBilling::Settled => Some(cost),
             AttemptBilling::Unknown => Range::new(0.0, cost.upper),
-        })
+        }
     }
 }
 
@@ -69,7 +69,7 @@ impl WindowAssumptions {
         let amount = |v: f64| v.is_finite() && v >= 0.0;
         amount(self.reserve)
             && amount(self.margin)
-            && self.external.is_none_or(|e| Range::checked(e.lower, e.upper).is_some())
+            && self.external.is_none_or(|e| Range::new(e.lower, e.upper).is_some())
     }
 }
 
@@ -147,10 +147,10 @@ fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[Local
         match proof {
             Some(c) if c.ledger_id == attempt.ledger_commit.ledger_id => {
                 if attempt.ledger_commit.seq > c.seq {
-                    total = total.add(charge);
+                    total = total.checked_add(charge)?;
                 }
             }
-            _ => total = total.add(Range::new(0.0, charge.upper)),
+            _ => total = total.checked_add(Range::new(0.0, charge.upper)?)?,
         }
     }
     Some(total)
@@ -224,9 +224,9 @@ fn plan(
     match window.kind {
         WindowKind::TokenBucket => {
             return match (remaining, own) {
-                (Some(r), Some(o)) => Planning::Replenishing {
-                    remaining: Range::new((r.lower - o.upper).max(0.0), (r.upper - o.lower).max(0.0)),
-                    refill_by: window.replenishes_by,
+                (Some(r), Some(o)) => match Range::new((r.lower - o.upper).max(0.0), (r.upper - o.lower).max(0.0)) {
+                    Some(remaining) => Planning::Replenishing { remaining, refill_by: window.replenishes_by },
+                    None => unknown("bucket arithmetic overflow or inconsistent interval"),
                 },
                 _ => unknown("bucket remaining or own usage unknown"),
             };
@@ -245,5 +245,9 @@ fn plan(
     let Some(u) = own else { return unknown("own usage in this unit unknown") };
     let Some(e) = external else { return unknown("shared account without an external usage assumption") };
     let available = (r.lower - u.upper - e.upper - assume.reserve - assume.margin).max(0.0);
-    Planning::Period { available, per_hour: available / hours, resets_at }
+    let per_hour = available / hours;
+    if !available.is_finite() || !per_hour.is_finite() {
+        return unknown("period planning arithmetic overflow");
+    }
+    Planning::Period { available, per_hour, resets_at }
 }

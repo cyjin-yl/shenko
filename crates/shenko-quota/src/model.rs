@@ -34,6 +34,19 @@ pub enum ObservationStatus {
     Unsupported,
 }
 
+/// A bounded failure classification; never persist a raw transport error,
+/// response body, URL, or credential as an observation error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ObservationError {
+    InvalidData,
+    RateLimited,
+    Unauthorized,
+    Timeout,
+    Transport,
+    Other,
+}
+
 /// Who else consumes the same quota.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -121,12 +134,14 @@ impl Measurement {
             return None;
         }
         let (lower, upper) = match (self.value, self.lower, self.upper) {
-            (_, Some(lower), Some(upper)) => (lower, upper),
-            (Some(value), _, _) => (value, value),
+            (None, Some(lower), Some(upper)) => (lower, upper),
+            (Some(value), None, None) => (value, value),
+            (Some(value), Some(lower), Some(upper))
+                if value.is_finite() && lower <= value && value <= upper => (lower, upper),
             _ => return None,
         };
-        let range = Range::checked(lower, upper)?;
-        Some(Range { lower: (range.lower - pad).max(0.0), upper: range.upper + pad })
+        let range = Range::new(lower, upper)?;
+        Range::new((range.lower - pad).max(0.0), range.upper + pad)
     }
 }
 
@@ -138,26 +153,25 @@ pub struct Range {
 }
 
 impl Range {
-    pub fn new(lower: f64, upper: f64) -> Self {
-        Self { lower: lower.min(upper), upper: upper.max(lower) }
-    }
-
     /// A non-negative finite interval with `lower <= upper`, else None.
-    pub fn checked(lower: f64, upper: f64) -> Option<Self> {
+    pub fn new(lower: f64, upper: f64) -> Option<Self> {
         let valid = lower.is_finite() && upper.is_finite() && lower >= 0.0 && lower <= upper;
         valid.then_some(Self { lower, upper })
     }
 
-    pub fn point(value: f64) -> Self {
-        Self { lower: value, upper: value }
+    pub fn point(value: f64) -> Option<Self> {
+        Self::new(value, value)
     }
 
     pub fn zero() -> Self {
-        Self::point(0.0)
+        Self { lower: 0.0, upper: 0.0 }
     }
 
-    pub fn add(self, other: Range) -> Range {
-        Range::new(self.lower + other.lower, self.upper + other.upper)
+    /// Revalidate deserialized operands and reject overflow in either bound.
+    pub fn checked_add(self, other: Range) -> Option<Range> {
+        let left = Self::new(self.lower, self.upper)?;
+        let right = Self::new(other.lower, other.upper)?;
+        Self::new(left.lower + right.lower, left.upper + right.upper)
     }
 }
 
@@ -179,17 +193,34 @@ pub struct QuotaWindow {
 }
 
 impl QuotaWindow {
-    /// Remaining quota as an interval: reported remaining, else capacity − used.
+    /// Remaining quota, reconciling any reported balance with capacity/usage.
     pub fn remaining_range(&self) -> Option<Range> {
-        if let Some(remaining) = self.remaining.and_then(|m| m.range()) {
-            return Some(remaining);
+        let checked = |value: Option<Measurement>| -> Option<Option<Range>> {
+            match value { Some(value) => value.range().map(Some), None => Some(None) }
+        };
+        let remaining = checked(self.remaining)?;
+        let capacity = checked(self.capacity)?;
+        let used = checked(self.used)?;
+        let derived = match (capacity, used) {
+            (Some(capacity), Some(used)) => {
+                if used.lower > capacity.upper { return None; }
+                Some(Range::new((capacity.lower - used.upper).max(0.0), capacity.upper - used.lower)?)
+            }
+            _ => None,
+        };
+        match remaining {
+            Some(remaining) => {
+                let mut upper = remaining.upper;
+                if let Some(capacity) = capacity {
+                    if remaining.lower > capacity.upper { return None; }
+                    upper = upper.min(capacity.upper);
+                }
+                let lower = derived.map_or(remaining.lower, |range| remaining.lower.max(range.lower));
+                upper = derived.map_or(upper, |range| upper.min(range.upper));
+                Range::new(lower, upper)
+            }
+            None => derived,
         }
-        let capacity = self.capacity.and_then(|m| m.range())?;
-        let used = self.used.and_then(|m| m.range())?;
-        if used.lower > capacity.upper {
-            return None;
-        }
-        Some(Range::new((capacity.lower - used.upper).max(0.0), capacity.upper - used.lower))
     }
 }
 
@@ -218,7 +249,7 @@ pub struct QuotaSnapshot {
     pub raw_evidence: String,
     pub observed_at: DateTime<Utc>,
     pub observation_status: ObservationStatus,
-    pub observation_error: Option<String>,
+    pub observation_error: Option<ObservationError>,
     pub attribution: Attribution,
     pub covered_through: Option<CoveredThrough>,
     pub windows: Vec<QuotaWindow>,
