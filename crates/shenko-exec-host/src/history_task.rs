@@ -15,7 +15,7 @@ use shenko_types::{
 };
 use std::sync::Arc;
 
-const CONTRACT: &[u8] = b"shenko.history.query/v1: immutable own-subject raw session reads; no external effects; bounded search previews centered on literal matches";
+const CONTRACT: &[u8] = b"shenko.history.query/v1: immutable own-subject raw session reads; no external effects; bounded linear literal-match previews";
 const MAX_QUERY_BYTES: usize = 4096;
 const MAX_FILTER_VALUES: usize = 8;
 const MAX_FILTER_VALUE_BYTES: usize = 64;
@@ -446,7 +446,7 @@ impl NativeTaskHandler for HistoryHandler {
             role_revision: "native-history-reader/1".into(),
             authority_refs: vec!["store.session_events.read.own_subject/v1".into()],
             prompt_section: Some(
-                "history.query/v1 是已安装的只读原始历史 child。搜索：[delegate:history.query:1] {\"op\":\"search\",\"query\":\"深刻\",\"from_seq\":0,\"limit\":20}；列事件用 op=list；按搜索结果重读用 op=read 且只给一个 event_id 或 seq。可选 event_types/roles 数组过滤。结果按 seq 升序，经后续真实 task_result 返回；search/list 只有有界 data_preview，search 尽量展示匹配位置，截断标志和起始位置说明预览并非全文。预览没显示某内容不证明原文没有；需要完整正文时使用 read。不得把尚未返回的回忆当成已核实事实。"
+                "history.query/v1 是已安装的只读原始历史 child。搜索：[delegate:history.query:1] {\"op\":\"search\",\"query\":\"深刻\",\"from_seq\":0,\"limit\":20}；列事件用 op=list；按搜索结果重读用 op=read 且只给一个 event_id 或 seq。可选 event_types/roles 数组过滤。结果按 seq 升序，经后续真实 task_result 返回；search/list 只有有界 data_preview，search 尽量展示匹配位置，截断标志和起始位置说明预览并非全文；起点是原始 data 的 Unicode 标量位置，不是字节或 UTF-16 偏移。预览没显示某内容不证明原文没有；需要完整正文时使用 read。不得把尚未返回的回忆当成已核实事实。"
                     .into(),
             ),
         }
@@ -489,17 +489,45 @@ fn event_ref(event: &StoredSessionEvent) -> String {
     )
 }
 
+// FTS/LIKE can match ASCII case-insensitively. KMP keeps this linear even for
+// long repeated inputs; the bounded prefix table never allocates on the heap.
+fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
+    let pattern = query.as_bytes();
+    if pattern.is_empty() || pattern.len() > MAX_QUERY_BYTES || !query.is_ascii() {
+        return None;
+    }
+    let mut prefix = [0_u16; MAX_QUERY_BYTES];
+    for i in 1..pattern.len() {
+        let mut matched = usize::from(prefix[i - 1]);
+        while matched > 0 && !pattern[i].eq_ignore_ascii_case(&pattern[matched]) {
+            matched = usize::from(prefix[matched - 1]);
+        }
+        if pattern[i].eq_ignore_ascii_case(&pattern[matched]) {
+            matched += 1;
+        }
+        prefix[i] = matched as u16; // at most MAX_QUERY_BYTES - 1
+    }
+    let mut matched = 0;
+    for (index, byte) in text.bytes().enumerate() {
+        while matched > 0 && !byte.eq_ignore_ascii_case(&pattern[matched]) {
+            matched = usize::from(prefix[matched - 1]);
+        }
+        if byte.eq_ignore_ascii_case(&pattern[matched]) {
+            matched += 1;
+        }
+        if matched == pattern.len() {
+            return Some(index + 1 - pattern.len());
+        }
+    }
+    None
+}
+
 fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json::Value {
     // The store can return FTS matches without a byte-identical substring.
     // Center only a literal (or ASCII case-insensitive) match we can locate;
     // otherwise retain the prefix and explicitly report that no match is shown.
     let matched_byte = query.filter(|query| !query.is_empty()).and_then(|query| {
-        event.data.find(query).or_else(|| {
-            query.is_ascii().then(|| {
-                event.data.as_bytes().windows(query.len())
-                    .position(|bytes| bytes.eq_ignore_ascii_case(query.as_bytes()))
-            }).flatten()
-        })
+        event.data.find(query).or_else(|| ascii_match_offset(&event.data, query))
     });
     let matched_char = matched_byte.map(|offset| event.data[..offset].chars().count());
     let query_chars = query.map_or(0, |query| query.chars().count());
@@ -601,11 +629,12 @@ mod tests {
         let data = serde_json::json!({"text": format!("{}青铜仪器编号 P6O0-l1I-283{}", "前".repeat(600), "后".repeat(500))}).to_string();
         let ascii = serde_json::json!({"text": format!("{} NEEdLe {}", "before ".repeat(100), "after ".repeat(100))}).to_string();
         let normalized = serde_json::json!({"text": format!("{} Café {}", "before ".repeat(100), "after ".repeat(100))}).to_string();
+        let long_match = serde_json::json!({"text": format!("{} {} {}", "before ".repeat(100), "A".repeat(600), "after ".repeat(100))}).to_string();
         let mut batch = WriteBatch::new();
         batch.raw_session_upserts.push(RawSession {
             session_id, agent_id, started_at: "2026-10-26T00:00:00Z".into(), data: "{}".into(),
         });
-        for (seq, body) in [(1, data.clone()), (2, ascii), (3, normalized)] {
+        for (seq, body) in [(1, data.clone()), (2, ascii), (3, normalized), (4, long_match)] {
             batch.session_event_upserts.push(RawSessionEvent {
                 event_id: EntityId::new(), session_id, seq, event_type: "user".into(), role: "user".into(), data: body,
             });
@@ -637,6 +666,10 @@ mod tests {
         let folded = query(serde_json::json!({"op":"search", "query":"cafe"}));
         assert_eq!(folded["events"][0]["data_preview_match_visible"], false);
         assert_eq!(folded["events"][0]["data_preview_start_char"], 0);
+        let long = query(serde_json::json!({"op":"search", "query":"a".repeat(600)}));
+        assert_eq!(long["events"][0]["seq"], 4);
+        assert_eq!(long["events"][0]["data_preview_match_visible"], false);
+        assert_eq!(long["events"][0]["data_preview"].as_str().unwrap().chars().count(), MAX_PREVIEW_CHARS);
         drop(handler);
         drop(store);
         let _ = std::fs::remove_dir_all(dir);
