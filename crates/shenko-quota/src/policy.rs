@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-use crate::forecast::{AccountedAttempt, Planning, QuotaForecast, WindowAssumptions};
+use crate::forecast::{AccountedAttempt, Planning, QuotaForecast, SourceValidity, WindowAssumptions};
 use crate::model::Range;
 
 /// One quota window of one account at one provider.
@@ -188,6 +188,11 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
     let mut attempts = HashSet::new();
     if matches.next().is_some() || forecast.computed_at > now || w.unit != cost.unit || w.assumptions != expected
         || forecast.freshness == crate::model::Freshness::Unknown || w.basis == crate::model::Freshness::Unknown
+        || w.basis != forecast.freshness
+        || !(matches!((forecast.source_validity, forecast.freshness),
+            (SourceValidity::FreshUntil { exclusive }, crate::model::Freshness::Fresh) if now < exclusive)
+            || matches!((forecast.source_validity, forecast.freshness),
+                (SourceValidity::LastKnown, crate::model::Freshness::Stale)))
         || w.accounted_attempts.iter().any(|a| !a.cost_upper.is_finite() || a.cost_upper < 0.0
             || !attempts.insert((a.request_id, a.ledger_commit)))
         || [w.remaining, w.unreflected_own_cost, w.external_cost].into_iter().flatten()
@@ -348,11 +353,27 @@ pub fn decide(
     previous: Option<&PolicyDecision>,
     now: DateTime<Utc>,
 ) -> Result<PolicyDecision, PolicyError> {
-    let valid_until = validate(policy, now)?;
+    let mut valid_until = validate(policy, now)?;
+    // Every available profile's evidence can affect the choice. Recompute
+    // before any consulted fresh source stops being fresh.
+    for profile in &policy.profiles {
+        if availability.get(&profile.profile_id) != Some(&BackendState::Available) { continue; }
+        for cost in &profile.cost_per_request {
+            for forecast in forecasts.iter().filter(|f| f.provider_id == cost.window.provider_id
+                && f.account_scope_ref == cost.window.account_scope_ref
+                && f.windows.iter().any(|w| w.window_key == cost.window.window_key)) {
+                if let SourceValidity::FreshUntil { exclusive } = forecast.source_validity {
+                    if forecast.freshness == crate::model::Freshness::Fresh && exclusive > now {
+                        valid_until = valid_until.min(exclusive);
+                    }
+                }
+            }
+        }
+    }
     let digest = policy_digest(policy)?;
     let previous_profile = previous.filter(|d| d.policy_id == policy.policy_id && d.policy_revision == policy.revision
         && d.policy_digest == digest
-        && d.decided_at <= now && now <= d.valid_until).and_then(|d| match &d.choice {
+        && d.decided_at <= now && now < d.valid_until).and_then(|d| match &d.choice {
         Choice::Cloud { profile_id, .. } | Choice::Local { profile_id } => Some(profile_id.as_str()),
         _ => None,
     });

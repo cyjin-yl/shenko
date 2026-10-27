@@ -8,7 +8,7 @@ use shenko_types::commit::CommitRef;
 use shenko_types::ids::EntityId;
 use std::collections::{BTreeMap, HashMap};
 
-use crate::forecast::{AttemptBilling, LocalAttempt, QuotaForecast};
+use crate::forecast::{AttemptBilling, LocalAttempt};
 use crate::model::Range;
 use crate::policy::{BackendState, Choice, ModelProfile, PolicyDecision, QuotaPolicy, WindowCost, WindowRef};
 
@@ -39,7 +39,7 @@ pub struct QuotaAdmission {
     /// Actual admission time; waiting records have no admitted time.
     pub admitted_at: Option<DateTime<Utc>>,
     /// Windows whose periodic pacing was advanced by this admission.
-    pub paced_windows: Vec<PacingKey>,
+    pub paced_windows: Vec<WindowPace>,
     pub reason: String,
     /// Original admitted estimate; outstanding reservations are tracked separately.
     pub estimated_cost: Vec<WindowCost>,
@@ -76,24 +76,17 @@ pub struct BoundAttempt {
     pub ledger_commit: CommitRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PacingKey {
-    pub window: WindowRef,
-    pub period_end: DateTime<Utc>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WindowPace {
-    pub key: PacingKey,
-    pub request_id: EntityId,
-    pub admitted_at: DateTime<Utc>,
+    pub window: WindowRef,
+    /// None means the previously established interval exceeds clock range.
+    pub not_before: Option<DateTime<Utc>>,
 }
 
 /// Single-writer spacing and reservation state. The owner must persist it
 /// before dispatch and supply complete committed attempts when forecasting.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Pacer {
-    pacing: Vec<WindowPace>,
     reservations: BTreeMap<EntityId, Reservation>,
 }
 
@@ -101,36 +94,12 @@ impl<'de> Deserialize<'de> for Pacer {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         #[derive(Deserialize)]
         struct Stored {
-            pacing: Vec<WindowPace>,
             reservations: BTreeMap<EntityId, Reservation>,
         }
         let stored = Stored::deserialize(deserializer)?;
-        let pacer = Self { pacing: stored.pacing, reservations: stored.reservations };
+        let pacer = Self { reservations: stored.reservations };
         if !valid_pacer(&pacer) { return Err(serde::de::Error::custom("inconsistent pacer state")); }
         Ok(pacer)
-    }
-}
-
-impl Pacer {
-    /// Drop only per-window reservations proved covered by this forecast's
-    /// bound source snapshot and same-ledger attempt. Identity records remain.
-    pub fn reconcile_covered(&mut self, forecast: &QuotaForecast) {
-        for reservation in self.reservations.values_mut() {
-            let request_id = reservation.admission.request_id;
-            let attempts = &reservation.attempts;
-            reservation.outstanding.retain(|cost| {
-                let window = &cost.window;
-                if window.provider_id != forecast.provider_id || window.account_scope_ref != forecast.account_scope_ref {
-                    return true;
-                }
-                let mut found = forecast.windows.iter().filter(|w| w.window_key == window.window_key && w.unit == cost.unit);
-                let Some(item) = found.next() else { return true };
-                if found.next().is_some() { return true; }
-                let Some(bound) = attempts.iter().find(|bound| bound.window == *window) else { return true };
-                !item.accounted_attempts.iter().any(|a| a.request_id == request_id && a.covered
-                    && a.ledger_commit == bound.ledger_commit)
-            });
-        }
     }
 }
 
@@ -197,12 +166,10 @@ fn valid_pacer(pacer: &Pacer) -> bool {
             return false;
         }
         paced.clear();
-        for key in &admission.paced_windows {
-            if !paced.insert(key) || !original.contains(&key.window) { return false; }
-            if reservation.dispatch != Some(DispatchEvidence::NeverDispatched) {
-                let Some(at) = admission.admitted_at else { return false };
-                if at >= key.period_end || !pacer.pacing.iter().any(|pace| pace.key == *key && pace.admitted_at >= at) { return false; }
-            }
+        for pace in &admission.paced_windows {
+            if !paced.insert(&pace.window) || !original.contains(&pace.window) { return false; }
+            let Some(at) = admission.admitted_at else { return false };
+            if pace.not_before.is_some_and(|until| until <= at) { return false; }
         }
         outstanding.clear();
         for cost in &reservation.outstanding {
@@ -213,17 +180,6 @@ fn valid_pacer(pacer: &Pacer) -> bool {
             {
                 return false;
             }
-        }
-    }
-    let mut windows = std::collections::HashSet::new();
-    for pace in &pacer.pacing {
-        if !windows.insert(&pace.key) { return false; }
-        let Some(reservation) = pacer.reservations.get(&pace.request_id) else { return false };
-        if reservation.admission.admitted_at != Some(pace.admitted_at)
-            || reservation.dispatch == Some(DispatchEvidence::NeverDispatched)
-            || !reservation.admission.paced_windows.contains(&pace.key)
-        {
-            return false;
         }
     }
     true
@@ -309,6 +265,11 @@ pub fn admit(
     {
         return invalid("decision does not bind every backend observation");
     }
+    if let Choice::Cloud { profile_id, .. } | Choice::Local { profile_id } = &decision.choice {
+        if !decision.availability.iter().any(|item| item.profile_id == *profile_id && item.state == BackendState::Available) {
+            return invalid("selected backend was not available in the decision");
+        }
+    }
     let mut changed = false;
     let mut any_available = false;
     let mut any_unknown = false;
@@ -319,14 +280,12 @@ pub fn admit(
         any_unknown |= current == BackendState::Unknown;
     }
     if changed {
-        if let Choice::Cloud { profile_id, .. } | Choice::Local { profile_id } = &decision.choice {
-            if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
-        }
         if !any_available {
             return if any_unknown { AdmissionOutcome::CapacityUnknown { reason: "backend availability is unknown".into() } }
                 else { AdmissionOutcome::CapacityBlocked { reason: "no configured backend can run".into() } };
         }
-        return invalid("backend availability changed; recompute the decision");
+        return record_admission(pacer, record(AdmissionState::Eligible, None, None,
+            "backend availability changed; recompute the decision", vec![]), Vec::new());
     }
     match &decision.choice {
         Choice::Cloud { profile_id, rate_per_hour, unbounded_windows } => {
@@ -334,9 +293,6 @@ pub fn admit(
                 return invalid("decided profile no longer configured");
             };
             if p.local { return invalid("cloud choice refers to a local profile"); }
-            if !decision.availability.iter().any(|item| item.profile_id == *profile_id && item.state == BackendState::Available) {
-                return invalid("selected backend was not available in the decision");
-            }
             if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
             if rate_per_hour.is_some_and(|rate| !rate.is_finite() || rate <= 0.0) {
                 return invalid("cloud rate must be finite and positive when present");
@@ -377,19 +333,15 @@ pub fn admit(
             }
             let mut eligible_at = None::<DateTime<Utc>>;
             for constraint in &decision.constraints {
-                let Some(rate) = constraint.rate_per_hour else { continue };
-                let Some(period_end) = constraint.next_change else { return invalid("period pacing is missing its boundary") };
-                let Some(pace) = pacer.pacing.iter().find(|pace| pace.key.window == constraint.window
-                    && pace.key.period_end == period_end) else { continue };
-                let millis = (3_600_000.0 / rate).ceil();
-                let next = if millis.is_finite() && millis <= i64::MAX as f64 {
-                    Duration::try_milliseconds(millis as i64).and_then(|interval| pace.admitted_at.checked_add_signed(interval))
-                } else { None };
-                let Some(next) = next else {
-                    return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
-                        "pacing interval exceeds the representable clock range", vec![]), Vec::new());
-                };
-                if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
+                for reservation in pacer.reservations.values().filter(|r| r.dispatch != Some(DispatchEvidence::NeverDispatched)) {
+                    for pace in reservation.admission.paced_windows.iter().filter(|pace| pace.window == constraint.window) {
+                        let Some(next) = pace.not_before else {
+                            return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
+                                "pacing interval exceeds the representable clock range", vec![]), Vec::new());
+                        };
+                        if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
+                    }
+                }
             }
             if let Some(next) = eligible_at {
                 return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), Some(next),
@@ -410,25 +362,18 @@ pub fn admit(
             let costs = p.cost_per_request.clone();
             let mut admission = record(AdmissionState::Admitted, Some(profile_id), None, "within quota and pacing bounds", costs.clone());
             for constraint in &decision.constraints {
-                if constraint.rate_per_hour.is_none() { continue; }
-                let Some(period_end) = constraint.next_change else { return invalid("period pacing is missing its boundary") };
-                let key = PacingKey { window: constraint.window.clone(), period_end };
-                admission.paced_windows.push(key.clone());
-                if let Some(pace) = pacer.pacing.iter_mut().find(|pace| pace.key == key) {
-                    pace.request_id = request_id;
-                    pace.admitted_at = now;
-                } else {
-                    pacer.pacing.push(WindowPace { key, request_id, admitted_at: now });
-                }
+                let Some(rate) = constraint.rate_per_hour else { continue };
+                let millis = (3_600_000.0 / rate).next_up().ceil();
+                let not_before = if millis.is_finite() && millis <= i64::MAX as f64 {
+                    Duration::try_milliseconds(millis as i64).and_then(|interval| now.checked_add_signed(interval))
+                } else { None };
+                admission.paced_windows.push(WindowPace { window: constraint.window.clone(), not_before });
             }
             record_admission(pacer, admission, costs)
         }
         Choice::Local { profile_id } => {
             let Some(p) = profile(policy, profile_id) else { return invalid("decided profile no longer configured") };
             if !p.local || !decision.constraints.is_empty() { return invalid("local choice has inconsistent constraints"); }
-            if !decision.availability.iter().any(|item| item.profile_id == *profile_id && item.state == BackendState::Available) {
-                return invalid("selected backend was not available in the decision");
-            }
             if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
             let admission = record(AdmissionState::Admitted, Some(profile_id), None, "local profile draws no provider quota", vec![]);
             record_admission(pacer, admission, Vec::new())
@@ -446,7 +391,15 @@ pub fn admit(
         Choice::ObservationBlocked { .. } => {
             record_admission(pacer, record(AdmissionState::ObservationBlocked, None, None, "needed quota unobserved; policy blocks", vec![]), Vec::new())
         }
-        Choice::NoBackend | Choice::CapacityUnknown { .. } => {
+        Choice::CapacityUnknown { profiles } => {
+            if profiles.iter().any(|profile| decision.availability.iter().any(|item|
+                item.profile_id == *profile && item.state == BackendState::Unknown)) {
+                AdmissionOutcome::CapacityUnknown { reason: "a potentially usable backend has unknown availability".into() }
+            } else {
+                invalid("unknown-capacity decision has no unknown backend")
+            }
+        }
+        Choice::NoBackend => {
             let mut unknown = false;
             for profile in &policy.profiles {
                 match availability.get(&profile.profile_id).copied().unwrap_or(BackendState::Unknown) {
@@ -583,24 +536,5 @@ pub fn cancel(pacer: &mut Pacer, admission: &QuotaAdmission, evidence: DispatchE
         if evidence == DispatchEvidence::NeverDispatched { reservation.attempts.clear(); }
         (cancelled, retained)
     };
-    if evidence == DispatchEvidence::NeverDispatched {
-        let mut index = 0;
-        while index < pacer.pacing.len() {
-            if pacer.pacing[index].request_id != admission.request_id { index += 1; continue; }
-            let key = &pacer.pacing[index].key;
-            let previous = pacer.reservations.values().filter(|reservation|
-                reservation.dispatch != Some(DispatchEvidence::NeverDispatched)
-                    && reservation.admission.paced_windows.contains(key))
-                .filter_map(|reservation| reservation.admission.admitted_at.map(|at| (at, reservation.admission.request_id)))
-                .max_by_key(|(at, request_id)| (*at, *request_id));
-            if let Some((at, request_id)) = previous {
-                pacer.pacing[index].admitted_at = at;
-                pacer.pacing[index].request_id = request_id;
-                index += 1;
-            } else {
-                pacer.pacing.remove(index);
-            }
-        }
-    }
     Ok((cancelled, retained))
 }

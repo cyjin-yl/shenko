@@ -91,6 +91,19 @@ pub struct ForecastOptions {
     pub stale: StaleUse,
 }
 
+/// How long the source evidence used for this forecast can be relied on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum SourceValidity {
+    /// Exclusive bound: the source is fresh strictly before this instant.
+    FreshUntil { exclusive: DateTime<Utc> },
+    /// This forecast was explicitly made from a stale last-known reading.
+    LastKnown,
+    /// Older or invalid evidence has no usable freshness proof.
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Planning {
@@ -136,6 +149,9 @@ pub struct QuotaForecast {
     pub account_scope_ref: String,
     pub computed_at: DateTime<Utc>,
     pub freshness: Freshness,
+    /// Legacy forecasts have no source lifetime proof and remain unknown.
+    #[serde(default)]
+    pub source_validity: SourceValidity,
     pub windows: Vec<WindowForecast>,
     /// Expected windows with no usable reading: unknown, never full or exhausted.
     pub unobserved: Vec<AbsentWindow>,
@@ -185,6 +201,15 @@ pub fn forecast(
     options: ForecastOptions,
 ) -> QuotaForecast {
     let freshness = snapshot.freshness(now, options.ttl);
+    let source_validity = match freshness {
+        // `freshness` includes age == ttl. Chrono timestamps have nanosecond
+        // precision, so use the following instant as the exclusive bound.
+        Freshness::Fresh => snapshot.observed_at.checked_add_signed(options.ttl)
+            .and_then(|at| at.checked_add_signed(chrono::Duration::nanoseconds(1)))
+            .map_or(SourceValidity::Unknown, |exclusive| SourceValidity::FreshUntil { exclusive }),
+        Freshness::Stale if options.stale == StaleUse::LastKnown => SourceValidity::LastKnown,
+        _ => SourceValidity::Unknown,
+    };
     let windows = snapshot
         .windows
         .iter()
@@ -227,6 +252,7 @@ pub fn forecast(
         account_scope_ref: snapshot.account_scope_ref.clone(),
         computed_at: now,
         freshness,
+        source_validity,
         windows,
         unobserved: snapshot.absent_windows.clone(),
     }

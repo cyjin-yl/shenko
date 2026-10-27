@@ -22,6 +22,7 @@ fn forecast_of(rows: Vec<(&str, Planning, Option<Range>)>) -> QuotaForecast {
         account_scope_ref: "sub".into(),
         computed_at: now(),
         freshness: Freshness::Fresh,
+        source_validity: SourceValidity::FreshUntil { exclusive: now() + Duration::hours(24) },
         windows: rows
             .into_iter()
             .map(|(key, planning, remaining)| WindowForecast {
@@ -397,7 +398,6 @@ fn bucket_reservations_survive_replay_cancel_and_coverage() {
     let unrelated = LocalAttempt { ledger_commit: CommitRef::new(EntityId::new(), LedgerSeq(3)), ..attempt.clone() };
     snapshot.covered_through = Some(CoveredThrough { local_ledger_commit: unrelated.ledger_commit });
     let wrong = forecast(&snapshot, &[unrelated], &HashMap::new(), now(), options);
-    sent_pacer.reconcile_covered(&wrong);
     let wrong_decision = decide(&p, &[wrong], &available, None, now()).unwrap();
     assert!(matches!(admit(&p, &wrong_decision, waiting_id, &mut sent_pacer, &available, now()),
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::QuotaPolicyWait),
@@ -405,7 +405,6 @@ fn bucket_reservations_survive_replay_cancel_and_coverage() {
     snapshot.covered_through = Some(CoveredThrough { local_ledger_commit: CommitRef::new(ledger, LedgerSeq(3)) });
     let covered = forecast(&snapshot, &[attempt.clone()], &HashMap::new(), now(), options);
     assert!(covered.windows[0].accounted_attempts.iter().any(|a| a.request_id == sent_id && a.covered));
-    sent_pacer.reconcile_covered(&covered);
     let next = decide(&p, &[covered], &available, None, now()).unwrap();
     assert!(matches!(admit(&p, &next, waiting_id, &mut sent_pacer, &available, now()),
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted));
@@ -450,7 +449,7 @@ fn bucket_reservations_survive_replay_cancel_and_coverage() {
     ]);
     spent.covered_through = Some(CoveredThrough { local_ledger_commit: old_attempt.ledger_commit });
     let newer = forecast(&spent, &[old_attempt], &HashMap::new(), later, options);
-    stale_pacer.reconcile_covered(&newer);
+    let _newer_decision = decide(&p, &[newer], &available, None, later).unwrap();
     assert!(!matches!(admit(&p, &old_decision, EntityId::new(), &mut stale_pacer, &available, later),
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted),
         "a prior decision cannot reuse a charge removed by a newer coverage observation");
