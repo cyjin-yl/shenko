@@ -2,6 +2,7 @@
 //! namespace; `account_scope_ref` names a secret, it never holds one.
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use shenko_types::commit::CommitRef;
 use shenko_types::ids::EntityId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,6 +90,8 @@ pub enum AbsentReason {
     NotYetObserved,
     Expired,
     Unsupported,
+    /// Present but unusable: out of range, non-finite, malformed or conflicting.
+    Invalid,
     Unknown,
 }
 
@@ -110,13 +113,20 @@ impl Measurement {
     }
 
     /// The interval this measurement allows, widened by known rounding.
+    /// Quota quantities are finite and non-negative; anything else is not a
+    /// usable reading and yields None rather than a clamped balance.
     pub fn range(&self) -> Option<Range> {
         let pad = self.precision.unwrap_or(0.0);
-        match (self.value, self.lower, self.upper) {
-            (_, Some(lower), Some(upper)) => Some(Range::new(lower - pad, upper + pad)),
-            (Some(value), _, _) => Some(Range::new(value - pad, value + pad)),
-            _ => None,
+        if !pad.is_finite() || pad < 0.0 {
+            return None;
         }
+        let (lower, upper) = match (self.value, self.lower, self.upper) {
+            (_, Some(lower), Some(upper)) => (lower, upper),
+            (Some(value), _, _) => (value, value),
+            _ => return None,
+        };
+        let range = Range::checked(lower, upper)?;
+        Some(Range { lower: (range.lower - pad).max(0.0), upper: range.upper + pad })
     }
 }
 
@@ -130,6 +140,12 @@ pub struct Range {
 impl Range {
     pub fn new(lower: f64, upper: f64) -> Self {
         Self { lower: lower.min(upper), upper: upper.max(lower) }
+    }
+
+    /// A non-negative finite interval with `lower <= upper`, else None.
+    pub fn checked(lower: f64, upper: f64) -> Option<Self> {
+        let valid = lower.is_finite() && upper.is_finite() && lower >= 0.0 && lower <= upper;
+        valid.then_some(Self { lower, upper })
     }
 
     pub fn point(value: f64) -> Self {
@@ -170,7 +186,10 @@ impl QuotaWindow {
         }
         let capacity = self.capacity.and_then(|m| m.range())?;
         let used = self.used.and_then(|m| m.range())?;
-        Some(Range::new((capacity.lower - used.upper).max(0.0), (capacity.upper - used.lower).max(0.0)))
+        if used.lower > capacity.upper {
+            return None;
+        }
+        Some(Range::new((capacity.lower - used.upper).max(0.0), capacity.upper - used.lower))
     }
 }
 
@@ -181,10 +200,11 @@ pub struct AbsentWindow {
 }
 
 /// Proof of how far the provider's figures already include local usage.
+/// Sequence numbers are only comparable within one ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CoveredThrough {
-    /// Local attempts with `ledger_seq <= this` are reflected in the snapshot.
-    pub local_ledger_seq: u64,
+    /// Attempts committed in this ledger at or before this seq are reflected.
+    pub local_ledger_commit: CommitRef,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -207,9 +227,15 @@ pub struct QuotaSnapshot {
 
 impl QuotaSnapshot {
     /// Freshness at `now` for a source whose readings stay current for `ttl`.
+    /// A reading timestamped after `now` (clock skew) or a negative `ttl`
+    /// cannot establish freshness: Unknown, never Fresh.
     pub fn freshness(&self, now: DateTime<Utc>, ttl: chrono::Duration) -> Freshness {
+        let age = now - self.observed_at;
         match self.observation_status {
-            ObservationStatus::Available if now - self.observed_at <= ttl => Freshness::Fresh,
+            ObservationStatus::Available if age < chrono::Duration::zero() || ttl < chrono::Duration::zero() => {
+                Freshness::Unknown
+            }
+            ObservationStatus::Available if age <= ttl => Freshness::Fresh,
             ObservationStatus::Available => Freshness::Stale,
             _ => Freshness::Unknown,
         }
