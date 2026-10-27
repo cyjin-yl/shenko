@@ -6,11 +6,17 @@
 //! not observed stays unknown: a missing window is never "full", a failed
 //! query is never "exhausted", an API token-bucket refill is never a
 //! subscription reset. Policy, admission pacing and routing build on this and
-//! are separate, replaceable pieces.
+//! are separate, replaceable pieces: [`decide`] chooses a profile and pacing
+//! from forecasts, [`admit`] applies it to one request, and a capacity block
+//! is never reported as a quota state.
+pub mod admission;
 pub mod forecast;
 pub mod model;
 pub mod observe;
+pub mod policy;
 
+pub use admission::*;
 pub use forecast::*;
 pub use model::*;
 pub use observe::*;
+pub use policy::*;
