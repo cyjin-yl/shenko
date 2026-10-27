@@ -473,7 +473,9 @@ async fn execute_step(
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<Option<CommitRef>, ShenkoError> {
     let store = Arc::clone(&state.store);
-    let hooks_ref = state.hooks.clone(); // Option<Arc<HookRegistry>> — cloned to avoid reborrow
+    // Pin one graph through all phases of this invocation. A hot swap must not
+    // combine an old BeforeInference with a new AfterInference handler set.
+    let hooks_ref = state.hooks.as_ref().map(|registry| registry.snapshot());
 
     let step_id = state.step.step_id;
     let next_step_id = EntityId::new();
