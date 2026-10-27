@@ -623,10 +623,14 @@ impl Store {
                 previous.last_observed_at = now;
                 previous.updated_commit = commit_ref;
                 write_wait(tx, head.agent_id, &previous, commit_seq)?;
-                let replacement = self.start_semantic_wait(
+                let mut replacement = self.start_semantic_wait(
                     head, step, decision, request, condition.trim(), *max_wait_secs, now,
                     commit_ref, binding_digest,
                 )?;
+                // Whether two descriptions are semantically equivalent is a
+                // model judgment, not a keyword filter. An atomic replacement
+                // can never extend the deadline of the wait it supersedes.
+                replacement.deadline_at = replacement.deadline_at.min(previous.deadline_at);
                 write_wait(tx, head.agent_id, &replacement, commit_seq)?;
                 Ok((SemanticWaitOutcome::Replaced, Some(replacement)))
             }

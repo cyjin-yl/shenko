@@ -1714,7 +1714,8 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     let new = store.semantic_wait(agent).unwrap().unwrap();
     assert_ne!(new.wait_id, old.wait_id);
     assert_eq!(new.condition, "收到新的独立结果");
-    assert_eq!(new.deadline_at.signed_duration_since(new.started_at).num_seconds(), 180);
+    assert_eq!(new.deadline_at, old.deadline_at);
+    assert!(new.deadline_at.signed_duration_since(new.started_at).num_seconds() <= 180);
     assert!(matches!(store.semantic_wait_receipt(replaced).unwrap().unwrap().outcome,
         SemanticWaitOutcome::Replaced));
     let previous_json: String = rusqlite::Connection::open(dir.join("store.db")).unwrap()
