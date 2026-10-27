@@ -1,0 +1,92 @@
+//! Native graph admission and snapshot lifetime, without model/provider calls.
+use std::sync::{Arc, Mutex};
+
+use anyhow::Result;
+use async_trait::async_trait;
+use shenko_kernel::hooks::{
+    HOOK_SCHEMA_VERSION, HookAdmissionError, HookEntry, HookHandler, HookPayload, HookPhase,
+    HookRegistry, HookResult, HookSpec,
+};
+use shenko_types::ids::EntityId;
+
+struct Observe {
+    label: &'static str,
+    seen: Arc<Mutex<Vec<&'static str>>>,
+}
+
+#[async_trait]
+impl HookHandler for Observe {
+    async fn handle(&self, _: &HookPayload) -> Result<HookResult> {
+        self.seen.lock().unwrap().push(self.label);
+        Ok(HookResult::allow())
+    }
+}
+
+fn entry(id: &str, label: &'static str, seen: &Arc<Mutex<Vec<&'static str>>>) -> HookEntry {
+    HookEntry {
+        spec: HookSpec {
+            hook_id: id.parse().unwrap(),
+            plugin_id: "00000000-0000-0000-0000-000000000010".parse().unwrap(),
+            phase: HookPhase::BeforeInference,
+            name: label.into(),
+            schema_version: HOOK_SCHEMA_VERSION,
+            before: vec![],
+            after: vec![],
+            requires: vec![],
+        },
+        handler: Arc::new(Observe {
+            label,
+            seen: Arc::clone(seen),
+        }),
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let seen = Arc::new(Mutex::new(vec![]));
+    let registry = HookRegistry::new();
+    let first = entry("00000000-0000-0000-0000-000000000002", "first", &seen);
+    let mut second = entry("00000000-0000-0000-0000-000000000001", "second", &seen);
+    second.spec.after.push(first.spec.hook_id);
+    second.spec.requires.push(first.spec.hook_id);
+    registry.swap_generation(vec![second, first])?;
+    let original = registry.snapshot();
+    let payload = HookPayload::BeforeInference {
+        request_id: EntityId::new(),
+        agent_id: EntityId::new(),
+        model: "no-inference-demo".into(),
+    };
+    let results = original.run_phase(&payload).await;
+    anyhow::ensure!(results.iter().all(|r| r.allowed && r.error.is_none()));
+    anyhow::ensure!(*seen.lock().unwrap() == ["first", "second"]);
+    let mut incompatible = entry(
+        "00000000-0000-0000-0000-000000000003",
+        "incompatible",
+        &seen,
+    );
+    incompatible.spec.schema_version += 1;
+    let rejected = matches!(
+        registry.swap_generation(vec![incompatible]),
+        Err(HookAdmissionError::UnknownSchema { .. })
+    );
+    anyhow::ensure!(rejected && registry.generation() == original.generation());
+    registry.swap_generation(vec![entry(
+        "00000000-0000-0000-0000-000000000004",
+        "replacement",
+        &seen,
+    )])?;
+    original.run_phase(&payload).await;
+    registry.run_phase(&payload).await;
+    anyhow::ensure!(*seen.lock().unwrap() == ["first", "second", "first", "second", "replacement"]);
+    println!(
+        "{}",
+        serde_json::json!({
+            "order": *seen.lock().unwrap(),
+            "rejected_incompatible_schema": rejected,
+            "original_revision": original.generation(),
+            "active_revision": registry.generation(),
+            "model_calls": 0,
+        })
+    );
+    Ok(())
+}
