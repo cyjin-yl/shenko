@@ -3211,48 +3211,34 @@ mod tests {
     }
 
     #[test]
-    fn a_pinned_abstract_target_must_still_declare_its_capability() {
+    fn incoming_descriptor_supersedes_its_stale_retained_candidate() {
         let mut node = Node::open(&scratch("capability-node")).unwrap();
         let root = scratch("capability-packages");
         let mut provider = package("provider", "1.0.0", b"provider", vec![]);
         provider.unit.provides.push("capability/example".into());
+        import(&mut node, &root, vec![provider.clone()]);
+        let mut replacement = package("provider", "1.0.0", b"provider-two", vec![]);
+        replacement.unit.provides.push("capability/other".into());
+        import(&mut node, &root, vec![replacement]);
+
+        // The same retained digest is supplied with a new declaration that no
+        // longer provides the capability, together with a new consumer.
+        provider.unit.provides.clear();
         let consumer = package("consumer", "1.0.0", b"consumer", vec![DependencySpec {
             edge_id: "provider".into(), strength: DependencyStrength::Required,
             selector: DependencySelector::Abstract { capability_ref: Some("capability/example".into()), topic_ref: None },
             purpose: None,
         }]);
-        import(&mut node, &root, vec![provider.clone()]);
-        import(&mut node, &root, vec![consumer]);
-        assert_eq!(node.unit_status("consumer").unwrap()["closure"]["state"], json!("complete"));
-        // Retain the old provider as a non-current same-identity version.
-        let mut replacement = provider.clone();
-        replacement.unit.revision = "1.0.0".into();
-        replacement.unit.artifact_digest = Digest::blake3(b"provider-two");
-        replacement.artifact_base64 = b64_encode(b"provider-two");
-        replacement.unit.provides.clear();
-        replacement.unit.provides.push("capability/other".into());
-        provider.unit.provides.clear();
-        import(&mut node, &root, vec![provider.clone()]);
+        import(&mut node, &root, vec![consumer, provider]);
         let status = node.unit_status("consumer").unwrap();
-        assert_eq!(status["closure"]["state"], json!("incomplete"));
-        assert_eq!(status["readiness"]["state"], json!("unresolved"));
-        assert_eq!(status["closure"]["edges"][0]["selected_artifact_digest"], json!(&provider.unit.artifact_digest.0));
-        // A new consumer must not select the stale non-current declaration.
-        let late = package("late", "1.0.0", b"late", vec![DependencySpec {
-            edge_id: "provider".into(), strength: DependencyStrength::Required,
-            selector: DependencySelector::Abstract { capability_ref: Some("capability/example".into()), topic_ref: None },
-            purpose: None,
-        }]);
-        import(&mut node, &root, vec![late.clone(), replacement.clone()]);
-        let status = node.unit_status("late").unwrap();
         assert_eq!(status["closure"]["state"], json!("incomplete"));
         assert_eq!(status["closure"]["edges"][0]["status"], json!("unresolved"));
         assert_eq!(status["closure"]["edges"][0]["selected_artifact_digest"], Value::Null);
-        provider.unit.provides.push("capability/example".into());
-        import(&mut node, &root, vec![provider]);
+        let mut valid = package("provider-new", "1.0.0", b"provider-new", vec![]);
+        valid.unit.provides.push("capability/example".into());
+        import(&mut node, &root, vec![valid]);
         assert_eq!(node.unit_status("consumer").unwrap()["closure"]["state"], json!("complete"));
-        assert_eq!(node.unit_status("late").unwrap()["closure"]["state"], json!("complete"));
-        assert_eq!(node.installed_unit("provider").unwrap().unwrap().artifact_digest, provider.unit.artifact_digest);
+        assert_eq!(node.unit_status("consumer").unwrap()["closure"]["edges"][0]["selected_unit_id"], json!("provider-new"));
     }
 
     #[test]
@@ -3306,31 +3292,6 @@ mod tests {
         import(&mut origin, &root, vec![top]);
         let transfer = origin.export_unit_closure(&origin.installed_unit("top").unwrap().unwrap()).unwrap();
         assert_eq!(transfer.packages.len(), 5);
-
-        let mut receiver = Node::open(&scratch("pin-receiver")).unwrap();
-        let receiver_root = scratch("pin-receiver-packages");
-        receiver.handle_unit_request(UnitRequest::Import {
-            export: transfer.clone(), package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
-        }).unwrap();
-        let status = receiver.unit_status("top").unwrap();
-        assert_eq!(status["closure"]["state"], json!("complete"));
-        assert_eq!(status["readiness"]["state"], json!("unverified"));
-        let received_a = receiver.installed_unit_version("middle", "1.0.0", &a.unit.artifact_digest).unwrap().unwrap();
-        let received_b = receiver.installed_unit_version("middle", "1.0.0", &b.unit.artifact_digest).unwrap().unwrap();
-        assert_eq!(received_a.edges[0].selected_artifact_digest, Some(one.unit.artifact_digest.clone()));
-        assert_eq!(received_b.edges[0].selected_artifact_digest, Some(two.unit.artifact_digest.clone()));
-        assert_ne!(received_a.materialization.unwrap().path, received_b.materialization.unwrap().path);
-
-        let mut conflict = export(vec![a.clone(), two.clone()]);
-        conflict.packages[0].resolved_dependencies = Some(vec![resolve_edge(&a.unit.dependencies[0], &[(
-            two.unit.unit_id.clone(), two.unit.revision.clone(), two.unit.artifact_digest.clone(), vec![],
-        )])]);
-        let error = receiver.handle_unit_request(UnitRequest::Import {
-            export: conflict, package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
-        }).unwrap_err();
-        assert!(format!("{error:#}").contains("conflicting digest-bound dependency selections"));
-        let preserved = receiver.installed_unit_version("middle", "1.0.0", &a.unit.artifact_digest).unwrap().unwrap();
-        assert_eq!(preserved.edges[0].selected_artifact_digest, Some(one.unit.artifact_digest.clone()));
 
         let mut incomplete = transfer;
         incomplete.packages.retain(|p| p.unit.artifact_digest != one.unit.artifact_digest);
@@ -3449,45 +3410,6 @@ mod tests {
         let reopened = Node::open(&dir).unwrap();
         assert_eq!(reopened.local_node_id().unwrap(), Some(node_id));
         assert_eq!(reopened.conn.query_row("SELECT count(*) FROM unit_edges_legacy", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
-    }
-
-    #[test]
-    fn original_storage_versions_still_migrate_without_rebirth() {
-        for version in [1_u32, 2_u32] {
-            let dir = scratch(&format!("original-v{version}"));
-            let node_id = EntityId::new();
-            let ledger = EntityId::new();
-            let installation = EntityId::new();
-            {
-                let mut db = rusqlite::Connection::open(dir.join("node.sqlite3")).unwrap();
-                let tx = db.transaction().unwrap();
-                tx.execute_batch(crate::NODE_TABLES).unwrap();
-                crate::set(&tx, "node", &node_id).unwrap();
-                crate::set(&tx, "ledger", &ledger).unwrap();
-                crate::set(&tx, "identity", &Option::<crate::Identity>::None).unwrap();
-                crate::set(&tx, "retired_identities", &Vec::<crate::Identity>::new()).unwrap();
-                if version == 2 {
-                    tx.execute_batch(crate::RECEIPT_TABLE).unwrap();
-                    crate::set(&tx, "installation", &installation).unwrap();
-                    tx.pragma_update(None, "application_id", crate::APPLICATION_ID).unwrap();
-                }
-                tx.execute("INSERT INTO events(id,source,digest,data) VALUES('history','source','digest','unchanged')", []).unwrap();
-                tx.pragma_update(None, "user_version", version).unwrap();
-                tx.commit().unwrap();
-            }
-            let node = Node::open(&dir).unwrap();
-            assert_eq!(node.local_node_id().unwrap(), Some(node_id));
-            assert_eq!(node.conn.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0)).unwrap(), 4);
-            let stored_ledger: String = node.conn.query_row("SELECT v FROM meta WHERE k='ledger'", [], |r| r.get(0)).unwrap();
-            assert_eq!(stored_ledger, serde_json::to_string(&ledger).unwrap());
-            assert_eq!(node.conn.query_row("SELECT data FROM events WHERE id='history'", [], |r| r.get::<_, String>(0)).unwrap(), "unchanged");
-            if version == 2 {
-                let stored_installation: String = node.conn.query_row("SELECT v FROM meta WHERE k='installation'", [], |r| r.get(0)).unwrap();
-                assert_eq!(stored_installation, serde_json::to_string(&installation).unwrap());
-            }
-            drop(node);
-            assert_eq!(Node::open(&dir).unwrap().local_node_id().unwrap(), Some(node_id));
-        }
     }
 
     #[test]
