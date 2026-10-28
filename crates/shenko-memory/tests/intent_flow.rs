@@ -120,10 +120,13 @@ fn replay_after_reopen_preserves_the_original_memory() {
 
 #[test]
 fn stale_worker_and_late_failure_cannot_replace_a_committed_memory() {
-    let store = store("stale-worker");
+    let tag = "stale-worker";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let other_store = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
     let agent = EntityId::new();
     let first = MemoryStore::with_store(agent, Arc::clone(&store));
-    let second = MemoryStore::with_store(agent, Arc::clone(&store));
+    let second = MemoryStore::with_store(agent, other_store);
     let intent = intent(MemoryIntentKind::Save);
     let text = "共享的深刻事实";
     first.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap();
@@ -194,4 +197,54 @@ fn replicated_pending_memory_carries_its_object_binding_and_content() {
     assert_eq!(facts.len(), 1);
     assert_eq!(facts[0].content, body);
     assert_eq!(target.cas.read_object(&object.digest).unwrap(), body.as_bytes());
+}
+
+#[test]
+fn missing_content_object_remains_recoverable_instead_of_failed() {
+    let store = store("missing-object");
+    let agent = EntityId::new();
+    let object = store.cas.seal_object(b"present", "text/plain", "memory", "raw", 1).unwrap().object;
+    let mut request = intent(MemoryIntentKind::Save);
+    let mut missing = object;
+    missing.digest = shenko_types::object::Digest::blake3(b"not installed in this store");
+    request.content_ref = Some(missing);
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+    memory.accept_intent(request.clone()).unwrap();
+    assert!(memory.process_intent(request.intent_id).is_err());
+    assert_eq!(store.memory_intent_state(request.intent_id).unwrap().as_deref(), Some("accepted"));
+    assert!(memory.search("深刻", 10).unwrap().is_empty());
+}
+
+#[test]
+fn concurrent_equal_admissions_share_one_durable_entry_identity() {
+    let tag = "concurrent-accept";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let first_store = store(tag);
+    let second_store = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let agent = EntityId::new();
+    let first = Arc::new(MemoryStore::with_store(agent, first_store));
+    let second = Arc::new(MemoryStore::with_store(agent, second_store));
+    let request = intent(MemoryIntentKind::Save);
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    std::thread::scope(|scope| {
+        let a = scope.spawn(|| {
+            barrier.wait();
+            first.accept_intent_with_content(request.clone(), Some("并发的深刻事实".into())).unwrap();
+        });
+        let b = scope.spawn(|| {
+            barrier.wait();
+            second.accept_intent_with_content(request.clone(), Some("并发的深刻事实".into())).unwrap();
+        });
+        a.join().unwrap();
+        b.join().unwrap();
+    });
+    assert_eq!(first.pending_intents()[0].entry_id, second.pending_intents()[0].entry_id);
+    let first_id = match first.process_intent(request.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected one commit, got {other:?}"),
+    };
+    assert!(matches!(second.process_intent(request.intent_id).unwrap(), ProcessOutcome::AlreadyProcessed(_)));
+    let facts = first.search("深刻", 10).unwrap();
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].entry_id, first_id);
 }

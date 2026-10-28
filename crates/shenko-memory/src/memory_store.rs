@@ -254,11 +254,13 @@ impl MemoryStore {
                 Ok(ProcessOutcome::Committed(entry))
             }
             Err(e) => {
-                if e.downcast_ref::<shenko_types::error::ShenkoError>().is_some() {
-                    if let Some(state) = store.memory_intent_state(intent_id)? {
-                        if state == "committed" || state == "failed" {
-                            self.remove_queued(intent_id);
-                            return Ok(ProcessOutcome::AlreadyProcessed(state));
+                if let Some(store_error) = e.downcast_ref::<shenko_types::error::ShenkoError>() {
+                    if matches!(store_error, shenko_types::error::ShenkoError::Conflict(_)) {
+                        if let Some(state) = store.memory_intent_state(intent_id)? {
+                            if state == "committed" || state == "failed" {
+                                self.remove_queued(intent_id);
+                                return Ok(ProcessOutcome::AlreadyProcessed(state));
+                            }
                         }
                     }
                     return Err(e);
