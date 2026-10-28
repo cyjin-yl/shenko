@@ -230,7 +230,9 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
             let Some(reported) = w.remaining else { return Bound::Unknown };
             if remaining.upper > reported.upper { return Bound::Unknown; }
             if remaining.lower < cost.amount.upper {
-                Bound::Short { until: *refill_by, provider_at_limit: false }
+                // A depleted net budget may only reflect our policy deductions.
+                // Only a zero reported upper bound proves provider exhaustion.
+                Bound::Short { until: *refill_by, provider_at_limit: reported.upper == 0.0 }
             } else {
                 Bound::Bucket { constraint: constraint(remaining.lower, None, *refill_by) }
             }
@@ -396,7 +398,7 @@ pub fn decide(
             BackendState::Available => {}
         }
         if profile.local {
-            if local.is_none() {
+            if local.is_none() || previous_profile == Some(profile.profile_id.as_str()) {
                 local = Some(profile.profile_id.clone());
             }
             continue;
@@ -449,7 +451,14 @@ pub fn decide(
     blocked.dedup();
     exhausted.sort();
     exhausted.dedup();
-    let selected = pick.or_else(|| if local.is_none() { slow.as_ref() } else { None });
+    // Local profiles are not in `feasible`. Retain the previous available local
+    // choice across marginal cloud recovery, using the same switching margin.
+    // An unavailable local never reaches `local`, so it cannot pin the choice.
+    let keep_local = previous_profile.is_some() && local.as_deref() == previous_profile
+        && first.is_some_and(|candidate| candidate.score()
+            < policy.min_progress_per_hour * (1.0 + policy.switching_hysteresis));
+    let selected = if keep_local { None }
+        else { pick.or_else(|| if local.is_none() { slow.as_ref() } else { None }) };
     let (choice, constraints) = if let Some(candidate) = selected {
         (Choice::Cloud { profile_id: candidate.profile_id.clone(), rate_per_hour: candidate.rate,
             unbounded_windows: candidate.unbounded.clone() }, candidate.constraints.clone())

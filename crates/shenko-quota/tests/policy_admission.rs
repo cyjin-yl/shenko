@@ -109,6 +109,64 @@ fn admit_fixture(policy: &QuotaPolicy, decision: &PolicyDecision, request_id: En
     admit(policy, decision, request_id, pacer, &available, at)
 }
 
+/// PR88 post-merge review: reported exhaustion is not a policy deduction.
+/// Constructed forecasts only; no provider/account observation is claimed.
+#[test]
+fn replenishing_exhaustion_and_own_cost_wait_remain_distinct() {
+    let p = single_window_policy("requests", "requests", &[("cloud", 1.0)]);
+    let refill = now() + Duration::minutes(10);
+    let mut empty = forecast_of(vec![("requests", Planning::Replenishing {
+        remaining: Range::zero(), refill_by: Some(refill),
+    }, Some(Range::zero()))]);
+    empty.windows[0].unit = "requests".into();
+    let exhausted = decide_fixture(&p, &[empty.clone()], false, None, now());
+    assert_eq!(exhausted.choice, Choice::ProviderExhausted {
+        windows: vec![wref("requests")], until: Some(refill),
+    });
+    let AdmissionOutcome::Quota(admission) = admit_fixture(
+        &p, &exhausted, EntityId::new(), &mut Pacer::default(), now(),
+    ) else { panic!("expected quota exhaustion"); };
+    assert_eq!(admission.state, AdmissionState::ProviderExhausted);
+
+    // Same zero net budget, but the provider still reports two requests:
+    // our unreflected own cost consumes the budget, not the provider limit.
+    let mut reserved = empty;
+    reserved.windows[0].remaining = Range::point(2.0);
+    reserved.windows[0].unreflected_own_cost = Range::point(2.0);
+    let waiting = decide_fixture(&p, &[reserved], false, None, now());
+    assert_eq!(waiting.choice, Choice::Wait { until: Some(refill) });
+    let AdmissionOutcome::Quota(admission) = admit_fixture(
+        &p, &waiting, EntityId::new(), &mut Pacer::default(), now(),
+    ) else { panic!("expected quota policy wait"); };
+    assert_eq!(admission.state, AdmissionState::QuotaPolicyWait);
+}
+
+/// PR88 post-merge review: the local/cloud boundary uses the switching margin.
+#[test]
+fn previous_local_survives_marginal_cloud_recovery_but_not_unavailability() {
+    let mut p = single_window_policy("period", "percent", &[("cloud", 1.0)]);
+    p.min_progress_per_hour = 2.0;
+    p.profiles.push(ModelProfile { profile_id: "local".into(),
+        model_ref: "model/local".into(), local: true, cost_per_request: Vec::new() });
+    let source = |rate| forecast_of(vec![
+        ("period", period(20.0, rate, 4), Range::point(20.0)),
+    ]);
+    let local = decide_fixture(&p, &[source(1.9)], true, None, now());
+    assert_eq!(local.choice, Choice::Local { profile_id: "local".into() });
+    let marginal = source(2.1);
+    let kept = decide_fixture(&p, &[marginal.clone()], true, Some(&local), now());
+    assert_eq!(kept.choice, local.choice);
+    let dipped = decide_fixture(&p, &[source(1.9)], true, Some(&kept), now());
+    let recovered = decide_fixture(&p, &[marginal.clone()], true, Some(&dipped), now());
+    assert_eq!(recovered.choice, local.choice);
+
+    // Use 2.5, not exactly 2.4: bound() conservatively rounds rates downward.
+    let switched = decide_fixture(&p, &[source(2.5)], true, Some(&recovered), now());
+    assert_eq!(cloud(&switched).0, "cloud");
+    let unavailable = decide_fixture(&p, &[marginal], false, Some(&recovered), now());
+    assert_eq!(cloud(&unavailable).0, "cloud");
+}
+
 /// QA05: every overlapping window bounds the rate, the weekly window can
 /// rule out the smart profile even when the five-hour window has room,
 /// hysteresis avoids flapping, and a too-slow cloud yields to local.
