@@ -2235,24 +2235,29 @@
         "QA01",
         "QA02",
         "QA03",
-        "QA05"
+        "QA05",
+        "QA06"
       ],
       "implementation_refs": [
         "crates/shenko-quota/src/model.rs",
         "crates/shenko-quota/src/observe.rs",
-        "crates/shenko-quota/src/forecast.rs"
+        "crates/shenko-quota/src/forecast.rs",
+        "crates/shenko-quota/src/policy.rs",
+        "crates/shenko-quota/src/admission.rs"
       ],
       "evidence_refs": [
-        "crates/shenko-quota/tests/quota.rs"
+        "crates/shenko-quota/tests/quota.rs",
+        "crates/shenko-quota/tests/policy_admission.rs"
       ],
       "blockers": [
-        "QuotaPolicy/QuotaAdmission（quota_policy_wait）、模型/effort/轮数路由与 quota.* 事件未实现",
-        "未接 broker/RequestSeal（依赖 C04 #9）",
-        "快照/预测未持久化",
+        "路由与 RequestSeal、broker capacity 接线未实现（依赖 C04 #9）",
+        "quota.* 事件与快照/预测/决策持久化未实现",
+        "效能学习的 c_pj 成本模型、周期回放误差与质量/等待指标（QA05 完整版）未实现",
+        "QA04 模型切换/KV 未覆盖",
         "未对真实 CLI statusline 或 API 响应采集（fixture 按文档字段形态）"
       ],
       "satisfied": false,
-      "note": "C18 切片1：statusline rate_limits 与 API rate-limit headers 的非 LLM 观测，缺失/过期/查询失败如实为 unknown/expired/unavailable；token bucket 只给 refill 不套周期公式；预测按 §42.5 A=max(0,R_lower−U_upper−E−reserve−margin)、r=A/T，无覆盖证明时本地费用保留 overlap 区间，单位不符或共享账户无外部假设时为 unknown。"
+      "note": "C18 观察/预测切片：缺失、过期、失败与无效值保持 unknown，token remaining 按官方千位舍入保守表示；账户/单位/ledger 不混合。策略库按每窗单位、调用方报告的 backend 状态与来源预测生成绑定 policy digest 的有限决策；冲突或不可比较保持 unknown，额外付费明确未实现。单 writer 准入保留 request/window/ledger-bound reservation，区分未发送释放与 armed unknown，pace 按窗和周期，已计入费用不重复扣减；可序列化回放并有模拟 consumer 证据，但 Store CAS、broker、真实来源与完整 QA05/06 均未完成。"
     },
     {
       "requirement_id": "R131",

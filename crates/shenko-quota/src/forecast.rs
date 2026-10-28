@@ -65,7 +65,7 @@ impl Default for WindowAssumptions {
 }
 
 impl WindowAssumptions {
-    fn valid(&self) -> bool {
+    pub(crate) fn valid(&self) -> bool {
         let amount = |v: f64| v.is_finite() && v >= 0.0;
         amount(self.reserve)
             && amount(self.margin)
@@ -91,6 +91,19 @@ pub struct ForecastOptions {
     pub stale: StaleUse,
 }
 
+/// How long the source evidence used for this forecast can be relied on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum SourceValidity {
+    /// Exclusive bound: the source is fresh strictly before this instant.
+    FreshUntil { exclusive: DateTime<Utc> },
+    /// This forecast was explicitly made from a stale last-known reading.
+    LastKnown,
+    /// Older or invalid evidence has no usable freshness proof.
+    #[default]
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum Planning {
@@ -103,12 +116,26 @@ pub enum Planning {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AccountedAttempt {
+    pub request_id: EntityId,
+    pub ledger_commit: CommitRef,
+    /// Conservative upper bound already considered in this window.
+    pub cost_upper: f64,
+    /// Only a same-ledger provider coverage proof can set this to true.
+    pub covered: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowForecast {
     pub window_key: String,
     pub unit: String,
     pub remaining: Option<Range>,
     pub unreflected_own_cost: Option<Range>,
     pub external_cost: Option<Range>,
+    /// Exact inputs used to produce this window's plan.
+    pub assumptions: WindowAssumptions,
+    /// Attempts whose cost or provider coverage is already reflected here.
+    pub accounted_attempts: Vec<AccountedAttempt>,
     /// Freshness of the reading this window was planned from.
     pub basis: Freshness,
     pub planning: Planning,
@@ -122,6 +149,9 @@ pub struct QuotaForecast {
     pub account_scope_ref: String,
     pub computed_at: DateTime<Utc>,
     pub freshness: Freshness,
+    /// Legacy forecasts have no source lifetime proof and remain unknown.
+    #[serde(default)]
+    pub source_validity: SourceValidity,
     pub windows: Vec<WindowForecast>,
     /// Expected windows with no usable reading: unknown, never full or exhausted.
     pub unobserved: Vec<AbsentWindow>,
@@ -131,8 +161,10 @@ pub struct QuotaForecast {
 /// A coverage proof only settles attempts committed in the same ledger;
 /// for any other attempt the overlap stays open (from nothing to its upper
 /// bound), so neither double counting nor premature settling.
-fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[LocalAttempt]) -> Option<Range> {
+fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[LocalAttempt]) -> Option<(Range, Vec<AccountedAttempt>)> {
     let mut total = Range::zero();
+    let mut accounted = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     let mine = attempts.iter().filter(|a| {
         a.provider_id == snapshot.provider_id
             && a.account_scope_ref == snapshot.account_scope_ref
@@ -142,8 +174,13 @@ fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[Local
         if attempt.unit != window.unit {
             return None;
         }
+        if !seen.insert((attempt.request_id, attempt.ledger_commit)) { return None; }
         let charge = attempt.charge()?;
         let proof = snapshot.covered_through.map(|c| c.local_ledger_commit);
+        let covered = proof.is_some_and(|c| c.ledger_id == attempt.ledger_commit.ledger_id
+            && attempt.ledger_commit.seq <= c.seq);
+        accounted.push(AccountedAttempt { request_id: attempt.request_id, ledger_commit: attempt.ledger_commit,
+            cost_upper: charge.upper, covered });
         match proof {
             Some(c) if c.ledger_id == attempt.ledger_commit.ledger_id => {
                 if attempt.ledger_commit.seq > c.seq {
@@ -153,7 +190,7 @@ fn unreflected(snapshot: &QuotaSnapshot, window: &QuotaWindow, attempts: &[Local
             _ => total = total.checked_add(Range::new(0.0, charge.upper)?)?,
         }
     }
-    Some(total)
+    Some((total, accounted))
 }
 
 pub fn forecast(
@@ -164,13 +201,25 @@ pub fn forecast(
     options: ForecastOptions,
 ) -> QuotaForecast {
     let freshness = snapshot.freshness(now, options.ttl);
+    let source_validity = match freshness {
+        // `freshness` includes age == ttl. Chrono timestamps have nanosecond
+        // precision, so use the following instant as the exclusive bound.
+        Freshness::Fresh => snapshot.observed_at.checked_add_signed(options.ttl)
+            .and_then(|at| at.checked_add_signed(chrono::Duration::nanoseconds(1)))
+            .map_or(SourceValidity::Unknown, |exclusive| SourceValidity::FreshUntil { exclusive }),
+        Freshness::Stale if options.stale == StaleUse::LastKnown => SourceValidity::LastKnown,
+        _ => SourceValidity::Unknown,
+    };
     let windows = snapshot
         .windows
         .iter()
         .map(|window| {
             let assume = assumptions.get(&window.window_key).copied().unwrap_or_default();
             let remaining = window.remaining_range();
-            let own = unreflected(snapshot, window, attempts);
+            let (own, accounted_attempts) = match unreflected(snapshot, window, attempts) {
+                Some((cost, attempts)) => (Some(cost), attempts),
+                None => (None, Vec::new()),
+            };
             let external = match snapshot.attribution {
                 Attribution::Exclusive => Some(Range::zero()),
                 _ => assume.external,
@@ -189,6 +238,8 @@ pub fn forecast(
                 remaining,
                 unreflected_own_cost: own,
                 external_cost: external,
+                assumptions: assume,
+                accounted_attempts,
                 basis: freshness,
                 planning,
             }
@@ -201,6 +252,7 @@ pub fn forecast(
         account_scope_ref: snapshot.account_scope_ref.clone(),
         computed_at: now,
         freshness,
+        source_validity,
         windows,
         unobserved: snapshot.absent_windows.clone(),
     }
