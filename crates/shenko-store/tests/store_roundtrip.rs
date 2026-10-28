@@ -856,3 +856,112 @@ fn task_roundtrip() {
     assert!(!receipt.updated.is_empty());
     assert_eq!(receipt.updated[0].entity_id, task_id);
 }
+
+fn recovery_task(
+    store: &Store,
+    agent: shenko_types::ids::EntityId,
+    number: u64,
+    running: bool,
+) -> shenko_types::task::TaskRecord {
+    use shenko_types::{commit::CommitRef, ids::*, task::*};
+    let input = store.cas.seal_object(b"recovery checkpoint", "text/plain", "test", "raw", 1)
+        .unwrap().object;
+    let task_id = format!("00000000-0000-0000-0000-{number:012x}").parse().unwrap();
+    let commit = CommitRef::new(store.ledger.ledger_id(), LedgerSeq::ZERO);
+    TaskRecord {
+        record_schema_version: 1, task_id, task_revision: TaskRevision(3),
+        record_revision: RecordRevision(5), agent_id: agent, conversation_id: agent,
+        owner: TaskOwner::Conversation { id: agent }, background: false,
+        kind: "host.printf".into(), definition_version: 1,
+        implementation_ref: ImplementationRef {
+            plugin_id: agent, artifact_digest: input.digest.clone(), registry_revision: 1,
+        },
+        input_ref: input.clone(),
+        state: if running {
+            TaskState::Running { checkpoint_ref: Some(input), invocation_id: EntityId::new(),
+                mode: RunMode::Run, epoch: ControllerEpoch(7) }
+        } else { TaskState::Pending { checkpoint_ref: Some(input) } },
+        abort_request: None,
+        memos: serde_json::Map::from_iter([("native_child".into(), serde_json::json!(true))]),
+        residual_case_ids: vec![], created_by_step_id: None,
+        dispatch_eligibility: DispatchEligibility::Ready, no_progress_crashes: 0,
+        first_run_at: None, terminal_at: None, created_commit: commit, updated_commit: commit,
+    }
+}
+
+#[test]
+fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() {
+    use shenko_types::{ids::*, task::*};
+    let (dir, store, agent) = initialized_subject();
+    let mut batch = WriteBatch::new();
+    for number in 1..=256 { batch.task_upserts.push(recovery_task(&store, agent, number, false)); }
+    let mut running = recovery_task(&store, agent, 257, true);
+    running.abort_request = Some(AbortRequest {
+        cancel_id: EntityId::new(), decision_ref: EntityId::new(),
+        requested_commit: running.created_commit, reason: "cancel before crash".into(), scope: AbortScope::Task,
+    });
+    let checkpoint = match &running.state {
+        TaskState::Running { checkpoint_ref, .. } => checkpoint_ref.clone(), _ => unreachable!(),
+    };
+    batch.task_upserts.push(running.clone());
+    store.commit(batch).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    assert_eq!(reopened.recover_native_tasks().unwrap(), 1);
+    let recovered = reopened.external_task(running.task_id).unwrap();
+    assert_eq!(recovered.state, TaskState::Pending { checkpoint_ref: checkpoint });
+    assert_eq!(recovered.abort_request, running.abort_request);
+    assert_eq!(recovered.task_revision, running.task_revision);
+    assert_eq!(recovered.record_revision, RecordRevision(6));
+    assert_eq!(recovered.memos.get("native_recovery"), Some(&serde_json::json!(true)));
+    assert!(matches!(recovered.dispatch_eligibility, DispatchEligibility::Parked { .. }));
+    assert_eq!(reopened.recover_native_tasks().unwrap(), 0);
+    assert_eq!(reopened.external_task("00000000-0000-0000-0000-000000000001".parse().unwrap())
+        .unwrap().record_revision, RecordRevision(5));
+}
+
+#[test]
+fn native_recovery_recovers_more_than_one_page_of_running_work() {
+    use shenko_types::task::TaskState;
+    let (_, store, agent) = initialized_subject();
+    let mut batch = WriteBatch::new();
+    for number in 1..=257 { batch.task_upserts.push(recovery_task(&store, agent, number, true)); }
+    store.commit(batch).unwrap();
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(store.recover_native_tasks().unwrap(), 257);
+    for number in 1..=257 {
+        let id = format!("00000000-0000-0000-0000-{number:012x}").parse().unwrap();
+        let task = store.external_task(id).unwrap();
+        assert!(matches!(task.state, TaskState::Pending { checkpoint_ref: Some(_) }));
+        assert_eq!(task.memos.get("native_recovery"), Some(&serde_json::json!(true)));
+    }
+    assert_eq!(store.recover_native_tasks().unwrap(), 0);
+}
+
+#[test]
+fn native_recovery_rolls_back_all_pages_when_later_identity_is_corrupt() {
+    use shenko_types::{ids::*, task::TaskState};
+    let (dir, store, agent) = initialized_subject();
+    let mut batch = WriteBatch::new();
+    for number in 1..=257 { batch.task_upserts.push(recovery_task(&store, agent, number, true)); }
+    store.commit(batch).unwrap();
+    drop(store);
+
+    let corrupt = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    corrupt.execute(
+        "UPDATE tasks SET data=json_set(data,'$.task_id',?1) WHERE task_id=?2",
+        rusqlite::params![EntityId::nil().to_string(), "00000000-0000-0000-0000-000000000101"],
+    ).unwrap();
+    drop(corrupt);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    let before = reopened.current_commit_seq().unwrap();
+    assert!(reopened.recover_native_tasks().is_err());
+    assert_eq!(reopened.current_commit_seq().unwrap(), before);
+    let first = reopened.external_task("00000000-0000-0000-0000-000000000001".parse().unwrap()).unwrap();
+    assert!(matches!(first.state, TaskState::Running { .. }));
+    assert_eq!(first.record_revision, RecordRevision(5));
+    assert!(!first.memos.contains_key("native_recovery"));
+}

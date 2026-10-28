@@ -30,6 +30,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // step with a narrower shape, so we extend it additively instead of
     // recreating it (that would discard already persisted memories).
     conn.execute_batch(MEMORY_INTENTS_SCHEMA)?;
+    // A missing binding row is meaningful: legacy locator-only intents cannot
+    // be silently treated as if their full object identity were known.
+    conn.execute_batch(MEMORY_INTENT_BINDINGS_SCHEMA)?;
     ensure_memory_columns(conn)?;
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory_entries(scope, created_at_ms);",
@@ -350,6 +353,15 @@ CREATE TABLE IF NOT EXISTS memory_intents (
 CREATE INDEX IF NOT EXISTS idx_memory_intents_state ON memory_intents(state, created_at_ms);
 
 INSERT OR IGNORE INTO schema_version (version) VALUES (2);
+"#;
+
+/// Exact object-reference identity for newly admitted library memory intents.
+/// Rows are additive; old locator-only history is preserved without backfill.
+const MEMORY_INTENT_BINDINGS_SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS memory_intent_bindings (
+    intent_id TEXT PRIMARY KEY,
+    data TEXT NOT NULL
+);
 "#;
 
 /// FTS5 index over memory content. Creation is best-effort: some SQLite builds

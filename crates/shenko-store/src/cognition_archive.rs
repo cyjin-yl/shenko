@@ -30,8 +30,9 @@ use shenko_types::object::{Digest, SchemaRef};
 
 /// Magic line that opens every archive.
 pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
-/// Wire schema of the archive and of its manifest.
-pub const ARCHIVE_SCHEMA: u32 = 2;
+/// Schema 3 makes memory-intent reference bindings part of recovery.
+/// Schema 2 remains readable after its contents pass current admission.
+pub const ARCHIVE_SCHEMA: u32 = 3;
 
 /// One replicated table row.
 ///
@@ -212,7 +213,7 @@ where
     let manifest: CognitionManifest =
         serde_json::from_slice(&manifest_bytes).context("decode cognition archive manifest")?;
     ensure!(
-        manifest.schema == ARCHIVE_SCHEMA,
+        manifest.schema == 2 || manifest.schema == ARCHIVE_SCHEMA,
         "unsupported cognition archive schema {}",
         manifest.schema
     );

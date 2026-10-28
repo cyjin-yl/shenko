@@ -45,7 +45,7 @@
 //!   that already holds other content keeps it: the divergence is reported
 //!   instead of being overwritten.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -337,9 +337,8 @@ pub struct CognitionImportOutcome {
 impl CognitionImportOutcome {
     /// The answer this store gives about the snapshot it just received.
     ///
-    /// A snapshot that arrived without a blocking gap is verified; conflicts
-    /// with the local history do not make the transfer unverified, they are
-    /// reported so the operator can reconcile them.
+    /// A snapshot is verified only when it has no blocking gaps or conflicts
+    /// with local history; conflicting facts remain available for reconciliation.
     pub fn ack(&self, peer_id: EntityId) -> CognitionAck {
         let blocking = self.gaps.iter().filter(|gap| gap.blocking).count();
         CognitionAck {
@@ -630,6 +629,13 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     TableSpec {
+        name: "memory_intent_bindings",
+        key: &["intent_id"],
+        columns: &["intent_id", "data"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
         name: "raw_sessions",
         key: &["session_id"],
         columns: &["session_id", "agent_id", "started_at", "ended_at", "data"],
@@ -901,8 +907,12 @@ impl Store {
             fingerprint == manifest.fingerprint,
             "cognition manifest fingerprint does not match its received rows and verified payload descriptors"
         );
+        for row in &manifest.rows {
+            ensure!(spec_for(&row.table).is_some(), "unsupported cognition fact table {}", row.table);
+        }
 
         let mut gaps = manifest.gaps.clone();
+        gaps.extend(memory_intent_binding_gaps(&manifest.rows));
         gaps.extend(self.verify_manifest_closure(&manifest));
         let blocking: Vec<String> = gaps
             .iter()
@@ -1315,7 +1325,7 @@ impl Store {
             rows.into_iter().map(PathBuf::from).collect::<BTreeSet<_>>()
         };
         let mut file_origins = Vec::new();
-        let mut gaps: Vec<CognitionGap> = Vec::new();
+        let mut gaps = memory_intent_binding_gaps(&rows);
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
             collect_files(
@@ -1623,7 +1633,25 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
+                let referenced_memory_entries: HashSet<&str> = ordered.iter()
+                    .filter(|row| row.table == "memory_intents")
+                    .filter_map(|row| row.value("entry_id"))
+                    .collect();
+                let mut memory_applied = false;
                 for row in &ordered {
+                    if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
+                        let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
+                        inserted += outcome.inserted;
+                        updated += outcome.updated;
+                        unchanged += outcome.unchanged;
+                        conflicts.extend(outcome.conflicts);
+                        memory_applied = true;
+                    }
+                    if row.table == "memory_intents" || row.table == "memory_intent_bindings"
+                        || (row.table == "memory_entries" && referenced_memory_entries.contains(row.key.as_str()))
+                    {
+                        continue;
+                    }
                     let Some(spec) = spec_for(&row.table) else {
                         continue;
                     };
@@ -2561,6 +2589,205 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
     TABLES.iter().find(|spec| spec.name == table)
 }
 
+fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
+    let mut intents = HashMap::new();
+    let mut bindings = HashMap::new();
+    let mut entries = HashSet::new();
+    let mut gaps = Vec::new();
+    for row in rows.iter().filter(|row| row.table == "memory_entries") {
+        if row.value("entry_id") != Some(row.key.as_str()) || !entries.insert(row.key.as_str()) {
+            gaps.push(CognitionGap {
+                kind: "memory_intent_identity".into(),
+                detail: format!("invalid or duplicate memory entry {}", row.key),
+                blocking: true,
+            });
+        }
+    }
+    for row in rows.iter().filter(|row| row.table == "memory_intents" || row.table == "memory_intent_bindings") {
+        let id = row.value("intent_id");
+        let map = if row.table == "memory_intents" { &mut intents } else { &mut bindings };
+        if id != Some(row.key.as_str()) || map.insert(row.key.as_str(), row).is_some() {
+            gaps.push(CognitionGap {
+                kind: "memory_intent_identity".into(),
+                detail: format!("invalid or duplicate {} row {}", row.table, row.key),
+                blocking: true,
+            });
+        }
+    }
+    for (id, binding) in &bindings {
+        let valid = intents.get(id).is_some_and(|intent| {
+            binding.value("data").is_some_and(|data| {
+                crate::memory::memory_binding_matches_locator(data, intent.value("content_ref"))
+            })
+        });
+        if !valid {
+            gaps.push(CognitionGap {
+                kind: "memory_intent_identity".into(),
+                detail: format!("unbound or inconsistent memory reference for {id}"),
+                blocking: true,
+            });
+        }
+    }
+    let mut entry_owners = HashMap::new();
+    for (id, intent) in &intents {
+        let library_pending = intent.value("state") == Some("accepted")
+            && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
+        let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
+        let entry_id = intent.value("entry_id");
+        let duplicate_entry = entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
+        let missing_committed_entry = intent.value("state") == Some("committed")
+            && entry_id.is_none_or(|entry| !entries.contains(entry));
+        let missing_pending_identity = library_pending
+            && (!entry_present || (intent.value("content_ref").is_some() && !bindings.contains_key(id)));
+        if missing_pending_identity || duplicate_entry || missing_committed_entry {
+            gaps.push(CognitionGap {
+                kind: "memory_intent_identity".into(),
+                detail: if missing_pending_identity {
+                    format!("pending memory intent {id} lacks its complete identity")
+                } else {
+                    format!("memory intent {id} has a missing or shared committed entry")
+                },
+                blocking: true,
+            });
+        }
+    }
+    gaps
+}
+
+#[derive(Clone, Copy)]
+enum MemoryRowOutcome {
+    Inserted,
+    Updated,
+    Unchanged,
+    Conflict,
+}
+
+fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> Option<&'a str> {
+    values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
+}
+
+fn apply_memory_row(
+    tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
+) -> Result<MemoryRowOutcome> {
+    let local = read_existing(tx, spec, row)?;
+    let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
+    let result = match local {
+        None => match insert_row(tx, spec, row, seq) {
+            Ok(()) => MemoryRowOutcome::Inserted,
+            Err(error) if is_constraint_violation(&error) => return Ok(MemoryRowOutcome::Conflict),
+            Err(error) => return Err(error),
+        },
+        Some(local) if rows_equivalent(spec, &local, &row.values) => MemoryRowOutcome::Unchanged,
+        Some(local) if baseline.as_ref().is_some_and(|baseline| rows_equivalent(spec, &local, baseline)) => {
+            update_row(tx, spec, row, seq)?;
+            MemoryRowOutcome::Updated
+        }
+        Some(_) => return Ok(MemoryRowOutcome::Conflict),
+    };
+    write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
+    Ok(result)
+}
+
+/// A request, immutable reference and associated committed entry are reconciled
+/// together. A locator-only legacy request cannot acquire another source's
+/// digest merely because its intent ID or locator happens to match.
+fn apply_memory_pairs(
+    tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
+) -> Result<CognitionApplyOutcome> {
+    let parents = spec_for("memory_intents").expect("memory intent table is registered");
+    let sidecars = spec_for("memory_intent_bindings").expect("memory binding table is registered");
+    let entry_spec = spec_for("memory_entries").expect("memory entry table is registered");
+    let bindings: HashMap<&str, &CognitionRow> = rows.iter()
+        .filter(|row| row.table == sidecars.name)
+        .map(|row| (row.key.as_str(), *row)).collect();
+    let entries: HashMap<&str, &CognitionRow> = rows.iter()
+        .filter(|row| row.table == entry_spec.name)
+        .map(|row| (row.key.as_str(), *row)).collect();
+    let mut outcome = CognitionApplyOutcome::default();
+    for row in rows.iter().filter(|row| row.table == parents.name) {
+        let mut parent = effective_row(row, parents)?;
+        let mut binding = bindings.get(row.key.as_str()).map(|row| effective_row(row, sidecars)).transpose()?;
+        let entry = parent.value("entry_id").and_then(|id| entries.get(id))
+            .map(|row| effective_row(row, entry_spec)).transpose()?;
+        let local = read_existing(tx, parents, &parent)?;
+        let local_binding: Option<String> = tx.query_row(
+            "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
+            [&row.key], |record| record.get(0),
+        ).optional().map_err(db)?;
+        let mut compatible = true;
+        if let Some(local) = &local {
+            for column in ["agent_id", "kind", "scope", "content", "entry_id", "created_at_ms"] {
+                compatible &= memory_row_value(local, column) == parent.value(column);
+            }
+            let local_state = memory_row_value(local, "state");
+            let incoming_state = parent.value("state");
+            compatible &= match local_state {
+                Some("accepted") => matches!(incoming_state, Some("accepted" | "committed" | "failed")),
+                Some("committed" | "failed") => local_state == incoming_state
+                    && memory_row_value(local, "reason") == parent.value("reason")
+                    && memory_row_value(local, "updated_at_ms") == parent.value("updated_at_ms"),
+                _ => false,
+            };
+            let local_locator = memory_row_value(local, "content_ref");
+            match (local_binding.as_deref(), binding.as_mut()) {
+                (None, None) => compatible &= local_locator == parent.value("content_ref"),
+                (Some(local_data), Some(incoming)) => {
+                    let incoming_data = incoming.value("data");
+                    compatible &= crate::memory::memory_binding_matches_locator(local_data, local_locator)
+                        && incoming_data.is_some_and(|data| crate::memory::same_memory_bindings(local_data, data));
+                    if let Some(baseline) = read_baseline(tx, peer_id, sidecars.name, &incoming.key)? {
+                        compatible &= memory_row_value(&baseline, "data")
+                            .is_some_and(|data| crate::memory::same_memory_bindings(local_data, data));
+                    }
+                    if compatible {
+                        set_value(&mut parent, "content_ref", local_locator.map(str::to_owned));
+                        set_value(incoming, "data", Some(local_data.to_owned()));
+                    }
+                }
+                _ => compatible = false,
+            }
+        } else if local_binding.is_some() {
+            compatible = false;
+        }
+
+        let mut results = [None; 3];
+        if compatible {
+            tx.execute("SAVEPOINT memory_intent_pair", []).map_err(db)?;
+            results[0] = Some(apply_memory_row(tx, parents, &parent, peer_id, seq)?);
+            if !matches!(results[0], Some(MemoryRowOutcome::Conflict)) {
+                if let Some(binding) = &binding {
+                    results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+                }
+            }
+            if !results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+                if let Some(entry) = &entry {
+                    results[2] = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                }
+            }
+            if results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+                tx.execute("ROLLBACK TO memory_intent_pair", []).map_err(db)?;
+                compatible = false;
+            }
+            tx.execute("RELEASE memory_intent_pair", []).map_err(db)?;
+        }
+        if compatible {
+            for result in results.into_iter().flatten() {
+                match result {
+                    MemoryRowOutcome::Inserted => outcome.inserted += 1,
+                    MemoryRowOutcome::Updated => outcome.updated += 1,
+                    MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
+                    MemoryRowOutcome::Conflict => unreachable!(),
+                }
+            }
+        } else {
+            let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
+            record_conflict(tx, peer_id, parents.name, &row.key, &detail)?;
+            outcome.conflicts.push(CognitionConflict { table: parents.name.into(), key: row.key.clone(), detail });
+        }
+    }
+    Ok(outcome)
+}
+
 /// The row as it will be stored here.
 ///
 /// Imported work is parked: a receiving store is not a second live writer.
@@ -3413,4 +3640,30 @@ fn storage_failure(error: &anyhow::Error) -> bool {
         || error
             .downcast_ref::<ShenkoError>()
             .is_some_and(|inner| matches!(inner, ShenkoError::Storage(_)))
+}
+
+#[cfg(test)]
+mod archive_admission_tests {
+    use super::*;
+    use crate::memory::MemoryEntry;
+
+    #[test]
+    fn unknown_fact_does_not_produce_a_verified_partial_import() {
+        let root = std::env::temp_dir().join(format!("shenko-cognition-{}", EntityId::new()));
+        fs::create_dir(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        source.insert_memory_entry(&MemoryEntry::new(EntityId::new(), "known fact")).unwrap();
+        let mut export = source.export_cognition(&Default::default()).unwrap();
+        export.manifest.rows.push(CognitionRow {
+            table: "future_required_fact".into(),
+            key: "1".into(),
+            values: vec![("id".into(), Some("1".into()))],
+        });
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
+        assert!(receiver.list_memory(10).unwrap().is_empty());
+    }
 }
