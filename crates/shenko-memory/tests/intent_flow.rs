@@ -84,3 +84,61 @@ fn unsupported_intent_kind_is_recorded_as_failed() {
         Some("failed")
     );
 }
+
+#[test]
+fn replay_after_reopen_preserves_the_original_memory() {
+    let tag = "replay-after-reopen";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let agent = EntityId::new();
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+    let intent = intent(MemoryIntentKind::Save);
+    let text = "用户的深刻记忆是蓝色书签";
+    memory.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap();
+    let original = match memory.process_intent(intent.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected original commit, got {other:?}"),
+    };
+    drop(memory);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let memory = MemoryStore::with_store(agent, Arc::clone(&reopened));
+    if memory.accept_intent_with_content(intent.clone(), Some(text.into())).is_ok() {
+        memory.process_intent(intent.intent_id).unwrap();
+    }
+    assert_eq!(reopened.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
+    let matches = memory.search("深刻", 10).unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].entry_id, original);
+    assert_eq!(matches[0].content, text);
+
+    assert!(memory.accept_intent_with_content(intent.clone(), Some("改写原始事实".into())).is_err());
+    assert_eq!(memory.search("深刻", 10).unwrap()[0].entry_id, original);
+    assert_eq!(reopened.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
+}
+
+#[test]
+fn stale_worker_and_late_failure_cannot_replace_a_committed_memory() {
+    let store = store("stale-worker");
+    let agent = EntityId::new();
+    let first = MemoryStore::with_store(agent, Arc::clone(&store));
+    let second = MemoryStore::with_store(agent, Arc::clone(&store));
+    let intent = intent(MemoryIntentKind::Save);
+    let text = "共享的深刻事实";
+    first.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap();
+    // An identical concurrent acceptance may return an idempotent receipt or
+    // explicitly reject, but must not replace the durable binding.
+    let _ = second.accept_intent_with_content(intent.clone(), Some(text.into()));
+    let original = match first.process_intent(intent.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected original commit, got {other:?}"),
+    };
+    assert!(matches!(second.process_intent(intent.intent_id).unwrap(), ProcessOutcome::AlreadyProcessed(_)));
+    let _ = store.fail_memory_intent(intent.intent_id, "late stale failure");
+    assert_eq!(store.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
+    let found = first.search("深刻", 10).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].entry_id, original);
+    assert_eq!(found[0].content, text);
+}
