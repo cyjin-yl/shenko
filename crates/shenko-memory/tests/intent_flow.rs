@@ -142,3 +142,56 @@ fn stale_worker_and_late_failure_cannot_replace_a_committed_memory() {
     assert_eq!(found[0].entry_id, original);
     assert_eq!(found[0].content, text);
 }
+
+#[test]
+fn accepted_memory_with_bound_cas_content_recovers_after_reopen() {
+    let tag = "pending-ref-reopen";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let agent = EntityId::new();
+    let content = "可恢复的深刻正文";
+    let object = store.cas.seal_object(content.as_bytes(), "text/plain", "memory", "raw", 1).unwrap().object;
+    let mut request = intent(MemoryIntentKind::Save);
+    request.content_ref = Some(object.clone());
+    let first = MemoryStore::with_store(agent, Arc::clone(&store));
+    first.accept_intent(request.clone()).unwrap();
+
+    // A reused locator with a different digest is not the same request.
+    let mut conflict = request.clone();
+    conflict.content_ref.as_mut().unwrap().digest = shenko_types::object::Digest::blake3(b"different");
+    assert!(first.accept_intent(conflict).is_err());
+    drop(first);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let recovered = MemoryStore::with_store(agent, Arc::clone(&reopened));
+    assert_eq!(recovered.process_all().unwrap(), 1);
+    let facts = recovered.search("深刻", 10).unwrap();
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].content, content);
+    assert_eq!(reopened.memory_intent_state(request.intent_id).unwrap().as_deref(), Some("committed"));
+}
+
+#[test]
+fn replicated_pending_memory_carries_its_object_binding_and_content() {
+    let source = store("replication-source");
+    let target = store("replication-target");
+    let agent = EntityId::new();
+    let body = "复制后仍可核实的深刻正文";
+    let object = source.cas.seal_object(body.as_bytes(), "text/plain", "memory", "raw", 1).unwrap().object;
+    let mut request = intent(MemoryIntentKind::Save);
+    request.content_ref = Some(object.clone());
+    let memory = MemoryStore::with_store(agent, Arc::clone(&source));
+    memory.accept_intent(request.clone()).unwrap();
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    let receipt = target.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    assert!(receipt.ack(EntityId::new()).verified, "reference and source bytes must travel with the intent");
+
+    let recovered = MemoryStore::with_store(agent, Arc::clone(&target));
+    assert_eq!(recovered.process_all().unwrap(), 1);
+    let facts = recovered.search("深刻", 10).unwrap();
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].content, body);
+    assert_eq!(target.cas.read_object(&object.digest).unwrap(), body.as_bytes());
+}

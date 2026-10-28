@@ -13,12 +13,13 @@
 //! does not match the token for "我的深刻记忆". This limitation is deliberate
 //! and covered by tests.
 use chrono::Utc;
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, RecordRevision};
+use shenko_types::object::ObjectRef;
 
 use crate::store::Store;
 
@@ -71,6 +72,33 @@ pub struct MemoryIntentRecord {
     pub updated_at_ms: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct MemoryIntentBinding {
+    schema_version: u32,
+    content_ref: Option<ObjectRef>,
+}
+
+/// The inner option is the supplied object reference; the outer option records
+/// whether an exact reference binding was retained at admission at all.
+#[derive(Debug, Clone)]
+pub struct StoredMemoryIntent {
+    pub record: MemoryIntentRecord,
+    pub content_ref: Option<Option<ObjectRef>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum MemoryIntentAdmission {
+    Inserted(StoredMemoryIntent),
+    Existing(StoredMemoryIntent),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemoryIntentFailure {
+    Failed,
+    AlreadyTerminal(String),
+    NotFound,
+}
+
 impl MemoryIntentRecord {
     pub fn accepted(
         intent_id: EntityId,
@@ -98,6 +126,49 @@ impl MemoryIntentRecord {
     }
 }
 
+fn read_memory_intent(
+    conn: &rusqlite::Connection,
+    intent_id: EntityId,
+) -> Result<Option<StoredMemoryIntent>, ShenkoError> {
+    let row = conn.query_row(
+        "SELECT agent_id,kind,scope,content,content_ref,entry_id,state,reason,created_at_ms,updated_at_ms
+         FROM memory_intents WHERE intent_id=?1",
+        [intent_id.to_string()],
+        |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?, r.get::<_, Option<String>>(4)?, r.get::<_, Option<String>>(5)?,
+            r.get::<_, String>(6)?, r.get::<_, Option<String>>(7)?, r.get::<_, i64>(8)?, r.get::<_, i64>(9)?)),
+    ).optional().map_err(|e| ShenkoError::storage(e.to_string()))?;
+    let Some((agent, kind, scope, content, locator, entry, state, reason, created, updated)) = row else {
+        return Ok(None);
+    };
+    let binding: Option<String> = conn.query_row(
+        "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
+        [intent_id.to_string()], |r| r.get(0),
+    ).optional().map_err(|e| ShenkoError::storage(e.to_string()))?;
+    let content_ref = binding.map(|data| -> Result<Option<ObjectRef>, ShenkoError> {
+        let binding: MemoryIntentBinding = serde_json::from_str(&data)
+            .map_err(|e| ShenkoError::storage(format!("invalid memory intent binding: {e}")))?;
+        if binding.schema_version != 1 {
+            return Err(ShenkoError::conflict("unsupported memory intent binding version"));
+        }
+        Ok(binding.content_ref)
+    }).transpose()?;
+    Ok(Some(StoredMemoryIntent {
+        record: MemoryIntentRecord {
+            intent_id,
+            agent_id: agent.parse().map_err(|e| ShenkoError::storage(format!("invalid memory agent id: {e}")))?,
+            kind, scope, content, content_ref: locator,
+            entry_id: entry.map(|id| id.parse().map_err(|e| ShenkoError::storage(format!("invalid memory entry id: {e}")))).transpose()?,
+            state, reason, created_at_ms: created, updated_at_ms: updated,
+        },
+        content_ref,
+    }))
+}
+
+fn memory_storage_failure(error: &ShenkoError) -> bool {
+    matches!(error, ShenkoError::Storage(_) | ShenkoError::Io(_) | ShenkoError::Serde(_))
+}
+
 impl Store {
     /// Insert a memory entry and record the commit in the ledger commit log.
     pub fn insert_memory_entry(&self, entry: &MemoryEntry) -> Result<CommitReceipt, ShenkoError> {
@@ -120,7 +191,7 @@ impl Store {
         intent_id: Option<EntityId>,
     ) -> Result<CommitReceipt, ShenkoError> {
         self.ledger
-            .with_mutation(|| self.try_commit_entry(entry, intent_id), |_| true)
+            .with_mutation(|| self.try_commit_entry(entry, intent_id), memory_storage_failure)
     }
 
     fn try_commit_entry(
@@ -167,6 +238,38 @@ impl Store {
         intent_id: Option<EntityId>,
         seq: shenko_types::ids::LedgerSeq,
     ) -> Result<(), ShenkoError> {
+        if let Some(intent_id) = intent_id {
+            let stored = read_memory_intent(tx, intent_id)?
+                .ok_or_else(|| ShenkoError::not_found("memory intent"))?;
+            let request = &stored.record;
+            if request.state != "accepted" || request.agent_id != entry.agent_id
+                || request.entry_id != Some(entry.entry_id) || request.kind != entry.kind
+                || request.scope != entry.scope
+            {
+                return Err(ShenkoError::conflict("memory intent is terminal or entry binding differs"));
+            }
+            if !request.content.is_empty() || request.content_ref.is_none() {
+                if request.content != entry.content {
+                    return Err(ShenkoError::conflict("memory entry content differs from accepted intent"));
+                }
+            } else {
+                let object = stored.content_ref.as_ref().and_then(Option::as_ref)
+                    .ok_or_else(|| ShenkoError::conflict("legacy memory content identity is unavailable"))?;
+                if object.bytes != entry.content.len() as u64
+                    || object.digest != shenko_types::object::Digest::blake3(entry.content.as_bytes())
+                {
+                    return Err(ShenkoError::conflict("memory entry content differs from the accepted object"));
+                }
+            }
+            let changed = tx.execute(
+                "UPDATE memory_intents SET state='committed',reason=NULL,updated_at_ms=?2
+                 WHERE intent_id=?1 AND state='accepted'",
+                params![intent_id.to_string(), Utc::now().timestamp_millis()],
+            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            if changed != 1 {
+                return Err(ShenkoError::conflict("memory intent changed during commit"));
+            }
+        }
         // A true upsert, not INSERT OR REPLACE: REPLACE deletes the conflicting
         // row without firing DELETE triggers (unless recursive_triggers is on),
         // which would leave the old text in the FTS index as a stale orphan.
@@ -201,52 +304,87 @@ impl Store {
         )
         .map_err(|e| ShenkoError::storage(e.to_string()))?;
 
-        if let Some(intent_id) = intent_id {
-            tx.execute(
-                "UPDATE memory_intents
-                    SET state='committed', reason=NULL, entry_id=?2, updated_at_ms=?3
-                  WHERE intent_id=?1",
-                params![
-                    intent_id.to_string(),
-                    entry.entry_id.to_string(),
-                    Utc::now().timestamp_millis(),
-                ],
-            )
-            .map_err(|e| ShenkoError::storage(e.to_string()))?;
-        }
-
         Ok(())
     }
 
-    /// Persist an accepted intent (state = "accepted") before it is processed.
-    pub fn insert_memory_intent(&self, rec: &MemoryIntentRecord) -> Result<(), ShenkoError> {
-        self.ledger
-            .with_mutation(|| self.try_insert_memory_intent(rec), |_| true)
-    }
-
-    fn try_insert_memory_intent(&self, rec: &MemoryIntentRecord) -> Result<(), ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        conn.execute(
-            "INSERT OR REPLACE INTO memory_intents
-             (intent_id, agent_id, kind, scope, content, content_ref, entry_id,
-              state, reason, created_at_ms, updated_at_ms)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-            params![
-                rec.intent_id.to_string(),
-                rec.agent_id.to_string(),
-                rec.kind,
-                rec.scope,
-                rec.content,
-                rec.content_ref,
-                rec.entry_id.map(|id| id.to_string()),
-                rec.state,
-                rec.reason,
-                rec.created_at_ms,
-                rec.updated_at_ms,
-            ],
+    /// Admit the exact request once. A replay returns the original binding and
+    /// state; a different request with the same identity cannot replace it.
+    pub fn admit_memory_intent(
+        &self,
+        rec: &MemoryIntentRecord,
+        content_ref: Option<&ObjectRef>,
+    ) -> Result<MemoryIntentAdmission, ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_admit_memory_intent(rec, content_ref),
+            memory_storage_failure,
         )
-        .map_err(|e| ShenkoError::storage(e.to_string()))?;
-        Ok(())
+    }
+
+    fn try_admit_memory_intent(
+        &self,
+        rec: &MemoryIntentRecord,
+        content_ref: Option<&ObjectRef>,
+    ) -> Result<MemoryIntentAdmission, ShenkoError> {
+        if rec.state != "accepted" || rec.reason.is_some() || rec.entry_id.is_none()
+            || rec.content_ref.as_deref() != content_ref.map(|object| object.locator.as_str())
+        {
+            return Err(ShenkoError::conflict("invalid memory intent admission"));
+        }
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        if let Some(existing) = read_memory_intent(&tx, rec.intent_id)? {
+            let original = &existing.record;
+            if original.agent_id != rec.agent_id || original.kind != rec.kind
+                || original.scope != rec.scope || original.content != rec.content
+                || original.content_ref != rec.content_ref
+                || existing.content_ref.as_ref().is_some_and(|stored| stored.as_ref() != content_ref)
+            {
+                return Err(ShenkoError::conflict("memory intent identity has different input"));
+            }
+            if original.content_ref.is_some() && existing.content_ref.is_none() {
+                return Err(ShenkoError::conflict("legacy memory reference identity is unavailable"));
+            }
+            return Ok(MemoryIntentAdmission::Existing(existing));
+        }
+        tx.execute(
+            "INSERT INTO memory_intents
+             (intent_id,agent_id,kind,scope,content,content_ref,entry_id,state,reason,created_at_ms,updated_at_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![rec.intent_id.to_string(), rec.agent_id.to_string(), rec.kind, rec.scope,
+                rec.content, rec.content_ref, rec.entry_id.map(|id| id.to_string()), rec.state,
+                rec.reason, rec.created_at_ms, rec.updated_at_ms],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let binding = MemoryIntentBinding { schema_version: 1, content_ref: content_ref.cloned() };
+        tx.execute("INSERT INTO memory_intent_bindings(intent_id,data) VALUES(?1,?2)",
+            params![rec.intent_id.to_string(), serde_json::to_string(&binding)?],
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        tx.commit().map_err(|e| ShenkoError::storage(e.to_string()))?;
+        Ok(MemoryIntentAdmission::Inserted(StoredMemoryIntent {
+            record: rec.clone(), content_ref: Some(content_ref.cloned()),
+        }))
+    }
+
+    /// Read the durable request and its exact binding, if retained.
+    pub fn memory_intent(&self, id: EntityId) -> Result<Option<StoredMemoryIntent>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        read_memory_intent(&conn, id)
+    }
+
+    /// Enumerate only this consumer's accepted library intents. Subject-owned
+    /// intents use a distinct kind and are settled by their own dispatcher.
+    pub fn pending_library_memory_intents(&self, agent_id: EntityId, limit: usize) -> Result<Vec<EntityId>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT intent_id FROM memory_intents WHERE agent_id=?1 AND state='accepted'
+             AND kind IN ('save','correct','forget','recall') ORDER BY created_at_ms,intent_id LIMIT ?2",
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let limit = i64::try_from(limit).map_err(|_| ShenkoError::conflict("memory intent limit exceeds SQLite range"))?;
+        let rows = stmt.query_map(params![agent_id.to_string(), limit], |r| r.get::<_, String>(0))
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        rows.map(|row| row.map_err(|e| ShenkoError::storage(e.to_string()))?
+            .parse().map_err(|e| ShenkoError::storage(format!("invalid memory intent id: {e}"))))
+            .collect()
     }
 
     /// Current durable state of an intent, if present.
@@ -263,22 +401,34 @@ impl Store {
         }
     }
 
-    /// Mark an intent failed with a human-readable reason.
-    pub fn fail_memory_intent(&self, intent_id: EntityId, reason: &str) -> Result<(), ShenkoError> {
-        self.ledger
-            .with_mutation(|| self.try_fail_memory_intent(intent_id, reason), |_| true)
+    /// Fail only an accepted intent; a late worker cannot overwrite a terminal fact.
+    pub fn fail_memory_intent(&self, intent_id: EntityId, reason: &str) -> Result<MemoryIntentFailure, ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_fail_memory_intent(intent_id, reason),
+            memory_storage_failure,
+        )
     }
 
-    fn try_fail_memory_intent(&self, intent_id: EntityId, reason: &str) -> Result<(), ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        conn.execute(
+    fn try_fail_memory_intent(&self, intent_id: EntityId, reason: &str) -> Result<MemoryIntentFailure, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let changed = tx.execute(
             "UPDATE memory_intents
                 SET state='failed', reason=?2, updated_at_ms=?3
-              WHERE intent_id=?1",
+              WHERE intent_id=?1 AND state='accepted'",
             params![intent_id.to_string(), reason, Utc::now().timestamp_millis(),],
-        )
-        .map_err(|e| ShenkoError::storage(e.to_string()))?;
-        Ok(())
+        ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+        if changed == 1 {
+            tx.commit().map_err(|e| ShenkoError::storage(e.to_string()))?;
+            return Ok(MemoryIntentFailure::Failed);
+        }
+        match read_memory_intent(&tx, intent_id)? {
+            Some(record) if record.record.state == "committed" || record.record.state == "failed" =>
+                Ok(MemoryIntentFailure::AlreadyTerminal(record.record.state)),
+            None => Ok(MemoryIntentFailure::NotFound),
+            Some(_) => Err(ShenkoError::conflict("memory intent has an unsupported state")),
+        }
     }
 
     /// Search memory content.

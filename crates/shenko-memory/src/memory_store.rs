@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use tracing::info;
 
-use shenko_store::{MemoryEntry as StoredMemoryEntry, MemoryIntentRecord, Store};
+use shenko_store::{MemoryEntry as StoredMemoryEntry, MemoryIntentAdmission, MemoryIntentFailure, MemoryIntentRecord, Store};
 use shenko_types::ids::EntityId;
 use shenko_types::subject::{MemoryIntent, MemoryIntentKind};
 
@@ -132,7 +132,7 @@ impl MemoryStore {
         content: Option<String>,
     ) -> Result<AcceptedRef, anyhow::Error> {
         let intent_id = intent.intent_id;
-        let entry_id = EntityId::new();
+        let mut entry_id = EntityId::new();
         let content = content.unwrap_or_default();
         let scope = if intent.scope.is_empty() {
             "personal".to_string()
@@ -154,20 +154,31 @@ impl MemoryStore {
                 content_ref,
                 Some(entry_id),
             );
-            store
-                .insert_memory_intent(&record)
+            let admitted = store
+                .admit_memory_intent(&record, intent.content_ref.as_ref())
                 .map_err(|e| anyhow::anyhow!("persist accepted memory intent: {e}"))?;
+            let stored = match admitted {
+                MemoryIntentAdmission::Inserted(stored) | MemoryIntentAdmission::Existing(stored) => stored,
+            };
+            match stored.record.state.as_str() {
+                "committed" => return Ok(AcceptedRef { intent_id, status: "committed" }),
+                "failed" => return Ok(AcceptedRef { intent_id, status: "failed" }),
+                "accepted" => {},
+                _ => return Err(anyhow::anyhow!("unsupported durable memory intent state")),
+            }
+            entry_id = stored.record.entry_id.ok_or_else(|| anyhow::anyhow!("accepted memory has no entry binding"))?;
         }
 
-        self.queue
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push_back(QueuedIntent {
+        let mut queue = self.queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !queue.iter().any(|item| item.intent.intent_id == intent_id) {
+            queue.push_back(QueuedIntent {
                 intent: intent.clone(),
                 entry_id,
                 content,
                 scope,
             });
+        }
+        drop(queue);
 
         if let Some(tx) = &self.legacy_tx {
             tx.send(intent)
@@ -199,15 +210,13 @@ impl MemoryStore {
             ));
         };
 
-        if let Some(state) = store
-            .memory_intent_state(intent_id)
-            .map_err(|e| anyhow::anyhow!("read intent state: {e}"))?
-        {
-            if state == "committed" || state == "failed" {
-                self.remove_queued(intent_id);
-                return Ok(ProcessOutcome::AlreadyProcessed(state));
-            }
+        let Some(stored) = store.memory_intent(intent_id)? else { return Ok(ProcessOutcome::NotFound) };
+        if stored.record.agent_id != self.agent_id { return Ok(ProcessOutcome::NotFound); }
+        if stored.record.state == "committed" || stored.record.state == "failed" {
+            self.remove_queued(intent_id);
+            return Ok(ProcessOutcome::AlreadyProcessed(stored.record.state));
         }
+        if stored.record.state != "accepted" { return Err(anyhow::anyhow!("unsupported durable memory intent state")); }
 
         let queued = self
             .queue
@@ -216,8 +225,27 @@ impl MemoryStore {
             .iter()
             .find(|q| q.intent.intent_id == intent_id)
             .cloned();
-        let Some(queued) = queued else {
-            return Ok(ProcessOutcome::NotFound);
+        let queued = match queued {
+            Some(queued) => queued,
+            None => {
+                let kind = match stored.record.kind.as_str() {
+                    "save" => MemoryIntentKind::Save,
+                    "correct" => MemoryIntentKind::Correct,
+                    "forget" => MemoryIntentKind::Forget,
+                    "recall" => MemoryIntentKind::Recall,
+                    _ => return Ok(ProcessOutcome::NotFound),
+                };
+                let content_ref = match stored.content_ref {
+                    Some(reference) => reference,
+                    None if stored.record.content_ref.is_none() => None,
+                    None => return Err(anyhow::anyhow!("legacy memory content reference cannot be recovered without its digest")),
+                };
+                let entry_id = stored.record.entry_id.ok_or_else(|| anyhow::anyhow!("accepted memory has no entry binding"))?;
+                QueuedIntent {
+                    intent: MemoryIntent { intent_id, kind, scope: stored.record.scope.clone(), content_ref },
+                    entry_id, content: stored.record.content, scope: stored.record.scope,
+                }
+            }
         };
 
         match self.commit_queued(&store, &queued) {
@@ -226,27 +254,44 @@ impl MemoryStore {
                 Ok(ProcessOutcome::Committed(entry))
             }
             Err(e) => {
+                if e.downcast_ref::<shenko_types::error::ShenkoError>().is_some() {
+                    if let Some(state) = store.memory_intent_state(intent_id)? {
+                        if state == "committed" || state == "failed" {
+                            self.remove_queued(intent_id);
+                            return Ok(ProcessOutcome::AlreadyProcessed(state));
+                        }
+                    }
+                    return Err(e);
+                }
                 let reason = e.to_string();
-                store
-                    .fail_memory_intent(intent_id, &reason)
-                    .map_err(|e| anyhow::anyhow!("mark intent failed: {e}"))?;
-                self.remove_queued(intent_id);
-                Ok(ProcessOutcome::Failed(reason))
+                match store.fail_memory_intent(intent_id, &reason)? {
+                    MemoryIntentFailure::Failed => {
+                        self.remove_queued(intent_id);
+                        Ok(ProcessOutcome::Failed(reason))
+                    }
+                    MemoryIntentFailure::AlreadyTerminal(state) => {
+                        self.remove_queued(intent_id);
+                        Ok(ProcessOutcome::AlreadyProcessed(state))
+                    }
+                    MemoryIntentFailure::NotFound => Ok(ProcessOutcome::NotFound),
+                }
             }
         }
     }
 
     /// Process every queued intent; returns how many were committed.
     pub fn process_all(&self) -> Result<usize, anyhow::Error> {
-        let ids: Vec<EntityId> = self
-            .pending_intents()
-            .iter()
-            .map(|q| q.intent.intent_id)
-            .collect();
         let mut committed = 0;
-        for id in ids {
-            if matches!(self.process_intent(id)?, ProcessOutcome::Committed(_)) {
-                committed += 1;
+        loop {
+            let ids: Vec<EntityId> = match &self.store {
+                Some(store) => store.pending_library_memory_intents(self.agent_id, 256)?,
+                None => self.pending_intents().iter().map(|q| q.intent.intent_id).collect(),
+            };
+            if ids.is_empty() { break; }
+            for id in ids {
+                if matches!(self.process_intent(id)?, ProcessOutcome::Committed(_)) {
+                    committed += 1;
+                }
             }
         }
         Ok(committed)
@@ -302,8 +347,8 @@ impl MemoryStore {
             let bytes = store
                 .cas
                 .read_object(&content_ref.digest)
-                .map_err(|e| anyhow::anyhow!("read memory content from CAS: {e}"))?;
-            String::from_utf8_lossy(&bytes).into_owned()
+                .map_err(anyhow::Error::new)?;
+            String::from_utf8(bytes)?
         } else {
             String::new()
         };
@@ -324,7 +369,7 @@ impl MemoryStore {
 
         store
             .commit_memory_intent(&entry, queued.intent.intent_id)
-            .map_err(|e| anyhow::anyhow!("commit memory intent: {e}"))?;
+            .map_err(anyhow::Error::new)?;
         Ok(entry)
     }
 

@@ -630,6 +630,13 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     TableSpec {
+        name: "memory_intent_bindings",
+        key: &["intent_id"],
+        columns: &["intent_id", "data"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
         name: "raw_sessions",
         key: &["session_id"],
         columns: &["session_id", "agent_id", "started_at", "ended_at", "data"],
