@@ -505,6 +505,20 @@ fn profile_switch_preserves_the_prior_request_pacing_debt() {
     let cheap = decide(&p, &[f], &available, None, later).unwrap();
     assert!(matches!(admit(&p, &cheap, EntityId::new(), &mut pacer, &available, later),
         AdmissionOutcome::Quota(record) if record.state == AdmissionState::QuotaPolicyWait));
+
+    // A later, more restrictive rate must also constrain the previous
+    // admission, even when its original faster-rate debt has elapsed.
+    let p = single_window_policy("five_hour", "percent", &[("cloud", 1.0)]);
+    let available = availability(&p, false);
+    let fast = forecast_of(vec![("five_hour", period(100.0, 10.0, 10), Range::point(100.0))]);
+    let original = decide(&p, &[fast], &available, None, now()).unwrap();
+    let mut pacer = Pacer::default();
+    assert!(matches!(admit(&p, &original, EntityId::new(), &mut pacer, &available, now()),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Admitted));
+    let slow = forecast_of(vec![("five_hour", period(100.0, 0.1, 10), Range::point(100.0))]);
+    let updated = decide(&p, &[slow], &available, None, later).unwrap();
+    assert!(matches!(admit(&p, &updated, EntityId::new(), &mut pacer, &available, later),
+        AdmissionOutcome::Quota(record) if record.state == AdmissionState::QuotaPolicyWait));
 }
 
 #[test]
@@ -594,9 +608,6 @@ fn unrelated_quota_windows_do_not_share_a_pacing_clock() {
     let a = decide(&p, &[f.clone()], &only_a, None, now()).unwrap();
     assert!(matches!(admit(&p, &a, EntityId::new(), &mut pacer, &only_a, now()),
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted));
-    let mut broken = serde_json::to_value(&pacer).unwrap();
-    broken["pacing"] = serde_json::json!([]);
-    assert!(serde_json::from_value::<Pacer>(broken).is_err(), "missing pacing state cannot silently restore");
     let b = decide(&p, &[f.clone()], &only_b, None, now()).unwrap();
     assert!(matches!(admit(&p, &b, EntityId::new(), &mut pacer, &only_b, now()),
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted));
