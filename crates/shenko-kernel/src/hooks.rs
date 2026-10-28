@@ -5,7 +5,7 @@
 //! graph untouched, explicit handler diagnostics, and an atomic
 //! generation swap so an in-flight run keeps the graph it snapshot.
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
@@ -96,6 +96,28 @@ pub struct HookSpec {
 pub struct HookEntry {
     pub spec: HookSpec,
     pub handler: Arc<dyn HookHandler>,
+}
+
+/// Identity of one published registration, not merely its reusable hook id.
+/// Keeping this handle does not keep a retired handler alive; withdrawal is
+/// explicit and stale handles cannot remove a later registration.
+#[derive(Clone, Debug)]
+pub struct HookRegistration {
+    hook_id: EntityId,
+    entry: Weak<HookEntry>,
+}
+
+impl HookRegistration {
+    pub fn hook_id(&self) -> EntityId {
+        self.hook_id
+    }
+}
+
+/// Receipt for one whole-graph publication and its independently owned entries.
+#[derive(Debug)]
+pub struct HookPublication {
+    pub generation: u64,
+    pub registrations: Vec<HookRegistration>,
 }
 
 #[async_trait]
@@ -306,29 +328,44 @@ impl HookRegistry {
 
     /// Admit one hook. The current graph stays in force when the addition is
     /// rejected for any reason.
-    pub fn register(&self, entry: HookEntry) -> Result<(), HookAdmissionError> {
+    pub fn register(&self, entry: HookEntry) -> Result<HookRegistration, HookAdmissionError> {
         let graph = Arc::clone(&self.graph.read());
-        let mut entries = graph.ordered.clone();
-        entries.push(Arc::new(entry));
+        let entry = Arc::new(entry);
+        let registration = HookRegistration {
+            hook_id: entry.spec.hook_id,
+            entry: Arc::downgrade(&entry),
+        };
+        let mut entries = Vec::with_capacity(graph.ordered.len() + 1);
+        entries.extend(graph.ordered.iter().cloned());
+        entries.push(entry);
         let revision = graph
             .generation
             .checked_add(1)
             .ok_or(HookAdmissionError::RevisionExhausted)?;
         let rebuilt = Graph::build(revision, entries)?;
         self.publish(graph.generation, rebuilt)?;
-        Ok(())
+        Ok(registration)
     }
 
-    /// Remove a hook. Removing one that others depend on is rejected so a
-    /// dependency cannot silently vanish from a live graph.
-    pub fn unregister(&self, hook_id: EntityId) -> Result<(), HookAdmissionError> {
+    /// Withdraw exactly the supplied registration. A stale or foreign handle
+    /// is a no-op and does not advance the graph revision. Removing a required
+    /// dependency is still rejected by the existing candidate validator.
+    pub fn unregister(&self, registration: &HookRegistration) -> Result<bool, HookAdmissionError> {
         let graph = Arc::clone(&self.graph.read());
-        let entries: Vec<Arc<HookEntry>> = graph
-            .ordered
-            .iter()
-            .filter(|entry| entry.spec.hook_id != hook_id)
-            .cloned()
-            .collect();
+        let Some(owned) = registration.entry.upgrade() else {
+            return Ok(false);
+        };
+        if !graph.ordered.iter().any(|entry| Arc::ptr_eq(entry, &owned)) {
+            return Ok(false);
+        }
+        let mut entries = Vec::with_capacity(graph.ordered.len() - 1);
+        entries.extend(
+            graph
+                .ordered
+                .iter()
+                .filter(|entry| !Arc::ptr_eq(entry, &owned))
+                .cloned(),
+        );
         // Rebuilding rejects a removal that would break a declared dependency,
         // and the previous graph stays in force in that case.
         let revision = graph
@@ -337,21 +374,35 @@ impl HookRegistry {
             .ok_or(HookAdmissionError::RevisionExhausted)?;
         let rebuilt = Graph::build(revision, entries)?;
         self.publish(graph.generation, rebuilt)?;
-        Ok(())
+        Ok(true)
     }
 
     /// Replace the whole graph for a new plugin generation. Validation happens
     /// before the swap, and a run that already snapshotted the previous graph
     /// keeps using it until that run finishes.
-    pub fn swap_generation(&self, entries: Vec<HookEntry>) -> Result<u64, HookAdmissionError> {
+    pub fn swap_generation(
+        &self,
+        entries: Vec<HookEntry>,
+    ) -> Result<HookPublication, HookAdmissionError> {
         let graph = Arc::clone(&self.graph.read());
         let generation = graph
             .generation
             .checked_add(1)
             .ok_or(HookAdmissionError::RevisionExhausted)?;
         let rebuilt = Graph::build(generation, entries.into_iter().map(Arc::new).collect())?;
+        let registrations = rebuilt
+            .ordered
+            .iter()
+            .map(|entry| HookRegistration {
+                hook_id: entry.spec.hook_id,
+                entry: Arc::downgrade(entry),
+            })
+            .collect();
         self.publish(graph.generation, rebuilt)?;
-        Ok(generation)
+        Ok(HookPublication {
+            generation,
+            registrations,
+        })
     }
 
     fn publish(&self, expected: u64, candidate: Graph) -> Result<(), HookAdmissionError> {
@@ -530,7 +581,7 @@ mod tests {
         let mut c_spec = spec(plugin, phase, "c", vec![]);
         c_spec.hook_id = "00000000-0000-0000-0000-000000000001".parse().unwrap();
         let c_id = c_spec.hook_id;
-        registry
+        let admitted = registry
             .swap_generation(vec![
                 entry(b_spec.clone(), "b", Arc::clone(&log)),
                 entry(a_spec.clone(), "a", Arc::clone(&log)),
@@ -606,7 +657,13 @@ mod tests {
         );
 
         assert!(matches!(
-            registry.unregister(a_id),
+            registry.unregister(
+                admitted
+                    .registrations
+                    .iter()
+                    .find(|registration| registration.hook_id() == a_id)
+                    .unwrap()
+            ),
             Err(HookAdmissionError::MissingDependency { .. })
         ));
         assert_eq!(registry.order(phase), expected);
@@ -693,7 +750,7 @@ mod tests {
         let generation = swapping
             .swap_generation(vec![entry(new_spec.clone(), "new", Arc::clone(&log))])
             .unwrap();
-        assert_eq!(generation, 2);
+        assert_eq!(generation.generation, 2);
         assert_eq!(
             swapping.order(HookPhase::AfterInference),
             vec![new_spec.hook_id]
@@ -718,32 +775,65 @@ mod tests {
         let log = Arc::new(Mutex::new(Vec::new()));
         let entered = Arc::new(Notify::new());
         let release = Arc::new(Notify::new());
-        let original = spec(EntityId::new(), HookPhase::BeforeInference, "original", vec![]);
+        let original = spec(
+            EntityId::new(),
+            HookPhase::BeforeInference,
+            "original",
+            vec![],
+        );
         let id = original.hook_id;
-        let _old_registration = registry.register(HookEntry {
-            spec: original.clone(),
-            handler: Arc::new(Recorder {
-                name: "original", log: Arc::clone(&log),
-                gate: Some((Arc::clone(&entered), Arc::clone(&release))), fail: false,
-            }),
-        }).unwrap();
+        let original_handler = Arc::new(Recorder {
+            name: "original",
+            log: Arc::clone(&log),
+            gate: Some((Arc::clone(&entered), Arc::clone(&release))),
+            fail: false,
+        });
+        let original_lifetime = Arc::downgrade(&original_handler);
+        let _old_registration = registry
+            .register(HookEntry {
+                spec: original.clone(),
+                handler: original_handler,
+            })
+            .unwrap();
         let snapshot = registry.snapshot();
         let in_flight = tokio::spawn(async move { snapshot.run_phase(&payload()).await });
         entered.notified().await;
-        let replacement = HookSpec { name: "replacement".into(), ..original };
-        let _replacement = registry.swap_generation(vec![entry(replacement, "replacement", Arc::clone(&log))]).unwrap();
+        let replacement = HookSpec {
+            name: "replacement".into(),
+            ..original
+        };
+        let _replacement = registry
+            .swap_generation(vec![entry(
+                replacement.clone(),
+                "replacement",
+                Arc::clone(&log),
+            )])
+            .unwrap();
         let revision = registry.generation();
+
+        let foreign = HookRegistry::new();
+        let _foreign_owner = foreign
+            .register(entry(replacement, "foreign", Arc::clone(&log)))
+            .unwrap();
+        let foreign_revision = foreign.generation();
+        assert!(!foreign.unregister(&_replacement.registrations[0]).unwrap());
+        assert_eq!(foreign.order(HookPhase::BeforeInference), vec![id]);
+        assert_eq!(foreign.generation(), foreign_revision);
 
         // Cleanup belongs to the original registration, not its successor
         // that deliberately retained the stable hook id.
-        registry.unregister(id).unwrap();
+        assert!(!registry.unregister(&_old_registration).unwrap());
         assert_eq!(registry.order(HookPhase::BeforeInference), vec![id]);
         assert_eq!(registry.generation(), revision);
         registry.run_phase(&payload()).await;
         release.notify_one();
         assert_eq!(in_flight.await.unwrap()[0].hook_id, id);
+        assert!(
+            original_lifetime.upgrade().is_none(),
+            "an ownership token must not retain a retired handler"
+        );
         assert_eq!(log.lock().clone(), vec!["replacement", "original"]);
-        registry.unregister(id).unwrap();
+        assert!(registry.unregister(&_replacement.registrations[0]).unwrap());
         assert!(registry.order(HookPhase::BeforeInference).is_empty());
     }
 }

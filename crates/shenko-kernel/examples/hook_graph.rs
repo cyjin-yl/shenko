@@ -46,10 +46,16 @@ async fn main() -> Result<()> {
     let seen = Arc::new(Mutex::new(vec![]));
     let registry = HookRegistry::new();
     let first = entry("00000000-0000-0000-0000-000000000002", "first", &seen);
+    let first_id = first.spec.hook_id;
     let mut second = entry("00000000-0000-0000-0000-000000000001", "second", &seen);
     second.spec.after.push(first.spec.hook_id);
     second.spec.requires.push(first.spec.hook_id);
-    registry.swap_generation(vec![second, first])?;
+    let admitted = registry.swap_generation(vec![second, first])?;
+    let original_registration = admitted
+        .registrations
+        .iter()
+        .find(|registration| registration.hook_id() == first_id)
+        .unwrap();
     let original = registry.snapshot();
     let payload = HookPayload::BeforeInference {
         request_id: EntityId::new(),
@@ -70,14 +76,19 @@ async fn main() -> Result<()> {
         Err(HookAdmissionError::UnknownSchema { .. })
     );
     anyhow::ensure!(rejected && registry.generation() == original.generation());
-    registry.swap_generation(vec![entry(
-        "00000000-0000-0000-0000-000000000004",
+    let replacement = registry.swap_generation(vec![entry(
+        "00000000-0000-0000-0000-000000000002",
         "replacement",
         &seen,
     )])?;
+    let revision = registry.generation();
+    let stale_removed = registry.unregister(original_registration)?;
+    anyhow::ensure!(!stale_removed && registry.generation() == revision);
     original.run_phase(&payload).await;
     registry.run_phase(&payload).await;
     anyhow::ensure!(*seen.lock().unwrap() == ["first", "second", "first", "second", "replacement"]);
+    let owner_removed = registry.unregister(&replacement.registrations[0])?;
+    anyhow::ensure!(owner_removed && registry.order(HookPhase::BeforeInference).is_empty());
     println!(
         "{}",
         serde_json::json!({
@@ -85,6 +96,8 @@ async fn main() -> Result<()> {
             "rejected_incompatible_schema": rejected,
             "original_revision": original.generation(),
             "active_revision": registry.generation(),
+            "stale_owner_removed_replacement": stale_removed,
+            "current_owner_withdrawal_succeeded": owner_removed,
             "model_calls": 0,
         })
     );
