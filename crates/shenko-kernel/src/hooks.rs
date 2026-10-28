@@ -711,4 +711,39 @@ mod tests {
         swapping.run_phase(&after).await;
         assert_eq!(log.lock().clone(), vec!["old", "old-before", "new"]);
     }
+
+    #[tokio::test]
+    async fn stale_withdrawal_does_not_remove_a_reused_hook_id() {
+        let registry = Arc::new(HookRegistry::new());
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let original = spec(EntityId::new(), HookPhase::BeforeInference, "original", vec![]);
+        let id = original.hook_id;
+        let _old_registration = registry.register(HookEntry {
+            spec: original.clone(),
+            handler: Arc::new(Recorder {
+                name: "original", log: Arc::clone(&log),
+                gate: Some((Arc::clone(&entered), Arc::clone(&release))), fail: false,
+            }),
+        }).unwrap();
+        let snapshot = registry.snapshot();
+        let in_flight = tokio::spawn(async move { snapshot.run_phase(&payload()).await });
+        entered.notified().await;
+        let replacement = HookSpec { name: "replacement".into(), ..original };
+        let _replacement = registry.swap_generation(vec![entry(replacement, "replacement", Arc::clone(&log))]).unwrap();
+        let revision = registry.generation();
+
+        // Cleanup belongs to the original registration, not its successor
+        // that deliberately retained the stable hook id.
+        registry.unregister(id).unwrap();
+        assert_eq!(registry.order(HookPhase::BeforeInference), vec![id]);
+        assert_eq!(registry.generation(), revision);
+        registry.run_phase(&payload()).await;
+        release.notify_one();
+        assert_eq!(in_flight.await.unwrap()[0].hook_id, id);
+        assert_eq!(log.lock().clone(), vec!["replacement", "original"]);
+        registry.unregister(id).unwrap();
+        assert!(registry.order(HookPhase::BeforeInference).is_empty());
+    }
 }
