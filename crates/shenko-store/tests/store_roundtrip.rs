@@ -938,3 +938,30 @@ fn native_recovery_recovers_more_than_one_page_of_running_work() {
     }
     assert_eq!(store.recover_native_tasks().unwrap(), 0);
 }
+
+#[test]
+fn native_recovery_rolls_back_all_pages_when_later_identity_is_corrupt() {
+    use shenko_types::{ids::*, task::TaskState};
+    let (dir, store, agent) = initialized_subject();
+    let mut batch = WriteBatch::new();
+    for number in 1..=257 { batch.task_upserts.push(recovery_task(&store, agent, number, true)); }
+    store.commit(batch).unwrap();
+    drop(store);
+
+    let corrupt = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    corrupt.execute(
+        "UPDATE tasks SET data=json_set(data,'$.task_id',?1) WHERE task_id=?2",
+        rusqlite::params![EntityId::nil().to_string(), "00000000-0000-0000-0000-000000000101"],
+    ).unwrap();
+    drop(corrupt);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    let before = reopened.current_commit_seq().unwrap();
+    assert!(reopened.recover_native_tasks().is_err());
+    assert_eq!(reopened.current_commit_seq().unwrap(), before);
+    let first = reopened.external_task("00000000-0000-0000-0000-000000000001".parse().unwrap()).unwrap();
+    assert!(matches!(first.state, TaskState::Running { .. }));
+    assert_eq!(first.record_revision, RecordRevision(5));
+    assert!(!first.memos.contains_key("native_recovery"));
+}

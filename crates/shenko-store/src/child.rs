@@ -90,48 +90,52 @@ impl Store {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 self.check_dispatch_owner(&tx)?;
-                let tasks = read_recovery_candidates_tx(&tx)?;
                 let mut changed = 0;
-                let mut prepared = Vec::new();
-                for mut task in tasks {
-                    if !task.is_running() {
-                        continue;
+                let mut commit = None;
+                let mut after = String::new();
+                loop {
+                    let tasks = read_recovery_candidates_tx(&tx, &after)?;
+                    if tasks.is_empty() {
+                        break;
                     }
-                    let native = memo_flag(&task, NATIVE_CHILD);
-                    if !native && task.kind != "delegation" {
-                        continue;
-                    }
-                    let checkpoint = pending_checkpoint(&task.state);
-                    task.state = TaskState::Pending {
-                        checkpoint_ref: checkpoint,
-                    };
-                    task.record_revision = task.record_revision.next();
-                    if native {
-                        task.memos.insert(NATIVE_RECOVERY.into(), true.into());
-                        task.dispatch_eligibility = if task.abort_request.is_some() {
-                            parked(task.task_id, "cancel_requested", None)
-                        } else {
-                            DispatchEligibility::Ready
+                    for (key, mut task) in tasks {
+                        ensure!(task.task_id.to_string() == key, "recovery task identity mismatch");
+                        after = key;
+                        let commit_ref = match commit {
+                            Some(commit_ref) => commit_ref,
+                            None => {
+                                let seq = self.ledger.allocate_seq(&tx)?;
+                                let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+                                commit = Some(commit_ref);
+                                commit_ref
+                            }
                         };
-                    } else {
-                        task.memos.insert(
-                            NATIVE_PARK.into(),
-                            serde_json::Value::String("legacy_unbound".into()),
-                        );
-                        task.dispatch_eligibility = parked(task.task_id, "legacy_unbound", None);
+                        let native = memo_flag(&task, NATIVE_CHILD);
+                        let checkpoint = pending_checkpoint(&task.state);
+                        task.state = TaskState::Pending {
+                            checkpoint_ref: checkpoint,
+                        };
+                        task.record_revision = task.record_revision.next();
+                        if native {
+                            task.memos.insert(NATIVE_RECOVERY.into(), true.into());
+                            task.dispatch_eligibility = if task.abort_request.is_some() {
+                                parked(task.task_id, "cancel_requested", None)
+                            } else {
+                                DispatchEligibility::Ready
+                            };
+                        } else {
+                            task.memos.insert(
+                                NATIVE_PARK.into(),
+                                serde_json::Value::String("legacy_unbound".into()),
+                            );
+                            task.dispatch_eligibility = parked(task.task_id, "legacy_unbound", None);
+                        }
+                        task.updated_commit = commit_ref;
+                        write_task(&tx, &task)?;
+                        changed += 1;
                     }
-                    prepared.push(task);
-                    changed += 1;
                 }
-                if changed == 0 {
-                    return Ok(0);
-                }
-                let seq = self.ledger.allocate_seq(&tx)?;
-                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                for mut task in prepared {
-                    task.updated_commit = commit;
-                    write_task(&tx, &task)?;
-                }
+                let Some(commit) = commit else { return Ok(0) };
                 child_log(&tx, self, commit, changed as i64)?;
                 tx.commit()?;
                 Ok(changed)
@@ -813,22 +817,24 @@ fn read_candidates_tx(conn: &rusqlite::Connection, limit: usize) -> Result<Vec<T
         .collect()
 }
 
-fn read_recovery_candidates_tx(conn: &rusqlite::Connection) -> Result<Vec<TaskRecord>> {
+fn read_recovery_candidates_tx(conn: &rusqlite::Connection, after: &str) -> Result<Vec<(String, TaskRecord)>> {
     // Recovery is a complete startup pass, not one dispatch page. Unrelated
     // pending work must not hide a crashed running task, nor may page 257 wait
     // for another startup that will never happen in this runtime.
     let mut query = conn.prepare(
-        "SELECT data FROM tasks
-         WHERE json_extract(data,'$.kind')!='subject_publication'
+        "SELECT task_id,data FROM tasks
+         WHERE task_id>?1 AND json_extract(data,'$.kind')!='subject_publication'
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status')='running'
            AND (json_extract(data,'$.memos.native_child')=1
                 OR json_extract(data,'$.kind')='delegation')
-         ORDER BY created_at,task_id",
+         ORDER BY task_id LIMIT 256",
     )?;
-    let rows = query.query_map([], |row| row.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    rows.into_iter().map(|data| serde_json::from_str(&data).map_err(Into::into)).collect()
+    let rows = query.query_map([after], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+    rows.map(|row| {
+        let (key, data) = row?;
+        Ok((key, serde_json::from_str(&data)?))
+    }).collect()
 }
 
 fn read_all_tasks(conn: &rusqlite::Connection) -> Result<Vec<TaskRecord>> {
