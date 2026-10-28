@@ -78,6 +78,33 @@ struct MemoryIntentBinding {
     content_ref: Option<ObjectRef>,
 }
 
+pub(crate) fn same_memory_object(left: Option<&ObjectRef>, right: Option<&ObjectRef>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.digest == right.digest && left.bytes == right.bytes
+                && left.media_type == right.media_type && left.store_namespace == right.store_namespace
+                && left.codec == right.codec
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn memory_binding_matches_locator(data: &str, locator: Option<&str>) -> bool {
+    serde_json::from_str::<MemoryIntentBinding>(data).is_ok_and(|binding| {
+        binding.schema_version == 1
+            && binding.content_ref.as_ref().map(|object| object.locator.as_str()) == locator
+    })
+}
+
+pub(crate) fn same_memory_bindings(left: &str, right: &str) -> bool {
+    match (serde_json::from_str::<MemoryIntentBinding>(left), serde_json::from_str::<MemoryIntentBinding>(right)) {
+        (Ok(left), Ok(right)) if left.schema_version == 1 && right.schema_version == 1 =>
+            same_memory_object(left.content_ref.as_ref(), right.content_ref.as_ref()),
+        _ => false,
+    }
+}
+
 /// The inner option is the supplied object reference; the outer option records
 /// whether an exact reference binding was retained at admission at all.
 #[derive(Debug, Clone)]
@@ -150,6 +177,9 @@ fn read_memory_intent(
             .map_err(|e| ShenkoError::storage(format!("invalid memory intent binding: {e}")))?;
         if binding.schema_version != 1 {
             return Err(ShenkoError::conflict("unsupported memory intent binding version"));
+        }
+        if binding.content_ref.as_ref().map(|object| object.locator.as_str()) != locator.as_deref() {
+            return Err(ShenkoError::conflict("memory intent locator and binding differ"));
         }
         Ok(binding.content_ref)
     }).transpose()?;
@@ -335,15 +365,18 @@ impl Store {
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
         if let Some(existing) = read_memory_intent(&tx, rec.intent_id)? {
             let original = &existing.record;
-            if original.agent_id != rec.agent_id || original.kind != rec.kind
-                || original.scope != rec.scope || original.content != rec.content
-                || original.content_ref != rec.content_ref
-                || existing.content_ref.as_ref().is_some_and(|stored| stored.as_ref() != content_ref)
-            {
-                return Err(ShenkoError::conflict("memory intent identity has different input"));
-            }
             if original.content_ref.is_some() && existing.content_ref.is_none() {
                 return Err(ShenkoError::conflict("legacy memory reference identity is unavailable"));
+            }
+            let same_reference = match existing.content_ref.as_ref() {
+                Some(stored) => same_memory_object(stored.as_ref(), content_ref),
+                None => content_ref.is_none(),
+            };
+            if original.agent_id != rec.agent_id || original.kind != rec.kind
+                || original.scope != rec.scope || original.content != rec.content
+                || !same_reference
+            {
+                return Err(ShenkoError::conflict("memory intent identity has different input"));
             }
             return Ok(MemoryIntentAdmission::Existing(existing));
         }

@@ -192,6 +192,11 @@ fn replicated_pending_memory_carries_its_object_binding_and_content() {
     assert!(receipt.ack(EntityId::new()).verified, "reference and source bytes must travel with the intent");
 
     let recovered = MemoryStore::with_store(agent, Arc::clone(&target));
+    let local_object = target.cas.seal_object(body.as_bytes(), "text/plain", "memory", "raw", 1).unwrap().object;
+    assert_ne!(object.locator, local_object.locator);
+    let mut relocated_retry = request.clone();
+    relocated_retry.content_ref = Some(local_object);
+    recovered.accept_intent(relocated_retry).unwrap();
     assert_eq!(recovered.process_all().unwrap(), 1);
     let facts = recovered.search("深刻", 10).unwrap();
     assert_eq!(facts.len(), 1);
