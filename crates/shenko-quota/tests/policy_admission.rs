@@ -167,6 +167,28 @@ fn previous_local_survives_marginal_cloud_recovery_but_not_unavailability() {
     assert_eq!(cloud(&unavailable).0, "cloud");
 }
 
+/// A recovered first local profile must not displace the previous local one.
+#[test]
+fn previous_nonfirst_local_survives_another_local_recovering() {
+    let mut p = single_window_policy("period", "percent", &[("cloud", 1.0)]);
+    p.min_progress_per_hour = 2.0;
+    for id in ["local-first", "local-previous"] {
+        p.profiles.push(ModelProfile { profile_id: id.into(),
+            model_ref: format!("model/{id}"), local: true, cost_per_request: Vec::new() });
+    }
+    let source = |rate| forecast_of(vec![
+        ("period", period(20.0, rate, 4), Range::point(20.0)),
+    ]);
+    let mut available = availability(&p, true);
+    available.insert("local-first".into(), BackendState::Unavailable);
+    let previous = decide(&p, &[source(1.9)], &available, None, now()).unwrap();
+    assert_eq!(previous.choice, Choice::Local { profile_id: "local-previous".into() });
+
+    available.insert("local-first".into(), BackendState::Available);
+    let recovered = decide(&p, &[source(2.1)], &available, Some(&previous), now()).unwrap();
+    assert_eq!(recovered.choice, previous.choice);
+}
+
 /// QA05: every overlapping window bounds the rate, the weekly window can
 /// rule out the smart profile even when the five-hour window has room,
 /// hysteresis avoids flapping, and a too-slow cloud yields to local.
