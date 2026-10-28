@@ -446,7 +446,7 @@ impl NativeTaskHandler for HistoryHandler {
             role_revision: "native-history-reader/1".into(),
             authority_refs: vec!["store.session_events.read.own_subject/v1".into()],
             prompt_section: Some(
-                "history.query/v1 是已安装的只读原始历史 child。搜索：[delegate:history.query:1] {\"op\":\"search\",\"query\":\"深刻\",\"from_seq\":0,\"limit\":20}；列事件用 op=list；按搜索结果重读用 op=read 且只给一个 event_id 或 seq。可选 event_types/roles 数组过滤。结果按 seq 升序，经后续真实 task_result 返回；search/list 只有有界 data_preview，search 尽量展示匹配位置，截断标志和起始位置说明预览并非全文；起点是原始 data 的 Unicode 标量位置，不是字节或 UTF-16 偏移。预览没显示某内容不证明原文没有；需要完整正文时使用 read。不得把尚未返回的回忆当成已核实事实。"
+                "history.query/v1 是已安装的只读原始历史 child。搜索：[delegate:history.query:1] {\"op\":\"search\",\"query\":\"深刻\",\"from_seq\":0,\"limit\":20}；列事件用 op=list；按搜索结果重读用 op=read 且只给一个 event_id 或 seq。可选 event_types/roles 数组过滤。结果按 seq 升序，经后续真实 task_result 返回；search/list 只有有界 data_preview，search 尽量展示匹配位置，截断标志和起始位置说明预览并非全文；起点是原始 data 的 Unicode 标量位置，不是字节或 UTF-16 偏移。压缩画面、当前片段或预览没显示某内容不证明原文没有；需要核实而当前证据不足时可先查询，需要完整正文时使用 read，仍不能确认就如实说明而不是断言原文不存在。seq 和 event_id 是历史行定位，不是材料自身的标题或编号；未看到来源标注就重读核实或不提，不得推断。不得把尚未返回的回忆当成已核实事实。"
                     .into(),
             ),
         }
