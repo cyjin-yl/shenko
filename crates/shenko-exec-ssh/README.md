@@ -85,6 +85,7 @@ CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
 它复用 `shenko-store` 的 Task/Operation/Attempt/Evidence 表和 CAS，不另造一个内存任务表。
 
 - `SshBinding::register` 要求显式 known_hosts 与 key/agent 来源，将**公有**信任材料封存到 CAS；不复制私钥。每次真正 `over_ssh`，不使用 localhost host 直通。
+- dispatch/query 在当前 CAS 核验所封存的信任对象，再解析为 OpenSSH 所需的绝对路径；Store 以相对 CAS 根打开时也可使用，不回退到历史 locator 或系统 host-key 库。此修正不声明已解决现有 CAS 路径验证到 OpenSSH 打开之间的 ancestor-swap TOCTOU。
 - `execute` 在一笔 IMMEDIATE SQLite 事务内查 `(task_id, logical_key)`、校验当前 task/record revision、running invocation、epoch、当前任务取消及 admission 状态，再固定输入、目标/合同、operation/armed attempt 和 task memo。事务外才 SSH；同 key 不同参数/绑定/合同冲突，同 key 命中只查询原 operation，旧 context 也不会再派发。
 - `SshAction::Exec` 以 argv + 二进制 stdin 执行，默认不经过远端 shell。显式 `sh -c` 仍是任意 shell，调用者承担它的真实效果。`Upload`/`Download` 各是一项独立 operation，限 1MiB。上传写同目录独立临时文件、fsync、rename、fsync 目录；不会声称跨本地/远端原子。
 - 对端要求已登记的 POSIX/Python3 能力及私有、账号所有的 receipt root。v1 helper 用 UUID 目录原子认领，先持久 intent，再执行；receipt fsync/rename 后才返回。目录已存在但 receipt 缺失时保持 unknown，绝不重新运行。helper/信任摘要和 receipt reader 版本固定在记录里。
