@@ -90,7 +90,7 @@ impl Store {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 self.check_dispatch_owner(&tx)?;
-                let tasks = read_candidates_tx(&tx, 256)?;
+                let tasks = read_recovery_candidates_tx(&tx)?;
                 let mut changed = 0;
                 let mut prepared = Vec::new();
                 for mut task in tasks {
@@ -811,6 +811,24 @@ fn read_candidates_tx(conn: &rusqlite::Connection, limit: usize) -> Result<Vec<T
     rows.into_iter()
         .map(|data| serde_json::from_str(&data).map_err(Into::into))
         .collect()
+}
+
+fn read_recovery_candidates_tx(conn: &rusqlite::Connection) -> Result<Vec<TaskRecord>> {
+    // Recovery is a complete startup pass, not one dispatch page. Unrelated
+    // pending work must not hide a crashed running task, nor may page 257 wait
+    // for another startup that will never happen in this runtime.
+    let mut query = conn.prepare(
+        "SELECT data FROM tasks
+         WHERE json_extract(data,'$.kind')!='subject_publication'
+           AND json_extract(data,'$.memos.cognition_imported') IS NULL
+           AND json_extract(data,'$.state.status')='running'
+           AND (json_extract(data,'$.memos.native_child')=1
+                OR json_extract(data,'$.kind')='delegation')
+         ORDER BY created_at,task_id",
+    )?;
+    let rows = query.query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    rows.into_iter().map(|data| serde_json::from_str(&data).map_err(Into::into)).collect()
 }
 
 fn read_all_tasks(conn: &rusqlite::Connection) -> Result<Vec<TaskRecord>> {
