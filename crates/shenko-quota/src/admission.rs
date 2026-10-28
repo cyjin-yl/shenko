@@ -210,6 +210,12 @@ fn reserved_upper(pacer: &Pacer, constraint: &crate::policy::WindowConstraint) -
     Some(total.upper)
 }
 
+fn pacing_deadline(admitted_at: DateTime<Utc>, rate: f64) -> Option<DateTime<Utc>> {
+    let millis = (3_600_000.0 / rate).next_up().ceil();
+    if !millis.is_finite() || millis > i64::MAX as f64 { return None; }
+    Duration::try_milliseconds(millis as i64).and_then(|interval| admitted_at.checked_add_signed(interval))
+}
+
 /// Decide admission of `request_id` under a sealed policy decision. The
 /// single-writer pacer must be persisted before any external dispatch.
 pub fn admit(
@@ -334,8 +340,20 @@ pub fn admit(
             let mut eligible_at = None::<DateTime<Utc>>;
             for constraint in &decision.constraints {
                 for reservation in pacer.reservations.values().filter(|r| r.dispatch != Some(DispatchEvidence::NeverDispatched)) {
+                    let Some(admitted_at) = reservation.admission.admitted_at else { continue };
+                    let Some(cost) = reservation.admission.estimated_cost.iter().find(|cost| cost.window == constraint.window) else { continue };
+                    if cost.unit != constraint.unit { return invalid("previous admission uses a different window unit"); }
                     for pace in reservation.admission.paced_windows.iter().filter(|pace| pace.window == constraint.window) {
                         let Some(next) = pace.not_before else {
+                            return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
+                                "pacing interval exceeds the representable clock range", vec![]), Vec::new());
+                        };
+                        if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
+                    }
+                    // A newly slower rate also constrains the previous
+                    // admission, including a bucket-to-period transition.
+                    if let Some(rate) = constraint.rate_per_hour {
+                        let Some(next) = pacing_deadline(admitted_at, rate) else {
                             return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
                                 "pacing interval exceeds the representable clock range", vec![]), Vec::new());
                         };
@@ -363,10 +381,7 @@ pub fn admit(
             let mut admission = record(AdmissionState::Admitted, Some(profile_id), None, "within quota and pacing bounds", costs.clone());
             for constraint in &decision.constraints {
                 let Some(rate) = constraint.rate_per_hour else { continue };
-                let millis = (3_600_000.0 / rate).next_up().ceil();
-                let not_before = if millis.is_finite() && millis <= i64::MAX as f64 {
-                    Duration::try_milliseconds(millis as i64).and_then(|interval| now.checked_add_signed(interval))
-                } else { None };
+                let not_before = pacing_deadline(now, rate);
                 admission.paced_windows.push(WindowPace { window: constraint.window.clone(), not_before });
             }
             record_admission(pacer, admission, costs)
