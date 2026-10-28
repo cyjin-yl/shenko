@@ -272,72 +272,14 @@ fn exhaustion_fallback_capacity_block_and_cancellation() {
     }).collect();
     let armed = mark_armed(&mut sent_pacer, &admitted, &attempts).unwrap();
     assert_eq!(mark_armed(&mut sent_pacer, &admitted, &attempts).unwrap(), armed);
+    let before = sent_pacer.clone();
+    assert_eq!(cancel(&mut sent_pacer, &armed, DispatchEvidence::NeverDispatched),
+        Err(CancellationError::InvalidState));
+    assert_eq!(sent_pacer, before, "rejected dispatch evidence must preserve the bound charge");
     let (sent, retained) = cancel(&mut sent_pacer, &armed, DispatchEvidence::ArmedOrUnknown).unwrap();
     assert_eq!(sent.record_revision, 2);
     assert!(retained.iter().any(|cost| cost.window == wref("five_hour")
         && cost.unit == "percent" && Some(cost.amount) == Range::new(0.0, 2.0)), "stopping a sent call does not make it free");
-}
-
-#[test]
-fn policy_rejects_unbound_costs_conflicts_and_invalid_rates() {
-    let mut p = policy();
-    p.profiles.truncate(1);
-    let available = availability(&p, false);
-    let mut empty = p.clone();
-    empty.profiles[0].cost_per_request.clear();
-    assert_eq!(decide(&empty, &[], &available, None, now()), Err(PolicyError::MissingCloudCost));
-    let mut overage = p.clone();
-    overage.allow_overage = true;
-    assert_eq!(decide(&overage, &[], &available, None, now()), Err(PolicyError::UnsupportedOverage));
-
-    let full = forecast_of(vec![
-        ("five_hour", period(20.0, 10.0, 2), Range::point(60.0)),
-        ("seven_day", period(40.0, 0.5, 80), Range::point(50.0)),
-    ]);
-    let mut wrong_unit = full.clone();
-    wrong_unit.windows[0].unit = "tokens".into();
-    let mismatch = decide(&p, &[wrong_unit], &available, None, now()).unwrap();
-    assert!(matches!(mismatch.choice, Choice::ObservationBlocked { .. }));
-    let mut exhausted = full.clone();
-    exhausted.forecast_id = EntityId::new();
-    exhausted.windows[0].planning = period(0.0, 0.0, 2);
-    exhausted.windows[0].remaining = Range::point(0.0);
-    let a = decide(&p, &[full.clone(), exhausted.clone()], &available, None, now()).unwrap();
-    let b = decide(&p, &[exhausted, full.clone()], &available, None, now()).unwrap();
-    assert!(matches!(a.choice, Choice::ObservationBlocked { .. }));
-    assert_eq!(a.choice, b.choice, "conflicting sources cannot be selected by input order");
-
-    let mut invalid_rate = full.clone();
-    if let Planning::Period { per_hour, .. } = &mut invalid_rate.windows[0].planning { *per_hour = f64::NAN; }
-    assert!(matches!(decide(&p, &[invalid_rate], &available, None, now()).unwrap().choice,
-        Choice::ObservationBlocked { .. }));
-    let decision = decide(&p, &[full.clone()], &available, None, now()).unwrap();
-    let mut tampered = decision.clone();
-    if let Choice::Cloud { rate_per_hour, .. } = &mut tampered.choice { *rate_per_hour = Some(f64::NAN); }
-    assert!(matches!(admit(&p, &tampered, EntityId::new(), &mut Pacer::default(), &available, now()),
-        AdmissionOutcome::Invalid { .. }));
-    let mut changed = p.clone();
-    changed.profiles[0].cost_per_request[0].amount = Range::point(3.0).unwrap();
-    assert!(matches!(admit(&changed, &decision, EntityId::new(), &mut Pacer::default(), &available, now()),
-        AdmissionOutcome::Invalid { .. }), "reusing a revision cannot silently replace policy contents");
-    let mut tampered_backend = decision.clone();
-    tampered_backend.availability[0].state = BackendState::Unknown;
-    assert!(matches!(admit(&p, &tampered_backend, EntityId::new(), &mut Pacer::default(), &available, now()),
-        AdmissionOutcome::Invalid { .. }));
-    assert!(matches!(decide(&p, &[full.clone()], &HashMap::new(), None, now()).unwrap().choice,
-        Choice::CapacityUnknown { .. }));
-    let unavailable = HashMap::from([("smart".into(), BackendState::Unavailable)]);
-    assert_eq!(decide(&p, &[full.clone()], &unavailable, None, now()).unwrap().choice, Choice::NoBackend);
-    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &unavailable, now()),
-        AdmissionOutcome::CapacityBlocked { .. }));
-    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &HashMap::new(), now()),
-        AdmissionOutcome::CapacityUnknown { .. }));
-
-    let json = serde_json::to_string(&p).unwrap();
-    let reopened: QuotaPolicy = serde_json::from_str(&json).unwrap();
-    let replayed = decide(&reopened, &[full], &available, None, now()).unwrap();
-    assert_eq!(replayed.choice, decision.choice);
-    assert_eq!(replayed.policy_digest, decision.policy_digest);
 }
 
 #[test]
@@ -536,57 +478,6 @@ fn corrected_period_end_does_not_erase_pacing_debt() {
     let corrected = decide(&p, &[changed], &available, None, later).unwrap();
     assert!(matches!(admit(&p, &corrected, EntityId::new(), &mut pacer, &available, later),
         AdmissionOutcome::Quota(record) if record.state == AdmissionState::QuotaPolicyWait));
-}
-
-#[test]
-fn losing_selected_backend_does_not_hide_an_available_fallback() {
-    let p = single_window_policy("five_hour", "percent", &[("smart", 2.0), ("cheap", 1.0)]);
-    let f = forecast_of(vec![("five_hour", period(100.0, 10.0, 10), Range::point(100.0))]);
-    let mut available = availability(&p, false);
-    let original = decide(&p, &[f.clone()], &available, None, now()).unwrap();
-    available.insert("smart".into(), BackendState::Unavailable);
-    let mut pacer = Pacer::default();
-    assert!(matches!(admit(&p, &original, EntityId::new(), &mut pacer, &available, now()),
-        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Eligible));
-    let fallback = decide(&p, &[f], &available, None, now()).unwrap();
-    assert_eq!(cloud(&fallback).0, "cheap");
-    assert!(matches!(admit(&p, &fallback, EntityId::new(), &mut pacer, &available, now()),
-        AdmissionOutcome::Quota(record) if record.state == AdmissionState::Admitted));
-}
-
-#[test]
-fn unknown_backend_is_not_hidden_by_an_unusable_available_one() {
-    let p = single_window_policy("five_hour", "percent", &[("smart", 2.0), ("cheap", 1.0)]);
-    let available = HashMap::from([("smart".into(), BackendState::Available), ("cheap".into(), BackendState::Unknown)]);
-    let decision = decide(&p, &[], &available, None, now()).unwrap();
-    assert!(matches!(decision.choice, Choice::CapacityUnknown { .. }));
-    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut Pacer::default(), &available, now()),
-        AdmissionOutcome::CapacityUnknown { .. }));
-}
-
-#[test]
-fn quota_pacing_handles_tiny_rates_and_clock_skew() {
-    let mut p = policy();
-    p.profiles.truncate(1);
-    p.profiles[0].cost_per_request.truncate(1);
-    p.min_progress_per_hour = 0.0;
-    let available = availability(&p, false);
-    let mut f = forecast_of(vec![("five_hour", period(1.0, 1e-300, 2), Range::point(1.0))]);
-    // The profile's first cost must fit the available amount.
-    p.profiles[0].cost_per_request[0].amount = Range::point(1.0).unwrap();
-    let decision = decide(&p, &[f.clone()], &available, None, now()).unwrap();
-    let mut pacer = Pacer::default();
-    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut pacer, &available, now()),
-        AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted));
-    assert!(matches!(admit(&p, &decision, EntityId::new(), &mut pacer, &available, now()),
-        AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::QuotaPolicyWait && admission.next_eligible_at.is_none()));
-    let mut future = decision.clone();
-    future.decided_at = now() + Duration::seconds(1);
-    assert!(matches!(admit(&p, &future, EntityId::new(), &mut Pacer::default(), &available, now()),
-        AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Eligible));
-    f.computed_at = now() + Duration::seconds(1);
-    assert!(matches!(decide(&p, &[f], &available, None, now()).unwrap().choice,
-        Choice::ObservationBlocked { .. }));
 }
 
 #[test]

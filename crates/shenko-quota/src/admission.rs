@@ -524,6 +524,9 @@ pub fn cancel(pacer: &mut Pacer, admission: &QuotaAdmission, evidence: DispatchE
         {
             return Err(CancellationError::IdentityMismatch);
         }
+        if reservation.dispatch.is_some_and(|dispatch| dispatch != evidence) {
+            return Err(CancellationError::InvalidState);
+        }
         if reservation.admission.state == AdmissionState::Cancelled {
             return Ok((reservation.admission.clone(), reservation.outstanding.clone()));
         }
