@@ -414,6 +414,7 @@ async fn main() -> Result<()> {
                     )?;
                 let client = Arc::new(napcat_client);
                 let spool = client.spool.clone();
+                spool.bind_control_store(&store, agent_id)?;
                 let event_tx = client.event_sender();
                 let pending_actions = client.pending_actions.clone();
                 let cancel_napcat = consumer_cancel.clone();
@@ -482,6 +483,7 @@ async fn main() -> Result<()> {
                 tokio::spawn(async move {
                     let result: Result<()> = async {
                         let mut after = 0;
+                        let mut after_reconciliation = 0;
                         let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
                         loop {
                             tokio::select! {
@@ -499,6 +501,15 @@ async fn main() -> Result<()> {
                                 {
                                     spool.ack(event.spool_id, &commit.to_string())?;
                                 }
+                            }
+                            // Held duplicates never appear in pending_after. Query
+                            // their real S1 receipts separately; a missing receipt
+                            // cannot prove that an old channel send did not occur.
+                            let groups = spool.reconciliation_groups_after(after_reconciliation, 64)?;
+                            if groups.is_empty() { after_reconciliation = 0; }
+                            for (seq, id) in groups {
+                                after_reconciliation = seq;
+                                spool.reconcile_from_store(&ack_store, agent_id, id)?;
                             }
                         }
                         Ok(())
@@ -979,7 +990,7 @@ mod recovery_integration_tests {
         let received = spool
             .ingest(serde_json::json!({
                 "post_type":"message", "message_type":"group", "group_id":7,
-                "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
+                "self_id":9, "user_id":8, "message_id":u64::MAX, "raw_message":"continue"
             }))
             .unwrap()
             .unwrap();
@@ -1010,6 +1021,7 @@ mod recovery_integration_tests {
         cancel.cancel();
         connector.await.unwrap().unwrap();
         assert_eq!(inbox_event.event_id, received.spool_id);
+        let observed_delivery = client.spool.event(received.spool_id).unwrap();
 
         let store = Arc::new(shenko_store::store::Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
         let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
@@ -1164,6 +1176,70 @@ mod recovery_integration_tests {
         assert_eq!(spool.pending_count().unwrap(), 0);
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
         assert!(spool.ingest(received.raw).unwrap().is_none());
+
+        // Reconstruct a v2 duplicate group around the *same* event whose real
+        // S1 was committed above. The later row is a local fixture, not QQ.
+        // Preserve the actual original observation rather than inventing a hash.
+        use rusqlite::{Connection, params};
+        use shenko_channel_napcat::spool::{IngressCursor, IngressDeliveryEvidence, IngressObservation, IngressReconciliationState, ObservationKind};
+        let original_db = Connection::open(&spool_path).unwrap();
+        let (raw_hash, observation_body): (String, String) = original_db.query_row(
+            "SELECT raw_hash,body FROM ingress_observations ORDER BY rowid LIMIT 1", [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        drop(original_db);
+        let legacy_path = dir.join("legacy-unsigned.sqlite");
+        let legacy = Connection::open(&legacy_path).unwrap();
+        legacy.execute_batch("
+            CREATE TABLE ingress_cursor (singleton INTEGER PRIMARY KEY CHECK(singleton=1), body TEXT NOT NULL);
+            CREATE TABLE ingress_events (seq INTEGER PRIMARY KEY AUTOINCREMENT, spool_id TEXT NOT NULL UNIQUE,
+                dedup_key TEXT NOT NULL UNIQUE, consumed INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL,
+                source_key TEXT, eligible INTEGER NOT NULL DEFAULT 1);
+            CREATE TABLE ingress_gaps (gap_id TEXT PRIMARY KEY, body TEXT NOT NULL);
+            CREATE TABLE ingress_observations (source_key TEXT NOT NULL, raw_hash TEXT NOT NULL, body TEXT NOT NULL,
+                PRIMARY KEY(source_key,raw_hash));
+        ").unwrap();
+        let mut cursor = IngressCursor::new("napcat", 9);
+        cursor.last_seq = 2;
+        legacy.execute("INSERT INTO ingress_cursor VALUES (1,?1)", [serde_json::to_string(&cursor).unwrap()]).unwrap();
+        let mut first = observed_delivery;
+        first.weak_dedup = true;
+        first.dedup_key = format!("napcat:9:onebot_v11:spool:{}", first.spool_id);
+        let mut duplicate = first.clone();
+        duplicate.spool_id = EntityId::new();
+        duplicate.seq = 2;
+        duplicate.dedup_key = format!("napcat:9:onebot_v11:spool:{}", duplicate.spool_id);
+        duplicate.delivered_at = None;
+        let duplicate_observation = IngressObservation {
+            event_id: duplicate.spool_id, kind: ObservationKind::Original, raw: duplicate.raw.clone(),
+        };
+        for (event, observation) in [(&first, observation_body), (&duplicate, serde_json::to_string(&duplicate_observation).unwrap())] {
+            legacy.execute("INSERT INTO ingress_events VALUES (?1,?2,?3,?4,?5,?6,1)", params![
+                i64::try_from(event.seq).unwrap(), event.spool_id.to_string(), event.dedup_key,
+                event.consumed, serde_json::to_string(event).unwrap(), event.dedup_key,
+            ]).unwrap();
+            legacy.execute("INSERT INTO ingress_observations VALUES (?1,?2,?3)",
+                params![event.dedup_key, raw_hash, observation]).unwrap();
+        }
+        legacy.pragma_update(None, "application_id", 0x534e4947_i64).unwrap();
+        legacy.pragma_update(None, "user_version", 2).unwrap();
+        drop(legacy);
+        let held = IngressSpool::open(&legacy_path, 9).unwrap();
+        assert_eq!(held.reconciliation_status(first.spool_id).unwrap().state, IngressReconciliationState::AwaitingEvidence);
+        let status = held.reconcile_from_store(&store, agent, first.spool_id).unwrap();
+        assert_eq!(status.state, IngressReconciliationState::DispositionObserved);
+        assert_eq!(status.unresolved_event_ids, vec![duplicate.spool_id]);
+        assert!(status.evidence.iter().any(|e| matches!(e, IngressDeliveryEvidence::CommittedDisposition {
+            event_id, agent_id, commit
+        } if *event_id == first.spool_id && *agent_id == agent && *commit == receipt.commit_ref)));
+        assert_eq!(held.pending_count().unwrap(), 0);
+        assert!(!held.event(first.spool_id).unwrap().consumed);
+        assert!(held.event(first.spool_id).unwrap().disposition_ref.is_none());
+        drop(held);
+        let held = IngressSpool::open(&legacy_path, 9).unwrap();
+        assert_eq!(held.reconciliation_status(duplicate.spool_id).unwrap().state, IngressReconciliationState::DispositionObserved);
+        assert_eq!(held.pending_count().unwrap(), 0);
+        assert!(held.ingest(duplicate.raw.clone()).unwrap().is_none());
         // Temporary evidence files are deliberately retained for inspection.
     }
 

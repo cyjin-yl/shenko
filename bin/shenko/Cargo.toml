@@ -40,5 +40,8 @@ chrono = { workspace = true }
 dirs-next = "2"
 libc = "0.2"
 
+[dev-dependencies]
+rusqlite = { workspace = true }
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

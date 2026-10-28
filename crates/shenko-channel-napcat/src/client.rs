@@ -282,17 +282,35 @@ impl NapCatClient {
         result
     }
 
-    async fn delivery_loop(
+    pub(crate) async fn delivery_loop(
         event_tx: mpsc::Sender<OneBotEvent>,
         spool: Arc<IngressSpool>,
         cancel: tokio_util::sync::CancellationToken,
     ) -> anyhow::Result<()> {
         // Process-local delivery watermark, NOT an ACK. Never reset it on a scan
         // or socket reconnect; a process reopen intentionally replays stable IDs.
-        let mut after = 0;
+        let mut after = 0_u64;
+        let mut after_release = 0_u64;
         let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
         loop {
-            let events = spool.pending_after(after, 256)?;
+            // Process releases through one fixed horizon before scanning new
+            // seqs. Later releases are excluded from this scan and will be
+            // picked up even when their seq is behind the local watermark.
+            let scope = spool.control_scope()?;
+            let horizon = spool.release_horizon()?;
+            while scope.is_some() && after_release < horizon {
+                let releases = spool.releases_between(after_release, horizon, 256)?;
+                anyhow::ensure!(!releases.is_empty(), "NapCat release stream has a gap");
+                for (release_seq, event) in releases {
+                    if let Some(event) = event {
+                        if event.seq <= after && !Self::deliver_spooled(&event_tx, &spool, event, &cancel).await? {
+                            return Ok(());
+                        }
+                    }
+                    after_release = release_seq;
+                }
+            }
+            let events = spool.pending_after_release_horizon(after, horizon, 256, scope)?;
             if events.is_empty() {
                 tokio::select! {
                     _ = tick.tick() => {},
@@ -457,13 +475,16 @@ impl NapCatClient {
             data.remove("ingress_id");
         }
         normalized.ingress_id = Some(event.spool_id);
-        tokio::select! {
-            sent = event_tx.send(normalized) => {
-                sent.map_err(|_| anyhow::anyhow!("NapCat 消费 channel 已关闭，事件仍未确认"))?;
-            }
+        let permit = tokio::select! {
+            permit = event_tx.reserve() => permit.map_err(|_| anyhow::anyhow!("NapCat 消费 channel 已关闭，事件仍未确认"))?,
             _ = cancel.cancelled() => return Ok(false),
+        };
+        if spool.dispatch_if_pending(event.spool_id, || { permit.send(normalized); })? {
+            // A receiver can close after reservation; never report that
+            // uncertain handoff as a confirmed local delivery.
+            anyhow::ensure!(!event_tx.is_closed(), "NapCat 消费 channel 已关闭，投递结果未知");
+            spool.mark_delivered(event.spool_id)?;
         }
-        spool.mark_delivered(event.spool_id)?;
         // 不调用 ack：channel 成功不等于主体已提交处置。
         Ok(true)
     }
