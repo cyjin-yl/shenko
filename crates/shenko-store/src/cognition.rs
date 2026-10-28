@@ -45,7 +45,7 @@
 //!   that already holds other content keeps it: the divergence is reported
 //!   instead of being overwritten.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -337,9 +337,8 @@ pub struct CognitionImportOutcome {
 impl CognitionImportOutcome {
     /// The answer this store gives about the snapshot it just received.
     ///
-    /// A snapshot that arrived without a blocking gap is verified; conflicts
-    /// with the local history do not make the transfer unverified, they are
-    /// reported so the operator can reconcile them.
+    /// A snapshot is verified only when it has no blocking gaps or conflicts
+    /// with local history; conflicting facts remain available for reconciliation.
     pub fn ack(&self, peer_id: EntityId) -> CognitionAck {
         let blocking = self.gaps.iter().filter(|gap| gap.blocking).count();
         CognitionAck {
@@ -1634,17 +1633,23 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
+                let referenced_memory_entries: HashSet<&str> = ordered.iter()
+                    .filter(|row| row.table == "memory_intents")
+                    .filter_map(|row| row.value("entry_id"))
+                    .collect();
                 let mut memory_applied = false;
                 for row in &ordered {
-                    if row.table == "memory_intents" || row.table == "memory_intent_bindings" {
-                        if !memory_applied {
-                            let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
-                            inserted += outcome.inserted;
-                            updated += outcome.updated;
-                            unchanged += outcome.unchanged;
-                            conflicts.extend(outcome.conflicts);
-                            memory_applied = true;
-                        }
+                    if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
+                        let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
+                        inserted += outcome.inserted;
+                        updated += outcome.updated;
+                        unchanged += outcome.unchanged;
+                        conflicts.extend(outcome.conflicts);
+                        memory_applied = true;
+                    }
+                    if row.table == "memory_intents" || row.table == "memory_intent_bindings"
+                        || (row.table == "memory_entries" && referenced_memory_entries.contains(row.key.as_str()))
+                    {
                         continue;
                     }
                     let Some(spec) = spec_for(&row.table) else {
@@ -2587,7 +2592,17 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
 fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     let mut intents = HashMap::new();
     let mut bindings = HashMap::new();
+    let mut entries = HashSet::new();
     let mut gaps = Vec::new();
+    for row in rows.iter().filter(|row| row.table == "memory_entries") {
+        if row.value("entry_id") != Some(row.key.as_str()) || !entries.insert(row.key.as_str()) {
+            gaps.push(CognitionGap {
+                kind: "memory_intent_identity".into(),
+                detail: format!("invalid or duplicate memory entry {}", row.key),
+                blocking: true,
+            });
+        }
+    }
     for row in rows.iter().filter(|row| row.table == "memory_intents" || row.table == "memory_intent_bindings") {
         let id = row.value("intent_id");
         let map = if row.table == "memory_intents" { &mut intents } else { &mut bindings };
@@ -2613,14 +2628,25 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
             });
         }
     }
+    let mut entry_owners = HashMap::new();
     for (id, intent) in &intents {
         let library_pending = intent.value("state") == Some("accepted")
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
         let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
-        if library_pending && (!entry_present || (intent.value("content_ref").is_some() && !bindings.contains_key(id))) {
+        let entry_id = intent.value("entry_id");
+        let duplicate_entry = entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
+        let missing_committed_entry = intent.value("state") == Some("committed")
+            && entry_id.is_none_or(|entry| !entries.contains(entry));
+        let missing_pending_identity = library_pending
+            && (!entry_present || (intent.value("content_ref").is_some() && !bindings.contains_key(id)));
+        if missing_pending_identity || duplicate_entry || missing_committed_entry {
             gaps.push(CognitionGap {
                 kind: "memory_intent_identity".into(),
-                detail: format!("pending memory intent {id} lacks its complete identity"),
+                detail: if missing_pending_identity {
+                    format!("pending memory intent {id} lacks its complete identity")
+                } else {
+                    format!("memory intent {id} has a missing or shared committed entry")
+                },
                 blocking: true,
             });
         }
@@ -2628,6 +2654,7 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     gaps
 }
 
+#[derive(Clone, Copy)]
 enum MemoryRowOutcome {
     Inserted,
     Updated,
@@ -2661,21 +2688,27 @@ fn apply_memory_row(
     Ok(result)
 }
 
-/// A request and its immutable reference are reconciled together. In particular,
-/// a locator-only legacy request cannot acquire another source's digest merely
-/// because its intent ID or locator happens to match.
+/// A request, immutable reference and associated committed entry are reconciled
+/// together. A locator-only legacy request cannot acquire another source's
+/// digest merely because its intent ID or locator happens to match.
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<CognitionApplyOutcome> {
     let parents = spec_for("memory_intents").expect("memory intent table is registered");
     let sidecars = spec_for("memory_intent_bindings").expect("memory binding table is registered");
+    let entry_spec = spec_for("memory_entries").expect("memory entry table is registered");
     let bindings: HashMap<&str, &CognitionRow> = rows.iter()
         .filter(|row| row.table == sidecars.name)
+        .map(|row| (row.key.as_str(), *row)).collect();
+    let entries: HashMap<&str, &CognitionRow> = rows.iter()
+        .filter(|row| row.table == entry_spec.name)
         .map(|row| (row.key.as_str(), *row)).collect();
     let mut outcome = CognitionApplyOutcome::default();
     for row in rows.iter().filter(|row| row.table == parents.name) {
         let mut parent = effective_row(row, parents)?;
         let mut binding = bindings.get(row.key.as_str()).map(|row| effective_row(row, sidecars)).transpose()?;
+        let entry = parent.value("entry_id").and_then(|id| entries.get(id))
+            .map(|row| effective_row(row, entry_spec)).transpose()?;
         let local = read_existing(tx, parents, &parent)?;
         let local_binding: Option<String> = tx.query_row(
             "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
@@ -2717,23 +2750,28 @@ fn apply_memory_pairs(
             compatible = false;
         }
 
-        let mut results = Vec::with_capacity(2);
+        let mut results = [None; 3];
         if compatible {
             tx.execute("SAVEPOINT memory_intent_pair", []).map_err(db)?;
-            results.push(apply_memory_row(tx, parents, &parent, peer_id, seq)?);
-            if !matches!(results[0], MemoryRowOutcome::Conflict) {
+            results[0] = Some(apply_memory_row(tx, parents, &parent, peer_id, seq)?);
+            if !matches!(results[0], Some(MemoryRowOutcome::Conflict)) {
                 if let Some(binding) = &binding {
-                    results.push(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+                    results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
                 }
             }
-            if results.iter().any(|result| matches!(result, MemoryRowOutcome::Conflict)) {
+            if !results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+                if let Some(entry) = &entry {
+                    results[2] = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                }
+            }
+            if results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
                 tx.execute("ROLLBACK TO memory_intent_pair", []).map_err(db)?;
                 compatible = false;
             }
             tx.execute("RELEASE memory_intent_pair", []).map_err(db)?;
         }
         if compatible {
-            for result in results {
+            for result in results.into_iter().flatten() {
                 match result {
                     MemoryRowOutcome::Inserted => outcome.inserted += 1,
                     MemoryRowOutcome::Updated => outcome.updated += 1,

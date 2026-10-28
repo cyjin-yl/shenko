@@ -67,6 +67,7 @@ fn legacy_pending_library_reference_is_not_a_verified_recovery() {
     assert_eq!(receiver.memory_intent_state(intent).unwrap(), None);
     assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent();
     assert_binding_conflict_does_not_advance_a_partial_baseline();
+    assert_conflicting_entry_is_not_exposed_or_overwritten();
 }
 
 fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
@@ -79,8 +80,13 @@ fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
     let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
     let body = "不同来源的正文";
     let object = source.cas.seal_object(body.as_bytes(), "text/plain", "memory", "raw", 1).unwrap().object;
-    let record = MemoryIntentRecord::accepted(intent, agent, "save", "personal", "", Some(object.locator.clone()), Some(EntityId::new()));
+    let entry_id = target.memory_intent(intent).unwrap().unwrap().record.entry_id.unwrap();
+    let record = MemoryIntentRecord::accepted(intent, agent, "save", "personal", "", Some(object.locator.clone()), Some(entry_id));
     source.admit_memory_intent(&record, Some(&object)).unwrap();
+    let mut source_entry = MemoryEntry::new(agent, body);
+    source_entry.entry_id = entry_id;
+    source_entry.kind = "save".into();
+    source.commit_memory_intent(&source_entry, intent).unwrap();
     let mut archive = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
     let outcome = target.import_cognition_archive(&archive[..], &Default::default()).unwrap();
@@ -141,6 +147,34 @@ fn assert_binding_conflict_does_not_advance_a_partial_baseline() {
     let rollback = target.import_cognition_archive(&export()[..], &options).unwrap();
     assert!(!rollback.ack(EntityId::new()).verified);
     assert_eq!(target.memory_intent_state(intent).unwrap().as_deref(), Some("committed"));
+}
+
+fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let target = Store::open(dir.join("target.db"), dir.join("target-cas")).unwrap();
+    let agent = EntityId::new();
+    let intent = EntityId::new();
+    let entry_id = EntityId::new();
+    let request = |content| MemoryIntentRecord::accepted(intent, agent, "save", "personal", content, None, Some(entry_id));
+    target.admit_memory_intent(&request("local A"), None).unwrap();
+    source.admit_memory_intent(&request("remote B"), None).unwrap();
+    let entry = |content| {
+        let mut entry = MemoryEntry::new(agent, content);
+        entry.entry_id = entry_id;
+        entry.kind = "save".into();
+        entry
+    };
+    source.commit_memory_intent(&entry("remote B"), intent).unwrap();
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    let outcome = target.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    assert!(!outcome.ack(EntityId::new()).verified);
+    assert!(target.list_memory(10).unwrap().is_empty());
+    target.commit_memory_intent(&entry("local A"), intent).unwrap();
+    assert_eq!(target.list_memory(10).unwrap()[0].content, "local A");
+    assert_eq!(source.list_memory(10).unwrap()[0].content, "remote B");
 }
 
 #[test]

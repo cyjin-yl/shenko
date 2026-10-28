@@ -101,9 +101,15 @@ observations, cursor and gaps. Its chunked CAS root is part of the closure.
 path without activating a provider or replaying an input. This does not scan
 arbitrary provider databases, private environment files or credential stores.
 
-Manifest schema 2 binds source ledger/high water, durable snapshot order,
-fingerprint, object descriptors and file origins. Stale order, missing/corrupt
-retained CAS and forged fingerprints are rejected before file publication.
+Manifest schema 3 binds source ledger/high water, durable snapshot order,
+fingerprint, object descriptors, file origins and durable memory-intent
+bindings. Schema 2 remains readable when its pending memory identities are
+recoverable; an older schema-2-only receiver must be upgraded to receive a
+schema-3 archive. Missing binding identity, unknown fact tables, stale order,
+missing/corrupt retained CAS and forged fingerprints block verified recovery.
+An intent, its binding and associated memory entry reconcile as one conflict
+unit; a conflicting source cannot publish only its entry or attach its
+reference to a retained locator-only intent.
 Imported S1 history keeps original ledger/commit references, while local replay
 uses its own sequence and a step-order cursor so an imported same-sequence page
 cannot reorder or skip committed steps. Imported unknown effects are not
