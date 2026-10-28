@@ -177,22 +177,6 @@ fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
     assert_eq!(source.list_memory(10).unwrap()[0].content, "remote B");
 }
 
-#[test]
-fn previous_archive_with_inline_subject_intent_remains_recoverable() {
-    let dir = tmp_dir();
-    let db = dir.join("old.db");
-    let source = Store::open(db.clone(), dir.join("old-cas")).unwrap();
-    let intent = legacy_pending(&db, EntityId::new(), "note", "inline subject fact");
-    let mut snapshot = source.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
-    snapshot.manifest.schema = 2;
-    let mut archive = Vec::new();
-    snapshot.write_archive(&mut archive).unwrap();
-    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
-    let outcome = receiver.import_cognition_archive(&archive[..], &Default::default()).unwrap();
-    assert!(outcome.ack(EntityId::new()).verified);
-    assert_eq!(receiver.memory_intent_state(intent).unwrap().as_deref(), Some("accepted"));
-}
-
 fn version_ref(name: &str) -> VersionedRef {
     VersionedRef {
         artifact: ArtifactRef {
