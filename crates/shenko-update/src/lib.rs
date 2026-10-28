@@ -928,13 +928,16 @@ mod tests {
             assert!(!staging.exists());
             assert_complete(&a.artifact_dir, b"{\"generation\":\"a\"}");
 
-            // Creating a missing intermediate inside A must also be refused,
-            // even though later parent components would leave A.
-            let would_create = a.artifact_dir.join("missing");
-            let escaped = would_create.join("../../escaped");
-            let coordinator = UpdateCoordinator::new(a.generation.clone(), RuntimeGeneration::new("b"), &escaped);
-            assert!(matches!(coordinator.prepare_slot(&a, RuntimeGeneration::new("b")), Err(UpdateError::InvalidSourceSlot(_))));
-            assert!(!would_create.exists());
+            // POSIX preserves `..` while resolving this path: mkdir would have
+            // to create the missing intermediate inside A before leaving it.
+            #[cfg(unix)]
+            {
+                let would_create = a.artifact_dir.join("missing");
+                let escaped = would_create.join("../../escaped");
+                let coordinator = UpdateCoordinator::new(a.generation.clone(), RuntimeGeneration::new("b"), &escaped);
+                assert!(matches!(coordinator.prepare_slot(&a, RuntimeGeneration::new("b")), Err(UpdateError::InvalidSourceSlot(_))));
+                assert!(!would_create.exists());
+            }
 
             // A pre-existing path may traverse through A to an outside sibling.
             let sibling = root.join("staging");
