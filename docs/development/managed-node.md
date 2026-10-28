@@ -56,12 +56,54 @@ data, even when the transport is already authenticated.
 
 ### Installation units and local readiness
 
-Unit schema 2 carries `perception`, `awareness`, `skill` and `code` packages:
+Unit transfer schema 3 carries `perception`, `awareness`, `skill` and `code` packages:
 identity, revision, exact artifact bytes/digest, declared configuration,
-applicability, required/recommended dependencies and safe trial provenance.
-Exact selectors retain the chosen revision/digest; capability/topic selectors
-resolve against actual declarations. A later matching import re-resolves
-unresolved/omitted edges without replacing an already selected exact version.
+applicability, required/recommended dependencies, a digest-bound root,
+digest-specific selected edges and safe trial provenance. Exported schema-3
+root identity does not depend on package ordering; an authored schema-3 closure
+without a root version must contain only one version of the root identity.
+Both exact and capability/topic choices retain the
+selected revision and digest. Imports retain an existing satisfied selection;
+conflicting transported pins fail instead of silently replacing either choice.
+A later matching import re-resolves unresolved/omitted edges; if a transported
+pin's target is missing, only that exact target can complete the selection.
+If the retained target no longer satisfies the declared selector, the pin is
+not silently replaced and the required closure remains incomplete.
+Transfer fails rather than silently truncating a closure beyond the package bound.
+Materializations of different digests use different paths. Import responses
+report offered and retained edges and the resulting closure for every version;
+these are installation facts, not runtime activation.
+
+Node storage schema 4 validates the complete old schema fingerprint and
+installation identity before its transactional migration. It retains the old v3
+`unit_edges` rows unchanged in `unit_edges_legacy`: where one digest alone has
+the old id/revision and the edge matches its descriptor, that choice is retained;
+multiple digests, absent rows or mismatched declarations are explicitly
+`legacy_ambiguous` and never gain an inferred selection. A required ambiguous
+edge prevents a complete required closure; a recommended one remains visible.
+Reimporting the same version retains the previous serialized version record in
+the local `unit_version_history` table before updating its current record;
+changed digest-bound edge records are retained in local `unit_edge_history`.
+Unrelated imports do not clear the ambiguity. To make a *new* decision without
+changing the current version, issue a Node `units` request whose nested
+`command` is `resolve_version`, with the exact `unit_id`, `revision` and
+`artifact_digest`, after making the desired
+dependencies available. This keeps satisfied selections pinned and leaves an
+ambiguous edge ambiguous if no candidate can be selected. Alternatively,
+import the exact package with schema 3 and without `resolved_dependencies` for
+that package; this can change the current version. Importing that exact version
+with an explicit schema-3 source selection is a new choice from that source, not proof
+of the old local choice. Neither operation claims the old selection was
+recovered. The original legacy rows remain available as evidence.
+
+New receivers accept schema-2 transfers, but schema 2 did not carry selected
+edges and cannot prove their source-version ownership. Such edges remain
+`legacy_ambiguous` unless an already retained local pin applies, and the import
+response distinguishes the offered unknown from the retained local choice.
+Schema-3 exports carry these unknowns as unknown rather than silently resolving
+them at the next receiver. Old schema-2 receivers reject schema-3 exports
+(including their new fields), so they cannot acknowledge a closure whose
+selections they cannot preserve; upgrade the receiver before transferring it.
 
 Copied/enabled is not ready. Readiness requires the currently materialized bytes,
 a successful local artifact-bound trial in the current observed environment,
@@ -160,7 +202,7 @@ contract, not remote attestation or a substitute for verifying the source tree.
 
 `shenko-node PRIVATE_DATA_DIR` reads one bounded JSON request on stdin and returns
 one JSON response after committed work. Existing unrelated data is rejected;
-never use a live main-app directory. Storage schema **3** is separate from
+never use a live main-app directory. Storage schema **4** is separate from
 record/wire schema **1**. Existing databases first undergo an immutable/read-only
 application/schema/installation preflight: even WAL sidecar creation or journal
 recovery is not allowed for an unknown database. Then the writable open rechecks
