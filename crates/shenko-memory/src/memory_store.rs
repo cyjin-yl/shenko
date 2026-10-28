@@ -161,8 +161,14 @@ impl MemoryStore {
                 MemoryIntentAdmission::Inserted(stored) | MemoryIntentAdmission::Existing(stored) => stored,
             };
             match stored.record.state.as_str() {
-                "committed" => return Ok(AcceptedRef { intent_id, status: "committed" }),
-                "failed" => return Ok(AcceptedRef { intent_id, status: "failed" }),
+                "committed" => {
+                    self.remove_queued(intent_id);
+                    return Ok(AcceptedRef { intent_id, status: "committed" });
+                }
+                "failed" => {
+                    self.remove_queued(intent_id);
+                    return Ok(AcceptedRef { intent_id, status: "failed" });
+                }
                 "accepted" => {},
                 _ => return Err(anyhow::anyhow!("unsupported durable memory intent state")),
             }
@@ -284,11 +290,22 @@ impl MemoryStore {
     /// Process every queued intent; returns how many were committed.
     pub fn process_all(&self) -> Result<usize, anyhow::Error> {
         let mut committed = 0;
+        // Another handle or an import may already have settled a queued ID,
+        // so the durable pending query alone cannot reconcile this cache.
+        let queued_ids: Vec<EntityId> = self.queue
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .map(|queued| queued.intent.intent_id)
+            .collect();
+        for id in queued_ids {
+            if matches!(self.process_intent(id)?, ProcessOutcome::Committed(_)) {
+                committed += 1;
+            }
+        }
+        let Some(store) = &self.store else { return Ok(committed) };
         loop {
-            let ids: Vec<EntityId> = match &self.store {
-                Some(store) => store.pending_library_memory_intents(self.agent_id, 256)?,
-                None => self.pending_intents().iter().map(|q| q.intent.intent_id).collect(),
-            };
+            let ids = store.pending_library_memory_intents(self.agent_id, 256)?;
             if ids.is_empty() { break; }
             for id in ids {
                 if matches!(self.process_intent(id)?, ProcessOutcome::Committed(_)) {

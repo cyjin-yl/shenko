@@ -130,13 +130,13 @@ fn stale_worker_and_late_failure_cannot_replace_a_committed_memory() {
     let intent = intent(MemoryIntentKind::Save);
     let text = "共享的深刻事实";
     first.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap();
-    // An identical concurrent acceptance may return an idempotent receipt or
-    // explicitly reject, but must not replace the durable binding.
-    let _ = second.accept_intent_with_content(intent.clone(), Some(text.into()));
+    assert_eq!(second.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap().status, "accepted");
     let original = match first.process_intent(intent.intent_id).unwrap() {
         ProcessOutcome::Committed(entry) => entry.entry_id,
         other => panic!("expected original commit, got {other:?}"),
     };
+    assert_eq!(second.process_all().unwrap(), 0);
+    assert!(second.pending_intents().is_empty());
     assert!(matches!(second.process_intent(intent.intent_id).unwrap(), ProcessOutcome::AlreadyProcessed(_)));
     let _ = store.fail_memory_intent(intent.intent_id, "late stale failure");
     assert_eq!(store.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
@@ -144,6 +144,23 @@ fn stale_worker_and_late_failure_cannot_replace_a_committed_memory() {
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].entry_id, original);
     assert_eq!(found[0].content, text);
+
+    let mut later = intent.clone();
+    later.intent_id = EntityId::new();
+    first.accept_intent_with_content(later.clone(), Some(text.into())).unwrap();
+    second.accept_intent_with_content(later.clone(), Some(text.into())).unwrap();
+    first.process_intent(later.intent_id).unwrap();
+    assert_eq!(second.accept_intent_with_content(later, Some(text.into())).unwrap().status, "committed");
+    assert!(second.pending_intents().is_empty());
+
+    let mut failed = intent.clone();
+    failed.intent_id = EntityId::new();
+    failed.kind = MemoryIntentKind::Recall;
+    first.accept_intent_with_content(failed.clone(), Some(text.into())).unwrap();
+    second.accept_intent_with_content(failed.clone(), Some(text.into())).unwrap();
+    assert!(matches!(first.process_intent(failed.intent_id).unwrap(), ProcessOutcome::Failed(_)));
+    assert_eq!(second.accept_intent_with_content(failed, Some(text.into())).unwrap().status, "failed");
+    assert!(second.pending_intents().is_empty());
 }
 
 #[test]
