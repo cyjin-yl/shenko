@@ -84,3 +84,98 @@ fn unsupported_intent_kind_is_recorded_as_failed() {
         Some("failed")
     );
 }
+
+#[test]
+fn replay_after_reopen_preserves_the_original_memory() {
+    let tag = "replay-after-reopen";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let agent = EntityId::new();
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+    let intent = intent(MemoryIntentKind::Save);
+    let text = "用户的深刻记忆是蓝色书签";
+    memory.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap();
+    let original = match memory.process_intent(intent.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected original commit, got {other:?}"),
+    };
+    drop(memory);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let memory = MemoryStore::with_store(agent, Arc::clone(&reopened));
+    if memory.accept_intent_with_content(intent.clone(), Some(text.into())).is_ok() {
+        memory.process_intent(intent.intent_id).unwrap();
+    }
+    assert_eq!(reopened.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
+    let matches = memory.search("深刻", 10).unwrap();
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].entry_id, original);
+    assert_eq!(matches[0].content, text);
+
+    assert!(memory.accept_intent_with_content(intent.clone(), Some("改写原始事实".into())).is_err());
+    assert_eq!(memory.search("深刻", 10).unwrap()[0].entry_id, original);
+    assert_eq!(reopened.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
+}
+
+#[test]
+fn stale_worker_and_late_failure_cannot_replace_a_committed_memory() {
+    let tag = "stale-worker";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let other_store = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let agent = EntityId::new();
+    let first = MemoryStore::with_store(agent, Arc::clone(&store));
+    let second = MemoryStore::with_store(agent, other_store);
+    let intent = intent(MemoryIntentKind::Save);
+    let text = "共享的深刻事实";
+    first.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap();
+    assert_eq!(second.accept_intent_with_content(intent.clone(), Some(text.into())).unwrap().status, "accepted");
+    let original = match first.process_intent(intent.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected original commit, got {other:?}"),
+    };
+    assert_eq!(second.process_all().unwrap(), 0);
+    assert!(second.pending_intents().is_empty());
+    assert!(matches!(second.process_intent(intent.intent_id).unwrap(), ProcessOutcome::AlreadyProcessed(_)));
+    let _ = store.fail_memory_intent(intent.intent_id, "late stale failure");
+    assert_eq!(store.memory_intent_state(intent.intent_id).unwrap().as_deref(), Some("committed"));
+    let found = first.search("深刻", 10).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].entry_id, original);
+    assert_eq!(found[0].content, text);
+}
+
+#[test]
+fn concurrent_equal_admissions_share_one_durable_entry_identity() {
+    let tag = "concurrent-accept";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let first_store = store(tag);
+    let second_store = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let agent = EntityId::new();
+    let first = Arc::new(MemoryStore::with_store(agent, first_store));
+    let second = Arc::new(MemoryStore::with_store(agent, second_store));
+    let request = intent(MemoryIntentKind::Save);
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    std::thread::scope(|scope| {
+        let a = scope.spawn(|| {
+            barrier.wait();
+            first.accept_intent_with_content(request.clone(), Some("并发的深刻事实".into())).unwrap();
+        });
+        let b = scope.spawn(|| {
+            barrier.wait();
+            second.accept_intent_with_content(request.clone(), Some("并发的深刻事实".into())).unwrap();
+        });
+        a.join().unwrap();
+        b.join().unwrap();
+    });
+    assert_eq!(first.pending_intents()[0].entry_id, second.pending_intents()[0].entry_id);
+    let first_id = match first.process_intent(request.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected one commit, got {other:?}"),
+    };
+    assert!(matches!(second.process_intent(request.intent_id).unwrap(), ProcessOutcome::AlreadyProcessed(_)));
+    let facts = first.search("深刻", 10).unwrap();
+    assert_eq!(facts.len(), 1);
+    assert_eq!(facts[0].entry_id, first_id);
+}

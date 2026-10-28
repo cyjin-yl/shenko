@@ -37,6 +37,146 @@ fn tmp_dir() -> PathBuf {
     dir
 }
 
+fn legacy_pending(db: &Path, agent: EntityId, kind: &str, content: &str) -> EntityId {
+    let id = EntityId::new();
+    rusqlite::Connection::open(db).unwrap().execute(
+        "INSERT INTO memory_intents
+         (intent_id,agent_id,kind,scope,content,content_ref,entry_id,state,reason,created_at_ms,updated_at_ms)
+         VALUES (?1,?2,?3,'personal',?4,'legacy-locator',?5,'accepted',NULL,1,1)",
+        rusqlite::params![id.to_string(), agent.to_string(), kind, content, EntityId::new().to_string()],
+    ).unwrap();
+    id
+}
+
+#[test]
+fn legacy_pending_library_reference_is_not_a_verified_recovery() {
+    let dir = tmp_dir();
+    let db = dir.join("old.db");
+    let source = Store::open(db.clone(), dir.join("old-cas")).unwrap();
+    let intent = legacy_pending(&db, EntityId::new(), "save", "");
+    let mut snapshot = source.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    assert!(snapshot.manifest.gaps.iter().any(|gap| gap.blocking));
+
+    // Old schema 2 senders did not report this missing identity as a gap.
+    snapshot.manifest.schema = 2;
+    snapshot.manifest.gaps.clear();
+    let mut archive = Vec::new();
+    snapshot.write_archive(&mut archive).unwrap();
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
+    assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
+    assert_eq!(receiver.memory_intent_state(intent).unwrap(), None);
+    assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent();
+    assert_binding_conflict_does_not_advance_a_partial_baseline();
+    assert_conflicting_entry_is_not_exposed_or_overwritten();
+}
+
+fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let target_db = dir.join("target.db");
+    let target = Store::open(target_db.clone(), dir.join("target-cas")).unwrap();
+    let agent = EntityId::new();
+    let intent = legacy_pending(&target_db, agent, "save", "");
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let body = "不同来源的正文";
+    let object = source.cas.seal_object(body.as_bytes(), "text/plain", "memory", "raw", 1).unwrap().object;
+    let entry_id = target.memory_intent(intent).unwrap().unwrap().record.entry_id.unwrap();
+    let record = MemoryIntentRecord::accepted(intent, agent, "save", "personal", "", Some(object.locator.clone()), Some(entry_id));
+    source.admit_memory_intent(&record, Some(&object)).unwrap();
+    let mut source_entry = MemoryEntry::new(agent, body);
+    source_entry.entry_id = entry_id;
+    source_entry.kind = "save".into();
+    source.commit_memory_intent(&source_entry, intent).unwrap();
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    let outcome = target.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    assert!(!outcome.ack(EntityId::new()).verified);
+    let local = target.memory_intent(intent).unwrap().unwrap();
+    assert!(local.content_ref.is_none(), "conflicting source binding must not attach to a legacy local intent");
+    let mut wrong = MemoryEntry::new(agent, body);
+    wrong.entry_id = local.record.entry_id.unwrap();
+    wrong.kind = "save".into();
+    assert!(target.commit_memory_intent(&wrong, intent).is_err());
+    assert!(target.list_memory(10).unwrap().is_empty());
+}
+
+fn assert_binding_conflict_does_not_advance_a_partial_baseline() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let db = dir.join("source.db");
+    let source = Store::open(db.clone(), dir.join("source-cas")).unwrap();
+    let target = Store::open(dir.join("target.db"), dir.join("target-cas")).unwrap();
+    let agent = EntityId::new();
+    let intent = EntityId::new();
+    let entry_id = EntityId::new();
+    let original = source.cas.seal_object(b"original body", "text/plain", "memory", "raw", 1).unwrap().object;
+    let replacement = source.cas.seal_object(b"different body", "text/plain", "memory", "raw", 1).unwrap().object;
+    let record = MemoryIntentRecord::accepted(intent, agent, "save", "personal", "", Some(original.locator.clone()), Some(entry_id));
+    source.admit_memory_intent(&record, Some(&original)).unwrap();
+    let options = CognitionImportOptions { peer_id: Some(EntityId::new()), ..Default::default() };
+    let export = || {
+        let mut bytes = Vec::new();
+        source.write_cognition_archive(&Default::default(), None, &mut bytes).unwrap();
+        bytes
+    };
+    assert!(target.import_cognition_archive(&export()[..], &options).unwrap().ack(EntityId::new()).verified);
+
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let replace_binding = |object: &ObjectRef| {
+        let data = serde_json::json!({"schema_version": 1, "content_ref": object}).to_string();
+        conn.execute("UPDATE memory_intents SET content_ref=?1 WHERE intent_id=?2", rusqlite::params![object.locator, intent.to_string()]).unwrap();
+        conn.execute("UPDATE memory_intent_bindings SET data=?1 WHERE intent_id=?2", rusqlite::params![data, intent.to_string()]).unwrap();
+    };
+    replace_binding(&replacement);
+    let conflict = target.import_cognition_archive(&export()[..], &options).unwrap();
+    assert!(!conflict.ack(EntityId::new()).verified);
+    assert_eq!(target.memory_intent(intent).unwrap().unwrap().content_ref.unwrap().unwrap().digest, original.digest);
+    assert_eq!(target.memory_intent_state(intent).unwrap().as_deref(), Some("accepted"));
+
+    replace_binding(&original);
+    let mut entry = MemoryEntry::new(agent, "original body");
+    entry.entry_id = entry_id;
+    entry.kind = "save".into();
+    source.commit_memory_intent(&entry, intent).unwrap();
+    let continued = target.import_cognition_archive(&export()[..], &options).unwrap();
+    assert!(continued.ack(EntityId::new()).verified);
+    assert_eq!(target.memory_intent_state(intent).unwrap().as_deref(), Some("committed"));
+    assert_eq!(target.list_memory(10).unwrap()[0].content, "original body");
+
+    conn.execute("UPDATE memory_intents SET state='accepted',reason=NULL WHERE intent_id=?1", [intent.to_string()]).unwrap();
+    let rollback = target.import_cognition_archive(&export()[..], &options).unwrap();
+    assert!(!rollback.ack(EntityId::new()).verified);
+    assert_eq!(target.memory_intent_state(intent).unwrap().as_deref(), Some("committed"));
+}
+
+fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let target = Store::open(dir.join("target.db"), dir.join("target-cas")).unwrap();
+    let agent = EntityId::new();
+    let intent = EntityId::new();
+    let entry_id = EntityId::new();
+    let request = |content| MemoryIntentRecord::accepted(intent, agent, "save", "personal", content, None, Some(entry_id));
+    target.admit_memory_intent(&request("local A"), None).unwrap();
+    source.admit_memory_intent(&request("remote B"), None).unwrap();
+    let entry = |content| {
+        let mut entry = MemoryEntry::new(agent, content);
+        entry.entry_id = entry_id;
+        entry.kind = "save".into();
+        entry
+    };
+    source.commit_memory_intent(&entry("remote B"), intent).unwrap();
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
+    let outcome = target.import_cognition_archive(&archive[..], &Default::default()).unwrap();
+    assert!(!outcome.ack(EntityId::new()).verified);
+    assert!(target.list_memory(10).unwrap().is_empty());
+    target.commit_memory_intent(&entry("local A"), intent).unwrap();
+    assert_eq!(target.list_memory(10).unwrap()[0].content, "local A");
+    assert_eq!(source.list_memory(10).unwrap()[0].content, "remote B");
+}
+
 fn version_ref(name: &str) -> VersionedRef {
     VersionedRef {
         artifact: ArtifactRef {
