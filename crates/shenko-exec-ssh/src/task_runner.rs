@@ -132,7 +132,9 @@ impl SshBinding {
     fn executor(&self, store: &Store) -> Result<SshExecutor> {
         // CAS locators are historical hints: recovery may relocate the store.
         // Verify and resolve the immutable trust object in the current CAS.
-        let path = store.cas.verified_object_path(&self.known_hosts)?;
+        // OpenSSH requires an absolute path even when this Store was opened
+        // with a relative CAS root.
+        let path = store.cas.verified_object_path(&self.known_hosts)?.canonicalize()?;
         let mut target = self.target.clone();
         target.known_hosts_path = Some(path);
         Ok(SshExecutor::over_ssh(target))
@@ -412,5 +414,47 @@ impl SshTaskRunner<'_> {
             transport,
             diagnostic: dispatch_error,
         })
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test]
+    async fn relative_cas_trust_reaches_ssh_after_store_reopen() {
+        const CHILD: &str = "SHENKO_RELATIVE_CAS_TEST_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let cwd = std::env::current_dir().unwrap();
+            let trust = cwd.join("known_hosts");
+            std::fs::write(&trust, b"fixture public trust\n").unwrap();
+            let store = Store::open("fixture.db".into(), "relative-cas".into()).unwrap();
+            let binding = SshBinding::register(
+                &store, "fixture".into(),
+                SshTarget { host: "127.0.0.1".into(), port: 2222, user: "fixture".into(),
+                    key_path: Some(cwd.join("unused-key")), known_hosts_path: Some(trust),
+                    ..SshTarget::default() },
+                "/fixture-receipts".into(),
+            ).unwrap();
+            drop(store);
+            let reopened = Store::open("fixture.db".into(), "relative-cas".into()).unwrap();
+            let result = binding.executor(&reopened).unwrap().run_with_input("ignored", b"", 5).await.unwrap();
+            assert_eq!(result.outcome, Some(crate::executor::ExecOutcome::Unknown));
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("shenko-relative-cas-{}", EntityId::new()));
+        let bin = root.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let ssh = bin.join("ssh");
+        std::fs::write(&ssh, "#!/bin/sh\nprintf called >> \"$SHENKO_RELATIVE_CAS_MARKER\"\nexit 255\n").unwrap();
+        std::fs::set_permissions(&ssh, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let marker = root.join("marker");
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "task_runner::tests::relative_cas_trust_reaches_ssh_after_store_reopen", "--nocapture"])
+            .current_dir(&root).env(CHILD, "1").env("SHENKO_RELATIVE_CAS_MARKER", &marker)
+            .env("PATH", &bin).output().unwrap();
+        assert!(child.status.success(), "child failed: {}", String::from_utf8_lossy(&child.stderr));
+        assert_eq!(std::fs::read(&marker).unwrap(), b"called");
     }
 }
