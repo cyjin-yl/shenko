@@ -529,9 +529,9 @@ fn rename_no_replace(_from: &Path, _to: &Path) -> std::io::Result<()> {
     ))
 }
 
-// Reject even a not-yet-created staging root inside A before mkdir can modify
-// A or make the copy recurse into its own stage. Resolve existing components
-// (including symlinks) while retaining the lexical remainder.
+// Reject a staging root inside A, and missing prefixes inside A that mkdir
+// would have to create even if later `..` components leave A. Existing
+// prefixes inside A may be traversed to an already existing sibling.
 fn staging_root_inside_source(root: &Path, source: &Path) -> std::io::Result<bool> {
     let absolute = std::path::absolute(root)?;
     let mut resolved = PathBuf::new();
@@ -543,15 +543,16 @@ fn staging_root_inside_source(root: &Path, source: &Path) -> std::io::Result<boo
         if resolved.is_absolute() {
             match resolved.canonicalize() {
                 Ok(canonical) => resolved = canonical,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    if resolved.starts_with(source) {
+                        return Ok(true);
+                    }
+                }
                 Err(error) => return Err(error),
-            }
-            if resolved.starts_with(source) {
-                return Ok(true);
             }
         }
     }
-    Ok(false)
+    Ok(resolved.starts_with(source))
 }
 
 fn copy_dir_tree(src: &Path, dst: &Path, skip_db: &Path) -> Result<()> {
@@ -925,6 +926,24 @@ mod tests {
             let error = coordinator.prepare_slot(&a, RuntimeGeneration::new("b")).unwrap_err();
             assert!(matches!(error, UpdateError::InvalidSourceSlot(_)));
             assert!(!staging.exists());
+            assert_complete(&a.artifact_dir, b"{\"generation\":\"a\"}");
+
+            // Creating a missing intermediate inside A must also be refused,
+            // even though later parent components would leave A.
+            let would_create = a.artifact_dir.join("missing");
+            let escaped = would_create.join("../../escaped");
+            let coordinator = UpdateCoordinator::new(a.generation.clone(), RuntimeGeneration::new("b"), &escaped);
+            assert!(matches!(coordinator.prepare_slot(&a, RuntimeGeneration::new("b")), Err(UpdateError::InvalidSourceSlot(_))));
+            assert!(!would_create.exists());
+
+            // A pre-existing path may traverse through A to an outside sibling.
+            let sibling = root.join("staging");
+            fs::create_dir(&sibling).unwrap();
+            let through_a = a.artifact_dir.join("../staging");
+            let coordinator = UpdateCoordinator::new(a.generation.clone(), RuntimeGeneration::new("b"), &through_a);
+            let prepared = coordinator.prepare_slot(&a, RuntimeGeneration::new("b")).unwrap();
+            assert_eq!(prepared.artifact_dir.canonicalize().unwrap(), sibling.join("generation-b").canonicalize().unwrap());
+            assert_complete(&prepared.artifact_dir, b"{\"generation\":\"a\"}");
             assert_complete(&a.artifact_dir, b"{\"generation\":\"a\"}");
         }
 
