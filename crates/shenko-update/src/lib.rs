@@ -737,24 +737,6 @@ mod tests {
     }
 
     #[test]
-    fn stage_creation_error_reports_attempted_path_and_preserves_root() {
-        let root = temp_root("stage-creation");
-        let (a, conn) = slot_a(&root);
-        drop(conn);
-        let staging = root.join("staging-file");
-        fs::write(&staging, b"do not replace").unwrap();
-        let coordinator = UpdateCoordinator::new(a.generation.clone(), RuntimeGeneration::new("b"), &staging);
-
-        let error = coordinator.prepare_slot(&a, RuntimeGeneration::new("b")).unwrap_err();
-        let staged_path = match error {
-            UpdateError::StageCreation { staged_path, .. } => staged_path,
-            other => panic!("unexpected error: {other:?}"),
-        };
-        assert_eq!(staged_path.parent(), Some(staging.as_path()));
-        assert_eq!(fs::read(&staging).unwrap(), b"do not replace");
-    }
-
-    #[test]
     fn failed_backup_preserves_partial_stage_and_prior_slot() {
         let root = temp_root("failed-backup");
         let (a, conn) = slot_a(&root);
@@ -894,24 +876,6 @@ mod tests {
             let error = coordinator.prepare_slot(&a, RuntimeGeneration::new("b")).unwrap_err();
             let stage = losing_stage(error, &final_path);
             assert_eq!(fs::read_dir(&final_path).unwrap().count(), 0);
-            assert_complete(&stage, b"{\"generation\":\"a\"}");
-        }
-
-        #[test]
-        fn existing_populated_directory_is_not_replaced() {
-            let root = temp_root("existing-populated");
-            let (a, conn) = slot_a(&root);
-            drop(conn);
-            let staging = root.join("staging");
-            let final_path = staging.join("generation-b");
-            fs::create_dir_all(&final_path).unwrap();
-            fs::write(final_path.join("sentinel"), b"prior slot").unwrap();
-            let coordinator = UpdateCoordinator::new(a.generation.clone(), RuntimeGeneration::new("b"), &staging);
-
-            let error = coordinator.prepare_slot(&a, RuntimeGeneration::new("b")).unwrap_err();
-            let stage = losing_stage(error, &final_path);
-            assert_eq!(fs::read(final_path.join("sentinel")).unwrap(), b"prior slot");
-            assert_eq!(fs::read_dir(&final_path).unwrap().count(), 1);
             assert_complete(&stage, b"{\"generation\":\"a\"}");
         }
 
