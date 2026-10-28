@@ -909,7 +909,7 @@ fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() {
     let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
     reopened.start_subject_dispatcher().unwrap();
     assert_eq!(reopened.recover_native_tasks().unwrap(), 1);
-    let recovered = reopened.get_task(running.task_id).unwrap().unwrap();
+    let recovered = reopened.external_task(running.task_id).unwrap();
     assert_eq!(recovered.state, TaskState::Pending { checkpoint_ref: checkpoint });
     assert_eq!(recovered.abort_request, running.abort_request);
     assert_eq!(recovered.task_revision, running.task_revision);
@@ -917,8 +917,8 @@ fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() {
     assert_eq!(recovered.memos.get("native_recovery"), Some(&serde_json::json!(true)));
     assert!(matches!(recovered.dispatch_eligibility, DispatchEligibility::Parked { .. }));
     assert_eq!(reopened.recover_native_tasks().unwrap(), 0);
-    assert_eq!(reopened.get_task("00000000-0000-0000-0000-000000000001".parse().unwrap())
-        .unwrap().unwrap().record_revision, RecordRevision(5));
+    assert_eq!(reopened.external_task("00000000-0000-0000-0000-000000000001".parse().unwrap())
+        .unwrap().record_revision, RecordRevision(5));
 }
 
 #[test]
@@ -932,7 +932,7 @@ fn native_recovery_recovers_more_than_one_page_of_running_work() {
     assert_eq!(store.recover_native_tasks().unwrap(), 257);
     for number in 1..=257 {
         let id = format!("00000000-0000-0000-0000-{number:012x}").parse().unwrap();
-        let task = store.get_task(id).unwrap().unwrap();
+        let task = store.external_task(id).unwrap();
         assert!(matches!(task.state, TaskState::Pending { checkpoint_ref: Some(_) }));
         assert_eq!(task.memos.get("native_recovery"), Some(&serde_json::json!(true)));
     }
