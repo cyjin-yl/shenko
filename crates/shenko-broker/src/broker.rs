@@ -166,7 +166,7 @@ fn provider_response(
     terminal: bool,
 ) -> InferenceResult {
     let effective = EffectiveInference::for_request(req);
-    let output_tokens = response.usage.as_ref().map(|usage| usage.output_tokens);
+    let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
     let termination = if terminal {
         TerminationEvidence {
             kind: TerminationKind::ProviderTerminal,
@@ -612,8 +612,8 @@ mod tests {
                 stop_reason: "end_turn".into(),
                 raw_response: r#"{"fixture":true,"stop_reason":"end_turn"}"#.into(),
                 usage: Some(TokenUsage {
-                    input_tokens: 1,
-                    output_tokens: 1,
+                    input_tokens: Some(1),
+                    output_tokens: Some(1),
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),

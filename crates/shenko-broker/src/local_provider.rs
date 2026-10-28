@@ -135,11 +135,10 @@ impl LocalModelProvider {
             .to_string();
 
         let usage = raw["usage"].as_object().map(|u| TokenUsage {
-            input_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            input_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()),
             output_tokens: u
                 .get("completion_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
+                .and_then(|v| v.as_u64()),
             cache_read_tokens: None,
             cache_write_tokens: None,
         });
@@ -147,8 +146,8 @@ impl LocalModelProvider {
         info!(
             model = %model,
             finish_reason = %finish_reason,
-            in_tokens = ?usage.as_ref().map(|u| u.input_tokens),
-            out_tokens = ?usage.as_ref().map(|u| u.output_tokens),
+            in_tokens = ?usage.as_ref().and_then(|u| u.input_tokens),
+            out_tokens = ?usage.as_ref().and_then(|u| u.output_tokens),
             "local inference complete"
         );
 

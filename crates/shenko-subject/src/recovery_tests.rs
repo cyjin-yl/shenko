@@ -93,6 +93,32 @@ fn state(
 }
 
 #[test]
+fn legacy_zero_without_a_bound_raw_input_count_is_not_observed() {
+    let (dir, store, _) = fixture();
+    let raw = r#"{"usage":{"completion_tokens":7}}"#;
+    let result_ref = store.cas.seal_object(raw.as_bytes(), "application/json", "test", "raw", 1)
+        .unwrap().object;
+    let outcome = SubjectModelOutcome {
+        schema_version: 2,
+        request_id: EntityId::new(),
+        result_ref,
+        stop_reason: "stop".into(),
+        raw_response: raw.into(),
+        usage: Some(serde_json::json!({"input_tokens": 0, "output_tokens": 7})),
+    };
+    let binding = shenko_broker::request::ProviderBinding::Local {
+        base_url: "http://localhost".into(),
+        model: "fixture".into(),
+        allow_invalid_certs: false,
+        serializer_revision: 1,
+        default_max_tokens: 4096,
+    };
+    assert_eq!(super::observed_input_tokens(&outcome, Some(&binding)), None);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn reopening_awaiting_model_keeps_original_request_blocked() {
     let (dir, store, agent) = fixture();
     let (head, mut step) = store.load_subject(agent).unwrap();

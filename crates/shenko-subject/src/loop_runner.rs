@@ -178,7 +178,8 @@ impl SubjectLoopState {
             }
             store.require_subject_raw_coverage(&head, &previous)?;
             let (binding, estimated) = sealed_previous_projection(&store, &previous)?;
-            (observed_input_tokens(&store.recorded_model_outcome(&previous)?), binding, estimated)
+            let observed = observed_input_tokens(&store.recorded_model_outcome(&previous)?, binding.as_ref());
+            (observed, binding, estimated)
         } else {
             (None, None, None)
         };
@@ -434,8 +435,31 @@ pub(super) fn build_system_prompt(
     prompt
 }
 
-fn observed_input_tokens(outcome: &shenko_types::subject::SubjectModelOutcome) -> Option<u32> {
-    outcome.usage.as_ref()?.get("input_tokens")?.as_u64()?.try_into().ok()
+fn observed_input_tokens(
+    outcome: &shenko_types::subject::SubjectModelOutcome,
+    binding: Option<&shenko_broker::request::ProviderBinding>,
+) -> Option<u32> {
+    use shenko_broker::request::ProviderBinding;
+
+    #[derive(serde::Deserialize)]
+    struct Response<T> { usage: Option<T> }
+    #[derive(serde::Deserialize)]
+    struct LocalUsage { prompt_tokens: Option<u64> }
+    #[derive(serde::Deserialize)]
+    struct AnthropicUsage { input_tokens: Option<u64> }
+
+    let normalized = outcome.usage.as_ref()?.get("input_tokens")?.as_u64()?;
+    // Older normalized outcomes may contain a fabricated zero. Only the raw
+    // field selected by the sealed S0 provider binding can substantiate it.
+    let raw = match binding? {
+        ProviderBinding::Local { .. } => serde_json::from_str::<Response<LocalUsage>>(&outcome.raw_response)
+            .ok()?.usage?.prompt_tokens?,
+        ProviderBinding::Anthropic { .. } => serde_json::from_str::<Response<AnthropicUsage>>(&outcome.raw_response)
+            .ok()?.usage?.input_tokens?,
+        ProviderBinding::Stub { .. } => return None,
+    };
+    if raw != normalized { return None; }
+    u32::try_from(raw).ok()
 }
 
 fn sealed_previous_projection(
@@ -943,7 +967,7 @@ async fn execute_step(
             let (head, successor) = store.load_subject(state.agent_id)?;
             state.head = head;
             state.step = successor;
-            state.previous_input_tokens = observed_input_tokens(&store.recorded_model_outcome(&step)?);
+            state.previous_input_tokens = observed_input_tokens(&store.recorded_model_outcome(&step)?, input.provider_binding.as_ref());
             state.previous_input_binding = input.provider_binding.clone();
             state.previous_estimated_input_tokens = input.context.estimated_input_tokens;
             state.semantic_wait = store.semantic_wait(state.agent_id)?;
