@@ -5,9 +5,11 @@
 # The caller supplies a fresh directory on persistent storage. This script
 # claims it with mkdir (no reuse), retains the probe, applets, receipt and
 # logs, and unpacks a private vendor tree there. Patch 0008 replaces upstream
-# cleanup calls with explicit move-to-archive operations, including generated
-# object files. No rm command is masked and no existing file is deleted.
-# Existing trees, project inputs and previous runs are never build directories.
+# cleanup calls with retain-move: descriptor-confined renameat2 archive moves
+# that reject ancestor swaps, cross-device copies and receipt failures while
+# always preserving the source. No rm command is masked and no existing file
+# is deleted. Existing trees, project inputs and previous runs are never
+# build directories.
 # Nothing is downloaded. Requires host cc, GNU make, bash, patch, tar and
 # coreutils in addition to the selected WASI SDK.
 set -euo pipefail
@@ -34,15 +36,20 @@ mkdir -- "$RUN_DIR" || {
 RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
 mkdir -- "$RUN_DIR/applets" "$RUN_DIR/vendor" "$RUN_DIR/scratch" "$RUN_DIR/logs" "$RUN_DIR/retired"
 cp -- "$PORT_DIR/miniconfig.wasi" "$RUN_DIR/miniconfig.wasi"
-cp -- "$PORT_DIR/retain-generated.sh" "$RUN_DIR/retain-generated.sh"
 printf 'action\toriginal_path\tretained_path\n' > "$RUN_DIR/retired/INDEX.tsv"
+export HOSTCC="${HOSTCC:-cc}"
+"$HOSTCC" -O2 -Wall -o "$RUN_DIR/retain-move" "$PORT_DIR/retain-move.c" \
+  > "$RUN_DIR/logs/retain-move.log" 2>&1 || {
+    echo "retention helper build failed; retained log: $RUN_DIR/logs/retain-move.log" >&2
+    exit 2
+  }
 export SHENKO_TOYBOX_RUN_DIR="$RUN_DIR"
-export SHENKO_TOYBOX_RETAIN="$RUN_DIR/retain-generated.sh"
+export SHENKO_TOYBOX_RETAIN="$RUN_DIR/retain-move"
 
 # Override upstream output locations, not just the applet destination. In
 # particular, genconfig may move/remove KCONFIG_ALLCONFIG if it aliases the
 # output config; only the run-owned copy is ever offered to that script.
-export CC HOSTCC="${HOSTCC:-cc}" CPUS=1 MAKEFLAGS=-j1 NOSTRIP=1
+export CC CPUS=1 MAKEFLAGS=-j1 NOSTRIP=1
 export CROSS_COMPILE= TMPDIR="$RUN_DIR/scratch"
 export GENDIR="$RUN_DIR/vendor/generated"
 export UNSTRIPPED="$GENDIR/unstripped"

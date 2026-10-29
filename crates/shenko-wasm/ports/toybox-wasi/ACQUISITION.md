@@ -23,14 +23,26 @@ sha256sum toybox-0.8.15.tar.gz
 patches with `--fuzz=0`; the patch logs are retained in `<run>/logs/`.
 Do not patch or build in an existing upstream or project source tree.
 Upstream scripts normally delete generated files and their own output while
-building. Patch `0008-build-retain-generated.patch` changes each cleanup in
-single.sh/make.sh/genconfig.sh and the Makefile to call `retain-generated.sh`:
-existing targets are **moved**, with their original paths recorded, into
-`<run>/retired/item.*/payload`. `retired/INDEX.tsv` records moved and absent
-targets. Failure to archive propagates to the original failure boundary;
-there is no suppressed `rm`, successful no-op cleanup, or deletion fallback.
-The config-alias branch copies into retained run-owned scratch instead of
-moving the input and deleting it on exit.
+building. Patch `0008-build-retain-generated.patch` changes every cleanup in
+single.sh/make.sh/genconfig.sh, portability.sh and the Makefile to call
+`retain-move` — a small C helper `build.sh` compiles into the run with
+`HOSTCC` before unpacking:
+
+- every ancestor directory is opened `O_DIRECTORY|O_NOFOLLOW` relative to the
+  run root fd, so a swapped symlink ancestor cannot redirect the archive;
+- existing targets move via `renameat2(RENAME_NOREPLACE)` into a freshly
+  `mkdirat`'d `retired/item.*` slot — same-filesystem rename only, `EXDEV`
+  rejects instead of degrading into copy+unlink;
+- `INDEX.tsv` records `pending` before the move and `moved`/`absent`/`failed`
+  after; if the final receipt cannot be written, the payload is renamed back
+  so a failed receipt never strands the source;
+- non-printable path bytes are `\xNN`-escaped in receipts, and the run dir is
+  passed via `SHENKO_TOYBOX_RUN_DIR` (environment bytes, immune to the
+  trailing-newline loss of command substitution);
+- upstream's unquoted `dirname $OUTNAME`, generated `-o $OUTNAME`, `mktemp`
+  alias handling and `brun` paths are quoted for run dirs containing spaces;
+- the `LIBRARIES` probe loop is serialized — upstream ran each compiler probe
+  in the background, bypassing `CPUS=1`.
 
 `GENDIR`, `UNSTRIPPED`, config paths and `TMPDIR` are confined to the run;
 retirement rejects paths or ancestors outside its vendor/applets/scratch

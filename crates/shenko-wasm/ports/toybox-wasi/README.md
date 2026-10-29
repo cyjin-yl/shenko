@@ -18,10 +18,11 @@ This is the upstream source referenced by the `toybox` named target.
   `<run>/vendor/`, enforces `CPUS=1`, and retains probe/logs/artifacts under
   that same run. Existing trees and prior artifacts are never build inputs
   to an upstream cleanup command.
-- `retain-generated.sh` + patch `0008` — upstream cleanup sites move existing
-  generated files into `<run>/retired/` with original-path receipts, including
-  same-run object files. Missing targets are recorded as absent, failures
-  propagate, and no `rm` is suppressed or used as a fallback.
+- `retain-move.c` + patch `0008` — upstream cleanup sites move existing
+  generated files into `<run>/retired/item.*/payload` via dirfd-relative
+  rename with original-path receipts in `INDEX.tsv`. Missing targets are
+  recorded as absent, receipt failures restore the source, ancestor swaps and
+  cross-device moves reject, and no `rm` is suppressed or used as a fallback.
 - `ACQUISITION.md` — pinned upstream tarball + wasi-sdk-34 with checksums.
 - `SMOKE.md` — post-build verification through `shenko tool exec`.
 
