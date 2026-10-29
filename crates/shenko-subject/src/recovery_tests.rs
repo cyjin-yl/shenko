@@ -2460,14 +2460,17 @@ async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
         loop {
             reactivated.run_once().await.unwrap();
             let task = store.external_task(gated).unwrap();
-            if !task.is_running() {
+            // Reopen first makes the claim Ready; its managed query still
+            // needs to finish before the durable reconciling park is visible.
+            if shenko_store::child::park_reason(&task) == Some("reconciling") {
                 break task;
             }
+            assert!(!task.is_terminal(), "aborted unknown effect cannot acquire a terminal result");
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("aborted claim was not recovered out of Running");
+    .expect("recovered claim did not finish query-only reconciliation");
     assert!(store.native_task_result(gated).unwrap().is_none());
     assert_eq!(
         shenko_store::child::park_reason(&recovered),
