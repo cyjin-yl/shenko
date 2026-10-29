@@ -1,14 +1,15 @@
 //! Inference broker — fair asynchronous dispatch over one compute budget.
 //! SPEC §13, §22.1, §41.8–41.10, §47.
 //!
-//! Provider selection is fixed at construction. No provider is a typed
+//! Transport selection is fixed at construction; selected models share its
+//! queue and compute budget. No provider is a typed
 //! unavailable binding, never a synthetic successful model response.
 use anyhow::{Result, anyhow, ensure};
 use serde::Deserialize;
-use std::collections::VecDeque;
-#[cfg(test)]
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use shenko_types::ids::EntityId;
+use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
 use crate::admission::{AdmissionController, AdmissionGuard, CapacitySnapshot};
@@ -132,7 +133,7 @@ impl ActiveProvider {
         }
     }
 
-    async fn complete(&self, req: &InferenceRequest) -> InferenceResult {
+    async fn complete(mut self, req: &InferenceRequest) -> InferenceResult {
         if matches!(self, Self::Stub) {
             return InferenceResult {
                 request_id: req.request_id,
@@ -143,7 +144,22 @@ impl ActiveProvider {
             };
         }
 
-        let outcome = match self {
+        // A selected-model handle can change only the model. Validate the
+        // rest of the binding before using the already configured provider;
+        // never construct an endpoint or credential from child input.
+        let selected = self.binding().with_model(req.provider_binding.model());
+        if selected.as_ref().ok() != Some(&req.provider_binding) {
+            return failure_result(req, &ProviderWireError::BindingMismatch.into());
+        }
+        match &mut self {
+            Self::Local(provider) => req.provider_binding.model().clone_into(&mut provider.model),
+            Self::Anthropic(provider) => req.provider_binding.model().clone_into(&mut provider.model),
+            Self::Stub => unreachable!("unavailable returned above"),
+            #[cfg(test)]
+            Self::Fixture(_) => {}
+        }
+
+        let outcome = match &self {
             Self::Anthropic(provider) => provider.complete(req).await,
             Self::Local(provider) => provider.complete(req).await,
             #[cfg(test)]
@@ -237,16 +253,60 @@ fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceRes
     }
 }
 
+/// The ledger owner of a request, independent of the caller waiting for it.
+/// It admits no effects itself: T1 must already exist before submission. Late
+/// completion is still recorded when a managed child was stopped/cancelled.
+pub trait InferenceReceiptSink: Send + Sync + 'static {
+    fn may_dispatch(&self) -> Result<bool>;
+    fn record(&self, result: &InferenceResult) -> Result<()>;
+}
+
+struct Submission {
+    request: InferenceRequest,
+    receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
+}
+
+// None: queued or live, with a guard owned by the broker. Some: an uncertain
+// completed/recovered request whose charge survives until original evidence.
+type Accounting = Arc<Mutex<HashMap<EntityId, Option<AdmissionGuard>>>>;
+
 #[derive(Clone)]
 pub struct BrokerHandle {
-    tx: mpsc::UnboundedSender<InferenceRequest>,
+    tx: mpsc::UnboundedSender<Submission>,
     binding: ProviderBinding,
     admission: AdmissionController,
+    accounting: Accounting,
+    accounting_changed: Arc<Notify>,
 }
 
 impl BrokerHandle {
     pub fn binding(&self) -> &ProviderBinding {
         &self.binding
+    }
+
+    /// Same physical scheduling domain and configured transport, distinct
+    /// exact model binding. Existence/availability is decided by the provider,
+    /// not by this selector or an invented model-capability table.
+    pub fn for_model(&self, model: &str) -> Result<Self> {
+        Ok(Self { binding: self.binding.with_model(model)?, ..self.clone() })
+    }
+
+    /// Restore an original armed request before admitting any new inference.
+    /// Repeated recovery and live requests cannot count the same identity twice.
+    pub fn recover_unknown(&self, request_id: EntityId) {
+        self.accounting.lock().expect("broker accounting poisoned")
+            .entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
+    }
+
+    /// Only the owner with conclusive original evidence may release recovered
+    /// debt. A live request remains owned by the broker's completion path.
+    pub fn release_reconciled(&self, request_id: EntityId) {
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
+        if accounting.get(&request_id).is_some_and(Option::is_some) {
+            let guard = accounting.remove(&request_id).flatten().expect("checked charge");
+            guard.release_terminal();
+            self.accounting_changed.notify_one();
+        }
     }
 
     pub fn active_count(&self) -> u64 {
@@ -258,13 +318,27 @@ impl BrokerHandle {
     }
 
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
+        self.submit_inner(req, None)
+    }
+
+    pub fn submit_recorded(&self, req: InferenceRequest, sink: Arc<dyn InferenceReceiptSink>) -> Result<()> {
+        self.submit_inner(req, Some(sink))
+    }
+
+    fn submit_inner(&self, req: InferenceRequest, receipt_sink: Option<Arc<dyn InferenceReceiptSink>>) -> Result<()> {
         anyhow::ensure!(
             req.provider_binding == self.binding,
             "MODEL_PROVIDER_BINDING_MISMATCH: request not admitted; seal a new revision"
         );
-        self.tx
-            .send(req)
-            .map_err(|error| anyhow::anyhow!("broker: {error}"))
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
+        ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
+        let id = req.request_id;
+        accounting.insert(id, None);
+        if self.tx.send(Submission { request: req, receipt_sink }).is_err() {
+            accounting.remove(&id);
+            return Err(anyhow!("broker admission closed; request was not enqueued"));
+        }
+        Ok(())
     }
 }
 
@@ -272,7 +346,7 @@ impl BrokerHandle {
 /// priorities. Urgent work can go first but cannot indefinitely starve ordinary
 /// work; ordinary main/child turns alternate whenever both sides are ready.
 struct FairQueue {
-    lanes: [VecDeque<InferenceRequest>; 4],
+    lanes: [VecDeque<Submission>; 4],
     main_next: bool,
     normal_child_next: bool,
     last_was_urgent: bool,
@@ -290,15 +364,15 @@ impl Default for FairQueue {
 }
 
 impl FairQueue {
-    fn push(&mut self, req: InferenceRequest) {
-        self.lanes[req.priority as usize].push_back(req);
+    fn push(&mut self, req: Submission) {
+        self.lanes[req.request.priority as usize].push_back(req);
     }
 
     fn is_empty(&self) -> bool {
         self.lanes.iter().all(VecDeque::is_empty)
     }
 
-    fn pop(&mut self) -> Option<InferenceRequest> {
+    fn pop(&mut self) -> Option<Submission> {
         let urgent_ready = !self.lanes[3].is_empty();
         let main_ready = !self.lanes[2].is_empty();
         let normal_ready = !self.lanes[1].is_empty();
@@ -337,15 +411,17 @@ impl FairQueue {
 }
 
 struct CompletedRequest {
-    req: InferenceRequest,
+    submission: Submission,
     result: InferenceResult,
     guard: AdmissionGuard,
 }
 
 pub struct Broker {
-    rx: mpsc::UnboundedReceiver<InferenceRequest>,
+    rx: mpsc::UnboundedReceiver<Submission>,
     admission: AdmissionController,
     provider: ActiveProvider,
+    accounting: Accounting,
+    accounting_changed: Arc<Notify>,
 }
 
 impl Broker {
@@ -357,6 +433,11 @@ impl Broker {
     /// measured physical stream count or any KV residency capacity.
     pub fn with_capacity(max: u64) -> Result<(Self, BrokerHandle)> {
         Self::from_env_with_admission(AdmissionController::new(max))
+    }
+
+    pub fn with_local_provider(provider: LocalModelProvider, max: u64) -> Result<(Self, BrokerHandle)> {
+        provider.binding().validate_endpoint()?;
+        Ok(Self::with_provider(ActiveProvider::Local(provider), AdmissionController::new(max)))
     }
 
     fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
@@ -417,16 +498,22 @@ impl Broker {
     ) -> (Self, BrokerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
         let binding = provider.binding();
+        let accounting = Arc::new(Mutex::new(HashMap::new()));
+        let accounting_changed = Arc::new(Notify::new());
         (
             Self {
                 rx,
                 admission: admission.clone(),
                 provider,
+                accounting: Arc::clone(&accounting),
+                accounting_changed: Arc::clone(&accounting_changed),
             },
             BrokerHandle {
                 tx,
                 binding,
                 admission,
+                accounting,
+                accounting_changed,
             },
         )
     }
@@ -439,19 +526,34 @@ impl Broker {
         )
     }
 
-    fn finish(completed: CompletedRequest, unknown_allocations: &mut Vec<AdmissionGuard>) {
-        let CompletedRequest { req, result, guard } = completed;
+    fn finish(&self, completed: CompletedRequest) {
+        let CompletedRequest { submission, result, guard } = completed;
+        let Submission { request: req, receipt_sink } = submission;
+        if let Some(sink) = receipt_sink {
+            if let Err(error) = sink.record(&result) {
+                warn!(request_id=%req.request_id, %error, "model receipt not durably recorded; retaining unknown charge");
+                self.accounting.lock().expect("broker accounting poisoned")
+                    .insert(req.request_id, Some(guard));
+                return;
+            }
+        }
         let termination = result.termination.kind;
         // Dropping the receiver does not cancel the already executing provider
         // future. Its actual completion is still accounted before this guard.
-        let _ = req.result_tx.send(result);
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
         match termination {
             TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => {
+                accounting.remove(&req.request_id);
                 guard.release_terminal();
             }
-            TerminationKind::NeverDispatched => guard.release_never_dispatched(),
-            TerminationKind::Unknown => unknown_allocations.push(guard),
+            TerminationKind::NeverDispatched => {
+                accounting.remove(&req.request_id);
+                guard.release_never_dispatched();
+            }
+            TerminationKind::Unknown => { accounting.insert(req.request_id, Some(guard)); }
         }
+        drop(accounting);
+        let _ = req.result_tx.send(result);
     }
 
     pub async fn run(mut self) {
@@ -461,13 +563,10 @@ impl Broker {
         let mut input_closed = false;
         let mut inflight = 0_u64;
         let mut prefer_input = false;
-        // Unknown outcomes remain charged for the broker lifetime. Dropping this
-        // vector is also non-releasing; reconciliation must supply real proof.
-        let mut unknown_allocations = Vec::new();
-
         enum Event {
             Completed(Option<CompletedRequest>),
-            Incoming(Option<InferenceRequest>),
+            Incoming(Option<Submission>),
+            AccountingChanged,
         }
 
         loop {
@@ -477,12 +576,28 @@ impl Broker {
                 let Some(guard) = self.admission.try_admit() else {
                     break;
                 };
-                let req = queue.pop().expect("queue checked non-empty");
+                let submission = queue.pop().expect("queue checked non-empty");
                 let provider = self.provider.clone();
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
-                    let result = provider.complete(&req).await;
-                    let _ = completed_tx.send(CompletedRequest { req, result, guard });
+                    let req = &submission.request;
+                    let admitted = submission.receipt_sink.as_ref().map_or(Ok(true), |sink| sink.may_dispatch());
+                    let result = match admitted {
+                        Ok(true) => provider.complete(req).await,
+                        otherwise => {
+                            if let Err(error) = otherwise {
+                                warn!(request_id=%req.request_id, %error, "model dispatch fence could not be checked");
+                            }
+                            InferenceResult {
+                                request_id: req.request_id,
+                                status: InferenceStatus::Cancelled,
+                                response: None,
+                                effective: EffectiveInference::for_request(req),
+                                termination: TerminationEvidence::never_dispatched(),
+                            }
+                        }
+                    };
+                    let _ = completed_tx.send(CompletedRequest { submission, result, guard });
                 });
                 inflight += 1;
             }
@@ -499,6 +614,7 @@ impl Broker {
                     biased;
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
+                    _ = self.accounting_changed.notified() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             } else {
@@ -506,6 +622,7 @@ impl Broker {
                     biased;
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
+                    _ = self.accounting_changed.notified() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             };
@@ -513,7 +630,7 @@ impl Broker {
                 Event::Completed(completed) => {
                     if let Some(completed) = completed {
                         inflight -= 1;
-                        Self::finish(completed, &mut unknown_allocations);
+                        self.finish(completed);
                     }
                     prefer_input = true;
                 }
@@ -524,6 +641,7 @@ impl Broker {
                     }
                     prefer_input = false;
                 }
+                Event::AccountingChanged => {}
             }
         }
         info!("inference broker stopped");

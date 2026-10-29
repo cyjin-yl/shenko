@@ -30,6 +30,24 @@ pub enum ProviderBinding {
 }
 
 impl ProviderBinding {
+    /// Select another model on the same configured transport. This creates a
+    /// new binding; it never edits an existing request seal or its endpoint.
+    pub fn with_model(&self, selected: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !selected.trim().is_empty() && selected.len() <= 512
+                && !selected.chars().any(char::is_control),
+            "invalid selected model"
+        );
+        let mut binding = self.clone();
+        match &mut binding {
+            Self::Stub { .. } => anyhow::bail!("unavailable provider has no selectable model"),
+            Self::Local { model, .. } | Self::Anthropic { model, .. } => {
+                selected.clone_into(model);
+            }
+        }
+        Ok(binding)
+    }
+
     pub fn model(&self) -> &str {
         match self {
             Self::Stub { .. } => "stub",

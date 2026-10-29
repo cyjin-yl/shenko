@@ -63,6 +63,17 @@ impl AdmissionController {
             })
     }
 
+    /// An armed request recovered without terminal evidence is already debt,
+    /// not a new admission. It may exceed the configured cap and blocks new
+    /// work until the original request is reconciled.
+    pub(crate) fn recover_unknown(&self) -> AdmissionGuard {
+        self.active.fetch_add(1, Ordering::SeqCst);
+        AdmissionGuard {
+            counter: Arc::clone(&self.active),
+            released: false,
+        }
+    }
+
     pub fn active_count(&self) -> u64 {
         self.active.load(Ordering::SeqCst)
     }
