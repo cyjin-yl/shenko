@@ -241,6 +241,15 @@ struct StateBinding {
     private: bool,
 }
 
+impl StateBinding {
+    fn verify_root(&self) -> Result<()> {
+        if !self.private {
+            self.file.verify_root()?;
+        }
+        Ok(())
+    }
+}
+
 /// External state roots already exist and are capability-opened during
 /// admission. Private roots are created only after that admission succeeds.
 enum PreparedState {
@@ -252,7 +261,7 @@ impl PreparedState {
     fn bind(self, preopens: &[SessionPreopen]) -> Result<StateBinding> {
         match self {
             Self::Private { preopen, relative } => Ok(StateBinding {
-                file: StateFile::new(&preopens[preopen].spec.source, relative)?,
+                file: StateFile::new(&preopens[preopen].spec.source, relative, false)?,
                 private: true,
             }),
             Self::External(file) => Ok(StateBinding { file, private: false }),
@@ -278,7 +287,16 @@ fn prepare_state(preopens: &[SessionPreopen], persistence: &StatePersistence)
     if owner.private {
         Ok(Some(PreparedState::Private { preopen: index, relative }))
     } else {
-        Ok(Some(PreparedState::External(StateFile::new(&owner.spec.source, relative)?)))
+        // A covering writable host preopen lets the guest rename/recreate the
+        // state root while our capability still names the former directory.
+        if preopens.iter().any(|coverer| coverer.spec.mode == MountMode::ReadWrite
+            && coverer.spec.source != owner.spec.source
+            && owner.spec.source.starts_with(&coverer.spec.source)) {
+            bail!("REPL_KERNEL_INVALID: writable preopen covers the external state root");
+        }
+        let file = StateFile::new(&owner.spec.source, relative, true)?;
+        file.verify_root()?;
+        Ok(Some(PreparedState::External(file)))
     }
 }
 
@@ -348,7 +366,10 @@ impl WasiReplSession {
     }
 
     fn finish_reset(&mut self) -> Result<()> {
-        self.state.as_ref().context("REPL_SESSION_INVALID: reset without state file")?.file.clear()?;
+        let state = self.state.as_ref().context("REPL_SESSION_INVALID: reset without state file")?;
+        state.verify_root()?;
+        state.file.clear()?;
+        state.verify_root()?;
         jrn::complete_reset(&mut self.journal)
     }
 
@@ -366,6 +387,7 @@ impl WasiReplSession {
     {
         // Recheck before every invocation: the runtime reopens pathnames.
         validate_extra_mounts(&self.dir, &self.manifest.kernel)?;
+        if let Some(state) = &self.state { state.verify_root()?; }
         let cell_dir = self.dir.join(file_dir);
         let source_path = cell_dir.join(format!("{file_stem}.source"));
         let stdout_path = cell_dir.join(format!("{file_stem}.stdout"));
@@ -387,6 +409,7 @@ impl WasiReplSession {
         stdout_file.sync_all()?;
         stderr_file.sync_all()?;
         File::open(&cell_dir)?.sync_all()?;
+        if let Some(state) = &self.state { state.verify_root()?; }
         let outcome = match result {
             Ok(0) => CellOutcome::Completed { exit_code: 0 },
             Ok(code) => CellOutcome::Exited { exit_code: code },
@@ -486,7 +509,9 @@ impl ReplSession for WasiReplSession {
         self.ensure_ready()?;
         let mut state_files = std::collections::BTreeMap::new();
         if let (Some(state), StatePersistence::GuestFile { guest_path }) = (&self.state, &self.manifest.kernel.persistence) {
+            state.verify_root()?;
             if let Some(digest) = state.file.digest()? { state_files.insert(guest_path.clone(), digest); }
+            state.verify_root()?;
         }
         Ok(ReplCheckpoint { checkpoint: EntityId::new(), session_id: self.manifest.session_id,
             level: RecoveryLevel::R0WorkRecord, journal_blake3: jrn::hash_file(&self.dir.join(jrn::JOURNAL_FILE))?,
@@ -501,6 +526,7 @@ impl ReplSession for WasiReplSession {
         let last_reset = self.journal.last_reset.clone();
         let attempt = jrn::begin_restore(&mut self.journal)?;
         if let Some(state) = &self.state {
+            state.verify_root()?;
             let baseline = if last_reset.is_some() { None } else { self.manifest.baseline.as_ref() };
             state.file.restore(&self.dir, baseline)?;
         }
@@ -527,6 +553,7 @@ impl ReplSession for WasiReplSession {
             };
             entries.push(RecoverEntry { cell: record.cell, seq: record.seq, cell_kind: record.cell_kind, recovery });
         }
+        if let Some(state) = &self.state { state.verify_root()?; }
         jrn::complete_restore(&mut self.journal, attempt)?;
         Ok(RecoverReport { session_id: self.manifest.session_id, entries, torn_tail_at })
     }

@@ -20,6 +20,7 @@ pub struct Baseline {
 
 pub struct StateFile {
     root: Dir,
+    root_path: Option<PathBuf>,
     relative: PathBuf,
 }
 
@@ -30,12 +31,35 @@ fn sync_directory(dir: &Dir) -> Result<()> {
 }
 
 impl StateFile {
-    pub fn new(root: &Path, relative: PathBuf) -> Result<Self> {
+    pub fn new(root: &Path, relative: PathBuf, external: bool) -> Result<Self> {
         Ok(Self {
             root: Dir::open_ambient_dir(root, ambient_authority())
                 .with_context(|| format!("open state preopen {}", root.display()))?,
+            root_path: external.then(|| root.to_path_buf()),
             relative,
         })
+    }
+
+    /// Detect persistent replacement between the pinned state capability and
+    /// the pathname reopened by the runtime. This is not atomic preopen
+    /// admission against a concurrent external host process.
+    #[cfg(unix)]
+    pub fn verify_root(&self) -> Result<()> {
+        use cap_std::fs::MetadataExt as CapMetadataExt;
+        use std::os::unix::fs::MetadataExt;
+        let pinned = self.root.metadata(".")?;
+        let path = self.root_path.as_deref().context("REPL_STATE_INVALID: missing external state path")?;
+        let live = fs::metadata(path)
+            .context("REPL_STATE_REPLACED: external state root is unavailable")?;
+        if pinned.dev() != live.dev() || pinned.ino() != live.ino() {
+            bail!("REPL_STATE_REPLACED: external state root no longer names the admitted directory");
+        }
+        Ok(())
+    }
+
+    #[cfg(not(unix))]
+    pub fn verify_root(&self) -> Result<()> {
+        bail!("REPL_STATE_IDENTITY_UNSUPPORTED: external state root identity is unsupported on this platform")
     }
 
     fn parent(&self, create: bool) -> Result<Option<Dir>> {
