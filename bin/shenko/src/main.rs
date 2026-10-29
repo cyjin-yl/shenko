@@ -932,6 +932,25 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 "no managed installation at {}; run `shenko start` once",
                 data_dir.display()
             );
+            // Admit any existing tools tree BEFORE mutating state: the same
+            // foreign-content check Bootstrap::validate_target enforces. An
+            // unowned nonempty tools/ directory must fail here rather than be
+            // overwritten by write_package after the import is recorded.
+            let tools_dir = data_dir.join(TOOL_DIR_NAME);
+            if tools_dir.exists() && std::fs::read_dir(&tools_dir)?.next().is_some() {
+                let node_check = Node::open_inspect(&data_dir.join("node"))?
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "DATA_PATH_CONFLICT: {} exists but no node installation owns it",
+                        tools_dir.display()
+                    ))?;
+                let roots = node_check.materialization_roots()?;
+                let canonical = tools_dir.canonicalize()?;
+                anyhow::ensure!(
+                    roots.iter().any(|r| std::path::Path::new(r).canonicalize().ok() == Some(canonical.clone())),
+                    "DATA_PATH_CONFLICT: {} is not this installation's tool materialization root",
+                    tools_dir.display()
+                );
+            }
             let store = shenko_store::store::Store::open(
                 data_dir.join("shenko.db"),
                 data_dir.join("cas"),
@@ -1020,6 +1039,18 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // generation and readiness — a copied home manifest can never
             // alias a sibling installation's mounts.
             let manifest = shenko_seed::bootstrap::validate_home_for_exec(data_dir)?;
+            // Installation binding part 1: the home manifest's declared
+            // installation must be this store's ledger identity — a copied
+            // home/ manifest cannot alias a sibling installation's ledger.
+            let store = shenko_store::store::Store::open(
+                data_dir.join("shenko.db"),
+                data_dir.join("cas"),
+            )?;
+            anyhow::ensure!(
+                manifest.installation_id == store.ledger.ledger_id(),
+                "INSTALLATION_IDENTITY_MISMATCH: home manifest installation_id \
+                 does not match this store's ledger; reconcile before exec"
+            );
             let node = Node::open_inspect(&data_dir.join("node"))?
                 .ok_or_else(|| {
                     anyhow::anyhow!(
@@ -1027,11 +1058,33 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                         data_dir.display()
                     )
                 })?;
+            // Installation binding part 2: the node must belong to this
+            // subject — the same identity check node_sync::open_node enforces
+            // on the writable path. A transplanted node's tool records cannot
+            // execute against this home.
+            if let Some(agent) = store.get_existing_agent_id()? {
+                let genesis = store
+                    .get_subject_genesis(agent)?
+                    .context("subject identity has no actual genesis")?;
+                let (head, _) = store.load_subject(agent)?;
+                let expected = shenko_node::Identity {
+                    agent_id: agent,
+                    branch_id: shenko_types::ids::EntityId(head.branch_id.0),
+                    origin_proof: shenko_types::object::Digest::blake3(
+                        &serde_json::to_vec(&genesis)?,
+                    ),
+                };
+                anyhow::ensure!(
+                    node.local_identity()?.as_ref() == Some(&expected),
+                    "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
+                     this installation's subject binding; reconcile before exec"
+                );
+            }
             let facts = node.tool_unit_facts()?;
             let (record, _) = resolve_tool(&facts, &tool)?;
             // Every execution re-verifies the sealed bytes and the real ABI;
             // the materialized copy is never trusted.
-            let module = shenko_wasm::tool_module(&node, &record)?;
+            let (module, _inspection) = shenko_wasm::tool_module(&node, &record)?;
             let stdin_bytes = match &stdin_file {
                 Some(path) => std::fs::read(path)
                     .with_context(|| format!("read stdin file {}", path.display()))?,

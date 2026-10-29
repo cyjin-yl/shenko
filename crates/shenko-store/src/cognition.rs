@@ -1515,7 +1515,14 @@ impl Store {
                 missing.push(object.digest.clone());
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            // Only JSON-typed objects may extend the reference graph. A guest
+            // or tool byte stream is opaque recovery content even when its
+            // bytes happen to parse as JSON — a captured ObjectRef-shaped
+            // document must not conjure dependencies the producer never had.
+            let is_json_object = object.media_type == "application/json"
+                || object.media_type.ends_with("+json");
+            if is_json_object {
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
                 let mut nested: Vec<ObjectRef> = Vec::new();
                 let mut external: Vec<Digest> = Vec::new();
                 collect_references(&json, &mut nested, &mut external);
@@ -1524,6 +1531,7 @@ impl Store {
                     if let Some(bare) = self.bare_object(&digest) {
                         queue.push_back(bare);
                     }
+                }
                 }
             }
             out.push(CognitionObjectDescriptor {

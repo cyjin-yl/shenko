@@ -140,7 +140,9 @@ pub struct ModuleInspection {
 }
 
 fn func_type_eq(a: &FuncType, b: &FuncType) -> bool {
-    a.params().eq(b.params()) && a.results().eq(b.results())
+    // Wasmtime 45 `ValType` does not implement `PartialEq`; `FuncType::matches`
+    // is the API's explicit type-equality check.
+    a.matches(b)
 }
 
 /// Classify real artifact bytes. Binary modules only: WAT text and random
@@ -177,7 +179,7 @@ pub fn inspect_module(artifact: &[u8]) -> Result<ModuleInspection> {
     // not merely an import whose module name spells "wasi_snapshot_preview1".
     let mut linker: Linker<WasiP1Ctx> = Linker::new(&engine);
     p1::add_to_linker_sync(&mut linker, |cx| cx)
-        .context("configure wasi preview1 linker")?;
+        .map_err(|e| anyhow::anyhow!("configure wasi preview1 linker: {e}"))?;
     let mut store = Store::new(&engine, WasiCtxBuilder::new().build_p1());
 
     let mut import_modules = Vec::new();
@@ -478,13 +480,30 @@ pub fn resolve_tool<'f>(
 /// Fetch and verify the selected unit's executable bytes. Generic package
 /// imports/replication may carry authored metadata, so recheck the real ABI
 /// at execution too; imported claims cannot acquire preview1 authority.
-pub fn tool_module(node: &Node, record: &ToolRecord) -> Result<Vec<u8>> {
+/// Returns the verified bytes plus the *actual* inspection — the imports a
+/// sealed execution record reports must come from this, never from the
+/// authored `config.tool` descriptor which can lie.
+pub fn tool_module(node: &Node, record: &ToolRecord) -> Result<(Vec<u8>, ModuleInspection)> {
     let bytes = node.unit_object_bytes(&record.digest)?;
     ensure!(bytes.len() as u64 <= TOOL_ARTIFACT_MAX_BYTES, "TOOL_ARTIFACT_TOO_LARGE:{}", record.name);
     let inspection = inspect_module(&bytes)?;
     ensure!(inspection.runnable && record.abi == ToolAbi::WasiPreview1,
         "TOOL_ABI_UNSUPPORTED:{}: {:?}", record.name, inspection.detail);
-    Ok(bytes)
+    // The authored descriptor's import list is metadata, not authority; a
+    // mismatch means the record does not describe these bytes.
+    let mut declared = record.imports.clone();
+    let mut actual = inspection.imports.clone();
+    declared.sort();
+    actual.sort();
+    ensure!(
+        declared == actual,
+        "TOOL_IMPORT_MISMATCH:{}: declared imports {:?} do not match the \
+         module's actual imports {:?}",
+        record.name,
+        declared,
+        actual
+    );
+    Ok((bytes, inspection))
 }
 
 #[cfg(test)]

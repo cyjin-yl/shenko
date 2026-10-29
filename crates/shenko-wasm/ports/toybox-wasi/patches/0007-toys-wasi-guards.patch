@@ -1,20 +1,16 @@
 --- a/toys/posix/cp.c
 +++ b/toys/posix/cp.c
-@@ -277,7 +277,13 @@
+@@ -277,6 +277,9 @@
              ? readlinkat0(tfd, try->name, toybuf, sizeof(toybuf)) &&
                (!unlinkat(cfd, catch, 0) || ENOENT == errno) &&
                !symlinkat(toybuf, cfd, catch)
-+#ifdef __wasi__
-+            // WASI cannot create device nodes or FIFOs; only symlink targets
-+            // succeed. mknodat is an ENOSYS stub so the error path applies.
-+            : 1)
-+#else
++            // WASI: mknodat is an ENOSYS stub, so this branch fails through
++            // the normal error path — a special file is never reported as
++            // created and the source is never unlinked on a failed move.
              : !mknodat(cfd, catch, try->st.st_mode, try->st.st_rdev))
-+#endif
          {
            err = 0;
-           fdout = AT_FDCWD;
-@@ -312,6 +318,7 @@
+@@ -312,6 +315,7 @@
      // ownership
      if (TT.pflags & _CP_ownership) {
  
@@ -22,7 +18,7 @@
        // permission bits already correct for mknod and don't apply to symlink
        // If we can't get a filehandle to the actual object, use racy functions
        if (fdout == AT_FDCWD)
-@@ -324,6 +331,7 @@
+@@ -324,6 +328,7 @@
          perror_msg("chown '%s'", pp = dirtree_path(try, 0));
          free(pp);
        }
@@ -30,7 +26,7 @@
      }
  
      // timestamp
-@@ -407,7 +415,9 @@
+@@ -407,7 +412,9 @@
      }
      free(pre);
    }
@@ -40,7 +36,7 @@
    if (!TT.callback) TT.callback = cp_node;
  
    // Loop through sources
-@@ -500,8 +510,12 @@
+@@ -500,8 +507,12 @@
    cp_node(try);
  
    // No -r so always one level deep, so destname as set by cp_node() is correct
@@ -55,7 +51,7 @@
  
    return 0;
  }
-@@ -521,7 +535,12 @@
+@@ -521,7 +532,12 @@
        if (mkpathat(AT_FDCWD, *ss, mode, MKPATHAT_MKLAST | MKPATHAT_MAKE))
          perror_msg_raw(*ss);
        if (FLAG(g)||FLAG(o))
@@ -70,16 +66,20 @@
  
 --- a/toys/posix/tar.c
 +++ b/toys/posix/tar.c
-@@ -651,11 +651,16 @@
+@@ -651,11 +651,18 @@
    } else if (S_ISLNK(ala)) {
      if (symlink(TT.hdr.link_target, name))
        return perror_msg("can't link '%s' -> '%s'", name, TT.hdr.link_target);
-+#ifdef __wasi__
+-  } else if (mknod(name, ala&~toys.old_umask, TT.hdr.device))
+-    return perror_msg("can't create '%s'", name);
 +  } else {
++#ifdef __wasi__
 +    return perror_msg("can't create special file '%s' on WASI", name);
++#else
++    if (mknod(name, ala&~toys.old_umask, TT.hdr.device))
++      return perror_msg("can't create '%s'", name);
 +#endif
-   } else if (mknod(name, ala&~toys.old_umask, TT.hdr.device))
-     return perror_msg("can't create '%s'", name);
++  }
  
    // Set ownership
    if (!FLAG(o) && !geteuid()) {
@@ -87,7 +87,7 @@
      int u = TT.hdr.uid, g = TT.hdr.gid;
  
      if (TT.owner) TT.hdr.uid = TT.ouid;
-@@ -671,6 +676,7 @@
+@@ -671,6 +678,7 @@
      }
  
      if (lchown(name, u, g)) perror_msg("chown %d:%d '%s'", u, g, name);;
@@ -95,7 +95,7 @@
    }
  
    if (!S_ISLNK(ala)) chmod(name, FLAG(p) ? ala : ala&0777&~toys.old_umask);
-@@ -959,11 +965,15 @@
+@@ -959,11 +967,15 @@
            xsetenv(xmprintf("TAR_UID=%o", TT.hdr.uid), 0);
            xsetenv(xmprintf("TAR_GID=%o", TT.hdr.gid), 0);
  

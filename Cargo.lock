@@ -2495,6 +2495,7 @@ name = "shenko"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "cordis-core",
@@ -2518,6 +2519,7 @@ dependencies = [
  "shenko-subject",
  "shenko-types",
  "shenko-ui",
+ "shenko-wasm",
  "tokio",
  "tokio-util",
  "tracing",
@@ -2651,12 +2653,15 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "blake3",
  "chrono",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-store",
  "shenko-subject",
  "shenko-types",
+ "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -2765,6 +2770,7 @@ dependencies = [
  "dirs-next",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-types",
  "shenko-wasm",
  "thiserror 2.0.21",
@@ -2888,9 +2894,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
@@ -2898,6 +2906,7 @@ dependencies = [
  "uuid",
  "wasmtime",
  "wasmtime-wasi",
+ "wat",
 ]
 
 [[package]]

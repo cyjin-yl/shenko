@@ -21,7 +21,7 @@ use shenko_types::{
     task::*,
 };
 use shenko_wasm::{
-    InputFile, MountMode, MountSpec, OutputFile, WasiCommand, WasiRunControl, WasiRunOutcome,
+    InputFile, MountMode, MountSpec, OutputFile, WasiCancellation, WasiCommand, WasiRunControl, WasiRunOutcome,
     WasmRuntime, resolve_tool, tool_module,
 };
 use std::{
@@ -268,9 +268,32 @@ impl WasiExecHandler {
                 self.data_dir.display()
             ))
         })?;
+        // Installation binding: the node must belong to this subject, the same
+        // check node_sync::open_node enforces on the writable path. A
+        // transplanted sibling installation's node/ cannot lend its tool
+        // records into this home's mounts.
+        if let Some(agent) = self
+            .store
+            .get_existing_agent_id()
+            .map_err(PrepareError::Fault)?
+        {
+            let expected = self
+                .expected_node_identity(agent)
+                .map_err(PrepareError::Fault)?;
+            let actual = node.local_identity().map_err(PrepareError::Fault)?;
+            if actual.as_ref() != Some(&expected) {
+                return Err(PrepareError::Refusal(
+                    "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
+                     this installation's subject binding; reconcile before exec"
+                        .into(),
+                ));
+            }
+        }
         // Re-verify the exact artifact bytes against the retained digest on
         // every execution: the materialized copy is never trusted.
-        let bytes = tool_module(&node, &record).map_err(PrepareError::Fault)?;
+        // tool_module returns the *actual* inspection — its imports are what
+        // the sealed execution record reports, not the authored descriptor.
+        let (bytes, inspection) = tool_module(&node, &record).map_err(PrepareError::Fault)?;
         let resolved_tool = ResolvedTool {
             name: record.name,
             version: record.version,
@@ -278,7 +301,7 @@ impl WasiExecHandler {
             digest: record.digest,
             bytes: bytes.len() as u64,
             entrypoint: record.entrypoint,
-            imports: record.imports,
+            imports: inspection.imports,
         };
         let frozen = FrozenInput {
             tool: input.tool,
@@ -290,6 +313,21 @@ impl WasiExecHandler {
             resolved_tool,
         };
         Ok((frozen, bytes, stdin))
+    }
+
+    /// The subject-derived identity this installation's node must carry — the
+    /// exact derivation `node_sync::open_node` uses for Initialize/Join.
+    fn expected_node_identity(&self, agent: EntityId) -> Result<shenko_node::Identity> {
+        let genesis = self
+            .store
+            .get_subject_genesis(agent)?
+            .ok_or_else(|| anyhow::anyhow!("subject identity has no actual genesis"))?;
+        let (head, _) = self.store.load_subject(agent)?;
+        Ok(shenko_node::Identity {
+            agent_id: agent,
+            branch_id: EntityId(head.branch_id.0),
+            origin_proof: Digest::blake3(&serde_json::to_vec(&genesis)?),
+        })
     }
 
     /// Retain every byte in CAS by streaming, plus a bounded text preview.
@@ -324,9 +362,10 @@ impl WasiExecHandler {
         store: Arc<Store>,
         mounts: Vec<MountSpec>,
         bytes: Vec<u8>,
-        frozen: &FrozenInput,
+        frozen: FrozenInput,
         stdin: Vec<u8>,
         io_dir: PathBuf,
+        cancel: WasiCancellation,
     ) -> Result<GuestRun> {
         let stdin_path = io_dir.join("stdin.bin");
         let stdout_path = io_dir.join("stdout.bin");
@@ -351,7 +390,7 @@ impl WasiExecHandler {
                 .collect();
             command.control = WasiRunControl {
                 deadline: Some(Duration::from_secs(frozen.timeout_secs)),
-                cancel: None,
+                cancel: Some(cancel),
             };
             let mut runtime = WasmRuntime::with_mounts(mounts)?;
             runtime.run_wasi_module(&bytes, command)
@@ -523,10 +562,30 @@ impl WasiExecHandler {
         let mounts = self.mounts.clone();
         let stream_store = Arc::clone(&self.store);
         let io_dir_run = io_dir.clone();
+        // C05's interruptible token: durable abort_request propagates into the
+        // running guest's epoch checkpoints; the worker is still always
+        // joined before the io dir is removed.
+        let cancel = WasiCancellation::default();
+        let worker_cancel = cancel.clone();
         let blocking = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(stream_store, mounts, bytes, &frozen, stdin, io_dir_run)
+            Self::execute_blocking(stream_store, mounts, bytes, &frozen, stdin, io_dir_run, worker_cancel)
         });
-        let join_result = blocking.await;
+        let join_result = {
+            let mut blocking = blocking;
+            loop {
+                if blocking.is_finished() {
+                    break blocking.await;
+                }
+                // Poll the durable task record: a committed abort_request
+                // reaches the guest through the cancellation token.
+                if let Ok(task) = self.store.external_task(invocation.task.task_id) {
+                    if task.abort_request.is_some() {
+                        cancel.cancel();
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        };
         let guest = match join_result {
             Ok(Ok(guest)) => Some(guest),
             Ok(Err(error)) => return Err(error),

@@ -27,6 +27,10 @@ OUT_DIR="${3:-$(pwd)/out-wasi}"
 }
 CC="$WASI_SDK/bin/clang"
 [ -x "$CC" ] || { echo "no clang at $CC" >&2; exit 2; }
+# The SDK compiler must reach upstream scripts (genconfig, make.sh, single.sh)
+# via the environment — an unexported shell variable never does, and upstream
+# configure would silently fall back to host cc with WASM CFLAGS.
+export CC
 # A sysroot probe: fail early with a clear message if the SDK is wrong.
 echo 'int main(void){return 0;}' > /tmp/.toybox-wasi-probe.c
 "$CC" --target=wasm32-wasi --sysroot="$WASI_SDK/share/wasi-sysroot" \
@@ -49,8 +53,11 @@ cd "$SRC_DIR"
 mkdir -p "$OUT_DIR"
 
 # Generate headers once (kconfig needs the host compiler for its tools).
+# genconfig.sh forwards its argument to kconfig.c, whose accepted config
+# modes are -n (allnoconfig), -d, -y, -r — the Makefile target name
+# "allnoconfig" is not a valid mode.
 KCONFIG_ALLCONFIG="$PORT_DIR/miniconfig.wasi" \
-  scripts/genconfig.sh allnoconfig
+  scripts/genconfig.sh -n
 
 # Each CONFIG_FOO=y in miniconfig maps to a NEWTOY(FOO) somewhere under toys/.
 # Derive the applet list from the same file so miniconfig stays authoritative;

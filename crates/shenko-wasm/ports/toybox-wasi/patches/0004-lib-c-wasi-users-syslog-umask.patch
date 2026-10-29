@@ -12,23 +12,21 @@
      }
  
      // Repeated "hows" are allowed; something like "a=r+w+s" is valid.
-@@ -1278,6 +1282,15 @@
+@@ -1278,6 +1282,13 @@
  // Return cached passwd entries.
  struct passwd *bufgetpwnamuid(char *name, uid_t uid)
  {
 +#ifdef __wasi__
-+  // No /etc/passwd database; synthesize a numeric-only entry so callers
-+  // that print "name (uid)" still show the true numeric id.
-+  static struct passwd fake;
-+  fake.pw_name = 0;
-+  fake.pw_uid = uid;
-+  fake.pw_gid = 0;
-+  return &fake;
++  // No /etc/passwd database exists; returning NULL makes getusername()
++  // and getgroupname() use their documented numeric fallback, so ls -l
++  // still prints the true uid/gid instead of a null name.
++  (void)name; (void)uid;
++  return 0;
 +#else
    struct pwuidbuf_list {
      struct pwuidbuf_list *next;
      struct passwd pw;
-@@ -1317,6 +1330,7 @@
+@@ -1317,6 +1328,7 @@
    pwuidbuf = list;
  
    return &list->pw;
@@ -36,21 +34,19 @@
  }
  
  struct passwd *bufgetpwuid(uid_t uid)
-@@ -1327,6 +1341,13 @@
+@@ -1327,6 +1339,11 @@
  // Return cached group entries.
  struct group *bufgetgrnamgid(char *name, gid_t gid)
  {
 +#ifdef __wasi__
-+  static struct group fake;
-+  fake.gr_name = 0;
-+  fake.gr_gid = gid;
-+  fake.gr_mem = 0;
-+  return &fake;
++  // Same numeric-fallback contract as the passwd side.
++  (void)name; (void)gid;
++  return 0;
 +#else
    struct grgidbuf_list {
      struct grgidbuf_list *next;
      struct group gr;
-@@ -1364,6 +1385,7 @@
+@@ -1364,6 +1381,7 @@
    grgidbuf = list;
  
    return &list->gr;
@@ -58,7 +54,7 @@
  }
  
  struct group *bufgetgrgid(gid_t gid)
-@@ -1472,6 +1494,15 @@
+@@ -1472,6 +1490,15 @@
  
  void loggit(int priority, char *format, ...)
  {
@@ -74,7 +70,7 @@
    int i, facility = LOG_DAEMON;
    va_list va;
  
-@@ -1481,6 +1512,7 @@
+@@ -1481,6 +1508,7 @@
    vsyslog(priority, format, va);
    va_end(va);
    closelog();

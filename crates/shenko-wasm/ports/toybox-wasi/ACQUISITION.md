@@ -33,7 +33,13 @@ upstream behavior on other platforms is unchanged.
 
 - **File:** `wasi-sdk-34.0-x86_64-linux.tar.gz`
 - **URL:** https://github.com/WebAssembly/wasi-sdk/releases/tag/wasi-sdk-34
-- Verify against the release `SHA256SUMS` file before use.
+- **Release asset:** id `528366474`, size `192383077` bytes
+- **SHA-256 (release-asset metadata digest):**
+  `b761e3a0721dbae9c09a0059e5fdb2bf917d1b4a8a7b430fb3b5aafb0984b2c4`
+
+The release publishes no `SHA256SUMS` file; verify the downloaded tarball
+byte count and `sha256sum` against the asset metadata above (bound to tag
+`wasi-sdk-34`), not a signed manifest.
 
 Extract and pass the top-level directory to `build.sh`:
 
