@@ -234,7 +234,12 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
             let Some(reported) = w.remaining else { return Bound::Unknown };
             if remaining.upper > reported.upper { return Bound::Unknown; }
             if remaining.lower < cost.amount.upper {
-                Bound::Short { until: *refill_by, provider_at_limit }
+                // The observed zero no longer proves the current provider
+                // limit after its known refill boundary. Do not assume a
+                // replenished balance either; await a new observation.
+                let refill_passed = refill_by.is_some_and(|at| at <= now);
+                Bound::Short { until: if refill_passed { None } else { *refill_by },
+                    provider_at_limit: provider_at_limit && !refill_passed }
             } else {
                 Bound::Bucket { constraint: constraint(remaining.lower, None, *refill_by) }
             }
@@ -359,16 +364,26 @@ pub fn decide(
 ) -> Result<PolicyDecision, PolicyError> {
     let mut valid_until = validate(policy, now)?;
     // Every available profile's evidence can affect the choice. Recompute
-    // before any consulted fresh source stops being fresh.
+    // before a consulted source expires or a window changes, including when
+    // a different window sets a later aggregate wait deadline.
     for profile in &policy.profiles {
         if availability.get(&profile.profile_id) != Some(&BackendState::Available) { continue; }
         for cost in &profile.cost_per_request {
             for forecast in forecasts.iter().filter(|f| f.provider_id == cost.window.provider_id
-                && f.account_scope_ref == cost.window.account_scope_ref
-                && f.windows.iter().any(|w| w.window_key == cost.window.window_key)) {
-                if let SourceValidity::FreshUntil { exclusive } = forecast.source_validity {
-                    if forecast.freshness == crate::model::Freshness::Fresh && exclusive > now {
-                        valid_until = valid_until.min(exclusive);
+                && f.account_scope_ref == cost.window.account_scope_ref) {
+                for window in forecast.windows.iter().filter(|w| w.window_key == cost.window.window_key) {
+                    if let SourceValidity::FreshUntil { exclusive } = forecast.source_validity {
+                        if forecast.freshness == crate::model::Freshness::Fresh && exclusive > now {
+                            valid_until = valid_until.min(exclusive);
+                        }
+                    }
+                    let boundary = match &window.planning {
+                        Planning::Period { resets_at, .. } => Some(*resets_at),
+                        Planning::Replenishing { refill_by, .. } => *refill_by,
+                        Planning::Unknown { .. } => None,
+                    };
+                    if let Some(at) = boundary.filter(|at| *at > now) {
+                        valid_until = valid_until.min(at);
                     }
                 }
             }

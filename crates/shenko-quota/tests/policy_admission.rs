@@ -124,10 +124,10 @@ fn options(stale: StaleUse) -> ForecastOptions {
     ForecastOptions { ttl: Duration::minutes(5), stale }
 }
 
-/// PR88 post-merge review: reported exhaustion is not a policy deduction.
+/// PR88 post-merge review: a reported empty request bucket is exhausted.
 /// Synthetic headers/attempts only; no provider/account observation is claimed.
 #[test]
-fn replenishing_exhaustion_and_own_cost_wait_remain_distinct() {
+fn replenishing_provider_reported_empty_is_exhausted() {
     let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
     let refill = now() + Duration::minutes(10);
     let empty = forecast(&request_snapshot("0"), &[], &HashMap::new(), now(), options(StaleUse::Refuse));
@@ -139,18 +139,45 @@ fn replenishing_exhaustion_and_own_cost_wait_remain_distinct() {
         &p, &exhausted, EntityId::new(), &mut Pacer::default(), now(),
     ) else { panic!("expected quota exhaustion"); };
     assert_eq!(admission.state, AdmissionState::ProviderExhausted);
+}
 
-    // Same zero net budget, but the provider still reports two requests:
-    // our unreflected own cost consumes the budget, not the provider limit.
+/// An earlier refill invalidates an exhaustion decision even if another
+/// window's own-cost deduction makes the combined wait deadline later.
+#[test]
+fn passed_refill_recomputes_multiwindow_exhaustion_before_admission() {
+    let mut p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
+    p.profiles[0].cost_per_request.push(WindowCost { window: wref("api:input-tokens"),
+        unit: "tokens".into(), amount: Range::point(1.0).unwrap() });
+    let ctx = ObservationContext { provider_id: "anthropic".into(), account_scope_ref: "sub".into(),
+        source_version: None, attribution: Attribution::Exclusive, observed_at: now() };
+    let snapshot = from_api_headers(&ctx, [
+        ("anthropic-ratelimit-requests-limit", "10"),
+        ("anthropic-ratelimit-requests-remaining", "0"),
+        ("anthropic-ratelimit-requests-reset", "2026-10-27T12:01:00Z"),
+        ("anthropic-ratelimit-input-tokens-limit", "10000"),
+        ("anthropic-ratelimit-input-tokens-remaining", "1000"),
+        ("anthropic-ratelimit-input-tokens-reset", "2026-10-27T12:10:00Z"),
+    ]);
     let attempt = LocalAttempt { request_id: EntityId::new(), provider_id: "anthropic".into(),
-        account_scope_ref: "sub".into(), window_key: "api:requests".into(), unit: "requests".into(),
+        account_scope_ref: "sub".into(), window_key: "api:input-tokens".into(), unit: "tokens".into(),
         ledger_commit: CommitRef::new(EntityId::new(), LedgerSeq(1)),
-        cost: Range::point(2.0).unwrap(), billing: AttemptBilling::Unknown };
-    let reserved = forecast(&request_snapshot("2"), &[attempt], &HashMap::new(), now(), options(StaleUse::Refuse));
-    let waiting = decide_fixture(&p, &[reserved], false, None, now());
-    assert_eq!(waiting.choice, Choice::Wait { until: Some(refill) });
+        cost: Range::point(500.0).unwrap(), billing: AttemptBilling::Unknown };
+    let observed = forecast(&snapshot, &[attempt], &HashMap::new(), now(), options(StaleUse::Refuse));
+    let initial = decide_fixture(&p, &[observed.clone()], false, None, now());
+    assert_eq!(initial.choice, Choice::ProviderExhausted {
+        windows: vec![wref("api:requests")], until: Some(now() + Duration::minutes(10)),
+    });
+    assert_eq!(initial.valid_until, now() + Duration::minutes(1));
+
+    let later = now() + Duration::minutes(2);
+    let AdmissionOutcome::Quota(expired) = admit_fixture(
+        &p, &initial, EntityId::new(), &mut Pacer::default(), later,
+    ) else { panic!("expected decision recomputation"); };
+    assert_eq!(expired.state, AdmissionState::Eligible);
+    let waiting = decide_fixture(&p, &[observed], false, Some(&initial), later);
+    assert_eq!(waiting.choice, Choice::Wait { until: Some(now() + Duration::minutes(10)) });
     let AdmissionOutcome::Quota(admission) = admit_fixture(
-        &p, &waiting, EntityId::new(), &mut Pacer::default(), now(),
+        &p, &waiting, EntityId::new(), &mut Pacer::default(), later,
     ) else { panic!("expected quota policy wait"); };
     assert_eq!(admission.state, AdmissionState::QuotaPolicyWait);
 }
