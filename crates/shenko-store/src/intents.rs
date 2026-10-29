@@ -386,7 +386,8 @@ impl Store {
             ensure!(task.abort_request.is_none()&&!task.is_terminal(),"publication_cancelled");
             let step:SubjectStep={let data:String=tx.query_row("SELECT s.data FROM subject_steps s WHERE s.step_id=?1",[task.created_by_step_id.unwrap().to_string()],|r|r.get(0))?;serde_json::from_str(&data)?};
             let head:SubjectBranchHead={let data:String=tx.query_row("SELECT data FROM subject_branch_heads WHERE branch_id=?1",[step.branch_id.0.to_string()],|r|r.get(0))?;serde_json::from_str(&data)?};
-            ensure!(head.controller_epoch==step.controller_epoch && head.mode==SubjectMode::Active,"publication_authority_changed: reconcile");
+            if head.mode != SubjectMode::Active { return Ok(None); }
+            ensure!(head.controller_epoch==step.controller_epoch,"publication_authority_changed: reconcile");
             let seq=self.ledger.allocate_seq(&tx)?;let commit=CommitRef::new(self.ledger.ledger_id(),seq);let invocation_id=EntityId::new();
             task.state=TaskState::Running{checkpoint_ref:None,invocation_id,mode:RunMode::Run,epoch:head.controller_epoch};task.record_revision=task.record_revision.next();task.updated_commit=commit;
             tx.execute("UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE task_id=?1",params![id.to_string(),task.record_revision.0 as i64,serde_json::to_string(&task)?,seq.0 as i64])?;

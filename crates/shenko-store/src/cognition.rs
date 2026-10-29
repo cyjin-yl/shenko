@@ -1416,6 +1416,15 @@ impl Store {
             TransactionBehavior::Deferred
         };
         let tx = conn.transaction_with_behavior(behavior).map_err(db)?;
+        // The subject boundary request is local controller state, not part of
+        // this archive schema. A paused head without its request would strand
+        // the receiver and must never be acknowledged as a complete snapshot.
+        let paused: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM subject_branch_heads WHERE mode='paused')",
+            [],
+            |row| row.get(0),
+        ).map_err(db)?;
+        ensure!(!paused, "cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting");
         let snapshot_seq = if allocate_order {
             let current: Option<i64> = tx
                 .query_row(
