@@ -21,7 +21,7 @@ use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
 use crate::playground_backend::{ActionError, BackendActionRequest, BackendBinding, BackendReceipt};
 
-const ARTIFACT_SCHEMA: u32 = 2;
+pub(crate) const ARTIFACT_SCHEMA: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -322,7 +322,7 @@ pub(crate) fn stable_id(identity: &str) -> EntityId {
     EntityId(Uuid::from_bytes(bytes))
 }
 
-fn write_immutable(path: &Path, bytes: &[u8]) -> io::Result<()> {
+pub(crate) fn write_immutable(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path.parent().ok_or_else(|| io::Error::other("version parent missing"))?;
     fs::create_dir_all(parent)?;
     match fs::OpenOptions::new().write(true).create_new(true).open(path) {

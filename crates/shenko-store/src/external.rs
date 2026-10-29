@@ -27,6 +27,29 @@ pub enum InboxAdmission {
     Replay,
 }
 
+pub(crate) fn validate_original_event(
+    event_id: EntityId, kind: &str, source: &str, data: &serde_json::Value,
+) -> Result<()> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Original {
+        event_id: EntityId,
+        kind: String,
+        source: String,
+        payload: serde_json::Map<String, serde_json::Value>,
+        created_at: chrono::DateTime<chrono::Utc>,
+    }
+    let original: Original = serde_json::from_value(data.clone())
+        .map_err(|_| shenko_types::error::ShenkoError::conflict("invalid complete inbox event"))?;
+    let _ = (&original.payload, original.created_at);
+    if original.event_id != event_id || original.kind != kind || original.source != source
+        || kind.is_empty() || source.is_empty()
+    {
+        return Err(shenko_types::error::ShenkoError::conflict("inbox event identity mismatch").into());
+    }
+    Ok(())
+}
+
 impl Store {
     pub fn close_external_writer(&self) {
         self.ledger.close_writer();
@@ -212,14 +235,7 @@ impl Store {
     ) -> Result<InboxAdmission> {
         // Typed validation BEFORE the mutation gate: an invalid admission must
         // fail before the writer incarnation is claimed, never poison it.
-        ensure!(
-            data.get("event_id").and_then(serde_json::Value::as_str) == Some(event_id.to_string().as_str())
-                && data.get("kind").and_then(serde_json::Value::as_str) == Some(kind)
-                && data.get("source").and_then(serde_json::Value::as_str) == Some(source)
-                && data.get("payload").is_some_and(serde_json::Value::is_object)
-                && data.get("created_at").is_some_and(serde_json::Value::is_string),
-            "inbox admission needs the complete original event identity/payload/timestamp"
-        );
+        validate_original_event(event_id, kind, source, data)?;
         let serialized = serde_json::to_string(data)?;
         // Target agent head must exist for the event to have a drain owner;
         // a missing head is a typed rejection, not a row failure inside the
@@ -247,13 +263,12 @@ impl Store {
                     )
                     .optional()?;
                 if let Some((stored_agent, stored_kind, stored_source, stored_data)) = existing {
-                    ensure!(
-                        stored_agent == agent_id.to_string()
-                            && stored_kind == kind
-                            && stored_source == source
-                            && stored_data == serialized,
-                        "inbox_event_conflict: same event_id with different facts"
-                    );
+                    if stored_agent != agent_id.to_string() || stored_kind != kind
+                        || stored_source != source || stored_data != serialized
+                    {
+                        return Err(shenko_types::error::ShenkoError::conflict(
+                            "inbox_event_conflict: same event_id with different facts").into());
+                    }
                     tx.commit()?;
                     return Ok(InboxAdmission::Replay);
                 }

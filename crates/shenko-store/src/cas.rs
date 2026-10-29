@@ -17,13 +17,14 @@ impl ContentStore {
         Self { base }
     }
 
-    fn object_path(&self, digest: &Digest) -> PathBuf {
-        let hex = digest.hex();
-        if hex.len() >= 4 {
-            self.base.join(&hex[..2]).join(&hex[2..4]).join(hex)
-        } else {
-            self.base.join(hex)
-        }
+    fn object_path(&self, digest: &Digest) -> Result<PathBuf, ShenkoError> {
+        // Validate BEFORE slicing or resolving paths. A Digest is deserialized
+        // from untrusted nested objects too; its wrapper alone proves nothing.
+        let hex = digest.0.strip_prefix("blake3:").filter(|hex| {
+            hex.len() == 64 && hex.bytes().all(|byte|
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        }).ok_or_else(|| ShenkoError::conflict("CAS digest must be canonical blake3 lowercase hex"))?;
+        Ok(self.base.join(&hex[..2]).join(&hex[2..4]).join(hex))
     }
 
     pub fn seal_object(
@@ -35,15 +36,18 @@ impl ContentStore {
         codec_major: u32,
     ) -> Result<SealedObjectRef, ShenkoError> {
         let digest = Digest::blake3(data);
-        let path = self.object_path(&digest);
+        let path = self.object_path(&digest)?;
 
         if !path.exists() {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
                     .map_err(|e| ShenkoError::storage(format!("cas mkdir: {e}")))?;
             }
-            let tmp = path.with_extension(".tmp");
-            let mut f = fs::File::create(&tmp)
+            // Equal content may be sealed concurrently by unrelated actions.
+            // Each writer owns a distinct temporary inode; both renames of
+            // the same verified bytes are safe, unlike a shared digest.tmp.
+            let tmp = path.with_extension(format!("{}.tmp", shenko_types::ids::EntityId::new()));
+            let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)
                 .map_err(|e| ShenkoError::storage(format!("cas write tmp: {e}")))?;
             f.write_all(data)
                 .map_err(|e| ShenkoError::storage(format!("cas write: {e}")))?;
@@ -81,7 +85,7 @@ impl ContentStore {
     }
 
     pub fn read_object(&self, digest: &Digest) -> Result<Vec<u8>, ShenkoError> {
-        let path = self.object_path(digest);
+        let path = self.object_path(digest)?;
         fs::read(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))
     }
 
@@ -91,14 +95,14 @@ impl ContentStore {
         if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
             return Err(ShenkoError::storage("CAS object length/digest mismatch"));
         }
-        Ok(self.object_path(&object.digest))
+        self.object_path(&object.digest)
     }
 
     pub fn object_exists(&self, digest: &Digest) -> bool {
-        self.object_path(digest).exists()
+        self.object_path(digest).is_ok_and(|path| path.exists())
     }
 
     pub fn object_size(&self, digest: &Digest) -> Option<u64> {
-        fs::metadata(self.object_path(digest)).ok().map(|m| m.len())
+        fs::metadata(self.object_path(digest).ok()?).ok().map(|m| m.len())
     }
 }

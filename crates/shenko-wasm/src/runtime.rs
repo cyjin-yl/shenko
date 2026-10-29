@@ -10,11 +10,11 @@ use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::task::{Context, Poll};
+use std::task::{Context as TaskContext, Poll};
 /// Bounded in-memory streams for callers that must cap guest output
 /// (Playground backend receipts) without binding the whole crate to a
-/// preview-2 path. A full buffer makes the guest's write trap, so the bound
-/// is a real contract rather than silent truncation.
+/// preview-2 path. These upstream pipes expose write errors to the guest;
+/// callers needing an independently checked bound use BoundedOutputPipe.
 pub use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
 /// Bounded guest output capture with host-visible rejection flags.
@@ -36,7 +36,7 @@ struct BoundedOutputInner {
     limit: usize,
     /// A write was rejected because it would exceed the bound.
     overflowed: AtomicBool,
-    /// A write/flush/shutdown failed for a non-capacity reason.
+    /// Any write failed, including a capacity rejection.
     failed: AtomicBool,
 }
 
@@ -61,10 +61,14 @@ impl BoundedOutputPipe {
     pub fn did_overflow(&self) -> bool {
         self.inner.overflowed.load(Ordering::SeqCst)
     }
-    /// True once a stream operation failed without a capacity explanation.
+    /// True once a guest write was rejected, independently of its exit code.
     pub fn did_fail(&self) -> bool {
         self.inner.failed.load(Ordering::SeqCst)
     }
+}
+
+impl wasmtime_wasi::cli::IsTerminal for BoundedOutputPipe {
+    fn is_terminal(&self) -> bool { false }
 }
 
 impl StdoutStream for BoundedOutputPipe {
@@ -80,12 +84,13 @@ struct BoundedOutputWriter {
 impl tokio::io::AsyncWrite for BoundedOutputWriter {
     fn poll_write(
         self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        _cx: &mut TaskContext<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let mut bytes = self.inner.bytes.lock();
         if buf.len() > self.inner.limit.saturating_sub(bytes.len()) {
             self.inner.overflowed.store(true, Ordering::SeqCst);
+            self.inner.failed.store(true, Ordering::SeqCst);
             return Poll::Ready(Err(io::Error::new(
                 io::ErrorKind::WriteZero,
                 "bounded guest output capacity exceeded",
@@ -95,11 +100,11 @@ impl tokio::io::AsyncWrite for BoundedOutputWriter {
         Poll::Ready(Ok(buf.len()))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 }

@@ -18,6 +18,10 @@ never a production instance or another seat. No model or QQ service is needed.
   completion**. The existing Cordis `NativeTaskHandlerPlugin`/dispatcher claims
   it, writes T1 `OperationRecord` + original `AttemptRecord`, runs WASI, seals E1
   evidence, and writes T2 `TaskResult` + its native-child durable inbox result.
+- Frozen action schema 2 includes the CAS-sealed immutable artifact version
+  record and its required content/module closure. The handler verifies those
+  objects and materializes missing immutable files from CAS; a legitimate root
+  relocation changes only the workspace locator, not the action identity.
 - Query `GET .../backend/action?request_id=...` after response loss/restart. The
   response includes actual task/commit/input/operation/attempt/evidence/result
   identities. Identical replay returns the original receipt before checking the
@@ -27,6 +31,12 @@ never a production instance or another seat. No model or QQ service is needed.
   frozen input JSON. Environment contains only artifact/request IDs. `/home` is
   this artifact's persistent RW state; `/artifact` is RO. No network/host-shell
   capability is granted. Both output streams are bounded to 64 KiB.
+  Write rejection flags are checked independently of guest exit/traps: a guest
+  that ignores overflow and later exits 0 cannot produce a successful receipt.
+- Recovery imports reconcile task, operation/attempt/evidence/result, original
+  pending delivery and already-staged native result text as one conflict unit.
+  Missing incoming parents and divergent immutable action inputs reject the
+  whole unit, including peer baselines; unrelated observations remain separate.
 - Completed-state receipts snapshot up to 256 entries / 16 MiB, including
   recursive directories, binary file CAS objects and literal symlinks. These
   are **receipt profile bounds, not an OS disk quota**. An incomplete snapshot,

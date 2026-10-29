@@ -14,7 +14,7 @@ use shenko_types::{
     ids::*, object::*, operation::*, task::*,
 };
 use shenko_wasm::{BoundedOutputPipe, MemoryInputPipe, MountMode, MountSpec, WasiCommand, WasmRuntime, HOME_GUEST_PATH};
-use crate::playground::{ArtifactRecord, PlaygroundState, stable_id};
+use crate::playground::{ARTIFACT_SCHEMA, ArtifactRecord, PlaygroundState, stable_id, write_immutable};
 
 pub const PLAYGROUND_BACKEND_KIND: &str = "playground.backend";
 const PLUGIN: &str = "4c0f6d5b-5a1f-4d2e-9f76-7b5e3f6a7b8c";
@@ -158,6 +158,14 @@ fn same_request(store: &Store, task: &TaskRecord, artifact_id: EntityId, request
 }
 
 impl PlaygroundState {
+    fn committed_action(&self, id: EntityId, request: &BackendActionRequest) -> Result<Option<BackendReceipt>, ActionError> {
+        let Some(existing) = self.store.get_task(task_id(id, &request.request_id))? else { return Ok(None) };
+        if !same_request(&self.store, &existing, id, request)? { return Err(ActionError::Conflict); }
+        let mut receipt = self.action_status(id, &request.request_id)?;
+        receipt.replayed = true;
+        Ok(Some(receipt))
+    }
+
     pub fn invoke_action(&self, id: EntityId, request: BackendActionRequest) -> Result<BackendReceipt, ActionError> {
         if !valid_token(&request.request_id) || !valid_token(&request.action) {
             return Err(ActionError::Invalid("request_id/action must be 1..64 ASCII letters, digits, '_' or '-'".into()));
@@ -168,12 +176,11 @@ impl PlaygroundState {
         let idempotency_id = task_id(id, &request.request_id);
         // Original receipt wins BEFORE selected version checks. A response lost
         // before an upgrade still resolves its original task/attempt afterward.
-        if let Some(existing) = self.store.get_task(idempotency_id)? {
-            if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
-            let mut receipt = self.action_status(id, &request.request_id)?;
-            receipt.replayed = true;
-            return Ok(receipt);
-        }
+        if let Some(receipt) = self.committed_action(id, &request)? { return Ok(receipt); }
+        // Every preparatory rejection (including handler withdrawal, missing
+        // artifact/binding and stale revisions) resolves a concurrent committed
+        // identity before returning accepted:false, not only SQL errors below.
+        let candidate = (|| -> Result<_, ActionError> {
         let native = self.native.as_ref().ok_or_else(|| ActionError::Unavailable("native dispatcher not attached".into()))?;
         if !native.has_handler(PLAYGROUND_BACKEND_KIND, 1) {
             return Err(ActionError::Unavailable("WASI artifact handler is not installed".into()));
@@ -194,6 +201,11 @@ impl PlaygroundState {
             if module.len() as u64 != binding.module_ref.bytes || Digest::blake3(&module) != binding.module_digest {
                 return Err(ActionError::Unavailable("bound module digest/length mismatch in CAS".into()));
             }
+        }
+        let content = self.store.cas.read_object(&record.content_ref.digest)
+            .map_err(|e| ActionError::Unavailable(format!("artifact content unavailable: {e:#}")))?;
+        if content.len() as u64 != record.content_ref.bytes || Digest::blake3(&content) != record.content_ref.digest {
+            return Err(ActionError::Unavailable("artifact content digest/length mismatch in CAS".into()));
         }
         let frozen = FrozenAction { schema_version: 2, artifact_id: id, artifact_revision: record.revision,
             version_record_ref: Some(version_record_ref), binding: binding.clone(), request: request.clone() };
@@ -228,6 +240,14 @@ impl PlaygroundState {
             payload_json: serde_json::to_string(&accepted_event).map_err(anyhow::Error::from)?,
             received_at_ms: accepted_event.created_at.timestamp_millis(),
         };
+        Ok((task, input_event))
+        })();
+        let (task, input_event) = match candidate {
+            Ok(candidate) => candidate,
+            Err(error) => return match self.committed_action(id, &request)? {
+                Some(receipt) => Ok(receipt), None => Err(error),
+            },
+        };
         let replayed = match self.store.admit_native_task(&task, &input_event) {
             Ok(Some(existing)) => {
                 if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
@@ -239,14 +259,13 @@ impl PlaygroundState {
                 // and the writer transaction. The committed id always wins:
                 // re-read it instead of surfacing a stale/availability error
                 // to an actually-accepted action.
-                if let Some(existing) = self.store.get_task(idempotency_id)? {
-                    if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
-                    true
-                } else if error.to_string().contains("already committed with different input") {
+                if let Some(receipt) = self.committed_action(id, &request)? { return Ok(receipt); }
+                if matches!(error.downcast_ref::<shenko_types::error::ShenkoError>(),
+                    Some(shenko_types::error::ShenkoError::Conflict(_)))
+                {
                     return Err(ActionError::Conflict);
-                } else {
-                    return Err(error.into());
                 }
+                return Err(error.into());
             }
         };
         // Do NOT run/cancel a second dispatch future inside HTTP. The existing
@@ -379,15 +398,31 @@ impl PlaygroundBackendHandler {
         ensure!(version_bytes.len() as u64 == version_record_ref.bytes
             && Digest::blake3(&version_bytes) == version_record_ref.digest,
             "sealed artifact version record mismatch");
-        let version: ArtifactRecord = serde_json::from_slice(&version_bytes)?;
-        ensure!(version.artifact_id == input.artifact_id && version.revision == input.artifact_revision
+        let mut version: ArtifactRecord = serde_json::from_slice(&version_bytes)?;
+        ensure!(version.schema_version == ARTIFACT_SCHEMA && version.artifact_id == input.artifact_id && version.revision == input.artifact_revision
             && version.backend.as_ref() == Some(&input.binding), "backend not bound to artifact version");
-        // The local immutable record must still be byte-identical to the
-        // sealed one: a rewritten workspace file is tampering, not a fresh
-        // equivalent record.
-        let local_bytes = fs::read(self.artifact_dir(input.artifact_id)
-            .join("versions").join(format!("{}.json", input.artifact_revision)))?;
-        ensure!(local_bytes == version_bytes, "workspace artifact record diverged from sealed closure");
+        // CAS is the authority; workspace paths are relocatable locators.
+        // Materialize missing immutable inputs after CAS-only recovery without
+        // inventing/selecting a new head or replaying any action.
+        let versions = self.artifact_dir(input.artifact_id).join("versions");
+        let local_record_path = versions.join(format!("{}.json", input.artifact_revision));
+        version.bytes_path = versions.join(input.artifact_revision.to_string());
+        match fs::read(&local_record_path) {
+            Ok(bytes) => {
+                let mut local: ArtifactRecord = serde_json::from_slice(&bytes)?;
+                local.bytes_path = version.bytes_path.clone();
+                ensure!(serde_json::to_value(&local)? == serde_json::to_value(&version)?,
+                    "workspace artifact record diverged from sealed closure");
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                write_immutable(&local_record_path, &version_bytes)?;
+            }
+            Err(error) => return Err(error.into()),
+        }
+        let content = self.store.cas.read_object(&version.content_ref.digest)?;
+        ensure!(content.len() as u64 == version.content_ref.bytes && Digest::blake3(&content) == version.content_ref.digest,
+            "sealed artifact content mismatch");
+        write_immutable(&version.bytes_path, &content)?;
         let module = self.store.cas.read_object(&input.binding.module_digest)?;
         ensure!(module.len() as u64 == input.binding.module_ref.bytes && Digest::blake3(&module) == input.binding.module_digest,
             "bound module CAS mismatch");

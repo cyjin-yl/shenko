@@ -423,14 +423,8 @@ impl Store {
         let event: serde_json::Value = serde_json::from_str(&input_event.payload_json)
             .map_err(|_| shenko_types::error::ShenkoError::conflict(
                 "native admission input payload must be a complete canonical event JSON"))?;
-        ensure!(
-            event.get("event_id").and_then(serde_json::Value::as_str) == Some(input_event.event_id.to_string().as_str())
-                && event.get("source").and_then(serde_json::Value::as_str) == Some(input_event.source.as_str())
-                && event.get("kind").and_then(serde_json::Value::as_str) == Some(input_event.kind.as_str())
-                && event.get("payload").is_some_and(serde_json::Value::is_object)
-                && event.get("created_at").is_some_and(serde_json::Value::is_string),
-            "native admission input must be a complete original event object"
-        );
+        crate::external::validate_original_event(
+            input_event.event_id, &input_event.kind, &input_event.source, &event)?;
         // The frozen input object is part of admission: a task whose CAS
         // input cannot be resolved would die parked as input_unavailable.
         // Digest and declared length are verified BEFORE the object is ever
@@ -446,6 +440,14 @@ impl Store {
         {
             let conn = self.ledger.conn.lock();
             read_head(&conn, task.agent_id)?;
+            let event_exists: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM inbox_events WHERE event_id=?1)",
+                [input_event.event_id.to_string()], |row| row.get(0),
+            )?;
+            if event_exists && read_task(&conn, task.task_id)?.is_none() {
+                return Err(shenko_types::error::ShenkoError::conflict(
+                    "native admission event identity already committed").into());
+            }
         }
         self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event), storage_failure)
     }
@@ -457,18 +459,30 @@ impl Store {
             // The committed id wins unconditionally: identical sealed input is
             // a replay of the original admission, a different one is a
             // cross-node/payload conflict — never a silent false ACK.
-            ensure!(
-                existing.input_ref.digest == task.input_ref.digest
-                    && existing.input_ref.bytes == task.input_ref.bytes
-                    && existing.agent_id == task.agent_id,
-                "native task identity already committed with different input"
-            );
+            if existing.input_ref.digest != task.input_ref.digest
+                || existing.input_ref.bytes != task.input_ref.bytes
+                || existing.agent_id != task.agent_id
+            {
+                return Err(shenko_types::error::ShenkoError::conflict(
+                    "native task identity already committed with different input").into());
+            }
             tx.commit()?;
             return Ok(Some(existing));
         }
         // The subject head must exist or this task would be undispatchable
         // forever: claims resolve the owner chain against the live head.
         read_head(&tx, task.agent_id)?;
+        // Repeat under BEGIN IMMEDIATE: a competing event admission may have
+        // won since preflight. A reused caller identity is not disk failure
+        // and MUST NOT close the writer incarnation.
+        let event_exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM inbox_events WHERE event_id=?1)",
+            [input_event.event_id.to_string()], |row| row.get(0),
+        )?;
+        if event_exists {
+            return Err(shenko_types::error::ShenkoError::conflict(
+                "native admission event identity already committed").into());
+        }
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         let mut admitted = task.clone();
