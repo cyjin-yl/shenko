@@ -45,6 +45,22 @@ pub(super) fn lock_initialization(dir: &Path) -> Result<InitializationLock> {
 }
 
 pub(super) fn validate_existing(db: &Path) -> Result<()> {
+    let main = std::fs::symlink_metadata(db)?;
+    ensure!(main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
+        "node main must be one private regular file with one link");
+    let journal = sidecar(db, "-journal");
+    if sidecar_present(&journal)? {
+        let meta = std::fs::symlink_metadata(&journal)?;
+        ensure!(meta.is_file() && meta.nlink() == 1 && !meta.file_type().is_symlink(),
+            "node journal must be one private regular file with one link");
+    }
+    // Any sidecar requires the confined staged preflight even when the main
+    // image happens to validate: ordinary rollback could otherwise follow a
+    // crafted super-journal name outside this directory.
+    if sidecar_present(&journal)? || sidecar_present(&sidecar(db, "-wal"))? {
+        return recover_private(db)
+            .with_context(|| "node sidecar admission failed");
+    }
     let immutable = (|| -> Result<()> {
         let mut connection = Connection::open_with_flags(
             super::readonly_uri(db)?,
@@ -201,8 +217,9 @@ impl Drop for SqliteSource {
 fn journal_to(journal: &Path, db: &Path, output: &mut impl Write) -> Result<blake3::Hash> {
     let main = std::fs::symlink_metadata(db)?;
     let meta = std::fs::symlink_metadata(journal)?;
-    ensure!(meta.is_file() && (meta.dev(), meta.ino()) != (main.dev(), main.ino()),
-        "recovery journal must be a separate regular file");
+    ensure!(meta.is_file() && meta.nlink() == 1 && !meta.file_type().is_symlink()
+        && (meta.dev(), meta.ino()) != (main.dev(), main.ino()),
+        "recovery journal must be a separate single-link regular file");
     let input = SqliteSource::open(journal, false)?;
     input.copy_to(output)
 }

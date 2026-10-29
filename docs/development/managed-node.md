@@ -221,7 +221,13 @@ promotes that copy over the original. A second content/presence check precedes
 ordinary SQLite recovery and locked migration of an admitted original. The lock
 handoff to the original pager is not atomic against a hostile actor replacing
 files in the private data directory; this does not add inode confinement. The
-exceptional recovery path does not process WAL/SHM sidecars. Then the writable
+exceptional recovery path does not process WAL/SHM sidecars. Admission requires
+the main database and any rollback journal to be separate single-link regular
+files, and routes any sidecar through the confined staged preflight so a
+crafted super-journal name cannot direct ordinary recovery outside the private
+directory. The fingerprint rejects any trigger or view: SQLite reserves the
+`sqlite_` name prefix, so name-filtered schema comparison alone could hide one.
+Then the writable
 open rechecks ownership before persistent PRAGMAs. New files use exclusive
 creation and 0600; unrelated directory entries and symlinks are rejected.
 

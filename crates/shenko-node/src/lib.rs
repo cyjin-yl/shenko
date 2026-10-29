@@ -944,6 +944,15 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         schema(conn)? == schema(&expected)?,
         "unrecognized installation schema fingerprint"
     );
+    // SQLite reserves the sqlite_ prefix, so an attacker-crafted file can hide
+    // executable schema objects from the name-filtered comparison above.
+    // Node defines no triggers or views; any such object is not an installation.
+    let executable: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE type IN ('trigger','view')",
+        [],
+        |r| r.get(0),
+    )?;
+    ensure!(executable == 0, "installation contains executable schema objects");
     fn value<T: for<'a> Deserialize<'a>>(conn: &Connection, key: &str) -> Result<T> {
         let s: String = conn.query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))?;
         Ok(serde_json::from_str(&s)?)
