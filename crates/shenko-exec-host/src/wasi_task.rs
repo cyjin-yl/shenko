@@ -744,7 +744,6 @@ impl NativeTaskHandler for WasiExecHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shenko_store::store::Store;
     use shenko_types::agent::CallContext;
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -836,7 +835,10 @@ mod tests {
     fn prepare_classifies_tool_refusal_versus_input_faults() -> Result<()> {
         let dir = temp_dir("prepare");
         fs::create_dir_all(&dir)?;
-        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas"))?);
+        let store = Arc::new(shenko_store::store::Store::open(
+            dir.join("shenko.db"),
+            dir.join("cas"),
+        )?);
         let handler = WasiExecHandler::new(store, vec![], dir.join("tools"));
 
         match handler.prepare(&invocation(serde_json::json!({"tool": "toybox"}))) {
