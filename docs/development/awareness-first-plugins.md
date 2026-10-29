@@ -51,6 +51,13 @@
   上下文 profile digest 只覆盖稳定前缀，因此每步不同的觉察不会反复换 KV 窗口。
 - 不执行：注入的正文不触发任何分支。停用的单元根本不注入；启用与否是安装事实，不是
   权限授予。
+- 自解释（2026-10-29 接入）：`self.knowledge.query/v1` 作为有限 native child 注册，
+  模型可委派只读查询自身资料（`op`：`search` / `list` / `get`，均只读 `self://`
+  资源）。`self://runtime/capabilities` 不再写死：启动时由真实注册表快照生成——
+  当前注册的 native definition `(kind, version)` 与已安装觉察单元（id、版本、
+  启用状态）。未在快照中的能力就是当前实例没有的能力；资料有 `current/stale/
+  candidate/unknown` 状态与来源版本。查询按既有的 frozen-input → armed attempt →
+  sealed evidence 合同走，重启按原始 attempt 重观察，不产生第二条证据。
 
 ## 写一个 awareness
 
@@ -166,6 +173,8 @@ dependencies: []
   以及"任意输入形成新 awareness 并自主沉淀"仍未完成，C10/#15 继续开放。
 - 取用是全量注入而非检索：单元数量增长后会挤占上下文，需要由模型自己做的按需查阅
   （渐进披露）来替代扩大预算；这一步还没做。
+- 自解释只读已接通主体委派；自解释资料仍主要是内置文本（设计哲学、源码结构、运行时
+  快照），没有 docs/source 的动态索引，回答深度受已安装资源限制。
 - 跨节点同步安装单元、逐节点 readiness 属于 #71/C17 的安装单元切片，不代表 awareness
   在所有节点已可用。
 - 行为是否真的被改变，要用真实本地模型在沙箱里的成效自测来判断，见

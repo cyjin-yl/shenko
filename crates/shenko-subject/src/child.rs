@@ -197,6 +197,18 @@ impl NativeChildService {
             .collect()
     }
 
+    /// The registered `(kind, definition_version)` pairs, ordered. This is the
+    /// same registry the prompt sections come from, surfaced so self-knowledge
+    /// can report what this instance can actually execute — SPEC §38.
+    pub fn installed_definitions(&self) -> Vec<(String, u32)> {
+        self.registry
+            .read()
+            .handlers
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     async fn process(&self, task: TaskRecord) -> Result<bool> {
         if task.memos.contains_key(COGNITION_IMPORTED) {
             // Do not even rewrite the import into an ordinary retryable park.
