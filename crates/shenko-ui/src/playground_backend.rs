@@ -13,7 +13,7 @@ use shenko_types::{
     commit::CommitRef, evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*, object::*, operation::*, task::*,
 };
-use shenko_wasm::{MemoryInputPipe, MemoryOutputPipe, MountMode, MountSpec, WasiCommand, WasmRuntime, HOME_GUEST_PATH};
+use shenko_wasm::{BoundedOutputPipe, MemoryInputPipe, MountMode, MountSpec, WasiCommand, WasmRuntime, HOME_GUEST_PATH};
 use crate::playground::{ArtifactRecord, PlaygroundState, stable_id};
 
 pub const PLAYGROUND_BACKEND_KIND: &str = "playground.backend";
@@ -87,6 +87,13 @@ struct FrozenAction {
     schema_version: u32,
     artifact_id: EntityId,
     artifact_revision: u64,
+    /// CAS-sealed JSON of the immutable ArtifactRecord this action ran
+    /// against. Required closure: the handler verifies the record from CAS,
+    /// not from mutable workspace files, before the binding is trusted.
+    /// `None` only for inputs admitted before the closure requirement; those
+    /// tasks stay resolvable as history but must never execute.
+    #[serde(default)]
+    version_record_ref: Option<ObjectRef>,
     binding: BackendBinding,
     request: BackendActionRequest,
 }
@@ -142,7 +149,7 @@ fn read_frozen(store: &Store, task: &TaskRecord) -> Result<FrozenAction> {
     ensure!(bytes.len() as u64 == task.input_ref.bytes && Digest::blake3(&bytes) == task.input_ref.digest,
         "frozen artifact input digest mismatch");
     let frozen: FrozenAction = serde_json::from_slice(&bytes)?;
-    ensure!(frozen.schema_version == 1, "unsupported artifact input schema");
+    ensure!(frozen.schema_version == 1 || frozen.schema_version == 2, "unsupported artifact input schema");
     Ok(frozen)
 }
 fn same_request(store: &Store, task: &TaskRecord, artifact_id: EntityId, request: &BackendActionRequest) -> Result<bool> {
@@ -174,8 +181,22 @@ impl PlaygroundState {
         let record = self.get(&id).ok_or(ActionError::NotFound)?;
         let binding = record.backend.as_ref().ok_or(ActionError::NoBackend)?;
         if request.backend_digest != binding.module_digest { return Err(ActionError::Stale); }
-        let frozen = FrozenAction { schema_version: 1, artifact_id: id, artifact_revision: record.revision,
-            binding: binding.clone(), request: request.clone() };
+        // The immutable version record must be CAS-sealed at admission: a
+        // verified receipt must survive workspace loss, so its binding,
+        // content ref and revision are required closure, not optional metadata.
+        let version_record_ref = seal_json(&self.store, &record, "artifact-version-record")
+            .map_err(|e| ActionError::Unavailable(format!("artifact version closure unavailable: {e:#}")))?;
+        // The bound module bytes are also required closure: validate they are
+        // CAS-resolvable NOW rather than after a false accepted ACK.
+        {
+            let module = self.store.cas.read_object(&binding.module_digest)
+                .map_err(|e| ActionError::Unavailable(format!("bound module unavailable: {e:#}")))?;
+            if module.len() as u64 != binding.module_ref.bytes || Digest::blake3(&module) != binding.module_digest {
+                return Err(ActionError::Unavailable("bound module digest/length mismatch in CAS".into()));
+            }
+        }
+        let frozen = FrozenAction { schema_version: 2, artifact_id: id, artifact_revision: record.revision,
+            version_record_ref: Some(version_record_ref), binding: binding.clone(), request: request.clone() };
         let input_ref = seal_json(&self.store, &frozen, "artifact-action-input")?;
         let (head, _) = self.store.load_subject(self.agent_id).map_err(anyhow::Error::from)?;
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -207,10 +228,27 @@ impl PlaygroundState {
             payload_json: serde_json::to_string(&accepted_event).map_err(anyhow::Error::from)?,
             received_at_ms: accepted_event.created_at.timestamp_millis(),
         };
-        let replayed = if let Some(existing) = self.store.admit_native_task(&task, &input_event)? {
-            if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
-            true
-        } else { false };
+        let replayed = match self.store.admit_native_task(&task, &input_event) {
+            Ok(Some(existing)) => {
+                if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
+                true
+            }
+            Ok(None) => false,
+            Err(error) => {
+                // A concurrent admission can commit between the initial lookup
+                // and the writer transaction. The committed id always wins:
+                // re-read it instead of surfacing a stale/availability error
+                // to an actually-accepted action.
+                if let Some(existing) = self.store.get_task(idempotency_id)? {
+                    if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
+                    true
+                } else if error.to_string().contains("already committed with different input") {
+                    return Err(ActionError::Conflict);
+                } else {
+                    return Err(error.into());
+                }
+            }
+        };
         // Do NOT run/cancel a second dispatch future inside HTTP. The existing
         // committed dispatcher owns execution, even if this response is lost.
         let mut receipt = self.action_status(id, &request.request_id)?;
@@ -326,7 +364,9 @@ impl PlaygroundBackendHandler {
 
     fn validate_input(&self, task: &TaskRecord, input: &FrozenAction) -> Result<Vec<u8>> {
         ensure!(task.task_id == task_id(input.artifact_id, &input.request.request_id), "backend request/task identity mismatch");
-        ensure!(input.schema_version == 1 && input.binding.schema_version == 1
+        let version_record_ref = input.version_record_ref.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("frozen action missing required sealed version closure"))?;
+        ensure!(input.schema_version == 2 && input.binding.schema_version == 1
             && input.binding.invocation_contract == InvocationContract::current()
             && input.binding.invocation_contract_digest == Digest::blake3(&serde_json::to_vec(&input.binding.invocation_contract)?)
             && input.request.backend_digest == input.binding.module_digest
@@ -334,10 +374,20 @@ impl PlaygroundBackendHandler {
         ensure!(valid_token(&input.request.action) && valid_token(&input.request.request_id), "invalid frozen action token");
         // A source/delegation cannot turn an arbitrary CAS object into an
         // executable capability: it must match the artifact's immutable version.
-        let version: ArtifactRecord = serde_json::from_slice(&fs::read(self.artifact_dir(input.artifact_id)
-            .join("versions").join(format!("{}.json", input.artifact_revision)))?)?;
+        // The required version record comes from the sealed CAS closure.
+        let version_bytes = self.store.cas.read_object(&version_record_ref.digest)?;
+        ensure!(version_bytes.len() as u64 == version_record_ref.bytes
+            && Digest::blake3(&version_bytes) == version_record_ref.digest,
+            "sealed artifact version record mismatch");
+        let version: ArtifactRecord = serde_json::from_slice(&version_bytes)?;
         ensure!(version.artifact_id == input.artifact_id && version.revision == input.artifact_revision
             && version.backend.as_ref() == Some(&input.binding), "backend not bound to artifact version");
+        // The local immutable record must still be byte-identical to the
+        // sealed one: a rewritten workspace file is tampering, not a fresh
+        // equivalent record.
+        let local_bytes = fs::read(self.artifact_dir(input.artifact_id)
+            .join("versions").join(format!("{}.json", input.artifact_revision)))?;
+        ensure!(local_bytes == version_bytes, "workspace artifact record diverged from sealed closure");
         let module = self.store.cas.read_object(&input.binding.module_digest)?;
         ensure!(module.len() as u64 == input.binding.module_ref.bytes && Digest::blake3(&module) == input.binding.module_digest,
             "bound module CAS mismatch");
@@ -399,8 +449,8 @@ impl PlaygroundBackendHandler {
         let input_bytes = serde_json::to_vec(&input.request.input)?;
         let run_dir = dir.clone();
         let run = tokio::task::spawn_blocking(move || {
-            let stdout = MemoryOutputPipe::new(MAX_OUTPUT);
-            let stderr = MemoryOutputPipe::new(MAX_OUTPUT);
+            let stdout = BoundedOutputPipe::new(MAX_OUTPUT);
+            let stderr = BoundedOutputPipe::new(MAX_OUTPUT);
             let execution = (|| -> Result<i32> {
                 let mut runtime = WasmRuntime::with_mounts(vec![
                     MountSpec::new(run_dir.join("state").canonicalize()?, HOME_GUEST_PATH, MountMode::ReadWrite, true, false),
@@ -411,11 +461,12 @@ impl PlaygroundBackendHandler {
                 command.environment = vec![("SHENKO_ARTIFACT_ID".into(), artifact_id), ("SHENKO_REQUEST_ID".into(), request_id)];
                 runtime.run_wasi_module(&module, command)
             })();
-            (execution.map_err(|e| format!("{e:#}")), stdout.contents(), stderr.contents())
+            (execution.map_err(|e| format!("{e:#}")), stdout.contents(), stderr.contents(),
+                stdout.did_overflow(), stderr.did_overflow(), stdout.did_fail() || stderr.did_fail())
         }).await;
-        let (execution, stdout, stderr) = match run {
+        let (execution, stdout, stderr, stdout_overflowed, stderr_overflowed, stream_failed) = match run {
             Ok(result) => result,
-            Err(error) => (Err(format!("guest worker failed: {error}")), bytes::Bytes::new(), bytes::Bytes::new()),
+            Err(error) => (Err(format!("guest worker failed: {error}")), bytes::Bytes::new(), bytes::Bytes::new(), false, false, false),
         };
         // These seals are required evidence, not optional logging. Failure
         // propagates with the original T1 retained for unknown reconciliation.
@@ -428,7 +479,12 @@ impl PlaygroundBackendHandler {
         let (change_count, delta) = after.as_ref().map(|after| changes(&before, after)).unwrap_or_default();
         let exit_code = execution.as_ref().ok().copied();
         let runtime_error = execution.err();
-        let conclusive = runtime_error.is_none() && state_error.is_none();
+        // Stream rejection/failure is independently recorded: a guest may
+        // ignore the write error, emit a small valid JSON and exit 0. Retained
+        // bytes are then a truncated prefix, so the attempt is INCONCLUSIVE —
+        // never a verified success from the trap/exit code alone.
+        let conclusive = runtime_error.is_none() && state_error.is_none()
+            && !stdout_overflowed && !stderr_overflowed && !stream_failed;
         let succeeded = conclusive && exit_code == Some(0) && output_error.is_none();
         let outcome = conclusive.then_some(if succeeded { OperationOutcome::Succeeded } else { OperationOutcome::Failed });
         let effect = if !conclusive { EffectStatus::Unknown } else if change_count == 0 { EffectStatus::None }
@@ -440,6 +496,7 @@ impl PlaygroundBackendHandler {
             "stdout_ref": stdout_ref, "stderr_ref": stderr_ref,
             "state_before": before.object, "state_after": after.as_ref().ok().map(|s| &s.object),
             "change_count": change_count, "changes": delta, "changes_preview_truncated": change_count > 32,
+            "stdout_truncated": stdout_overflowed, "stderr_truncated": stderr_overflowed, "stream_failed": stream_failed,
             "runtime_error": runtime_error, "state_error": state_error,
             "explanation": "The WASI guest's isolated business-state files changed only as recorded in the before/after manifests. File ObjectRefs retain exact binary bytes; stdout is the guest's bounded structured output. An unknown outcome is not permission to replay.",
         });

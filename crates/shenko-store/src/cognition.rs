@@ -1657,6 +1657,7 @@ impl Store {
                     .filter_map(|row| row.value("entry_id"))
                     .collect();
                 let mut memory_applied = false;
+                let mut task_closure_applied = false;
                 for row in &ordered {
                     if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
                         let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
@@ -1666,9 +1667,27 @@ impl Store {
                         conflicts.extend(outcome.conflicts);
                         memory_applied = true;
                     }
+                    // A task and every dependent execution/result fact is ONE
+                    // conflict unit. Importing remote operations, evidence or
+                    // results under a task_id whose local input differs would
+                    // stitch unrelated execution history onto the local task.
+                    if !task_closure_applied
+                        && matches!(row.table.as_str(), "tasks" | "operations" | "attempts" | "evidence_receipts" | "task_results")
+                    {
+                        let outcome =
+                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest)?;
+                        inserted += outcome.inserted;
+                        updated += outcome.updated;
+                        unchanged += outcome.unchanged;
+                        conflicts.extend(outcome.conflicts);
+                        task_closure_applied = true;
+                    }
                     if row.table == "memory_intents" || row.table == "memory_intent_bindings"
                         || (row.table == "memory_entries" && referenced_memory_entries.contains(row.key.as_str()))
                     {
+                        continue;
+                    }
+                    if matches!(row.table.as_str(), "tasks" | "operations" | "attempts" | "evidence_receipts" | "task_results") {
                         continue;
                     }
                     let Some(spec) = spec_for(&row.table) else {
@@ -2907,6 +2926,184 @@ fn apply_memory_pairs(
             let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
             record_conflict(tx, peer_id, parents.name, &row.key, &detail)?;
             outcome.conflicts.push(CognitionConflict { table: parents.name.into(), key: row.key.clone(), detail });
+        }
+    }
+    Ok(outcome)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TaskFactOutcome {
+    Inserted,
+    Updated,
+    Unchanged,
+    Conflict,
+}
+
+/// Single-row apply for the task closure, mirroring the generic lane's
+/// semantics (identical to apply_memory_row; kept separate so the memory
+/// pair and task closure groups can evolve independently).
+fn apply_task_row(
+    tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
+) -> Result<TaskFactOutcome> {
+    let local = read_existing(tx, spec, row)?;
+    let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
+    let result = match local {
+        None => match insert_row(tx, spec, row, seq) {
+            Ok(()) => TaskFactOutcome::Inserted,
+            Err(error) if is_constraint_violation(&error) => return Ok(TaskFactOutcome::Conflict),
+            Err(error) => return Err(error),
+        },
+        Some(local) if rows_equivalent(spec, &local, &row.values) => TaskFactOutcome::Unchanged,
+        Some(local) if baseline.as_ref().is_some_and(|baseline| rows_equivalent(spec, &local, baseline)) => {
+            update_row(tx, spec, row, seq)?;
+            TaskFactOutcome::Updated
+        }
+        Some(_) => return Ok(TaskFactOutcome::Conflict),
+    };
+    write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
+    Ok(result)
+}
+
+/// A task plus every dependent execution/result row (operations by
+/// `data.task_id`, attempts and evidence by `operation_id`, results by
+/// `task_id`) is imported as ONE conflict unit. Two nodes derive the same
+/// deterministic task_id for different inputs; a receiver must never accept a
+/// remote operation/evidence/result chain onto the local record of that id.
+/// Dependents whose parent task is not part of this manifest apply
+/// individually, keeping the ordinary single-row decision.
+fn apply_task_closures(
+    tx: &Transaction<'_>,
+    rows: &[&CognitionRow],
+    peer_id: EntityId,
+    seq: LedgerSeq,
+    manifest: &CognitionManifest,
+) -> Result<CognitionApplyOutcome> {
+    let task_spec = spec_for("tasks").expect("task table is registered");
+    let op_spec = spec_for("operations").expect("operation table is registered");
+    let attempt_spec = spec_for("attempts").expect("attempt table is registered");
+    let evidence_spec = spec_for("evidence_receipts").expect("evidence table is registered");
+    let result_spec = spec_for("task_results").expect("task result table is registered");
+
+    let operations_by_task: HashMap<String, Vec<&CognitionRow>> = {
+        let mut map: HashMap<String, Vec<&CognitionRow>> = HashMap::new();
+        for row in rows.iter().filter(|row| row.table == op_spec.name) {
+            let task_id = row
+                .value("data")
+                .and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+                .and_then(|data| data.get("task_id").and_then(serde_json::Value::as_str).map(str::to_owned))
+                .unwrap_or_default();
+            map.entry(task_id).or_default().push(*row);
+        }
+        map
+    };
+    let dependents_by_operation: HashMap<&str, Vec<&CognitionRow>> = {
+        let mut map: HashMap<&str, Vec<&CognitionRow>> = HashMap::new();
+        for row in rows.iter().filter(|row| matches!(row.table.as_str(), "attempts" | "evidence_receipts")) {
+            map.entry(row.value("operation_id").unwrap_or_default()).or_default().push(*row);
+        }
+        map
+    };
+    let results_by_task: HashMap<&str, Vec<&CognitionRow>> = {
+        let mut map: HashMap<&str, Vec<&CognitionRow>> = HashMap::new();
+        for row in rows.iter().filter(|row| row.table == result_spec.name) {
+            map.entry(row.value("task_id").unwrap_or_default()).or_default().push(*row);
+        }
+        map
+    };
+
+    let mut outcome = CognitionApplyOutcome::default();
+    let mut covered: HashSet<&str> = HashSet::new();
+    for row in rows.iter().filter(|row| row.table == task_spec.name) {
+        let task_id = row.key.as_str();
+        covered.insert(task_id);
+        let mut group: Vec<(&TableSpec, CognitionRow)> = Vec::new();
+        group.push((task_spec, effective_row(row, task_spec)?));
+        for op in operations_by_task.get(task_id).into_iter().flatten() {
+            group.push((op_spec, effective_row(op, op_spec)?));
+            for dep in dependents_by_operation.get(op.key.as_str()).into_iter().flatten() {
+                let spec = if dep.table == attempt_spec.name { attempt_spec } else { evidence_spec };
+                covered.insert(dep.key.as_str());
+                group.push((spec, effective_row(dep, spec)?));
+            }
+            covered.insert(op.key.as_str());
+        }
+        for result in results_by_task.get(task_id).into_iter().flatten() {
+            covered.insert(result.key.as_str());
+            group.push((result_spec, effective_row(result, result_spec)?));
+        }
+        // Every member applies inside one savepoint; a conflict anywhere
+        // restores the whole unit so the receiver never holds a partial
+        // remote execution record attached to a divergent local task.
+        let savepoint = format!("task_closure_{task_id}");
+        tx.execute(&format!("SAVEPOINT {savepoint}"), []).map_err(db)?;
+        let mut results = Vec::with_capacity(group.len());
+        for (spec, member) in &group {
+            results.push(apply_task_row(tx, spec, member, peer_id, seq)?);
+            if matches!(results.last(), Some(TaskFactOutcome::Conflict)) {
+                break;
+            }
+        }
+        if results.iter().any(|result| matches!(result, TaskFactOutcome::Conflict)) {
+            tx.execute(&format!("ROLLBACK TO {savepoint}"), []).map_err(db)?;
+            tx.execute(&format!("RELEASE {savepoint}"), []).map_err(db)?;
+            for (spec, member) in &group {
+                let detail = format!(
+                    "the task execution closure conflicts; the local {task_id} unit is kept"
+                );
+                record_conflict(tx, peer_id, spec.name, &member.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict {
+                    table: spec.name.into(),
+                    key: member.key.clone(),
+                    detail,
+                });
+            }
+            continue;
+        }
+        tx.execute(&format!("RELEASE {savepoint}"), []).map_err(db)?;
+        for ((spec, member), result) in group.iter().zip(results.iter()) {
+            match result {
+                TaskFactOutcome::Inserted | TaskFactOutcome::Updated => {
+                    if matches!(result, TaskFactOutcome::Inserted) {
+                        outcome.inserted += 1;
+                    } else {
+                        outcome.updated += 1;
+                    }
+                    record_origin(tx, spec, member, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+                }
+                TaskFactOutcome::Unchanged => outcome.unchanged += 1,
+                TaskFactOutcome::Conflict => unreachable!(),
+            }
+        }
+    }
+    // Dependents without an incoming task row keep the ordinary decision.
+    for row in rows.iter().filter(|row| {
+        matches!(row.table.as_str(), "operations" | "attempts" | "evidence_receipts" | "task_results")
+            && !covered.contains(row.key.as_str())
+    }) {
+        let spec = spec_for(&row.table).expect("dependent table is registered");
+        let member = effective_row(row, spec)?;
+        match apply_task_row(tx, spec, &member, peer_id, seq)? {
+            TaskFactOutcome::Inserted => {
+                outcome.inserted += 1;
+                record_origin(tx, spec, &member, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+            }
+            TaskFactOutcome::Updated => {
+                outcome.updated += 1;
+                record_origin(tx, spec, &member, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+            }
+            TaskFactOutcome::Unchanged => outcome.unchanged += 1,
+            TaskFactOutcome::Conflict => {
+                let detail = describe_difference(
+                    &read_existing(tx, spec, &member)?.unwrap_or_default(),
+                    &member.values,
+                );
+                record_conflict(tx, peer_id, spec.name, &member.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict {
+                    table: spec.name.into(),
+                    key: member.key.clone(),
+                    detail,
+                });
+            }
         }
     }
     Ok(outcome)

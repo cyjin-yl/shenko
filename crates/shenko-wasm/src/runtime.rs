@@ -6,11 +6,103 @@ use wasmtime::{Engine, Instance, Linker, Module, Store, Val};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
+use std::io;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::task::{Context, Poll};
 /// Bounded in-memory streams for callers that must cap guest output
 /// (Playground backend receipts) without binding the whole crate to a
 /// preview-2 path. A full buffer makes the guest's write trap, so the bound
 /// is a real contract rather than silent truncation.
 pub use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
+
+/// Bounded guest output capture with host-visible rejection flags.
+///
+/// [`MemoryOutputPipe`] reports capacity overflow only as a guest-visible
+/// stream error. A guest that ignores the error can still write a valid
+/// small JSON and exit 0 — the receipt would look complete while bytes were
+/// actually rejected. This pipe records every rejected/failed write
+/// independently, so the caller's success check includes stream integrity
+/// instead of relying on the trap or the retained length.
+#[derive(Clone, Debug)]
+pub struct BoundedOutputPipe {
+    inner: Arc<BoundedOutputInner>,
+}
+
+#[derive(Debug)]
+struct BoundedOutputInner {
+    bytes: parking_lot::Mutex<bytes::BytesMut>,
+    limit: usize,
+    /// A write was rejected because it would exceed the bound.
+    overflowed: AtomicBool,
+    /// A write/flush/shutdown failed for a non-capacity reason.
+    failed: AtomicBool,
+}
+
+impl BoundedOutputPipe {
+    /// A capture whose retained output can never exceed `limit` bytes.
+    pub fn new(limit: usize) -> Self {
+        Self {
+            inner: Arc::new(BoundedOutputInner {
+                bytes: parking_lot::Mutex::new(bytes::BytesMut::new()),
+                limit,
+                overflowed: AtomicBool::new(false),
+                failed: AtomicBool::new(false),
+            }),
+        }
+    }
+    /// The retained output; potentially truncated iff `did_overflow()`.
+    pub fn contents(&self) -> bytes::Bytes {
+        let guard = self.inner.bytes.lock();
+        bytes::Bytes::copy_from_slice(&guard)
+    }
+    /// True once any guest write had to be rejected for capacity.
+    pub fn did_overflow(&self) -> bool {
+        self.inner.overflowed.load(Ordering::SeqCst)
+    }
+    /// True once a stream operation failed without a capacity explanation.
+    pub fn did_fail(&self) -> bool {
+        self.inner.failed.load(Ordering::SeqCst)
+    }
+}
+
+impl StdoutStream for BoundedOutputPipe {
+    fn async_stream(&self) -> Box<dyn tokio::io::AsyncWrite + Send + Sync> {
+        Box::new(BoundedOutputWriter { inner: Arc::clone(&self.inner) })
+    }
+}
+
+struct BoundedOutputWriter {
+    inner: Arc<BoundedOutputInner>,
+}
+
+impl tokio::io::AsyncWrite for BoundedOutputWriter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let mut bytes = self.inner.bytes.lock();
+        if buf.len() > self.inner.limit.saturating_sub(bytes.len()) {
+            self.inner.overflowed.store(true, Ordering::SeqCst);
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "bounded guest output capacity exceeded",
+            )));
+        }
+        bytes.extend_from_slice(buf);
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
 
 /// Guest path where the persistent WASM home is mounted for WASI commands
 /// (SPEC §8.3: every mount declares its source path and guest path; the home

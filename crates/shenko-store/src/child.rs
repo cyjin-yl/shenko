@@ -395,20 +395,14 @@ impl Store {
     /// Ready native task. The input event commits in the SAME transaction,
     /// before any accepted response. Claims still require the dispatcher
     /// owner; admission alone never authorizes a guest/process effect.
+    /// Returns `Some(existing)` when the id is already committed with the same
+    /// sealed input; a committed id never loses to a later binding or handler
+    /// availability check. A committed id with a DIFFERENT sealed input is a
+    /// conflict — deterministic task ids must never admit divergent inputs.
+    /// Typed validation (record shape, canonical event JSON, CAS digest,
+    /// target head existence) runs BEFORE the mutation gate so an invalid
+    /// admission can never poison the writer incarnation.
     pub fn admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
-        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event), storage_failure)
-    }
-
-    fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
-        let mut conn = self.ledger.conn.lock();
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        if let Some(existing) = read_task(&tx, task.task_id)? {
-            tx.commit()?;
-            return Ok(Some(existing));
-        }
-        // The subject head must exist or this task would be undispatchable
-        // forever: claims resolve the owner chain against the live head.
-        read_head(&tx, task.agent_id)?;
         ensure!(
             matches!(task.state, TaskState::Pending { .. })
                 && matches!(task.dispatch_eligibility, DispatchEligibility::Ready)
@@ -423,14 +417,58 @@ impl Store {
                 && !input_event.source.is_empty(),
             "native_task_not_admissible"
         );
+        // Canonical event JSON is validated BEFORE the writer is claimed:
+        // malformed payload_json would otherwise abort the mutation closure
+        // inside the transaction and be misclassified as storage failure.
+        let event: serde_json::Value = serde_json::from_str(&input_event.payload_json)
+            .map_err(|_| shenko_types::error::ShenkoError::conflict(
+                "native admission input payload must be a complete canonical event JSON"))?;
+        ensure!(
+            event.get("event_id").and_then(serde_json::Value::as_str) == Some(input_event.event_id.to_string().as_str())
+                && event.get("source").and_then(serde_json::Value::as_str) == Some(input_event.source.as_str())
+                && event.get("kind").and_then(serde_json::Value::as_str) == Some(input_event.kind.as_str())
+                && event.get("payload").is_some_and(serde_json::Value::is_object)
+                && event.get("created_at").is_some_and(serde_json::Value::is_string),
+            "native admission input must be a complete original event object"
+        );
         // The frozen input object is part of admission: a task whose CAS
         // input cannot be resolved would die parked as input_unavailable.
+        // Digest and declared length are verified BEFORE the object is ever
+        // trusted (read_object already refuses digest path traversal).
         let bytes = self.cas.read_object(&task.input_ref.digest)?;
         ensure!(
             bytes.len() as u64 == task.input_ref.bytes
                 && Digest::blake3(&bytes) == task.input_ref.digest,
             "native_input_object_mismatch"
         );
+        // Target subject head existence is validated on the read path too:
+        // missing head is a typed rejection, not a transaction failure.
+        {
+            let conn = self.ledger.conn.lock();
+            read_head(&conn, task.agent_id)?;
+        }
+        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event), storage_failure)
+    }
+
+    fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(existing) = read_task(&tx, task.task_id)? {
+            // The committed id wins unconditionally: identical sealed input is
+            // a replay of the original admission, a different one is a
+            // cross-node/payload conflict — never a silent false ACK.
+            ensure!(
+                existing.input_ref.digest == task.input_ref.digest
+                    && existing.input_ref.bytes == task.input_ref.bytes
+                    && existing.agent_id == task.agent_id,
+                "native task identity already committed with different input"
+            );
+            tx.commit()?;
+            return Ok(Some(existing));
+        }
+        // The subject head must exist or this task would be undispatchable
+        // forever: claims resolve the owner chain against the live head.
+        read_head(&tx, task.agent_id)?;
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         let mut admitted = task.clone();
@@ -445,13 +483,6 @@ impl Store {
                 seq.0 as i64,
             ],
         )?;
-        let event: serde_json::Value = serde_json::from_str(&input_event.payload_json)?;
-        ensure!(event.get("event_id").and_then(serde_json::Value::as_str) == Some(input_event.event_id.to_string().as_str())
-            && event.get("source").and_then(serde_json::Value::as_str) == Some(input_event.source.as_str())
-            && event.get("kind").and_then(serde_json::Value::as_str) == Some(input_event.kind.as_str())
-            && event.get("payload").is_some_and(serde_json::Value::is_object)
-            && event.get("created_at").is_some_and(serde_json::Value::is_string),
-            "native admission input must be a complete original event object");
         tx.execute(
             "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data) VALUES(?1,?2,?3,?4,0,?5)",
             params![input_event.event_id.to_string(), input_event.agent_id.to_string(),

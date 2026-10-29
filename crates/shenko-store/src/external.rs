@@ -210,6 +210,8 @@ impl Store {
         source: &str,
         data: &serde_json::Value,
     ) -> Result<InboxAdmission> {
+        // Typed validation BEFORE the mutation gate: an invalid admission must
+        // fail before the writer incarnation is claimed, never poison it.
         ensure!(
             data.get("event_id").and_then(serde_json::Value::as_str) == Some(event_id.to_string().as_str())
                 && data.get("kind").and_then(serde_json::Value::as_str) == Some(kind)
@@ -218,16 +220,25 @@ impl Store {
                 && data.get("created_at").is_some_and(serde_json::Value::is_string),
             "inbox admission needs the complete original event identity/payload/timestamp"
         );
+        let serialized = serde_json::to_string(data)?;
+        // Target agent head must exist for the event to have a drain owner;
+        // a missing head is a typed rejection, not a row failure inside the
+        // writer transaction.
+        {
+            let conn = self.ledger.conn.lock();
+            let head_exists: Option<String> = conn
+                .query_row(
+                    "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                    [agent_id.to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            ensure!(head_exists.is_some(), "subject head missing for inbox event agent");
+        }
         self.ledger.with_mutation(
             || {
                 let mut c = self.ledger.conn.lock();
                 let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-                // A head must exist or nothing would ever drain this event.
-                let _: String = tx.query_row(
-                    "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
-                    [agent_id.to_string()],
-                    |r| r.get(0),
-                )?;
                 let existing: Option<(String, String, String, String)> = tx
                     .query_row(
                         "SELECT agent_id, kind, source, data FROM inbox_events WHERE event_id=?1",
@@ -235,7 +246,6 @@ impl Store {
                         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
                     )
                     .optional()?;
-                let serialized = serde_json::to_string(data)?;
                 if let Some((stored_agent, stored_kind, stored_source, stored_data)) = existing {
                     ensure!(
                         stored_agent == agent_id.to_string()
