@@ -1080,7 +1080,8 @@ pub(crate) fn read_local_subject_id(
     let rows = genesis_rows
         .query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?
+        })
+        .map_err(storage_error)?
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(storage_error)?;
     let mut local: Vec<EntityId> = Vec::new();
