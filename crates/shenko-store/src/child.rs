@@ -144,9 +144,24 @@ impl Store {
         )
     }
 
-    pub fn native_task_candidates(&self, limit: usize) -> Result<Vec<TaskRecord>> {
+    /// One bounded page of dispatchable work strictly after `after`, ordered by
+    /// the same stable key as recovery. `after` is a scan position, not a
+    /// completion watermark: callers wrap to the beginning when a page is short.
+    pub fn native_task_candidates_after(
+        &self,
+        after: Option<(&str, EntityId)>,
+        limit: usize,
+    ) -> Result<Vec<(String, TaskRecord)>> {
         let conn = self.ledger.conn.lock();
-        read_candidates_tx(&conn, limit)
+        read_candidates_tx(&conn, after, limit)
+    }
+
+    /// Last dispatchable candidate in scan order. A dispatcher records it when
+    /// a round starts so continuously arriving later work cannot postpone the
+    /// wrap past older tasks that become eligible meanwhile.
+    pub fn native_task_scan_upper(&self) -> Result<Option<(String, EntityId)>> {
+        let conn = self.ledger.conn.lock();
+        read_scan_upper_tx(&conn)
     }
 
     /// Park is a durable, diagnosable non-terminal state. A missing definition,
@@ -276,7 +291,11 @@ impl Store {
                     }
                 }
                 let head = read_head(&tx, task.agent_id)?;
-                ensure!(head.mode == SubjectMode::Active, "subject_not_active");
+                // A subject-only pause closes new claims, not evidence from
+                // work that was admitted before the boundary.
+                if head.mode != SubjectMode::Active {
+                    return Ok(None);
+                }
                 ensure_owner_active(&tx, &task, &head)?;
                 if task.owner
                     != (TaskOwner::Conversation {
@@ -801,20 +820,48 @@ fn parked(
     }
 }
 
-fn read_candidates_tx(conn: &rusqlite::Connection, limit: usize) -> Result<Vec<TaskRecord>> {
+fn read_candidates_tx(
+    conn: &rusqlite::Connection,
+    after: Option<(&str, EntityId)>,
+    limit: usize,
+) -> Result<Vec<(String, TaskRecord)>> {
+    let (created_after, id_after) = after
+        .map(|(created, id)| (created.to_string(), id.to_string()))
+        .unwrap_or_default();
     let mut query = conn.prepare(
-        "SELECT data FROM tasks
+        "SELECT data, created_at FROM tasks
          WHERE json_extract(data,'$.kind')!='subject_publication'
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
-         ORDER BY created_at,task_id LIMIT ?1",
+           AND (?1='' OR created_at>?1 OR (created_at=?1 AND task_id>?2))
+         ORDER BY created_at,task_id LIMIT ?3",
     )?;
     let rows = query
-        .query_map([limit as i64], |row| row.get::<_, String>(0))?
+        .query_map(rusqlite::params![created_after, id_after, limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     rows.into_iter()
-        .map(|data| serde_json::from_str(&data).map_err(Into::into))
+        .map(|(data, created)| {
+            Ok((created, serde_json::from_str(&data)?))
+        })
         .collect()
+}
+
+fn read_scan_upper_tx(conn: &rusqlite::Connection) -> Result<Option<(String, EntityId)>> {
+    let row = conn.query_row(
+        "SELECT data, created_at FROM tasks
+         WHERE json_extract(data,'$.kind')!='subject_publication'
+           AND json_extract(data,'$.memos.cognition_imported') IS NULL
+           AND json_extract(data,'$.state.status') IN ('pending','running','completing')
+         ORDER BY created_at DESC, task_id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    ).optional()?;
+    row.map(|(data, created)| {
+        let task: TaskRecord = serde_json::from_str(&data)?;
+        Ok((created, task.task_id))
+    }).transpose()
 }
 
 fn read_recovery_candidates_tx(conn: &rusqlite::Connection, after: &str) -> Result<Vec<(String, TaskRecord)>> {

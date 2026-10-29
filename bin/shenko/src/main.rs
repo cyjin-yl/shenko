@@ -1,6 +1,6 @@
 //! Shenko — personal agent framework entry point.
 //! SPEC §44: seed/bootstrap startup with real subject loop + broker.
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shenko_identity::IdentityService;
 use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
@@ -10,6 +10,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
 mod node_sync;
+mod runtime_owner;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -66,14 +67,32 @@ enum Command {
         #[command(subcommand)]
         command: node_sync::SyncCommand,
     },
+    /// Inspect or request a subject-only boundary; this does not activate a candidate.
+    Runtime {
+        #[command(subcommand)]
+        command: RuntimeCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
     Version,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[derive(Subcommand, Debug)]
+enum RuntimeCommand {
+    /// Ask the current subject to pause after a finite step.
+    Pause {
+        /// Stable ID for recovery after an uncertain write; generated if omitted.
+        #[arg(long)]
+        request_id: Option<shenko_types::ids::EntityId>,
+    },
+    /// Read the durable outcome of a previously issued request.
+    Status { request_id: shenko_types::ids::EntityId },
+    /// Cancel an unaccepted request or resume the same controller.
+    Resume { request_id: shenko_types::ids::EntityId },
+}
+
+fn main() -> Result<()> {
     let cli = Cli::parse();
 
     fmt()
@@ -89,6 +108,37 @@ async fn main() -> Result<()> {
             .join("shenko")
     });
 
+    // This guard outlives the Tokio runtime. In particular, cancellation of
+    // an async task is not proof that a blocking/provider operation has ended.
+    let (owner, data_dir) = if matches!(&cli.command, Command::Start { .. }) {
+        let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: data_dir.clone(), ..Default::default()
+        });
+        // Reject an unrelated target before creating any owner or store file.
+        bootstrap.validate_target()?;
+        std::fs::create_dir_all(&data_dir)?;
+        let data_dir = data_dir.canonicalize()?;
+        let owner = runtime_owner::RuntimeOwner::try_acquire(&data_dir)
+            .context("cannot establish exclusive ownership of this data directory")?;
+        // Recheck after obtaining the guard: another starter may have finished
+        // bootstrap between the initial read and lock acquisition.
+        let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: data_dir.clone(), ..Default::default()
+        });
+        bootstrap.validate_target()?;
+        owner.verify_path(&data_dir)?;
+        (Some(owner), data_dir)
+    } else {
+        (None, data_dir)
+    };
+    let runtime = tokio::runtime::Runtime::new()?;
+    let result = runtime.block_on(run(cli.command, data_dir));
+    drop(runtime);
+    drop(owner);
+    result
+}
+
+async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
         shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
@@ -100,9 +150,29 @@ async fn main() -> Result<()> {
     let identity_context = supervisor.context().clone();
     let identity_service = identity_context.try_service::<IdentityService>()?;
     let result: Result<()> = async {
-    match cli.command {
+    match command {
         Command::Node => node_sync::node_command(&data_dir)?,
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
+        Command::Runtime { command } => {
+            let db_path = data_dir.join("shenko.db");
+            anyhow::ensure!(db_path.is_file(), "no existing subject store in data directory");
+            let store = shenko_store::store::Store::open(db_path, data_dir.join("cas"))?;
+            let agent_id = store.get_existing_agent_id()?
+                .ok_or_else(|| anyhow::anyhow!("no initialized subject"))?;
+            let record = match command {
+                RuntimeCommand::Pause { request_id } => {
+                    let id = request_id.unwrap_or_default();
+                    // Publish the caller's stable key even when commit outcome is
+                    // uncertain; status reads it without replaying a request.
+                    eprintln!("subject boundary request: {id}");
+                    store.request_subject_quiesce(agent_id, id)?
+                }
+                RuntimeCommand::Status { request_id } => store.subject_quiesce(request_id)?
+                    .ok_or_else(|| anyhow::anyhow!("quiesce request not found"))?,
+                RuntimeCommand::Resume { request_id } => store.resume_subject_quiesce(agent_id, request_id)?,
+            };
+            println!("{}", serde_json::to_string_pretty(&record)?);
+        }
         Command::Version => {
             let model = shenko_seed::ModelProfile::from_env();
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
@@ -621,7 +691,7 @@ async fn main() -> Result<()> {
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");
-            println!("  Subject loop: running (continuous thought)");
+            println!("  Subject task: supervised (durable boundary pause may be active)");
             println!(
                 "  Inference: {} (configured; probe/capability evidence separate)",
                 model_profile.model.as_deref().unwrap_or("not_connected")
@@ -1661,6 +1731,58 @@ mod recovery_integration_tests {
                 .is_none()
         );
         Ok((operation, attempt))
+    }
+
+    #[test]
+    fn subject_boundary_keeps_admitted_operation_and_late_evidence() {
+        let dir = std::env::temp_dir().join(format!("shenko-native-boundary-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let store = Arc::new(open_native_fixture(&dir));
+        let home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(), ..Default::default()
+        }).prepare(store.ledger.ledger_id()).unwrap();
+        let agent = bootstrap_genesis(&store, None, &home.manifest, &shenko_seed::ModelProfile::from_env()).unwrap();
+        store.start_subject_dispatcher().unwrap();
+        let admitted = EntityId::new();
+        let pending = EntityId::new();
+        commit_native_fixture_step(
+            &store,
+            "[delegate:host.printf:1] {\"text\":\"admitted\"}\n[delegate:host.printf:1] {\"text\":\"pending\"}",
+            &[admitted, pending], vec![],
+        );
+        let descriptor = shenko_subject::NativeTaskHandler::descriptor(
+            &shenko_exec_host::HostPrintfHandler::new(store.clone()),
+        );
+        let claim = store.claim_native_task(admitted, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
+        // This exercises the real T1/E1 ledger, not a completed handoff or a
+        // claim that an external process ran.
+        let (operation, attempt) = arm_simulated_native_operation(&store, &claim, descriptor.implementation_ref.clone()).unwrap();
+        let request_id = EntityId::new();
+        store.request_subject_quiesce(agent, request_id).unwrap();
+        let (head, _) = store.load_subject(agent).unwrap();
+        assert!(store.pause_subject_at_boundary(&head).unwrap().is_some());
+        assert!(store.claim_native_task(pending, descriptor.implementation_ref.clone(), false).unwrap().is_none());
+        assert_eq!(store.external_operation(operation.operation_id).unwrap().state, OperationState::InFlight);
+
+        let raw = store.cas.seal_object(b"late evidence", "text/plain", "test", "evidence", 1).unwrap().object;
+        let evidence = shenko_types::evidence::EvidenceReceipt {
+            record_schema_version: 1, receipt_id: EntityId::new(),
+            operation_id: Some(operation.operation_id), attempt_id: Some(attempt.attempt_id),
+            source_id: "boundary.fixture".into(), source_instance_id: attempt.node_id.to_string(),
+            source_event_key: Some("late".into()), producer_epoch: Some(attempt.epoch.0),
+            producer_schema_version: Some("1".into()), raw_ref: raw,
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: shenko_types::evidence::DecodeStatus::Decoded,
+            observation_level: Some(shenko_types::evidence::ObservationLevel::PostconditionVerified),
+            normalized_ref: None, observed_at: Some(chrono::Utc::now()),
+            received_commit: operation.prepared_commit,
+        };
+        let recorded = store.record_external_evidence(operation.operation_id, attempt.attempt_id, evidence,
+            Some(OperationOutcome::Succeeded), EffectStatus::None).unwrap();
+        assert_eq!(recorded.state, OperationState::Resolved);
+        assert_eq!(store.external_operation_attempts(operation.operation_id).unwrap().len(), 1);
+        store.resume_subject_quiesce(agent, request_id).unwrap();
+        assert!(store.claim_native_task(pending, descriptor.implementation_ref, false).unwrap().is_some());
     }
 
     #[tokio::test]

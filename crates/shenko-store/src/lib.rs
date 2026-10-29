@@ -15,6 +15,7 @@ pub mod cognition_archive;
 pub mod recovery_sources;
 pub mod semantic_wait;
 pub mod seat;
+pub mod runtime_boundary;
 
 pub use store::*;
 pub use cas::*;
