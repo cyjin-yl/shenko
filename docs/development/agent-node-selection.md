@@ -118,7 +118,7 @@ No claim of CI success: repository snapshot has no GitHub workflow directory.
 verification. A genuine subject-discovery/selection journey still requires
 model validation after the authenticated bridge exists.
 
-## Trusted SSH bridge source increment (2026-10-29, not yet executed)
+## Trusted SSH bridge increment (2026-10-29, locally tested; not installed)
 
 The next source increment adds `SshTaskRunner::execute_selected` in
 `shenko-exec-ssh/src/selected_task.rs`, reusing the real existing SSH runner:
@@ -183,14 +183,22 @@ not a new general permission system. Model discovery and real remote-node
 validation remain unperformed. No external owner/Agent was contacted for this
 increment; dependencies are recorded in this PR rather than presumed accepted.
 
-### New validation candidate — separate from the 18 passing tests above
+### Bridge validation — separate from the older 18 passing tests above
 
-Six new source tests are prepared: actual local T1/E1 selection persistence and
+Six new tests cover actual local T1/E1 selection persistence and
 query-only recovery; forged worker refusal; unrelated authority refusal;
 registered-target mismatch; conflicting replay action; and byte-identical legacy
 input serialization. Their SSH fixture deliberately references a missing public
 host-trust CAS object, causing the existing runner to fail **before spawning
-OpenSSH**. It tests unknown-effect bookkeeping, not remote success. These tests
-are not yet compiled/run; a new fixed-candidate approval is required. The lock
+OpenSSH**. It tests unknown-effect bookkeeping, not remote success. Following
+fixed-version approval, exact `d1c861f4` freshly compiled and passed all six
+selected tests (six other SSH tests filtered out, not run), then all 18 node
+regression tests. Both commands exited 0 with source/tree/lock unchanged under
+the same Rust/Cargo 1.98.1, empty-home/offline/socket-denied conditions. One
+unused test import warning was retained; it was not hidden by changing the
+tested source. The [exact evidence](../evidence/agent-selected-ssh-d1c861f4-20261029.json)
+contains test names, artifact/log hashes, diagnostics and scope boundaries.
+This does not establish real remote execution or installed model discovery.
+The lock
 changes only by adding the already-existing local `shenko-node` package as a
 `shenko-exec-ssh` dependency; no external dependency version is changed.
