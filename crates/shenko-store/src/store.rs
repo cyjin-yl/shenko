@@ -1127,8 +1127,10 @@ fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
 }
 
 /// Signature of one live SQLite tuple member: None when absent. Anything that
-/// is not a plain regular file is rejected rather than followed.
-fn tuple_signature(path: &Path) -> Result<Option<(u64, u64, u64, i64)>> {
+/// is not a plain regular file is rejected rather than followed. ctime is
+/// part of the signature so a rename swap that preserves the original inode
+/// contents still shows up as a change.
+fn tuple_signature(path: &Path) -> Result<Option<(u64, u64, u64, i64, i64, i64)>> {
     use std::os::unix::fs::MetadataExt;
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -1137,30 +1139,54 @@ fn tuple_signature(path: &Path) -> Result<Option<(u64, u64, u64, i64)>> {
                 "installation database member is not a regular file: {}",
                 path.display()
             );
-            Ok(Some((meta.dev(), meta.ino(), meta.len(), meta.mtime())))
+            Ok(Some((
+                meta.dev(),
+                meta.ino(),
+                meta.len(),
+                meta.mtime(),
+                meta.mtime_nsec(),
+                meta.ctime(),
+            )))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
 }
 
-/// Copy `src` into `dst` without following a swapped-in symlink, then verify
-/// the source signature survived the copy. A changed source is reported so
-/// the caller can restage instead of trusting a torn snapshot.
-fn copy_member(src: &Path, dst: &Path) -> Result<(u64, u64, u64, i64)> {
-    use std::os::unix::fs::OpenOptionsExt;
+/// Copy `src` into `dst` through a short-lived child `cat`, then verify the
+/// source signature survived the copy.
+///
+/// The copy cannot run in this process: opening and then closing the live db
+/// file here would drop every POSIX lock this process holds on that inode
+/// (SQLite's documented independent-close hazard), corrupting the live Store
+/// we are supposed to leave untouched. The child opens, reads and closes in
+/// its own lock domain. The before/after path signatures still guard the
+/// window in which the child performed its open+read.
+fn copy_member(src: &Path, dst: &Path) -> Result<(u64, u64, u64, i64, i64, i64)> {
     let before = tuple_signature(src)?.context("database member vanished")?;
-    let mut input = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(src)
-        .with_context(|| format!("open {}", src.display()))?;
-    let mut output = std::fs::OpenOptions::new()
+    let output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(dst)?;
-    std::io::copy(&mut input, &mut output)?;
-    output.sync_all()?;
+    let status = std::process::Command::new("cat")
+        .arg("--")
+        .arg(src)
+        .stdin(std::process::Stdio::null())
+        .stdout(output)
+        .status()
+        .with_context(|| format!("spawn snapshot copy of {}", src.display()))?;
+    ensure!(
+        status.success(),
+        "snapshot copy of {} failed ({status})",
+        src.display()
+    );
+    let staged_len = std::fs::metadata(dst)?.len();
+    ensure!(
+        staged_len == before.2,
+        "staged database copy is {} bytes, expected {}",
+        staged_len,
+        before.2
+    );
     let after = tuple_signature(src)?.context("database member vanished")?;
     ensure!(
         after == before,
@@ -1175,7 +1201,7 @@ fn copy_member(src: &Path, dst: &Path) -> Result<(u64, u64, u64, i64)> {
 fn copy_stable_tuple(
     db_path: &Path,
     staged: &Path,
-) -> Result<Vec<Option<(u64, u64, u64, i64)>>> {
+) -> Result<Vec<Option<(u64, u64, u64, i64, i64, i64)>>> {
     let mut signatures = Vec::with_capacity(3);
     for suffix in ["", "-journal", "-wal"] {
         let live = sidecar_path(db_path, suffix);
@@ -1195,7 +1221,7 @@ fn copy_stable_tuple(
 }
 
 /// True when the live tuple still matches the signatures captured at copy.
-fn unchanged_tuple(db_path: &Path, recorded: &[Option<(u64, u64, u64, i64)>]) -> Result<bool> {
+fn unchanged_tuple(db_path: &Path, recorded: &[Option<(u64, u64, u64, i64, i64, i64)>]) -> Result<bool> {
     for (suffix, recorded_sig) in ["", "-journal", "-wal"].iter().zip(recorded.iter()) {
         if &tuple_signature(&sidecar_path(db_path, suffix))? != recorded_sig {
             return Ok(false);
