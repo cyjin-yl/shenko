@@ -348,14 +348,23 @@ impl ToolStore {
             .collect();
         let record = match candidates.len() {
             0 => {
-                if version.is_none() {
-                    if let Some(target) = named_target(name) {
+                if let Some(target) = named_target(name) {
+                    if self
+                        .registry
+                        .tools
+                        .iter()
+                        .any(|record| record.name == name)
+                    {
                         bail!(
-                            "TOOL_UNSUPPORTED:{name}: declared target has no installed \
-                             artifact — {}",
-                            target.unresolved_reason.unwrap_or("unresolved")
+                            "TOOL_UNAVAILABLE:{spec}: named target {name} is installed \
+                             only at other version(s)"
                         );
                     }
+                    bail!(
+                        "TOOL_UNSUPPORTED:{name}: declared target has no installed \
+                         artifact — {}",
+                        target.unresolved_reason.unwrap_or("unresolved")
+                    );
                 }
                 bail!("TOOL_UNAVAILABLE:{spec}: no installed WASI tool by that name")
             }

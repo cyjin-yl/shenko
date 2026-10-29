@@ -84,6 +84,20 @@ b3sum /tmp/toywasm-v76/**/toywasm.wasm   # 得 <hex>
 # 4) 模型路径（可选，需 start）：[delegate:wasi.exec:1] {"tool":"toywasm","args":["--version"]}
 ```
 
+可验证性更强的备选（发布方带 sha256sum；文件 26MB，首次编译有可见延迟）：
+
+```sh
+REL=python/3.12.0+20231211-040d5a6
+BASE=https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/$REL
+curl -fsSL -o /tmp/python.wasm "$BASE/python-3.12.0.wasm"
+curl -fsSL "$BASE/python-3.12.0.wasm.sha256sum"   # 核对 sha256
+./shenko --data-dir <data> tool install --file /tmp/python.wasm \
+  --name python --version 3.12.0 --abi wasi_preview1 \
+  --expected-digest blake3:<b3sum-of-file> \
+  --source-uri "$BASE" --source-release "$REL" --provenance upstream_release
+./shenko --data-dir <data> tool exec --tool python -- -c 'print(40+2)'
+```
+
 具名目标路径（**toybox，需要真实移植工作，不能跳过**）：
 
 ```sh
