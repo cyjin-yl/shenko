@@ -141,6 +141,7 @@ impl ActiveProvider {
                 response: None,
                 effective: EffectiveInference::for_request(req),
                 termination: TerminationEvidence::never_dispatched(),
+                quota_headers: Vec::new(),
             };
         }
 
@@ -182,6 +183,7 @@ fn provider_response(
     terminal: bool,
 ) -> InferenceResult {
     let effective = EffectiveInference::for_request(req);
+    let quota_headers = response.ratelimit_headers.clone();
     let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
     let termination = if terminal {
         TerminationEvidence {
@@ -210,6 +212,7 @@ fn provider_response(
         response: Some(response),
         effective,
         termination,
+        quota_headers,
     }
 }
 
@@ -250,6 +253,10 @@ fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceRes
         response: None,
         effective: EffectiveInference::for_request(req),
         termination,
+        quota_headers: error
+            .downcast_ref::<ProviderRejection>()
+            .map(|rejection| rejection.ratelimit_headers.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -765,6 +772,7 @@ mod tests {
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),
+                ratelimit_headers: Vec::new(),
             })
         }
     }

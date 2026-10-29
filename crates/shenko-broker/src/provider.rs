@@ -92,9 +92,21 @@ impl AnthropicProvider {
             .send()
             .await?;
 
+        // Retain only the exact rate-limit names the observer contract owns;
+        // every other response header is ignored.
+        let ratelimit_headers: Vec<(String, String)> = resp
+            .headers()
+            .iter()
+            .filter(|(name, _)| {
+                name.as_str().starts_with(crate::QUOTA_HEADER_PREFIX)
+            })
+            .map(|(name, value)| {
+                (name.as_str().to_string(), value.to_str().unwrap_or_default().to_string())
+            })
+            .collect();
         if !resp.status().is_success() {
             let status = resp.status();
-            if let Some(rejection) = ProviderRejection::from_status(status) {
+            if let Some(rejection) = ProviderRejection::from_status(status, ratelimit_headers) {
                 return Err(rejection.into());
             }
             return Err(anyhow!(
@@ -133,6 +145,7 @@ impl AnthropicProvider {
             stop_reason,
             raw_response,
             usage,
+            ratelimit_headers,
         })
     }
 }
