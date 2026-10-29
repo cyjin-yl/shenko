@@ -1,0 +1,128 @@
+{
+  "candidate": "ca6dcd9adba4ace620853ff78a557d9756050b88",
+  "tree": "cb5e8fc965bce671346c997527c06010f4fae2d4",
+  "startedAt": "2026-10-29T19:38:31.806720+00:00",
+  "finishedAt": "2026-10-29T19:40:18.257098+00:00",
+  "wallSeconds": 106.45028068800457,
+  "command": "cargo test --locked --offline -p shenko-node --message-format=json",
+  "toolchain": {
+    "rust": "1.98.1",
+    "archiveSha256": "24ba1338a2d35c5a3247936546429e163fa674d726102af18bdf624582c57aea",
+    "officialHTTPSChecksumMatched": true,
+    "signatureVerified": false
+  },
+  "lockSha256": "711c308fe4b869109309778e14a0dd9d9f260dc9630ad31ad9cb81dc29217e75",
+  "registryArchiveCount": 398,
+  "allRegistryArchivesMatchOriginalLock": true,
+  "gitSource": "https://github.com/cyjin-yl/cordis-rs@9a8a49fa459991ee29da73fb42ea9324cee9b680",
+  "exitCode": 0,
+  "sourceUnchanged": true,
+  "tests": [
+    "test admission::tests::private_sqlite_recovery_cannot_mutate_an_outside_database ... ok",
+    "test roles::tests::role_assignment_and_observation_remain_distinct_across_reopen ... ok",
+    "test selection::tests::snapshot_is_bounded_non_ranked_and_keeps_unknown_without_routes ... ok",
+    "test selection::tests::explicit_choice_survives_reopen_and_replay_never_dispatches ... ok",
+    "test capability::tests::malformed_advertisement_and_unverified_peer_have_no_authority ... ok",
+    "test selection::tests::changed_observation_returns_reason_and_never_substitutes ... ok",
+    "test units::tests::digest_versions_keep_independent_edges_and_re_resolve ... ok",
+    "test selection::tests::oversized_advertisement_is_explicit_and_cannot_be_recorded_as_ready ... ok",
+    "test selection::tests::absent_observation_and_unenrolled_target_are_explained_not_guessed ... ok",
+    "test units::tests::exported_root_digest_is_independent_of_package_order ... ok",
+    "test units::tests::unresolved_attempt_becomes_unknown_and_is_never_replayed ... ok",
+    "test units::tests::incoming_descriptor_supersedes_its_stale_retained_candidate ... ok",
+    "test units::tests::schema_two_transfer_does_not_invent_an_old_selection ... ok",
+    "test units::tests::v3_migration_preserves_identity_history_and_ambiguous_legacy_rows ... ok",
+    "test units::tests::trial_records_real_success_and_real_failure ... ok",
+    "test units::tests::package_transfers_between_nodes_without_inheriting_readiness ... ok",
+    "test capability::tests::generation_safe_capability_facts_drive_candidacy ... ok",
+    "test units::tests::export_retains_distinct_pins_and_recovers_a_missing_selected_version ... ok",
+    "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+    "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "compiledNodeArtifacts": [
+    {
+      "target": "shenko_node",
+      "kind": [
+        "lib"
+      ],
+      "fresh": false,
+      "testProfile": false,
+      "files": [
+        {
+          "name": "libshenko_node-3570ea3103616c30.rlib",
+          "sha256": "d06cf7df35f4a5010d55efa4e2e2037673603d36add912e77a4f6113eaf5fab3"
+        },
+        {
+          "name": "libshenko_node-3570ea3103616c30.rmeta",
+          "sha256": "8a59bc175cf50d209b38797d67d986153a18122ed39d2867f3b28ea132105a47"
+        }
+      ]
+    },
+    {
+      "target": "shenko-node",
+      "kind": [
+        "bin"
+      ],
+      "fresh": false,
+      "testProfile": true,
+      "files": [
+        {
+          "name": "shenko_node-c89fc232232010ac",
+          "sha256": "b28038a009945f8be56c9a40ba7ca8498204e781d22e58d3777e2b973ca03b0b"
+        }
+      ]
+    },
+    {
+      "target": "shenko_node",
+      "kind": [
+        "lib"
+      ],
+      "fresh": false,
+      "testProfile": true,
+      "files": [
+        {
+          "name": "shenko_node-647421bf5723b2d5",
+          "sha256": "767fb679c85afde9f2ad5dd84a7da1ed8caccdc60ae721281117cfccbb94d4dd"
+        }
+      ]
+    }
+  ],
+  "logHashes": {
+    "test.stdout": "caa1a455c4698ecc24477af10330b4e57dcea64f32172463bcbe5b9e173169cf",
+    "test.stderr": "48811db5d3337b47b31612a6ecf97aeef2657971d28041a0aec0614acf162b2c"
+  },
+  "isolation": {
+    "emptyHome": true,
+    "independentCargoHomeAndTarget": true,
+    "explicitEnvironmentNoAmbientCredentials": true,
+    "cargoOffline": true,
+    "inheritedSeccompSocketDenied": true,
+    "wrapperSha256": "810937a6e1564762ad73d3c0b90e4b12de0dbcb17c86c404aa6ecd02a63b3176",
+    "mountNamespace": false,
+    "testTemporaryDirectory": "isolated task evidence directory"
+  },
+  "retainedFailures": [
+    {
+      "stage": "namespace preparation, system true only",
+      "result": "bwrap failed to create NETLINK_ROUTE socket: Operation not permitted; no project code executed by this probe"
+    },
+    {
+      "stage": "dependency fetch using Cargo libgit",
+      "exitCode": 101,
+      "result": "GitHub hostname resolution failure; no project compilation started"
+    },
+    {
+      "stage": "dependency fetch retry using Git CLI",
+      "exitCode": 0,
+      "result": "same locked sources fetched; lock unchanged"
+    }
+  ],
+  "limits": [
+    "Library API only; no authenticated subject/delegate tool bridge",
+    "All receipts not_dispatched; no real remote task/model execution",
+    "No crash/commit-fault injection; normal reopen and replay tested",
+    "No GitHub Actions workflow/CI claim",
+    "No production data, credentials, remote nodes or deployment accessed"
+  ]
+}

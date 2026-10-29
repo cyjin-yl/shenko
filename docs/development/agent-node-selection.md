@@ -8,9 +8,9 @@ their choice with a mechanical capability router. This slice follows SPEC
 §5.4, §11, §38, §40 and the existing #114 advertisements. It does not implement
 an election, a sleeping subject, or an Infinity-style durable runtime.
 
-**Status: library implementation and five test journeys prepared; not yet built
-or executed in this development environment.** No real model, remote node or
-end-to-end distributed task has been validated. Based on #114 `47b26f98` plus
+**Status: fixed candidate `ca6dcd9a` built and passed 18 node tests, including
+the five new selection journeys, on 2026-10-29 at 19:40 UTC.** No real model,
+remote node or end-to-end distributed task has been validated. Based on #114 `47b26f98` plus
 main `d1cf8d64`; it preserves both histories. No new dependency/schema migration.
 
 ## Narrow capability card
@@ -101,9 +101,18 @@ migrate with history preserved; an unknown schema fails rather than re-plans.
 Five new journeys: bounded/non-ranked snapshot with unknowns and no routes;
 explicit choice/restart/replay/conflicting ID with zero task creation; changed
 observation/re-decision without substitution; absent/removed enrollment and
-missing facts; oversized observation reporting. Source prepared, **not run**.
-Suggested isolated command after fixed-version execution authorization:
-`cargo test --locked -p shenko-node` (existing regressions plus these tests).
+missing facts; oversized observation reporting. Initially source-only; after
+the owner's fixed-version execution approval, the exact `ca6dcd9a` candidate
+passed `cargo test --locked --offline -p shenko-node --message-format=json`:
+18 passed, 0 failed, 0 ignored; binary and doc-test suites each had 0 tests.
+Rust/Cargo 1.98.1, original lock unchanged, 398 downloaded registry archives
+matched its checksums; node artifacts were freshly compiled. Empty HOME,
+independent Cargo/target/temp directories, explicit credential-free test
+environment, Cargo offline and inherited seccomp socket denial were used.
+This is not a mount-namespace isolation claim. The failed bwrap system probe
+and initial libgit DNS fetch failure are retained in the
+[candidate-bound evidence](../evidence/agent-node-selection-ca6dcd9a-20261029.json).
+Normal restart/replay is tested; crash/commit-fault injection is not.
 No claim of CI success: repository snapshot has no GitHub workflow directory.
 `git diff --check` is a whitespace check only, not Rust compilation or runtime
 verification. A genuine subject-discovery/selection journey still requires
