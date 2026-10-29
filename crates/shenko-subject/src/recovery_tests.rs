@@ -93,6 +93,49 @@ fn state(
     SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store, ctx)
 }
 
+#[tokio::test]
+async fn real_loop_pauses_and_reopens_without_redispatch() {
+    use shenko_store::runtime_boundary::SubjectQuiesceState;
+
+    let (dir, store, agent) = fixture();
+    let request_id = EntityId::new();
+    store.request_subject_quiesce(agent, request_id).unwrap();
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let task = tokio::spawn(super::run_subject_loop(state(store.clone(), agent).unwrap(), cancel.clone()));
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if store.subject_quiesce(request_id).unwrap().unwrap().state == SubjectQuiesceState::Paused {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let (paused, step) = store.load_subject(agent).unwrap();
+    assert_eq!(paused.mode, SubjectMode::Paused);
+    assert_eq!(step.state, SubjectStepState::Planned);
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let recovered = state(reopened.clone(), agent).unwrap();
+    assert_eq!(recovered.head.mode, SubjectMode::Paused);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let task = tokio::spawn(super::run_subject_loop(recovered, cancel));
+    reopened.resume_subject_quiesce(agent, request_id).unwrap();
+    // There is intentionally no broker in this fixture. A real admission is
+    // impossible; the next S0 remains durable and reports that missing broker.
+    assert!(tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await.unwrap().unwrap().is_err());
+    let (active, next) = reopened.load_subject(agent).unwrap();
+    assert_eq!(active.mode, SubjectMode::Active);
+    assert_eq!(active.controller_epoch, paused.controller_epoch);
+    assert_eq!(next.state, SubjectStepState::Preparing);
+    assert!(next.active_request_id.is_none());
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn legacy_zero_without_a_bound_raw_input_count_is_not_observed() {
     let (dir, store, _) = fixture();

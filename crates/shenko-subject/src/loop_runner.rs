@@ -18,7 +18,7 @@ use shenko_types::subject::{
     DelegationIntent, Disposition, EventDisposition, InferenceRetryFact, MemoryIntent,
     MemoryIntentKind, PolicyIntent, PolicyKind, SemanticWait, SemanticWaitReceipt,
     SemanticWaitOutcome, StepDecision, SubjectBranchHead, SubjectRetryEvidence, SubjectStep,
-    SubjectStepState,
+    SubjectMode, SubjectStepState,
 };
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -153,6 +153,12 @@ impl SubjectLoopState {
         plugin_context: cordis_core::Context,
     ) -> Result<Self, ShenkoError> {
         let (head, step) = store.load_subject(agent_id)?;
+        if !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused) {
+            return Err(ShenkoError::conflict("subject controller is not runnable; explicit recovery required"));
+        }
+        if head.mode == SubjectMode::Paused && step.state != SubjectStepState::Planned {
+            return Err(ShenkoError::conflict("paused subject has no planned boundary"));
+        }
         let resumed_input = validate_resume(&store, &step)?;
         let identity_service = plugin_context
             .try_service::<IdentityService>()
@@ -282,6 +288,40 @@ pub async fn run_subject_loop(
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");
             break Ok(());
+        }
+
+        if state.head.mode == SubjectMode::Paused {
+            tokio::select! {
+                _ = cancel.cancelled() => break Ok(()),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {}
+            }
+            let (head, step) = match state.store.load_subject(state.agent_id) {
+                Ok(subject) => subject,
+                Err(error) => break Err(error),
+            };
+            if !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused)
+                || head.controller_epoch != state.head.controller_epoch
+                || head.software_generation != state.head.software_generation
+                || head.next_step_id != state.head.next_step_id
+                || step.state != SubjectStepState::Planned
+            {
+                break Err(ShenkoError::conflict("paused subject changed; reopen and reconcile"));
+            }
+            state.head = head;
+            state.step = step;
+            continue;
+        }
+
+        if state.step.state == SubjectStepState::Planned {
+            match state.store.pause_subject_at_boundary(&state.head) {
+                Ok(Some(head)) => {
+                    state.head = head;
+                    info!(agent_id=%state.agent_id, "subject paused at a durable step boundary");
+                    continue;
+                }
+                Ok(None) => {}
+                Err(error) => break Err(error),
+            }
         }
 
         let seq = state.step.step_no;
