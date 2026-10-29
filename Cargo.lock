@@ -2500,7 +2500,6 @@ dependencies = [
  "cordis-core",
  "dirs-next",
  "libc",
- "rusqlite",
  "serde",
  "serde_json",
  "shenko-awareness-core",

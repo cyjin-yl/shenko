@@ -286,27 +286,8 @@ impl Bootstrap {
             if path.exists() && !path.is_dir() {
                 bail!("DATA_PATH_CONFLICT: {} is not a directory", path.display());
             }
-            if !manifest_exists && directory_has_entries(&path)? {
-                bail!("DATA_PATH_CONFLICT: nonempty {} has no installation manifest; import it explicitly instead of adopting unknown data", path.display());
-            }
         }
         Ok(())
-    }
-
-    /// Validate an existing home binding before a caller opens its ledger for
-    /// mutation. Missing manifests are handled by the normal seed path.
-    pub fn validate_existing_manifest(&self, installation_id: EntityId) -> Result<()> {
-        let root = self.config.data_dir.canonicalize()?;
-        let manifest_path = root.join(HOME_MANIFEST_FILE);
-        if !manifest_path.exists() {
-            return Ok(());
-        }
-        let stored: HomeManifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
-        let mounts = vec![
-            MountSpec::new(root.join("home").canonicalize()?, HOME_GUEST_PATH, MountMode::ReadWrite, true, false),
-            MountSpec::new(root.join("memory").canonicalize()?, MEMORY_GUEST_PATH, MountMode::ReadWrite, true, true),
-        ];
-        validate_stored_manifest(&stored, installation_id, &mounts, &root)
     }
 
     pub fn view(
@@ -394,7 +375,33 @@ impl Bootstrap {
                     manifest_path.display()
                 )
             })?;
-            validate_stored_manifest(&stored, installation_id, &expected_mounts, &root)?;
+            if stored.schema_version != 1 {
+                bail!(
+                    "SEED_CLOSURE_INCOMPLETE: unsupported home manifest schema {}",
+                    stored.schema_version
+                );
+            }
+            if stored.installation_id != installation_id || stored.mounts != expected_mounts {
+                bail!(
+                    "DATA_PATH_CONFLICT: stored home/installation binding does not match {}; data preserved",
+                    root.display()
+                );
+            }
+            if stored.home_guest_path != HOME_GUEST_PATH
+                || stored.runtime != "wasmtime-45"
+                || stored.wasi != "preview1"
+                || stored.runtime_generation != RuntimeGeneration::default()
+            {
+                bail!(
+                    "WASM_PROFILE_UNAVAILABLE: stored runtime/generation/guest binding requires an explicit compatible activation; data preserved"
+                );
+            }
+            if stored.checkpoint != home_checkpoint() || stored.capabilities != home_capabilities()
+            {
+                bail!(
+                    "SEED_CLOSURE_INCOMPLETE: stored checkpoint/capability declaration differs from this seed; migrate explicitly"
+                );
+            }
             stored
         } else {
             let created = HomeManifest {
@@ -487,24 +494,6 @@ impl Bootstrap {
             runtime,
         })
     }
-}
-
-fn validate_stored_manifest(stored: &HomeManifest, installation_id: EntityId, mounts: &[MountSpec], root: &Path) -> Result<()> {
-    if stored.schema_version != 1 {
-        bail!("SEED_CLOSURE_INCOMPLETE: unsupported home manifest schema {}", stored.schema_version);
-    }
-    if stored.installation_id != installation_id || stored.mounts.as_slice() != mounts {
-        bail!("DATA_PATH_CONFLICT: stored home/installation binding does not match {}; data preserved", root.display());
-    }
-    if stored.home_guest_path != HOME_GUEST_PATH || stored.runtime != "wasmtime-45"
-        || stored.wasi != "preview1" || stored.runtime_generation != RuntimeGeneration::default()
-    {
-        bail!("WASM_PROFILE_UNAVAILABLE: stored runtime/generation/guest binding requires an explicit compatible activation; data preserved");
-    }
-    if stored.checkpoint != home_checkpoint() || stored.capabilities != home_capabilities() {
-        bail!("SEED_CLOSURE_INCOMPLETE: stored checkpoint/capability declaration differs from this seed; migrate explicitly");
-    }
-    Ok(())
 }
 
 fn absolute(path: &Path) -> Result<PathBuf> {

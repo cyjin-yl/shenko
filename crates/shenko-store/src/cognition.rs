@@ -60,6 +60,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
+use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
 use shenko_types::task::{DispatchEligibility, TaskRecord, TaskState};
 
 use crate::cas::ContentStore;
@@ -926,6 +927,15 @@ impl Store {
             );
         }
         self.check_import_order(&manifest)?;
+        // Reject unresumable imported heads or a conflicting paused successor
+        // before publishing files or rows. Recheck under the mutation
+        // transaction as the local subject may reach a boundary meanwhile.
+        {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction().map_err(db)?;
+            validate_subject_boundaries(&tx, &manifest)?;
+            tx.commit().map_err(db)?;
+        }
 
         for descriptor in &manifest.files {
             ensure!(
@@ -1637,6 +1647,7 @@ impl Store {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(db)?;
                 check_import_order_conn(&tx, manifest)?;
+                validate_subject_boundaries(&tx, manifest)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let mut inserted = 0usize;
                 let mut updated = 0usize;
@@ -2462,6 +2473,81 @@ fn check_import_order_conn(
     Ok(())
 }
 
+/// The pause record is local controller state and is not in archive schema
+/// 2/3. A peer cannot manufacture that authority merely by importing a head.
+/// Likewise a divergent peer's step must not be applied independently of a
+/// retained paused head, even if the step still matches the peer baseline.
+fn validate_subject_boundaries(
+    conn: &rusqlite::Connection,
+    manifest: &CognitionManifest,
+) -> Result<()> {
+    let head_spec = spec_for("subject_branch_heads").expect("subject head table is registered");
+    let step_spec = spec_for("subject_steps").expect("subject step table is registered");
+
+    for incoming in manifest.rows.iter().filter(|row| row.table == head_spec.name) {
+        let data = incoming.value("data").context("imported subject head has no data")?;
+        let value: serde_json::Value = serde_json::from_str(data).context("invalid imported subject head")?;
+        let data_mode = value.get("mode").and_then(serde_json::Value::as_str)
+            .context("imported subject head has no serialized mode")?;
+        let column_mode = incoming.value("mode").context("imported subject head has no mode column")?;
+        if column_mode == "paused" || data_mode == "paused" {
+            ensure!(column_mode == "paused" && data_mode == "paused",
+                "imported paused subject head has inconsistent mode fields");
+            let local = read_existing(conn, head_spec, incoming)?
+                .context("imported paused subject head has no local boundary")?;
+            ensure!(rows_equivalent(head_spec, &local, &incoming.values),
+                "imported paused subject head differs from the locally retained boundary");
+            let head: SubjectBranchHead = serde_json::from_value(value)?;
+            validate_local_paused_successor(conn, &head)?;
+        }
+    }
+
+    // Check the actual local head, not merely the peer's head row. The peer
+    // can omit its head or submit an active one that conflicts with ours.
+    let mut query = conn.prepare(
+        "SELECT data,mode FROM subject_branch_heads WHERE mode='paused' OR json_extract(data,'$.mode')='paused'",
+    ).map_err(db)?;
+    let local_heads = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(db)?.collect::<rusqlite::Result<Vec<_>>>().map_err(db)?;
+    for (data, mode) in local_heads {
+        let head: SubjectBranchHead = serde_json::from_str(&data)?;
+        ensure!(mode == "paused" && head.mode == SubjectMode::Paused,
+            "local paused subject head has inconsistent mode fields");
+        let agent_id = head.agent_id.to_string();
+        for incoming in manifest.rows.iter().filter(|row|
+            row.table == head_spec.name && row.value("agent_id") == Some(agent_id.as_str()))
+        {
+            validate_local_paused_successor(conn, &head)?;
+            let local = read_existing(conn, head_spec, incoming)?
+                .context("local paused subject head is missing")?;
+            ensure!(rows_equivalent(head_spec, &local, &incoming.values),
+                "imported head conflicts with the locally retained paused subject boundary");
+        }
+        let next_id = head.next_step_id.to_string();
+        for incoming in manifest.rows.iter().filter(|row|
+            row.table == step_spec.name && row.value("step_id") == Some(next_id.as_str()))
+        {
+            validate_local_paused_successor(conn, &head)?;
+            let local = read_existing(conn, step_spec, incoming)?
+                .context("local paused subject successor is missing")?;
+            ensure!(rows_equivalent(step_spec, &local, &incoming.values),
+                "imported step conflicts with the locally retained paused subject successor");
+        }
+    }
+    Ok(())
+}
+
+fn validate_local_paused_successor(conn: &rusqlite::Connection, head: &SubjectBranchHead) -> Result<()> {
+    crate::runtime_boundary::validate_paused_head(conn, head)?;
+    let step = crate::store::read_step(conn, &head.branch_id, head.next_step_id)?
+        .context("local paused subject successor is missing")?;
+    crate::store::validate_step_binding(head, &step)?;
+    ensure!(step.state == SubjectStepState::Planned
+        && step.active_request_id.is_none() && step.active_attempt_id.is_none(),
+        "local paused subject successor is not a clean boundary");
+    Ok(())
+}
+
 fn record_import_order(
     tx: &Transaction<'_>,
     peer_id: EntityId,
@@ -3000,7 +3086,7 @@ fn column_text(row: &rusqlite::Row<'_>, index: usize) -> Result<Option<String>> 
 
 /// The stored row with the same primary key, if it exists.
 fn read_existing(
-    tx: &Transaction<'_>,
+    conn: &rusqlite::Connection,
     spec: &TableSpec,
     row: &CognitionRow,
 ) -> Result<Option<Vec<(String, Option<String>)>>> {
@@ -3016,7 +3102,7 @@ fn read_existing(
         table = spec.name,
         conditions = conditions.join(" AND ")
     );
-    let mut stmt = tx.prepare(&sql).map_err(db)?;
+    let mut stmt = conn.prepare(&sql).map_err(db)?;
     let mut rows = stmt.query(rusqlite::params_from_iter(keys)).map_err(db)?;
     let mut found: Option<Vec<(String, Option<String>)>> = None;
     while let Some(row) = rows.next().map_err(db)? {

@@ -207,6 +207,77 @@ fn boundary_waits_for_recorded_step_and_survives_reopen() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[test]
+fn peer_cannot_advance_successor_of_a_locally_paused_head() {
+    use shenko_store::cognition::CognitionImportOptions;
+    use shenko_types::ids::EntityId;
+    use shenko_types::subject::{SubjectMode, SubjectStepState};
+
+    let (_source_dir, source, agent) = initialized_subject();
+    let receiver_dir = tmp_dir();
+    let receiver = Store::open(receiver_dir.join("receiver.db"), receiver_dir.join("cas")).unwrap();
+    let peer = EntityId::new();
+    let options = CognitionImportOptions { peer_id: Some(peer), ..Default::default() };
+    let mut initial = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut initial).unwrap();
+    assert!(receiver.import_cognition_archive(&initial[..], &options).unwrap().ack(peer).verified);
+    let (local, successor) = receiver.load_subject(agent).unwrap();
+    let request = EntityId::new();
+    receiver.request_subject_quiesce(agent, request).unwrap();
+    let paused = receiver.pause_subject_at_boundary(&local).unwrap().unwrap();
+    assert_eq!(paused.mode, SubjectMode::Paused);
+    let before = receiver.current_commit_seq().unwrap();
+
+    // A real source Store advances its existing S0/result while the receiver
+    // retains a different local head. The old row-by-row merge could apply the
+    // source step despite keeping the conflicting paused head.
+    let (source_head, source_step) = source.load_subject(agent).unwrap();
+    let recorded = recorded_result(&source, &source_head, source_step);
+    assert_eq!(recorded.state, SubjectStepState::ResultRecorded);
+    let mut newer = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut newer).unwrap();
+    assert!(receiver.import_cognition_archive(&newer[..], &options).is_err());
+    assert_eq!(receiver.current_commit_seq().unwrap(), before);
+    let (retained, step) = receiver.load_subject(agent).unwrap();
+    assert_eq!(serde_json::to_value(&retained).unwrap(), serde_json::to_value(&paused).unwrap());
+    assert_eq!(serde_json::to_value(&step).unwrap(), serde_json::to_value(&successor).unwrap());
+    receiver.resume_subject_quiesce(agent, request).unwrap();
+    assert_eq!(receiver.load_subject(agent).unwrap().1.state, SubjectStepState::Planned);
+}
+
+#[test]
+fn imported_serialized_paused_head_is_rejected_before_files_or_rows() {
+    use shenko_store::cognition::{CognitionImportOptions, CognitionSnapshotOptions};
+    use shenko_types::subject::SubjectMode;
+
+    let (source_dir, source, agent) = initialized_subject();
+    let (mut source_head, _) = source.load_subject(agent).unwrap();
+    // Emulate a legacy/foreign sender whose indexed column says active but
+    // whose serialized authority says paused. Its archive fingerprint remains
+    // genuine; no local quiesce record accompanies this remote row.
+    source_head.mode = SubjectMode::Paused;
+    let db = rusqlite::Connection::open(source_dir.join("head.db")).unwrap();
+    db.execute("UPDATE subject_branch_heads SET data=?1 WHERE agent_id=?2",
+        rusqlite::params![serde_json::to_string(&source_head).unwrap(), agent.to_string()]).unwrap();
+    let source_memory = tmp_dir();
+    std::fs::write(source_memory.join("remote.txt"), b"must not publish").unwrap();
+    let mut archive = Vec::new();
+    source.write_cognition_archive(&CognitionSnapshotOptions {
+        memory_root: Some(source_memory), include_git_history: false, ..Default::default()
+    }, None, &mut archive).unwrap();
+    let receiver_dir = tmp_dir();
+    let receiver_memory = tmp_dir();
+    let receiver = Store::open(receiver_dir.join("receiver.db"), receiver_dir.join("cas")).unwrap();
+    let before = receiver.current_commit_seq().unwrap();
+    let result = receiver.import_cognition_archive(&archive[..], &CognitionImportOptions {
+        memory_root: Some(receiver_memory.clone()), ..Default::default()
+    });
+    assert!(result.is_err());
+    assert_eq!(receiver.current_commit_seq().unwrap(), before);
+    assert!(receiver.get_existing_agent_id().unwrap().is_none());
+    assert!(!receiver_memory.join("remote.txt").exists());
+}
+
 fn recorded_result(
     store: &Arc<Store>,
     head: &shenko_types::subject::SubjectBranchHead,

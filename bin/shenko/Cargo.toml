@@ -34,7 +34,6 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-rusqlite = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 uuid = { workspace = true }
 chrono = { workspace = true }

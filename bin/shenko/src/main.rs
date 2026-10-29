@@ -127,9 +127,6 @@ fn main() -> Result<()> {
         });
         bootstrap.validate_target()?;
         owner.verify_path(&data_dir)?;
-        if let Some(ledger_id) = runtime_owner::admit_existing_store(&data_dir)? {
-            bootstrap.validate_existing_manifest(ledger_id)?;
-        }
         (Some(owner), data_dir)
     } else {
         (None, data_dir)
