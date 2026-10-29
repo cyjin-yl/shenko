@@ -250,6 +250,21 @@ impl Store {
                 return Err(ShenkoError::conflict("request is not proven safe to retry"));
             }
         }
+        // Once any quota policy is recorded, dispatch into AwaitingModel is
+        // allowed only for a request whose reservation is admitted and armed
+        // on this ledger. Recovery or another writer cannot bypass admission
+        // and replay an unaccounted call.
+        if step.state == AwaitingModel
+            && crate::quota::quota_gate_open(&tx)?
+            && !crate::quota::quota_request_armed(
+                &tx,
+                step.active_request_id.unwrap_or_else(EntityId::nil),
+            )?
+        {
+            return Err(ShenkoError::conflict(
+                "recovery_blocked: request has no armed quota reservation; reconcile before dispatch",
+            ));
+        }
         self.verify_step_objects(step)?;
         if previous.state == Planned {
             self.validate_subject_context(&tx, &head, step)?;
@@ -698,7 +713,7 @@ impl Store {
         Ok(())
     }
 
-    fn subject_receipt(&self, commit_ref: CommitRef, updated: Vec<UpdatedEntity>) -> CommitReceipt {
+    pub(crate) fn subject_receipt(&self, commit_ref: CommitRef, updated: Vec<UpdatedEntity>) -> CommitReceipt {
         CommitReceipt {
             commit_ref,
             durability_profile: self.capabilities.durability_profile,

@@ -34,3 +34,5 @@ pub mod child;
 pub use child::{NativeTaskClaim, TaskCancellation};
 
 pub mod intents;
+
+pub mod quota;
