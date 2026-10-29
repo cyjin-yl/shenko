@@ -18,7 +18,7 @@ import {
 } from './projection';
 
 const DRAFT_KEY = 'shenko.draft.v1';
-const SUBMISSIONS_KEY = 'shenko.submissions.v1';
+const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
 const THEME_KEY = 'shenko.theme.v1';
 const RECEIPT_REFRESH_MS = 2000;
 const RECONNECT_BASE = [1, 2, 4, 8, 15];
@@ -53,32 +53,57 @@ function uid(): string {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function saveSubmissions(submissions: Submission[]): boolean {
+function submissionKey(submissionId: string): string {
+  return `${SUBMISSION_KEY_PREFIX}${submissionId}`;
+}
+
+// Each submission persists under its own key so concurrent tabs never
+// overwrite one another's unconfirmed IDs — the UI outbox is a per-submission
+// recovery record, never an authoritative whole-array ledger.
+function saveSubmission(submission: Submission): boolean {
   try {
-    localStorage.setItem(SUBMISSIONS_KEY, JSON.stringify(submissions));
+    localStorage.setItem(submissionKey(submission.payload.submission_id), JSON.stringify({
+      payload: submission.payload,
+      created_at: submission.created_at,
+      receipt: submission.receipt,
+      send_epoch: submission.send_epoch,
+    }));
     return true;
   } catch {
     return false;
   }
 }
 
-function storedSubmissions(): Submission[] {
+function retireSubmission(submission: Submission): void {
+  // Terminal facts retire the persisted pending payload. UI history is not a
+  // durable outbox; committed and conflict rows keep their server-side truth.
   try {
-    const saved: unknown = JSON.parse(storageGet(SUBMISSIONS_KEY) || '[]');
-    if (!Array.isArray(saved)) return [];
-    return saved.flatMap((row): Submission[] => {
-      if (!isObject(row) || !isObject(row.payload)) return [];
-      const payload = row.payload;
+    localStorage.removeItem(submissionKey(submission.payload.submission_id));
+  } catch {
+    // Storage is optional; the in-memory row retires regardless.
+  }
+}
+
+function storedSubmissions(): Submission[] {
+  const restored: Submission[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith(SUBMISSION_KEY_PREFIX)) continue;
+      const saved: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+      if (!isObject(saved) || !isObject(saved.payload)) continue;
+      const payload = saved.payload;
       if (
         payload.schema_version !== 2 || payload.type !== 'submit' || payload.mode !== 'append' ||
         typeof payload.submission_id !== 'string' || !payload.submission_id ||
+        payload.submission_id !== key.slice(SUBMISSION_KEY_PREFIX.length) ||
         typeof payload.message_id !== 'string' || !payload.message_id ||
         typeof payload.subject_id !== 'string' || !payload.subject_id ||
         typeof payload.content !== 'string' || !payload.content.trim() ||
         !Array.isArray(payload.attachment_refs) || payload.attachment_refs.length !== 0 ||
-        typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))
-      ) return [];
-      return [{
+        typeof saved.created_at !== 'string' || !Number.isFinite(Date.parse(saved.created_at))
+      ) continue;
+      restored.push({
         payload: {
           schema_version: 2, type: 'submit', mode: 'append',
           submission_id: payload.submission_id, message_id: payload.message_id,
@@ -86,16 +111,19 @@ function storedSubmissions(): Submission[] {
           ...(typeof payload.observed_step_id === 'string'
             ? { observed_step_id: payload.observed_step_id } : {}),
         },
-        created_at: row.created_at,
-        receipt: row.receipt === 'conflict' ? 'conflict' : 'unknown',
-        detail: row.receipt === 'conflict'
+        created_at: saved.created_at,
+        receipt: saved.receipt === 'conflict' ? 'conflict' : 'unknown',
+        detail: saved.receipt === 'conflict'
           ? '原提交 ID 已关联不同内容；此冲突内容未改写原输入。'
           : '已恢复原提交 ID 与内容；等待持久查询，不会生成新 ID 重发。',
-      }];
-    });
+        send_epoch: validRevision(saved.send_epoch) ? saved.send_epoch : 0,
+      });
+    }
   } catch {
-    return [];
+    // Browser storage is optional; an unreadable entry recovers as absent,
+    // never as an admitted fact.
   }
+  return restored.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
 }
 
 function initialTheme(): 'dark' | 'light' {
@@ -359,10 +387,11 @@ class LiveController implements ProjectionController {
       payload,
       created_at: new Date().toISOString(),
       receipt: 'sending',
+      send_epoch: 0,
     };
     // Save the immutable ID and exact payload BEFORE the transport can send.
     // A page reopen after a lost ACK must recover this ID, not mint another.
-    if (!saveSubmissions([...this.state.submissions, submission])) {
+    if (!saveSubmission(submission)) {
       this.state.display.notice = '浏览器无法保存提交 ID；未发送，草稿已保留。';
       this.emit();
       return;
@@ -377,9 +406,10 @@ class LiveController implements ProjectionController {
   private sendSubmission(submission: Submission, retry: boolean): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    submission.send_epoch += 1;
     submission.receipt = 'sending';
     submission.detail = undefined;
-    if (!saveSubmissions(this.state.submissions)) {
+    if (!saveSubmission(submission)) {
       submission.receipt = 'unknown';
       submission.detail = '浏览器无法保存原提交；未发送，原 ID 已保留。';
       this.emit();
@@ -404,7 +434,7 @@ class LiveController implements ProjectionController {
       }
       this.emit();
     }
-    saveSubmissions(this.state.submissions);
+    saveSubmission(submission);
     this.scheduleReceiptRefresh();
   }
 
@@ -476,9 +506,9 @@ class LiveController implements ProjectionController {
         if (submission.receipt === 'sending' || submission.receipt === 'sent') {
           submission.receipt = 'unknown';
           submission.detail = '连接中断，服务端回执未知；未生成新的 submission ID。';
+          saveSubmission(submission);
         }
       }
-      saveSubmissions(this.state.submissions);
       this.scheduleReconnect();
     };
   }
@@ -541,6 +571,7 @@ class LiveController implements ProjectionController {
     );
     if (!submission) return;
     const detail = typeof data.detail === 'string' ? data.detail : undefined;
+    let retired = false;
     if (data.stage === 'accepted' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
       // Durable acceptance, not selection or disposition. The same ID replayed
@@ -559,6 +590,8 @@ class LiveController implements ProjectionController {
     } else if (data.stage === 'conflict') {
       submission.receipt = 'conflict';
       submission.detail = detail ?? '同一 submission_id 已关联不同内容；原输入未改写。';
+      retireSubmission(submission);
+      retired = true;
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
@@ -566,12 +599,15 @@ class LiveController implements ProjectionController {
     } else if (data.stage === 'rejected') {
       submission.receipt = 'rejected';
       submission.detail = detail ?? '服务器拒绝接收。';
+      retireSubmission(submission);
+      retired = true;
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
     }
-    saveSubmissions(this.state.submissions);
+    // Retired terminal facts must not re-persist their payload.
+    if (!retired) saveSubmission(submission);
     this.scheduleReceiptRefresh();
     this.emit();
   }
@@ -609,6 +645,7 @@ class LiveController implements ProjectionController {
             type: 'query_submission',
             submission_id: submission.payload.submission_id,
             subject_id: submission.payload.subject_id,
+            send_epoch: submission.send_epoch,
           }),
         );
       } catch {
@@ -623,6 +660,13 @@ class LiveController implements ProjectionController {
       (row) => row.payload.submission_id === data.submission_id,
     );
     if (!submission) return;
+    // Correlate the view with the send attempt that produced it. A stale
+    // not_admitted racing a newer retry must not restore the draft or demote
+    // a fact already returned by that retry.
+    if (validRevision(data.send_epoch) && data.send_epoch < submission.send_epoch) {
+      return;
+    }
+    let retired = false;
     if (data.result === 'found' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
@@ -633,6 +677,8 @@ class LiveController implements ProjectionController {
         submission.committed_at =
           typeof data.committed_at === 'string' ? data.committed_at : submission.committed_at;
         submission.detail = undefined;
+        retireSubmission(submission);
+        retired = true;
       } else if (data.stage === 'selected' && typeof data.selected_step_id === 'string') {
         if (submission.receipt !== 'committed') submission.receipt = 'selected';
         submission.selected_step_id =
@@ -649,6 +695,8 @@ class LiveController implements ProjectionController {
       // free to retry with identical content.
       submission.receipt = 'rejected';
       submission.detail = '服务端无此提交记录；可以同一 ID 重发。';
+      retireSubmission(submission);
+      retired = true;
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
@@ -658,7 +706,7 @@ class LiveController implements ProjectionController {
       submission.detail = '持久查询暂不可用；原 ID 与此前回执仍保留。';
     }
     // Query failure is not not_admitted and never restores an accepted draft.
-    saveSubmissions(this.state.submissions);
+    if (!retired) saveSubmission(submission);
     this.scheduleReceiptRefresh();
     this.emit();
   }

@@ -299,6 +299,10 @@ struct SubmissionView {
     selected_step_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     committed_at: Option<String>,
+    // Echo of the client's send-attempt counter so stale views cannot be
+    // applied to a newer retry; never a server-side sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    send_epoch: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -355,6 +359,10 @@ struct SubmissionQuery {
     kind: String,
     submission_id: String,
     subject_id: String,
+    // Client-scoped attempt counter; echoed back, never trusted as ordering
+    // or identity on the server side.
+    #[serde(default)]
+    send_epoch: Option<u64>,
 }
 
 /// The dedup key payload: the canonical client fields, serialized with fixed
@@ -497,6 +505,7 @@ fn submission_view(state: &WsState, query: &SubmissionQuery) -> SubmissionView {
         accepted_commit: None,
         selected_step_id: None,
         committed_at: None,
+        send_epoch: query.send_epoch,
     };
     let (Some(store), Some(subject_id)) = (&state.store, state.subject_id) else {
         return base("temporarily_unavailable");
@@ -617,6 +626,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                     accepted_commit: None,
                                     selected_step_id: None,
                                     committed_at: None,
+                                    send_epoch: query.send_epoch,
                                 }
                             };
                             let json =

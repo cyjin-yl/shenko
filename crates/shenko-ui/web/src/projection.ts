@@ -61,6 +61,9 @@ export interface Submission {
   accepted_commit?: string;
   selected_step_id?: string;
   committed_at?: string;
+  // Correlation between this client's send attempts and the query_replies:
+  // a view for an older attempt must not undo a newer send's restored ACK.
+  send_epoch: number;
 }
 
 export interface IdentityView {

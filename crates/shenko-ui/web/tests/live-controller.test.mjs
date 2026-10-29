@@ -36,7 +36,8 @@ function environment(t) {
       const message = JSON.parse(text);
       this.sent.push(message);
       if (message.type === 'submit') {
-        this.persistedAtSend.push(JSON.parse(storage.get('shenko.submissions.v1') ?? '[]'));
+        this.persistedAtSend.push(JSON.parse(
+          storage.get(`shenko.submission.v2.${message.submission_id}`) ?? 'null'));
       }
     }
     close() { this.readyState = 3; this.onclose?.({}); }
@@ -49,6 +50,8 @@ function environment(t) {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value),
       removeItem: (key) => storage.delete(key),
+      key: (index) => [...storage.keys()][index] ?? null,
+      get length() { return storage.size; },
     },
     WebSocket: TestSocket,
     fetch: async (path) => ({
@@ -96,7 +99,7 @@ function view(socket, input, stage, extra = {}) {
 }
 
 test('live receipts query Store facts while preserving draft and reading state', async (t) => {
-  const { sockets } = environment(t);
+  const { storage, sockets } = environment(t);
   const controller = createLiveController();
   t.after(() => controller.dispose());
   await setImmediate();
@@ -121,6 +124,7 @@ test('live receipts query Store facts while preserving draft and reading state',
   assert.ok(socket.sent.filter((message) => message.type === 'query_submission').length > queries);
   view(socket, input, 'committed', { committed_at: 'ledger/9' });
   assert.equal(submission(controller).receipt, 'committed');
+  assert.equal(storage.get(`shenko.submission.v2.${input.submission_id}`), undefined);
   const projection = controller.projection();
   assert.equal(projection.nodes.find((node) => node.node_id === 'composer').props.draft,
     '不要覆盖的新草稿');
@@ -137,7 +141,7 @@ test('page reopen reconciles a lost ACK using the persisted original payload and
   intent(first, 'composer', 'composer.draft', { value: 'ACK 丢失也不能重复' });
   intent(first, 'composer', 'composer.append');
   const original = socket.sent.find((message) => message.type === 'submit');
-  assert.deepEqual(socket.persistedAtSend[0][0].payload, original);
+  assert.deepEqual(socket.persistedAtSend[0].payload, original);
   intent(first, 'composer', 'composer.draft', { value: '重开后保留的草稿' });
   // No receipt is delivered. Dispose models page closure without any ACK.
   first.dispose();
@@ -150,6 +154,20 @@ test('page reopen reconciles a lost ACK using the persisted original payload and
   assert.equal(newSocket.sent.find((message) => message.type === 'query_submission').submission_id,
     original.submission_id);
   assert.equal(newSocket.sent.some((message) => message.type === 'submit'), false);
+  // A stale not_admitted belonging to an older send attempt must not restore
+  // the draft or demote the retry; retrying keeps the same ID.
+  intent(reopened, `submission.${original.submission_id}`, 'submission.retry',
+    { submission_id: original.submission_id });
+  const retry = newSocket.sent.filter((message) => message.type === 'submit');
+  assert.equal(retry.length, 1);
+  assert.equal(retry[0].submission_id, original.submission_id);
+  newSocket.receive({
+    schema_version: 2, type: 'submission_view', result: 'not_admitted',
+    submission_id: original.submission_id, send_epoch: 0,
+  });
+  assert.equal(submission(reopened).receipt, 'sending');
+  assert.equal(reopened.projection().nodes.find((node) => node.node_id === 'composer').props.draft,
+    '重开后保留的草稿');
   view(newSocket, original, 'accepted');
   assert.deepEqual(submission(reopened).payload, original);
   assert.equal(submission(reopened).receipt, 'accepted');
