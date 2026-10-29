@@ -73,7 +73,7 @@ export GENDIR="$RUN_DIR/vendor/generated"
 export UNSTRIPPED="$GENDIR/unstripped"
 export KCONFIG_CONFIG="$RUN_DIR/vendor/.config"
 unset KCONFIG_ALLCONFIG
-export CFLAGS="--target=wasm32-wasi --sysroot=$WASI_SDK/share/wasi-sysroot \
+export CFLAGS="--target=wasm32-wasip1 --sysroot=$WASI_SDK/share/wasi-sysroot \
   -O2 -fno-builtin -Wall -Wno-unused-function \
   -include $PORT_DIR/wasi-compat.h"
 export LDFLAGS=""
@@ -81,7 +81,7 @@ export LDFLAGS=""
 # Both source and binary probe are retained. There is no /tmp path and no
 # cleanup trap that could erase a previous run or its evidence.
 printf '%s\n' 'int main(void){return 0;}' > "$RUN_DIR/probe.c"
-"$CC" --target=wasm32-wasi --sysroot="$WASI_SDK/share/wasi-sysroot" \
+"$CC" --target=wasm32-wasip1 --sysroot="$WASI_SDK/share/wasi-sysroot" \
   -o "$RUN_DIR/probe.wasm" "$RUN_DIR/probe.c" \
   > "$RUN_DIR/logs/probe.log" 2>&1 || {
     echo "SDK probe failed; retained log: $RUN_DIR/logs/probe.log" >&2
