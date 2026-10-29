@@ -102,8 +102,9 @@ fn decide_fixture(store: &Store, policy: &QuotaPolicy, remaining: u64) -> Policy
 }
 
 fn admitted(store: &Store, policy: &QuotaPolicy, decision: &PolicyDecision) -> shenko_quota::QuotaAdmission {
+    let send_id = EntityId::new();
     let receipt = store
-        .admit_quota_request(policy, decision, EntityId::new(), &availability(), now())
+        .admit_quota_send(EntityId::new(), policy, decision, send_id, &availability(), now())
         .unwrap();
     match receipt.outcome {
         AdmissionOutcome::Quota(admission) if admission.state == AdmissionState::Admitted => admission,
@@ -195,7 +196,7 @@ fn armed_cancel_retains_unknown_charge() {
     assert_eq!(retained_costs[0].amount.lower, 0.0);
     assert_eq!(retained_costs[0].amount.upper, 1.0);
     let replay = store
-        .admit_quota_request(&policy, &decision, admission.request_id, &availability(), now())
+        .admit_quota_send(admission.request_id, &policy, &decision, admission.request_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &replay.outcome,
@@ -244,7 +245,7 @@ fn awaiting_model_cas_requires_armed_reservation() {
         .is_err());
     // Admit and arm this exact request id, then the identical CAS succeeds.
     let receipt = store
-        .admit_quota_request(&policy, &decision, request_id, &availability(), now())
+        .admit_quota_send(request_id, &policy, &decision, request_id, &availability(), now())
         .unwrap();
     let AdmissionOutcome::Quota(admission) = receipt.outcome else {
         panic!("expected fresh admission");
@@ -271,7 +272,7 @@ fn never_dispatched_releases_reservation() {
     let second = admitted(&store, &policy, &decision);
     let third_id = EntityId::new();
     let waiting = store
-        .admit_quota_request(&policy, &decision, third_id, &availability(), now())
+        .admit_quota_send(third_id, &policy, &decision, third_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &waiting.outcome,
@@ -287,7 +288,7 @@ fn never_dispatched_releases_reservation() {
         .iter()
         .all(|attempt| attempt.request_id != first.request_id));
     let retried = store
-        .admit_quota_request(&policy, &decision, third_id, &availability(), now())
+        .admit_quota_send(third_id, &policy, &decision, third_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &retried.outcome,
@@ -342,7 +343,7 @@ fn admitted_request_reconciles_under_refreshed_decision() {
     refreshed.decision_id = EntityId::new();
     store.record_quota_decision(&refreshed).unwrap();
     let outcome = store
-        .admit_quota_request(&policy, &refreshed, admission.request_id, &availability(), now())
+        .admit_quota_send(admission.request_id, &policy, &refreshed, admission.request_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &outcome.outcome,
@@ -376,7 +377,7 @@ fn coverage_proof_discounts_but_never_erases_reservation() {
     let (armed, bound) = store.arm_quota_send(admission.request_id, &admission).unwrap();
     // Bucket had room for exactly one: the next admission must wait.
     let waiting = store
-        .admit_quota_request(&policy, &decision, EntityId::new(), &availability(), now())
+        .admit_quota_send(EntityId::new(), &policy, &decision, EntityId::new(), &availability(), now())
         .unwrap();
     assert!(matches!(
         &waiting.outcome,
@@ -400,7 +401,7 @@ fn coverage_proof_discounts_but_never_erases_reservation() {
     let next = decide(&policy, &[covered_forecast], &availability(), Some(&decision), now()).unwrap();
     store.record_quota_decision(&next).unwrap();
     let admitted_next = store
-        .admit_quota_request(&policy, &next, EntityId::new(), &availability(), now())
+        .admit_quota_send(EntityId::new(), &policy, &next, EntityId::new(), &availability(), now())
         .unwrap();
     assert!(matches!(
         &admitted_next.outcome,

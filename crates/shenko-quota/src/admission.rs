@@ -161,9 +161,11 @@ fn reconcile_admission(
     // The known charge is the preserved outstanding reservation, never a
     // second estimate: this admission must not double-charge the request.
     refreshed.estimated_cost = reservation.outstanding.clone();
-    // Admission time and pacing obligations are preserved history, not
-    // current eligibility: a request parked in a waiting state still owes
-    // and still paces exactly what its original dispatch armed.
+    // Bound profile, admission time and pacing obligations are preserved
+    // history, not current eligibility: a request parked in a waiting
+    // state still owes and still paces exactly what its original dispatch
+    // armed, and a later positive decision must find the same profile.
+    refreshed.profile_id = reservation.admission.profile_id.clone();
     refreshed.admitted_at = admitted_at;
     refreshed.paced_windows = paced_windows;
     reservation.admission = refreshed;
@@ -189,11 +191,6 @@ fn valid_pacer(pacer: &Pacer) -> bool {
         // is therefore only legal on a cancelled record.
         if !cancelled && reservation.dispatch == Some(DispatchEvidence::NeverDispatched) { return false; }
         if reservation.dispatch == Some(DispatchEvidence::NeverDispatched) && !reservation.outstanding.is_empty() { return false; }
-        // An outstanding charge on a non-admitted, non-cancelled record is
-        // only the preserved history of an armed send.
-        if !admitted && !cancelled
-            && reservation.dispatch != Some(DispatchEvidence::ArmedOrUnknown)
-            && !reservation.outstanding.is_empty() { return false; }
         original.clear();
         for cost in &admission.estimated_cost {
             if cost.unit.is_empty() || Range::new(cost.amount.lower, cost.amount.upper).is_none()
@@ -663,9 +660,6 @@ pub fn cancel(pacer: &mut Pacer, admission: &QuotaAdmission, evidence: DispatchE
             return Ok((reservation.admission.clone(), reservation.outstanding.clone()));
         }
         if reservation.admission != *admission { return Err(CancellationError::IdentityMismatch); }
-        if evidence == DispatchEvidence::ArmedOrUnknown && admission.state != AdmissionState::Admitted {
-            return Err(CancellationError::InvalidState);
-        }
         if evidence == DispatchEvidence::ArmedOrUnknown && reservation.dispatch != Some(DispatchEvidence::ArmedOrUnknown) {
             return Err(CancellationError::MissingAttempt);
         }

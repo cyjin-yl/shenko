@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS quota_sends (
 );
 "#;
 
-/// The pacer write produced by `admit_quota_request`: the typed admission
+/// The pacer write produced by `admit_quota_send`: the typed admission
 /// outcome plus the ledger position of the durable record, when the call
 /// actually changed state.
 #[derive(Debug, Clone)]
@@ -149,32 +149,46 @@ pub(crate) fn quota_request_sends(
 }
 
 /// The dispatch claim inside every AwaitingModel step CAS: once quota is
-/// configured, a request may be dispatched only after its LATEST recorded
-/// wire send is admitted AND armed AND not yet claimed on this ledger. The
-/// claim is written in the same transaction as the step CAS, so exactly one
-/// step binds each send and a send's actual dispatch binding is durable
-/// evidence — not a mutable "latest armed" guess.
+/// configured, a request may be dispatched only through the LATEST
+/// unclaimed send whose reservation is alive — exactly the send the gate
+/// is required to offer, so the gate's selection and this claim can never
+/// diverge. The claim is written in the same transaction as the step CAS,
+/// so exactly one step binds each send and a send's actual dispatch
+/// binding is durable evidence — not a mutable "latest armed" guess.
 pub(crate) fn quota_claim_latest_send(
     tx: &Transaction<'_>,
     request_id: EntityId,
 ) -> Result<bool, ShenkoError> {
-    let Some((send_id, claimed)) = quota_request_sends(tx, request_id)?.pop() else {
+    let pacer = read_pacer(tx)?;
+    // The one claimable send mirrors the gate's reuse predicate verbatim:
+    // latest unclaimed send with a non-cancelled reservation.
+    let claimable = quota_request_sends(tx, request_id)?
+        .iter()
+        .rev()
+        .find(|(send_id, claimed)| {
+            !claimed
+                && pacer.reservation(send_id).is_some_and(|reservation| {
+                    reservation.admission.state != shenko_quota::AdmissionState::Cancelled
+                })
+        })
+        .map(|(send_id, _)| *send_id);
+    let Some(send_id) = claimable else {
         return Ok(false);
     };
-    if claimed {
-        return Ok(false);
-    }
-    let pacer = read_pacer(tx)?;
-    Ok(pacer.reservation(&send_id).is_some_and(|reservation| {
+    let armed = pacer.reservation(&send_id).is_some_and(|reservation| {
         reservation.admission.state == shenko_quota::AdmissionState::Admitted
             && reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
-    })
-        && tx.execute(
+    });
+    if !armed {
+        return Ok(false);
+    }
+    Ok(tx
+        .execute(
             "UPDATE quota_sends SET claimed=1 WHERE send_id=?1 AND claimed=0",
             [send_id.to_string()],
         )
         .map_err(storage_error)?
-            == 1)
+        == 1)
 }
 
 impl Store {
@@ -597,19 +611,24 @@ impl Store {
         read_pacer(&conn)
     }
 
-    /// Run typed admission for `request_id` and persist any pacer change in
-    /// the same mutation. The policy and decision must be the recorded rows
-    /// verbatim; an unrecorded or rewritten source is a conflict.
-    pub fn admit_quota_request(
+    /// Run typed admission for one wire SEND `send_id` of the immutable
+    /// sealed `request_id` and persist any pacer change plus the send's
+    /// lineage row in the same mutation, so a charged send can never become
+    /// unfindable. An existing lineage row must bind the identical request;
+    /// the policy and decision must be the recorded rows verbatim.
+    pub fn admit_quota_send(
         &self,
+        request_id: EntityId,
         policy: &QuotaPolicy,
         decision: &PolicyDecision,
-        request_id: EntityId,
+        send_id: EntityId,
         availability: &HashMap<String, BackendState>,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<QuotaAdmissionReceipt, ShenkoError> {
         let policy_data = serde_json::to_string(policy)?;
         let decision_data = serde_json::to_string(decision)?;
+        let request_row = request_id.to_string();
+        let send_row = send_id.to_string();
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -646,10 +665,34 @@ impl Store {
                 let mut pacer = read_pacer(&tx)?;
                 let before = pacer.clone();
                 let outcome =
-                    admit(policy, decision, request_id, &mut pacer, availability, now);
+                    admit(policy, decision, send_id, &mut pacer, availability, now);
                 let mut commit = None;
                 if pacer != before {
                     let seq = self.ledger.allocate_seq(&tx)?;
+                    // The send→request lineage is born with the reservation
+                    // it charges; a later arming commit verifies, never
+                    // invents, this association.
+                    let lineage: Option<String> = tx
+                        .query_row(
+                            "SELECT request_id FROM quota_sends WHERE send_id=?1",
+                            [&send_row],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    match lineage {
+                        Some(bound) if bound == request_row => {}
+                        Some(_) => {
+                            return Err(conflict("send id is bound to another request"))
+                        }
+                        None => {
+                            tx.execute(
+                                "INSERT INTO quota_sends(send_id,request_id,send_seq,claimed) VALUES(?1,?2,?3,0)",
+                                params![send_row, request_row, seq.0 as i64],
+                            )
+                            .map_err(storage_error)?;
+                        }
+                    }
                     write_pacer(&tx, &pacer, seq)?;
                     let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
                     self.record_subject_commit(&tx, commit_ref, 1)?;
@@ -732,6 +775,20 @@ impl Store {
                     }
                     admission.clone()
                 } else {
+                    // The lineage was written by the admission commit; an
+                    // armed send that its own admit did not bind is ledger
+                    // damage, never silently re-anchored.
+                    let lineage: Option<String> = tx
+                        .query_row(
+                            "SELECT request_id FROM quota_sends WHERE send_id=?1",
+                            [admission.request_id.to_string()],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    if lineage.as_deref() != Some(request_id.to_string().as_str()) {
+                        return Err(conflict("armed send lineage is missing or bound elsewhere"));
+                    }
                     let attempts: Vec<LocalAttempt> = admission
                         .estimated_cost
                         .iter()
@@ -759,12 +816,6 @@ impl Store {
                         )
                         .map_err(storage_error)?;
                     }
-                    tx.execute(
-                        "INSERT INTO quota_sends(send_id,request_id,send_seq) VALUES(?1,?2,?3)",
-                        params![admission.request_id.to_string(),
-                            request_id.to_string(), commit.seq.0 as i64],
-                    )
-                    .map_err(storage_error)?;
                     write_pacer(&tx, &pacer, seq)?;
                     armed
                 };

@@ -545,7 +545,6 @@ async fn quota_dispatch_gate(
     store: &shenko_store::store::Store,
     binding: &shenko_broker::request::ProviderBinding,
     request_id: EntityId,
-    new_send: bool,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<QuotaGate, ShenkoError> {
     use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
@@ -572,38 +571,26 @@ async fn quota_dispatch_gate(
             )
         })
         .collect();
-    // Admission identity is one wire SEND of the immutable sealed request:
-    // the request id never changes; each conclusively rejected send retries
-    // under a fresh send id with its own budget and pacing, while an
-    // unclaimed send (armed but never bound by an AwaitingModel CAS) is
-    // REUSED across gate re-entries instead of minting a duplicate budget.
-    // The AwaitingModel CAS durably claims the send in its own transaction,
-    // so the actual dispatch binding is ledger evidence.
+    // Admission identity is one wire SEND of the immutable sealed request.
+    // The gate offers exactly the send the CAS will claim — the LATEST
+    // unclaimed send with a live reservation — so selection and claim can
+    // never diverge: a claimed send is durably bound, a cancelled one is
+    // dead, and only when none is claimable does a retry mint a fresh
+    // send_id with its own budget and pacing. Unclaimed sends are reused
+    // across gate re-entries instead of minting ghost budgets.
     let pacer = store.quota_pacer()?;
-    let sends = store.quota_send_ids(request_id)?;
-    let send_id = if new_send {
-        sends
-            .iter()
-            .rev()
-            .find(|(send_id, claimed)| {
-                !claimed
-                    && pacer.reservation(send_id).is_some_and(|reservation| {
-                        reservation.admission.state != AdmissionState::Cancelled
-                    })
-            })
-            .map(|(send_id, _)| *send_id)
-            .unwrap_or_else(EntityId::new)
-    } else {
-        match sends.last() {
-            Some((latest, _)) => {
-                let reusable = pacer.reservation(latest).is_some_and(|reservation| {
+    let send_id = store
+        .quota_send_ids(request_id)?
+        .iter()
+        .rev()
+        .find(|(send_id, claimed)| {
+            !claimed
+                && pacer.reservation(send_id).is_some_and(|reservation| {
                     reservation.admission.state != AdmissionState::Cancelled
-                });
-                if reusable { *latest } else { EntityId::new() }
-            }
-            None => EntityId::new(),
-        }
-    };
+                })
+        })
+        .map(|(send_id, _)| *send_id)
+        .unwrap_or_else(EntityId::new);
     // Recomputations and re-eligible outcomes that make no progress are
     // bounded; a decision that still cannot settle is a reconciliation
     // fact, not a spin. The counter covers only CONSECUTIVE recompute
@@ -695,7 +682,8 @@ async fn quota_dispatch_gate(
                 (policy.clone(), decision)
             }
         };
-        let receipt = store.admit_quota_request(
+        let receipt = store.admit_quota_send(
+            request_id,
             &policy_in_use,
             &decision,
             send_id,
@@ -1075,12 +1063,10 @@ async fn execute_step(
         // rejected send retries under a fresh send id with its own budget
         // and pacing; the prior send keeps its armed unknown charge.
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
-        let new_send = step.state == SubjectStepState::RetryPending;
         match quota_dispatch_gate(
             &store,
             broker.binding(),
             request_id,
-            new_send,
             cancel,
         )
         .await
