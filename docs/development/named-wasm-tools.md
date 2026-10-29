@@ -24,11 +24,18 @@ Git/SSH 端到端认证）。
   `TOOL_ABI_UNSUPPORTED` 四个显式错误。
 - **`Node::open_inspect`** 提供不建库、不迁移的只读打开；`tool list`
   只读、不会初始化或改写任何存储。
-- **安装身份**：CLI 执行先通过 `Store::inspect_installation_binding`
-  对既有数据库做只读快照，比较 home manifest 的 installation_id 与真实
-  ledger_id；缺库、旧库或异库不会在拒绝前被创建/迁移。CLI、native handler
-  与 `node_sync::open_node` 共用 subject/genesis/branch 的身份投影，node
-  不匹配则拒绝，native 也检查路径上数据库仍匹配活跃 Store。
+- **安装身份**：CLI 执行先通过 `Store::inspect_installation_binding`：将
+  主库及其 -journal/-wal 侧车复制进临时快照（原始文件元组零写入——只读
+  打开会在 -shm 缺失时写原路径，immutable=1 则会静默漏掉未 checkpoint
+  的 WAL，两者都不可用），quick_check 后读绑定，并要求复制窗口内原库
+  签名不变；持续变化的库如实报不稳定而非承认撕裂快照。比较 home
+  manifest 的 installation_id 与真实 ledger_id；缺库、旧库或异库不会在
+  拒绝前被创建/迁移。CLI、native handler 与 `node_sync::open_node` 共用
+  subject/genesis/branch 的身份投影：subject_genesis 是可复制的历史，多
+  genesis 安装只绑定本安装真正拥有的主体（genesis 或 head 在本 ledger
+  提交者），外来 genesis 保留为 provenance 而非身份候选，也绝不删除；
+  多个本地候选是完整性错误。node 不匹配则拒绝，native 也检查路径上
+  数据库仍匹配活跃 Store。
 - **执行重验**：`wasi.exec` 与 `tool exec` 每次执行前用 unit_object_bytes
   重新读封 bytes 并对 recorded digest——被替换的物化文件没有权威，
   外来 `tools/` 目录永远顶替不了已装记录（没有独立 store 可被换绑）。

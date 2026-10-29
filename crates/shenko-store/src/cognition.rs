@@ -45,7 +45,7 @@
 //!   that already holds other content keeps it: the divergence is reported
 //!   instead of being overwritten.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -1460,28 +1460,16 @@ impl Store {
             rows.extend(read_table(&tx, spec)?);
         }
         let derivatives = read_derivatives(&tx)?;
-        let agent_id: Option<String> = tx
-            .query_row(
-                "SELECT subject_id FROM subject_genesis LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db)?;
+        // Replicated genesis rows stay history; the export is labeled by the
+        // subject this installation actually owns, never an arbitrary row.
+        let agent_id: Option<EntityId> =
+            crate::store::read_local_subject_id(&tx, self.ledger.ledger_id())?;
         let high_water: i64 = tx
             .query_row("SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| {
                 row.get(0)
             })
             .map_err(db)?;
         tx.commit().map_err(db)?;
-        let agent_id = match agent_id {
-            Some(value) => Some(
-                value
-                    .parse::<EntityId>()
-                    .map_err(|_| anyhow!("invalid stored agent id {value}"))?,
-            ),
-            None => None,
-        };
         Ok((
             rows,
             derivatives,

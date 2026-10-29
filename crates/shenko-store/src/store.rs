@@ -1,5 +1,5 @@
 //! Main store — SPEC §41.2.1
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use std::path::{Path, PathBuf};
@@ -54,15 +54,31 @@ impl Store {
     pub fn inspect_installation_binding(db_path: &Path) -> Result<InstallationBinding> {
         let metadata = std::fs::symlink_metadata(db_path)?;
         ensure!(metadata.is_file(), "installation database must be a regular file");
-        let mut conn = Connection::open_with_flags(
-            db_path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-        )?;
-        conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        let tx = conn.transaction()?;
-        let binding = read_installation_binding(&tx)?;
-        tx.commit()?;
-        Ok(binding)
+        // A read-only open on the live tuple is not side-effect free: when a
+        // WAL database has a live -wal but no -shm, SQLite creates/initializes
+        // the shared-memory file on the original path. `immutable=1` is no
+        // answer either — it silently ignores uncheckpointed WAL content, so
+        // the binding could be read from stale bytes. The only zero-touch
+        // view is a private copy: copy the main db plus its journal/WAL
+        // sidecars into a temp dir and let the staged copy recover.
+        //
+        // Per-member signatures captured before and after each copy keep the
+        // snapshot consistent against a live writer: if main and WAL are
+        // unchanged across the whole window, no checkpoint could have torn
+        // the staged main between reads. A database that keeps changing under
+        // inspection is reported unstable instead of silently admitting an
+        // inconsistent snapshot.
+        const ATTEMPTS: usize = 4;
+        let mut last_error: Option<anyhow::Error> = None;
+        for _ in 0..ATTEMPTS {
+            match inspect_installation_binding_once(db_path) {
+                Ok(binding) => return Ok(binding),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            anyhow::anyhow!("installation database kept changing during inspection")
+        }))
     }
 
     /// Use exactly the same identity projection for a live Store and a
@@ -881,18 +897,9 @@ impl Store {
     /// 数据库错误不能冒充首次运行，否则会重复出生。
     pub fn get_existing_agent_id(&self) -> Result<Option<EntityId>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let result: Option<String> = conn
-            .query_row("SELECT subject_id FROM subject_genesis LIMIT 1", [], |r| {
-                r.get(0)
-            })
-            .optional()
-            .map_err(storage_error)?;
-        result
-            .map(|id| {
-                id.parse()
-                    .map_err(|_| ShenkoError::storage("invalid stored agent_id"))
-            })
-            .transpose()
+        // Replicated genesis rows are copied history, not this installation's
+        // subject. Only the locally owned subject may answer "do we have one".
+        read_local_subject_id(&conn, self.ledger.ledger_id())
     }
 
     /// Read the latest committed OperationRecord by id. SPEC §41.4 X03.
@@ -999,15 +1006,19 @@ fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     let ledger_id: String = conn.query_row(
         "SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |r| r.get(0),
     )?;
-    let mut genesis_rows = conn.prepare("SELECT subject_id,data FROM subject_genesis LIMIT 2")?;
-    let mut rows = genesis_rows.query([])?;
-    let subject = if let Some(row) = rows.next()? {
-        let id: String = row.get(0)?;
-        let json: String = row.get(1)?;
-        let agent_id: EntityId = id.parse()?;
+    let ledger_id: EntityId = ledger_id.parse()?;
+    // subject_genesis is replicated history: a receiving installation can
+    // retain its peer's genesis alongside its own. Only the subject this
+    // installation actually owns binds the node's identity; foreign rows are
+    // provenance, not candidates, and are never removed to satisfy this check.
+    let subject = if let Some(agent_id) = read_local_subject_id(conn, ledger_id)? {
+        let json: String = conn.query_row(
+            "SELECT data FROM subject_genesis WHERE subject_id=?1",
+            [agent_id.to_string()],
+            |r| r.get(0),
+        )?;
         let genesis: SubjectGenesis = serde_json::from_str(&json)?;
         ensure!(genesis.subject_id == agent_id, "subject genesis identity mismatch");
-        ensure!(rows.next()?.is_none(), "installation has more than one subject");
         let (head, _) = read_subject(conn, agent_id)?;
         Some(SubjectBinding {
             agent_id,
@@ -1017,7 +1028,180 @@ fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
     } else {
         None
     };
-    Ok(InstallationBinding { ledger_id: ledger_id.parse()?, subject })
+    Ok(InstallationBinding { ledger_id, subject })
+}
+
+/// One staging attempt for `inspect_installation_binding`: copy the tuple,
+/// validate the staged copy, read the binding, then confirm the live tuple
+/// did not move during the read.
+fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBinding> {
+    let staging = tempfile::Builder::new()
+        .prefix("shenko-inspect-")
+        .tempdir()?;
+    let staged = staging.path().join("inspect.db");
+    let recorded = copy_stable_tuple(db_path, &staged)?;
+    let mut conn = Connection::open_with_flags(
+        &staged,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    {
+        let check: String = conn.query_row("PRAGMA quick_check(1)", [], |row| row.get(0))?;
+        ensure!(check == "ok", "installation database failed integrity check: {check}");
+    }
+    let binding = {
+        let tx = conn.transaction()?;
+        let binding = read_installation_binding(&tx)?;
+        tx.commit()?;
+        binding
+    };
+    conn.close().map_err(|(_, error)| error)?;
+    ensure!(
+        unchanged_tuple(db_path, &recorded)?,
+        "installation database changed during inspection"
+    );
+    Ok(binding)
+}
+
+/// The subject this installation actually owns, if exactly one exists.
+///
+/// A replicated genesis keeps the ledger that created it, so a subject counts
+/// as local when its genesis was committed here or its head has committed
+/// local work (a takeover writes this installation's commits onto the adopted
+/// branch head). Imported replicas satisfy neither and stay parked history.
+/// More than one qualifying subject is an integrity error, never a coin flip.
+pub(crate) fn read_local_subject_id(
+    conn: &Connection,
+    ledger_id: EntityId,
+) -> Result<Option<EntityId>, ShenkoError> {
+    let mut genesis_rows = conn.prepare(
+        "SELECT subject_id, data FROM subject_genesis",
+    )
+    .map_err(storage_error)?;
+    let rows = genesis_rows
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(storage_error)?;
+    let mut local: Vec<EntityId> = Vec::new();
+    for (id, json) in rows {
+        let agent_id: EntityId = id
+            .parse()
+            .map_err(|_| ShenkoError::storage("invalid stored agent_id"))?;
+        let genesis: SubjectGenesis = serde_json::from_str(&json)?;
+        if genesis.subject_id != agent_id {
+            return Err(ShenkoError::conflict("subject genesis identity mismatch"));
+        }
+        let head_ledger: Option<String> = conn
+            .query_row(
+                "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                [agent_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let committed_here = match head_ledger {
+            Some(head_json) => {
+                let head: SubjectBranchHead = serde_json::from_str(&head_json)?;
+                head.committed_at.ledger_id == ledger_id
+            }
+            None => false,
+        };
+        if genesis.created_commit.ledger_id == ledger_id || committed_here {
+            local.push(agent_id);
+        }
+    }
+    match local.len() {
+        0 => Ok(None),
+        1 => Ok(local.pop()),
+        _ => Err(ShenkoError::conflict(
+            "installation has more than one local subject",
+        )),
+    }
+}
+
+fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut name = db_path.as_os_str().to_os_string();
+    name.push(suffix);
+    name.into()
+}
+
+/// Signature of one live SQLite tuple member: None when absent. Anything that
+/// is not a plain regular file is rejected rather than followed.
+fn tuple_signature(path: &Path) -> Result<Option<(u64, u64, u64, i64)>> {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            ensure!(
+                meta.is_file() && !meta.file_type().is_symlink(),
+                "installation database member is not a regular file: {}",
+                path.display()
+            );
+            Ok(Some((meta.dev(), meta.ino(), meta.len(), meta.mtime())))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Copy `src` into `dst` without following a swapped-in symlink, then verify
+/// the source signature survived the copy. A changed source is reported so
+/// the caller can restage instead of trusting a torn snapshot.
+fn copy_member(src: &Path, dst: &Path) -> Result<(u64, u64, u64, i64)> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let before = tuple_signature(src)?.context("database member vanished")?;
+    let mut input = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(src)
+        .with_context(|| format!("open {}", src.display()))?;
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dst)?;
+    std::io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    let after = tuple_signature(src)?.context("database member vanished")?;
+    ensure!(
+        after == before,
+        "installation database member changed during inspection copy"
+    );
+    Ok(before)
+}
+
+/// Stage a consistent copy of the db tuple (main, -journal, -wal) under
+/// `staged` and return the live signatures captured during the copy. -shm is
+/// derived and never copied; the staged reader rebuilds it.
+fn copy_stable_tuple(
+    db_path: &Path,
+    staged: &Path,
+) -> Result<Vec<Option<(u64, u64, u64, i64)>>> {
+    let mut signatures = Vec::with_capacity(3);
+    for suffix in ["", "-journal", "-wal"] {
+        let live = sidecar_path(db_path, suffix);
+        let Some(before) = tuple_signature(&live)? else {
+            signatures.push(None);
+            continue;
+        };
+        let dst = sidecar_path(staged, suffix);
+        let copied = copy_member(&live, &dst)?;
+        ensure!(
+            copied == before,
+            "installation database member changed during inspection copy"
+        );
+        signatures.push(Some(before));
+    }
+    Ok(signatures)
+}
+
+/// True when the live tuple still matches the signatures captured at copy.
+fn unchanged_tuple(db_path: &Path, recorded: &[Option<(u64, u64, u64, i64)>]) -> Result<bool> {
+    for (suffix, recorded_sig) in ["", "-journal", "-wal"].iter().zip(recorded.iter()) {
+        if &tuple_signature(&sidecar_path(db_path, suffix))? != recorded_sig {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 fn read_subject(
