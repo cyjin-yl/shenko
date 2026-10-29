@@ -119,6 +119,11 @@ impl PolicyRegistry {
         self.state.lock().preference = ids;
     }
 
+    /// The preference order currently in effect, for honest reporting.
+    pub fn preference(&self) -> Vec<String> {
+        self.state.lock().preference.clone()
+    }
+
     fn candidates(&self) -> Vec<(Arc<dyn ContextPolicy>, PolicyManifest, u64)> {
         let state = self.state.lock();
         let rank = |id: &str| {
