@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 use shenko_broker::{AnthropicProvider, LocalModelProvider, InferenceMessage, InferencePayload,
-    InferencePriority, InferenceRequest, ProviderBinding};
+    InferencePriority, InferenceRequest};
 use shenko_types::ids::{ControllerEpoch, EntityId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
