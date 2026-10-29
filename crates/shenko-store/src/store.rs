@@ -1215,10 +1215,10 @@ unsafe fn copy_child_body(
                     dev: st.st_dev as u64,
                     ino: st.st_ino as u64,
                     len: st.st_size as u64,
-                    mtime: st.st_mtim.tv_sec as i64,
-                    mtime_ns: st.st_mtim.tv_nsec as i64,
-                    ctime: st.st_ctim.tv_sec as i64,
-                    ctime_ns: st.st_ctim.tv_nsec as i64,
+                    mtime: st.st_mtime as i64,
+                    mtime_ns: st.st_mtime_nsec as i64,
+                    ctime: st.st_ctime as i64,
+                    ctime_ns: st.st_ctime_nsec as i64,
                 };
                 let mut buf = [0u8; 65536];
                 loop {
@@ -1261,10 +1261,10 @@ unsafe fn copy_child_body(
                             dev: st2.st_dev as u64,
                             ino: st2.st_ino as u64,
                             len: st2.st_size as u64,
-                            mtime: st2.st_mtim.tv_sec as i64,
-                            mtime_ns: st2.st_mtim.tv_nsec as i64,
-                            ctime: st2.st_ctim.tv_sec as i64,
-                            ctime_ns: st2.st_ctim.tv_nsec as i64,
+                            mtime: st2.st_mtime as i64,
+                            mtime_ns: st2.st_mtime_nsec as i64,
+                            ctime: st2.st_ctime as i64,
+                            ctime_ns: st2.st_ctime_nsec as i64,
                         };
                     }
                 }
