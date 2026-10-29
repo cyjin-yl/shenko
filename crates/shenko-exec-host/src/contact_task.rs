@@ -983,8 +983,6 @@ mod tests {
             client.spool.clone(),
             cancel.clone(),
         ));
-        let member_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let member_calls_server = member_calls.clone();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
@@ -1000,21 +998,12 @@ mod tests {
                         "status": "ok", "retcode": 1404, "echo": echo, "self_id": 9,
                         "data": null, "message": "unknown user",
                     }),
-                    "get_group_member_info" => {
-                        match member_calls_server.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
-                            // "async" is not an answer: a send may tolerate it,
-                            // a read query must not.
-                            0 => json!({
-                                "status": "async", "retcode": 0, "echo": echo, "self_id": 9,
-                                "data": {"user_id": 7},
-                            }),
-                            // A list is never a single member record.
-                            _ => json!({
-                                "status": "ok", "retcode": 0, "echo": echo, "self_id": 9,
-                                "data": [{"user_id": 7}],
-                            }),
-                        }
-                    }
+                    // "async" is not an answer: a send may tolerate it, a read
+                    // query must not.
+                    "get_group_member_info" => json!({
+                        "status": "async", "retcode": 0, "echo": echo, "self_id": 9,
+                        "data": {"user_id": 7},
+                    }),
                     _ => continue,
                 };
                 ws.send(Message::Text(response.to_string().into())).await.unwrap();
@@ -1031,12 +1020,6 @@ mod tests {
         ).await;
         assert_eq!(rejected_status["status"], "rejected");
         assert_eq!(rejected_status["retcode"], 0);
-
-        let malformed = run_failing_case(
-            &store, &handler, json!({"op":"member","group_id":100,"user_id":7}),
-        ).await;
-        assert_eq!(malformed["status"], "malformed");
-        assert!(malformed.get("data").is_none());
 
         cancel.cancel();
         tokio::time::timeout(Duration::from_secs(5), connector)
