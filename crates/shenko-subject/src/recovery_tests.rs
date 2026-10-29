@@ -2037,7 +2037,7 @@ async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
     // task identity comes from the decision, not from creation order.
     let mut holds = Vec::new();
     let mut frees = Vec::new();
-    for task in store.native_task_candidates(8).unwrap() {
+    for (_, task) in store.native_task_candidates_after(None, 8).unwrap() {
         let bytes = store.cas.read_object(&task.input_ref.digest).unwrap();
         let decision: StepDecision = serde_json::from_slice(&bytes).unwrap();
         let intent = decision
@@ -2158,7 +2158,7 @@ async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
 
     let mut wave_ids = Vec::new();
     let mut ready = None;
-    for task in store.native_task_candidates(16).unwrap() {
+    for (_, task) in store.native_task_candidates_after(None, 16).unwrap() {
         let Ok(bytes) = store.cas.read_object(&task.input_ref.digest) else {
             continue;
         };
@@ -2285,10 +2285,10 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
     )
     .await;
     let gated = store
-        .native_task_candidates(8)
+        .native_task_candidates_after(None, 8)
         .unwrap()
         .into_iter()
-        .find(|task| {
+        .find(|(_, task)| {
             store
                 .cas
                 .read_object(&task.input_ref.digest)
@@ -2309,7 +2309,7 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
                         .unwrap_or(false)
                 })
         })
-        .map(|task| task.task_id)
+        .map(|(_, task)| task.task_id)
         .expect("one gated child committed");
 
     let started = Arc::new(tokio::sync::Notify::new());
@@ -2362,6 +2362,153 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
     assert!(store.external_task(gated).unwrap().is_running());
     assert_eq!(service.run_once().await.unwrap(), 0);
     drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 restart: Cordis seals the plugin input at spawn, so a same-Fiber
+/// `restart` re-applies the SAME `Arc<NativeChildService>` — still `closed`
+/// from its teardown. Reactivation must reopen admission only after the
+/// prior close+join barrier and after aborted Running claims were recovered
+/// into query-only reconciliation; a fresh delegation must dispatch again,
+/// and the interrupted claim must never re-arm a duplicate effect.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\n再起動で中断される child。",
+    )
+    .await;
+    let gated = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task.task_id)
+        .next()
+        .expect("gated child committed");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let supervisor = shenko_kernel::Supervisor::new(subject.head.software_generation.clone());
+    let child_fiber = supervisor
+        .spawn(
+            crate::NativeChildPlugin,
+            (store.clone(), subject.head.software_generation.clone()),
+        )
+        .await
+        .unwrap();
+    supervisor
+        .spawn(
+            crate::NativeTaskHandlerPlugin,
+            Arc::new(GatedHandler {
+                store: store.clone(),
+                started: started.clone(),
+                release: release.clone(),
+            }) as Arc<dyn crate::NativeTaskHandler>,
+        )
+        .await
+        .unwrap();
+    let service = supervisor
+        .context()
+        .try_service::<crate::NativeChildService>()
+        .unwrap();
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("gated handler did not start");
+    assert!(store.external_task(gated).unwrap().is_running());
+
+    // Same-Fiber restart: teardown aborts/joins the gated worker, then the
+    // SAME sealed service is re-applied — it must reopen and recover the
+    // aborted claim into query-only reconciliation.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        supervisor.restart(&child_fiber),
+    )
+    .await
+    .expect("restart must complete the close+join barrier")
+    .unwrap();
+    release.notify_one();
+
+    let reactivated = supervisor
+        .context()
+        .try_service::<crate::NativeChildService>()
+        .unwrap();
+    // Cordis reuses the sealed input: this is literally the same service Arc.
+    assert!(Arc::ptr_eq(&service, &reactivated));
+
+    // The aborted claim was recovered out of Running into reconciling —
+    // query-only, never re-armed — and no late T2 landed.
+    let recovered = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            reactivated.run_once().await.unwrap();
+            let task = store.external_task(gated).unwrap();
+            if !task.is_running() {
+                break task;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("aborted claim was not recovered out of Running");
+    assert!(store.native_task_result(gated).unwrap().is_none());
+    assert_eq!(
+        shenko_store::child::park_reason(&recovered),
+        Some("reconciling")
+    );
+
+    // Dispatch is live again on the same service: a fresh delegation commits,
+    // is claimed and settles end-to-end.
+    commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":false}\n再起動後の新規 child。",
+    )
+    .await;
+    let fresh = store
+        .native_task_candidates_after(None, 16)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, task)| task.task_id != gated)
+        .filter_map(|(_, task)| {
+            store
+                .cas
+                .read_object(&task.input_ref.digest)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<StepDecision>(&bytes).ok())
+                .and_then(|decision| {
+                    decision
+                        .delegated_task_intents
+                        .iter()
+                        .any(|intent| intent.intent_id == task.task_id)
+                        .then_some(task.task_id)
+                })
+        })
+        .next()
+        .expect("fresh child committed");
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while store.native_task_result(fresh).unwrap().is_none() {
+            reactivated.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("post-restart dispatch never settled the fresh child");
+    assert!(matches!(
+        store.native_task_result(fresh).unwrap().unwrap().outcome,
+        TaskOutcome::Succeeded
+    ));
+    supervisor.stop().await.unwrap();
+    drop(service);
+    drop(reactivated);
     drop(subject);
     // Keep the fixture on container disk for independent inspection.
 }

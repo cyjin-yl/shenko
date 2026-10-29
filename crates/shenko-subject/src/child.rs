@@ -66,42 +66,31 @@ struct Worker {
     handle: tokio::task::JoinHandle<()>,
 }
 
-/// In-memory worker bookkeeping: live handles, shutdown state, and a bounded
-/// least-recent-admission history. Admission stamps bound fair ordering only;
-/// durable claim/park records remain the only dispatch truth, so nothing here
-/// survives restart or decides recovery.
+/// In-memory worker bookkeeping: live handles and shutdown state. Durable
+/// claim/park records remain the only dispatch truth — nothing here survives
+/// restart or decides recovery.
 #[derive(Default)]
 struct Executions {
     workers: HashMap<EntityId, Worker>,
     /// Once closed no new claim or worker may be created; Cordis teardown sets
     /// this before joining in-flight workers so `stop()` is the barrier.
     closed: bool,
-    /// task → monotonically increasing admission stamp. Older (smaller)
-    /// stamps run first; tasks never admitted this lifetime have no entry and
-    /// sort ahead of every stamped one.
-    admissions: BTreeMap<EntityId, u64>,
-    next_admission: u64,
+    /// Monotonic counter bumped by every `reopen` (i.e. every `apply`). A
+    /// teardown effect captured at epoch N is stale once a newer apply ran —
+    /// it must not close a freshly reactivated service.
+    apply_epoch: u64,
 }
 
-/// The history only needs to outlive the admission bursts it orders; keeping
-/// the newest stamps is enough because an evicted (oldest) task already sorts
-/// as never-admitted, which is the fair position for stale work anyway.
-const MAX_ADMISSION_STAMPS: usize = 4096;
-
-impl Executions {
-    fn admission_order(&self, task_id: &EntityId) -> u64 {
-        self.admissions.get(task_id).copied().unwrap_or(0)
-    }
-
-    fn note_admission(&mut self, task_id: EntityId) {
-        self.next_admission = self.next_admission.saturating_add(1);
-        let stamp = self.next_admission;
-        self.admissions.insert(task_id, stamp);
-        if self.admissions.len() > MAX_ADMISSION_STAMPS {
-            let floor = stamp - MAX_ADMISSION_STAMPS as u64;
-            self.admissions.retain(|_, s| *s > floor);
-        }
-    }
+/// One candidate's dispatch outcome within a pass.
+enum Visit {
+    /// Durable state advanced (claim, park, settlement or spawn).
+    Progressed,
+    /// Checked but nothing to do (invisible, not-yet-eligible, fenced...).
+    Skipped,
+    /// Worker budget exhausted — the scan must pause HERE so the cursor
+    /// stays at the last visited candidate and this one is retried first
+    /// next pass. Never skip past it.
+    NoCapacity,
 }
 
 #[derive(Debug, Clone)]
@@ -162,9 +151,20 @@ pub struct NativeChildService {
     /// Handles of spawned managed executions, keyed by task identity. A task
     /// with a live worker is already `Running` in the store; the handle only
     /// bounds local concurrency and drives settlement, it is never the source
-    /// of truth for recovery. The same lock guards the shutdown flag and the
-    /// bounded admission-stamp history that orders each pass fairly.
+    /// of truth for recovery. The same lock guards the shutdown flag.
     executions: parking_lot::Mutex<Executions>,
+    /// In-memory dispatch scan over (created_at, task_id). `upper` bounds the
+    /// round so arriving later work cannot postpone wraparound; neither value
+    /// is a completion watermark and neither survives a restart. The cursor
+    /// only advances over candidates a pass actually visited, so a full
+    /// worker budget pauses the scan instead of skipping unseen work.
+    scan: std::sync::Mutex<ScanState>,
+}
+
+#[derive(Default)]
+struct ScanState {
+    cursor: Option<(String, EntityId)>,
+    upper: Option<(String, EntityId)>,
 }
 
 impl Service for NativeChildService {
@@ -180,6 +180,7 @@ impl NativeChildService {
             registry: RwLock::new(RegistryState::default()),
             run_lock: tokio::sync::Mutex::new(()),
             executions: parking_lot::Mutex::new(Executions::default()),
+            scan: std::sync::Mutex::new(ScanState::default()),
         }
     }
 
@@ -280,17 +281,57 @@ impl NativeChildService {
             return Ok(0);
         }
         self.reclaim_finished().await;
-        let mut candidates = self.store.native_task_candidates(32)?;
-        {
-            // Stable sort: equal stamps keep the store's (created_at, task_id)
-            // order. When the paged-scan cursor lands, apply the same
-            // admission-order key to its fetched page.
-            let executions = self.executions.lock();
-            candidates.sort_by_key(|task| executions.admission_order(&task.task_id));
-        }
+        const PAGE: usize = 32;
+        let (after, upper, fresh_round) = {
+            let state = self.scan.lock()
+                .map_err(|_| anyhow::anyhow!("native dispatch scan state poisoned"))?;
+            (state.cursor.clone(), state.upper.clone(), state.cursor.is_none())
+        };
+        let upper = if fresh_round { self.store.native_task_scan_upper()? } else { upper };
+        let candidates = self.store.native_task_candidates_after(
+            after.as_ref().map(|(created, id)| (created.as_str(), *id)),
+            PAGE,
+        )?;
+        // Advance the scan only over candidates this pass actually visited.
+        // Worker capacity is finite, so a fetched-but-unvisited candidate
+        // must keep the cursor at the last visited key — the next pass
+        // reclaims finished workers and resumes at the first unvisited
+        // candidate, so nothing between pages is ever skipped.
         let mut progressed = 0;
-        for task in candidates {
-            progressed += usize::from(self.process(task)?);
+        let mut last_visited: Option<(String, EntityId)> = None;
+        let mut exhausted = false;
+        for (created, task) in candidates.iter() {
+            match self.process(task)? {
+                Visit::NoCapacity => { exhausted = true; break; }
+                Visit::Progressed => progressed += 1,
+                Visit::Skipped => {}
+            }
+            last_visited = Some((created.clone(), task.task_id));
+        }
+        let visited_last = candidates.last().map(|(c, t)| (c.clone(), t.task_id));
+        // A fully visited page completes the round when it was short or it
+        // reached the captured upper bound. A partially visited page only
+        // completes when the visit already reached the upper bound.
+        // An empty captured boundary must also complete: a producer may
+        // insert a full page between the two reads, and a nonempty cursor
+        // with no upper bound would never wrap.
+        let complete = if !exhausted {
+            (fresh_round && upper.is_none())
+                || candidates.len() < PAGE
+                || visited_last.as_ref().is_some_and(|last| upper.as_ref().is_some_and(|upper| last >= upper))
+        } else {
+            last_visited.as_ref().is_some_and(|last| upper.as_ref().is_some_and(|upper| last >= upper))
+        };
+        {
+            let mut state = self.scan.lock()
+                .map_err(|_| anyhow::anyhow!("native dispatch scan state poisoned"))?;
+            if complete {
+                state.cursor = None;
+                state.upper = None;
+            } else {
+                state.cursor = last_visited.or(state.cursor.take());
+                state.upper = upper;
+            }
         }
         Ok(progressed)
     }
@@ -364,24 +405,65 @@ impl NativeChildService {
             drive_execution(store, registered, job).await;
         });
         executions.workers.insert(task_id, Worker { task_id, handle });
-        executions.note_admission(task_id);
         true
+    }
+
+    /// Reactivate a service whose Cordis Fiber restarted on the SAME sealed
+    /// input. `fiber.restart()` calls `apply` again without re-running
+    /// `prepare`, so the same `Arc<NativeChildService>` comes back — still
+    /// `closed` from the previous teardown. Returns the apply epoch that
+    /// this activation's teardown must carry; a stale epoch belongs to an
+    /// old generation and is ignored.
+    ///
+    /// Ordering: `run_lock` serializes this behind any in-flight
+    /// `close_and_join`, so reactivation only happens after the previous
+    /// generation's workers were fully joined. Aborted claims are first
+    /// recovered into durable query-only reconciliation
+    /// (`recover_native_tasks` flips Running → NATIVE_RECOVERY + Ready),
+    /// THEN admission reopens — a task aborted mid-execution can never be
+    /// re-armed as a duplicate unknown effect.
+    pub async fn reopen(&self) -> Result<u64> {
+        let _guard = self.run_lock.lock().await;
+        // Defensive: the barrier should have drained these, but a worker can
+        // never be re-admitted without a clean book regardless.
+        let leftover: Vec<Worker> = {
+            let mut executions = self.executions.lock();
+            executions.apply_epoch += 1;
+            executions.workers.drain().map(|(_, worker)| worker).collect()
+        };
+        for worker in &leftover {
+            worker.handle.abort();
+        }
+        for worker in leftover {
+            let _ = worker.handle.await;
+        }
+        self.store.recover_native_tasks()?;
+        let mut executions = self.executions.lock();
+        executions.closed = false;
+        Ok(executions.apply_epoch)
     }
 
     /// Cordis teardown: close admission, abort every managed execution and
     /// join them. `run_lock` is taken first so a pass already in flight
     /// finishes its synchronous CAS work before admission closes, and no pass
-    /// may start once teardown owns it. Workers stop at their next yield;
-    /// anything they armed stays durable (Running/claim or explicit park) and
-    /// the next runtime generation reconciles it — never replays it. Runs
-    /// under `stop()`, so no worker effect or T2 commit can land after
-    /// shutdown reports completion; a retained `Arc` cannot keep workers
-    /// alive past it, and `Drop` remains only the fallback for a service that
-    /// never ran inside Cordis.
-    pub async fn close_and_join(&self) {
+    /// may start once teardown owns it. `epoch` is the apply generation this
+    /// effect was registered under — if a same-Fiber restart already bumped
+    /// it, this stale teardown no-ops instead of killing the new generation.
+    /// Workers stop at their next yield; anything they armed stays durable
+    /// (Running/claim or explicit park) and the next runtime generation
+    /// reconciles it — never replays it. Runs under `stop()`, so no worker
+    /// effect or T2 commit can land after shutdown reports completion; a
+    /// retained `Arc` cannot keep workers alive past it, and `Drop` remains
+    /// only the fallback for a service that never ran inside Cordis.
+    pub async fn close_and_join(&self, epoch: u64) {
         let _guard = self.run_lock.lock().await;
         let workers: Vec<Worker> = {
             let mut executions = self.executions.lock();
+            if executions.apply_epoch != epoch {
+                // A newer apply already reactivated this service; aborting
+                // now would kill the CURRENT generation's workers.
+                return;
+            }
             executions.closed = true;
             executions.workers.drain().map(|(_, worker)| worker).collect()
         };
@@ -426,20 +508,27 @@ impl NativeChildService {
     /// Advance one durable candidate by at most one synchronous CAS step. Any
     /// handler wait (fresh `execute` or recovery `reconcile`) is delegated to a
     /// spawned managed execution; this pass itself never awaits a handler.
-    fn process(&self, task: TaskRecord) -> Result<bool> {
+    /// `NoCapacity` means the worker budget ran out BEFORE this candidate was
+    /// touched — the caller must stop the scan without advancing the cursor
+    /// past it, so it is retried first on the next pass.
+    fn process(&self, task: &TaskRecord) -> Result<Visit> {
         if task.memos.contains_key(COGNITION_IMPORTED) {
             // Do not even rewrite the import into an ordinary retryable park.
             // Only an explicit local continuation may remove this marker.
-            return Ok(false);
+            return Ok(Visit::Skipped);
         }
         if matches!(task.state, TaskState::Completing { .. }) {
-            return Ok(self.store.finish_native_completing(task.task_id)?.is_some());
+            return Ok(if self.store.finish_native_completing(task.task_id)?.is_some() {
+                Visit::Progressed
+            } else {
+                Visit::Skipped
+            });
         }
         if task.is_terminal() || task.is_running() {
-            return Ok(false);
+            return Ok(Visit::Skipped);
         }
         if !task.memos.contains_key(NATIVE_INPUT) {
-            if park_reason(&task) != Some("definition_unavailable") {
+            if park_reason(task) != Some("definition_unavailable") {
                 self.store.park_native_task(
                     task.task_id,
                     task.record_revision,
@@ -447,14 +536,14 @@ impl NativeChildService {
                     "natural-language delegation has no deterministic native definition",
                     false,
                 )?;
-                return Ok(true);
+                return Ok(Visit::Progressed);
             }
-            return Ok(false);
+            return Ok(Visit::Skipped);
         }
         if task.abort_request.is_some() {
             // Cancellation already fenced new claims. EvidenceIngress remains
             // independent; no current result/outbox is derived from late facts.
-            return Ok(false);
+            return Ok(Visit::Skipped);
         }
         if let DispatchEligibility::Parked {
             until_utc: Some(until),
@@ -462,7 +551,7 @@ impl NativeChildService {
         } = &task.dispatch_eligibility
         {
             if until > &chrono::Utc::now() {
-                return Ok(false);
+                return Ok(Visit::Skipped);
             }
         }
         let registered = match self.handler(&task.kind, task.definition_version) {
@@ -475,10 +564,10 @@ impl NativeChildService {
                     "no Cordis handler for the frozen kind/version",
                     true,
                 )?;
-                return Ok(true);
+                return Ok(Visit::Progressed);
             }
         };
-        if memo_flag(&task, NATIVE_CHILD)
+        if memo_flag(task, NATIVE_CHILD)
             && (task.implementation_ref.plugin_id
                 != registered.descriptor.implementation_ref.plugin_id
                 || task.implementation_ref.artifact_digest
@@ -490,14 +579,14 @@ impl NativeChildService {
                 "the frozen native implementation is not registered; install the original artifact",
                 false,
             )?;
-            return Ok(true);
+            return Ok(Visit::Progressed);
         }
-        let operation_id = memo_uuid(&task, NATIVE_OPERATION_ID);
+        let operation_id = memo_uuid(task, NATIVE_OPERATION_ID);
         let existing = match operation_id {
             Some(id) => self.store.get_operation(id)?,
             None => None,
         };
-        let recovery = memo_flag(&task, NATIVE_RECOVERY) || existing.is_some();
+        let recovery = memo_flag(task, NATIVE_RECOVERY) || existing.is_some();
         if recovery && existing.is_some() {
             let operation_id = operation_id.expect("checked above");
             let operation = existing.expect("checked above");
@@ -505,21 +594,21 @@ impl NativeChildService {
                 // The original provider query runs in a managed execution so a
                 // slow or unreachable handle cannot hold the dispatcher pass.
                 if !self.worker_available(task.task_id) {
-                    return Ok(false);
+                    return Ok(Visit::NoCapacity);
                 }
                 let implementation = registered.descriptor.implementation_ref.clone();
                 if !self.spawn_execution(
                     task.task_id,
                     registered,
                     WorkerJob::Settle {
-                        task,
+                        task: task.clone(),
                         operation_id,
                         implementation,
                     },
                 ) {
-                    return Ok(false);
+                    return Ok(Visit::NoCapacity);
                 }
-                return Ok(true);
+                return Ok(Visit::Progressed);
             }
             let Some(claim) = self.store.claim_native_task(
                 task.task_id,
@@ -527,22 +616,23 @@ impl NativeChildService {
                 true,
             )?
             else {
-                return Ok(false);
+                return Ok(Visit::Skipped);
             };
-            return Ok(self
-                .store
-                .complete_native_task(&claim, &operation)?
-                .is_some());
+            return Ok(if self.store.complete_native_task(&claim, &operation)?.is_some() {
+                Visit::Progressed
+            } else {
+                Visit::Skipped
+            });
         }
-        if matches!(park_reason(&task), Some(reason) if !matches!(reason,
+        if matches!(park_reason(task), Some(reason) if !matches!(reason,
             "handler_unavailable" | "reconciling") && !recovery)
         {
-            return Ok(false);
+            return Ok(Visit::Skipped);
         }
         // The claim must never be created without a spawned owner to settle
         // it; capacity is checked before the CAS transitions Pending→Running.
         if !self.worker_available(task.task_id) {
-            return Ok(false);
+            return Ok(Visit::NoCapacity);
         }
         let Some(claim) = self.store.claim_native_task(
             task.task_id,
@@ -550,7 +640,7 @@ impl NativeChildService {
             false,
         )?
         else {
-            return Ok(false);
+            return Ok(Visit::Skipped);
         };
         if claim.software_generation != self.generation {
             self.store.park_native_task(
@@ -560,7 +650,7 @@ impl NativeChildService {
                 "registered runtime generation does not match the sealed task head",
                 false,
             )?;
-            return Ok(true);
+            return Ok(Visit::Progressed);
         }
         let input = match self.native_input(&claim.task) {
             Ok(input) => input,
@@ -572,7 +662,7 @@ impl NativeChildService {
                     &format!("frozen native input cannot be resolved: {error}"),
                     false,
                 )?;
-                return Ok(true);
+                return Ok(Visit::Progressed);
             }
         };
         let context = CallContext {
@@ -618,9 +708,9 @@ impl NativeChildService {
                 "durable claim exists but admission closed before a managed execution owned it; reconcile on recovery",
                 true,
             )?;
-            return Ok(true);
+            return Ok(Visit::Progressed);
         }
-        Ok(true)
+        Ok(Visit::Progressed)
     }
 
     fn park_current(
@@ -902,6 +992,15 @@ impl Plugin for NativeChildPlugin {
     }
 
     async fn apply(&self, ctx: Context, service: &Self::Input) -> Result<(), Self::ApplyError> {
+        // Same-Fiber restart reuses this sealed service: reactivate only after
+        // any in-flight close barrier and after aborted Running claims were
+        // recovered into query-only reconciliation. On first publication the
+        // drain is empty and recovery only normalizes claims orphaned by a
+        // previous process — the same thing callers already do via recover().
+        let epoch = service
+            .reopen()
+            .await
+            .map_err(std::io::Error::other)?;
         let _publication = ctx
             .provide(service.clone())
             .map_err(std::io::Error::other)?;
@@ -911,7 +1010,7 @@ impl Plugin for NativeChildPlugin {
         // a worker commit effects after teardown reported complete.
         let teardown = service.clone();
         ctx.effect(move || async move {
-            teardown.close_and_join().await;
+            teardown.close_and_join(epoch).await;
         })
         .map_err(std::io::Error::other)?;
         Ok(())
