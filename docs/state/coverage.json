@@ -359,14 +359,19 @@
         "B05"
       ],
       "specification_state": "specified",
-      "implementation_state": "not_assessed",
+      "implementation_state": "partial",
       "evidence_state": [],
       "acceptance_case_ids": [],
-      "implementation_refs": [],
-      "evidence_refs": [],
+      "implementation_refs": [
+        "scripts/observe_longrun.py",
+        "docs/development/long-run-observation.md"
+      ],
+      "evidence_refs": [
+        "docs/evidence/c19-longrun-observation-tooling-20261029.json"
+      ],
       "blockers": [],
       "satisfied": false,
-      "note": "规格存在；接手者按完整要求选择适用验收与所需真实证据。本字段不声称产品已实现。"
+      "note": "长跑观察采集/报告工具 schema 2 源码修复待父级执行验证：完整 header/manifest/身份与同 boot uptime 才可准入，任何已知采样缺口或损坏证据使全部窗口 unobserved；撕裂日志拒绝追加并保留原字节。尚无候选 7/30 天长跑结果；RSS/路由器/多设备实测与§22拟定数值目标未测量。工具源码/旧自检记录不冒称长期验收。"
     },
     {
       "requirement_id": "R022",
