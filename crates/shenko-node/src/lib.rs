@@ -16,11 +16,13 @@ mod peers;
 pub use peers::*;
 pub mod units;
 pub use units::*;
+mod capability;
+pub use capability::*;
 
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 3;
+const STORAGE_SCHEMA: u32 = 4;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -167,6 +169,12 @@ pub enum Request {
         request: RoleAssignmentRequest,
     },
     Roles,
+    /// This Node's current self-declared capability advertisement.
+    Capabilities,
+    /// Newest verified capability fact per known source.
+    CapabilityFacts,
+    /// Deterministic candidacy ordering of the known member set; not an election.
+    Coordination,
     Units {
         request: UnitRequest,
     },
@@ -265,9 +273,12 @@ impl Node {
                 tx.execute_batch(RECEIPT_TABLE)?;
                 set(&tx, "installation", &EntityId::new())?;
             }
-            tx.execute_batch(roles::ROLE_SCHEMA)?;
-            tx.execute_batch(peers::SYNC_SCHEMA)?;
-            tx.execute_batch(units::UNIT_TABLES)?;
+            if version < 3 {
+                tx.execute_batch(roles::ROLE_SCHEMA)?;
+                tx.execute_batch(peers::SYNC_SCHEMA)?;
+                tx.execute_batch(units::UNIT_TABLES)?;
+            }
+            tx.execute_batch(capability::CAPABILITY_SCHEMA)?;
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
             tx.commit()?;
@@ -297,6 +308,9 @@ impl Node {
                 Ok(serde_json::to_value(self.assign_roles(request)?)?)
             }
             Request::Roles => self.role_status(),
+            Request::Capabilities => Ok(serde_json::to_value(self.capability_profile()?)?),
+            Request::CapabilityFacts => Ok(json!({"facts": self.capability_facts()?})),
+            Request::Coordination => self.coordination_candidates(),
             Request::Units { request } => self.handle_unit_request(request),
             Request::Initialize { node_id, identity } => {
                 let tx = self
@@ -908,6 +922,9 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         expected.execute_batch(roles::ROLE_SCHEMA)?;
         expected.execute_batch(peers::SYNC_SCHEMA)?;
         expected.execute_batch(units::UNIT_TABLES)?;
+    }
+    if version >= 4 {
+        expected.execute_batch(capability::CAPABILITY_SCHEMA)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?

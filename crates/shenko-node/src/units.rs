@@ -1667,6 +1667,22 @@ impl Node {
         Ok(units)
     }
 
+    /// Capability names declared by currently enabled units on this node.
+    /// These are declarations for coordination candidacy, not readiness or
+    /// model-evidence claims.
+    pub(crate) fn enabled_provides(&self) -> Result<Vec<String>> {
+        let mut provides = Vec::new();
+        for unit in self.installed_units()? {
+            if unit.enabled {
+                provides.extend(unit.descriptor.provides.clone());
+            }
+        }
+        provides.sort();
+        provides.dedup();
+        Ok(provides)
+    }
+
+
     fn installed_unit(&self, unit_id: &str) -> Result<Option<InstalledUnit>> {
         let row: Option<(String, String, i64)> = self
             .conn

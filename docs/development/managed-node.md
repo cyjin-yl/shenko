@@ -54,6 +54,40 @@ are opt-in (`--workspace` at export/enrollment and an explicit receiving root),
 not a prerequisite for cognition recovery. Protect transfer bytes as private
 data, even when the transport is already authenticated.
 
+### Verified capability facts and coordination candidacy
+
+Every transfer now carries a bounded `NodeCapabilityProfile` advertisement in
+both directions: the `shenko-node-sync/2` header names the sender's real Node
+ID, self identity, running artifact manifest, persisted role assignment
+(intent, never liveness), latest runtime observation, the count of
+observations that ever carried a bound subject, and the capability names
+declared by currently enabled units. The verified receipt carries the
+receiver's profile; `sync identity` also returns its profile so `enroll`
+stores the same fact before any transfer. Mixed-version transports fail
+closed at the framing/schema boundary; an older peer that omits the fact at
+enrollment leaves that peer with no capability fact rather than a fabricated
+one.
+
+Advertisements carry a per-node strictly increasing `advertisement_seq` that
+advances only on content change. `record_peer_capability` keeps at most the
+newest verified fact per source: an older generation is `stale`, an identical
+replay is `duplicate`, different bytes at the same generation are a retained
+`conflict`, and every arrival is appended to the observation log with its
+provenance. Facts are only ever bound to the Node ID inside the
+authenticated/verified channel itself; a profile naming a different Node is
+rejected.
+
+`sync identity`/`sync status` and the `coordination` Node request return a
+deterministic candidacy ordering of the known member set (self plus enrolled
+sync peers): observed-primary evidence, then any bound-subject evidence, then
+verified reachability of the recovery closure (confirmed sync or local
+durability), then newest advertisement generation, then node ID. It is
+explicitly *not* an election — no member configuration, no quorum, no
+fencing, no liveness — and a partitioned component must still run the §5.4.1
+protocol before takeover. It supplies what that protocol may consider:
+versioned capability facts and actual evidence, not names, static parameter
+counts or cached claims.
+
 ### Installation units and local readiness
 
 Unit schema 2 carries `perception`, `awareness`, `skill` and `code` packages:
@@ -166,7 +200,7 @@ contract, not remote attestation or a substitute for verifying the source tree.
 
 `shenko-node PRIVATE_DATA_DIR` reads one bounded JSON request on stdin and returns
 one JSON response after committed work. Existing unrelated data is rejected;
-never use a live main-app directory. Storage schema **3** is separate from
+never use a live main-app directory. Storage schema **4** is separate from
 record/wire schema **1**. Existing databases first undergo an immutable/read-only
 application/schema/installation preflight: even WAL sidecar creation or journal
 recovery is not allowed for an unknown database. Then the writable open rechecks
@@ -177,7 +211,7 @@ The only unmarked legacy format eligible for migration is the exact original v1
 schema (all non-SQLite schema objects) with valid durable node/ledger/identity
 metadata. Its rows, node/self IDs, ledger and seq remain unchanged. One migration
 transaction adds the installation UUID, SHNK application_id, receipts table and
-the current storage version. Role/unit/peer tables are added without replacing
+the current storage version. Role/unit/peer/capability tables are added without replacing
 old facts. This is a trusted local format migration, not cryptographic
 proof of remote ownership. Unknown, corrupt or incomplete uninitialized databases
 fail closed; this adapter does not overwrite them or repair arbitrary data. New counters on the wire are canonical
@@ -188,6 +222,9 @@ unsigned decimal strings. Node UUIDs, agent/branch UUIDs and task UUIDs are dist
   verified `identity` and actual `manifest`; payload mismatch is a conflict.
 - `status`: optional join `operation_id`; returns the old immutable join receipt
   separately from a fresh `running_manifest`, observation time and capabilities.
+- `capabilities`: this Node's current self-declared advertisement;
+  `capability_facts`: newest verified fact per known source; `coordination`:
+  the deterministic candidacy ordering above (`is_election=false`).
 - `register`: immutable `node_id`, `target_id`, public-trust/binding digest.
 - `create`: stable `task_id`, registered `node_id`, bounded `input` byte array;
   returns the same ticket on duplicate input and rejects conflicting creation.

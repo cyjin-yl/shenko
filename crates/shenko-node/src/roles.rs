@@ -173,8 +173,7 @@ impl Node {
         Ok(observation)
     }
 
-    pub fn role_status(&self) -> Result<Value> {
-        let node_id = self.local_node_id()?.context("node not initialized")?;
+    pub(crate) fn latest_assignment(&self) -> Result<Option<RoleAssignment>> {
         let assignment: Option<String> = self
             .conn
             .query_row(
@@ -183,6 +182,12 @@ impl Node {
                 |r| r.get(0),
             )
             .optional()?;
+        assignment
+            .map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .transpose()
+    }
+
+    pub(crate) fn latest_observation(&self) -> Result<Option<RuntimeRoleObservation>> {
         let observed: Option<String> = self
             .conn
             .query_row(
@@ -191,10 +196,19 @@ impl Node {
                 |r| r.get(0),
             )
             .optional()?;
+        observed
+            .map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .transpose()
+    }
+
+    pub fn role_status(&self) -> Result<Value> {
+        let node_id = self.local_node_id()?.context("node not initialized")?;
+        let assignment = self.latest_assignment()?;
+        let observed = self.latest_observation()?;
         Ok(json!({
             "node_id": node_id,
-            "assignment": assignment.map(|s| serde_json::from_str::<RoleAssignment>(&s)).transpose()?,
-            "last_runtime_observation": observed.map(|s| serde_json::from_str::<RuntimeRoleObservation>(&s)).transpose()?,
+            "assignment": assignment,
+            "last_runtime_observation": observed,
             "persisted_observation_is_liveness": false,
             "device_type_is_role": false,
         }))
