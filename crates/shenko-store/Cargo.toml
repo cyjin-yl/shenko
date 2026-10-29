@@ -19,6 +19,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }
+cap-std = "=3.4.6"
 tempfile = "3"
 
 [dev-dependencies]

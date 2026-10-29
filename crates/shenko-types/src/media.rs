@@ -188,7 +188,7 @@ pub struct StoredMediaRevision {
     /// The durable subject-inbox event identity bound to this fact. Stable
     /// across replays so senders can reconcile consumption.
     pub event_id: EntityId,
-    /// Wall-clock admission time of THIS ledger, epoch milliseconds.
+    /// Original admission time, epoch milliseconds; retained on replication.
     pub admitted_at_ms: i64,
     pub admitted_commit: CommitRef,
 }
@@ -266,6 +266,26 @@ pub struct MediaStream {
     pub commit_seq: u64,
 }
 
+/// One immutable terminal notice as admitted (§20 cancellation/disconnect/
+/// end). Keyed by `end_id`, it is never overwritten when a later terminal
+/// fact settles the stream state: a replay of the original `end_id` returns
+/// this record's own event id and commit, not the stream's latest values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredMediaStreamEnd {
+    pub end_id: String,
+    pub stream: MediaStreamDescriptor,
+    /// The terminal state THIS notice reported.
+    pub state: MediaStreamState,
+    pub ended_at_ms: Option<i64>,
+    pub reason: Option<String>,
+    /// The durable subject-inbox event bound to THIS notice.
+    pub event_id: EntityId,
+    /// Original admission time, epoch milliseconds; retained on replication.
+    pub admitted_at_ms: i64,
+    /// Original admitting ledger/commit, retained verbatim on replication.
+    pub admitted_commit: CommitRef,
+}
+
 /// The one durable subject event bound to a newly committed media fact.
 /// `notify` is `None` on replays so replays never duplicate utterances; the
 /// returned `event_id` stays stable for reconciliation.
@@ -309,6 +329,16 @@ impl MediaIngressEvent {
         }
     }
 
+    /// The `InboxEventKind` name (`snake_case`) of the durable subject inbox
+    /// event bound to this fact. The persisted `inbox_events.kind` column and
+    /// the event envelope share this single source of truth.
+    pub fn inbox_kind(&self) -> &'static str {
+        match self {
+            Self::Revision { .. } => "media_revision",
+            Self::StreamOpened { .. } | Self::StreamState { .. } => "media_stream",
+        }
+    }
+
     pub fn stream(&self) -> &MediaStreamDescriptor {
         match self {
             Self::StreamOpened { stream, .. }
@@ -337,8 +367,9 @@ pub struct MediaRevisionReceipt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaAdmission {
     pub receipt: MediaRevisionReceipt,
-    /// Present iff this commit admitted a NEW fact; the caller delivers it to
-    /// the subject inbox exactly once.
+    /// Present iff this commit admitted a NEW fact, for an optional live wake.
+    /// The admission already persisted the complete durable inbox original;
+    /// the shared pending drain, not a successful wake, owns recovery.
     pub notify: Option<MediaIngressEvent>,
 }
 

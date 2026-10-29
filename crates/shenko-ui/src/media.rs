@@ -2,8 +2,9 @@
 //!
 //! These routes expose the SAME durable admission the native `MediaIngress`
 //! service uses: raw revision fact + effective observation committed in one
-//! ledger transaction, bound subject event delivered at most once, replays
-//! returning the stored receipt with the same event id. The responses are
+//! ledger transaction with the complete durable inbox original. Live sends
+//! are only wakes; the shared pending drain recovers the same event identity.
+//! Replays return the stored original receipt. The responses are
 //! honest about delivery: a fact can be durable while the subject queue is
 //! full or closed, and that is reported as `pending`/`rejected`, never as a
 //! fabricated `queued`.

@@ -442,8 +442,8 @@ struct TableSpec {
     key: &'static [&'static str],
     /// Replicated columns, in a fixed order.
     columns: &'static [&'static str],
-    /// Column the importing store owns; it receives the local commit seq.
-    local_seq: Option<&'static str>,
+    /// Columns the importing store owns; each receives the local commit seq.
+    local_seq: &'static [&'static str],
     kind: RowKind,
 }
 
@@ -454,7 +454,7 @@ const TABLES: &[TableSpec] = &[
         name: "identity_profiles",
         key: &["agent_id", "revision"],
         columns: &["agent_id", "revision", "profile", "created_at"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -467,7 +467,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: Some("created_commit_seq"),
+        local_seq: &["created_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -484,7 +484,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -499,7 +499,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -509,7 +509,7 @@ const TABLES: &[TableSpec] = &[
         // The receipt's local commit position follows the receiving store's
         // import commit. Its identity outcome, step binding and source
         // `data.committed_at` coordinate stay verbatim.
-        local_seq: Some("commit_seq"),
+        local_seq: &["commit_seq"],
         kind: RowKind::Verbatim,
     },
     // Wait facts and receipts travel with the branch and their referenced
@@ -518,14 +518,14 @@ const TABLES: &[TableSpec] = &[
         name: "semantic_waits",
         key: &["wait_id"],
         columns: &["wait_id", "agent_id", "status", "data"],
-        local_seq: Some("commit_seq"),
+        local_seq: &["commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "semantic_wait_receipts",
         key: &["step_id"],
         columns: &["step_id", "data"],
-        local_seq: Some("commit_seq"),
+        local_seq: &["commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -538,14 +538,14 @@ const TABLES: &[TableSpec] = &[
             "disposition",
             "commit_seq",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "subject_intent_steps",
         key: &["step_id"],
         columns: &["step_id", "migration"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -565,7 +565,7 @@ const TABLES: &[TableSpec] = &[
             "updated_seq",
             "result_ref",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::SubjectIntent,
     },
     TableSpec {
@@ -579,14 +579,14 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "agent_profiles",
         key: &["agent_id"],
         columns: &["agent_id", "data", "updated_at"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -607,7 +607,7 @@ const TABLES: &[TableSpec] = &[
             "record_revision",
             "created_at_ms",
         ],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -626,28 +626,28 @@ const TABLES: &[TableSpec] = &[
             "created_at_ms",
             "updated_at_ms",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "memory_intent_bindings",
         key: &["intent_id"],
         columns: &["intent_id", "data"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "raw_sessions",
         key: &["session_id"],
         columns: &["session_id", "agent_id", "started_at", "ended_at", "data"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "recovery_sources",
         key: &["source_id"],
         columns: &["source_id", "kind", "data"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -662,7 +662,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -676,7 +676,7 @@ const TABLES: &[TableSpec] = &[
             "seq",
             "commit_seq",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -691,35 +691,105 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::InboxEvent,
+    },
+    // Durable media truth: stream identity and latest state first, then the
+    // immutable terminal notices and raw revision facts bound to it. Origin
+    // CommitRefs travel verbatim: local import sequencing never changes an
+    // already-issued event/receipt binding.
+    TableSpec {
+        name: "media_streams",
+        key: &["stream_key"],
+        columns: &[
+            "stream_key",
+            "agent_id",
+            "provider",
+            "account",
+            "stream_id",
+            "open_id",
+            "open_event_id",
+            "end_id",
+            "end_event_id",
+            "state",
+            "opened_at_ms",
+            "ended_at_ms",
+            "end_reason",
+            "implicit",
+            "descriptor",
+            "open_commit_ref",
+        ],
+        local_seq: &["commit_seq"],
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_stream_ends",
+        key: &["stream_key", "end_id"],
+        columns: &[
+            "stream_key",
+            "end_id",
+            "state",
+            "ended_at_ms",
+            "reason",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: &["commit_seq"],
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_segment_revisions",
+        key: &["stream_key", "revision_id"],
+        columns: &[
+            "stream_key",
+            "segment_key",
+            "segment",
+            "revision",
+            "revision_id",
+            "partial",
+            "text",
+            "captured_at_ms",
+            "speaker_json",
+            "audio_json",
+            "provider_facts_json",
+            "data",
+            "disposition",
+            "supersedes_revision",
+            "superseded_by_revision",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: &["commit_seq"],
+        kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "tasks",
         key: &["task_id"],
         columns: &["task_id", "record_revision", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Task,
     },
     TableSpec {
         name: "operations",
         key: &["operation_id"],
         columns: &["operation_id", "record_revision", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "attempts",
         key: &["attempt_id"],
         columns: &["attempt_id", "operation_id", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "evidence_receipts",
         key: &["receipt_id"],
         columns: &["receipt_id", "operation_id", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
+        local_seq: &["updated_commit_seq"],
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -734,21 +804,21 @@ const TABLES: &[TableSpec] = &[
             "commit_seq",
             "created_at",
         ],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "context_window_scopes",
         key: &["scope_id"],
         columns: &["scope_id", "model_generation", "profile_digest"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "context_windows",
         key: &["window_id"],
         columns: &["window_id", "scope_id", "generation", "body", "commit_seq"],
-        local_seq: None,
+        local_seq: &[],
         kind: RowKind::Verbatim,
     },
 ];
@@ -912,6 +982,7 @@ impl Store {
 
         let mut gaps = manifest.gaps.clone();
         gaps.extend(memory_intent_binding_gaps(&manifest.rows));
+        gaps.extend(crate::media::media_recovery_gaps(&manifest.rows));
         gaps.extend(self.verify_manifest_closure(&manifest));
         let blocking: Vec<String> = gaps
             .iter()
@@ -1334,6 +1405,7 @@ impl Store {
         };
         let mut file_origins = Vec::new();
         let mut gaps = memory_intent_binding_gaps(&rows);
+        gaps.extend(crate::media::media_recovery_gaps(&rows));
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
             collect_files(
@@ -1496,14 +1568,18 @@ impl Store {
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
-        let mut seen: BTreeSet<String> = BTreeSet::new();
+        let mut seen: HashMap<String, u64> = HashMap::new();
         let mut missing: Vec<Digest> = Vec::new();
         let mut out: Vec<CognitionObjectDescriptor> = Vec::new();
         let mut queue: std::collections::VecDeque<ObjectRef> = roots.iter().cloned().collect();
         while let Some(object) = queue.pop_front() {
-            if !seen.insert(object.digest.to_string()) {
+            if let Some(bytes) = seen.get(object.digest.0.as_str()) {
+                if *bytes != object.bytes {
+                    missing.push(object.digest.clone());
+                }
                 continue;
             }
+            seen.insert(object.digest.to_string(), object.bytes);
             let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
                 Err(_) => {
@@ -1556,10 +1632,10 @@ impl Store {
     /// Check on the receiving side that every referenced object really is in
     /// the archive, including the objects referenced by other objects.
     fn verify_manifest_closure(&self, manifest: &CognitionManifest) -> Vec<CognitionGap> {
-        let listed: BTreeSet<String> = manifest
+        let listed: HashMap<&Digest, u64> = manifest
             .objects
             .iter()
-            .map(|descriptor| descriptor.digest.to_string())
+            .map(|descriptor| (&descriptor.digest, descriptor.bytes))
             .collect();
         let mut gaps: Vec<CognitionGap> = Vec::new();
         let mut roots: Vec<ObjectRef> = Vec::new();
@@ -1602,9 +1678,9 @@ impl Store {
             }
         }
         for object in &roots {
-            if !listed.contains(&object.digest.to_string()) {
+            if listed.get(&object.digest).copied() != Some(object.bytes) {
                 gaps.push(CognitionGap {
-                    kind: "missing_object".into(),
+                    kind: "missing_or_mismatched_object".into(),
                     detail: object.digest.to_string(),
                     blocking: true,
                 });
@@ -1652,12 +1728,22 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
+                let (media, media_events) = apply_media_streams(&tx, &ordered, peer_id, seq, manifest)?;
+                inserted += media.inserted;
+                updated += media.updated;
+                unchanged += media.unchanged;
+                conflicts.extend(media.conflicts);
                 let referenced_memory_entries: HashSet<&str> = ordered.iter()
                     .filter(|row| row.table == "memory_intents")
                     .filter_map(|row| row.value("entry_id"))
                     .collect();
                 let mut memory_applied = false;
                 for row in &ordered {
+                    if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions")
+                        || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
+                    {
+                        continue;
+                    }
                     if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
                         let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
                         inserted += outcome.inserted;
@@ -2685,7 +2771,7 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
 
 /// `insert_row` uses positional values while admission and recovery use
 /// labels. Bind those two views, and the primary-key identity, before any
-/// publication. Both supported archive schemas use these same TableSpecs.
+/// publication. All supported archive schemas use these same TableSpecs.
 fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
     let mut identities = HashSet::with_capacity(manifest.rows.len());
     for row in &manifest.rows {
@@ -2779,7 +2865,7 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
 }
 
 #[derive(Clone, Copy)]
-enum MemoryRowOutcome {
+enum RecoveryFactOutcome {
     Inserted,
     Updated,
     Unchanged,
@@ -2790,26 +2876,114 @@ fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> O
     values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
 }
 
-fn apply_memory_row(
+fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
-) -> Result<MemoryRowOutcome> {
+) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
+    if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions" | "inbox_events")
+        && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))
+    {
+        return Ok(RecoveryFactOutcome::Conflict);
+    }
     let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
     let result = match local {
         None => match insert_row(tx, spec, row, seq) {
-            Ok(()) => MemoryRowOutcome::Inserted,
-            Err(error) if is_constraint_violation(&error) => return Ok(MemoryRowOutcome::Conflict),
+            Ok(()) => RecoveryFactOutcome::Inserted,
+            Err(error) if is_constraint_violation(&error) => return Ok(RecoveryFactOutcome::Conflict),
             Err(error) => return Err(error),
         },
-        Some(local) if rows_equivalent(spec, &local, &row.values) => MemoryRowOutcome::Unchanged,
+        Some(local) if rows_equivalent(spec, &local, &row.values) => RecoveryFactOutcome::Unchanged,
         Some(local) if baseline.as_ref().is_some_and(|baseline| rows_equivalent(spec, &local, baseline)) => {
-            update_row(tx, spec, row, seq)?;
-            MemoryRowOutcome::Updated
+            match update_row(tx, spec, row, seq) {
+                Ok(()) => {}
+                Err(error) if is_constraint_violation(&error) => return Ok(RecoveryFactOutcome::Conflict),
+                Err(error) => return Err(error),
+            }
+            RecoveryFactOutcome::Updated
         }
-        Some(_) => return Ok(MemoryRowOutcome::Conflict),
+        Some(_) => return Ok(RecoveryFactOutcome::Conflict),
     };
     write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
     Ok(result)
+}
+
+fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &CognitionRow) -> bool {
+    let value = |name: &str| local.iter().find(|(column, _)| column == name)
+        .and_then(|(_, value)| value.as_deref());
+    local.iter().all(|(column, local)| {
+        let immutable = match incoming.table.as_str() {
+            "inbox_events" => column != "consumed",
+            "media_stream_ends" => true,
+            "media_segment_revisions" => column != "superseded_by_revision" || local.is_some(),
+            "media_streams" => matches!(column.as_str(),
+                "stream_key" | "agent_id" | "provider" | "account" | "stream_id" | "opened_at_ms")
+                || (value("open_id").is_some() && matches!(column.as_str(),
+                    "open_id" | "open_event_id" | "open_commit_ref" | "descriptor"))
+                || (matches!(value("state"), Some("ended" | "cancelled"))
+                    && matches!(column.as_str(), "state" | "end_id" | "end_event_id" | "ended_at_ms" | "end_reason")),
+            _ => false,
+        };
+        !immutable || local.as_deref() == incoming.value(column)
+    }) && !(incoming.table == "media_streams" && value("state") == Some("disconnected")
+        && incoming.value("state") == Some("open"))
+}
+
+/// Stream facts and their original pending deliveries form one conflict
+/// unit. A rejected stream must not leak an otherwise-new ready inbox event
+/// or advance that event's peer baseline independently of its admission.
+fn apply_media_streams<'a>(
+    tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
+    seq: LedgerSeq, manifest: &CognitionManifest,
+) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
+    let inbox: HashMap<_, _> = rows.iter().filter(|row| row.table == "inbox_events")
+        .map(|row| (row.key.as_str(), *row)).collect();
+    let mut groups: HashMap<&str, Vec<&CognitionRow>> = HashMap::new();
+    let mut media_events = HashSet::new();
+    for row in rows.iter().filter(|row| matches!(row.table.as_str(),
+        "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+    {
+        let key = row.value("stream_key").context("media stream identity missing")?;
+        let group = groups.entry(key).or_default();
+        group.push(*row);
+        if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
+            ensure!(media_events.insert(id), "media facts share a delivery identity");
+            group.push(*inbox.get(id).context("media delivery original missing")?);
+        }
+    }
+    let mut outcome = CognitionApplyOutcome::default();
+    for stream in rows.iter().filter(|row| row.table == "media_streams") {
+        let mut group = groups.remove(stream.key.as_str()).context("media closure group missing")?;
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        tx.execute("SAVEPOINT media_stream_closure", []).map_err(db)?;
+        let mut part = CognitionApplyOutcome::default();
+        let mut conflict = false;
+        for row in group {
+            let spec = spec_for(&row.table).context("unregistered media recovery table")?;
+            match apply_recovery_fact(tx, spec, row, peer_id, seq)? {
+                RecoveryFactOutcome::Conflict => { conflict = true; break; }
+                RecoveryFactOutcome::Inserted => part.inserted += 1,
+                RecoveryFactOutcome::Updated => part.updated += 1,
+                RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
+            }
+            record_origin(tx, spec, row, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+        }
+        if conflict {
+            tx.execute("ROLLBACK TO media_stream_closure", []).map_err(db)?;
+        }
+        tx.execute("RELEASE media_stream_closure", []).map_err(db)?;
+        if conflict {
+            let detail = "media stream facts and pending deliveries conflict; the complete local binding is kept".to_owned();
+            record_conflict(tx, peer_id, "media_streams", &stream.key, &detail)?;
+            outcome.conflicts.push(CognitionConflict {
+                table: "media_streams".into(), key: stream.key.clone(), detail,
+            });
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, media_events))
 }
 
 /// A request, immutable reference and associated committed entry are reconciled
@@ -2877,18 +3051,18 @@ fn apply_memory_pairs(
         let mut results = [None; 3];
         if compatible {
             tx.execute("SAVEPOINT memory_intent_pair", []).map_err(db)?;
-            results[0] = Some(apply_memory_row(tx, parents, &parent, peer_id, seq)?);
-            if !matches!(results[0], Some(MemoryRowOutcome::Conflict)) {
+            results[0] = Some(apply_recovery_fact(tx, parents, &parent, peer_id, seq)?);
+            if !matches!(results[0], Some(RecoveryFactOutcome::Conflict)) {
                 if let Some(binding) = &binding {
-                    results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+                    results[1] = Some(apply_recovery_fact(tx, sidecars, binding, peer_id, seq)?);
                 }
             }
-            if !results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+            if !results.iter().any(|result| matches!(result, Some(RecoveryFactOutcome::Conflict))) {
                 if let Some(entry) = &entry {
-                    results[2] = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                    results[2] = Some(apply_recovery_fact(tx, entry_spec, entry, peer_id, seq)?);
                 }
             }
-            if results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+            if results.iter().any(|result| matches!(result, Some(RecoveryFactOutcome::Conflict))) {
                 tx.execute("ROLLBACK TO memory_intent_pair", []).map_err(db)?;
                 compatible = false;
             }
@@ -2897,10 +3071,10 @@ fn apply_memory_pairs(
         if compatible {
             for result in results.into_iter().flatten() {
                 match result {
-                    MemoryRowOutcome::Inserted => outcome.inserted += 1,
-                    MemoryRowOutcome::Updated => outcome.updated += 1,
-                    MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
-                    MemoryRowOutcome::Conflict => unreachable!(),
+                    RecoveryFactOutcome::Inserted => outcome.inserted += 1,
+                    RecoveryFactOutcome::Updated => outcome.updated += 1,
+                    RecoveryFactOutcome::Unchanged => outcome.unchanged += 1,
+                    RecoveryFactOutcome::Conflict => unreachable!(),
                 }
             }
         } else {
@@ -3154,7 +3328,7 @@ fn insert_row(
     let mut columns: Vec<&str> = spec.columns.to_vec();
     let mut values: Vec<Option<String>> =
         row.values.iter().map(|(_, value)| value.clone()).collect();
-    if let Some(local_seq) = spec.local_seq {
+    for &local_seq in spec.local_seq {
         columns.push(local_seq);
         values.push(Some(seq.0.to_string()));
     }
@@ -3183,7 +3357,7 @@ fn update_row(
     let mut columns: Vec<&str> = spec.columns.to_vec();
     let mut values: Vec<Option<String>> =
         row.values.iter().map(|(_, value)| value.clone()).collect();
-    if let Some(local_seq) = spec.local_seq {
+    for &local_seq in spec.local_seq {
         columns.push(local_seq);
         values.push(Some(seq.0.to_string()));
     }

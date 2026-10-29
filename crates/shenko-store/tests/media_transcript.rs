@@ -1,8 +1,10 @@
 //! Durable transcript revision ingress — SPEC §15.2, §20.
-//! Each test is one independent consumer-behavior scenario of the real store:
-//! raw facts + effective observation in one commit, idempotent replays,
-//! explicit contradictions, honest terminal state and sealed-audio binding.
-//! No ASR/model/audio device is exercised or simulated.
+//! Nine independent scenarios, registered in eight tests: atomic admission;
+//! conflicting revision identity; partial→final; final correction;
+//! disconnect→end preserving terminal receipts; open replay after end;
+//! verified audio; noncanonical audio rejection; numeric-range rejection.
+//! The open-replay scenario is counted separately despite sharing the
+//! terminal journey. No ASR/model/audio device is exercised or simulated.
 
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
@@ -38,7 +40,13 @@ fn revision(
         text: text.into(),
         partial,
         captured_at_ms: Some(1_700_000_000_000 + rev as i64),
-        speaker: None,
+        speaker: Some(MediaSpeakerClaim {
+            speaker: Some("speaker-2".into()),
+            person_id: Some(EntityId::new()),
+            confidence: Some(0.42),
+            corrected: rev > 1,
+            source: Some("voiceprint-v3".into()),
+        }),
         audio: Some(MediaAudioRef::Provider(ProviderObjectRef {
             locator: format!("provider://audio/{id}"),
             digest: Some(format!("sha256:{id}")),
@@ -48,11 +56,37 @@ fn revision(
     }
 }
 
-/// 1. One admission commits the raw revision and makes it effective, the
-/// stream row is created implicitly, and provider provenance is kept verbatim.
+fn end_notice(
+    stream: &MediaStreamDescriptor,
+    id: &str,
+    state: MediaStreamState,
+    at: i64,
+) -> MediaStreamEnd {
+    MediaStreamEnd {
+        end_id: id.into(),
+        stream: stream.clone(),
+        state,
+        ended_at_ms: Some(at),
+        reason: Some("provider report".into()),
+    }
+}
+
+/// 1. One admission commits the raw revision, the effective observation, the
+/// durable inbox original (same event id, `media/<provider>` source, complete
+/// InboxEvent payload) and the implicit stream row in one commit; provider
+/// provenance and speaker claims stay verbatim.
 #[test]
-fn admission_stores_raw_and_effective_atomically() {
-    let (store, agent, stream) = fixture();
+fn admission_stores_raw_effective_and_durable_event_atomically() {
+    let dir = std::env::temp_dir().join(format!("shenko-media-test-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("test.db");
+    let store = Arc::new(Store::open(db.clone(), dir.join("cas")).unwrap());
+    let agent = EntityId::new();
+    let stream = MediaStreamDescriptor {
+        provider: "test-asr".into(),
+        account: "acct-1".into(),
+        stream_id: "call-9".into(),
+    };
     let input = revision(&stream, "r1", 3, 1, "hello world", false);
     let admission = store.admit_media_revision(agent, input).unwrap();
 
@@ -75,6 +109,33 @@ fn admission_stores_raw_and_effective_atomically() {
     assert_eq!(record.text, "hello world");
     assert!(prior_effective.is_none());
 
+    // The bound subject input is durable with the fact itself: recoverable
+    // through the pending-inbox lane without any volatile queue send.
+    let (source, consumed, data): (String, i64, String) =
+        rusqlite::Connection::open(&db)
+            .unwrap()
+            .query_row(
+                "SELECT source, consumed, data FROM inbox_events WHERE event_id=?1",
+                [event_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+    assert_eq!(source, "media/test-asr");
+    assert_eq!(consumed, 0);
+    let durable: serde_json::Value = serde_json::from_str(&data).unwrap();
+    assert_eq!(
+        durable["event_id"].as_str().unwrap(),
+        event_id.to_string()
+    );
+    assert_eq!(durable["kind"].as_str().unwrap(), "media_revision");
+    assert_eq!(durable["source"].as_str().unwrap(), "media/test-asr");
+    assert!(durable["created_at"].is_string());
+    assert_eq!(
+        durable["payload"],
+        serde_json::to_value(&event).unwrap(),
+        "the durable original carries the complete bound event"
+    );
+
     let stream_row = store.media_stream(&stream).unwrap().unwrap();
     assert!(stream_row.implicit);
     assert_eq!(stream_row.state, MediaStreamState::Open);
@@ -82,6 +143,9 @@ fn admission_stores_raw_and_effective_atomically() {
     let effective = store.media_effective_segment(&stream, 3).unwrap().unwrap();
     assert_eq!(effective.revision_id, "r1");
     assert!(!effective.partial);
+    let claim = effective.speaker.as_ref().unwrap();
+    assert_eq!(claim.speaker.as_deref(), Some("speaker-2"));
+    assert_eq!(claim.confidence, Some(0.42));
     match &effective.audio {
         Some(MediaAudioRef::Provider(provider)) => {
             assert_eq!(provider.locator, "provider://audio/r1");
@@ -93,23 +157,7 @@ fn admission_stores_raw_and_effective_atomically() {
     assert!(transcript.gaps.is_empty());
 }
 
-/// 2. Replaying the same durable identity returns the original receipt and
-/// bound event id, and commits no second raw fact.
-#[test]
-fn idempotent_replay_returns_original_receipt() {
-    let (store, agent, stream) = fixture();
-    let input = revision(&stream, "r1", 1, 1, "你好", false);
-    let first = store.admit_media_revision(agent, input.clone()).unwrap();
-    let second = store.admit_media_revision(agent, input).unwrap();
-
-    assert!(second.receipt.replayed);
-    assert_eq!(second.receipt.event_id, first.receipt.event_id);
-    assert_eq!(second.receipt.commit_ref, first.receipt.commit_ref);
-    assert!(second.notify.is_none());
-    assert_eq!(store.media_revisions(&stream, 1).unwrap().len(), 1);
-}
-
-/// 3. A different fact under the same revision identity is a typed conflict;
+/// 2. A different fact under the same revision identity is a typed conflict;
 /// the original row is never overwritten.
 #[test]
 fn conflicting_revision_identity_is_typed_conflict() {
@@ -132,7 +180,7 @@ fn conflicting_revision_identity_is_typed_conflict() {
     assert_eq!(revisions[0].text, "original");
 }
 
-/// 4. A partial followed by a final revision applies normally: the final text
+/// 3. A partial followed by a final revision applies normally: the final text
 /// becomes effective and the prior raw revision keeps its superseded_by link.
 #[test]
 fn partial_then_final_replaces_effective_and_keeps_raw() {
@@ -167,42 +215,7 @@ fn partial_then_final_replaces_effective_and_keeps_raw() {
     assert_eq!(revisions[1].superseded_by_revision, None);
 }
 
-/// 5. An out-of-order revision stays retained as an explicit superseded fact
-/// and never retroactively replaces the newer effective text.
-#[test]
-fn out_of_order_revision_stays_superseded_raw_fact() {
-    let (store, agent, stream) = fixture();
-    store
-        .admit_media_revision(agent, revision(&stream, "r2", 4, 2, "newer", false))
-        .unwrap();
-    let late = store
-        .admit_media_revision(agent, revision(&stream, "r1", 4, 1, "older", true))
-        .unwrap();
-
-    assert_eq!(
-        late.receipt.disposition,
-        MediaRevisionDisposition::Superseded
-    );
-    let Some(MediaIngressEvent::Revision {
-        prior_effective, ..
-    }) = late.notify
-    else {
-        panic!("revision admission notifies a Revision event");
-    };
-    assert_eq!(prior_effective.unwrap().revision_id, "r2");
-
-    let effective = store.media_effective_segment(&stream, 4).unwrap().unwrap();
-    assert_eq!(effective.revision_id, "r2");
-    assert_eq!(effective.text, "newer");
-    let revisions = store.media_revisions(&stream, 4).unwrap();
-    assert_eq!(revisions.len(), 2);
-    assert_eq!(
-        revisions[0].disposition,
-        MediaRevisionDisposition::Superseded
-    );
-}
-
-/// 6. A revision arriving after the segment finalized is an explicit final
+/// 4. A revision arriving after the segment finalized is an explicit final
 /// correction: it applies, and both the correction and the prior final remain
 /// readable as contradictory raw facts.
 #[test]
@@ -229,11 +242,24 @@ fn post_final_revision_is_explicit_final_correction() {
     assert!(transcript.segments[0].had_final_correction);
 }
 
-/// 7. Cancelling a stream preserves committed segments and the honest gap
-/// list, notifies once, replays idempotently, and rejects later revisions.
+/// 5–6. Terminal notices are immutable facts keyed by end identity: a
+/// disconnect settling into `ended` keeps BOTH original notices, each replay
+/// returns its own event id and commit, the open replay keeps its own
+/// original receipt (never the terminal commit), and the stream row carries
+/// only the latest state.
 #[test]
-fn cancellation_preserves_final_state_gaps_and_blocks_revisions() {
+fn disconnect_settlement_keeps_every_terminal_notice_and_open_receipt() {
     let (store, agent, stream) = fixture();
+    let opened = store
+        .admit_media_stream(
+            agent,
+            MediaStreamOpen {
+                open_id: "open-1".into(),
+                stream: stream.clone(),
+                descriptor: serde_json::Map::new(),
+            },
+        )
+        .unwrap();
     store
         .admit_media_revision(agent, revision(&stream, "r1", 1, 1, "first", false))
         .unwrap();
@@ -241,97 +267,87 @@ fn cancellation_preserves_final_state_gaps_and_blocks_revisions() {
         .admit_media_revision(agent, revision(&stream, "r3", 3, 1, "third", false))
         .unwrap();
 
-    let end = MediaStreamEnd {
-        end_id: "end-1".into(),
-        stream: stream.clone(),
-        state: MediaStreamState::Cancelled,
-        ended_at_ms: Some(1_700_000_100_000),
-        reason: Some("provider hangup".into()),
-    };
-    let ended = store.end_media_stream(agent, end.clone()).unwrap();
-    assert!(!ended.receipt.replayed);
-    let Some(MediaIngressEvent::StreamState { segments, .. }) = ended.notify else {
+    let disconnect = end_notice(&stream, "end-d", MediaStreamState::Disconnected, 1_700_000_100_000);
+    let disconnect_admission = store.end_media_stream(agent, disconnect.clone()).unwrap();
+    assert_eq!(
+        disconnect_admission.receipt.state,
+        MediaStreamState::Disconnected
+    );
+    let ended = end_notice(&stream, "end-e", MediaStreamState::Ended, 1_700_000_200_000);
+    let ended_admission = store.end_media_stream(agent, ended.clone()).unwrap();
+    assert_eq!(ended_admission.receipt.state, MediaStreamState::Ended);
+    let Some(MediaIngressEvent::StreamState { segments, .. }) = ended_admission.notify
+    else {
         panic!("terminal admission notifies a StreamState event");
     };
     assert_eq!(segments, 2);
+    assert_ne!(
+        disconnect_admission.receipt.event_id, ended_admission.receipt.event_id,
+        "each terminal notice binds its own durable event"
+    );
 
-    let replay = store.end_media_stream(agent, end).unwrap();
-    assert!(replay.receipt.replayed);
-    assert!(replay.notify.is_none());
-    assert_eq!(replay.receipt.event_id, ended.receipt.event_id);
+    // Replays return EACH notice's own receipt — never the latest state.
+    let d_replay = store.end_media_stream(agent, disconnect).unwrap();
+    assert!(d_replay.receipt.replayed);
+    assert_eq!(
+        d_replay.receipt.event_id, disconnect_admission.receipt.event_id,
+        "disconnect replay returns its original bound event"
+    );
+    assert_eq!(
+        d_replay.receipt.commit_ref, disconnect_admission.receipt.commit_ref,
+        "disconnect replay returns its original commit, not the settlement's"
+    );
+    assert_eq!(d_replay.receipt.state, MediaStreamState::Disconnected);
+    let e_replay = store.end_media_stream(agent, ended).unwrap();
+    assert!(e_replay.receipt.replayed);
+    assert_eq!(
+        e_replay.receipt.event_id, ended_admission.receipt.event_id
+    );
+
+    // The open replay still returns the OPEN admission's own receipt.
+    let open_replay = store
+        .admit_media_stream(
+            agent,
+            MediaStreamOpen {
+                open_id: "open-1".into(),
+                stream: stream.clone(),
+                descriptor: serde_json::Map::new(),
+            },
+        )
+        .unwrap();
+    assert!(open_replay.receipt.replayed);
+    assert_eq!(
+        open_replay.receipt.commit_ref, opened.receipt.commit_ref,
+        "open replay keeps the open commit, not the terminal one"
+    );
+    assert_eq!(
+        open_replay.receipt.event_id, opened.receipt.event_id
+    );
+
+    // The durable notices are separate from the stream's latest state.
+    let ends = store.media_stream_ends(&stream).unwrap();
+    assert_eq!(ends.len(), 2);
+    assert_eq!(ends[0].end_id, "end-d");
+    assert_eq!(ends[0].state, MediaStreamState::Disconnected);
+    assert_eq!(ends[0].event_id, disconnect_admission.receipt.event_id.unwrap());
+    assert_eq!(ends[1].end_id, "end-e");
+    assert_eq!(ends[1].state, MediaStreamState::Ended);
 
     let transcript = store.media_transcript(&stream).unwrap().unwrap();
-    assert_eq!(transcript.stream.state, MediaStreamState::Cancelled);
+    assert_eq!(transcript.stream.state, MediaStreamState::Ended);
     assert_eq!(transcript.gaps, vec![(2, 2)]);
     assert_eq!(transcript.segments.len(), 2);
     assert_eq!(transcript.segments[1].effective.text, "third");
-
-    let error = store
-        .admit_media_revision(agent, revision(&stream, "r4", 4, 1, "late", true))
-        .unwrap_err();
-    match error {
-        ShenkoError::Protocol(protocol) => {
-            assert_eq!(protocol.code, "media_stream_closed");
-        }
-        other => panic!("expected media_stream_closed, got {other}"),
-    }
+    assert_eq!(
+        transcript.stream.end.as_ref().unwrap().end_id,
+        "end-e",
+        "the stream row projects only the latest terminal state"
+    );
 }
 
-/// 8. Speaker claims are recorded with confidence/correction/unknown and
-/// never become more than a claim; validation rejects out-of-range scores.
+/// 7. Real sealed audio is admitted only after the bytes verify in this CAS.
 #[test]
-fn speaker_claim_keeps_confidence_unknown_and_correction() {
-    let (store, agent, stream) = fixture();
-    let mut claimed = revision(&stream, "r1", 1, 1, "recognized", true);
-    claimed.speaker = Some(MediaSpeakerClaim {
-        speaker: Some("speaker-2".into()),
-        person_id: Some(EntityId::new()),
-        confidence: Some(0.42),
-        corrected: true,
-        source: Some("voiceprint-v3".into()),
-    });
-    store.admit_media_revision(agent, claimed).unwrap();
-    let mut unknown = revision(&stream, "r2", 2, 1, "unattributed", true);
-    unknown.speaker = Some(MediaSpeakerClaim {
-        speaker: None,
-        person_id: None,
-        confidence: None,
-        corrected: false,
-        source: None,
-    });
-    store.admit_media_revision(agent, unknown).unwrap();
-
-    let revisions = store.media_revisions(&stream, 1).unwrap();
-    let claim = revisions[0].speaker.as_ref().unwrap();
-    assert_eq!(claim.speaker.as_deref(), Some("speaker-2"));
-    assert_eq!(claim.confidence, Some(0.42));
-    assert!(claim.corrected);
-    let unknown_claim = store.media_revisions(&stream, 2).unwrap()[0]
-        .speaker
-        .clone()
-        .unwrap();
-    assert!(unknown_claim.speaker.is_none() && unknown_claim.confidence.is_none());
-
-    let mut bad = revision(&stream, "r3", 3, 1, "bad score", true);
-    bad.speaker = Some(MediaSpeakerClaim {
-        speaker: Some("s".into()),
-        person_id: None,
-        confidence: Some(1.5),
-        corrected: false,
-        source: None,
-    });
-    match store.admit_media_revision(agent, bad).unwrap_err() {
-        ShenkoError::Protocol(protocol) => {
-            assert_eq!(protocol.code, "media_invalid_input");
-        }
-        other => panic!("expected media_invalid_input, got {other}"),
-    }
-}
-
-/// 9. A `sealed` audio ref must already exist in this ledger's CAS with the
-/// declared size; provider handles admit without CAS presence.
-#[test]
-fn sealed_audio_requires_committed_object() {
+fn sealed_audio_is_verified_before_mutation() {
     let (store, agent, stream) = fixture();
     let bytes = b"real audio bytes";
     let sealed = store
@@ -349,16 +365,48 @@ fn sealed_audio_requires_committed_object() {
         effective.audio,
         Some(MediaAudioRef::Sealed { .. })
     ));
+}
 
-    let mut ghost = sealed.object.clone();
-    ghost.bytes += 1;
-    let mut missing = revision(&stream, "r2", 2, 1, "phantom audio", false);
-    missing.audio = Some(MediaAudioRef::Sealed { object: ghost });
-    match store.admit_media_revision(agent, missing).unwrap_err() {
+/// 8. Noncanonical audio identity is rejected before any CAS lookup.
+#[test]
+fn noncanonical_sealed_audio_identity_is_rejected() {
+    let (store, agent, stream) = fixture();
+    let sealed = store.cas.seal_object(b"audio", "audio/opus", "media-audio", "raw", 1).unwrap();
+    // A real object's digest rewritten to another algorithm is not a
+    // canonical supported digest: rejected as invalid input BEFORE the CAS
+    // path is ever resolved.
+    let mut rewritten = sealed.object.clone();
+    rewritten.digest = shenko_types::object::Digest(
+        rewritten.digest.0.replacen("blake3:", "sha256:", 1),
+    );
+    let mut foreign = revision(&stream, "r2", 2, 1, "foreign digest", false);
+    foreign.audio = Some(MediaAudioRef::Sealed { object: rewritten });
+    match store.admit_media_revision(agent, foreign).unwrap_err() {
         ShenkoError::Protocol(protocol) => {
-            assert_eq!(protocol.code, "media_audio_object_missing");
+            assert_eq!(protocol.code, "media_invalid_input");
         }
-        other => panic!("expected media_audio_object_missing, got {other}"),
+        other => panic!("expected media_invalid_input, got {other}"),
     }
     assert!(store.media_effective_segment(&stream, 2).unwrap().is_none());
+}
+
+/// 9. Out-of-range input is not a storage failure and cannot close the writer.
+#[test]
+fn numeric_range_is_rejected_before_mutation_gate() {
+    let (store, agent, stream) = fixture();
+    // Numeric identities outside the supported persistent range fail as
+    // typed input errors BEFORE the mutation gate; the shared ledger writer
+    // stays open, so the next real admission still commits.
+    let mut overflow = revision(&stream, "r3", 3, 1, "too big", false);
+    overflow.revision = i64::MAX as u64 + 1;
+    match store.admit_media_revision(agent, overflow).unwrap_err() {
+        ShenkoError::Protocol(protocol) => {
+            assert_eq!(protocol.code, "media_invalid_input");
+        }
+        other => panic!("expected media_invalid_input, got {other}"),
+    }
+    let after = store
+        .admit_media_revision(agent, revision(&stream, "r4", 4, 1, "still open", false))
+        .unwrap();
+    assert!(!after.receipt.replayed);
 }

@@ -74,6 +74,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // revision facts plus effective-observation links; rows are never
     // rewritten or backfilled by this step.
     conn.execute_batch(crate::media::MEDIA_SCHEMA)?;
+    // Never invent an old receipt from a stream's latest-state commit. Older
+    // incomplete media facts stay retained, and recovery admission rejects
+    // missing original receipt/delivery bindings instead of acknowledging them.
+    ensure_column(conn, "media_streams", "open_commit_ref", "TEXT")?;
+    ensure_column(conn, "media_segment_revisions", "admitted_commit_ref", "TEXT")?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,

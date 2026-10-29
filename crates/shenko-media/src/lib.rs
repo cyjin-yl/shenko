@@ -3,12 +3,14 @@
 //! `MediaIngress` is the typed admission surface a transcript provider (call
 //! audio, LAN realtime speech, classroom listening, speaker pipeline) calls,
 //! in-process or through the UI route. Each admission commits the raw
-//! revision fact and the segment's effective observation in ONE ledger
-//! transaction, then hands the bound durable event to the SAME subject inbox;
-//! there is no second main loop for media. Replays return the stored receipt
-//! with the SAME event id and deliver nothing, so a late `send` after a crash
-//! reconciles through `event_disposition_commit` instead of duplicating an
-//! utterance.
+//! revision fact, the segment's effective observation and the bound durable
+//! `inbox_events` original in ONE ledger transaction, then hands a volatile
+//! wake to the SAME subject inbox; there is no second main loop for media.
+//! A lost wake costs nothing: the subject's pending drain recovers the
+//! durable original under the same event id. Replays return the stored
+//! receipt with the SAME event id and deliver nothing, so a late `send`
+//! after a crash reconciles through `event_disposition_commit` instead of
+//! duplicating an utterance.
 //!
 //! This service recognizes no audio itself: it never synthesizes transcript
 //! text, never fakes ASR, and speaker claims stay provider claims with
@@ -22,7 +24,7 @@ use cordis_core::{Context, Plugin, Service};
 use tokio::sync::mpsc;
 
 use shenko_store::store::Store;
-use shenko_subject::inbox::{InboxEvent, InboxEventKind};
+use shenko_subject::inbox::InboxEvent;
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::media::*;
@@ -34,15 +36,17 @@ pub enum SubjectDelivery {
     /// Nothing to deliver: this call replayed an already committed fact and
     /// the receipt already carries the original bound event id.
     Replay,
-    /// The bound event entered the live subject inbox queue this call.
+    /// The bound event entered the live subject inbox queue this call (the
+    /// volatile wake succeeded; the durable row is already committed).
     Queued,
-    /// No live queue took the event (loop stopped or not wired). The fact is
-    /// durable; the sender replays the same identity after reopen and
-    /// reconciles via `event_disposition_commit`, never by fabricating a new
-    /// event id.
+    /// No live queue took the wake (loop stopped or not wired). The durable
+    /// inbox row was committed with the fact, so the subject's normal pending
+    /// drain delivers the same event identity on a later step; the sender may
+    /// also reconcile via `event_disposition_commit`, never by fabricating a
+    /// new event id.
     Pending,
-    /// The queue rejected the event as full. Same durable fact, same retry
-    /// rule as `Pending`.
+    /// The queue rejected the wake as full. Same durable row and same
+    /// recovery rule as `Pending`.
     Rejected,
 }
 
@@ -78,52 +82,24 @@ impl MediaIngress {
 
     /// Stable subject inbox identity of a durable media fact. Callers use it
     /// with `Store::event_disposition_commit` to reconcile after a crash or a
-    /// rejected queue send, instead of redelivering a phantom event.
+    /// rejected queue send; the durable `inbox_events` row the admission
+    /// committed already delivers the same identity through the normal
+    /// pending drain, so no caller ever fabricates a second event.
     pub fn event_id_of(event: &MediaIngressEvent) -> EntityId {
         event.event_id()
     }
 
-    fn inbox_event(&self, event: MediaIngressEvent) -> InboxEvent {
-        let (kind, source) = match &event {
-            MediaIngressEvent::Revision { stream, .. } => (
-                InboxEventKind::MediaRevision,
-                format!("media/{}", stream.provider),
-            ),
-            MediaIngressEvent::StreamOpened { stream, .. }
-            | MediaIngressEvent::StreamState { stream, .. } => (
-                InboxEventKind::MediaStream,
-                format!("media/{}", stream.provider),
-            ),
-        };
-        InboxEvent {
-            event_id: event.event_id(),
-            kind,
-            payload: serde_json::to_value(&event).expect("media ingress event serialization"),
-            created_at: chrono::Utc::now(),
-            source,
-        }
-    }
-
-    async fn deliver(&self, event: MediaIngressEvent) -> SubjectDelivery {
-        let event = self.inbox_event(event);
-        match self.inbox.try_send(event) {
+    fn deliver(&self, event_id: EntityId) -> Result<SubjectDelivery, ShenkoError> {
+        let original = self.store.media_inbox_event(self.agent_id, event_id)?
+            .ok_or_else(|| ShenkoError::not_found("admitted media inbox original"))?;
+        let event: InboxEvent = serde_json::from_str(&original)?;
+        Ok(match self.inbox.try_send(event) {
             Ok(()) => SubjectDelivery::Queued,
             Err(mpsc::error::TrySendError::Closed(_)) => SubjectDelivery::Pending,
-            Err(mpsc::error::TrySendError::Full(event)) => {
-                // A full queue must not drop the durable fact or block the
-                // provider's own connection loop; a bounded wait decides.
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(2),
-                    self.inbox.send(event),
-                )
-                .await
-                {
-                    Ok(Ok(())) => SubjectDelivery::Queued,
-                    Ok(Err(_)) => SubjectDelivery::Pending,
-                    Err(_) => SubjectDelivery::Rejected,
-                }
-            }
-        }
+            // This is only a wake. The normal pending drain recovers the
+            // already committed original without blocking this producer.
+            Err(mpsc::error::TrySendError::Full(_)) => SubjectDelivery::Rejected,
+        })
     }
 
     /// Admit one transcript revision and deliver its bound durable event to
@@ -135,7 +111,7 @@ impl MediaIngress {
     ) -> Result<MediaDelivery<MediaAdmission>, ShenkoError> {
         let admission = self.store.admit_media_revision(self.agent_id, input)?;
         let delivery = match &admission.notify {
-            Some(event) => self.deliver(event.clone()).await,
+            Some(event) => self.deliver(event.event_id())?,
             None => SubjectDelivery::Replay,
         };
         Ok(MediaDelivery {
@@ -151,7 +127,7 @@ impl MediaIngress {
     ) -> Result<MediaDelivery<MediaStreamAdmission>, ShenkoError> {
         let admission = self.store.admit_media_stream(self.agent_id, open)?;
         let delivery = match &admission.notify {
-            Some(event) => self.deliver(event.clone()).await,
+            Some(event) => self.deliver(event.event_id())?,
             None => SubjectDelivery::Replay,
         };
         Ok(MediaDelivery {
@@ -168,7 +144,7 @@ impl MediaIngress {
     ) -> Result<MediaDelivery<MediaStreamAdmission>, ShenkoError> {
         let admission = self.store.end_media_stream(self.agent_id, end)?;
         let delivery = match &admission.notify {
-            Some(event) => self.deliver(event.clone()).await,
+            Some(event) => self.deliver(event.event_id())?,
             None => SubjectDelivery::Replay,
         };
         Ok(MediaDelivery {

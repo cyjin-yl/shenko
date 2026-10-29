@@ -8,6 +8,19 @@ providers**. It is not an ASR implementation and does not claim one exists:
 synthetic transcript is never rendered as recognition. Real ASR/audio device
 prerequisites are listed at the end and remain outside this slice.
 
+## Verification status
+
+This is an **unverified source candidate**, not runtime/ASR evidence. No
+build, test, formatter, metadata command, native program, server, model,
+production account or audio device was run for this repair. The integrator
+must combine C11's shared durable-input drain (`source LIKE 'media/%'` in
+both selection and the atomic staged-input consumed update) before native
+acceptance: that change is C11 commit `4b492e4d`, included in C11 head
+`1e4cb27534d9450bb06340d618984a7634599c20` / PR #117. C12's
+`admit_inbox_event` is a separate producer of this SAME existing inbox table,
+not a second drain; media inserts its original inside the media transaction
+to avoid a split admission. The recipes below are work to run, not results.
+
 ## Path
 
 ```
@@ -15,10 +28,13 @@ provider ─ typed input ─▶ MediaIngress (native service or /api/media/*)
                           │
                           ├─ Store.admit_media_revision / admit_media_stream /
                           │  end_media_stream        (one ledger commit:
-                          │   raw fact + effective observation + stream row)
+                          │   raw fact + effective observation + stream row +
+                          │   the durable inbox_events original)
                           │
                           └─ bound InboxEvent (event_id from the receipt)
-                              └─ same subject inbox → S0 staging →
+                              └─ volatile wake → same subject inbox, AND the
+                                 durable row the pending-input drain recovers
+                                 → S0 staging →
                                  context projection → model step → S1
                                  event_disposition_commit
 ```
@@ -26,7 +42,12 @@ provider ─ typed input ─▶ MediaIngress (native service or /api/media/*)
 There is no second main loop: a late transcript correction is an ordinary
 durable input of the single subject, so the ongoing step stream already
 delivers tool delegation, semantic waits and recovery. Tool use during a call
-or a class is unchanged — media events are staged like any other input.
+or a class is unchanged — media events are staged like any other input. The
+durable `inbox_events` row commits inside the SAME ledger transaction as the
+media fact (source `media/<provider>`, data = the complete serialized
+InboxEvent), so a full or closed queue, a crash or a missed wake never loses
+the input: the subject's shared pending drain delivers the SAME event id on
+a later step, and `event_disposition_commit` reports committed consumption.
 
 ## Typed contract (`shenko-types/src/media.rs`)
 
@@ -40,14 +61,28 @@ or a class is unchanged — media events are staged like any other input.
   source }` — an optional provider claim with confidence/unknown/correction.
   It is never an identity binding or authority (§15.2); `speaker: None`
   records explicit unknown.
-- `MediaAudioRef::Sealed { object }` — CAS object ref. Admission verifies the
-  object exists with the declared digest and size **before** the metadata
-  commit (§41.2.2). `MediaAudioRef::Provider(…)` records a provider-local
-  locator verbatim — provenance, not archive.
+- `MediaAudioRef::Sealed { object }` — CAS object ref. Admission validates the
+  digest is exactly `blake3:` plus 64 lowercase hex digits **before** any path
+  resolution, uses pinned cap-std capability-relative opens confined to this
+  CAS even across escaping symlinks, and verifies
+  the stored bytes hash to the declared digest at the declared length before
+  the metadata commit (§41.2.2). A rewritten algorithm, a phantom digest or
+  same-length corrupted content is rejected, never admitted.
+  `MediaAudioRef::Provider(…)` records a provider-local locator verbatim —
+  provenance, not archive.
+
+The pinned capability API's confined-open contract is documented in the
+[cap-std 3.4.6 source](https://docs.rs/crate/cap-std/3.4.6/source/src/fs/dir.rs)
+and its [sandboxing example](https://docs.rs/crate/cap-std/3.4.6).
 - `MediaStreamOpen` / `MediaStreamEnd { state ∈ {cancelled, disconnected,
-  ended}, reason }` — session scope and terminal state. A `disconnected`
-  stream may later settle to `ended`/`cancelled` as a new explicit fact;
-  `ended`/`cancelled` are immutable.
+  ended}, reason }` — session scope and terminal state. Every terminal notice
+  is an immutable fact keyed by `end_id` (`media_stream_ends`): a
+  `disconnected` stream may later settle to `ended`/`cancelled` under a NEW
+  end identity, and replaying `end_id` returns THAT notice's own event id and
+  commit — never the stream's latest-state projection. The stream row's
+  `end`/`state` columns are only the latest projection; `open_commit_ref`
+  preserves the open admission's commit so an open replay keeps its own
+  receipt even after the stream ended.
 
 ## Dispositions
 
@@ -67,6 +102,9 @@ with no persistent effect.
 
 - `Store::media_stream(descriptor)` — the committed stream row (state,
   implicit flag, end record).
+- `Store::media_stream_ends(descriptor)` — every immutable terminal notice
+  ordered by retained admission timestamp and end identity, each with its
+  own bound event id and original commit (not a cross-ledger global clock).
 - `Store::media_effective_segment(descriptor, segment)` — the current
   effective revision.
 - `Store::media_revisions(descriptor, segment)` — the retained raw trail.
@@ -75,6 +113,10 @@ with no persistent effect.
 - `Store::event_disposition_commit(agent, event_id)` — whether the subject
   committed consumption of the bound event; the reconciliation key after a
   crash between admission and inbox delivery.
+
+`segment`/`revision` above the SQLite-integer range and other invalid input
+are typed `media_invalid_input` rejections decided BEFORE the shared mutation
+gate, so provider junk never closes the ledger writer.
 
 ## HTTP surface (`shenko-ui`, mounted only when ingress is wired)
 
@@ -86,7 +128,27 @@ with no persistent effect.
 
 Responses carry `{schema_version, receipt, delivery}` where `delivery` is
 `queued | pending | rejected`: durable admission and live queue delivery are
-reported separately and `pending` is never hidden.
+reported separately and `pending` is never hidden — it means only that the
+volatile wake did not land; the durable `inbox_events` row still delivers the
+same event through the pending drain.
+
+## Recovery replication
+
+`media_streams`, `media_stream_ends` and `media_segment_revisions` are
+registered replicated tables, so `export_cognition` carries stream identity
+and latest state, every immutable terminal notice with its bound event id,
+and every raw revision — and `collect_references` pulls each sealed audio
+`ObjectRef` in `audio_json`/`data` into the verified CAS closure. The archive
+schema is **4**: old receivers must reject rather than silently discard new
+facts. Schema 2/3 inputs are admitted only after the same current closure
+checks, including rejecting staged media whose admission tables are absent.
+Import stamps only local bookkeeping `commit_seq`; `open_commit_ref` and
+`admitted_commit_ref` retain the ORIGINAL ledger ID and sequence verbatim,
+so repeated imports and later stream settlement cannot rewrite receipts.
+Each stream and its pending inbox originals reconcile as one conflict unit;
+a conflicting fact cannot leak a ready delivery or advance its baseline.
+Missing/inconsistent fact↔delivery identities or audio closure lengths block
+import before publication and therefore block a verified ACK.
 
 ## Native surface
 
@@ -111,9 +173,10 @@ contradictory utterance. Streams that cancel or disconnect produce a
   recorder) and a real ASR engine producing partial/final text.
 - Optional speaker/voiceprint model producing `MediaSpeakerClaim`; sharing
   the LLM's GPU must be coordinated through the resource budget, §20.
-- The provider's own retry/reconcile loop: on `pending`/`rejected` delivery
-  or a crash, resend the same `revision_id` and reconcile via
-  `event_disposition_commit`.
+- The provider's own upstream continuity/gap reporting and receipt
+  reconciliation. `pending`/`rejected` no longer requires a provider resend:
+  the subject recovers the committed row. If the transport lost an admission
+  response, resend the same id and reconcile via `event_disposition_commit`.
 - Recording/stop-control visibility and retention policy are provider
   configuration, recorded in `provider_facts`/`descriptor`.
 
@@ -121,11 +184,23 @@ contradictory utterance. Streams that cancel or disconnect produce a
 
 All inside the dev container, under the shared heavy-work lock:
 
-1. `cargo test -p shenko-store --test media_transcript` — the 9 durable
-   behavior scenarios of this slice.
+1. `cargo test -p shenko-store --test media_transcript` — the durable
+   behavior scenarios of this slice (8 tests / 9 independent cases, counting
+   open replay after terminal settlement separately from terminal-notice
+   replay; no parameter-table or helper expansion hides extra scenarios).
 2. `cargo test -p shenko-subject` — the projection/staging change must not
    regress existing S0/S1 and recovery tests.
-3. Native end-to-end smoke (manual): start `bin/shenko` with a real data
+3. `cargo test -p shenko-store --test cognition_replication` — regression of
+   `local_seq` handling (every replicated table) plus the new media
+   registrations. Then one bounded manual check: admit a stream open, one
+   revision with sealed audio and a disconnect→settle pair; export
+   cognition; import into a fresh store; verify `media_stream`/
+   `media_stream_ends`/`media_transcript`/`media_revisions` read
+   identically, the audio object arrived in the closure, and replays of
+   `open_id`/`end_id`/`revision_id` return their ORIGINAL event ids and
+   commits on the receiver. Reimport a newer terminal snapshot after the
+   initial open-only snapshot and confirm the open receipt is unchanged.
+4. Native end-to-end smoke (manual): start `bin/shenko` with a real data
    dir, then replay this exact sequence against the UI port:
 
    ```
@@ -140,8 +215,20 @@ All inside the dev container, under the shared heavy-work lock:
    Expected: each admission returns a commit_ref-bearing receipt; the subject
    inbox receives one event per new fact; a replay adds none; the transcript
    reports the final effective text and honest gaps; after restart, the same
-   reads return the same facts (reopen/replay durability).
+   reads return the same facts (reopen/replay durability). With the subject
+   inbox stopped or filled before the revision PUT, `delivery` reports
+   `pending`/`rejected` while the durable `inbox_events` row still exists —
+   after reopen it reaches the subject through the pending drain with the
+   SAME event id, and `event_disposition_commit` resolves it.
 
-4. With a running subject, confirm the bound `event_id` resolves through
+5. With a running subject, confirm the bound `event_id` resolves through
    `Store::event_disposition_commit` after the step that consumed it — the
    same reconciliation key NapCat ingress uses.
+
+Use only sandbox data under the persistent project tree. Additional bounded
+repair probes, not new permanent cases: segment and revision overflow
+separately; changed terminal state under the SAME `end_id`; malformed digest
+suffix/absolute path and rewritten algorithm before any lookup; same-length
+CAS corruption; an escaping CAS symlink; an archive with a media fact,
+delivery identity or audio payload removed; and a stream conflict that must
+not publish its inbox originals. These are unexecuted acceptance work.

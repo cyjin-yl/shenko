@@ -86,7 +86,8 @@ impl Ledger {
                 entity_count as i64,
             ],
         )
-        .map_err(|e| ShenkoError::storage(e.to_string()))
+        .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        Ok(())
     }
 
     #[instrument(skip(self, batch))]
