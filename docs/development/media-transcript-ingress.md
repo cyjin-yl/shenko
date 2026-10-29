@@ -151,6 +151,13 @@ a conflicting fact cannot leak a ready delivery or advance its baseline.
 Missing/inconsistent fact↔delivery identities or audio closure lengths block
 import before publication and therefore block a verified ACK.
 
+Previously incomplete media rows are retained, not rewritten into invented
+receipts. If a prior implementation failed to retain an original open commit
+or terminal notice, replay/settlement reports `media_receipt_incomplete` with
+`AfterReconcile`; it must not overwrite the sole retained terminal fact.
+Such missing bindings also block verified recovery. An already-overwritten
+historical notice cannot be reconstructed from the latest-state row alone.
+
 ## Native surface
 
 `shenko_media::MediaIngressPlugin` publishes `MediaIngress`

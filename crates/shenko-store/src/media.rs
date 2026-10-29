@@ -1376,7 +1376,17 @@ impl Store {
             // A disconnect may settle into the provider's real terminal cause;
             // it is a new explicit fact under a NEW end identity, never a
             // silent rewrite. `ended`/`cancelled` stay immutable.
-            if row.end.is_some() {
+            if let Some(previous) = &row.end {
+                // An older/incomplete store may retain only the latest
+                // terminal projection. Do not overwrite that sole fact or
+                // invent its receipt while settling a new notice.
+                if stored_stream_end(&tx, &stream_key, &previous.end_id)?.is_none() {
+                    return Err(media_error(
+                        "media_receipt_incomplete",
+                        RetryStrategy::AfterReconcile,
+                        "previous terminal notice lacks its immutable receipt; reconcile retained source data",
+                    ));
+                }
                 let can_settle = matches!(row.state, MediaStreamState::Disconnected)
                     && !matches!(end.state, MediaStreamState::Disconnected);
                 if !can_settle {
