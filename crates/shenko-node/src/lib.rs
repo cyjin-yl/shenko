@@ -948,7 +948,7 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     // executable schema objects from the name-filtered comparison above.
     // Node defines no triggers or views; any such object is not an installation.
     let executable: i64 = conn.query_row(
-        "SELECT count(*) FROM sqlite_master WHERE type IN ('trigger','view')",
+        "SELECT count(*) FROM sqlite_master WHERE lower(type) IN ('trigger','view')",
         [],
         |r| r.get(0),
     )?;

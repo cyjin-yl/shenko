@@ -49,15 +49,19 @@ pub(super) fn validate_existing(db: &Path) -> Result<()> {
     ensure!(main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
         "node main must be one private regular file with one link");
     let journal = sidecar(db, "-journal");
-    if sidecar_present(&journal)? {
-        let meta = std::fs::symlink_metadata(&journal)?;
+    let journal_meta = sidecar_meta(&journal)?;
+    if let Some(meta) = &journal_meta {
         ensure!(meta.is_file() && meta.nlink() == 1 && !meta.file_type().is_symlink(),
             "node journal must be one private regular file with one link");
     }
     // Any sidecar requires the confined staged preflight even when the main
     // image happens to validate: ordinary rollback could otherwise follow a
-    // crafted super-journal name outside this directory.
-    if sidecar_present(&journal)? || sidecar_present(&sidecar(db, "-wal"))? {
+    // crafted super-journal name outside this directory. A concurrent commit
+    // may legitimately remove the journal; re-sample tolerantly instead of
+    // rejecting the healthy installation.
+    if journal_meta.is_some() || sidecar_meta(&sidecar(db, "-wal"))?.is_some()
+        || sidecar_meta(&sidecar(db, "-shm"))?.is_some()
+    {
         return recover_private(db)
             .with_context(|| "node sidecar admission failed");
     }
@@ -229,9 +233,13 @@ fn private_file(path: &Path) -> Result<File> {
 }
 
 fn sidecar_present(path: &Path) -> Result<bool> {
+    Ok(sidecar_meta(path)?.is_some())
+}
+
+fn sidecar_meta(path: &Path) -> Result<Option<std::fs::Metadata>> {
     match std::fs::symlink_metadata(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Ok(meta) => Ok(Some(meta)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
 }
@@ -242,7 +250,7 @@ fn recover_private(db: &Path) -> Result<()> {
     let journal = sidecar(db, "-journal");
     // Node writes DELETE journals. Do not silently discard WAL state while
     // deciding whether an otherwise unrecognized source belongs to Node.
-    ensure!(!sidecar_present(&sidecar(db, "-wal"))? && !sidecar_present(&sidecar(db, "-shm"))?,
+    ensure!(sidecar_meta(&sidecar(db, "-wal"))?.is_none() && sidecar_meta(&sidecar(db, "-shm"))?.is_none(),
         "rollback admission does not ignore WAL sidecars");
     let stage = tempfile::Builder::new().prefix("shenko-node-recovery-").tempdir()?;
     let copied = stage.path().canonicalize()?.join("node.sqlite3");
@@ -269,7 +277,7 @@ fn recover_private(db: &Path) -> Result<()> {
     } else { None };
     ensure!(source.copy_to(&mut std::io::sink())? == main_digest
         && current_journal == journal_digest
-        && !sidecar_present(&sidecar(db, "-wal"))? && !sidecar_present(&sidecar(db, "-shm"))?,
+        && sidecar_meta(&sidecar(db, "-wal"))?.is_none() && sidecar_meta(&sidecar(db, "-shm"))?.is_none(),
         "node recovery source changed after private validation");
     // Drop the independent VFS lock before the ordinary pager opens the source.
     // The directory guard still serializes cooperating openers. This is not an
