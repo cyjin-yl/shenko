@@ -1189,6 +1189,14 @@ struct CopyReport {
 // Runs in the forked child only. Async-signal-safe by construction: every
 // call is a libc syscall on preallocated stack data and inherited fds — no
 // allocator, lock, formatting, panic or destructor path may run here.
+#[inline]
+unsafe fn copy_child_errno(report: &mut CopyReport) {
+    unsafe {
+        report.status = 1;
+        report.errno = *libc::__errno_location();
+    }
+}
+
 unsafe fn copy_child_body(
     path_ptr: *const libc::c_char,
     out_fd: libc::c_int,
@@ -1196,17 +1204,13 @@ unsafe fn copy_child_body(
 ) -> ! {
     unsafe {
         let mut report: CopyReport = std::mem::zeroed();
-        let mut record_errno = |report: &mut CopyReport| {
-            report.status = 1;
-            report.errno = *libc::__errno_location();
-        };
         let fd = libc::open(path_ptr, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
         if fd < 0 {
-            record_errno(&mut report);
+            copy_child_errno(&mut report);
         } else {
             let mut st: libc::stat = std::mem::zeroed();
             if libc::fstat(fd, &mut st) < 0 {
-                record_errno(&mut report);
+                copy_child_errno(&mut report);
             } else if st.st_mode & libc::S_IFMT != libc::S_IFREG {
                 report.status = 1;
                 report.errno = libc::EINVAL;
@@ -1230,7 +1234,7 @@ unsafe fn copy_child_body(
                         if *libc::__errno_location() == libc::EINTR {
                             continue;
                         }
-                        record_errno(&mut report);
+                        copy_child_errno(&mut report);
                         break;
                     }
                     let mut off = 0usize;
@@ -1241,7 +1245,7 @@ unsafe fn copy_child_body(
                             if *libc::__errno_location() == libc::EINTR {
                                 continue;
                             }
-                            record_errno(&mut report);
+                            copy_child_errno(&mut report);
                             done = false;
                             break;
                         }
@@ -1255,7 +1259,7 @@ unsafe fn copy_child_body(
                 let mut st2: libc::stat = std::mem::zeroed();
                 if report.status == 0 {
                     if libc::fstat(fd, &mut st2) < 0 {
-                        record_errno(&mut report);
+                        copy_child_errno(&mut report);
                     } else {
                         report.after = MemberSig {
                             dev: st2.st_dev as u64,
@@ -1555,4 +1559,127 @@ fn update_step(
         return Err(ShenkoError::conflict("stale subject step"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod staged_inspection_tests {
+    //! Native copy/inspection behavior against real SQLite file tuples. No
+    //! wrappers: these call the private helpers directly so a copied snapshot
+    //! can never be mistaken for a live binding.
+    use super::*;
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::AsRawFd;
+    use anyhow::{Context, Result, ensure};
+    use rusqlite::Connection;
+
+    fn reap(pid: libc::pid_t) -> std::io::Result<libc::c_int> {
+        let mut status: libc::c_int = 0;
+        loop {
+            let r = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if r == pid {
+                return Ok(status);
+            }
+            if r < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
+                continue;
+            }
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+
+    /// Exit 0 when an exclusive whole-file POSIX lock on `path` can be taken
+    /// right now in a *different* process, 3 when a held lock blocks it.
+    /// Called only in the forked probe child; libc syscalls on stack data.
+    unsafe fn probe_lock(path_ptr: *const libc::c_char) -> ! {
+        unsafe {
+            let fd = libc::open(path_ptr, libc::O_RDWR | libc::O_CLOEXEC);
+            if fd < 0 {
+                libc::_exit(4);
+            }
+            let mut fl: libc::flock = std::mem::zeroed();
+            fl.l_type = libc::F_WRLCK as _;
+            fl.l_whence = libc::SEEK_SET as _;
+            let rc = libc::fcntl(fd, libc::F_SETLK, &fl);
+            libc::_exit(if rc == 0 { 0 } else { 3 });
+        }
+    }
+
+    fn lock_blocked(path: &std::ffi::CString) -> Result<bool> {
+        let pid = unsafe { libc::fork() };
+        if pid < 0 {
+            return Err(std::io::Error::last_os_error()).context("fork lock probe");
+        }
+        if pid == 0 {
+            unsafe { probe_lock(path.as_ptr()) }
+        }
+        let status = reap(pid)?;
+        ensure!(libc::WIFEXITED(status), "lock probe died");
+        match libc::WEXITSTATUS(status) {
+            0 => Ok(false),
+            3 => Ok(true),
+            other => anyhow::bail!("lock probe failed to open ({other})"),
+        }
+    }
+
+    #[test]
+    fn staged_inspection_preserves_locks_and_rejects_swapped_members() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let db = dir.path().join("shenko.db");
+        let store = Store::open(db.clone(), dir.path().join("cas"))?;
+
+        // POSIX (fcntl) locks — the kind the independent-close hazard drops —
+        // held by this process on the live db inode.
+        let live = std::fs::File::options().read(true).write(true).open(&db)?;
+        let mut fl: libc::flock = unsafe { std::mem::zeroed() };
+        fl.l_type = libc::F_WRLCK as _;
+        fl.l_whence = libc::SEEK_SET as _;
+        if unsafe { libc::fcntl(live.as_raw_fd(), libc::F_SETLK, &fl) } < 0 {
+            return Err(std::io::Error::last_os_error()).context("take live db lock");
+        }
+        let live_c = std::ffi::CString::new(db.as_os_str().as_bytes())?;
+        assert!(lock_blocked(&live_c)?, "held lock must contend");
+        let binding = Store::inspect_installation_binding(&db)?;
+        assert_eq!(binding.ledger_id, store.ledger.ledger_id());
+        // The forked copy must not have released this process's lock.
+        assert!(lock_blocked(&live_c)?, "inspection dropped a live POSIX lock");
+        drop(live);
+
+        // An independent WAL tuple: sidecars are copied through the same
+        // child-owned inode-bound path, not inferred from the main file.
+        let extra = dir.path().join("extra.db");
+        let conn = Connection::open(&extra)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE t(v);
+             INSERT INTO t VALUES(1),(2),(3);",
+        )?;
+        let wal = sidecar_path(&extra, "-wal");
+        assert!(wal.exists(), "live WAL sidecar must exist for tuple staging");
+        let staged = dir.path().join("staged.db");
+        let sigs = copy_stable_tuple(&extra, &staged)?;
+        assert_eq!(sigs.len(), 3);
+        assert!(sigs[0].is_some() && sigs[2].is_some(), "main+WAL must be staged");
+        let mut copied = Vec::new();
+        std::fs::File::open(&wal)?.read_to_end(&mut copied)?;
+        drop(conn);
+
+        // A symlink member is rejected, never followed.
+        let link = dir.path().join("link.db");
+        std::os::unix::fs::symlink(&extra, &link)?;
+        assert!(tuple_signature(&link).is_err(), "symlink member must reject");
+
+        // A same-length file with a different inode is not the admitted
+        // member: the child reports what it actually opened and the parent
+        // refuses to fabricate the admitted signature for it.
+        let imposter = dir.path().join("imposter.db");
+        std::fs::write(&imposter, &copied)?;
+        let admitted = tuple_signature(&extra)?.unwrap();
+        std::fs::rename(&imposter, &extra)?;
+        let staged2 = dir.path().join("staged2.db");
+        assert!(
+            copy_member(&extra, &staged2, admitted).is_err(),
+            "swapped inode must not pass as the admitted member"
+        );
+        Ok(())
+    }
 }
