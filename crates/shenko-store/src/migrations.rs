@@ -79,6 +79,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // missing original receipt/delivery bindings instead of acknowledging them.
     ensure_column(conn, "media_streams", "open_commit_ref", "TEXT")?;
     ensure_column(conn, "media_segment_revisions", "admitted_commit_ref", "TEXT")?;
+    // Durable browser input submission bindings (SPEC §41.18). Additive,
+    // never rewrites the original event or its admission fact.
+    conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
