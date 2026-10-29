@@ -1,11 +1,88 @@
 use crate::mount::{MountMode, MountSpec, validate_mounts};
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 use tracing::info;
-use wasmtime::{Engine, Instance, Linker, Module, Store, Val};
+use wasmtime::{Config, Engine, Instance, Linker, Module, Store, UpdateDeadline, Val};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
+
+/// Shared cancellation request for a controlled WASI execution.
+///
+/// Cloning a handle keeps the same request; `cancel()` is idempotent and can
+/// be called from any thread, including the same thread before the run
+/// starts. A cancellation is observed by the controlled run at guest epoch
+/// checkpoints (see `WasiRunControl`), never by rewinding effects the guest
+/// already committed.
+#[derive(Debug, Clone, Default)]
+pub struct WasiCancellation {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl WasiCancellation {
+    /// Request cancellation. Returns immediately; the run reports
+    /// `WasiRunOutcome::Cancelled` once the guest reaches an epoch checkpoint.
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether cancellation was already requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+    }
+}
+
+/// Optional per-invocation execution controls (R007: cancel + timeout on top
+/// of the existing argv/env/stdio contract). `WasiRunControl::default()`
+/// requests no controls and keeps the previous unbounded behavior.
+///
+/// Guarantees are deliberately bounded and documented rather than implied:
+/// both `deadline` and `cancel` interrupt **guest code** at wasmtime epoch
+/// checkpoints, with a check granularity of `WASI_EPOCH_CHECK_INTERVAL`.
+/// A guest blocked inside a blocking host call (for example `fd_read` on an
+/// empty pipe, or `poll_oneoff` on a WASI clock subscription) stays blocked
+/// until that host call returns; the deadline is a bound on guest-executed
+/// work and the host-side run, not a promise to abort blocked host calls.
+/// `deadline` is measured from the start of the run and includes module
+/// compilation and mount setup, so an elapsed budget reports
+/// `WasiRunOutcome::DeadlineExceeded` before the guest executes at all.
+#[derive(Debug, Clone, Default)]
+pub struct WasiRunControl {
+    /// Maximum total duration of the run, from run start through `_start`
+    /// returning.
+    pub deadline: Option<Duration>,
+    /// Optional cancellation handle observed at epoch checkpoints.
+    pub cancel: Option<WasiCancellation>,
+}
+
+/// How often the watcher advances the controlled engine's epoch, in ticks.
+/// One tick equals one `Instant`-clock interval of this duration. Cancellation
+/// and deadline checks run when guest code reaches an epoch checkpoint after
+/// a tick, so observed latency is at most one interval plus one guest
+/// checkpoint for CPU-bound guests.
+const WASI_EPOCH_CHECK_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Typed, caller-visible result of a real WASI execution (R007 task
+/// lifecycle). Host-side failures (invalid commands, mount validation,
+/// compile/instantiate/linker errors and guest traps other than `proc_exit`)
+/// remain `Err` exactly as before; this enum covers successful runs and
+/// deliberate stops.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WasiRunOutcome {
+    /// `_start` returned (0) or the guest called `proc_exit(n)`. Writes
+    /// already made to caller streams and mounts remain effects.
+    Exited(i32),
+    /// The configured deadline elapsed before the guest finished. The guest
+    /// was trapped at an epoch checkpoint; effects already committed stand.
+    DeadlineExceeded,
+    /// `WasiCancellation::cancel` was observed before the guest finished.
+    /// Same effect-preservation rule as `DeadlineExceeded`.
+    Cancelled,
+}
 
 /// Guest path where the persistent WASM home is mounted for WASI commands
 /// (SPEC §8.3: every mount declares its source path and guest path; the home
@@ -23,6 +100,9 @@ pub const HOME_GUEST_PATH: &str = "/home";
 pub struct WasiCommand<I, O, E> {
     pub arguments: Vec<String>,
     pub environment: Vec<(String, String)>,
+    /// Optional execution controls; `WasiRunControl::default()` runs without
+    /// a deadline or cancellation, exactly as before.
+    pub control: WasiRunControl,
     stdin: I,
     stdout: O,
     stderr: E,
@@ -38,6 +118,7 @@ impl<I, O, E> WasiCommand<I, O, E> {
         Self {
             arguments: Vec::new(),
             environment: Vec::new(),
+            control: WasiRunControl::default(),
             stdin,
             stdout,
             stderr,
@@ -74,6 +155,19 @@ pub struct WasmRuntime {
     pub store: Option<Store<()>>,
     pub home_dir: PathBuf,
     pub mounts: Vec<MountSpec>,
+    /// Private epoch-interruption engine used only by controlled runs.
+    ///
+    /// Epoch engines require every store to declare an epoch deadline before
+    /// guest code may execute, so the public `engine` must keep running
+    /// uncontrolled stores (`instantiate_module`, plain `run_wasi_module`)
+    /// without epoch instrumentation. A dedicated, never-exported engine also
+    /// keeps each run's epoch private: nobody else can tick it (no premature
+    /// deadlines) and its ticks cannot trip stores owned by `self.engine` or
+    /// by an `Engine` cloned out of this runtime (no cross-run cancellation).
+    /// `&mut self` already serializes runs on one runtime, and the epoch is
+    /// bookkeeping-relative, so one lazily-built engine serves all of this
+    /// runtime's controlled runs without recompilation of the engine itself.
+    control_engine: Option<Engine>,
 }
 
 impl WasmRuntime {
@@ -87,6 +181,7 @@ impl WasmRuntime {
             store: Some(store),
             home_dir: PathBuf::new(),
             mounts: Vec::new(),
+            control_engine: None,
         })
     }
 
@@ -131,7 +226,7 @@ impl WasmRuntime {
         Ok(results)
     }
 
-    /// Run a WASI preview1 command module and return its exit code.
+    /// Run a WASI preview1 command module and return its typed outcome.
     ///
     /// `wasm_or_wat` may be either a binary module or WAT text. Every preopen
     /// comes from `self.mounts` with its declared RO/RW permissions. Wasmtime
@@ -141,11 +236,21 @@ impl WasmRuntime {
     /// shell or inherited process state. A normal return is exit code 0 and a
     /// `proc_exit(n)` trap is exit code `n`; other traps are errors, and any
     /// writes already made to caller-supplied streams or mounts remain effects.
+    ///
+    /// `command.control` optionally bounds the run (R007): a `deadline`
+    /// measured from run start and/or a `WasiCancellation` handle observed at
+    /// guest epoch checkpoints report the typed `WasiRunOutcome` variants
+    /// instead of hanging the caller. Controlled runs execute on this
+    /// runtime's private epoch engine, so ticking one run can never interrupt
+    /// stores on the shared `engine` or on engines other runtimes own, and a
+    /// stopped run leaves the runtime fully usable for the next call. These
+    /// controls interrupt guest code only; a guest blocked inside a blocking
+    /// host call stays blocked until that call returns.
     pub fn run_wasi_module<I, O, E>(
         &mut self,
         wasm_or_wat: &[u8],
         command: WasiCommand<I, O, E>,
-    ) -> Result<i32>
+    ) -> Result<WasiRunOutcome>
     where
         I: StdinStream + 'static,
         O: StdoutStream + 'static,
@@ -157,10 +262,60 @@ impl WasmRuntime {
             ));
         }
         command.validate()?;
+        let control = command.control.clone();
 
-        let engine = &self.engine;
+        // Deterministic boundary checks, before any mount, compile or spawn
+        // work: an already-cancelled run must not produce guest effects, and a
+        // deadline that has already elapsed (zero duration, or a duration that
+        // cannot even be represented relative to now) is reported rather than
+        // silently changed into a different policy.
+        if control
+            .cancel
+            .as_ref()
+            .is_some_and(WasiCancellation::is_cancelled)
+        {
+            return Ok(WasiRunOutcome::Cancelled);
+        }
+        if control.deadline.is_some_and(|d| d.is_zero()) {
+            return Ok(WasiRunOutcome::DeadlineExceeded);
+        }
+        // Resolve the caller-relative duration into one absolute deadline
+        // now: a duration that cannot be represented is rejected instead of
+        // silently downgraded to a different bound.
+        let deadline_at = control
+            .deadline
+            .map(|d| {
+                Instant::now().checked_add(d).ok_or_else(|| {
+                    anyhow!(
+                        "WASI_RUN_CONTROL_INVALID: deadline duration exceeds representable clock range"
+                    )
+                })
+            })
+            .transpose()?;
+
+        let controlled = control.deadline.is_some() || control.cancel.is_some();
+        let engine = if controlled {
+            if self.control_engine.is_none() {
+                let mut config = Config::new();
+                config.epoch_interruption(true);
+                self.control_engine = Some(
+                    Engine::new(&config)
+                        .map_err(|e| anyhow!("create epoch-enabled engine: {e}"))?,
+                );
+            }
+            self.control_engine
+                .as_ref()
+                .expect("control engine just built")
+                .clone()
+        } else {
+            self.engine.clone()
+        };
         let home = &self.home_dir;
         let mounts = &self.mounts;
+        // Bind before the closures: the worker borrows the selected engine
+        // while the watcher gets its own cheap clone (Engine is Arc-backed).
+        let engine_ref = &engine;
+        let ticker = engine.clone();
         // wasmtime-wasi's synchronous shims call `Handle::block_on`, which
         // panics when the calling thread already drives a tokio runtime. Run
         // on a fresh thread with no ambient runtime so the shims fall back to
@@ -168,15 +323,73 @@ impl WasmRuntime {
         // callers (the Shenko main loop) as well as from plain tests. Scoped
         // borrowing avoids copying the module and mount list for each run.
         std::thread::scope(|scope| {
-            std::thread::Builder::new()
+            // The watcher exists only for controlled runs and only ticks this
+            // run's private engine, so it can never cancel unrelated stores.
+            // It is spawned first on purpose: if this spawn fails there is no
+            // unbounded worker to abandon, and if the worker spawn below fails
+            // the dropped `stop_tx` lets the watcher exit within one interval
+            // before `scope` joins it. The watcher is always joined below on
+            // success, error or worker panic — nothing outlives the call.
+            let watcher = controlled.then(|| {
+                let (stop_tx, stop_rx) = mpsc::channel::<()>();
+                std::thread::Builder::new()
+                    .name("shenko-wasi-epoch".into())
+                    .spawn_scoped(scope, move || loop {
+                        match stop_rx.recv_timeout(WASI_EPOCH_CHECK_INTERVAL) {
+                            Err(mpsc::RecvTimeoutError::Timeout) => {
+                                ticker.increment_epoch();
+                            }
+                            Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                        }
+                    })
+                    .context("spawn wasi epoch watcher thread")
+                    .map(|watcher| (watcher, stop_tx))
+            }).transpose()?;
+
+            let worker = std::thread::Builder::new()
                 .name("shenko-wasi".into())
                 .spawn_scoped(scope, move || {
-                    run_wasi_blocking(engine, home, mounts, wasm_or_wat, command)
+                    run_wasi_blocking(engine_ref, home, mounts, wasm_or_wat, command, deadline_at)
                 })
-                .context("spawn wasi execution thread")?
+                .context("spawn wasi execution thread")?;
+
+            let run = worker
                 .join()
-                .map_err(|_| anyhow!("wasi execution thread panicked"))?
+                .map_err(|_| anyhow!("wasi execution thread panicked"))?;
+            if let Some((watcher, stop_tx)) = watcher {
+                // Dropping the sender ends the watcher's next recv_timeout;
+                // joining bounds the cleanup before the typed result returns.
+                drop(stop_tx);
+                watcher
+                    .join()
+                    .map_err(|_| anyhow!("wasi epoch watcher thread panicked"))?;
+            }
+            run
         })
+    }
+}
+
+/// Per-store state for a controlled run: the WASI context plus the stop
+/// bookkeeping consulted by the epoch-deadline callback. `stop` records the
+/// typed outcome the callback committed to, so the caller can distinguish a
+/// deliberate kill from an ordinary guest trap.
+struct ControlledCtx {
+    wasi: WasiP1Ctx,
+    cancel: Option<WasiCancellation>,
+    deadline: Option<Instant>,
+    stop: Option<WasiRunOutcome>,
+}
+
+/// Map a `_start` call result onto an exit code, preserving the preexisting
+/// contract: normal return is 0, `proc_exit(n)` is `n` (an `I32Exit` trap),
+/// anything else is a guest trap error.
+fn wasi_exit(result: wasmtime::Result<()>) -> Result<WasiRunOutcome> {
+    match result {
+        Ok(()) => Ok(WasiRunOutcome::Exited(0)),
+        Err(e) => match e.downcast_ref::<I32Exit>() {
+            Some(exit) => Ok(WasiRunOutcome::Exited(exit.0)),
+            None => Err(anyhow!("run WASI `_start`: {e:?}")),
+        },
     }
 }
 
@@ -187,12 +400,15 @@ fn run_wasi_blocking<I, O, E>(
     mounts: &[MountSpec],
     wasm_or_wat: &[u8],
     command: WasiCommand<I, O, E>,
-) -> Result<i32>
+    deadline_at: Option<Instant>,
+) -> Result<WasiRunOutcome>
 where
     I: StdinStream + 'static,
     O: StdoutStream + 'static,
     E: StdoutStream + 'static,
 {
+    let controlled = deadline_at.is_some() || command.control.cancel.is_some();
+    let cancel = command.control.cancel.clone();
     let canonical_sources = validate_mounts(mounts, home)?;
     let module =
         Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
@@ -225,26 +441,111 @@ where
     }
     let wasi = builder.build_p1();
 
-    let mut linker: Linker<WasiP1Ctx> = Linker::new(engine);
-    p1::add_to_linker_sync(&mut linker, |cx| cx)
+    if !controlled {
+        let mut linker: Linker<WasiP1Ctx> = Linker::new(engine);
+        p1::add_to_linker_sync(&mut linker, |cx| cx)
+            .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
+
+        let mut store = Store::new(engine, wasi);
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .map_err(|e| anyhow!("instantiate WASI module: {e}"))?;
+        let start = instance
+            .get_typed_func::<(), ()>(&mut store, "_start")
+            .map_err(|e| anyhow!("WASI command must export `_start`: {e}"))?;
+
+        return wasi_exit(start.call(&mut store, ()));
+    }
+
+    let mut store = Store::new(
+        engine,
+        ControlledCtx {
+            wasi,
+            cancel,
+            deadline: deadline_at,
+            stop: None,
+        },
+    );
+    let mut linker: Linker<ControlledCtx> = Linker::new(engine);
+    p1::add_to_linker_sync(&mut linker, |cx| &mut cx.wasi)
         .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
-    let mut store = Store::new(engine, wasi);
-    let instance = linker
-        .instantiate(&mut store, &module)
-        .map_err(|e| anyhow!("instantiate WASI module: {e}"))?;
+    // The epoch deadline is one check interval, not the caller's wall-clock
+    // deadline: at every checkpoint the callback re-evaluates cancellation
+    // (an explicit request wins deterministically) and the real deadline
+    // against `Instant`. The watcher thread only advances engine epochs; all
+    // stop decisions happen on the execution thread in this callback, so a
+    // committed `stop` always corresponds to the trap that follows.
+    store.epoch_deadline_callback(|mut cx| {
+        let data = cx.data_mut();
+        let kill = if data
+            .cancel
+            .as_ref()
+            .is_some_and(WasiCancellation::is_cancelled)
+        {
+            Some(WasiRunOutcome::Cancelled)
+        } else if data
+            .deadline
+            .is_some_and(|d| Instant::now() >= d)
+        {
+            Some(WasiRunOutcome::DeadlineExceeded)
+        } else {
+            None
+        };
+        match kill {
+            Some(outcome) => {
+                cx.data_mut().stop = Some(outcome);
+                Err(anyhow!("WASI run stopped: {outcome:?}"))
+            }
+            None => Ok(UpdateDeadline::Continue(1)),
+        }
+    });
+    // On an epoch engine a store that never declares a deadline traps
+    // immediately, so this deadline must be installed before any guest code
+    // executes. The callback re-arms it one tick at a time.
+    store.set_epoch_deadline(1);
+
+    // Deterministic pre-execution check: cancellation or an elapsed deadline
+    // observed after compilation/setup but before instantiation means no
+    // guest code (including `start` sections) ever runs for this call.
+    {
+        let data = store.data();
+        let pre = if data
+            .cancel
+            .as_ref()
+            .is_some_and(WasiCancellation::is_cancelled)
+        {
+            Some(WasiRunOutcome::Cancelled)
+        } else if data
+            .deadline
+            .is_some_and(|d| Instant::now() >= d)
+        {
+            Some(WasiRunOutcome::DeadlineExceeded)
+        } else {
+            None
+        };
+        if let Some(outcome) = pre {
+            return Ok(outcome);
+        }
+    }
+
+    let stopped = |store: &Store<ControlledCtx>| store.data().stop;
+    let instance = match linker.instantiate(&mut store, &module) {
+        Ok(instance) => instance,
+        // A stop committed by the epoch callback outranks the trap it raised.
+        Err(e) => match stopped(&store) {
+            Some(outcome) => return Ok(outcome),
+            None => return Err(anyhow!("instantiate WASI module: {e}")),
+        },
+    };
     let start = instance
         .get_typed_func::<(), ()>(&mut store, "_start")
         .map_err(|e| anyhow!("WASI command must export `_start`: {e}"))?;
 
-    match start.call(&mut store, ()) {
-        Ok(()) => Ok(0),
-        // `proc_exit` surfaces as an `I32Exit` trap; that is a normal exit,
-        // not a runtime failure.
-        Err(e) => match e.downcast_ref::<I32Exit>() {
-            Some(exit) => Ok(exit.0),
-            None => Err(anyhow!("run WASI `_start`: {e:?}")),
-        },
+    let result = start.call(&mut store, ());
+    match stopped(&store) {
+        Some(outcome) => Ok(outcome),
+        None => wasi_exit(result),
     }
 }
 
@@ -306,7 +607,7 @@ mod tests {
         let plain = r#"(module (func (export "_start")))"#;
         assert_eq!(
             rt.run_wasi_module(plain.as_bytes(), no_stdio())?,
-            0,
+            WasiRunOutcome::Exited(0),
             "empty _start exits 0"
         );
 
@@ -321,7 +622,7 @@ mod tests {
         "#;
         assert_eq!(
             rt.run_wasi_module(exit7.as_bytes(), no_stdio())?,
-            7,
+            WasiRunOutcome::Exited(7),
             "proc_exit(7) surfaces as exit code 7"
         );
 
@@ -401,7 +702,11 @@ mod tests {
         "#;
 
         let code = rt.run_wasi_module(wat.as_bytes(), no_stdio())?;
-        assert_eq!(code, 0, "guest check failed at stage {code}");
+        assert_eq!(
+            code,
+            WasiRunOutcome::Exited(0),
+            "guest check failed at stage {code:?}"
+        );
         assert_eq!(
             fs::read_to_string(home.join("guest-out.txt"))?,
             "hi\n",
@@ -454,7 +759,10 @@ mod tests {
               )
             )
         "#;
-        assert_eq!(rt.run_wasi_module(write_attempt.as_bytes(), no_stdio())?, 0);
+        assert_eq!(
+            rt.run_wasi_module(write_attempt.as_bytes(), no_stdio())?,
+            WasiRunOutcome::Exited(0)
+        );
         assert!(!read_only.join("blocked.txt").exists());
 
         let error = WasmRuntime::with_mounts(vec![MountSpec::new(
@@ -544,7 +852,10 @@ mod tests {
                   (then (call $exit (i32.const 29))))
                 (call $exit (i32.const 7))))
         "#;
-        assert_eq!(rt.run_wasi_module(wat.as_bytes(), command)?, 7);
+        assert_eq!(
+            rt.run_wasi_module(wat.as_bytes(), command)?,
+            WasiRunOutcome::Exited(7)
+        );
         let mut expected_stdout = "tool\0a b\0\0你好\0".as_bytes().to_vec();
         expected_stdout.extend_from_slice(b"in\0put");
         assert_eq!(fs::read(output_path)?, expected_stdout);
@@ -620,8 +931,14 @@ mod tests {
         let mut first = no_stdio();
         first.arguments = vec!["one".into(), "two".into()];
         first.environment = vec![("A".into(), "one".into())];
-        assert_eq!(rt.run_wasi_module(wat.as_bytes(), first)?, 21);
-        assert_eq!(rt.run_wasi_module(wat.as_bytes(), no_stdio())?, 0);
+        assert_eq!(
+            rt.run_wasi_module(wat.as_bytes(), first)?,
+            WasiRunOutcome::Exited(21)
+        );
+        assert_eq!(
+            rt.run_wasi_module(wat.as_bytes(), no_stdio())?,
+            WasiRunOutcome::Exited(0)
+        );
         Ok(())
     }
 
@@ -658,6 +975,159 @@ mod tests {
         reject(vec!["bad\0arg".into()], vec![]);
         reject(vec![], vec![("BAD=KEY".into(), "value".into())]);
         reject(vec![], vec![("KEY".into(), "bad\0value".into())]);
+        Ok(())
+    }
+
+    /// Count this process's live threads whose comm starts with `shenko-wasi`
+    /// (worker + epoch watcher; Linux comm is truncated to 15 bytes, so the
+    /// prefix covers `shenko-wasi-epo`). Runs on the project dev container,
+    /// which is Linux; on other platforms the check is skipped.
+    #[cfg(target_os = "linux")]
+    fn live_shenko_wasi_threads() -> usize {
+        fs::read_dir("/proc/self/task")
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|entry| {
+                fs::read_to_string(entry.path().join("comm"))
+                    .map(|comm| comm.trim_start().starts_with("shenko-wasi"))
+                    .unwrap_or(false)
+            })
+            .count()
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn live_shenko_wasi_threads() -> usize {
+        0
+    }
+
+    /// A guest that writes a marker then spins forever. Without execution
+    /// controls this run could never return.
+    const SPIN_WAT: &str = r#"
+        (module
+          (import "wasi_snapshot_preview1" "fd_write"
+            (func $fd_write (param i32 i32 i32 i32) (result i32)))
+          (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 100) "spin")
+          (func (export "_start")
+            (i32.store (i32.const 0) (i32.const 100))
+            (i32.store (i32.const 4) (i32.const 4))
+            (if (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8))
+              (then (call $exit (i32.const 80))))
+            (loop (br 0))))
+    "#;
+
+    /// The deadline turns an unbounded CPU-loop guest into a bounded typed
+    /// outcome, keeps output already written, and leaves the runtime usable
+    /// for the next command with no surviving worker or watcher threads.
+    /// `Duration::ZERO` is a distinct boundary: the run reports
+    /// `DeadlineExceeded` before any guest code can execute.
+    #[test]
+    fn deadline_stops_cpu_bound_guest_and_runtime_recovers() -> Result<()> {
+        let home = temp_home("deadline").canonicalize()?;
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
+
+        let stdout = MemoryOutputPipe::new(64);
+        let mut command = WasiCommand::new(std::io::empty(), stdout.clone(), std::io::empty());
+        command.control.deadline = Some(Duration::from_millis(100));
+        let started = Instant::now();
+        let outcome = rt.run_wasi_module(SPIN_WAT.as_bytes(), command)?;
+        assert_eq!(outcome, WasiRunOutcome::DeadlineExceeded);
+        assert_eq!(
+            stdout.contents().as_ref(),
+            b"spin",
+            "output committed before the deadline is retained"
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "an unbounded guest must be interrupted, not joined forever"
+        );
+        assert_eq!(
+            live_shenko_wasi_threads(),
+            0,
+            "worker and watcher threads must not survive the call"
+        );
+
+        // The same runtime — including its epoch bookkeeping — serves the
+        // next command normally, so a stopped run is not a poisoned engine.
+        let plain = r#"(module (func (export "_start")))"#;
+        assert_eq!(
+            rt.run_wasi_module(plain.as_bytes(), no_stdio())?,
+            WasiRunOutcome::Exited(0)
+        );
+
+        // A zero deadline elapses before any guest work: the writer guest
+        // must not even produce its first write.
+        let fresh = MemoryOutputPipe::new(64);
+        let mut zeroed = WasiCommand::new(std::io::empty(), fresh.clone(), std::io::empty());
+        zeroed.control.deadline = Some(Duration::ZERO);
+        assert_eq!(
+            rt.run_wasi_module(SPIN_WAT.as_bytes(), zeroed)?,
+            WasiRunOutcome::DeadlineExceeded
+        );
+        assert!(fresh.contents().is_empty());
+        Ok(())
+    }
+
+    /// Cancellation is deterministic in both directions: a handle cancelled
+    /// before the call reports `Cancelled` without guest effects, and a
+    /// mid-run cancel stops a CPU-bound guest while retaining prior output.
+    #[test]
+    fn cancellation_stops_guest_before_and_during_execution() -> Result<()> {
+        let home = temp_home("cancel").canonicalize()?;
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
+
+        // Pre-cancelled: rejected before mounts/compile/spawn, so the guest
+        // cannot have produced its write.
+        let token = WasiCancellation::default();
+        token.cancel();
+        let early = MemoryOutputPipe::new(64);
+        let mut cancelled = WasiCommand::new(std::io::empty(), early.clone(), std::io::empty());
+        cancelled.control.cancel = Some(token);
+        assert_eq!(
+            rt.run_wasi_module(SPIN_WAT.as_bytes(), cancelled)?,
+            WasiRunOutcome::Cancelled
+        );
+        assert!(early.contents().is_empty());
+
+        // Mid-run: the guest spins until the cloned handle cancels it.
+        let token = WasiCancellation::default();
+        let later = MemoryOutputPipe::new(64);
+        let mut running = WasiCommand::new(std::io::empty(), later.clone(), std::io::empty());
+        running.control.cancel = Some(token.clone());
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            token.cancel();
+        });
+        let started = Instant::now();
+        assert_eq!(
+            rt.run_wasi_module(SPIN_WAT.as_bytes(), running)?,
+            WasiRunOutcome::Cancelled
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "cancellation must reach the guest at an epoch checkpoint"
+        );
+        assert_eq!(
+            later.contents().as_ref(),
+            b"spin",
+            "output committed before cancellation is retained"
+        );
+        assert_eq!(live_shenko_wasi_threads(), 0);
+        canceller.join().expect("canceller thread");
         Ok(())
     }
 }
