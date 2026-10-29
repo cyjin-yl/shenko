@@ -141,6 +141,14 @@ struct TasksQuery {
     limit: Option<usize>,
 }
 
+/// `/api/context` page bounds: `limit` bounds the metadata page (default 50,
+/// clamped 1–200); `before` requests windows strictly below that generation.
+#[derive(Debug, Deserialize)]
+struct ContextQuery {
+    limit: Option<usize>,
+    before: Option<u64>,
+}
+
 /// `GET /api/tasks` → `{ items: [{task_id, kind, state, created_at}] }`.
 /// Empty table → `items: []`; no store handle → `available: false`.
 async fn tasks_handler(
@@ -308,7 +316,10 @@ fn availability_json(availability: shenko_context_policy::Availability) -> Value
     }
 }
 
-fn context_window_json(window: &shenko_context_policy::CommittedWindow) -> Value {
+/// Window report from the committed record plus stored derivative identity;
+/// `derivatives[].bytes` is the durable stored length, never payload bytes.
+fn context_window_json(meta: &shenko_context_policy::CommittedWindowMeta) -> Value {
+    let window = &meta.window;
     let kind = |entry: &shenko_context_policy::WindowEntry| match entry {
         shenko_context_policy::WindowEntry::Verbatim { .. } => "verbatim",
         shenko_context_policy::WindowEntry::Pointer { .. } => "pointer",
@@ -330,13 +341,13 @@ fn context_window_json(window: &shenko_context_policy::CommittedWindow) -> Value
         "covers_through": window.covers_through,
         "entry_kinds": Value::Object(counts),
         "call_states": window.call_states,
-        "derivatives": window
+        "derivatives": meta
             .derivatives
             .iter()
             .map(|derivative| json!({
                 "media_type": derivative.media_type,
                 "blake3": derivative.blake3,
-                "bytes": derivative.bytes.len(),
+                "bytes": derivative.bytes,
             }))
             .collect::<Vec<_>>(),
         // Reported cost, including the conservative reusable-prefix bound;
@@ -351,7 +362,16 @@ fn context_window_json(window: &shenko_context_policy::CommittedWindow) -> Value
 /// the durable chain, strategies/epochs/preference from the live registry.
 /// `plugins_wired: false` means no live registry was supplied to this reporter
 /// (as in deterministic no-model mode); it never fabricates an install.
-async fn context_handler(State(state): State<ApiState>) -> Json<Value> {
+/// `windows` is a bounded metadata page, newest generation first:
+/// `?limit=` (default 50, clamped 1–200) bounds the page and `?before=<generation>`
+/// pages strictly below that generation. `window_total` counts every committed
+/// window under the scope; `has_older`/`next_before` carry the cursor while
+/// older windows remain. Derivative payloads are never read or returned.
+async fn context_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<ContextQuery>,
+) -> Json<Value> {
+    let limit = query.limit.unwrap_or(50).clamp(1, 200) as u64;
     let mut report = json!({
         "scope": Value::Null,
         "plugins_wired": false,
@@ -449,13 +469,22 @@ async fn context_handler(State(state): State<ApiState>) -> Json<Value> {
     });
     let log = shenko_context_policy::StoreWindowLog::new(Arc::clone(store), scope_id);
     let scope_facts = (|| -> Result<Value, String> {
-        use shenko_context_policy::WindowLog;
+        // Bounded metadata page: bodies stay text, derivative payloads are
+        // never materialized or hashed; `bytes` is the recorded length.
+        let page = log.meta_page(query.before, limit).map_err(|e| e.to_string())?;
+        let next_before = page
+            .windows
+            .last()
+            .filter(|_| page.has_older)
+            .map(|meta| meta.window.generation);
         Ok(json!({
             "model_generation": store.context_model_generation(scope_id).map_err(|e| e.to_string())?,
             "profile_digest": store.context_profile(scope_id).map_err(|e| e.to_string())?.map(|(_, digest)| digest),
-            "windows": log
-                .all()
-                .map_err(|e| e.to_string())?
+            "window_total": page.total,
+            "has_older": page.has_older,
+            "next_before": next_before,
+            "windows": page
+                .windows
                 .iter()
                 .map(context_window_json)
                 .collect::<Vec<_>>(),
@@ -492,23 +521,36 @@ mod context_tests {
 
     #[test]
     fn window_report_retains_policy_cost_and_derivative_identity_not_payload() {
-        use shenko_context_policy::{CommittedWindow, Derivative, WindowEntry};
+        use shenko_context_policy::{
+            CommittedWindow, CommittedWindowMeta, Derivative, DerivativeMeta, WindowEntry,
+        };
         let mut window = CommittedWindow::genesis();
         window.policy_id = Some("snapcompact".into());
         window.policy_version = Some("test-decoder".into());
         window.entries.push(WindowEntry::Image { from: 1, to: 9, derivative: 0, tokens: 7 });
-        window.derivatives.push(Derivative::new("image/png", vec![1, 2, 3]));
+        // The stored frame's real identity; the report must show it without
+        // the payload ever reaching the reader.
+        let stored = Derivative::new("image/png", vec![1, 2, 3]);
         window.cost.window_tokens = 7;
         window.cost.reusable_prefix_tokens = 0;
         window.cost.recompute_tokens = 7;
-        let report = context_window_json(&window);
+        let meta = CommittedWindowMeta {
+            window,
+            derivatives: vec![DerivativeMeta {
+                media_type: stored.media_type.clone(),
+                blake3: stored.blake3.clone(),
+                bytes: stored.bytes.len() as u64,
+            }],
+        };
+        let window = &meta.window;
+        let report = context_window_json(&meta);
         assert_eq!(report["id"], window.id.to_string());
         assert_eq!(report["policy_id"], "snapcompact");
         assert_eq!(report["policy_version"], "test-decoder");
         assert_eq!(report["entry_kinds"]["image"], 1);
         assert_eq!(report["cost"], json!(window.cost));
         assert_eq!(report["derivatives"][0]["bytes"], 3);
-        assert_eq!(report["derivatives"][0]["blake3"], window.derivatives[0].blake3);
+        assert_eq!(report["derivatives"][0]["blake3"], meta.derivatives[0].blake3);
         assert!(report["derivatives"][0].get("payload").is_none());
     }
 }
