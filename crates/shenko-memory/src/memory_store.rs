@@ -243,6 +243,16 @@ impl MemoryStore {
             let stored = match admitted {
                 MemoryIntentAdmission::Inserted(stored) | MemoryIntentAdmission::Existing(stored) => stored,
             };
+            // The durable binding wins over the terminal status: a replay
+            // bound to a different target must refuse even when the original
+            // request already committed or failed — reporting "committed" for
+            // a differently targeted request would let it masquerade as
+            // settled while its real target stays searchable.
+            if stored.record.entry_id != Some(entry_id) {
+                return Err(anyhow::anyhow!(
+                    "forget intent is already bound to a different target entry"
+                ));
+            }
             match stored.record.state.as_str() {
                 "committed" => {
                     self.remove_queued(intent_id);
@@ -254,11 +264,6 @@ impl MemoryStore {
                 }
                 "accepted" => {}
                 _ => return Err(anyhow::anyhow!("unsupported durable memory intent state")),
-            }
-            if stored.record.entry_id != Some(entry_id) {
-                return Err(anyhow::anyhow!(
-                    "forget intent is already bound to a different target entry"
-                ));
             }
         }
 

@@ -294,3 +294,65 @@ fn forget_of_missing_or_foreign_entry_stays_unsettled() {
         std::env::temp_dir().join(format!("shenko-intent-{}-forget-missing", std::process::id())),
     );
 }
+
+/// A terminal forget intent keeps its durable target binding: replaying the
+/// same intent id against a different entry must refuse rather than report
+/// the original terminal status. Otherwise a differently targeted request
+/// would read "committed" while its real target stays searchable — or read
+/// "failed" and be mistaken for its own settled fact. The same-target replay
+/// still resolves against the recorded outcome.
+#[test]
+fn terminal_forget_replay_with_a_different_target_is_refused() {
+    let tag = "forget-retarget";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let agent = EntityId::new();
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+
+    let save_a = intent(MemoryIntentKind::Save);
+    memory
+        .accept_intent_with_content(save_a.clone(), Some("被遗忘的深刻事实".into()))
+        .unwrap();
+    let entry_a = match memory.process_intent(save_a.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected save commit, got {other:?}"),
+    };
+    let save_b = intent(MemoryIntentKind::Save);
+    memory
+        .accept_intent_with_content(save_b.clone(), Some("仍被保留的深刻事实".into()))
+        .unwrap();
+    let entry_b = match memory.process_intent(save_b.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected save commit, got {other:?}"),
+    };
+
+    // Committed terminal: retargeting the settled intent must refuse, must
+    // not report "committed" for B, and must not process B as forgotten.
+    let committed = intent(MemoryIntentKind::Forget);
+    memory.accept_forget(committed.clone(), entry_a).unwrap();
+    memory.process_intent(committed.intent_id).unwrap();
+    assert!(memory.accept_forget(committed.clone(), entry_b).is_err());
+    assert!(matches!(
+        memory.process_intent(committed.intent_id).unwrap(),
+        ProcessOutcome::AlreadyProcessed(_)
+    ));
+    let kept_b = memory.read(entry_b).unwrap().expect("untargeted entry");
+    assert!(!kept_b.deleted);
+    assert_eq!(memory.search("仍被保留", 10).unwrap().len(), 1);
+
+    // Failed terminal: the same rule holds; the durable binding wins over
+    // the terminal status while an honest same-target replay still reports
+    // the recorded failure.
+    let failed = intent(MemoryIntentKind::Forget);
+    memory.accept_forget(failed.clone(), entry_b).unwrap();
+    assert!(matches!(
+        store.fail_memory_intent(failed.intent_id, "synthetic worker failure").unwrap(),
+        shenko_store::MemoryIntentFailure::Failed
+    ));
+    assert!(memory.accept_forget(failed.clone(), entry_a).is_err());
+    assert_eq!(
+        memory.accept_forget(failed.clone(), entry_b).unwrap().status,
+        "failed"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -177,6 +177,57 @@ fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
     assert_eq!(source.list_memory(10).unwrap()[0].content, "remote B");
 }
 
+/// A Save→Forget history binds the same `entry_id` twice: the save produced
+/// the entry, the forget targets it. Archive identity validation must
+/// distinguish those roles — the snapshot is complete, imports verified, and
+/// the tombstone stays durable while default search/list stop surfacing the
+/// entry and `memory_entry` still reads the original text back.
+#[test]
+fn saved_then_forgotten_entry_survives_archive_roundtrip() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let agent = EntityId::new();
+    let save = EntityId::new();
+    let entry_id = EntityId::new();
+    let forget = EntityId::new();
+
+    let record =
+        MemoryIntentRecord::accepted(save, agent, "save", "personal", "被遗忘的正文", None, Some(entry_id));
+    source.admit_memory_intent(&record, None).unwrap();
+    let mut entry = MemoryEntry::new(agent, "被遗忘的正文");
+    entry.entry_id = entry_id;
+    entry.kind = "save".into();
+    source.commit_memory_intent(&entry, save).unwrap();
+
+    let forget_record =
+        MemoryIntentRecord::accepted(forget, agent, "forget", "personal", "", None, Some(entry_id));
+    source.admit_memory_intent(&forget_record, None).unwrap();
+    source.commit_memory_forget(forget).unwrap();
+    assert!(source.memory_entry(entry_id).unwrap().unwrap().deleted);
+
+    let snapshot = source.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    assert!(
+        !snapshot.manifest.gaps.iter().any(|gap| gap.blocking),
+        "a forget targeting its producer's entry is not a shared identity: {:?}",
+        snapshot.manifest.gaps
+    );
+    let mut archive = Vec::new();
+    snapshot.write_archive(&mut archive).unwrap();
+
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
+    let outcome = receiver
+        .import_cognition_archive(&archive[..], &CognitionImportOptions::default())
+        .unwrap();
+    assert!(outcome.conflicts.is_empty(), "verified import: {:?}", outcome.conflicts);
+    assert_eq!(receiver.memory_intent_state(forget).unwrap().as_deref(), Some("committed"));
+    assert!(receiver.search_memory("被遗忘", 10).unwrap().is_empty());
+    assert!(receiver.list_memory(10).unwrap().is_empty());
+    let kept = receiver.memory_entry(entry_id).unwrap().expect("forgotten entry stays durable");
+    assert!(kept.deleted);
+    assert_eq!(kept.content, "被遗忘的正文");
+}
+
 fn version_ref(name: &str) -> VersionedRef {
     VersionedRef {
         artifact: ArtifactRef {

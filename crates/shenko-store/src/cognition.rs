@@ -2634,7 +2634,12 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
         let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
         let entry_id = intent.value("entry_id");
-        let duplicate_entry = entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
+        // Only producing intents own their entry: a forget *references* the
+        // entry it retires, so a Save→Forget history legitimately binds the
+        // same entry_id twice without sharing a produced identity.
+        let produces_entry = intent.value("kind") != Some("forget");
+        let duplicate_entry = produces_entry
+            && entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
         let missing_committed_entry = intent.value("state") == Some("committed")
             && entry_id.is_none_or(|entry| !entries.contains(entry));
         let missing_pending_identity = library_pending

@@ -61,3 +61,41 @@ fn insert_rejects_nothing_and_supports_scope_limit() {
     assert_eq!(latest.len(), 2);
     assert_eq!(latest[0].content, "entry 2");
 }
+
+/// The entry writer persists the supplied `deleted` flag: re-writing an
+/// unchanged forgotten entry must keep its tombstone instead of resurrecting
+/// it in search/list, and an entry that arrives already deleted (e.g. an
+/// imported tombstone) is stored deleted, never as live.
+#[test]
+fn unchanged_tombstone_rewrite_and_deleted_insert_stay_hidden() {
+    let store = tmp_store("tombstone");
+    let agent = EntityId::new();
+
+    // Forge a genuinely forgotten entry through the real forget path.
+    let entry = MemoryEntry::new(agent, "被遗忘后仍要保留原文");
+    store.insert_memory_entry(&entry).unwrap();
+    let intent = EntityId::new();
+    let record = shenko_store::MemoryIntentRecord::accepted(
+        intent, agent, "forget", "personal", "", None, Some(entry.entry_id),
+    );
+    store.admit_memory_intent(&record, None).unwrap();
+    store.commit_memory_forget(intent).unwrap();
+    let forgotten = store.memory_entry(entry.entry_id).unwrap().unwrap();
+    assert!(forgotten.deleted);
+
+    // Passing the unchanged read-back entry to the writer must not resurrect it.
+    store.insert_memory_entry(&forgotten).unwrap();
+    let kept = store.memory_entry(entry.entry_id).unwrap().unwrap();
+    assert!(kept.deleted, "an unchanged tombstone rewrite must stay deleted");
+    assert_eq!(kept.content, "被遗忘后仍要保留原文");
+    assert!(store.search_memory("被遗忘", 10).unwrap().is_empty());
+    assert!(store.list_memory(10).unwrap().is_empty());
+
+    // A record that arrives already deleted is stored deleted, not live.
+    let mut tombstone = MemoryEntry::new(agent, "imported deleted fact");
+    tombstone.deleted = true;
+    store.insert_memory_entry(&tombstone).unwrap();
+    let stored = store.memory_entry(tombstone.entry_id).unwrap().unwrap();
+    assert!(stored.deleted, "an inserted tombstone must not silently resurrect");
+    assert!(store.list_memory(10).unwrap().is_empty());
+}

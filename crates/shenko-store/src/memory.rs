@@ -411,11 +411,14 @@ impl Store {
         // row without firing DELETE triggers (unless recursive_triggers is on),
         // which would leave the old text in the FTS index as a stale orphan.
         // DO UPDATE fires the update trigger and keeps the rowid stable.
+        // `deleted` is bound, not forced live: re-writing a forgotten entry
+        // must keep its tombstone, and an imported deleted entry must not be
+        // silently resurrected.
         tx.execute(
             "INSERT INTO memory_entries
              (entry_id, agent_id, kind, content, source_ref, scope, record_revision,
               created_at_ms, updated_commit_seq, updated_at, deleted)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,datetime('now'),0)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,datetime('now'),?10)
              ON CONFLICT(entry_id) DO UPDATE SET
                 agent_id = excluded.agent_id,
                 kind = excluded.kind,
@@ -426,7 +429,7 @@ impl Store {
                 created_at_ms = excluded.created_at_ms,
                 updated_commit_seq = excluded.updated_commit_seq,
                 updated_at = datetime('now'),
-                deleted = 0",
+                deleted = excluded.deleted",
             params![
                 entry.entry_id.to_string(),
                 entry.agent_id.to_string(),
@@ -437,6 +440,7 @@ impl Store {
                 entry.record_revision as i64,
                 entry.created_at_ms,
                 seq.0 as i64,
+                entry.deleted as i64,
             ],
         )
         .map_err(|e| ShenkoError::storage(e.to_string()))?;
