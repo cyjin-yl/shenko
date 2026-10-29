@@ -1,0 +1,55 @@
+--- a/lib/portability.h
++++ b/lib/portability.h
+@@ -178,6 +178,9 @@
+ #include <sys/sysinfo.h>
+ #endif
+ 
++#ifdef __wasi__
++// WASI has no pty/termios headers; struct termios comes from wasi-compat.h.
++#else
+ #ifdef __APPLE__
+ #include <util.h>
+ #elif !defined(__IsBSD__)
+@@ -188,6 +191,7 @@
+ #define IUTF8 0
+ #endif
+ #endif
++#endif // __wasi__
+ 
+ #ifdef __linux__
+ #include <sys/personality.h>
+@@ -196,7 +200,7 @@
+ int personality(int);
+ #endif
+ 
+-#if defined(__APPLE__) || defined(__linux__)
++#if defined(__APPLE__) || (defined(__linux__) && !defined(__wasi__))
+ // Linux and macOS has both have getxattr and friends in <sys/xattr.h>, but
+ // they aren't compatible.
+ #include <sys/xattr.h>
+@@ -218,9 +222,11 @@
+ 
+ // macOS keeps newlocale(3) in the non-POSIX <xlocale.h> rather than <locale.h>.
+ #include <xlocale.h>
++#elif defined(__wasi__)
++// mknodat()/mknod() don't exist; cp.c/tar.c are guarded at the call sites.
+ #endif
+ 
+-#if defined(__APPLE__) || defined(__IsBSD__)
++#if defined(__APPLE__) || defined(__IsBSD__) || defined(__wasi__)
+ static inline long statfs_bsize(struct statfs *sf) { return sf->f_iosize; }
+ static inline long statfs_frsize(struct statfs *sf) { return sf->f_bsize; }
+ #else
+@@ -231,10 +237,10 @@
+ 
+ // Android is missing some headers and functions
+ // "generated/config.h" is included first
+-#if __has_include(<shadow.h>)
++#if __has_include(<shadow.h>) && !defined(__wasi__)
+ #include <shadow.h>
+ #endif
+-#if __has_include(<utmpx.h>)
++#if __has_include(<utmpx.h>) && !defined(__wasi__)
+ #include <utmpx.h>
+ #else
+ struct utmpx {int ut_type;};

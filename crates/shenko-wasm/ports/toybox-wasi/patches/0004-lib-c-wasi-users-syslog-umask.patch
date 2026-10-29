@@ -1,0 +1,84 @@
+--- a/lib/lib.c
++++ b/lib/lib.c
+@@ -963,7 +963,11 @@
+     // If who isn't specified, like "a" but honoring umask.
+     if (!dowho) {
+       dowho = 8;
++#ifdef __wasi__
++      amask = 022;  // WASI ambient default; no umask syscall exists.
++#else
+       umask(amask = umask(0));
++#endif
+     }
+ 
+     // Repeated "hows" are allowed; something like "a=r+w+s" is valid.
+@@ -1278,6 +1282,15 @@
+ // Return cached passwd entries.
+ struct passwd *bufgetpwnamuid(char *name, uid_t uid)
+ {
++#ifdef __wasi__
++  // No /etc/passwd database; synthesize a numeric-only entry so callers
++  // that print "name (uid)" still show the true numeric id.
++  static struct passwd fake;
++  fake.pw_name = 0;
++  fake.pw_uid = uid;
++  fake.pw_gid = 0;
++  return &fake;
++#else
+   struct pwuidbuf_list {
+     struct pwuidbuf_list *next;
+     struct passwd pw;
+@@ -1317,6 +1330,7 @@
+   pwuidbuf = list;
+ 
+   return &list->pw;
++#endif // __wasi__
+ }
+ 
+ struct passwd *bufgetpwuid(uid_t uid)
+@@ -1327,6 +1341,13 @@
+ // Return cached group entries.
+ struct group *bufgetgrnamgid(char *name, gid_t gid)
+ {
++#ifdef __wasi__
++  static struct group fake;
++  fake.gr_name = 0;
++  fake.gr_gid = gid;
++  fake.gr_mem = 0;
++  return &fake;
++#else
+   struct grgidbuf_list {
+     struct grgidbuf_list *next;
+     struct group gr;
+@@ -1364,6 +1385,7 @@
+   grgidbuf = list;
+ 
+   return &list->gr;
++#endif // __wasi__
+ }
+ 
+ struct group *bufgetgrgid(gid_t gid)
+@@ -1472,6 +1494,15 @@
+ 
+ void loggit(int priority, char *format, ...)
+ {
++#ifdef __wasi__
++  // WASI has no syslog; diagnostics go to stderr so nothing is lost.
++  va_list va;
++  va_start(va, format);
++  fprintf(stderr, "%s: ", toys.which->name);
++  vfprintf(stderr, format, va);
++  fputc('\n', stderr);
++  va_end(va);
++#else
+   int i, facility = LOG_DAEMON;
+   va_list va;
+ 
+@@ -1481,6 +1512,7 @@
+   vsyslog(priority, format, va);
+   va_end(va);
+   closelog();
++#endif // __wasi__
+ }
+ 
+ // Calculate tar packet checksum, with cksum field treated as 8 spaces

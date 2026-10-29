@@ -39,9 +39,10 @@ Git/SSH 端到端认证）。
   WasmRuntime 跑工件本体；`timeout_secs` 是真实 C05 guest 控制
   （`WasiRunControl::deadline`，epoch checkpoint 处中断——CPU 忙 guest
   会终止；阻塞在 host call 里的 guest 如实不受此保证），worker 总是被
-  join（无 detached guest）。stdout/stderr 以流式 blake3 + 有界 preview
-  落证据（不整流加载）；normalized result 内联文本 ≤128KiB/流（总序列化
-  远低于 512KiB settlement 上限），完整流身份靠 digest+bytes。
+  join（无 detached guest）。stdout/stderr 完整字节经 `cas.seal_reader`
+  流式落入 CAS（SealedObjectRef 可整流回放），normalized result 只放
+  ≤16KiB utf8 preview + `ObjectRef` 身份，序列化远低于 512KiB settlement
+  上限。
   `EffectStatus`：仅当挂载闭包全只读且有观察结果 → `None`；其余
   （含任何 RW 挂载或截断/拦截结束）如实 `Unknown`——guest 写过的持久
   效果不因一次退出观察而宣称已结清。reconcile 不重放。
@@ -126,15 +127,15 @@ curl -fsSL "$BASE/python-3.12.0.wasm.sha256sum"   # 核对 sha256
 
 ## 未验证边界（如实）
 
-- 本切片未跑 build/test/native 验证：新的 9 个独立场景
+- 本切片未跑 build/test/native 验证：新的 7 个独立场景
   （inspect_module 真实 ABI：runnable/错误 _start 签名/外部 import；
   unit-import→resolve→执行→重开 roundtrip；resolution 策略：named-target
   拒绝、version 消歧、foreign-ABI 拒执行；prepare 分类：named-target 拒绝、
   argv 超界、坏 base64）由 parent 在受管构建者上验证。
 - artifact 每次执行经 unit_object_bytes 全量读封 + 每次执行重新编译模块
   （无 module 缓存）；600KB 级可接受，26MB python 级首次编译有可见延迟。
-- guest 流的完整字节不进 CAS：retained 证据是 digest+size+有界 head
-  preview；需要整流回放的分析要读挂载目录里的原始文件（io_dir 在用后即删）。
+- guest 流的 io 目录文件在 join 后删除，但完整字节已先 seal 进 CAS；
+  retained 证据是 `ObjectRef`（digest+bytes）+ 有界 head preview。
 - deadline 中断阻塞在 host call（如 fd_read 空流）内的 guest 不受保证
   （wasmtime 能力边界，如实标注）；此时 worker 仍会被 join 等待。
 - `tool install` 的同名@同版本检查依赖单写入者假设（与 home manifest 同级
