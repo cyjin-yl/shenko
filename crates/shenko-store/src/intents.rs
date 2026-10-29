@@ -351,7 +351,7 @@ impl Store {
             let seq=self.ledger.allocate_seq(&tx)?;let count=rows.len();
             for (id,payload,rev,agent,content,scope,time) in rows {
                 let intent:MemoryIntent=serde_json::from_str(&payload)?;ensure!(matches!(intent.kind,MemoryIntentKind::Save),"unbound_memory_contract");
-                let entry=MemoryEntry{entry_id:id.parse()?,agent_id:agent.parse()?,kind:"note".into(),content,scope,source_ref:Some(format!("subject-intent:{id}")),record_revision:0,created_at_ms:time,updated_commit_seq:None};
+                let entry=MemoryEntry{entry_id:id.parse()?,agent_id:agent.parse()?,kind:"note".into(),content,scope,source_ref:Some(format!("subject-intent:{id}")),record_revision:0,created_at_ms:time,updated_commit_seq:None,deleted:false};
                 Store::write_memory_entry(&tx,&entry,Some(intent.intent_id),seq)?;
                 ensure!(tx.execute("UPDATE subject_intents SET state='settled',owner=?2,revision=revision+1,updated_seq=?3,result_ref=?4 WHERE intent_id=?1 AND state='ready' AND revision=?5",
                     params![id,self.capabilities.incarnation.to_string(),seq.0 as i64,format!("memory:{}",entry.entry_id),rev])?==1,"stale_intent");

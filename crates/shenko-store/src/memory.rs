@@ -7,6 +7,11 @@
 //!   (with an `entry_id`) or `failed` (with a reason).
 //! * `memory_entries` — the searchable memory records.
 //!
+//! A `forget` intent binds the `entry_id` it retires instead of producing a
+//! new entry: committing it flags that entry `deleted` (SPEC §12.4 semantic
+//! forget). Search and list keep their `deleted = 0` filter, the original
+//! row and text stay durable, and [`Store::memory_entry`] reads them back.
+//!
 //! Search uses FTS5 when the build provides it and a LIKE scan otherwise.
 //! Chinese text is routed to LIKE even when FTS5 exists: `unicode61` treats a
 //! run of Han characters as one token, so a substring query such as "深刻"
@@ -24,7 +29,7 @@ use shenko_types::object::ObjectRef;
 use crate::store::Store;
 
 const ENTRY_COLUMNS: &str = "m.entry_id, m.agent_id, m.kind, m.content, m.source_ref, \
-     m.scope, m.record_revision, m.created_at_ms, m.updated_commit_seq";
+     m.scope, m.record_revision, m.created_at_ms, m.updated_commit_seq, m.deleted";
 
 /// A persisted memory record.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,6 +43,11 @@ pub struct MemoryEntry {
     pub record_revision: u64,
     pub created_at_ms: i64,
     pub updated_commit_seq: Option<u64>,
+    /// Semantic-forget flag (SPEC §12.4): a forgotten entry is invisible to
+    /// default search/list but the original text stays readable and the row
+    /// is never physically removed by this path.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 impl MemoryEntry {
@@ -52,6 +62,7 @@ impl MemoryEntry {
             record_revision: 0,
             created_at_ms: Utc::now().timestamp_millis(),
             updated_commit_seq: None,
+            deleted: false,
         }
     }
 }
@@ -213,6 +224,102 @@ impl Store {
         intent_id: EntityId,
     ) -> Result<CommitReceipt, ShenkoError> {
         self.commit_entry(entry, Some(intent_id))
+    }
+
+    /// Atomically mark the entry a `forget` intent is bound to as deleted
+    /// and mark that intent committed (SPEC §12.4 semantic forget).
+    ///
+    /// This is *not* an erase: the row, its original text and its
+    /// provenance stay durable and readable through
+    /// [`Store::memory_entry`], while `search_memory`/`list_memory` stop
+    /// surfacing it. A replay after commit reports the entry already
+    /// forgotten instead of redoing the decision. A missing or foreign
+    /// target refuses the commit and leaves the intent `accepted` and
+    /// retryable: the entry may still arrive through replication, and the
+    /// refusal is never mistaken for a settled request.
+    pub fn commit_memory_forget(
+        &self,
+        intent_id: EntityId,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger
+            .with_mutation(|| self.try_commit_forget(intent_id), memory_storage_failure)
+    }
+
+    fn try_commit_forget(
+        &self,
+        intent_id: EntityId,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        let stored = read_memory_intent(&tx, intent_id)?
+            .ok_or_else(|| ShenkoError::not_found("memory intent"))?;
+        let request = &stored.record;
+        if request.state != "accepted" || request.kind != "forget" {
+            return Err(ShenkoError::conflict("memory forget intent is terminal or not a forget"));
+        }
+        let target = request
+            .entry_id
+            .ok_or_else(|| ShenkoError::conflict("memory forget intent has no target entry"))?;
+
+        // A semantic forget may only retire an entry owned by the same agent
+        // that made the request; it is never a cross-agent delete channel.
+        let (owner, revision): (String, i64) = tx
+            .query_row(
+                "SELECT agent_id, record_revision FROM memory_entries WHERE entry_id=?1",
+                [target.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| ShenkoError::storage(e.to_string()))?
+            .ok_or_else(|| ShenkoError::not_found("memory forget target entry"))?;
+        if owner != request.agent_id.to_string() {
+            return Err(ShenkoError::conflict("memory forget target belongs to another agent"));
+        }
+
+        let seq = self.ledger.allocate_seq(&tx)?;
+        tx.execute(
+            "UPDATE memory_entries SET deleted=1, record_revision=?2, \
+             updated_commit_seq=?3, updated_at=datetime('now') WHERE entry_id=?1",
+            params![target.to_string(), revision.max(0) + 1, seq.0 as i64],
+        )
+        .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        let changed = tx
+            .execute(
+                "UPDATE memory_intents SET state='committed',reason=NULL,updated_at_ms=?2 \
+                 WHERE intent_id=?1 AND state='accepted'",
+                params![intent_id.to_string(), Utc::now().timestamp_millis()],
+            )
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        if changed != 1 {
+            return Err(ShenkoError::conflict("memory intent changed during commit"));
+        }
+
+        tx.execute(
+            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)
+             VALUES (?1,?2,?3,1)",
+            params![
+                self.ledger.ledger_id().to_string(),
+                seq.0 as i64,
+                self.capabilities.incarnation.to_string(),
+            ],
+        )
+        .map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        tx.commit()
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+
+        Ok(CommitReceipt {
+            commit_ref: CommitRef::new(self.ledger.ledger_id(), seq),
+            durability_profile: DurabilityProfile::PowerLossLocal,
+            store_incarnation: self.capabilities.incarnation,
+            updated: vec![UpdatedEntity {
+                entity_id: target,
+                record_revision: RecordRevision((revision.max(0) + 1) as u64),
+            }],
+        })
     }
 
     fn commit_entry(
@@ -535,6 +642,21 @@ impl Store {
         self.query_entries(&sql, params![limit as i64])
     }
 
+    /// Read one entry by id, including semantically forgotten rows.
+    ///
+    /// Semantic forget keeps the original text durable (SPEC §12.4); this
+    /// read-back is how an audit or a specified re-check reaches it. Search
+    /// and list stay live-only.
+    pub fn memory_entry(&self, entry_id: EntityId) -> Result<Option<MemoryEntry>, ShenkoError> {
+        let sql = format!(
+            "SELECT {ENTRY_COLUMNS}
+               FROM memory_entries m
+              WHERE m.entry_id = ?1"
+        );
+        let mut entries = self.query_entries(&sql, params![entry_id.to_string()])?;
+        Ok(entries.pop())
+    }
+
     fn query_entries(
         &self,
         sql: &str,
@@ -569,6 +691,7 @@ struct RawEntry {
     record_revision: i64,
     created_at_ms: i64,
     updated_commit_seq: Option<i64>,
+    deleted: i64,
 }
 
 fn row_to_components(row: &rusqlite::Row<'_>) -> RawEntry {
@@ -582,6 +705,7 @@ fn row_to_components(row: &rusqlite::Row<'_>) -> RawEntry {
         record_revision: row.get(6).unwrap_or_default(),
         created_at_ms: row.get(7).unwrap_or_default(),
         updated_commit_seq: row.get(8).unwrap_or_default(),
+        deleted: row.get(9).unwrap_or_default(),
     }
 }
 
@@ -597,6 +721,7 @@ impl RawEntry {
             record_revision: self.record_revision.max(0) as u64,
             created_at_ms: self.created_at_ms,
             updated_commit_seq: self.updated_commit_seq.map(|v| v.max(0) as u64),
+            deleted: self.deleted != 0,
         })
     }
 }
