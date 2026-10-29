@@ -862,24 +862,27 @@ impl ComputerUseBackend {
         match xproto::query_tree(conn, root).ok().and_then(|c| c.reply().ok()) {
             Some(tree) => {
                 for child in &tree.children {
-                    match xproto::get_window_attributes(conn, *child)
+                    let attrs = xproto::get_window_attributes(conn, *child)
                         .ok()
-                        .and_then(|c| c.reply().ok())
-                    {
-                        Some(attrs) => shapes.push(WindowShape {
+                        .and_then(|c| c.reply().ok());
+                    let geom = xproto::get_geometry(conn, *child)
+                        .ok()
+                        .and_then(|c| c.reply().ok());
+                    match (attrs, geom) {
+                        (Some(attrs), Some(geom)) => shapes.push(WindowShape {
                             window: *child,
-                            x: attrs.x,
-                            y: attrs.y,
-                            width: attrs.width,
-                            height: attrs.height,
-                            border_width: attrs.border_width,
+                            x: geom.x,
+                            y: geom.y,
+                            width: geom.width,
+                            height: geom.height,
+                            border_width: geom.border_width,
                             map_state: u8::from(attrs.map_state),
                         }),
-                        Err(e) => note = format!("attrs:{child}:{e}"),
+                        _ => note = format!("window:{child:x}"),
                     }
                 }
             }
-            Err(e) => note = format!("tree:{e}"),
+            None => note = "tree_failed".into(),
         }
         let bytes = serde_json::to_vec(&(root, &shapes, &note)).unwrap_or_default();
         (hex_digest(&bytes), shapes)
