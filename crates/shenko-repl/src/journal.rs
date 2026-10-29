@@ -89,11 +89,11 @@ impl Journal {
         Ok(())
     }
 
-    fn admit_cell(&mut self, record: CellRecord) -> Result<()> {
+    fn check_cell(&self, record: &CellRecord) -> Result<()> {
         self.validate_common(record.schema_version, record.session_id, record.cell)?;
         if record.kind != "cell" || record.seq != self.next_cell_seq
             || self.pending_reset.is_some() || self.active_restore.is_some()
-            || !self.ids.insert(record.cell)
+            || self.ids.contains(&record.cell)
             || record.source_path != cell_path(record.cell, "source")
             || record.stdout_path != cell_path(record.cell, "stdout")
             || record.stderr_path != cell_path(record.cell, "stderr")
@@ -104,12 +104,19 @@ impl Journal {
         {
             bail!("REPL_JOURNAL_CORRUPT: invalid cell identity, binding, path or sequence");
         }
+        self.next_cell_seq.checked_add(1).context("cell sequence overflow")?;
+        Ok(())
+    }
+
+    fn admit_cell(&mut self, record: CellRecord) -> Result<()> {
+        self.check_cell(&record)?;
+        self.ids.insert(record.cell);
         self.next_cell_seq = self.next_cell_seq.checked_add(1).context("cell sequence overflow")?;
         self.cells.push(record);
         Ok(())
     }
 
-    fn admit_replay(&mut self, record: ReplayRecord) -> Result<()> {
+    fn check_replay(&self, record: &ReplayRecord) -> Result<()> {
         self.validate_common(record.schema_version, record.session_id, record.artifact)?;
         let attempt = self.active_restore.as_ref().context("REPL_JOURNAL_CORRUPT: replay without restore")?;
         let cell = self.cells.iter().find(|c| c.seq == record.cell_seq)
@@ -121,17 +128,24 @@ impl Journal {
             || record.stdout_path != replay_path(record.artifact, "stdout")
             || record.stderr_path != replay_path(record.artifact, "stderr")
             || record.exit_code.is_some() == record.error.is_some()
-            || !self.ids.insert(record.artifact)
+            || self.ids.contains(&record.artifact)
         {
             bail!("REPL_JOURNAL_CORRUPT: invalid replay identity, path or sequence");
         }
+        self.next_replay_seq.checked_add(1).context("replay sequence overflow")?;
+        Ok(())
+    }
+
+    fn admit_replay(&mut self, record: ReplayRecord) -> Result<()> {
+        self.check_replay(&record)?;
+        self.ids.insert(record.artifact);
         self.last_replayed_cell_seq = record.cell_seq;
         self.next_replay_seq = self.next_replay_seq.checked_add(1).context("replay sequence overflow")?;
         self.replays.push(record);
         Ok(())
     }
 
-    fn admit_boundary(&mut self, record: BoundaryRecord) -> Result<()> {
+    fn check_boundary(&self, record: &BoundaryRecord) -> Result<()> {
         self.validate_common(record.schema_version, record.session_id, record.id)?;
         if record.after_cell_seq != self.next_cell_seq - 1 {
             bail!("REPL_JOURNAL_CORRUPT: boundary cell position mismatch");
@@ -139,36 +153,50 @@ impl Journal {
         match record.kind.as_str() {
             "reset" => {
                 if self.pending_reset.is_some() || self.active_restore.is_some()
-                    || record.seq != self.next_reset_seq || !self.ids.insert(record.id)
+                    || record.seq != self.next_reset_seq || self.ids.contains(&record.id)
                 { bail!("REPL_JOURNAL_CORRUPT: invalid reset boundary"); }
-                self.next_reset_seq = self.next_reset_seq.checked_add(1).context("reset sequence overflow")?;
-                self.last_reset = Some(record.clone());
-                self.pending_reset = Some(record);
+                self.next_reset_seq.checked_add(1).context("reset sequence overflow")?;
             }
             "reset_complete" => {
                 let pending = self.pending_reset.as_ref().context("REPL_JOURNAL_CORRUPT: reset completion without reset")?;
                 if pending.id != record.id || pending.seq != record.seq {
                     bail!("REPL_JOURNAL_CORRUPT: reset completion identity mismatch");
                 }
-                self.pending_reset = None;
             }
             "restore_begin" => {
-                if self.pending_reset.is_some() || record.seq != 0 || !self.ids.insert(record.id) {
+                if self.pending_reset.is_some() || record.seq != 0 || self.ids.contains(&record.id) {
                     bail!("REPL_JOURNAL_CORRUPT: invalid restore start");
                 }
-                // A new attempt supersedes an incomplete previous attempt. It
-                // always reconstructs from the baseline, never partial state.
-                self.active_restore = Some(record);
-                self.last_replayed_cell_seq = 0;
             }
             "restore_complete" => {
                 let pending = self.active_restore.as_ref().context("REPL_JOURNAL_CORRUPT: restore completion without start")?;
                 if record.seq != 0 || pending.id != record.id {
                     bail!("REPL_JOURNAL_CORRUPT: restore completion identity mismatch");
                 }
-                self.active_restore = None;
             }
             _ => bail!("REPL_JOURNAL_CORRUPT: unknown boundary"),
+        }
+        Ok(())
+    }
+
+    fn admit_boundary(&mut self, record: BoundaryRecord) -> Result<()> {
+        self.check_boundary(&record)?;
+        match record.kind.as_str() {
+            "reset" => {
+                self.ids.insert(record.id);
+                self.next_reset_seq += 1;
+                self.last_reset = Some(record.clone());
+                self.pending_reset = Some(record);
+            }
+            "reset_complete" => self.pending_reset = None,
+            "restore_begin" => {
+                // A retry supersedes a previous interrupted attempt.
+                self.ids.insert(record.id);
+                self.active_restore = Some(record);
+                self.last_replayed_cell_seq = 0;
+            }
+            "restore_complete" => self.active_restore = None,
+            _ => unreachable!("validated boundary kind"),
         }
         Ok(())
     }
@@ -238,9 +266,7 @@ fn append_line(journal: &mut Journal, value: &impl Serialize) -> Result<()> {
 
 pub fn append_cell(journal: &mut Journal, mut record: CellRecord) -> Result<CellRecord> {
     record.kind = "cell".into(); record.schema_version = JOURNAL_SCHEMA;
-    if record.seq != journal.next_cell_seq || record.session_id != journal.session_id
-        || journal.pending_reset.is_some() || journal.active_restore.is_some()
-    { bail!("REPL_JOURNAL_CORRUPT: cannot append cell"); }
+    journal.check_cell(&record)?;
     append_line(journal, &record)?;
     journal.admit_cell(record.clone())?;
     Ok(record)
@@ -249,6 +275,7 @@ pub fn append_cell(journal: &mut Journal, mut record: CellRecord) -> Result<Cell
 pub fn append_replay(journal: &mut Journal, mut record: ReplayRecord) -> Result<u64> {
     record.kind = "replay".into(); record.schema_version = JOURNAL_SCHEMA;
     record.seq = journal.next_replay_seq;
+    journal.check_replay(&record)?;
     append_line(journal, &record)?;
     let seq = record.seq;
     journal.admit_replay(record)?;
@@ -258,6 +285,7 @@ pub fn append_replay(journal: &mut Journal, mut record: ReplayRecord) -> Result<
 fn boundary(journal: &mut Journal, kind: &str, id: EntityId, seq: u64) -> Result<BoundaryRecord> {
     let record = BoundaryRecord { kind: kind.into(), schema_version: JOURNAL_SCHEMA,
         session_id: journal.session_id, id, seq, after_cell_seq: journal.next_cell_seq - 1 };
+    journal.check_boundary(&record)?;
     append_line(journal, &record)?;
     journal.admit_boundary(record.clone())?;
     Ok(record)
