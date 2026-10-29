@@ -2787,6 +2787,7 @@ dependencies = [
  "blake3",
  "bytes",
  "chrono",
+ "libc",
  "parking_lot",
  "rusqlite",
  "rusqlite_migration",
