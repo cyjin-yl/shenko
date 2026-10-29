@@ -6,6 +6,12 @@
 //! the synchronous CAS claim and spawns a bounded managed execution. Slow or
 //! unknown handlers no longer hold the dispatcher pass hostage, so a finished
 //! short child can project its T2/result while a long child is still running.
+//! Candidates are visited in least-recent-admission order, so a wave of
+//! repeatedly unresolved reconciliations cannot recapture every worker slot
+//! and starve a later ready child. Worker lifetime is bound to the Cordis
+//! teardown registered by `NativeChildPlugin`: shutdown closes admission and
+//! aborts/joins workers before it returns, independent of any retained
+//! `Arc<NativeChildService>`.
 //! Spawning never escapes the store contract: the claim fences task identity
 //! before any handler code runs, a rejected/late completion only leaves a
 //! durable park, and restart recovery is unchanged because a `Running` task
@@ -58,6 +64,44 @@ enum WorkerJob {
 struct Worker {
     task_id: EntityId,
     handle: tokio::task::JoinHandle<()>,
+}
+
+/// In-memory worker bookkeeping: live handles, shutdown state, and a bounded
+/// least-recent-admission history. Admission stamps bound fair ordering only;
+/// durable claim/park records remain the only dispatch truth, so nothing here
+/// survives restart or decides recovery.
+#[derive(Default)]
+struct Executions {
+    workers: HashMap<EntityId, Worker>,
+    /// Once closed no new claim or worker may be created; Cordis teardown sets
+    /// this before joining in-flight workers so `stop()` is the barrier.
+    closed: bool,
+    /// task → monotonically increasing admission stamp. Older (smaller)
+    /// stamps run first; tasks never admitted this lifetime have no entry and
+    /// sort ahead of every stamped one.
+    admissions: BTreeMap<EntityId, u64>,
+    next_admission: u64,
+}
+
+/// The history only needs to outlive the admission bursts it orders; keeping
+/// the newest stamps is enough because an evicted (oldest) task already sorts
+/// as never-admitted, which is the fair position for stale work anyway.
+const MAX_ADMISSION_STAMPS: usize = 4096;
+
+impl Executions {
+    fn admission_order(&self, task_id: &EntityId) -> u64 {
+        self.admissions.get(task_id).copied().unwrap_or(0)
+    }
+
+    fn note_admission(&mut self, task_id: EntityId) {
+        self.next_admission = self.next_admission.saturating_add(1);
+        let stamp = self.next_admission;
+        self.admissions.insert(task_id, stamp);
+        if self.admissions.len() > MAX_ADMISSION_STAMPS {
+            let floor = stamp - MAX_ADMISSION_STAMPS as u64;
+            self.admissions.retain(|_, s| *s > floor);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -118,8 +162,9 @@ pub struct NativeChildService {
     /// Handles of spawned managed executions, keyed by task identity. A task
     /// with a live worker is already `Running` in the store; the handle only
     /// bounds local concurrency and drives settlement, it is never the source
-    /// of truth for recovery.
-    executions: parking_lot::Mutex<HashMap<EntityId, Worker>>,
+    /// of truth for recovery. The same lock guards the shutdown flag and the
+    /// bounded admission-stamp history that orders each pass fairly.
+    executions: parking_lot::Mutex<Executions>,
 }
 
 impl Service for NativeChildService {
@@ -134,7 +179,7 @@ impl NativeChildService {
             instance_id: EntityId::new(),
             registry: RwLock::new(RegistryState::default()),
             run_lock: tokio::sync::Mutex::new(()),
-            executions: parking_lot::Mutex::new(HashMap::new()),
+            executions: parking_lot::Mutex::new(Executions::default()),
         }
     }
 
@@ -226,11 +271,23 @@ impl NativeChildService {
     /// Finished managed executions are reclaimed first, so a completed short
     /// child projects its result even while another child keeps running.
     /// Handler waits themselves happen inside spawned executions, never under
-    /// this pass's lock.
+    /// this pass's lock. The pass visits least-recently-admitted work first so
+    /// jobs that keep finishing unresolved cannot re-fill every slot before a
+    /// ready sibling is even seen.
     pub async fn run_once(self: &Arc<Self>) -> Result<usize> {
         let _guard = self.run_lock.lock().await;
+        if self.executions.lock().closed {
+            return Ok(0);
+        }
         self.reclaim_finished().await;
-        let candidates = self.store.native_task_candidates(32)?;
+        let mut candidates = self.store.native_task_candidates(32)?;
+        {
+            // Stable sort: equal stamps keep the store's (created_at, task_id)
+            // order. When the paged-scan cursor lands, apply the same
+            // admission-order key to its fetched page.
+            let executions = self.executions.lock();
+            candidates.sort_by_key(|task| executions.admission_order(&task.task_id));
+        }
         let mut progressed = 0;
         for task in candidates {
             progressed += usize::from(self.process(task)?);
@@ -246,12 +303,13 @@ impl NativeChildService {
         let finished: Vec<Worker> = {
             let mut executions = self.executions.lock();
             let ids: Vec<EntityId> = executions
+                .workers
                 .iter()
                 .filter(|(_, worker)| worker.handle.is_finished())
                 .map(|(task_id, _)| *task_id)
                 .collect();
             ids.into_iter()
-                .filter_map(|task_id| executions.remove(&task_id))
+                .filter_map(|task_id| executions.workers.remove(&task_id))
                 .collect()
         };
         for worker in finished {
@@ -279,20 +337,79 @@ impl NativeChildService {
     /// untouched and retries on a later pass.
     fn worker_available(&self, task_id: EntityId) -> bool {
         let executions = self.executions.lock();
-        executions.len() < MAX_INFLIGHT_EXECUTIONS && !executions.contains_key(&task_id)
+        !executions.closed
+            && executions.workers.len() < MAX_INFLIGHT_EXECUTIONS
+            && !executions.workers.contains_key(&task_id)
     }
 
+    /// Atomically install a spawned worker. Returns false when teardown closed
+    /// admission or the budget filled between the caller's pre-check and this
+    /// point; the caller must then leave the already-durable claim to durable
+    /// recovery, never detach a worker.
     fn spawn_execution(
         &self,
         task_id: EntityId,
         registered: RegisteredHandler,
         job: WorkerJob,
-    ) {
+    ) -> bool {
+        let mut executions = self.executions.lock();
+        if executions.closed
+            || executions.workers.len() >= MAX_INFLIGHT_EXECUTIONS
+            || executions.workers.contains_key(&task_id)
+        {
+            return false;
+        }
         let store = self.store.clone();
         let handle = tokio::spawn(async move {
             drive_execution(store, registered, job).await;
         });
-        self.executions.lock().insert(task_id, Worker { task_id, handle });
+        executions.workers.insert(task_id, Worker { task_id, handle });
+        executions.note_admission(task_id);
+        true
+    }
+
+    /// Cordis teardown: close admission, abort every managed execution and
+    /// join them. `run_lock` is taken first so a pass already in flight
+    /// finishes its synchronous CAS work before admission closes, and no pass
+    /// may start once teardown owns it. Workers stop at their next yield;
+    /// anything they armed stays durable (Running/claim or explicit park) and
+    /// the next runtime generation reconciles it — never replays it. Runs
+    /// under `stop()`, so no worker effect or T2 commit can land after
+    /// shutdown reports completion; a retained `Arc` cannot keep workers
+    /// alive past it, and `Drop` remains only the fallback for a service that
+    /// never ran inside Cordis.
+    pub async fn close_and_join(&self) {
+        let _guard = self.run_lock.lock().await;
+        let workers: Vec<Worker> = {
+            let mut executions = self.executions.lock();
+            executions.closed = true;
+            executions.workers.drain().map(|(_, worker)| worker).collect()
+        };
+        for worker in &workers {
+            worker.handle.abort();
+        }
+        for worker in workers {
+            // An aborted worker reports cancelled and leaves its task Running:
+            // durable truth, reconciled on the next generation. A panicked
+            // worker gets the same explicit reconciling park as a reclaimed
+            // one so no execution disappears without a durable record.
+            match worker.handle.await {
+                Ok(()) => {}
+                Err(error) if error.is_cancelled() => {}
+                Err(error) => {
+                    tracing::warn!(task_id=%worker.task_id, %error, "managed native execution lost during teardown; parking for reconciliation");
+                    if let Ok(task) = self.store.external_task(worker.task_id) {
+                        park_managed(
+                            &self.store,
+                            &task,
+                            "reconciling",
+                            "managed execution ended without a durable settlement; reconcile original evidence",
+                            true,
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Deterministic guidance from currently installed handlers, ordered by
@@ -391,7 +508,7 @@ impl NativeChildService {
                     return Ok(false);
                 }
                 let implementation = registered.descriptor.implementation_ref.clone();
-                self.spawn_execution(
+                if !self.spawn_execution(
                     task.task_id,
                     registered,
                     WorkerJob::Settle {
@@ -399,7 +516,9 @@ impl NativeChildService {
                         operation_id,
                         implementation,
                     },
-                );
+                ) {
+                    return Ok(false);
+                }
                 return Ok(true);
             }
             let Some(claim) = self.store.claim_native_task(
@@ -484,11 +603,23 @@ impl NativeChildService {
             input,
         };
         let task_id = claim.task.task_id;
-        self.spawn_execution(
+        if !self.spawn_execution(
             task_id,
             registered,
             WorkerJob::Execute { claim, invocation },
-        );
+        ) {
+            // Teardown closed admission between the pre-check and the spawn,
+            // or the budget filled. The claim is already durable; park it as
+            // reconciling so the armed operation is recovered from evidence,
+            // never replayed or left unowned without a durable record.
+            self.park_current(
+                task_id,
+                "reconciling",
+                "durable claim exists but admission closed before a managed execution owned it; reconcile on recovery",
+                true,
+            )?;
+            return Ok(true);
+        }
         Ok(true)
     }
 
@@ -729,8 +860,12 @@ impl Drop for NativeChildService {
     /// Dropping the service aborts its managed executions instead of detaching
     /// them. A dropped JoinHandle in tokio keeps running; the task would then
     /// hold a claim no one can settle while the process still lives.
+    /// Cordis teardown (`close_and_join`) is the real barrier; this only
+    /// covers a service dropped without one.
     fn drop(&mut self) {
-        for (_, worker) in self.executions.get_mut().drain() {
+        let executions = self.executions.get_mut();
+        executions.closed = true;
+        for (_, worker) in executions.workers.drain() {
             worker.handle.abort();
         }
     }
@@ -753,7 +888,7 @@ impl Plugin for NativeChildPlugin {
     type Config = (Arc<Store>, RuntimeGeneration);
     type Input = Arc<NativeChildService>;
     type PrepareError = Infallible;
-    type ApplyError = cordis_core::service::ServicePublishError;
+    type ApplyError = std::io::Error;
 
     fn name(&self) -> Cow<'_, str> {
         Cow::Borrowed("shenko-native-child-runtime")
@@ -767,7 +902,18 @@ impl Plugin for NativeChildPlugin {
     }
 
     async fn apply(&self, ctx: Context, service: &Self::Input) -> Result<(), Self::ApplyError> {
-        let _publication = ctx.provide(service.clone())?;
+        let _publication = ctx
+            .provide(service.clone())
+            .map_err(std::io::Error::other)?;
+        // Worker lifetime is bound to the runtime, not to the service Arc:
+        // shutdown closes admission and aborts/joins every managed execution
+        // before `stop()` returns, so a retained service handle can never let
+        // a worker commit effects after teardown reported complete.
+        let teardown = service.clone();
+        ctx.effect(move || async move {
+            teardown.close_and_join().await;
+        })
+        .map_err(std::io::Error::other)?;
         Ok(())
     }
 }

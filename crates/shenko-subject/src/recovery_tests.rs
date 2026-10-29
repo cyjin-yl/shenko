@@ -1911,6 +1911,19 @@ impl crate::NativeTaskHandler for GatedHandler {
         {
             return Ok(existing);
         }
+        // `unresolved` children arm their operation but never produce
+        // conclusive evidence: each managed execution ends parked reconciling
+        // and the next reconcile observes the same in-flight record. This is
+        // the shipped HostPrintfHandler behaviour for already-Reconciling
+        // operations, not a synthetic failure.
+        if invocation
+            .input
+            .get("unresolved")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Ok(operation);
+        }
         if hold {
             self.started.notify_one();
             self.release.notified().await;
@@ -2066,6 +2079,245 @@ async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
         store.native_task_result(slow).unwrap().unwrap().outcome,
         TaskOutcome::Succeeded
     ));
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 fairness: a wave of earlier children that keep finishing
+/// unresolved must not recapture every worker slot. Without least-recent-
+/// admission ordering the eight reconciling tasks are re-claimed before the
+/// later ready child on every pass, leaving it Pending forever. The ready
+/// child is committed in a later durable decision so it deterministically
+/// trails the wave in (created_at, task_id) scan order.
+#[tokio::test]
+async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let wave = (0..8)
+        .map(|n| format!("[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":{n}}}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    commit_output(&store, &mut subject, 1, &[], &format!("{wave}\n八个 child 持续对账中。"))
+        .await;
+    // Task rows carry second-resolution created_at; a later durable decision
+    // is what makes the ready child trail the wave in scan order.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":false}\n再委派一个立即可完成的 child。",
+    )
+    .await;
+
+    let mut wave_ids = Vec::new();
+    let mut ready = None;
+    for task in store.native_task_candidates(16).unwrap() {
+        let Ok(bytes) = store.cas.read_object(&task.input_ref.digest) else {
+            continue;
+        };
+        let Ok(decision) = serde_json::from_slice::<StepDecision>(&bytes) else {
+            continue;
+        };
+        let Some(intent) = decision
+            .delegated_task_intents
+            .iter()
+            .find(|intent| intent.intent_id == task.task_id)
+        else {
+            continue;
+        };
+        let unresolved = intent
+            .definition
+            .as_ref()
+            .and_then(|d| d.input.get("unresolved"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if unresolved {
+            wave_ids.push(task.task_id);
+        } else {
+            ready = Some(task.task_id);
+        }
+    }
+    assert_eq!(wave_ids.len(), 8);
+    let ready = ready.expect("one ready child committed");
+
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+        }))
+        .unwrap();
+
+    // First pass: the eight wave children claim every worker slot and each
+    // lands a retryable reconciling park; the ready child does not fit.
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while wave_ids
+            .iter()
+            .filter(|id| {
+                let task = store.external_task(**id).unwrap();
+                shenko_store::child::park_reason(&task) == Some("reconciling")
+                    && !task.is_running()
+            })
+            .count()
+            < 8
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("wave children did not all reach reconciling");
+    assert!(!store.external_task(ready).unwrap().is_running());
+
+    // Let every retry deadline expire so the wave is re-admissible, then take
+    // the next pass. Fair ordering puts the never-admitted ready child ahead
+    // of the wave instead of letting the same eight recapture all slots.
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    service.run_once().await.unwrap();
+    let ready_task = store.external_task(ready).unwrap();
+    assert!(
+        ready_task.is_running() || ready_task.is_terminal(),
+        "ready child must be claimed ahead of the re-parked wave, got {:?}",
+        ready_task.state
+    );
+
+    // The wave itself keeps making progress: each task is re-admitted only
+    // behind fresher work and stays durably parked reconciling, never starved
+    // and never replayed.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while wave_ids
+            .iter()
+            .filter(|id| {
+                let task = store.external_task(**id).unwrap();
+                shenko_store::child::park_reason(&task) == Some("reconciling")
+                    && !task.is_running()
+            })
+            .count()
+            < 8
+        {
+            service.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("wave children must remain durably reconciling, not lost");
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.native_task_result(ready).unwrap().is_none() {
+            service.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("ready child must settle to a durable result");
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 teardown: managed executions belong to the Cordis lifetime, not
+/// to any retained `Arc<NativeChildService>`. Stopping the supervisor while a
+/// worker is gated must abort/join it before `stop()` returns; releasing the
+/// gate afterwards must not let the worker commit a late T2, and admission
+/// stays closed even through the retained handle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\n委派一个会被门控的 child。",
+    )
+    .await;
+    let gated = store
+        .native_task_candidates(8)
+        .unwrap()
+        .into_iter()
+        .find(|task| {
+            store
+                .cas
+                .read_object(&task.input_ref.digest)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<StepDecision>(&bytes).ok())
+                .and_then(|decision| {
+                    decision
+                        .delegated_task_intents
+                        .iter()
+                        .find(|intent| intent.intent_id == task.task_id)
+                        .and_then(|intent| intent.definition.clone())
+                })
+                .is_some_and(|definition| {
+                    definition
+                        .input
+                        .get("hold")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                })
+        })
+        .map(|task| task.task_id)
+        .expect("one gated child committed");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let supervisor = shenko_kernel::Supervisor::new(subject.head.software_generation.clone());
+    supervisor
+        .spawn(
+            crate::NativeChildPlugin,
+            (
+                store.clone(),
+                subject.head.software_generation.clone(),
+            ),
+        )
+        .await
+        .unwrap();
+    supervisor
+        .spawn(
+            crate::NativeTaskHandlerPlugin,
+            Arc::new(GatedHandler {
+                store: store.clone(),
+                started: started.clone(),
+                release: release.clone(),
+            }) as Arc<dyn crate::NativeTaskHandler>,
+        )
+        .await
+        .unwrap();
+    let service = supervisor
+        .context()
+        .try_service::<crate::NativeChildService>()
+        .unwrap();
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("gated handler did not start");
+    assert!(store.external_task(gated).unwrap().is_running());
+
+    // `stop()` returns only after admission closed and the gated worker was
+    // aborted and joined — it does not wait for the handler's own gate.
+    tokio::time::timeout(std::time::Duration::from_secs(10), supervisor.stop())
+        .await
+        .expect("stop must not block on a gated worker")
+        .unwrap();
+    release.notify_one();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // No effect lands after the barrier: the claim stays durable (Running) for
+    // the next generation to reconcile, and the retained service handle cannot
+    // admit or drive anything new.
+    assert!(store.native_task_result(gated).unwrap().is_none());
+    assert!(store.external_task(gated).unwrap().is_running());
+    assert_eq!(service.run_once().await.unwrap(), 0);
     drop(service);
     drop(subject);
     // Keep the fixture on container disk for independent inspection.
