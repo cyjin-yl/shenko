@@ -707,7 +707,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 identity_context.clone(),
             )?
             .with_broker(broker_handle)
-            .with_model_capabilities(capabilities)
+            .with_model_capabilities(capabilities.clone())
             .with_native_capabilities(native_child.installed_prompt_sections())
             .with_awareness(awareness)
             .with_hooks(Arc::clone(&hook_registry))
