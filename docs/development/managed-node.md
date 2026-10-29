@@ -143,15 +143,22 @@ observations, cursor and gaps. Its chunked CAS root is part of the closure.
 path without activating a provider or replaying an input. This does not scan
 arbitrary provider databases, private environment files or credential stores.
 
-Manifest schema 3 binds source ledger/high water, durable snapshot order,
+Manifest schema 4 binds source ledger/high water, durable snapshot order,
 fingerprint, object descriptors, file origins and durable memory-intent
-bindings. Schema 2 remains readable when its pending memory identities are
-recoverable; an older schema-2-only receiver must be upgraded to receive a
-schema-3 archive. Missing binding identity, unknown fact tables, stale order,
-missing/corrupt retained CAS and forged fingerprints block verified recovery.
+bindings, plus media stream/revision/terminal facts, original admission
+receipts and their durable inbox identities/audio closure. Schema 2/3 remains
+readable only when current identity/closure admission succeeds; older
+receivers must be upgraded to receive schema 4. Missing binding identity,
+unknown fact tables, stale order, missing/corrupt retained CAS and forged
+fingerprints block verified recovery.
 An intent, its binding and associated memory entry reconcile as one conflict
 unit; a conflicting source cannot publish only its entry or attach its
 reference to a retained locator-only intent.
+A media stream's facts and inbox originals likewise reconcile as one conflict
+unit; immutable open/terminal receipts retain their source CommitRefs when
+the receiver's local import sequence advances. This media repair is source
+only; its pending-input consumer requires C11's shared `media/%` drain, and
+runtime/ASR acceptance is not claimed (see [media ingress](media-transcript-ingress.md)).
 Imported S1 history keeps original ledger/commit references, while local replay
 uses its own sequence and a step-order cursor so an imported same-sequence page
 cannot reorder or skip committed steps. Imported unknown effects are not

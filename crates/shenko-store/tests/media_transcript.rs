@@ -316,6 +316,7 @@ fn disconnect_settlement_keeps_every_terminal_notice_and_open_receipt() {
         )
         .unwrap();
     assert!(open_replay.receipt.replayed);
+    assert_eq!(open_replay.receipt.state, MediaStreamState::Open);
     assert_eq!(
         open_replay.receipt.commit_ref, opened.receipt.commit_ref,
         "open replay keeps the open commit, not the terminal one"

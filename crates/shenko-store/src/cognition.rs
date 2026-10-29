@@ -442,8 +442,8 @@ struct TableSpec {
     key: &'static [&'static str],
     /// Replicated columns, in a fixed order.
     columns: &'static [&'static str],
-    /// Columns the importing store owns; each receives the local commit seq.
-    local_seq: &'static [&'static str],
+    /// Column the importing store owns; it receives the local commit seq.
+    local_seq: Option<&'static str>,
     kind: RowKind,
 }
 
@@ -454,7 +454,7 @@ const TABLES: &[TableSpec] = &[
         name: "identity_profiles",
         key: &["agent_id", "revision"],
         columns: &["agent_id", "revision", "profile", "created_at"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -467,7 +467,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: &["created_commit_seq"],
+        local_seq: Some("created_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -484,7 +484,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -499,7 +499,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -509,7 +509,7 @@ const TABLES: &[TableSpec] = &[
         // The receipt's local commit position follows the receiving store's
         // import commit. Its identity outcome, step binding and source
         // `data.committed_at` coordinate stay verbatim.
-        local_seq: &["commit_seq"],
+        local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
     // Wait facts and receipts travel with the branch and their referenced
@@ -518,14 +518,14 @@ const TABLES: &[TableSpec] = &[
         name: "semantic_waits",
         key: &["wait_id"],
         columns: &["wait_id", "agent_id", "status", "data"],
-        local_seq: &["commit_seq"],
+        local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "semantic_wait_receipts",
         key: &["step_id"],
         columns: &["step_id", "data"],
-        local_seq: &["commit_seq"],
+        local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -538,14 +538,14 @@ const TABLES: &[TableSpec] = &[
             "disposition",
             "commit_seq",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "subject_intent_steps",
         key: &["step_id"],
         columns: &["step_id", "migration"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -565,7 +565,7 @@ const TABLES: &[TableSpec] = &[
             "updated_seq",
             "result_ref",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::SubjectIntent,
     },
     TableSpec {
@@ -579,14 +579,14 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "agent_profiles",
         key: &["agent_id"],
         columns: &["agent_id", "data", "updated_at"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -607,7 +607,7 @@ const TABLES: &[TableSpec] = &[
             "record_revision",
             "created_at_ms",
         ],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -626,28 +626,28 @@ const TABLES: &[TableSpec] = &[
             "created_at_ms",
             "updated_at_ms",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "memory_intent_bindings",
         key: &["intent_id"],
         columns: &["intent_id", "data"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "raw_sessions",
         key: &["session_id"],
         columns: &["session_id", "agent_id", "started_at", "ended_at", "data"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "recovery_sources",
         key: &["source_id"],
         columns: &["source_id", "kind", "data"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -662,7 +662,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -676,7 +676,7 @@ const TABLES: &[TableSpec] = &[
             "seq",
             "commit_seq",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -691,7 +691,7 @@ const TABLES: &[TableSpec] = &[
             "data",
             "created_at",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::InboxEvent,
     },
     // Durable media truth: stream identity and latest state first, then the
@@ -719,7 +719,7 @@ const TABLES: &[TableSpec] = &[
             "descriptor",
             "open_commit_ref",
         ],
-        local_seq: &["commit_seq"],
+        local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -735,7 +735,7 @@ const TABLES: &[TableSpec] = &[
             "admitted_at_ms",
             "admitted_commit_ref",
         ],
-        local_seq: &["commit_seq"],
+        local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -761,35 +761,35 @@ const TABLES: &[TableSpec] = &[
             "admitted_at_ms",
             "admitted_commit_ref",
         ],
-        local_seq: &["commit_seq"],
+        local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "tasks",
         key: &["task_id"],
         columns: &["task_id", "record_revision", "data", "created_at"],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Task,
     },
     TableSpec {
         name: "operations",
         key: &["operation_id"],
         columns: &["operation_id", "record_revision", "data", "created_at"],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "attempts",
         key: &["attempt_id"],
         columns: &["attempt_id", "operation_id", "data", "created_at"],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "evidence_receipts",
         key: &["receipt_id"],
         columns: &["receipt_id", "operation_id", "data", "created_at"],
-        local_seq: &["updated_commit_seq"],
+        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -804,21 +804,21 @@ const TABLES: &[TableSpec] = &[
             "commit_seq",
             "created_at",
         ],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "context_window_scopes",
         key: &["scope_id"],
         columns: &["scope_id", "model_generation", "profile_digest"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "context_windows",
         key: &["window_id"],
         columns: &["window_id", "scope_id", "generation", "body", "commit_seq"],
-        local_seq: &[],
+        local_seq: None,
         kind: RowKind::Verbatim,
     },
 ];
@@ -1632,10 +1632,10 @@ impl Store {
     /// Check on the receiving side that every referenced object really is in
     /// the archive, including the objects referenced by other objects.
     fn verify_manifest_closure(&self, manifest: &CognitionManifest) -> Vec<CognitionGap> {
-        let listed: HashMap<&Digest, u64> = manifest
+        let listed: HashMap<&str, u64> = manifest
             .objects
             .iter()
-            .map(|descriptor| (&descriptor.digest, descriptor.bytes))
+            .map(|descriptor| (descriptor.digest.0.as_str(), descriptor.bytes))
             .collect();
         let mut gaps: Vec<CognitionGap> = Vec::new();
         let mut roots: Vec<ObjectRef> = Vec::new();
@@ -1678,7 +1678,7 @@ impl Store {
             }
         }
         for object in &roots {
-            if listed.get(&object.digest).copied() != Some(object.bytes) {
+            if listed.get(object.digest.0.as_str()).copied() != Some(object.bytes) {
                 gaps.push(CognitionGap {
                     kind: "missing_or_mismatched_object".into(),
                     detail: object.digest.to_string(),
@@ -2935,23 +2935,24 @@ fn apply_media_streams<'a>(
     tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
     seq: LedgerSeq, manifest: &CognitionManifest,
 ) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
-    let inbox: HashMap<_, _> = rows.iter().filter(|row| row.table == "inbox_events")
-        .map(|row| (row.key.as_str(), *row)).collect();
-    let mut groups: HashMap<&str, Vec<&CognitionRow>> = HashMap::new();
-    let mut media_events = HashSet::new();
-    for row in rows.iter().filter(|row| matches!(row.table.as_str(),
+    let inbox: HashMap<&'a str, &'a CognitionRow> = rows.iter().copied()
+        .filter(|row| row.table == "inbox_events")
+        .map(|row| (row.key.as_str(), row)).collect();
+    let mut groups: HashMap<&'a str, Vec<&'a CognitionRow>> = HashMap::new();
+    let mut media_events: HashSet<&'a str> = HashSet::new();
+    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(),
         "media_streams" | "media_stream_ends" | "media_segment_revisions"))
     {
         let key = row.value("stream_key").context("media stream identity missing")?;
         let group = groups.entry(key).or_default();
-        group.push(*row);
+        group.push(row);
         if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
             ensure!(media_events.insert(id), "media facts share a delivery identity");
             group.push(*inbox.get(id).context("media delivery original missing")?);
         }
     }
     let mut outcome = CognitionApplyOutcome::default();
-    for stream in rows.iter().filter(|row| row.table == "media_streams") {
+    for stream in rows.iter().copied().filter(|row| row.table == "media_streams") {
         let mut group = groups.remove(stream.key.as_str()).context("media closure group missing")?;
         group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
         tx.execute("SAVEPOINT media_stream_closure", []).map_err(db)?;
@@ -3328,7 +3329,7 @@ fn insert_row(
     let mut columns: Vec<&str> = spec.columns.to_vec();
     let mut values: Vec<Option<String>> =
         row.values.iter().map(|(_, value)| value.clone()).collect();
-    for &local_seq in spec.local_seq {
+    if let Some(local_seq) = spec.local_seq {
         columns.push(local_seq);
         values.push(Some(seq.0.to_string()));
     }
@@ -3357,7 +3358,7 @@ fn update_row(
     let mut columns: Vec<&str> = spec.columns.to_vec();
     let mut values: Vec<Option<String>> =
         row.values.iter().map(|(_, value)| value.clone()).collect();
-    for &local_seq in spec.local_seq {
+    if let Some(local_seq) = spec.local_seq {
         columns.push(local_seq);
         values.push(Some(seq.0.to_string()));
     }

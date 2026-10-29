@@ -204,19 +204,25 @@ fn verify_sealed_audio(store: &Store, object: &ObjectRef) -> Result<(), ShenkoEr
 
 /// The durable `inbox_events` envelope of one bound media event, in the same
 /// serialized `InboxEvent` shape the subject's durable-input drain decodes.
-/// `created_at` is the admission time; the volatile wake carries its own
-/// delivery time and never overwrites this original.
+/// `created_at` is the admission time; live wakes deserialize this same
+/// original rather than regenerate a delivery timestamp or payload.
 fn media_inbox_event_json(
     event: &MediaIngressEvent,
+    source: &str,
     created_at: chrono::DateTime<chrono::Utc>,
 ) -> Result<String, ShenkoError> {
-    serde_json::to_string(&serde_json::json!({
-        "event_id": event.event_id(),
-        "kind": event.inbox_kind(),
-        "payload": event,
-        "created_at": created_at,
-        "source": format!("media/{}", event.stream().provider),
-    }))
+    #[derive(serde::Serialize)]
+    struct Original<'a> {
+        event_id: EntityId,
+        kind: &'static str,
+        payload: &'a MediaIngressEvent,
+        created_at: chrono::DateTime<chrono::Utc>,
+        source: &'a str,
+    }
+    serde_json::to_string(&Original {
+        event_id: event.event_id(), kind: event.inbox_kind(),
+        payload: event, created_at, source,
+    })
     .map_err(ShenkoError::Serde)
 }
 
@@ -228,7 +234,8 @@ fn insert_media_inbox_event(
     agent_id: EntityId,
     event: &MediaIngressEvent,
 ) -> Result<(), ShenkoError> {
-    let data = media_inbox_event_json(event, chrono::Utc::now())?;
+    let source = format!("media/{}", event.stream().provider);
+    let data = media_inbox_event_json(event, &source, chrono::Utc::now())?;
     tx.execute(
         "INSERT INTO inbox_events(event_id, agent_id, kind, source, consumed, data)
          VALUES (?1, ?2, ?3, ?4, 0, ?5)",
@@ -236,7 +243,7 @@ fn insert_media_inbox_event(
             event.event_id().to_string(),
             agent_id.to_string(),
             event.inbox_kind(),
-            format!("media/{}", event.stream().provider),
+            source,
             data,
         ],
     )
@@ -292,7 +299,6 @@ struct StoredStreamRow {
     open_event_id: Option<EntityId>,
     open_commit_ref: Option<CommitRef>,
     end: Option<MediaStreamEnd>,
-    end_event_id: Option<EntityId>,
     implicit: bool,
     descriptor: serde_json::Map<String, serde_json::Value>,
     commit_seq: u64,
@@ -304,7 +310,7 @@ fn read_stream_row(
 ) -> Result<Option<StoredStreamRow>, ShenkoError> {
     conn.query_row(
         "SELECT provider, account, stream_id, agent_id, state, opened_at_ms,
-                open_id, open_event_id, end_id, end_event_id,
+                open_id, open_event_id, end_id,
                 ended_at_ms, end_reason, implicit, descriptor,
                 open_commit_ref, commit_seq
            FROM media_streams WHERE stream_key = ?1",
@@ -320,13 +326,12 @@ fn read_stream_row(
                 row.get::<_, Option<String>>(6)?,
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
-                row.get::<_, Option<String>>(9)?,
-                row.get::<_, Option<i64>>(10)?,
-                row.get::<_, Option<String>>(11)?,
-                row.get::<_, i64>(12)?,
-                row.get::<_, String>(13)?,
-                row.get::<_, Option<String>>(14)?,
-                row.get::<_, i64>(15)?,
+                row.get::<_, Option<i64>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, i64>(11)?,
+                row.get::<_, String>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, i64>(14)?,
             ))
         },
     )
@@ -343,7 +348,6 @@ fn read_stream_row(
             open_id,
             open_event,
             end_id,
-            end_event,
             ended,
             reason,
             implicit,
@@ -383,9 +387,6 @@ fn read_stream_row(
                     .map(|data| serde_json::from_str(&data).map_err(ShenkoError::Serde))
                     .transpose()?,
                 end,
-                end_event_id: end_event
-                    .map(|text| parse_entity(&text, "end event id"))
-                    .transpose()?,
                 implicit: implicit != 0,
                 descriptor: serde_json::from_str(&descriptor).map_err(ShenkoError::Serde)?,
                 commit_seq: commit_seq as u64,
@@ -700,7 +701,7 @@ pub(crate) fn media_recovery_gaps(
 ) -> Vec<crate::cognition_archive::CognitionGap> {
     use anyhow::{Context, Result, ensure};
     use crate::cognition_archive::{CognitionGap, CognitionRow};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     fn required<'a>(row: &'a CognitionRow, column: &str) -> Result<&'a str> {
         row.value(column).with_context(|| format!("{} {} lacks {column}", row.table, row.key))
@@ -718,7 +719,7 @@ pub(crate) fn media_recovery_gaps(
             .map(|row| (row.key.as_str(), row)).collect();
         let inbox: HashMap<_, _> = rows.iter().filter(|row| row.table == "inbox_events")
             .map(|row| (row.key.as_str(), row)).collect();
-        let mut bound = HashSet::new();
+        let mut bound = HashMap::new();
         for row in rows.iter().filter(|row| matches!(row.table.as_str(),
             "media_streams" | "media_stream_ends" | "media_segment_revisions"))
         {
@@ -730,6 +731,7 @@ pub(crate) fn media_recovery_gaps(
                 stream_id: required(stream, "stream_id")?.into(),
             };
             validate_stream(&descriptor)?;
+            parse_entity(required(stream, "agent_id")?, "agent id")?;
             ensure!(media_stream_key(&descriptor) == stream_key, "media stream key mismatch");
             let is_open = row.table == "media_streams";
             let event_id = if is_open {
@@ -738,13 +740,17 @@ pub(crate) fn media_recovery_gaps(
                         "implicit media stream carries a partial open receipt");
                     continue;
                 }
+                identity_field(required(row, "open_id")?, "open_id")?;
                 receipt(row, "open_commit_ref")?;
                 required(row, "open_event_id")?
             } else {
+                if row.table == "media_stream_ends" {
+                    identity_field(required(row, "end_id")?, "end_id")?;
+                }
                 receipt(row, "admitted_commit_ref")?;
                 required(row, "event_id")?
             };
-            ensure!(bound.insert(event_id), "media facts share an inbox event identity");
+            ensure!(!bound.contains_key(event_id), "media facts share an inbox event identity");
             let original = inbox.get(event_id).context("media fact lacks its durable inbox original")?;
             let envelope: serde_json::Value = serde_json::from_str(required(original, "data")?)?;
             let event: MediaIngressEvent = serde_json::from_value(
@@ -810,6 +816,7 @@ pub(crate) fn media_recovery_gaps(
                     ensure!(record == expected, "media normalized original disagrees with raw admission");
                 }
             }
+            bound.insert(event_id, envelope);
         }
         for stream in streams.values() {
             let state = parse_stream_state(required(stream, "state")?)?;
@@ -826,20 +833,32 @@ pub(crate) fn media_recovery_gaps(
             }
         }
         for row in rows.iter().filter(|row| row.table == "inbox_events" || row.table == "session_events") {
-            let Some(data) = row.value("data") else { continue };
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+            let media_inbox = row.table == "inbox_events" &&
+                (row.value("source").is_some_and(|source| source.starts_with("media/"))
+                    || matches!(row.value("kind"), Some("media_revision" | "media_stream")));
+            let Some(data) = row.value("data") else {
+                ensure!(!media_inbox, "media inbox original missing");
+                continue;
+            };
+            let value = match serde_json::from_str::<serde_json::Value>(data) {
+                Ok(value) => value,
+                Err(error) => {
+                    ensure!(!media_inbox, "invalid media inbox original: {error}");
+                    continue;
+                }
+            };
             let original = if row.table == "session_events" {
                 let Some(original) = value.get("inbox_event") else { continue };
                 original
             } else { &value };
             let media_kind = matches!(original.get("kind").and_then(serde_json::Value::as_str),
                 Some("media_revision" | "media_stream"));
-            if media_kind || (row.table == "inbox_events"
-                && row.value("source").is_some_and(|source| source.starts_with("media/")))
+            if media_kind || media_inbox
             {
                 let id = original.get("event_id").and_then(serde_json::Value::as_str)
                     .context("media original event identity missing")?;
-                ensure!(bound.contains(id), "media original has no immutable admission fact");
+                let admitted = bound.get(id).context("media original has no immutable admission fact")?;
+                ensure!(original == admitted, "staged media differs from the admitted original");
             }
         }
         Ok(())
@@ -912,6 +931,14 @@ impl Store {
         let stream_key = media_stream_key(&input.stream);
         let segment_key = media_segment_key(&input.stream, input.segment);
         let data = serde_json::to_string(input).map_err(ShenkoError::Serde)?;
+        let existing_stream = read_stream_row(&tx, &stream_key)?;
+        if existing_stream.as_ref().is_some_and(|row| row.agent_id != agent_id) {
+            return Err(media_error(
+                "media_stream_agent_mismatch",
+                RetryStrategy::NeverAutomatically,
+                "media stream belongs to a different subject",
+            ));
+        }
 
         // Idempotent replay: same durable identity must replay byte-identical
         // facts; anything else is an explicit contradiction, never an overwrite.
@@ -966,17 +993,8 @@ impl Store {
 
         // One ledger commit sequence for raw fact + effective update + stream.
         let seq = self.ledger.allocate_seq(&tx)?;
-        let stream_state = match read_stream_row(&tx, &stream_key)? {
-            Some(row) => {
-                if row.agent_id != agent_id {
-                    return Err(media_error(
-                        "media_stream_agent_mismatch",
-                        RetryStrategy::NeverAutomatically,
-                        "media stream belongs to a different subject",
-                    ));
-                }
-                row.state
-            }
+        let stream_state = match existing_stream {
+            Some(row) => row.state,
             None => {
                 insert_stream(
                     &tx,

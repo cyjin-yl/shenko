@@ -87,7 +87,9 @@ impl ContentStore {
         if !metadata.is_file() {
             return Err(ShenkoError::conflict("CAS object is not a regular file"));
         }
-        let mut bytes = Vec::new();
+        let capacity = usize::try_from(metadata.len())
+            .map_err(|_| ShenkoError::storage("CAS object exceeds the addressable memory range"))?;
+        let mut bytes = Vec::with_capacity(capacity);
         file.read_to_end(&mut bytes)
             .map_err(|error| ShenkoError::storage(format!("cas object read: {error}")))?;
         Ok(bytes)

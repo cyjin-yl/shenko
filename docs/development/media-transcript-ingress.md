@@ -71,9 +71,6 @@ a later step, and `event_disposition_commit` reports committed consumption.
   `MediaAudioRef::Provider(…)` records a provider-local locator verbatim —
   provenance, not archive.
 
-The pinned capability API's confined-open contract is documented in the
-[cap-std 3.4.6 source](https://docs.rs/crate/cap-std/3.4.6/source/src/fs/dir.rs)
-and its [sandboxing example](https://docs.rs/crate/cap-std/3.4.6).
 - `MediaStreamOpen` / `MediaStreamEnd { state ∈ {cancelled, disconnected,
   ended}, reason }` — session scope and terminal state. Every terminal notice
   is an immutable fact keyed by `end_id` (`media_stream_ends`): a
@@ -83,6 +80,10 @@ and its [sandboxing example](https://docs.rs/crate/cap-std/3.4.6).
   `end`/`state` columns are only the latest projection; `open_commit_ref`
   preserves the open admission's commit so an open replay keeps its own
   receipt even after the stream ended.
+
+The pinned capability API's confined-open contract is documented in the
+[cap-std 3.4.6 source](https://docs.rs/crate/cap-std/3.4.6/source/src/fs/dir.rs)
+and its [sandboxing example](https://docs.rs/crate/cap-std/3.4.6).
 
 ## Dispositions
 

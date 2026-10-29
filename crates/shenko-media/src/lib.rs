@@ -33,8 +33,8 @@ use shenko_types::media::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubjectDelivery {
-    /// Nothing to deliver: this call replayed an already committed fact and
-    /// the receipt already carries the original bound event id.
+    /// No new wake on this replay. The original event id stays bound to the
+    /// already committed row, which may still await the subject's drain.
     Replay,
     /// The bound event entered the live subject inbox queue this call (the
     /// volatile wake succeeded; the durable row is already committed).

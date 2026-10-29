@@ -74,7 +74,8 @@ pub struct ProviderObjectRef {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum MediaAudioRef {
     /// Bytes already sealed in this ledger's CAS. Admission verifies the
-    /// object exists with the declared digest and size BEFORE the metadata
+    /// canonical supported digest before lookup, then verifies the actual
+    /// confined CAS bytes against digest and length BEFORE the metadata
     /// commit (§41.2.2: object first, reference second).
     Sealed { object: ObjectRef },
     /// Provider-local handle; recorded verbatim and never treated as an
@@ -190,6 +191,7 @@ pub struct StoredMediaRevision {
     pub event_id: EntityId,
     /// Original admission time, epoch milliseconds; retained on replication.
     pub admitted_at_ms: i64,
+    /// Original admitting ledger/commit, retained verbatim on replication.
     pub admitted_commit: CommitRef,
 }
 
@@ -377,6 +379,7 @@ pub struct MediaAdmission {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaStreamReceipt {
     pub stream: MediaStreamDescriptor,
+    /// State reported by THIS admission, not the stream's later projection.
     pub state: MediaStreamState,
     pub replayed: bool,
     /// Bound subject event id; stable across replays. `None` only when the
@@ -389,6 +392,7 @@ pub struct MediaStreamReceipt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaStreamAdmission {
     pub receipt: MediaStreamReceipt,
+    /// Optional live wake for a new fact whose original is already durable.
     pub notify: Option<MediaIngressEvent>,
 }
 
