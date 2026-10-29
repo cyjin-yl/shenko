@@ -10,6 +10,7 @@ pub use client::OneBotAction;
 pub use client::SendError;
 pub use client::ContactQuery;
 pub use client::QueryReceipt;
+pub use client::endpoint_provenance;
 pub use adapter::*;
 pub use spool::*;
 pub use outbound::*;

@@ -759,11 +759,12 @@ mod tests {
     #[tokio::test]
     async fn contact_query_matches_echo_with_provenance_and_ignores_duplicates() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
         let config = NapCatConfig {
             // Embedded credentials must never survive into receipts or logs.
             ws_url: format!(
                 "ws://token:secret@{}/p?access_token=redacted-secret",
-                listener.local_addr().unwrap()
+                addr
             ),
             bot_qq: 9,
             reconnect_interval_ms: 50,
@@ -809,7 +810,7 @@ mod tests {
         assert_eq!(friends.configured_account, 9);
         assert_eq!(
             friends.ws_url,
-            format!("ws://{}", listener.local_addr().unwrap())
+            format!("ws://{addr}")
         );
         assert!(!friends.ws_url.contains("secret") && !friends.ws_url.contains('?'));
         assert_eq!(friends.observed_self_id(), Some(9));
