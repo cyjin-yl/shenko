@@ -71,7 +71,8 @@ CREATE TABLE IF NOT EXISTS quota_attempts (
 CREATE TABLE IF NOT EXISTS quota_sends (
     send_id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL,
-    send_seq INTEGER NOT NULL
+    send_seq INTEGER NOT NULL,
+    claimed INTEGER NOT NULL DEFAULT 0
 );
 "#;
 
@@ -122,44 +123,58 @@ pub(crate) fn quota_gate_open(conn: &Connection) -> Result<bool, ShenkoError> {
     Ok(count > 0)
 }
 
-/// The send ids of one sealed request in arming-commit order; the last
-/// element is the wire attempt currently awaiting dispatch.
+/// The sends of one sealed request in arming-commit order with their claim
+/// state; a claimed send is the one an AwaitingModel CAS durably bound.
 pub(crate) fn quota_request_sends(
     conn: &Connection,
     request_id: EntityId,
-) -> Result<Vec<EntityId>, ShenkoError> {
+) -> Result<Vec<(EntityId, bool)>, ShenkoError> {
     let mut stmt = conn
-        .prepare("SELECT send_id FROM quota_sends WHERE request_id=?1 ORDER BY send_seq")
+        .prepare("SELECT send_id, claimed FROM quota_sends WHERE request_id=?1 ORDER BY send_seq")
         .map_err(storage_error)?;
     let rows = stmt
-        .query_map([request_id.to_string()], |r| r.get::<_, String>(0))
+        .query_map([request_id.to_string()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })
         .map_err(storage_error)?;
     let mut sends = Vec::new();
     for row in rows {
-        let send = row.map_err(storage_error)?;
+        let (send, claimed) = row.map_err(storage_error)?;
         let send_id = send.parse::<EntityId>().map_err(|_| {
             conflict("quota_sends row has a malformed send id")
         })?;
-        sends.push(send_id);
+        sends.push((send_id, claimed != 0));
     }
     Ok(sends)
 }
 
-/// The dispatch gate checked inside every AwaitingModel step CAS: once quota
-/// is configured, a request may be dispatched only after its LATEST recorded
-/// wire send is admitted AND armed on this ledger.
-pub(crate) fn quota_request_armed(
-    conn: &Connection,
+/// The dispatch claim inside every AwaitingModel step CAS: once quota is
+/// configured, a request may be dispatched only after its LATEST recorded
+/// wire send is admitted AND armed AND not yet claimed on this ledger. The
+/// claim is written in the same transaction as the step CAS, so exactly one
+/// step binds each send and a send's actual dispatch binding is durable
+/// evidence — not a mutable "latest armed" guess.
+pub(crate) fn quota_claim_latest_send(
+    tx: &Transaction<'_>,
     request_id: EntityId,
 ) -> Result<bool, ShenkoError> {
-    let pacer = read_pacer(conn)?;
-    let Some(send_id) = quota_request_sends(conn, request_id)?.pop() else {
+    let Some((send_id, claimed)) = quota_request_sends(tx, request_id)?.pop() else {
         return Ok(false);
     };
+    if claimed {
+        return Ok(false);
+    }
+    let pacer = read_pacer(tx)?;
     Ok(pacer.reservation(&send_id).is_some_and(|reservation| {
         reservation.admission.state == shenko_quota::AdmissionState::Admitted
             && reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
-    }))
+    })
+        && tx.execute(
+            "UPDATE quota_sends SET claimed=1 WHERE send_id=?1 AND claimed=0",
+            [send_id.to_string()],
+        )
+        .map_err(storage_error)?
+            == 1)
 }
 
 impl Store {
@@ -542,9 +557,13 @@ impl Store {
         Ok(None)
     }
 
-    /// Send ids recorded for one sealed request, in arming-commit order.
-    /// The last entry is the wire attempt whose dispatch is pending.
-    pub fn quota_send_ids(&self, request_id: EntityId) -> Result<Vec<EntityId>, ShenkoError> {
+    /// Sends recorded for one sealed request in arming-commit order with
+    /// claim state. The last entry is the wire attempt whose dispatch is
+    /// pending; a claimed send has a committed AwaitingModel binding.
+    pub fn quota_send_ids(
+        &self,
+        request_id: EntityId,
+    ) -> Result<Vec<(EntityId, bool)>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         quota_request_sends(&conn, request_id)
     }

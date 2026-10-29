@@ -252,11 +252,13 @@ impl Store {
         }
         // Once any quota policy is recorded, dispatch into AwaitingModel is
         // allowed only for a request whose reservation is admitted and armed
-        // on this ledger. Recovery or another writer cannot bypass admission
-        // and replay an unaccounted call.
+        // on this ledger AND not yet claimed; the claim commits in this same
+        // transaction, so exactly one step binds each wire send. Recovery or
+        // another writer cannot bypass admission and replay an unaccounted
+        // call.
         if step.state == AwaitingModel
             && crate::quota::quota_gate_open(&tx)?
-            && !crate::quota::quota_request_armed(
+            && !crate::quota::quota_claim_latest_send(
                 &tx,
                 step.active_request_id.unwrap_or_else(EntityId::nil),
             )?

@@ -138,7 +138,10 @@ fn armed_reservation_survives_reopen() {
     let bound = reservation.attempts[0].ledger_commit;
     assert_eq!(bound, arm_commit);
     assert_eq!(reservation.outstanding.len(), 1);
-    assert_eq!(store.quota_send_ids(sealed).unwrap(), vec![admission.request_id]);
+    assert_eq!(
+        store.quota_send_ids(sealed).unwrap(),
+        vec![(admission.request_id, false)]
+    );
     drop(store);
 
     // Reopen: durable reservation and its bound commit survive verbatim.
@@ -147,7 +150,10 @@ fn armed_reservation_survives_reopen() {
     assert_eq!(retained.admission, armed);
     assert_eq!(retained.attempts[0].ledger_commit, bound);
     assert_eq!(retained.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
-    assert_eq!(reopened.quota_send_ids(sealed).unwrap(), vec![admission.request_id]);
+    assert_eq!(
+        reopened.quota_send_ids(sealed).unwrap(),
+        vec![(admission.request_id, false)]
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

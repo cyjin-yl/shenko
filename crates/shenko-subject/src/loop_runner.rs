@@ -573,25 +573,36 @@ async fn quota_dispatch_gate(
         })
         .collect();
     // Admission identity is one wire SEND of the immutable sealed request:
-    // the request id never changes; each conclusively rejected send mints
-    // a fresh send id so every retry holds its own budget and pacing. A
-    // cancelled or absent latest send is also minted anew (a send proven
-    // never dispatched frees nothing to reuse).
-    let send_id = if !new_send {
-        match store.quota_send_ids(request_id)?.last().copied() {
-            Some(latest) => {
-                let reusable = store
-                    .quota_pacer()?
-                    .reservation(&latest)
-                    .is_some_and(|reservation| {
+    // the request id never changes; each conclusively rejected send retries
+    // under a fresh send id with its own budget and pacing, while an
+    // unclaimed send (armed but never bound by an AwaitingModel CAS) is
+    // REUSED across gate re-entries instead of minting a duplicate budget.
+    // The AwaitingModel CAS durably claims the send in its own transaction,
+    // so the actual dispatch binding is ledger evidence.
+    let pacer = store.quota_pacer()?;
+    let sends = store.quota_send_ids(request_id)?;
+    let send_id = if new_send {
+        sends
+            .iter()
+            .rev()
+            .find(|(send_id, claimed)| {
+                !claimed
+                    && pacer.reservation(send_id).is_some_and(|reservation| {
                         reservation.admission.state != AdmissionState::Cancelled
-                    });
-                if reusable { latest } else { EntityId::new() }
+                    })
+            })
+            .map(|(send_id, _)| *send_id)
+            .unwrap_or_else(EntityId::new)
+    } else {
+        match sends.last() {
+            Some((latest, _)) => {
+                let reusable = pacer.reservation(latest).is_some_and(|reservation| {
+                    reservation.admission.state != AdmissionState::Cancelled
+                });
+                if reusable { *latest } else { EntityId::new() }
             }
             None => EntityId::new(),
         }
-    } else {
-        EntityId::new()
     };
     // Recomputations and re-eligible outcomes that make no progress are
     // bounded; a decision that still cannot settle is a reconciliation
@@ -787,10 +798,12 @@ async fn quota_dispatch_gate(
     }
 }
 
-/// The armed reservation of this request's LATEST wire send, if quota
-/// admission armed one. Sends are serial by construction, so the send most
-/// recently armed is the one this response terminates; earlier concluded
-/// sends keep their own evidence. Observation and settlement bind to THIS
+/// The armed reservation of this request's LATEST claimed wire send. A
+/// claim is the durable AwaitingModel binding: exactly the send whose CAS
+/// committed can be on the wire for this request (the subject runner is a
+/// single writer and claims are exclusive inside that CAS), so the most
+/// recent claimed send is the one this response terminates; unclaimed
+/// sends were never dispatched. Observation and settlement bind to THIS
 /// reservation's window scope — never to whichever policy is latest when
 /// the response arrives.
 fn armed_quota_reservation(
@@ -803,8 +816,10 @@ fn armed_quota_reservation(
         .ok()?
         .iter()
         .rev()
-        .find_map(|send_id| {
-            pacer.reservation(send_id).filter(|reservation| {
+        .find(|(_, claimed)| *claimed)
+        .map(|(send_id, _)| *send_id)
+        .and_then(|send_id| {
+            pacer.reservation(&send_id).filter(|reservation| {
                 reservation.dispatch == Some(shenko_quota::DispatchEvidence::ArmedOrUnknown)
             }).cloned()
         })
