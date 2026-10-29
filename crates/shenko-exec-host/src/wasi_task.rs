@@ -55,6 +55,7 @@ struct WasiExecInput {
 /// Resolution refused the tool before any arming — an explicit, recorded
 /// answer for the model. Distinct from genuine store/IO faults which are
 /// handler errors worth parking for.
+#[derive(Debug)]
 enum PrepareError {
     Refusal(String),
     Fault(anyhow::Error),
@@ -437,21 +438,13 @@ impl WasiExecHandler {
         let io_dir = std::env::temp_dir().join(format!("shenko-wasi-io-{}", EntityId::new()));
         fs::create_dir_all(&io_dir)?;
         let mounts = self.mounts.clone();
-        let frozen_for_run = FrozenInput {
-            tool: frozen.tool.clone(),
-            args: frozen.args.clone(),
-            env: frozen.env.clone(),
-            stdin_len: frozen.stdin_len,
-            stdin_digest: frozen.stdin_digest.clone(),
-            timeout_secs: frozen.timeout_secs,
-            resolved_tool: resolved_tool.clone(),
-        };
+        let timeout_secs = frozen.timeout_secs;
         let io_dir_run = io_dir.clone();
         let blocking = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(mounts, bytes, &frozen_for_run, stdin, io_dir_run)
+            Self::execute_blocking(mounts, bytes, &frozen, stdin, io_dir_run)
         });
         let outcome_result =
-            tokio::time::timeout(Duration::from_secs(frozen.timeout_secs), blocking).await;
+            tokio::time::timeout(Duration::from_secs(timeout_secs), blocking).await;
 
         // A join failure is a host-side fault we did observe; an elapsed
         // deadline is genuine UNKNOWN — the guest may still be running.
@@ -745,5 +738,133 @@ impl NativeTaskHandler for WasiExecHandler {
             }
         }
         Ok(operation)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shenko_store::store::Store;
+    use shenko_types::agent::CallContext;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("shenko-wasi-task-{tag}-{}", EntityId::new()))
+    }
+
+    fn invocation(input: serde_json::Value) -> NativeTaskInvocation {
+        let task_id = EntityId::new();
+        NativeTaskInvocation {
+            context: CallContext {
+                caller_instance_id: EntityId::new(),
+                role_revision: "native-wasi-exec/1".into(),
+                task_id: Some(task_id),
+                expected_task_revision: Some(1),
+                invocation_id: Some(EntityId::new()),
+                controller_epoch: ControllerEpoch(1),
+                software_generation: RuntimeGeneration::default(),
+                authority_refs: vec![],
+                trace_id: EntityId::new(),
+            },
+            task_invocation: shenko_store::TaskInvocation {
+                task_id,
+                task_revision: TaskRevision(1),
+                record_revision: RecordRevision(1),
+                invocation_id: EntityId::new(),
+                epoch: ControllerEpoch(1),
+                worker_id: EntityId::new(),
+                node_id: EntityId::new(),
+            },
+            task: TaskRecord {
+                record_schema_version: 1,
+                task_id,
+                task_revision: TaskRevision(1),
+                record_revision: RecordRevision(1),
+                agent_id: EntityId::new(),
+                conversation_id: EntityId::new(),
+                owner: TaskOwner::Conversation {
+                    id: EntityId::new(),
+                },
+                background: false,
+                kind: "wasi.exec".into(),
+                definition_version: 1,
+                implementation_ref: ImplementationRef {
+                    plugin_id: EntityId::new(),
+                    artifact_digest: Digest::blake3(CONTRACT),
+                    registry_revision: 1,
+                },
+                input_ref: ObjectRef {
+                    digest: Digest::blake3(b"input"),
+                    bytes: 5,
+                    media_type: "application/json".into(),
+                    store_namespace: "test".into(),
+                    locator: "fixture".into(),
+                    codec: SchemaRef {
+                        name: "fixture".into(),
+                        major: 1,
+                        digest: Digest::blake3(b"codec"),
+                    },
+                },
+                state: TaskState::Pending {
+                    checkpoint_ref: None,
+                },
+                abort_request: None,
+                memos: serde_json::Map::new(),
+                residual_case_ids: vec![],
+                created_by_step_id: None,
+                dispatch_eligibility: DispatchEligibility::Ready,
+                no_progress_crashes: 0,
+                first_run_at: None,
+                terminal_at: None,
+                created_commit: CommitRef::new(EntityId::new(), LedgerSeq::ZERO),
+                updated_commit: CommitRef::new(EntityId::new(), LedgerSeq::ZERO),
+            },
+            operation_id: EntityId::new(),
+            authority: AuthorityRef {
+                delegation_id: task_id,
+                delegation_revision: RecordRevision(1),
+                decision_ref: EntityId::new(),
+            },
+            input,
+        }
+    }
+
+    /// Resolution failures are classified as explicit TOOL_* refusals (the
+    /// model's real answer), while malformed inputs are faults: a declared
+    /// named target with no artifact reports TOOL_UNSUPPORTED; oversized argv
+    /// and undecodable stdin fail validation before any execution.
+    #[test]
+    fn prepare_classifies_tool_refusal_versus_input_faults() -> Result<()> {
+        let dir = temp_dir("prepare");
+        fs::create_dir_all(&dir)?;
+        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas"))?);
+        let handler = WasiExecHandler::new(store, vec![], dir.join("tools"));
+
+        match handler.prepare(&invocation(serde_json::json!({"tool": "toybox"}))) {
+            Err(PrepareError::Refusal(detail)) => {
+                assert!(detail.contains("TOOL_UNSUPPORTED:toybox"), "{detail}")
+            }
+            other => panic!("expected TOOL_UNSUPPORTED refusal, got {other:?}"),
+        }
+        match handler.prepare(&invocation(serde_json::json!({"tool": "nonesuch"}))) {
+            Err(PrepareError::Refusal(detail)) => {
+                assert!(detail.contains("TOOL_UNAVAILABLE"), "{detail}")
+            }
+            other => panic!("expected TOOL_UNAVAILABLE refusal, got {other:?}"),
+        }
+        let oversized = "x".repeat(MAX_ARG_BYTES + 1);
+        match handler.prepare(&invocation(serde_json::json!({
+            "tool": "fixture", "args": [oversized]
+        }))) {
+            Err(PrepareError::Fault(_)) => {}
+            other => panic!("expected bounds fault, got {other:?}"),
+        }
+        match handler.prepare(&invocation(serde_json::json!({
+            "tool": "fixture", "stdin_b64": "!!!"
+        }))) {
+            Err(PrepareError::Fault(_)) => {}
+            other => panic!("expected base64 fault, got {other:?}"),
+        }
+        fs::remove_dir_all(&dir).ok();
+        Ok(())
     }
 }
