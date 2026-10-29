@@ -10,6 +10,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 use shenko_wasm::{HOME_GUEST_PATH, InputFile, MountMode, MountSpec, OutputFile, WasiCommand, WasmRuntime};
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -68,15 +69,23 @@ impl ReplProvider for WasiReplProvider {
 
     fn create(&self, request: CreateSession) -> Result<WasiReplSession> {
         kernel::validate_profile(&request.kernel)?;
+        let expected_root = prospective_path(&self.sessions_root)?;
+        let session_id = EntityId::new();
+        let dir = expected_root.join(session_id.to_string());
+        // Admit the complete namespace and effective state owner before even
+        // creating the sessions root. An external owner is capability-opened
+        // now; only the not-yet-existing private roots defer their open.
+        let preopens = session_preopens(&dir, &request.kernel)?;
+        let prepared_state = prepare_state(&preopens, &request.kernel.persistence)?;
         let ModuleSource::ModulePath(module_path) = &request.kernel.module;
         let module_bytes = fs::read(module_path).with_context(||
             format!("REPL_KERNEL_UNAVAILABLE: cannot read interpreter module {}", module_path.display()))?;
         let module_blake3 = jrn::hash_bytes(&module_bytes);
         let environment_generation = kernel::environment_generation(&request.kernel);
         let root = self.canonical_root()?;
-        let session_id = EntityId::new();
-        let dir = root.join(session_id.to_string());
-        validate_extra_mounts(&dir, &request.kernel)?;
+        if root != expected_root {
+            bail!("REPL_MOUNT_CONFLICT: sessions root changed after admission");
+        }
         fs::create_dir(&dir).context("create session directory")?;
         for sub in [jrn::GUEST_HOME_DIR, jrn::GUEST_WORK_DIR, jrn::CELLS_DIR, jrn::REPLAYS_DIR] {
             fs::create_dir(dir.join(sub))?;
@@ -85,8 +94,8 @@ impl ReplProvider for WasiReplProvider {
         File::open(&dir)?.sync_all()?;
         File::open(&root)?.sync_all()?;
         let dir = dir.canonicalize()?;
-        let state = open_state(&dir, &request.kernel)?;
-        let baseline = match &state { Some(state) => state.snapshot(&dir)?, None => None };
+        let state = prepared_state.map(|state| state.bind(&preopens)).transpose()?;
+        let baseline = match &state { Some(state) => state.file.snapshot(&dir)?, None => None };
         let mut limits = request.limits;
         limits.enforced = false;
         let manifest = SessionManifest {
@@ -95,7 +104,7 @@ impl ReplProvider for WasiReplProvider {
             recovery_level: RecoveryLevel::R0WorkRecord, forked_from: None, baseline,
             created_unix_ms: unix_ms(), disposed_unix_ms: None,
         };
-        let runtime = build_runtime(&dir, &manifest.kernel)?;
+        let runtime = build_runtime(preopens)?;
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
         Ok(WasiReplSession { dir, manifest, runtime, state, journal, busy: None,
@@ -119,7 +128,6 @@ fn validate_manifest(dir: &Path, manifest: &SessionManifest) -> Result<()> {
         || (manifest.baseline.is_some() && matches!(&manifest.kernel.persistence, StatePersistence::None))
     { bail!("REPL_SESSION_INVALID: manifest identity, schema, binding or limits mismatch"); }
     kernel::validate_profile(&manifest.kernel)?;
-    validate_extra_mounts(dir, &manifest.kernel)?;
     Ok(())
 }
 
@@ -160,9 +168,11 @@ pub fn open_session(dir: &Path, preview_bytes: usize) -> Result<WasiReplSession>
     let dir = dir.canonicalize().with_context(|| format!("REPL_SESSION_INVALID: {}", dir.display()))?;
     let manifest = read_manifest(&dir)?;
     validate_manifest(&dir, &manifest)?;
+    let preopens = session_preopens(&dir, &manifest.kernel)?;
+    let prepared_state = prepare_state(&preopens, &manifest.kernel.persistence)?;
     let journal = load_journal(&dir, &manifest)?;
-    let runtime = build_runtime(&dir, &manifest.kernel)?;
-    let state = open_state(&dir, &manifest.kernel)?;
+    let state = prepared_state.map(|state| state.bind(&preopens)).transpose()?;
+    let runtime = build_runtime(preopens)?;
     if journal.last_reset.is_some() && state.is_none() {
         bail!("REPL_JOURNAL_CORRUPT: reset boundary without declared state");
     }
@@ -179,8 +189,12 @@ pub fn open_session(dir: &Path, preview_bytes: usize) -> Result<WasiReplSession>
 /// Extra preopens must neither contain nor be contained by private storage.
 /// Sources must already be canonical, just as in the underlying WASI runtime.
 fn validate_extra_mounts(dir: &Path, kernel: &KernelProfile) -> Result<()> {
+    let mut guest_paths = HashSet::from([HOME_GUEST_PATH]);
     for mount in &kernel.extra_mounts {
         mount.validate()?;
+        if !guest_paths.insert(mount.guest_path.as_str()) {
+            bail!("REPL_MOUNT_CONFLICT: duplicate guest preopen {}", mount.guest_path);
+        }
         let source = mount.source.canonicalize().context("canonicalize extra preopen")?;
         if source != mount.source || source.starts_with(dir) || dir.starts_with(&source) {
             bail!("REPL_MOUNT_CONFLICT: extra preopen {} overlaps private session storage {}",
@@ -190,36 +204,85 @@ fn validate_extra_mounts(dir: &Path, kernel: &KernelProfile) -> Result<()> {
     Ok(())
 }
 
-fn build_runtime(dir: &Path, kernel: &KernelProfile) -> Result<WasmRuntime> {
+/// The actual preopen list, shared by runtime construction and state admission.
+/// `private` means the host source belongs to this session and can be forked.
+struct SessionPreopen {
+    spec: MountSpec,
+    private: bool,
+}
+
+fn session_preopens(dir: &Path, kernel: &KernelProfile) -> Result<Vec<SessionPreopen>> {
     validate_extra_mounts(dir, kernel)?;
-    let mut mounts = vec![MountSpec::new(dir.join(jrn::GUEST_HOME_DIR), HOME_GUEST_PATH,
-        MountMode::ReadWrite, true, false)];
+    let mut preopens = vec![SessionPreopen {
+        spec: MountSpec::new(dir.join(jrn::GUEST_HOME_DIR), HOME_GUEST_PATH,
+            MountMode::ReadWrite, true, false),
+        private: true,
+    }];
     if kernel.workdir_guest != HOME_GUEST_PATH
         && !kernel.extra_mounts.iter().any(|m| m.guest_path == kernel.workdir_guest) {
-        mounts.push(MountSpec::new(dir.join(jrn::GUEST_WORK_DIR), kernel.workdir_guest.clone(),
-            MountMode::ReadWrite, true, false));
+        preopens.push(SessionPreopen {
+            spec: MountSpec::new(dir.join(jrn::GUEST_WORK_DIR), kernel.workdir_guest.clone(),
+                MountMode::ReadWrite, true, false),
+            private: true,
+        });
     }
-    mounts.extend(kernel.extra_mounts.iter().cloned());
+    preopens.extend(kernel.extra_mounts.iter().cloned()
+        .map(|spec| SessionPreopen { spec, private: false }));
+    Ok(preopens)
+}
+
+fn build_runtime(preopens: Vec<SessionPreopen>) -> Result<WasmRuntime> {
+    let mounts = preopens.into_iter().map(|preopen| preopen.spec).collect();
     WasmRuntime::with_mounts(mounts)
 }
 
-fn open_state(dir: &Path, profile: &KernelProfile) -> Result<Option<StateFile>> {
-    let StatePersistence::GuestFile { guest_path } = &profile.persistence else { return Ok(None); };
-    let relative = kernel::state_relative_path(&profile.workdir_guest, guest_path)?;
-    let root = if profile.workdir_guest == HOME_GUEST_PATH {
-        dir.join(jrn::GUEST_HOME_DIR)
-    } else if let Some(mount) = profile.extra_mounts.iter().find(|m| m.guest_path == profile.workdir_guest) {
-        if mount.mode != MountMode::ReadWrite {
-            bail!("REPL_KERNEL_INVALID: declared state requires a writable preopen");
-        }
-        mount.source.clone()
-    } else {
-        dir.join(jrn::GUEST_WORK_DIR)
-    };
-    Ok(Some(StateFile::new(&root, relative)?))
+struct StateBinding {
+    file: StateFile,
+    private: bool,
 }
 
-/// Resolve the existing ancestor before creating a prospective fork root.
+/// External state roots already exist and are capability-opened during
+/// admission. Private roots are created only after that admission succeeds.
+enum PreparedState {
+    Private { preopen: usize, relative: PathBuf },
+    External(StateFile),
+}
+
+impl PreparedState {
+    fn bind(self, preopens: &[SessionPreopen]) -> Result<StateBinding> {
+        match self {
+            Self::Private { preopen, relative } => Ok(StateBinding {
+                file: StateFile::new(&preopens[preopen].spec.source, relative)?,
+                private: true,
+            }),
+            Self::External(file) => Ok(StateBinding { file, private: false }),
+        }
+    }
+}
+
+/// Select the most specific component-prefix owner in the SAME list later
+/// consumed by build_runtime. A nested extra preopen shadows its covering
+/// root; a lexical workdir prefix does not determine actual state ownership.
+fn prepare_state(preopens: &[SessionPreopen], persistence: &StatePersistence)
+    -> Result<Option<PreparedState>>
+{
+    let StatePersistence::GuestFile { guest_path } = persistence else { return Ok(None); };
+    let (index, owner) = preopens.iter().enumerate()
+        .filter(|(_, preopen)| Path::new(guest_path.as_str()).starts_with(&preopen.spec.guest_path))
+        .max_by_key(|(_, preopen)| preopen.spec.guest_path.len())
+        .context("REPL_KERNEL_INVALID: declared state is not covered by any preopen")?;
+    let relative = kernel::state_relative_path(&owner.spec.guest_path, guest_path)?;
+    if owner.spec.mode != MountMode::ReadWrite {
+        bail!("REPL_KERNEL_INVALID: declared state requires a writable owning preopen");
+    }
+    if owner.private {
+        Ok(Some(PreparedState::Private { preopen: index, relative }))
+    } else {
+        Ok(Some(PreparedState::External(StateFile::new(&owner.spec.source, relative)?)))
+    }
+}
+
+/// Resolve the existing ancestor before creating a session or fork root.
 fn prospective_path(path: &Path) -> Result<PathBuf> {
     let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
     if absolute.components().any(|c| matches!(c, Component::ParentDir)) {
@@ -267,7 +330,7 @@ pub struct WasiReplSession {
     dir: PathBuf,
     manifest: SessionManifest,
     runtime: WasmRuntime,
-    state: Option<StateFile>,
+    state: Option<StateBinding>,
     journal: jrn::Journal,
     busy: Option<EntityId>,
     /// An immediate execution fence; disposal may still need persistence retry.
@@ -285,7 +348,7 @@ impl WasiReplSession {
     }
 
     fn finish_reset(&mut self) -> Result<()> {
-        self.state.as_ref().context("REPL_SESSION_INVALID: reset without state file")?.clear()?;
+        self.state.as_ref().context("REPL_SESSION_INVALID: reset without state file")?.file.clear()?;
         jrn::complete_reset(&mut self.journal)
     }
 
@@ -423,7 +486,7 @@ impl ReplSession for WasiReplSession {
         self.ensure_ready()?;
         let mut state_files = std::collections::BTreeMap::new();
         if let (Some(state), StatePersistence::GuestFile { guest_path }) = (&self.state, &self.manifest.kernel.persistence) {
-            if let Some(digest) = state.digest()? { state_files.insert(guest_path.clone(), digest); }
+            if let Some(digest) = state.file.digest()? { state_files.insert(guest_path.clone(), digest); }
         }
         Ok(ReplCheckpoint { checkpoint: EntityId::new(), session_id: self.manifest.session_id,
             level: RecoveryLevel::R0WorkRecord, journal_blake3: jrn::hash_file(&self.dir.join(jrn::JOURNAL_FILE))?,
@@ -439,7 +502,7 @@ impl ReplSession for WasiReplSession {
         let attempt = jrn::begin_restore(&mut self.journal)?;
         if let Some(state) = &self.state {
             let baseline = if last_reset.is_some() { None } else { self.manifest.baseline.as_ref() };
-            state.restore(&self.dir, baseline)?;
+            state.file.restore(&self.dir, baseline)?;
         }
         let mut entries = Vec::new();
         for record in &cells {
@@ -470,17 +533,19 @@ impl ReplSession for WasiReplSession {
 
     fn fork(&self, sessions_root: &Path) -> Result<Box<dyn ReplSession>> {
         self.ensure_ready()?;
-        if self.state.is_some() && self.manifest.kernel.extra_mounts.iter()
-            .any(|m| m.guest_path == self.manifest.kernel.workdir_guest) {
+        if self.state.as_ref().is_some_and(|state| !state.private) {
             bail!("REPL_FORK_UNSUPPORTED: external state preopen cannot be isolated");
         }
         let root = prospective_path(sessions_root)?;
         let new_id = EntityId::new();
         let dir = root.join(new_id.to_string());
         validate_fork_destination(&self.dir, &dir)?;
-        validate_extra_mounts(&dir, &self.manifest.kernel)?;
+        let preopens = session_preopens(&dir, &self.manifest.kernel)?;
+        let prepared_state = prepare_state(&preopens, &self.manifest.kernel.persistence)?;
         fs::create_dir_all(&root)?;
-        let root = root.canonicalize()?;
+        if root.canonicalize()? != root {
+            bail!("REPL_MOUNT_CONFLICT: fork root changed after admission");
+        }
         sync_directory_ancestors(&root)?;
         let dir = root.join(new_id.to_string());
         validate_fork_destination(&self.dir, &dir)?;
@@ -494,11 +559,11 @@ impl ReplSession for WasiReplSession {
         File::open(&dir)?.sync_all()?;
         File::open(&root)?.sync_all()?;
         let dir = dir.canonicalize()?;
-        let state = open_state(&dir, &self.manifest.kernel)?;
-        let baseline = match &state { Some(state) => state.snapshot(&dir)?, None => None };
+        let state = prepared_state.map(|state| state.bind(&preopens)).transpose()?;
+        let baseline = match &state { Some(state) => state.file.snapshot(&dir)?, None => None };
         let manifest = SessionManifest { forked_from: Some(self.manifest.session_id), session_id: new_id,
             baseline, created_unix_ms: unix_ms(), disposed_unix_ms: None, ..self.manifest.clone() };
-        let runtime = build_runtime(&dir, &manifest.kernel)?;
+        let runtime = build_runtime(preopens)?;
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
         Ok(Box::new(WasiReplSession { dir, manifest, runtime, state, journal, busy: None,

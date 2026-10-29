@@ -23,6 +23,12 @@ pub struct StateFile {
     relative: PathBuf,
 }
 
+fn sync_directory(dir: &Dir) -> Result<()> {
+    // cap-std directory capabilities may use O_PATH, which cannot be fsynced.
+    // Open "." read-only relative to the pinned capability, not an ambient path.
+    dir.open(".")?.sync_all().context("sync state directory")
+}
+
 impl StateFile {
     pub fn new(root: &Path, relative: PathBuf) -> Result<Self> {
         Ok(Self {
@@ -51,7 +57,7 @@ impl StateFile {
 
     fn sync_ancestors(&self) -> Result<()> {
         let mut current = self.root.open_dir(".")?;
-        current.open_dir(".")?.into_std_file().sync_all()?;
+        sync_directory(&current)?;
         for component in self.relative.parent().unwrap_or(Path::new("")).components() {
             let std::path::Component::Normal(name) = component else {
                 bail!("REPL_STATE_INVALID: non-normal state path");
@@ -61,7 +67,7 @@ impl StateFile {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
                 Err(error) => return Err(error).context("open confined state ancestor"),
             };
-            current.open_dir(".")?.into_std_file().sync_all()?;
+            sync_directory(&current)?;
         }
         Ok(())
     }
@@ -102,7 +108,7 @@ impl StateFile {
     pub fn clear(&self) -> Result<()> {
         if let Some(parent) = self.parent(false)? {
             match parent.remove_file(self.name()) {
-                Ok(()) => parent.into_std_file().sync_all().context("sync state directory")?,
+                Ok(()) => sync_directory(&parent)?,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
                 Err(error) => return Err(error).context("remove confined state file"),
             }
@@ -131,7 +137,7 @@ impl StateFile {
             }
             target.sync_all()?;
             parent.rename(&tmp, &parent, self.name())?;
-            parent.into_std_file().sync_all()?;
+            sync_directory(&parent)?;
             self.sync_ancestors()?;
             Ok(())
         })();

@@ -20,9 +20,9 @@ pub enum ModuleSource {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StatePersistence {
-    /// The kernel keeps interpreter state inside a guest file under its work
-    /// directory (e.g. an interpreter started with a state-file flag). The
-    /// named path is guest-visible; reset removes it and nothing else.
+    /// The kernel keeps interpreter state inside a guest file under a writable
+    /// preopen (e.g. an interpreter started with a state-file flag). Its most
+    /// specific covering preopen owns the path; reset removes that file only.
     GuestFile { guest_path: String },
     /// The kernel keeps no state between cells at all.
     None,
@@ -57,7 +57,8 @@ pub struct KernelProfile {
     /// Exact environment for every cell; the guest inherits nothing.
     pub env: Vec<(String, String)>,
     /// Guest path the kernel treats as its working directory. Must equal the
-    /// `/home` preopen or a declared extra mount's guest path.
+    /// `/home` preopen, a declared extra mount's guest path, or the private
+    /// workdir preopen created by this session.
     pub workdir_guest: String,
     /// How this kernel keeps interpreter state across cells, if at all.
     pub persistence: StatePersistence,
@@ -183,12 +184,15 @@ pub fn validate_profile(profile: &KernelProfile) -> anyhow::Result<()> {
     }
     validate_guest_path(&profile.workdir_guest)?;
     if let StatePersistence::GuestFile { guest_path } = &profile.persistence {
-        state_relative_path(&profile.workdir_guest, guest_path)?;
+        // The shared session preopen list admits ownership before creation;
+        // do not assume that the workdir also owns every state path below it.
+        validate_guest_path(guest_path)?;
     }
     for mount in &profile.extra_mounts {
         if mount.mode == MountMode::CopyOnWrite {
             bail!("REPL_KERNEL_INVALID: COW mounts are unimplemented upstream");
         }
+        validate_guest_path(&mount.guest_path)?;
     }
     Ok(())
 }
@@ -203,14 +207,14 @@ fn validate_guest_path(path: &str) -> anyhow::Result<()> {
 }
 
 /// Component-aware admission: `/home2` is not below `/home`.
-pub(crate) fn state_relative_path(workdir: &str, guest_path: &str) -> anyhow::Result<PathBuf> {
+pub(crate) fn state_relative_path(owner_guest: &str, guest_path: &str) -> anyhow::Result<PathBuf> {
     validate_guest_path(guest_path)?;
-    let relative = Path::new(guest_path).strip_prefix(workdir)
-        .map_err(|_| anyhow::anyhow!("REPL_KERNEL_INVALID: state path escapes workdir"))?;
+    let relative = Path::new(guest_path).strip_prefix(owner_guest)
+        .map_err(|_| anyhow::anyhow!("REPL_KERNEL_INVALID: state path escapes owning preopen"))?;
     if relative.as_os_str().is_empty()
         || relative.components().any(|part| !matches!(part, Component::Normal(_)))
     {
-        anyhow::bail!("REPL_KERNEL_INVALID: state path must name a file below workdir");
+        anyhow::bail!("REPL_KERNEL_INVALID: state path must name a file below its owning preopen");
     }
     Ok(relative.to_path_buf())
 }
