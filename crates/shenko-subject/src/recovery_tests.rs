@@ -1,10 +1,18 @@
 //! 本地 SQLite/CAS 恢复验证，不代表真实 provider 或部署验收。
 use super::{SubjectLoopState, execute_step};
 use crate::inbox::Inbox;
+use shenko_kernel::hooks::{
+    HOOK_SCHEMA_VERSION, HookEntry, HookFailurePolicy, HookHandler, HookPayload, HookPhase,
+    HookPointContract, HookRegistry, HookResult, HookSpec, STANDARD_HOOK_POINT_MAJOR,
+};
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
 use shenko_types::{commit::CommitRef, ids::*, subject::*};
+use shenko_types::{operation::OperationRecord, task::*};
 use std::{path::PathBuf, sync::Arc};
+
+#[path = "model_child_tests.rs"]
+mod model_child_tests;
 
 fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
     let dir = std::env::temp_dir().join(format!("shenko-recovery-{}", EntityId::new()));
@@ -175,7 +183,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
+        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
         "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
@@ -192,7 +200,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap().object);
+        "subject_step_input", 11).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -263,8 +271,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
         let (result_tx, _) = tokio::sync::oneshot::channel();
         provider.complete(&InferenceRequest {
             request_id: EntityId::new(), agent_id: EntityId::new(), conversation_id: EntityId::new(),
-            provider_binding: ProviderBinding::Anthropic { base_url, model: "fixture".into(),
-                api_version: "2026-10-21".into(), serializer_revision: 3, default_max_tokens: 8192 },
+            provider_binding: provider.binding(),
             priority: InferencePriority::Subject, epoch: ControllerEpoch(7), payload, result_tx,
         }).await.unwrap();
         server.await.unwrap()
@@ -310,7 +317,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 10, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 11, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
@@ -319,7 +326,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap());
+        "subject_step_input", 11).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -1204,7 +1211,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 6,
+        schema_version: 7,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1248,7 +1255,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                7,
             )
             .unwrap()
             .object,
@@ -1277,7 +1284,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                7,
             )
             .unwrap()
             .object,
@@ -1690,7 +1697,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     cancel.cancel();
     execute_step(2, &[], &mut subject, &cancel).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
-    assert_eq!(frozen.schema_version, 10);
+    assert_eq!(frozen.schema_version, 11);
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
     assert_eq!(sealed_wait.deadline_at, original_deadline);
@@ -1804,4 +1811,1040 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     assert_eq!(subject.head.committed_step_no, 8);
     assert_eq!(subject.step.step_no, 9);
     // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/B03: a finite child whose handler waits is driven by a bounded managed
+/// execution, not by the dispatcher pass. One short child must still project
+/// its T2/result while a sibling holds an execution. The fixture seals real
+/// T1/E1 records; nothing fakes a terminal outcome.
+struct GatedHandler {
+    store: Arc<Store>,
+    started: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+    /// When set, `reconcile` signals `started` and parks on `release` before
+    /// answering — a slow original-provider query, not a handler failure.
+    hold_reconcile: bool,
+}
+
+impl GatedHandler {
+    fn seal(&self, value: &serde_json::Value, schema: &str) -> shenko_types::object::ObjectRef {
+        self.store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(value).unwrap(),
+                "application/json",
+                "gated-fixture",
+                schema,
+                1,
+            )
+            .unwrap()
+            .object
+    }
+
+    fn fixed_operation(&self, invocation: &crate::NativeTaskInvocation) -> (
+        shenko_types::operation::OperationRecord,
+        shenko_types::operation::AttemptRecord,
+    ) {
+        use shenko_types::{commit::CommitRef, ids::LedgerSeq, object::*, operation::*};
+        let input_ref = self.seal(&serde_json::json!({"input":invocation.input}), "frozen-input");
+        let bindings = ResourceBindings {
+            provider: "fixture.gated.v1".into(),
+            account_identity: String::new(),
+            runtime_node: invocation.task_invocation.node_id.to_string(),
+            mount_generation: 0,
+            capability_level: "no_declared_external_effects".into(),
+            extra: serde_json::json!({"fixture":true}),
+        };
+        let resource = self.seal(&serde_json::to_value(bindings).unwrap(), "bindings");
+        let acceptance = self.seal(&serde_json::json!("fixture resolves"), "acceptance");
+        let retry = self.seal(&serde_json::json!("no automatic replay"), "retry");
+        let version = VersionRef {
+            artifact: ArtifactRef {
+                digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                locator: "builtin:fixture-gated-v1".into(),
+            },
+            symbol: "fixture.gated.execute".into(),
+            schema: SchemaRef {
+                name: "gated-observation-v1".into(),
+                major: 1,
+                digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+            },
+        };
+        let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
+        let operation = OperationRecord {
+            record_schema_version: 1,
+            operation_id: invocation.operation_id,
+            record_revision: RecordRevision(0),
+            task_id: invocation.task_invocation.task_id,
+            logical_key: "native-handler".into(),
+            operation_name: "fixture.gated.v1".into(),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            final_input_ref: input_ref.clone(),
+            input_digest: input_ref.digest.clone(),
+            contract_ref: OperationContractRef {
+                plugin_id: Self::plugin_id(),
+                artifact_digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                contract_digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                receipt_reader_ref: version.clone(),
+            },
+            resource_bindings_ref: resource,
+            authority_ref: invocation.authority.clone(),
+            acceptance_predicate_ref: acceptance,
+            retry_contract_ref: retry,
+            checkpoint_scope_ref: None,
+            state: OperationState::InFlight,
+            outcome: None,
+            outcome_conflict: false,
+            effect_status: EffectStatus::Unknown,
+            retry_of: None,
+            compensates: None,
+            possible_duplicate_of: vec![],
+            prepared_commit: zero,
+            evidence_through: None,
+        };
+        let attempt = AttemptRecord {
+            record_schema_version: 1,
+            attempt_id: EntityId::new(),
+            operation_id: invocation.operation_id,
+            attempt_no: 1,
+            invocation_id: invocation.task_invocation.invocation_id,
+            worker_id: invocation.task_invocation.worker_id,
+            node_id: invocation.task_invocation.node_id,
+            epoch: invocation.task_invocation.epoch,
+            implementation_ref: version,
+            dispatch_stage: AttemptDispatchStage::Armed,
+            armed_commit: zero,
+            provider_handle: None,
+            provider_idempotency: None,
+            transport_ref: None,
+            started_at: None,
+            last_observed_at: None,
+            final_receipt_id: None,
+        };
+        (operation, attempt)
+    }
+}
+
+impl GatedHandler {
+    fn plugin_id() -> EntityId {
+        "0b8f2f2e-5b6b-4d5c-9a1e-1f2a3b4c5d6e".parse().expect("fixture plugin UUID")
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::NativeTaskHandler for GatedHandler {
+    fn descriptor(&self) -> crate::NativeTaskDescriptor {
+        crate::NativeTaskDescriptor {
+            kind: "fixture.gated".into(),
+            definition_version: 1,
+            implementation_ref: shenko_types::task::ImplementationRef {
+                plugin_id: Self::plugin_id(),
+                artifact_digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                registry_revision: 0,
+            },
+            role_revision: "native-child/1".into(),
+            authority_refs: vec!["fixture.gated.no_effects/v1".into()],
+            prompt_section: None,
+        }
+    }
+
+    async fn execute(&self, invocation: crate::NativeTaskInvocation) -> anyhow::Result<OperationRecord> {
+        use shenko_types::{evidence::*, operation::*};
+        let hold = invocation
+            .input
+            .get("hold")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let (mut operation, mut attempt) = self.fixed_operation(&invocation);
+        if let Some(existing) = self
+            .store
+            .arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
+        {
+            return Ok(existing);
+        }
+        // `unresolved` children arm their operation but never produce
+        // conclusive evidence: each managed execution ends parked reconciling
+        // and the next reconcile observes the same in-flight record. This is
+        // the shipped HostPrintfHandler behaviour for already-Reconciling
+        // operations, not a synthetic failure.
+        if invocation
+            .input
+            .get("unresolved")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Ok(operation);
+        }
+        if hold {
+            self.started.notify_one();
+            self.release.notified().await;
+        }
+        let raw = self.seal(
+            &serde_json::json!({"operation_id":invocation.operation_id,"resolved":!hold}),
+            "gated-observation",
+        );
+        let normalized = self.seal(
+            &serde_json::json!({"outcome":"ok"}),
+            "gated-result",
+        );
+        let evidence = EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: EntityId::new(),
+            operation_id: Some(invocation.operation_id),
+            attempt_id: Some(attempt.attempt_id),
+            source_id: "fixture.gated.v1".into(),
+            source_instance_id: invocation.task_invocation.node_id.to_string(),
+            source_event_key: None,
+            producer_epoch: Some(invocation.task_invocation.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw,
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: DecodeStatus::Decoded,
+            observation_level: Some(ObservationLevel::PostconditionVerified),
+            normalized_ref: Some(normalized),
+            observed_at: Some(chrono::Utc::now()),
+            received_commit: operation.prepared_commit,
+        };
+        self.store.record_external_evidence(
+            invocation.operation_id,
+            attempt.attempt_id,
+            evidence,
+            Some(OperationOutcome::Succeeded),
+            EffectStatus::None,
+        )
+    }
+
+    async fn reconcile(
+        &self,
+        task: &TaskRecord,
+        operation_id: EntityId,
+    ) -> anyhow::Result<OperationRecord> {
+        if self.hold_reconcile {
+            self.started.notify_one();
+            self.release.notified().await;
+        }
+        let operation = self.store.external_operation(operation_id)?;
+        anyhow::ensure!(
+            operation.task_id == task.task_id && operation.operation_name == "fixture.gated.v1",
+            "original_operation_contract_mismatch"
+        );
+        Ok(operation)
+    }
+}
+
+#[tokio::test]
+async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\n[delegate:fixture.gated:1] {\"hold\":false}\n已分别委派两个有限 child。",
+    )
+    .await;
+    // Identify the two committed children by their frozen definition input;
+    // task identity comes from the decision, not from creation order.
+    let mut holds = Vec::new();
+    let mut frees = Vec::new();
+    for (_, task) in store.native_task_candidates_after(None, 8).unwrap() {
+        let bytes = store.cas.read_object(&task.input_ref.digest).unwrap();
+        let decision: StepDecision = serde_json::from_slice(&bytes).unwrap();
+        let intent = decision
+            .delegated_task_intents
+            .iter()
+            .find(|intent| intent.intent_id == task.task_id)
+            .unwrap();
+        let hold = intent
+            .definition
+            .as_ref()
+            .and_then(|d| d.input.get("hold"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if hold {
+            holds.push(task.task_id);
+        } else {
+            frees.push(task.task_id);
+        }
+    }
+    assert_eq!(holds.len(), 1);
+    assert_eq!(frees.len(), 1);
+    let slow = holds[0];
+    let fast = frees[0];
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: started.clone(),
+            release: release.clone(),
+            hold_reconcile: false,
+        }))
+        .unwrap();
+
+    // One pass claims both durable candidates synchronously. The gated child
+    // is Running and its handler is still parked on `release` while the pass
+    // has long since returned.
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("slow handler did not start");
+    service.run_once().await.unwrap();
+    assert!(store.external_task(slow).unwrap().is_running());
+    assert!(store.native_task_result(slow).unwrap().is_none());
+
+    // The finished short child projects its T2/result and durable ready inbox
+    // entry while the long child is still executing. Before managed
+    // executions the second pass could not even run until the slow handler
+    // returned.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.native_task_result(fast).unwrap().is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("short child result was not projected while a sibling ran");
+    let fast_result = store.native_task_result(fast).unwrap().unwrap();
+    assert!(matches!(fast_result.outcome, TaskOutcome::Succeeded));
+    assert!(store.external_task(fast).unwrap().is_terminal());
+    assert!(store.external_task(slow).unwrap().is_running());
+    assert!(store
+        .ready_native_results(agent, 8)
+        .unwrap()
+        .iter()
+        .any(|result| result.result_id == fast_result.result_id));
+
+    // Releasing the gate lets the original claim finish; recovery bookkeeping
+    // keeps exactly one durable result per task.
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.native_task_result(slow).unwrap().is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("slow child did not settle after release");
+    assert!(matches!(
+        store.native_task_result(slow).unwrap().unwrap().outcome,
+        TaskOutcome::Succeeded
+    ));
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 fairness: a wave of earlier children that keep finishing
+/// unresolved must not recapture every worker slot. Without least-recent-
+/// admission ordering the eight reconciling tasks are re-claimed before the
+/// later ready child on every pass, leaving it Pending forever. The ready
+/// child is committed in a later durable decision so it deterministically
+/// trails the wave in (created_at, task_id) scan order.
+#[tokio::test]
+async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let wave = (0..8)
+        .map(|n| format!("[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":{n}}}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    commit_output(&store, &mut subject, 1, &[], &format!("{wave}\n八个 child 持续对账中。"))
+        .await;
+    // Task rows carry second-resolution created_at; a later durable decision
+    // is what makes the ready child trail the wave in scan order.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":false}\n再委派一个立即可完成的 child。",
+    )
+    .await;
+
+    let mut wave_ids = Vec::new();
+    let mut ready = None;
+    for (_, task) in store.native_task_candidates_after(None, 16).unwrap() {
+        let Ok(bytes) = store.cas.read_object(&task.input_ref.digest) else {
+            continue;
+        };
+        let Ok(decision) = serde_json::from_slice::<StepDecision>(&bytes) else {
+            continue;
+        };
+        let Some(intent) = decision
+            .delegated_task_intents
+            .iter()
+            .find(|intent| intent.intent_id == task.task_id)
+        else {
+            continue;
+        };
+        let unresolved = intent
+            .definition
+            .as_ref()
+            .and_then(|d| d.input.get("unresolved"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if unresolved {
+            wave_ids.push(task.task_id);
+        } else {
+            ready = Some(task.task_id);
+        }
+    }
+    assert_eq!(wave_ids.len(), 8);
+    let ready = ready.expect("one ready child committed");
+
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+            hold_reconcile: false,
+        }))
+        .unwrap();
+
+    // First pass: the eight wave children claim every worker slot and each
+    // lands a retryable reconciling park; the ready child does not fit.
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while wave_ids
+            .iter()
+            .filter(|id| {
+                let task = store.external_task(**id).unwrap();
+                shenko_store::child::park_reason(&task) == Some("reconciling")
+                    && !task.is_running()
+            })
+            .count()
+            < 8
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("wave children did not all reach reconciling");
+    assert!(!store.external_task(ready).unwrap().is_running());
+
+    // Let every retry deadline expire so the wave is re-admissible, then take
+    // the next pass. Fair ordering puts the never-admitted ready child ahead
+    // of the wave instead of letting the same eight recapture all slots.
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    service.run_once().await.unwrap();
+    let ready_task = store.external_task(ready).unwrap();
+    assert!(
+        ready_task.is_running() || ready_task.is_terminal(),
+        "ready child must be claimed ahead of the re-parked wave, got {:?}",
+        ready_task.state
+    );
+
+    // The wave itself keeps making progress: each task is re-admitted only
+    // behind fresher work and stays durably parked reconciling, never starved
+    // and never replayed.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while wave_ids
+            .iter()
+            .filter(|id| {
+                let task = store.external_task(**id).unwrap();
+                shenko_store::child::park_reason(&task) == Some("reconciling")
+                    && !task.is_running()
+            })
+            .count()
+            < 8
+        {
+            service.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("wave children must remain durably reconciling, not lost");
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.native_task_result(ready).unwrap().is_none() {
+            service.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("ready child must settle to a durable result");
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 teardown: managed executions belong to the Cordis lifetime, not
+/// to any retained `Arc<NativeChildService>`. Stopping the supervisor while a
+/// worker is gated must abort/join it before `stop()` returns; releasing the
+/// gate afterwards must not let the worker commit a late T2, and admission
+/// stays closed even through the retained handle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\n委派一个会被门控的 child。",
+    )
+    .await;
+    let gated = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .find(|(_, task)| {
+            store
+                .cas
+                .read_object(&task.input_ref.digest)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<StepDecision>(&bytes).ok())
+                .and_then(|decision| {
+                    decision
+                        .delegated_task_intents
+                        .iter()
+                        .find(|intent| intent.intent_id == task.task_id)
+                        .and_then(|intent| intent.definition.clone())
+                })
+                .is_some_and(|definition| {
+                    definition
+                        .input
+                        .get("hold")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                })
+        })
+        .map(|(_, task)| task.task_id)
+        .expect("one gated child committed");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let supervisor = shenko_kernel::Supervisor::new(subject.head.software_generation.clone());
+    supervisor
+        .spawn(
+            crate::NativeChildPlugin,
+            (
+                store.clone(),
+                subject.head.software_generation.clone(),
+            ),
+        )
+        .await
+        .unwrap();
+    supervisor
+        .spawn(
+            crate::NativeTaskHandlerPlugin,
+            Arc::new(GatedHandler {
+                store: store.clone(),
+                started: started.clone(),
+                release: release.clone(),
+                hold_reconcile: false,
+            }) as Arc<dyn crate::NativeTaskHandler>,
+        )
+        .await
+        .unwrap();
+    let service = supervisor
+        .context()
+        .try_service::<crate::NativeChildService>()
+        .unwrap();
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("gated handler did not start");
+    assert!(store.external_task(gated).unwrap().is_running());
+
+    // `stop()` returns only after admission closed and the gated worker was
+    // aborted and joined — it does not wait for the handler's own gate.
+    tokio::time::timeout(std::time::Duration::from_secs(10), supervisor.stop())
+        .await
+        .expect("stop must not block on a gated worker")
+        .unwrap();
+    release.notify_one();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // No effect lands after the barrier: the claim stays durable (Running) for
+    // the next generation to reconcile, and the retained service handle cannot
+    // admit or drive anything new.
+    assert!(store.native_task_result(gated).unwrap().is_none());
+    assert!(store.external_task(gated).unwrap().is_running());
+    assert_eq!(service.run_once().await.unwrap(), 0);
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 restart: Cordis seals the plugin input at spawn, so a same-Fiber
+/// `restart` re-applies the SAME `Arc<NativeChildService>` — still `closed`
+/// from its teardown. Reactivation must reopen admission only after the
+/// prior close+join barrier and after aborted Running claims were recovered
+/// into query-only reconciliation; a fresh delegation must dispatch again,
+/// and the interrupted claim must never re-arm a duplicate effect.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\n再起動で中断される child。",
+    )
+    .await;
+    let gated = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task.task_id)
+        .next()
+        .expect("gated child committed");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let supervisor = shenko_kernel::Supervisor::new(subject.head.software_generation.clone());
+    let child_fiber = supervisor
+        .spawn(
+            crate::NativeChildPlugin,
+            (store.clone(), subject.head.software_generation.clone()),
+        )
+        .await
+        .unwrap();
+    supervisor
+        .spawn(
+            crate::NativeTaskHandlerPlugin,
+            Arc::new(GatedHandler {
+                store: store.clone(),
+                started: started.clone(),
+                release: release.clone(),
+                hold_reconcile: false,
+            }) as Arc<dyn crate::NativeTaskHandler>,
+        )
+        .await
+        .unwrap();
+    let service = supervisor
+        .context()
+        .try_service::<crate::NativeChildService>()
+        .unwrap();
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("gated handler did not start");
+    assert!(store.external_task(gated).unwrap().is_running());
+
+    // Same-Fiber restart: teardown aborts/joins the gated worker, then the
+    // SAME sealed service is re-applied — it must reopen and recover the
+    // aborted claim into query-only reconciliation.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        supervisor.restart(&child_fiber),
+    )
+    .await
+    .expect("restart must complete the close+join barrier")
+    .unwrap();
+    release.notify_one();
+
+    let reactivated = supervisor
+        .context()
+        .try_service::<crate::NativeChildService>()
+        .unwrap();
+    // Cordis reuses the sealed input: this is literally the same service Arc.
+    assert!(Arc::ptr_eq(&service, &reactivated));
+
+    // The aborted claim was recovered out of Running into reconciling —
+    // query-only, never re-armed — and no late T2 landed.
+    let recovered = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            reactivated.run_once().await.unwrap();
+            let task = store.external_task(gated).unwrap();
+            // Reopen first makes the claim Ready; its managed query still
+            // needs to finish before the durable reconciling park is visible.
+            if shenko_store::child::park_reason(&task) == Some("reconciling") {
+                break task;
+            }
+            assert!(!task.is_terminal(), "aborted unknown effect cannot acquire a terminal result");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("recovered claim did not finish query-only reconciliation");
+    assert!(store.native_task_result(gated).unwrap().is_none());
+    assert_eq!(
+        shenko_store::child::park_reason(&recovered),
+        Some("reconciling")
+    );
+
+    // Dispatch is live again on the same service: a fresh delegation commits,
+    // is claimed and settles end-to-end.
+    commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":false}\n再起動後の新規 child。",
+    )
+    .await;
+    let fresh = store
+        .native_task_candidates_after(None, 16)
+        .unwrap()
+        .into_iter()
+        .filter(|(_, task)| task.task_id != gated)
+        .filter_map(|(_, task)| {
+            store
+                .cas
+                .read_object(&task.input_ref.digest)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<StepDecision>(&bytes).ok())
+                .and_then(|decision| {
+                    decision
+                        .delegated_task_intents
+                        .iter()
+                        .any(|intent| intent.intent_id == task.task_id)
+                        .then_some(task.task_id)
+                })
+        })
+        .next()
+        .expect("fresh child committed");
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while store.native_task_result(fresh).unwrap().is_none() {
+            reactivated.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("post-restart dispatch never settled the fresh child");
+    assert!(matches!(
+        store.native_task_result(fresh).unwrap().unwrap().outcome,
+        TaskOutcome::Succeeded
+    ));
+    supervisor.stop().await.unwrap();
+    drop(service);
+    drop(reactivated);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 admission distinction: a task whose reconciliation worker is
+/// still in flight is a per-task skip, NOT global capacity exhaustion. With
+/// seven slots free, one gated reconcile must not stop the scan before a
+/// later ready child is visited — pre-fix `NoCapacity` made every pass halt
+/// at the earlier candidate.
+#[tokio::test]
+async fn a_single_gated_reconciliation_cannot_block_a_later_ready_child() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"unresolved\":true}\n先派一个持续对账的 child。",
+    )
+    .await;
+    let reconciler = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task.task_id)
+        .next()
+        .expect("one unresolved child committed");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: started.clone(),
+            release: release.clone(),
+            hold_reconcile: true,
+        }))
+        .unwrap();
+
+    // Pass 1 claims the unresolved child; its worker arms the operation and
+    // parks reconciling. The ready child trails it in scan order.
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !matches!(
+            shenko_store::child::park_reason(&store.external_task(reconciler).unwrap()),
+            Some("reconciling")
+        ) || store.external_task(reconciler).unwrap().is_running()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("unresolved child did not reach reconciling");
+
+    // Pass 2 (after the retry deadline): the child re-admits as a Settle
+    // worker whose reconcile is gated — still in flight when the pass ends.
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("gated reconcile did not start");
+
+    // Commit the ready child WHILE the reconciliation is still in flight, so
+    // it trails the earlier candidate and is not yet claimed.
+    commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":false}\n再派一个立即可完成的 child。",
+    )
+    .await;
+    let ready = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task.task_id)
+        .find(|id| *id != reconciler)
+        .expect("one ready child committed");
+
+    // Pass 3 with the reconcile still gated: the earlier candidate is
+    // AlreadyManaged — a skip — and the scan must CONTINUE to the ready
+    // child and claim it. Pre-fix this pass stopped at the first candidate.
+    service.run_once().await.unwrap();
+    let ready_task = store.external_task(ready).unwrap();
+    assert!(
+        ready_task.is_running() || ready_task.is_terminal(),
+        "ready child must be claimed behind an in-flight reconciliation, got {:?}",
+        ready_task.state
+    );
+
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while store.native_task_result(ready).unwrap().is_none() {
+            service.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("ready child did not settle");
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 scan-boundary race: `native_task_scan_upper` reads before the
+/// candidate fetch. A producer can insert a full page in between — the
+/// recorded state is exactly fresh_round=true, upper=None, nonempty page.
+/// The pass must freeze a finite upper at this page's last key BEFORE the
+/// capacity-limited visit, so a partially visited page keeps a bounded
+/// cursor+upper pair and the round still wraps; pre-fix it stored a
+/// nonempty cursor with upper=None and never captured a bound again.
+/// `scan_once` is the real production transition helper; the call replays
+/// the race window deterministically.
+#[tokio::test]
+async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let wave = (0..8)
+        .map(|n| format!("[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":{n}}}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    commit_output(&store, &mut subject, 1, &[], &format!("{wave}\n[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":8}}\n插入期间到达的一页。"))
+        .await;
+
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+            hold_reconcile: false,
+        }))
+        .unwrap();
+
+    // Replay the recorded race state: fresh round, upper bound observed empty,
+    // but the fetch now returns a page larger than the worker budget: the
+    // ninth candidate cannot be visited, so the visit is partial.
+    service.scan_once(None, None, true, 32).unwrap();
+    let (cursor, upper) = service.scan_snapshot();
+    assert!(
+        upper.is_some(),
+        "a partially visited page after an empty upper read must freeze a finite boundary"
+    );
+    assert!(
+        cursor.is_some(),
+        "capacity-limited visit must keep the cursor at the last visited key"
+    );
+
+    // The preserved cursor resumes at the first unvisited candidate; the
+    // bound upper still lets the round wrap instead of extending forever.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while service
+            .scan_snapshot()
+            .0
+            .is_some()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+            service.run_once().await.unwrap();
+        }
+    })
+    .await
+    .expect("scan round never wrapped within the frozen boundary");
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// A hook contract whose failure policy stops the unit; the handler always
+/// fails so every dispatch is cut short.
+struct FailingHook;
+
+#[async_trait::async_trait]
+impl HookHandler for FailingHook {
+    async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
+        anyhow::bail!("hook stopped the unit")
+    }
+}
+
+fn stop_registry(phase: HookPhase) -> (HookRegistry, shenko_kernel::hooks::HookRegistration) {
+    let hooks = HookRegistry::new();
+    let mut contract = HookPointContract::standard(phase);
+    contract.failure = HookFailurePolicy::StopUnit;
+    hooks.declare_point(contract).unwrap();
+    let artifact = shenko_types::object::Digest::blake3(b"test:hook/stop".as_slice());
+    let registration = hooks
+        .register(HookEntry {
+            spec: HookSpec {
+                hook_id: EntityId::new(),
+                plugin_id: EntityId::new(),
+                phase,
+                name: "stop".into(),
+                schema_version: HOOK_SCHEMA_VERSION,
+                point_major: STANDARD_HOOK_POINT_MAJOR,
+                implementation: shenko_types::object::VersionedRef {
+                    artifact: shenko_types::object::ArtifactRef {
+                        digest: artifact.clone(),
+                        locator: "test:hook/stop".into(),
+                    },
+                    symbol: "hook.stop.handle".into(),
+                    schema: shenko_types::object::SchemaRef {
+                        name: "hook-payload-v1".into(),
+                        major: HOOK_SCHEMA_VERSION,
+                        digest: artifact,
+                    },
+                },
+                after: vec![],
+                before: vec![],
+                requires: vec![],
+            },
+            handler: Arc::new(FailingHook),
+        })
+        .unwrap();
+    (hooks, registration)
+}
+
+/// §41.8 stop_unit at the real production boundaries. A stopped
+/// BeforeInference dispatch submits nothing to the broker and the step stays
+/// Preparing; a stopped BeforeOperation dispatch leaves the head, ledger
+/// record and outbox untouched. In both cases the durable step keeps its
+/// frozen evidence, so withdrawing the failing handler lets the same step
+/// proceed rather than manufacturing a replacement.
+#[tokio::test]
+async fn stop_unit_boundaries_leave_recoverable_step_state() {
+    let (dir, store, agent) = fixture();
+
+    // Pre-dispatch boundary: S0 seals, the stop_unit hook runs, and the error
+    // is returned before the broker is even consulted (none is attached).
+    let (hooks, registration) = stop_registry(HookPhase::BeforeInference);
+    let mut subject = state(store.clone(), agent).unwrap().with_hooks(Arc::new(hooks));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let error = execute_step(1, &[message("stopped before dispatch")], &mut subject, &cancel)
+        .await
+        .err()
+        .expect("a stopped dispatch must not reach broker admission");
+    assert!(error.to_string().contains("stopped the unit"));
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    assert!(subject.step.active_request_id.is_none());
+    let (head, step) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 0);
+    assert_eq!(step.state, SubjectStepState::Preparing);
+    assert!(step.active_request_id.is_none());
+    // The frozen input is recoverable: once the failing handler is withdrawn,
+    // the same step reaches the real dispatch boundary (cancel observes it).
+    subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
+    cancel.cancel();
+    assert!(execute_step(1, &[], &mut subject, &cancel).await.unwrap().is_none());
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    drop(subject);
+    drop(store);
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // Pre-commit boundary: a recorded result is already durable; the stopped
+    // BeforeOperation dispatch prevents the decision seal, head advance and
+    // outbox publication, and the step remains ResultRecorded.
+    let (dir, store, agent) = fixture();
+    let (hooks, registration) = stop_registry(HookPhase::BeforeOperation);
+    let (outbox_tx, mut outbox_rx) = tokio::sync::broadcast::channel(4);
+    let mut subject = state(store.clone(), agent)
+        .unwrap()
+        .with_hooks(Arc::new(hooks))
+        .with_outbox(outbox_tx);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel(); // seal S0 without a broker; dispatch boundary is never reached
+    execute_step(
+        1,
+        &[message("stopped before commit")],
+        &mut subject,
+        &cancel,
+    )
+    .await
+    .unwrap();
+    let step_id = record_result(&store, &mut subject, "ledger-visible thought");
+    let error = execute_step(
+        1,
+        &[],
+        &mut subject,
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .err()
+    .expect("a stopped dispatch must not reach S1 commit");
+    assert!(error.to_string().contains("stopped the unit"));
+    let (head, step) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 0, "no head advance");
+    assert_eq!(step.state, SubjectStepState::ResultRecorded);
+    assert!(step.decision_ref.is_none() && step.commit_ref.is_none());
+    assert!(
+        matches!(outbox_rx.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)),
+        "nothing is published for a step that never committed"
+    );
+    // Recoverable: withdrawing the failing handler commits this same
+    // recorded result rather than re-invoking the model.
+    subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
+    assert!(
+        execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let (head, _) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 1);
+    let published = outbox_rx.try_recv().unwrap();
+    assert_eq!(published.step_id, step_id);
+    assert_eq!(published.text, "ledger-visible thought");
+    drop(subject);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
 }

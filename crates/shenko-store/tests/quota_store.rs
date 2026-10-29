@@ -506,7 +506,7 @@ fn preparing_step(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no, "events":[],
         "provider_binding":null, "semantic_wait":null, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),

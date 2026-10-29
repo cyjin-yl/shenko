@@ -41,11 +41,33 @@ impl AnthropicProvider {
         self
     }
 
+    /// Non-secret digest of the configured credential. Only equality is ever
+    /// checked; the key material itself leaves this struct only as a request
+    /// header on the bound endpoint.
+    fn credential_fingerprint(&self) -> String {
+        shenko_types::object::Digest::blake3(self.api_key.as_bytes()).0
+    }
+
+    /// The sealed non-secret transport contract for this configured provider.
+    /// The credential fingerprint makes two different accounts on the same
+    /// endpoint/model distinct bindings.
+    pub fn binding(&self) -> ProviderBinding {
+        ProviderBinding::Anthropic {
+            base_url: self.base_url.clone(),
+            model: self.model.clone(),
+            api_version: ANTHROPIC_API_VERSION.into(),
+            credential_fingerprint: Some(self.credential_fingerprint()),
+            serializer_revision: SERIALIZER_REVISION,
+            default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+        }
+    }
+
     fn validate_binding<'a>(&self, req: &'a InferenceRequest) -> Result<&'a ProviderBinding> {
         let ProviderBinding::Anthropic {
             base_url,
             model,
             api_version,
+            credential_fingerprint,
             serializer_revision,
             default_max_tokens,
         } = &req.provider_binding
@@ -55,6 +77,7 @@ impl AnthropicProvider {
         if base_url != &self.base_url
             || model != &self.model
             || api_version != ANTHROPIC_API_VERSION
+            || credential_fingerprint.as_deref() != Some(self.credential_fingerprint().as_str())
             || *serializer_revision != SERIALIZER_REVISION
             || *default_max_tokens != crate::request::DEFAULT_MAX_TOKENS
         {
@@ -81,6 +104,11 @@ impl AnthropicProvider {
         let body = anthropic_body(payload, model)?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
+            // Inference POSTs are sealed to this endpoint. An automatic 307/308
+            // re-send would replay the frozen prompt (and reqwest keeps
+            // `x-api-key`) on a different host while attributing the result to
+            // the original endpoint. A redirect is a terminal unknown instead.
+            .redirect(reqwest::redirect::Policy::none())
             .build()?;
 
         let resp = client

@@ -24,12 +24,37 @@ pub enum ProviderBinding {
         base_url: String,
         model: String,
         api_version: String,
+        /// Non-secret blake3 hex of the exact credential that was configured
+        /// when the binding froze. Two unrelated accounts on the same
+        /// endpoint/model produce different fingerprints, so a recovered
+        /// pending request cannot silently resume under a different account.
+        /// The credential itself is never stored or logged.
+        #[serde(default)]
+        credential_fingerprint: Option<String>,
         serializer_revision: u32,
         default_max_tokens: u64,
     },
 }
 
 impl ProviderBinding {
+    /// Select another model on the same configured transport. This creates a
+    /// new binding; it never edits an existing request seal or its endpoint.
+    pub fn with_model(&self, selected: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !selected.trim().is_empty() && selected.len() <= 512
+                && !selected.chars().any(char::is_control),
+            "invalid selected model"
+        );
+        let mut binding = self.clone();
+        match &mut binding {
+            Self::Stub { .. } => anyhow::bail!("unavailable provider has no selectable model"),
+            Self::Local { model, .. } | Self::Anthropic { model, .. } => {
+                selected.clone_into(model);
+            }
+        }
+        Ok(binding)
+    }
+
     pub fn model(&self) -> &str {
         match self {
             Self::Stub { .. } => "stub",
@@ -133,7 +158,7 @@ pub enum InferencePriority {
     Urgent = 3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InferencePayload {
     pub system_prompt: String,
     pub messages: Vec<InferenceMessage>,

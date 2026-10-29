@@ -926,6 +926,18 @@ impl Store {
                 {
                     return Err(conflict("quota attempt identity mismatch"));
                 }
+                if attempt.cost == cost && attempt.billing == billing {
+                    // Original E1 can be revisited after a crash between
+                    // receipt and billing settlement. An identical settlement
+                    // neither charges again nor rewrites a historical attempt.
+                    let observed_seq: i64 = tx.query_row(
+                        "SELECT COALESCE(max(seq),0) FROM commit_log", [], |row| row.get(0),
+                    ).map_err(storage_error)?;
+                    tx.commit().map_err(storage_error)?;
+                    return Ok(self.subject_receipt(
+                        CommitRef::new(self.ledger.ledger_id(), LedgerSeq(observed_seq as u64)), vec![],
+                    ));
+                }
                 attempt.cost = cost;
                 attempt.billing = billing;
                 let commit_seq = self.ledger.allocate_seq(&tx)?;
