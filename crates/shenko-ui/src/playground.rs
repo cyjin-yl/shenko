@@ -916,11 +916,12 @@ fn run_backend(
 
     // Changed = created OR content-modified files in the guest's state dir.
     let after = state_snapshot(&state_dir);
-    let changed_files: Vec<String> = after
+    let mut changed_files: Vec<String> = after
         .iter()
         .filter(|(name, digest)| before.get(*name) != Some(*digest))
         .map(|(name, _)| (*name).clone())
         .collect();
+    changed_files.sort_unstable();
 
     match run {
         Ok(0) => BackendOutcome {
