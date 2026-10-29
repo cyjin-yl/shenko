@@ -20,6 +20,16 @@ pub struct TaskInvocation {
     pub node_id: EntityId,
 }
 
+/// Exact quota send selected before T1; persisted on the original attempt.
+/// None is legal only when this ledger has no configured quota policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InferenceSendBinding {
+    pub schema_version: u32,
+    pub request_id: EntityId,
+    pub send_id: Option<EntityId>,
+}
+
 impl Store {
     pub fn close_external_writer(&self) {
         self.ledger.close_writer();
@@ -67,13 +77,13 @@ impl Store {
 
     /// Startup resource reconstruction uses the original operation identities,
     /// including cancelled tasks. It never schedules another attempt.
-    pub fn unresolved_external_operations_after(
+    pub fn external_operations_after(
         &self, name: &str, after: Option<EntityId>, limit: usize,
     ) -> Result<Vec<OperationRecord>> {
         let conn = self.ledger.conn.lock();
         let mut query = conn.prepare(
             "SELECT data FROM operations WHERE json_extract(data,'$.operation_name')=?1
-             AND json_extract(data,'$.state')!='resolved' AND operation_id>?2
+             AND operation_id>?2
              ORDER BY operation_id LIMIT ?3",
         )?;
         let rows = query.query_map(
@@ -92,8 +102,22 @@ impl Store {
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att),
+            || self.try_arm_external_operation(ctx, op, att, None),
             |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Child model T1 atomically claims the gate's exact R→S reservation with
+    /// the native operation/attempt. Native tools keep the non-inference path.
+    pub fn arm_external_inference_operation(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+        binding: &InferenceSendBinding,
+    ) -> Result<Option<OperationRecord>> {
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, Some(binding)),
+            |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+                || error.downcast_ref::<shenko_types::error::ShenkoError>()
+                    .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
         )
     }
 
@@ -102,6 +126,7 @@ impl Store {
         ctx: &TaskInvocation,
         op: &mut OperationRecord,
         att: &mut AttemptRecord,
+        inference: Option<&InferenceSendBinding>,
     ) -> Result<Option<OperationRecord>> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -174,6 +199,37 @@ impl Store {
             "invalid_armed_operation"
         );
         let seq = self.ledger.allocate_seq(&tx)?;
+        if task.kind == "model.child" {
+            let binding = inference.ok_or_else(|| anyhow::anyhow!("model inference must use quota-bound T1 admission"))?;
+            ensure!(binding.schema_version == 1, "unsupported inference send binding");
+            let read = |object: &shenko_types::object::ObjectRef| -> Result<serde_json::Value> {
+                let bytes = self.cas.read_object(&object.digest)?;
+                ensure!(bytes.len() as u64 == object.bytes
+                    && shenko_types::object::Digest::blake3(&bytes) == object.digest,
+                    "inference T1 input/binding closure mismatch");
+                Ok(serde_json::from_slice(&bytes)?)
+            };
+            let frozen = read(&op.final_input_ref)?;
+            let decision = read(&task.input_ref)?;
+            let intent = decision.get("delegated_task_intents").and_then(|value| value.as_array())
+                .and_then(|intents| intents.iter().find(|intent| intent.get("intent_id") == Some(&serde_json::json!(task.task_id))))
+                .ok_or_else(|| anyhow::anyhow!("model inference has no frozen S1 delegation"))?;
+            ensure!(intent.pointer("/definition/input") == Some(&frozen)
+                && frozen.get("request_id") == Some(&serde_json::to_value(binding.request_id)?)
+                && op.input_digest == op.final_input_ref.digest
+                && read(att.transport_ref.as_ref().ok_or_else(|| anyhow::anyhow!("inference attempt lacks selected send binding"))?)?
+                    == serde_json::to_value(binding)?,
+                "inference T1 request/payload/selected-send mismatch");
+            if crate::quota::quota_gate_open(&tx)? {
+                let send_id = binding.send_id.ok_or_else(|| anyhow::anyhow!("configured quota requires exact selected send"))?;
+                ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq)?,
+                    "inference selected send is not admitted, armed and unclaimed for this request");
+            } else {
+                ensure!(binding.send_id.is_none(), "unexpected quota send without a recorded policy");
+            }
+        } else {
+            ensure!(inference.is_none(), "inference T1 requires the registered model-child task contract");
+        }
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         op.prepared_commit = commit;
         att.armed_commit = commit;

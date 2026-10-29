@@ -7,6 +7,7 @@ mod context_projection;
 pub mod loop_runner;
 pub mod outbox;
 pub mod model_child;
+mod quota_gate;
 
 pub use child::*;
 pub use dispatch::*;

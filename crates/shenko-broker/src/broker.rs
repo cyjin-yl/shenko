@@ -263,7 +263,7 @@ fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceRes
 /// The ledger owner of a request, independent of the caller waiting for it.
 /// It admits no effects itself: T1 must already exist before submission. Late
 /// completion is still recorded when a managed child was stopped/cancelled.
-pub trait InferenceReceiptSink: Send + Sync + 'static {
+pub trait InferenceReceiptSink: InferenceRecoverySource {
     fn may_dispatch(&self) -> Result<bool>;
     fn record(&self, result: &InferenceResult) -> Result<()>;
 }
@@ -272,7 +272,7 @@ pub trait InferenceReceiptSink: Send + Sync + 'static {
 /// a callback's assertion of success. A reader must validate the final E1 CAS,
 /// operation/attempt identities and immutable request before returning evidence.
 /// There is deliberately no raw-id, bool or caller-result release API.
-pub trait InferenceRecoverySource {
+pub trait InferenceRecoverySource: Send + Sync + 'static {
     fn request_id(&self) -> EntityId;
     fn binding(&self) -> &ProviderBinding;
     fn payload(&self) -> &crate::request::InferencePayload;
@@ -287,6 +287,7 @@ struct Submission {
 // None: queued or live, with a guard owned by the broker. Some: an uncertain
 // completed/recovered request whose charge survives until original evidence.
 type Accounting = Arc<Mutex<HashMap<EntityId, Option<AdmissionGuard>>>>;
+type RecoverySources = Arc<Mutex<HashMap<EntityId, Arc<dyn InferenceRecoverySource>>>>;
 
 #[derive(Clone)]
 pub struct BrokerHandle {
@@ -294,6 +295,7 @@ pub struct BrokerHandle {
     binding: ProviderBinding,
     admission: AdmissionController,
     accounting: Accounting,
+    recovery_sources: RecoverySources,
     accounting_changed: Arc<Notify>,
 }
 
@@ -316,10 +318,27 @@ impl BrokerHandle {
             .entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
     }
 
-    /// Reconcile only through a reader of the original durable receipt. Task
-    /// terminal/cancelled, local timeout and a raw request ID are not evidence.
-    /// A live request remains owned by the broker's provider completion path.
-    pub fn reconcile_recorded(&self, source: &dyn InferenceRecoverySource) -> Result<()> {
+    /// Register the original ledger reader while restoring a request. A known
+    /// request keeps the reader installed by its original submit/restore; later
+    /// callers cannot replace it with a bool or a fabricated result source.
+    pub fn register_recovered(&self, source: Arc<dyn InferenceRecoverySource>) -> Result<()> {
+        let id = source.request_id();
+        {
+            let accounting = self.accounting.lock().expect("broker accounting poisoned");
+            let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+            if !sources.contains_key(&id) {
+                ensure!(!accounting.contains_key(&id), "known request has no original recovery reader; preserve unknown charge");
+                sources.insert(id, source);
+            }
+        }
+        self.reconcile_recorded(id)
+    }
+
+    /// A request ID only wakes its already-pinned reader. It is never release
+    /// evidence by itself, and this API accepts no caller-supplied result.
+    pub fn reconcile_recorded(&self, request_id: EntityId) -> Result<()> {
+        let source = self.recovery_sources.lock().expect("broker recovery sources poisoned")
+            .get(&request_id).cloned().ok_or_else(|| anyhow!("request has no original durable recovery reader"))?;
         let Some(result) = source.read_terminal_result()? else {
             self.recover_unknown(source.request_id());
             return Ok(());
@@ -337,6 +356,9 @@ impl BrokerHandle {
                 TerminationKind::Unknown => unreachable!("terminal evidence checked above"),
             }
             self.accounting_changed.notify_one();
+        }
+        if !accounting.contains_key(&request_id) {
+            self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
         }
         Ok(())
     }
@@ -365,9 +387,18 @@ impl BrokerHandle {
         let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
         ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
         let id = req.request_id;
+        if let Some(sink) = &receipt_sink {
+            ensure!(sink.request_id() == id && sink.binding() == &req.provider_binding
+                && sink.payload() == &req.payload, "receipt owner differs from submitted request seal");
+            let source: Arc<dyn InferenceRecoverySource> = sink.clone();
+            let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+            ensure!(!sources.contains_key(&id), "request already has an original receipt owner");
+            sources.insert(id, source);
+        }
         accounting.insert(id, None);
         if self.tx.send(Submission { request: req, receipt_sink }).is_err() {
             accounting.remove(&id);
+            self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&id);
             return Err(anyhow!("broker admission closed; request was not enqueued"));
         }
         Ok(())
@@ -453,6 +484,7 @@ pub struct Broker {
     admission: AdmissionController,
     provider: ActiveProvider,
     accounting: Accounting,
+    recovery_sources: RecoverySources,
     accounting_changed: Arc<Notify>,
 }
 
@@ -531,6 +563,7 @@ impl Broker {
         let (tx, rx) = mpsc::unbounded_channel();
         let binding = provider.binding();
         let accounting = Arc::new(Mutex::new(HashMap::new()));
+        let recovery_sources = Arc::new(Mutex::new(HashMap::new()));
         let accounting_changed = Arc::new(Notify::new());
         (
             Self {
@@ -538,6 +571,7 @@ impl Broker {
                 admission: admission.clone(),
                 provider,
                 accounting: Arc::clone(&accounting),
+                recovery_sources: Arc::clone(&recovery_sources),
                 accounting_changed: Arc::clone(&accounting_changed),
             },
             BrokerHandle {
@@ -545,6 +579,7 @@ impl Broker {
                 binding,
                 admission,
                 accounting,
+                recovery_sources,
                 accounting_changed,
             },
         )
@@ -576,10 +611,12 @@ impl Broker {
         match termination {
             TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => {
                 accounting.remove(&req.request_id);
+                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&req.request_id);
                 guard.release_terminal();
             }
             TerminationKind::NeverDispatched => {
                 accounting.remove(&req.request_id);
+                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&req.request_id);
                 guard.release_never_dispatched();
             }
             TerminationKind::Unknown => { accounting.insert(req.request_id, Some(guard)); }
@@ -631,6 +668,7 @@ impl Broker {
                                 response: None,
                                 effective: EffectiveInference::for_request(req),
                                 termination: TerminationEvidence::never_dispatched(),
+                                quota_headers: Vec::new(),
                             }
                         }
                     };

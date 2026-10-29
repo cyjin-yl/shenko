@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_broker::{broker::{BrokerHandle, InferenceReceiptSink, InferenceRecoverySource}, request::*};
 use shenko_store::{Store, TaskInvocation};
+use shenko_store::external::InferenceSendBinding;
 use shenko_types::{
     commit::CommitRef,
     evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
@@ -14,6 +15,7 @@ use shenko_types::{
 };
 use std::sync::Arc;
 use crate::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 
 pub const MODEL_CHILD_KIND: &str = "model.child";
 const OPERATION: &str = "model.child.generate.v1";
@@ -135,12 +137,14 @@ impl ModelChildHandler {
     pub fn new(store: Arc<Store>, broker: BrokerHandle) -> Result<Self> {
         let mut after = None;
         loop {
-            let page = store.unresolved_external_operations_after(OPERATION, after, 128)?;
+            let page = store.external_operations_after(OPERATION, after, 128)?;
             if page.is_empty() { break; }
             for operation in &page {
                 let attempt = store.external_operation_attempt(operation.operation_id)?;
                 let frozen = read_frozen(&store, &operation.final_input_ref)?;
-                broker.reconcile_recorded(&RecoveryReceipt { store: &store, operation, attempt, frozen })?;
+                broker.register_recovered(Arc::new(RecoveryReceipt {
+                    store: Arc::clone(&store), operation: operation.clone(), attempt, frozen,
+                }))?;
                 after = Some(operation.operation_id);
             }
         }
@@ -163,6 +167,15 @@ impl ModelChildHandler {
             return Ok(existing); // A repeated T1 identity is never another send.
         }
         let request_id = frozen.request_id;
+        let quota_send = match quota_dispatch_gate(
+            &self.store, &frozen.provider_binding, request_id,
+            &tokio_util::sync::CancellationToken::new(), Some(&invocation.task_invocation),
+        ).await? {
+            QuotaGate::Ready(send) => send,
+            QuotaGate::Cancelled => anyhow::bail!("model child cancelled before quota-bound T1"),
+        };
+        let send_binding = InferenceSendBinding { schema_version: 1, request_id, send_id: quota_send };
+        let transport_ref = seal(&self.store, &send_binding, "model-child-selected-send")?;
         let resources = ResourceBindings {
             provider: frozen.provider_binding.profile_id().into(),
             account_identity: String::new(), // Credentials/account identity are not introspected.
@@ -171,6 +184,7 @@ impl ModelChildHandler {
             extra: serde_json::json!({
                 "provider_binding": frozen.provider_binding,
                 "request_id": request_id, "task_id": frozen.task_id,
+                "selected_send_id": quota_send,
                 "role_revision": ROLE, "max_tokens": frozen.spec.max_tokens,
                 "prompt_fingerprint": frozen.prompt_fingerprint,
                 "toolset_fingerprint": frozen.toolset_fingerprint,
@@ -209,10 +223,10 @@ impl ModelChildHandler {
             worker_id: invocation.task_invocation.worker_id, node_id: invocation.task_invocation.node_id,
             epoch: invocation.task_invocation.epoch, implementation_ref: version,
             dispatch_stage: AttemptDispatchStage::Armed, armed_commit: zero,
-            provider_handle: None, provider_idempotency: None, transport_ref: None,
+            provider_handle: None, provider_idempotency: None, transport_ref: Some(transport_ref),
             started_at: None, last_observed_at: None, final_receipt_id: None,
         };
-        if let Some(existing) = self.store.arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)? {
+        if let Some(existing) = self.store.arm_external_inference_operation(&invocation.task_invocation, &mut operation, &mut attempt, &send_binding)? {
             return Ok(existing);
         }
         // T1 is now durable; it does not prove the queued request was sent.
@@ -220,6 +234,7 @@ impl ModelChildHandler {
         let sink = Arc::new(ChildReceiptSink {
             store: Arc::clone(&self.store), invocation: invocation.task_invocation,
             frozen, input_ref, operation: operation.clone(), attempt,
+            send_binding,
         });
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
         let req = InferenceRequest {
@@ -247,6 +262,7 @@ struct ChildReceiptSink {
     input_ref: ObjectRef,
     operation: OperationRecord,
     attempt: AttemptRecord,
+    send_binding: InferenceSendBinding,
 }
 
 impl InferenceReceiptSink for ChildReceiptSink {
@@ -281,6 +297,7 @@ impl InferenceReceiptSink for ChildReceiptSink {
         let normalized = seal(&self.store, &serde_json::json!({
             "schema_version": 1, "task_id": self.frozen.task_id,
             "request_id": result.request_id, "provider_binding": self.frozen.provider_binding,
+            "selected_send_id": self.send_binding.send_id,
             "role_revision": ROLE, "max_tokens": self.frozen.spec.max_tokens,
             "prompt_fingerprint": self.frozen.prompt_fingerprint,
             "toolset_fingerprint": self.frozen.toolset_fingerprint,
@@ -309,7 +326,20 @@ impl InferenceReceiptSink for ChildReceiptSink {
         // E1 intentionally has no task commit authority. Cancellation, epoch
         // changes and worker teardown cannot discard this original fact.
         self.store.record_external_evidence(self.operation.operation_id, self.attempt.attempt_id, evidence, outcome, effect)?;
+        if let Some(send_id) = self.send_binding.send_id {
+            observe_quota_response(&self.store, &self.frozen.provider_binding, result, self.frozen.request_id, send_id);
+            settle_quota_terminal(&self.store, result, self.frozen.request_id, send_id);
+        }
         Ok(())
+    }
+}
+
+impl InferenceRecoverySource for ChildReceiptSink {
+    fn request_id(&self) -> EntityId { self.frozen.request_id }
+    fn binding(&self) -> &ProviderBinding { &self.frozen.provider_binding }
+    fn payload(&self) -> &InferencePayload { &self.frozen.payload }
+    fn read_terminal_result(&self) -> Result<Option<InferenceResult>> {
+        read_original_terminal(&self.store, &self.operation, &self.attempt, &self.frozen)
     }
 }
 
@@ -337,45 +367,75 @@ impl NativeTaskHandler for ModelChildHandler {
         let frozen = read_frozen(&self.store, &operation.final_input_ref)?;
         ensure!(frozen.task_id == task.task_id, "original model child task mismatch");
         let attempt = self.store.external_operation_attempt(operation_id)?;
-        self.broker.reconcile_recorded(&RecoveryReceipt { store: &self.store, operation: &operation, attempt, frozen })?;
+        self.broker.register_recovered(Arc::new(RecoveryReceipt {
+            store: Arc::clone(&self.store), operation: operation.clone(), attempt, frozen,
+        }))?;
         // These transports expose no original-request query/idempotency API.
         // Reading E1 is the only recovery action; absence remains unknown.
         Ok(operation)
     }
 }
 
-struct RecoveryReceipt<'a> {
-    store: &'a Store,
-    operation: &'a OperationRecord,
+struct RecoveryReceipt {
+    store: Arc<Store>,
+    operation: OperationRecord,
     attempt: AttemptRecord,
     frozen: FrozenModelChild,
 }
 
-impl InferenceRecoverySource for RecoveryReceipt<'_> {
+impl InferenceRecoverySource for RecoveryReceipt {
     fn request_id(&self) -> EntityId { self.frozen.request_id }
     fn binding(&self) -> &ProviderBinding { &self.frozen.provider_binding }
     fn payload(&self) -> &InferencePayload { &self.frozen.payload }
 
     fn read_terminal_result(&self) -> Result<Option<InferenceResult>> {
-        ensure!(self.operation.operation_name == OPERATION
-            && self.operation.task_id == self.frozen.task_id
-            && self.attempt.operation_id == self.operation.operation_id
-            && self.operation.input_digest == self.operation.final_input_ref.digest,
+        read_original_terminal(&self.store, &self.operation, &self.attempt, &self.frozen)
+    }
+}
+
+fn read_original_terminal(
+    store: &Store, original: &OperationRecord, original_attempt: &AttemptRecord, frozen: &FrozenModelChild,
+) -> Result<Option<InferenceResult>> {
+        let operation = store.external_operation(original.operation_id)?;
+        let attempt = store.external_attempt(original_attempt.attempt_id)?;
+        ensure!(operation.operation_name == OPERATION
+            && operation.task_id == frozen.task_id
+            && attempt.operation_id == operation.operation_id
+            && attempt.transport_ref == original_attempt.transport_ref
+            && attempt.armed_commit == original_attempt.armed_commit
+            && attempt.invocation_id == original_attempt.invocation_id
+            && attempt.epoch == original_attempt.epoch
+            && operation.final_input_ref == original.final_input_ref
+            && operation.resource_bindings_ref == original.resource_bindings_ref
+            && operation.contract_ref.contract_digest == original.contract_ref.contract_digest
+            && operation.input_digest == original.input_digest
+            && operation.input_digest == operation.final_input_ref.digest,
             "recovered inference operation/input identity mismatch");
-        if self.attempt.dispatch_stage != AttemptDispatchStage::Ended { return Ok(None); }
-        let id = self.attempt.final_receipt_id.context("ended model attempt lacks receipt")?;
-        let evidence = self.store.external_evidence(id)?;
-        ensure!(evidence.receipt_id == id && evidence.operation_id == Some(self.operation.operation_id)
-            && evidence.attempt_id == Some(self.attempt.attempt_id) && evidence.source_id == OPERATION,
+        if attempt.dispatch_stage != AttemptDispatchStage::Ended { return Ok(None); }
+        let id = attempt.final_receipt_id.context("ended model attempt lacks receipt")?;
+        let evidence = store.external_evidence(id)?;
+        ensure!(evidence.receipt_id == id && evidence.operation_id == Some(operation.operation_id)
+            && evidence.attempt_id == Some(attempt.attempt_id) && evidence.source_id == OPERATION,
             "recovered inference final E1 identity mismatch");
-        let bytes = self.store.cas.read_object(&evidence.raw_ref.digest)?;
+        let bytes = store.cas.read_object(&evidence.raw_ref.digest)?;
         ensure!(bytes.len() as u64 == evidence.raw_ref.bytes
             && Digest::blake3(&bytes) == evidence.raw_ref.digest, "recovered inference receipt CAS mismatch");
         let result: InferenceResult = serde_json::from_slice(&bytes)?;
-        ensure!(result.request_id == self.frozen.request_id
-            && result.effective.matches_seal(&self.frozen.provider_binding, &self.frozen.payload)
+        ensure!(result.request_id == frozen.request_id
+            && result.effective.matches_seal(&frozen.provider_binding, &frozen.payload)
             && result.termination.kind != TerminationKind::Unknown,
             "recovered inference final E1 lacks original terminal evidence");
+        let binding_ref = attempt.transport_ref.as_ref().context("original inference attempt lacks selected-send metadata")?;
+        let bytes = store.cas.read_object(&binding_ref.digest)?;
+        ensure!(bytes.len() as u64 == binding_ref.bytes && Digest::blake3(&bytes) == binding_ref.digest,
+            "original selected-send metadata CAS mismatch");
+        let binding: InferenceSendBinding = serde_json::from_slice(&bytes)?;
+        ensure!(binding.schema_version == 1 && binding.request_id == frozen.request_id,
+            "original quota send belongs to another request");
+        if let Some(send_id) = binding.send_id {
+            // Retry a missing settlement from the exact original E1. Do not
+            // replay header observations with a fresh clock/TTL on recovery.
+            settle_quota_terminal(store, &result, frozen.request_id, send_id);
+        }
         Ok(Some(result))
-    }
 }

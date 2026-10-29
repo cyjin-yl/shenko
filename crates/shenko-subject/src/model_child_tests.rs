@@ -233,3 +233,103 @@ async fn child_budget_cannot_exceed_its_sealed_parent_cap() {
     assert_ne!(subject.step.step_id, old_step);
     assert!(store.native_task_candidates_after(None, 8).unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
+    use shenko_broker::provider::AnthropicProvider;
+    use shenko_quota::*;
+    use shenko_store::external::InferenceSendBinding;
+    use std::collections::HashMap;
+
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wire_tx, wire_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        wire_tx.send(read_wire(&mut socket).await).unwrap();
+        release_rx.await.unwrap();
+        let raw = r#"{"content":[{"type":"text","text":"scripted quota-bound cloud result"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":7}}"#;
+        socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
+        socket.shutdown().await.unwrap();
+    });
+    let (broker, handle) = Broker::with_anthropic_provider(AnthropicProvider {
+        api_key: "scripted-loopback-not-a-credential".into(), base_url: endpoint, model: "subject-cloud".into(),
+    }, 1).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(&store, &mut subject, 1, &[], &delegation("cloud-child", "Independent finite reviewer.", "Review the supplied evidence.", 64)).await;
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    // Install the synthetic policy after the scripted parent result; that
+    // fixture does not claim to perform a cloud subject inference under quota.
+    let window = |key: &str| WindowRef { provider_id: "anthropic".into(), account_scope_ref: "synthetic-child-quota".into(), window_key: key.into() };
+    let policy = QuotaPolicy {
+        policy_id: EntityId::new(), revision: 1,
+        profiles: vec![ModelProfile { profile_id: "cloud-child-profile".into(), model_ref: "cloud-child".into(), local: false,
+            cost_per_request: vec![
+                WindowCost { window: window("api:requests"), unit: "requests".into(), amount: Range::point(1.0).unwrap() },
+                WindowCost { window: window("api:tokens"), unit: "tokens".into(), amount: Range::point(64.0).unwrap() },
+            ],
+        }], assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
+        on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
+        decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![SourceObservationPolicy {
+            source_kind: SourceKind::ApiHeaders, ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse,
+        }],
+    };
+    store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
+    let snapshot = from_api_headers(&ObservationContext {
+        provider_id: "anthropic".into(), account_scope_ref: "synthetic-child-quota".into(), source_version: None,
+        attribution: Attribution::Exclusive, observed_at: chrono::Utc::now(),
+    }, [
+        ("anthropic-ratelimit-requests-limit", "100"), ("anthropic-ratelimit-requests-remaining", "100"),
+        ("anthropic-ratelimit-requests-reset", "2099-01-01T00:00:00Z"),
+        ("anthropic-ratelimit-tokens-limit", "1000"), ("anthropic-ratelimit-tokens-remaining", "1000"),
+        ("anthropic-ratelimit-tokens-reset", "2099-01-01T00:00:00Z"),
+    ]);
+    store.record_quota_snapshot(&snapshot).unwrap();
+    let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    let run = tokio::spawn(broker.run());
+    native.run_once().await.unwrap();
+    let wire = tokio::time::timeout(Duration::from_secs(5), wire_rx).await.unwrap().unwrap();
+    assert_eq!(wire["model"], "cloud-child");
+    assert!(wire["system"].as_str().unwrap().ends_with("Independent finite reviewer."));
+    let current = store.external_task(task.task_id).unwrap();
+    let operation_id = memo_uuid(&current, NATIVE_OPERATION_ID).unwrap();
+    let operation = store.external_operation(operation_id).unwrap();
+    let attempt = store.external_operation_attempt(operation_id).unwrap();
+    let selected: InferenceSendBinding = serde_json::from_slice(&store.cas.read_object(&attempt.transport_ref.unwrap().digest).unwrap()).unwrap();
+    let send = selected.send_id.expect("configured cloud quota must bind its exact send");
+    assert_eq!(store.quota_send_ids(selected.request_id).unwrap(), vec![(send, operation.prepared_commit.seq.0)]);
+
+    // A second budget is real durable state, but is not this wire's send.
+    // Its later creation must not redirect E1 or settle somebody else's rows.
+    let (_, decision) = store.latest_quota_decision().unwrap().unwrap();
+    let later = EntityId::new();
+    let availability = HashMap::from([("cloud-child-profile".into(), BackendState::Available)]);
+    let admission = match store.admit_quota_send(selected.request_id, &policy, &decision, later, &availability, chrono::Utc::now()).unwrap().outcome {
+        AdmissionOutcome::Quota(admission) | AdmissionOutcome::Existing { admission } if admission.state == AdmissionState::Admitted => admission,
+        other => panic!("later synthetic budget was not admitted: {other:?}"),
+    };
+    store.arm_quota_send(selected.request_id, &admission).unwrap();
+    release_tx.send(()).unwrap(); server.await.unwrap();
+    drive_until(&native, || store.native_task_result(task.task_id).unwrap().is_some()).await;
+    let result = store.native_task_result(task.task_id).unwrap().unwrap();
+    assert_eq!(result.result.as_ref().unwrap()["selected_send_id"], serde_json::json!(send));
+    let rows = store.quota_attempts("anthropic", "synthetic-child-quota").unwrap();
+    assert_eq!(rows.len(), 4);
+    for row in rows {
+        if row.request_id == send {
+            assert_eq!(row.billing, AttemptBilling::Settled);
+            assert_eq!(row.cost, Range::point(if row.window_key == "api:tokens" { 19.0 } else { 1.0 }).unwrap());
+        } else {
+            assert_eq!(row.request_id, later);
+            assert_eq!(row.billing, AttemptBilling::Unknown);
+        }
+    }
+    assert!(store.quota_send_ids(selected.request_id).unwrap().contains(&(later, 0)));
+    assert_eq!(store.external_operation_attempts(operation_id).unwrap().len(), 1);
+    assert_eq!(handle.active_count(), 0);
+    native.close_and_join(0).await;
+    run.abort(); let _ = run.await;
+}
