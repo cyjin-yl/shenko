@@ -3,6 +3,7 @@
 pub mod server;
 pub mod routes;
 pub mod api;
+pub mod media;
 pub mod ws;
 pub mod playground;
 

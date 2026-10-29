@@ -70,6 +70,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
     // a replicated fact, so it never enters a snapshot fingerprint.
     conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;
+    // Continuous-media transcript ingress (SPEC §15.2, §20): additive raw
+    // revision facts plus effective-observation links; rows are never
+    // rewritten or backfilled by this step.
+    conn.execute_batch(crate::media::MEDIA_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,

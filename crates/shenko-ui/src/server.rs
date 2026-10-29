@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::api::{self, ApiState};
+use crate::media::{self, MediaRouteState};
 use crate::playground::{self, PlaygroundState};
 use crate::routes::*;
 use crate::ws::{WsState, ws_handler};
@@ -22,6 +23,9 @@ pub struct UiServer {
     store: Option<std::sync::Arc<shenko_store::store::Store>>,
     inference: Option<api::InferenceStatus>,
     inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>>,
+    /// Live media ingress service for `/api/media/*`; `None` leaves those
+    /// routes answering `available: false` instead of faking admission.
+    media_ingress: Option<std::sync::Arc<shenko_media::MediaIngress>>,
 }
 
 impl UiServer {
@@ -34,6 +38,7 @@ impl UiServer {
             store: None,
             inference: None,
             inbox_tx: None,
+            media_ingress: None,
         }
     }
 
@@ -81,6 +86,15 @@ impl UiServer {
         self
     }
 
+    /// Attach the live media ingress service behind `/api/media/*`. SPEC §20.
+    pub fn with_media_ingress(
+        mut self,
+        ingress: std::sync::Arc<shenko_media::MediaIngress>,
+    ) -> Self {
+        self.media_ingress = Some(ingress);
+        self
+    }
+
     /// Wire the subject outbox so model output reaches the timeline. SPEC §21.12.
     pub fn with_outbox(
         mut self,
@@ -118,6 +132,11 @@ impl UiServer {
         if let Some(store) = self.store.clone() {
             api_state = api_state.with_store(store);
         }
+        let mut media_state = MediaRouteState::default();
+        if let Some(store) = self.store.clone() {
+            media_state.store = Some(store);
+        }
+        media_state.ingress = self.media_ingress.clone();
         if let Some(data_dir) = self.data_dir.clone() {
             api_state = api_state.with_data_dir(data_dir);
         }
@@ -145,6 +164,7 @@ impl UiServer {
             .route("/ws", get(ws_handler))
             .merge(playground::router(playground_state))
             .merge(api::router(api_state))
+            .merge(media::router(media_state))
             .layer(Extension(self.state));
         info!(addr=%self.bind, playground=%playground_root.display(), "UI server starting");
         let listener = tokio::net::TcpListener::bind(self.bind).await?;

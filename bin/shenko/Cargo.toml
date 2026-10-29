@@ -27,6 +27,7 @@ shenko-memory = { path = "../../crates/shenko-memory" }
 shenko-ui = { path = "../../crates/shenko-ui" }
 shenko-seed = { path = "../../crates/shenko-seed" }
 shenko-channel-napcat = { path = "../../crates/shenko-channel-napcat" }
+shenko-media = { path = "../../crates/shenko-media" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

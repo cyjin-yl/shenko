@@ -2511,6 +2511,7 @@ dependencies = [
  "shenko-exec-host",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-media",
  "shenko-memory",
  "shenko-node",
  "shenko-seed",
@@ -2714,6 +2715,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "cordis-core",
+ "serde",
+ "serde_json",
+ "shenko-store",
+ "shenko-subject",
+ "shenko-types",
+ "tokio",
+]
+
+[[package]]
 name = "shenko-memory"
 version = "0.1.0"
 dependencies = [
@@ -2856,6 +2872,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shenko-kernel",
+ "shenko-media",
  "shenko-store",
  "shenko-subject",
  "shenko-types",

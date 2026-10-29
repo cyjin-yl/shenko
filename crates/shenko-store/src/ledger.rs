@@ -67,6 +67,28 @@ impl Ledger {
         Ok(LedgerSeq(seq as u64))
     }
 
+    /// Record one committed mutation line in commit_log inside the caller's
+    /// transaction. Dedicated state mutations (e.g. media ingress) and the
+    /// generic WriteBatch share this line so commit_ref means the same thing.
+    pub(crate) fn record_commit(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        seq: LedgerSeq,
+        entity_count: usize,
+    ) -> Result<(), ShenkoError> {
+        tx.execute(
+            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                self.ledger_id.to_string(),
+                seq.0 as i64,
+                self.incarnation.to_string(),
+                entity_count as i64,
+            ],
+        )
+        .map_err(|e| ShenkoError::storage(e.to_string()))
+    }
+
     #[instrument(skip(self, batch))]
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
         self.with_mutation(|| self.try_commit(batch), |_| true)
@@ -185,17 +207,7 @@ impl Ledger {
         }
 
         // record commit in ledger log
-        tx.execute(
-            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)
-             VALUES (?1, ?2, ?3, ?4)",
-            params![
-                self.ledger_id.to_string(),
-                seq.0 as i64,
-                self.incarnation.to_string(),
-                updated.len() as i64,
-            ],
-        )
-        .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        self.record_commit(&tx, seq, updated.len())?;
 
         tx.commit()
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
