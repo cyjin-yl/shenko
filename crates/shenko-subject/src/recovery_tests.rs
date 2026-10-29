@@ -271,9 +271,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
         let (result_tx, _) = tokio::sync::oneshot::channel();
         provider.complete(&InferenceRequest {
             request_id: EntityId::new(), agent_id: EntityId::new(), conversation_id: EntityId::new(),
-            provider_binding: ProviderBinding::Anthropic { base_url, model: "fixture".into(),
-                api_version: "2026-10-21".into(), credential_fingerprint: None,
-                serializer_revision: 3, default_max_tokens: 8192 },
+            provider_binding: provider.binding(),
             priority: InferencePriority::Subject, epoch: ControllerEpoch(7), payload, result_tx,
         }).await.unwrap();
         server.await.unwrap()
