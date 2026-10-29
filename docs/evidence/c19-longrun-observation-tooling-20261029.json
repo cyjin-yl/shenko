@@ -7,33 +7,63 @@
   "requirements": ["R021"],
   "cases_reference_only": ["G11", "G08", "N05"],
   "full_cases_passed": [],
-  "status": "tooling_ready_no_long_run_data",
+  "status": "source_repaired_pending_parent_verification_no_long_run_data",
   "product_commit": "a57261a9167729fd13f38e53960e6e759ee8cb10",
+  "product_commit_scope": "Historical schema-1 implementation only, not a verified schema-2 repair candidate. The independent review invalidated the original observed-window and durable-capture claims.",
+  "reviewed_head": "999360c8a5e2980120a43f877f3e6e0aecb2c7d7",
   "base_commit": "5959e455af637fd1edd55fbeb2e94af725131b74",
-  "what_it_is": "A stdlib-only Linux scheduler-side observation capture and report tool (scripts/observe_longrun.py) that can actually run for 7/30 days: fsync'd append-only JSONL samples (subject RSS/VmHWM/VmSize/threads/fd/uptime/alive plus host loadavg/MemAvailable/fs headroom), a manifest frozen at init binding workload/candidate/environment and *declared* windows, (boot_id, pid, starttime, comm) fingerprint segment records for subject restarts, and a report folding span/gap/sequence/torn-tail integrity with windows never exceeding the recorded span.",
-  "what_it_proves": [
-    "4 independent self-check scenarios pass via `python3 -I scripts/observe_longrun_test.py`: real-/proc sampling with honest window boundary (unobserved until span covers), window boundary inclusive edge, restart/absent/integrity surfaces (sequence gaps, torn tail bytes, manifest drift downgrading windows), and manifest immutability plus unresolved-PID honesty.",
-    "The tool appends durably and records sampler downtime as unobserved gaps rather than filling them."
+  "what_it_is": "Source for a stdlib-only Linux scheduler-side observation tool. Schema 2 binds one directory/run to an intact matching header and manifest, requires gap-free samples and same-boot uptime corroboration for observed windows, refuses damaged-log continuation without changing old bytes, and associates restart boundaries with samples. This receipt records source changes and remaining obligations, not executed repair verification.",
+  "what_it_proves": [],
+  "source_repairs": [
+    "Known sampler gaps disqualify every declared window; endpoint span is diagnostic only. Uptime corroboration prevents a wall-clock step from manufacturing elapsed coverage; discontinuous or unverifiable clocks do not qualify.",
+    "One first matching schema/header/run/manifest/recorder binding is required. Missing headers, drift, foreign runs, unknown or malformed records, missing/duplicate sample sequences and unverifiable live-process identities do not qualify.",
+    "Any unterminated tail, including parseable JSON without its newline, is refused before another append; damaged bytes remain unchanged.",
+    "Kernel boot ID comes from /proc/sys/kernel/random/boot_id. PID changes are classified before same-PID starttime changes; zombie/dead processes do not count as alive or accumulate live-process uptime.",
+    "Restart boundaries carry sample_seq. A complete boundary followed by a failed sample write is reused on retry, and reports count only unique sample-corroborated transitions. Unmatched boundaries remain integrity gaps.",
+    "Acknowledged appends fsync both file and containing directory, including newly created log entries and retries.",
+    "The permanent suite now contains exactly 9 independent scenarios. Redundant old cases were removed rather than regrouped. Schema-1 evidence is retained as bytes, not inferred into the new format."
   ],
+  "scenario_inventory": [
+    "intact synthetic window boundary",
+    "known sampling gap across a thirty-day endpoint span",
+    "missing run header",
+    "torn append refusal with byte preservation",
+    "kernel boot-id path",
+    "one PID replacement with a failed sample write and retry",
+    "log creation directory fsync",
+    "zombie subject",
+    "sample sequence discontinuity"
+  ],
+  "historical_execution": {
+    "candidate": "a57261a9167729fd13f38e53960e6e759ee8cb10",
+    "source": "Original C19Evidence handoff; not rerun by the repair worker",
+    "author_reported_commands": [
+      "python3 -I scripts/observe_longrun_test.py",
+      "python3 scripts/check_docs.py",
+      "python3 -I scripts/observe_longrun.py --help"
+    ],
+    "scope_correction": "The old four function names concealed at least ten independent behaviors. Those reported passes do not validate the repaired source, prove the nine reviewed properties, or establish physical durability."
+  },
   "what_it_does_not_prove": [
-    "No 7-day or 30-day run has been performed or observed; no long-run data exists.",
+    "The schema-2 repair has not been executed by its author; parent verification is required.",
+    "No 7-day or 30-day run has been performed or observed; no candidate long-run data exists.",
     "No RSS/drift/uptime/failure-distribution numbers for any Shenko candidate.",
-    "No router/Android/multi-node profiles, no power-loss RPO, no subject behavioural correctness (continuous thinking, no message loss) — the sampler observes process facts only.",
-    "Sampling is heartbeat-level: behaviour between samples and same-boot PID reuse without --pid-file supervision remain unobserved."
+    "No router/Android/multi-node profiles, physical power-loss RPO, or subject behavioral correctness (continuous thinking or no message loss).",
+    "Samples are points in time. Between-sample behavior is not proven; restarts require the actual new PID. Cross-boot continuity is conservatively rejected.",
+    "One writer per run is required. Local evidence is unsigned and candidate metadata is caller-supplied; the sampler does not attest that a PID executed the declared binary."
   ],
   "environment": {
-    "executed_where": "C19 worktree tooling only; self-test ran in the development container with local /proc",
+    "repair_execution": "Source edits and DCO commit only; no builds/tests/formatters/services/network/model calls by the repair worker",
     "product_executed": false
   },
-  "reproducer": [
+  "proposed_parent_checks_not_executed": [
     "python3 -I scripts/observe_longrun_test.py",
     "python3 scripts/check_docs.py",
-    "python3 -I scripts/observe_longrun.py init --dir RUN_DIR --run-id ID --workload DESC --candidate-commit SHA --window 7d=604800 [--pid N|--pid-file F]",
-    "python3 -I scripts/observe_longrun.py sample --dir RUN_DIR   (cron/systemd) OR run --dir RUN_DIR --deadline-seconds N",
-    "python3 -I scripts/observe_longrun.py report --dir RUN_DIR --require-observed"
+    "A bounded real-PID capture: check non-null boot ID against /proc/sys/kernel/random/boot_id, live facts, absent long-run verdict, and --require-observed exit 3.",
+    "A bounded native fault exercise for missing headers, torn tails and failure after a complete boundary but before its sample; also observe a real PID replacement. This is not 7/30-day or physical power-loss evidence."
   ],
   "bounds": {
-    "claimed_requirement_delta": "R021 note/implementation_refs only; implementation_state remains partial, satisfied=false",
-    "long_run_obligations_remaining": "All actual 7/30-day windows, device RSS targets (SPEC section 22 draft numbers), router/Android/multi-node, failure-injection evidence are still unobserved."
+    "claimed_requirement_delta": "R021 remains partial and satisfied=false; source/tooling references only",
+    "long_run_obligations_remaining": "All actual 7/30-day windows, device RSS targets, router/Android/multi-node profiles and real failure-injection evidence remain unobserved."
   }
 }
