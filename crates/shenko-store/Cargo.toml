@@ -20,6 +20,7 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }
 tempfile = "3"
+libc = "0.2"
 
 [dev-dependencies]
 shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }

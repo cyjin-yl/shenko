@@ -27,8 +27,13 @@ Git/SSH 端到端认证）。
 - **安装身份**：CLI 执行先通过 `Store::inspect_installation_binding`：将
   主库及其 -journal/-wal 侧车复制进临时快照（原始文件元组零写入——只读
   打开会在 -shm 缺失时写原路径，immutable=1 则会静默漏掉未 checkpoint
-  的 WAL，两者都不可用），quick_check 后读绑定，并要求复制窗口内原库
-  签名不变；持续变化的库如实报不稳定而非承认撕裂快照。比较 home
+  的 WAL，两者都不可用）。复制由 fork 出的子进程做 inode-bound 读取：
+  子进程 O_RDONLY|O_NOFOLLOW 打开、同一 fd fstat→read→fstat 后经管道把
+  真实 fd 签名（dev/ino/len/mtime+ns/ctime+ns）回告父进程；父进程绝不
+  open+close 活库 inode（POSIX independent-close 会释放本进程持有的锁），
+  只比对 fd 签名与已准入路径签名，路径被换绑或读间内容变更都如实拒绝。
+  quick_check 后读绑定，并要求复制窗口内原库签名不变；持续变化的库
+  如实报不稳定而非承认撕裂快照。比较 home
   manifest 的 installation_id 与真实 ledger_id；缺库、旧库或异库不会在
   拒绝前被创建/迁移。CLI、native handler 与 `node_sync::open_node` 共用
   subject/genesis/branch 的身份投影：subject_genesis 是可复制的历史，多

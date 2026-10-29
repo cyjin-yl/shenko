@@ -1126,12 +1126,37 @@ fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
     name.into()
 }
 
-/// Signature of one live SQLite tuple member: None when absent. Anything that
-/// is not a plain regular file is rejected rather than followed. ctime is
-/// part of the signature so a rename swap that preserves the original inode
-/// contents still shows up as a change.
-fn tuple_signature(path: &Path) -> Result<Option<(u64, u64, u64, i64, i64, i64)>> {
+/// Inode-bound signature of one live SQLite tuple member. Path-level checks
+/// return None when the member is absent; anything that is not a plain
+/// regular file is rejected rather than followed. Nanosecond timestamps and
+/// ctime keep a same-second checkpoint/WAL-reset or a rename swap-back from
+/// looking identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+struct MemberSig {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    mtime: i64,
+    mtime_ns: i64,
+    ctime: i64,
+    ctime_ns: i64,
+}
+
+fn member_sig(meta: &std::fs::Metadata) -> MemberSig {
     use std::os::unix::fs::MetadataExt;
+    MemberSig {
+        dev: meta.dev(),
+        ino: meta.ino(),
+        len: meta.len(),
+        mtime: meta.mtime(),
+        mtime_ns: meta.mtime_nsec(),
+        ctime: meta.ctime(),
+        ctime_ns: meta.ctime_nsec(),
+    }
+}
+
+fn tuple_signature(path: &Path) -> Result<Option<MemberSig>> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
             ensure!(
@@ -1139,60 +1164,230 @@ fn tuple_signature(path: &Path) -> Result<Option<(u64, u64, u64, i64, i64, i64)>
                 "installation database member is not a regular file: {}",
                 path.display()
             );
-            Ok(Some((
-                meta.dev(),
-                meta.ino(),
-                meta.len(),
-                meta.mtime(),
-                meta.mtime_nsec(),
-                meta.ctime(),
-            )))
+            Ok(Some(member_sig(&meta)))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
 }
 
-/// Copy `src` into `dst` through a short-lived child `cat`, then verify the
-/// source signature survived the copy.
-///
-/// The copy cannot run in this process: opening and then closing the live db
-/// file here would drop every POSIX lock this process holds on that inode
-/// (SQLite's documented independent-close hazard), corrupting the live Store
-/// we are supposed to leave untouched. The child opens, reads and closes in
-/// its own lock domain. The before/after path signatures still guard the
-/// window in which the child performed its open+read.
-fn copy_member(src: &Path, dst: &Path) -> Result<(u64, u64, u64, i64, i64, i64)> {
-    let before = tuple_signature(src)?.context("database member vanished")?;
+/// Report the copy child writes back over the pipe.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct CopyReport {
+    /// 0 = copied successfully; anything else is the child's errno.
+    status: i32,
+    errno: i32,
+    /// fstat of the fd actually opened (inode-bound, before copy).
+    before: MemberSig,
+    /// fstat of the same fd after the copy.
+    after: MemberSig,
+    /// Bytes copied through that fd.
+    copied: u64,
+}
+
+// Runs in the forked child only. Async-signal-safe by construction: every
+// call is a libc syscall on preallocated stack data and inherited fds — no
+// allocator, lock, formatting, panic or destructor path may run here.
+unsafe fn copy_child_body(
+    path_ptr: *const libc::c_char,
+    out_fd: libc::c_int,
+    report_fd: libc::c_int,
+) -> ! {
+    unsafe {
+        let mut report: CopyReport = std::mem::zeroed();
+        let mut record_errno = |report: &mut CopyReport| {
+            report.status = 1;
+            report.errno = *libc::__errno_location();
+        };
+        let fd = libc::open(path_ptr, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        if fd < 0 {
+            record_errno(&mut report);
+        } else {
+            let mut st: libc::stat = std::mem::zeroed();
+            if libc::fstat(fd, &mut st) < 0 {
+                record_errno(&mut report);
+            } else if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+                report.status = 1;
+                report.errno = libc::EINVAL;
+            } else {
+                report.before = MemberSig {
+                    dev: st.st_dev as u64,
+                    ino: st.st_ino as u64,
+                    len: st.st_size as u64,
+                    mtime: st.st_mtim.tv_sec as i64,
+                    mtime_ns: st.st_mtim.tv_nsec as i64,
+                    ctime: st.st_ctim.tv_sec as i64,
+                    ctime_ns: st.st_ctim.tv_nsec as i64,
+                };
+                let mut buf = [0u8; 65536];
+                loop {
+                    let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
+                    if n == 0 {
+                        break;
+                    }
+                    if n < 0 {
+                        if *libc::__errno_location() == libc::EINTR {
+                            continue;
+                        }
+                        record_errno(&mut report);
+                        break;
+                    }
+                    let mut off = 0usize;
+                    let mut done = true;
+                    while off < n as usize {
+                        let w = libc::write(out_fd, buf[off..].as_ptr().cast(), n as usize - off);
+                        if w < 0 {
+                            if *libc::__errno_location() == libc::EINTR {
+                                continue;
+                            }
+                            record_errno(&mut report);
+                            done = false;
+                            break;
+                        }
+                        off += w as usize;
+                        report.copied += w as u64;
+                    }
+                    if !done || report.status != 0 {
+                        break;
+                    }
+                }
+                let mut st2: libc::stat = std::mem::zeroed();
+                if report.status == 0 {
+                    if libc::fstat(fd, &mut st2) < 0 {
+                        record_errno(&mut report);
+                    } else {
+                        report.after = MemberSig {
+                            dev: st2.st_dev as u64,
+                            ino: st2.st_ino as u64,
+                            len: st2.st_size as u64,
+                            mtime: st2.st_mtim.tv_sec as i64,
+                            mtime_ns: st2.st_mtim.tv_nsec as i64,
+                            ctime: st2.st_ctim.tv_sec as i64,
+                            ctime_ns: st2.st_ctim.tv_nsec as i64,
+                        };
+                    }
+                }
+            }
+            libc::close(fd);
+        }
+        // Best-effort report delivery; the parent reaps regardless.
+        let bytes = std::slice::from_raw_parts(
+            (&report as *const CopyReport).cast::<u8>(),
+            std::mem::size_of::<CopyReport>(),
+        );
+        let mut off = 0usize;
+        while off < bytes.len() {
+            let w = libc::write(report_fd, bytes[off..].as_ptr().cast(), bytes.len() - off);
+            if w < 0 {
+                if *libc::__errno_location() == libc::EINTR {
+                    continue;
+                }
+                break;
+            }
+            off += w as usize;
+        }
+        libc::_exit(0);
+    }
+}
+
+/// Copy `src` into `dst` and return the inode-bound signature of the member
+/// actually read. This process never opens or closes the live db inode: a
+/// close here would release every POSIX lock held on that inode by any fd of
+/// this process (SQLite's documented independent-close hazard). A forked
+/// child does open(O_NOFOLLOW), fstat, read-through-the-same-fd, fstat-again
+/// and reports the real fd signatures over a pipe; the parent only reaps,
+/// reads the report and compares. Failure or unverifiable input is an honest
+/// error, never a fabricated signature.
+fn copy_member(src: &Path, dst: &Path, admitted: MemberSig) -> Result<MemberSig> {
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+    let src_c = std::ffi::CString::new(src.as_os_str().as_bytes())
+        .context("database path contains NUL")?;
     let output = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(dst)?;
-    let status = std::process::Command::new("cat")
-        .arg("--")
-        .arg(src)
-        .stdin(std::process::Stdio::null())
-        .stdout(output)
-        .status()
-        .with_context(|| format!("spawn snapshot copy of {}", src.display()))?;
+    let mut pipe = [0 as libc::c_int; 2];
+    if unsafe { libc::pipe(pipe.as_mut_ptr()) } < 0 {
+        return Err(std::io::Error::last_os_error()).context("create copy report pipe");
+    }
+    // Parent owns both pipe fds as Files for RAII close; the child inherits
+    // raw descriptors by number.
+    let (read_end, write_end) = unsafe {
+        (
+            std::fs::File::from_raw_fd(pipe[0]),
+            std::fs::File::from_raw_fd(pipe[1]),
+        )
+    };
+    let out_fd = output.as_raw_fd();
+    let report_fd = write_end.as_raw_fd();
+    let src_ptr = src_c.into_raw();
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        unsafe { drop(std::ffi::CString::from_raw(src_ptr)) };
+        return Err(std::io::Error::last_os_error()).context("fork snapshot copy child");
+    }
+    if pid == 0 {
+        // Child: only async-signal-safe libc work below.
+        unsafe { copy_child_body(src_ptr, out_fd, report_fd) }
+    }
+    unsafe { drop(std::ffi::CString::from_raw(src_ptr)) };
+    drop(write_end); // parent no longer holds the report write end
+    // Reap deterministically; report read comes after so a killed/errored
+    // child can never wedge this call on a missing report.
+    let mut status: libc::c_int = 0;
+    loop {
+        let r = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if r == pid {
+            break;
+        }
+        if r < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
+            continue;
+        }
+        return Err(std::io::Error::last_os_error()).context("reap snapshot copy child");
+    }
     ensure!(
-        status.success(),
-        "snapshot copy of {} failed ({status})",
-        src.display()
+        libc::WIFEXITED(status),
+        "snapshot copy child did not exit cleanly"
     );
-    let staged_len = std::fs::metadata(dst)?.len();
+    let mut buf = std::mem::MaybeUninit::<CopyReport>::uninit();
+    let mut read_end = read_end;
+    read_end
+        .read_exact(unsafe {
+            std::slice::from_raw_parts_mut(
+                buf.as_mut_ptr().cast::<u8>(),
+                std::mem::size_of::<CopyReport>(),
+            )
+        })
+        .context("snapshot copy child report is incomplete")?;
+    let report = unsafe { buf.assume_init() };
     ensure!(
-        staged_len == before.2,
-        "staged database copy is {} bytes, expected {}",
-        staged_len,
-        before.2
+        report.status == 0,
+        "snapshot copy child failed (errno {})",
+        report.errno
     );
-    let after = tuple_signature(src)?.context("database member vanished")?;
     ensure!(
-        after == before,
-        "installation database member changed during inspection copy"
+        report.before == report.after,
+        "live database member changed while its fd was being copied"
     );
-    Ok(before)
+    ensure!(
+        report.before == admitted,
+        "live database member no longer matches the admitted identity \
+         (the path was swapped between inspection and open)"
+    );
+    ensure!(
+        report.copied == admitted.len,
+        "snapshot copied {} bytes, expected {}",
+        report.copied,
+        admitted.len
+    );
+    ensure!(
+        output.metadata()?.len() == admitted.len,
+        "staged database copy length mismatch"
+    );
+    Ok(report.before)
 }
 
 /// Stage a consistent copy of the db tuple (main, -journal, -wal) under
@@ -1201,7 +1396,7 @@ fn copy_member(src: &Path, dst: &Path) -> Result<(u64, u64, u64, i64, i64, i64)>
 fn copy_stable_tuple(
     db_path: &Path,
     staged: &Path,
-) -> Result<Vec<Option<(u64, u64, u64, i64, i64, i64)>>> {
+) -> Result<Vec<Option<MemberSig>>> {
     let mut signatures = Vec::with_capacity(3);
     for suffix in ["", "-journal", "-wal"] {
         let live = sidecar_path(db_path, suffix);
@@ -1210,7 +1405,7 @@ fn copy_stable_tuple(
             continue;
         };
         let dst = sidecar_path(staged, suffix);
-        let copied = copy_member(&live, &dst)?;
+        let copied = copy_member(&live, &dst, before)?;
         ensure!(
             copied == before,
             "installation database member changed during inspection copy"
@@ -1221,7 +1416,7 @@ fn copy_stable_tuple(
 }
 
 /// True when the live tuple still matches the signatures captured at copy.
-fn unchanged_tuple(db_path: &Path, recorded: &[Option<(u64, u64, u64, i64, i64, i64)>]) -> Result<bool> {
+fn unchanged_tuple(db_path: &Path, recorded: &[Option<MemberSig>]) -> Result<bool> {
     for (suffix, recorded_sig) in ["", "-journal", "-wal"].iter().zip(recorded.iter()) {
         if &tuple_signature(&sidecar_path(db_path, suffix))? != recorded_sig {
             return Ok(false);
