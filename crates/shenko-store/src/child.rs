@@ -319,6 +319,7 @@ impl Store {
                     record_revision: old_revision.next(),
                     invocation_id,
                     epoch: head.controller_epoch,
+                    software_generation: head.software_generation.clone(),
                     worker_id: self.capabilities.incarnation,
                     node_id: self.ledger.ledger_id(),
                 };
@@ -444,6 +445,34 @@ impl Store {
         )
     }
 
+    /// Recheck an armed, possibly queued inference at its actual send boundary.
+    /// Record revision may have advanced at T1; invocation/task revision,
+    /// controller generation and ownership are the authority, not the callback.
+    pub fn native_invocation_current(&self, ctx: &crate::external::TaskInvocation) -> Result<bool> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction()?;
+        let Some(task) = read_task(&tx, ctx.task_id)? else { return Ok(false) };
+        self.native_invocation_current_tx(&tx, &task, ctx)
+    }
+
+    pub(crate) fn native_invocation_current_tx(
+        &self, tx: &Transaction<'_>, task: &TaskRecord, ctx: &crate::external::TaskInvocation,
+    ) -> Result<bool> {
+        self.check_dispatch_owner(tx)?;
+        let head = read_head(tx, task.agent_id)?;
+        if task.abort_request.is_some() || task.task_revision != ctx.task_revision
+            || head.controller_epoch != ctx.epoch
+            || head.software_generation != ctx.software_generation
+            || !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused)
+            || !matches!(task.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
+                if invocation_id == ctx.invocation_id && epoch == ctx.epoch)
+        {
+            return Ok(false);
+        }
+        ensure_owner_active(tx, task, &head)?;
+        Ok(true)
+    }
+
     /// T2 binds an actually resolved operation and its sealed E1 to a durable
     /// result entry and subject-ready inbox projection in one SQL transaction.
     pub fn complete_native_task(
@@ -469,6 +498,9 @@ impl Store {
                         if invocation_id == claim.invocation.invocation_id
                             && epoch == claim.invocation.epoch)
                 {
+                    return Ok(None);
+                }
+                if !self.native_invocation_current_tx(&tx, &task, &claim.invocation)? {
                     return Ok(None);
                 }
                 ensure_current_operation(&tx, &completion)?;

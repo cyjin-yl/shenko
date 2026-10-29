@@ -261,6 +261,17 @@ pub trait InferenceReceiptSink: Send + Sync + 'static {
     fn record(&self, result: &InferenceResult) -> Result<()>;
 }
 
+/// Trusted runtime adapter to the original durable ledger, not model input or
+/// a callback's assertion of success. A reader must validate the final E1 CAS,
+/// operation/attempt identities and immutable request before returning evidence.
+/// There is deliberately no raw-id, bool or caller-result release API.
+pub trait InferenceRecoverySource {
+    fn request_id(&self) -> EntityId;
+    fn binding(&self) -> &ProviderBinding;
+    fn payload(&self) -> &crate::request::InferencePayload;
+    fn read_terminal_result(&self) -> Result<Option<InferenceResult>>;
+}
+
 struct Submission {
     request: InferenceRequest,
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
@@ -298,15 +309,29 @@ impl BrokerHandle {
             .entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
     }
 
-    /// Only the owner with conclusive original evidence may release recovered
-    /// debt. A live request remains owned by the broker's completion path.
-    pub fn release_reconciled(&self, request_id: EntityId) {
+    /// Reconcile only through a reader of the original durable receipt. Task
+    /// terminal/cancelled, local timeout and a raw request ID are not evidence.
+    /// A live request remains owned by the broker's provider completion path.
+    pub fn reconcile_recorded(&self, source: &dyn InferenceRecoverySource) -> Result<()> {
+        let Some(result) = source.read_terminal_result()? else {
+            self.recover_unknown(source.request_id());
+            return Ok(());
+        };
+        ensure!(result.request_id == source.request_id()
+            && result.effective.matches_seal(source.binding(), source.payload())
+            && result.termination.kind != TerminationKind::Unknown,
+            "recovered inference lacks matching original terminal evidence");
         let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
-        if accounting.get(&request_id).is_some_and(Option::is_some) {
-            let guard = accounting.remove(&request_id).flatten().expect("checked charge");
-            guard.release_terminal();
+        if accounting.get(&source.request_id()).is_some_and(Option::is_some) {
+            let guard = accounting.remove(&source.request_id()).flatten().expect("checked charge");
+            match result.termination.kind {
+                TerminationKind::NeverDispatched => guard.release_never_dispatched(),
+                TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => guard.release_terminal(),
+                TerminationKind::Unknown => unreachable!("terminal evidence checked above"),
+            }
             self.accounting_changed.notify_one();
         }
+        Ok(())
     }
 
     pub fn active_count(&self) -> u64 {
@@ -585,12 +610,17 @@ impl Broker {
                     let result = match admitted {
                         Ok(true) => provider.complete(req).await,
                         otherwise => {
-                            if let Err(error) = otherwise {
+                            let status = match otherwise {
+                                Ok(false) => InferenceStatus::Cancelled,
+                                Err(error) => {
                                 warn!(request_id=%req.request_id, %error, "model dispatch fence could not be checked");
-                            }
+                                    InferenceStatus::Failed
+                                }
+                                Ok(true) => unreachable!("dispatched above"),
+                            };
                             InferenceResult {
                                 request_id: req.request_id,
-                                status: InferenceStatus::Cancelled,
+                                status,
                                 response: None,
                                 effective: EffectiveInference::for_request(req),
                                 termination: TerminationEvidence::never_dispatched(),

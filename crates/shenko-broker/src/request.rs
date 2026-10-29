@@ -151,7 +151,7 @@ pub enum InferencePriority {
     Urgent = 3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InferencePayload {
     pub system_prompt: String,
     pub messages: Vec<InferenceMessage>,

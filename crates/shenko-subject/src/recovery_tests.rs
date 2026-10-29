@@ -11,6 +11,9 @@ use shenko_types::{commit::CommitRef, ids::*, subject::*};
 use shenko_types::{operation::OperationRecord, task::*};
 use std::{path::PathBuf, sync::Arc};
 
+#[path = "model_child_tests.rs"]
+mod model_child_tests;
+
 fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
     let dir = std::env::temp_dir().join(format!("shenko-recovery-{}", EntityId::new()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -180,7 +183,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
+        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
         "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
@@ -197,7 +200,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap().object);
+        "subject_step_input", 11).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -315,7 +318,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 10, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 11, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
@@ -324,7 +327,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap());
+        "subject_step_input", 11).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -1209,7 +1212,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 6,
+        schema_version: 7,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1253,7 +1256,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                7,
             )
             .unwrap()
             .object,
@@ -1282,7 +1285,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                7,
             )
             .unwrap()
             .object,
@@ -1695,7 +1698,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     cancel.cancel();
     execute_step(2, &[], &mut subject, &cancel).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
-    assert_eq!(frozen.schema_version, 10);
+    assert_eq!(frozen.schema_version, 11);
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
     assert_eq!(sealed_wait.deadline_at, original_deadline);

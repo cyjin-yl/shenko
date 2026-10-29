@@ -15,6 +15,7 @@ pub struct TaskInvocation {
     pub record_revision: RecordRevision,
     pub invocation_id: EntityId,
     pub epoch: ControllerEpoch,
+    pub software_generation: RuntimeGeneration,
     pub worker_id: EntityId,
     pub node_id: EntityId,
 }
@@ -62,6 +63,24 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(serde_json::from_str(&data)?)
+    }
+
+    /// Startup resource reconstruction uses the original operation identities,
+    /// including cancelled tasks. It never schedules another attempt.
+    pub fn unresolved_external_operations_after(
+        &self, name: &str, after: Option<EntityId>, limit: usize,
+    ) -> Result<Vec<OperationRecord>> {
+        let conn = self.ledger.conn.lock();
+        let mut query = conn.prepare(
+            "SELECT data FROM operations WHERE json_extract(data,'$.operation_name')=?1
+             AND json_extract(data,'$.state')!='resolved' AND operation_id>?2
+             ORDER BY operation_id LIMIT ?3",
+        )?;
+        let rows = query.query_map(
+            params![name, after.map(|id| id.to_string()).unwrap_or_default(), limit.min(256) as i64],
+            |row| row.get::<_, String>(0),
+        )?.collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|data| serde_json::from_str(&data).map_err(Into::into)).collect()
     }
 
     /// Returns None for a new armed admission, or the original operation for a
@@ -142,6 +161,9 @@ impl Store {
             !task.memos.contains_key("native_settlement_only"),
             "settlement_invocation_cannot_arm"
         );
+        if crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
+            ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale_native_generation_or_owner");
+        }
         ensure!(
             op.task_id == ctx.task_id
                 && op.state == OperationState::InFlight

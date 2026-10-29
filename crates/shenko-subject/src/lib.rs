@@ -6,12 +6,14 @@ pub mod inbox;
 mod context_projection;
 pub mod loop_runner;
 pub mod outbox;
+pub mod model_child;
 
 pub use child::*;
 pub use dispatch::*;
 pub use inbox::*;
 pub use loop_runner::*;
 pub use outbox::*;
+pub use model_child::ModelChildHandler;
 
 pub mod output;
 
