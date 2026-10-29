@@ -366,6 +366,18 @@ impl Broker {
         Self::from_env_with_admission(AdmissionController::new(max))
     }
 
+    /// Bind an explicitly configured real Anthropic provider without reading
+    /// ambient credentials. Credentials stay separate from the validated
+    /// endpoint; dispatch shares the ordinary broker queue and compute budget.
+    pub fn with_anthropic_provider(
+        provider: AnthropicProvider,
+        max: u64,
+    ) -> Result<(Self, BrokerHandle)> {
+        let provider = ActiveProvider::Anthropic(provider);
+        provider.binding().validate_endpoint()?;
+        Ok(Self::with_provider(provider, AdmissionController::new(max)))
+    }
+
     fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
         let provider = ActiveProvider::from_env()?;
         provider.binding().validate_endpoint()?;
