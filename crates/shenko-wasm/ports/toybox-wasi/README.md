@@ -13,9 +13,17 @@ This is the upstream source referenced by the `toybox` named target.
   call sites; upstream behavior on other platforms is untouched.
 - `miniconfig.wasi` — the applets that genuinely work under preview1.
 - `build.sh` — builds each applet via upstream `scripts/single.sh`
-  (allnoconfig + one command → standalone binary).
+  (allnoconfig + one command → standalone binary). It verifies the pinned
+  source archive, claims a fresh persistent run directory, unpacks/patches
+  `<run>/vendor/`, enforces `CPUS=1`, and retains probe/logs/artifacts under
+  that same run. Existing trees and prior artifacts are never build inputs
+  to an upstream cleanup command.
 - `ACQUISITION.md` — pinned upstream tarball + wasi-sdk-34 with checksums.
 - `SMOKE.md` — post-build verification through `shenko tool exec`.
+
+This source recipe has not been built or executed in this slice. The named
+Toybox target remains unresolved until real artifacts and execution evidence
+exist; patch application alone is not a successful port build.
 
 ## Design constraints
 

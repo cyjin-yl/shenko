@@ -1,6 +1,6 @@
 # Smoke checks for the toybox WASI port
 
-Run after `build.sh` produces `out-wasi/*.wasm`. Every artifact must pass
+Run after `build.sh` produces `<run>/applets/<name>`. Every artifact must pass
 inspection before it is installed — `shenko tool install` re-verifies all of
 this (real ABI inspection, not name matching), so a failure here means the
 build or port is wrong, not the installer.
@@ -17,7 +17,7 @@ before anything is written to the store.
 
 ```sh
 shenko tool install --name toybox-cat --version 0.8.15 --abi wasi_preview1 \
-  --file out-wasi/cat.wasm
+  --file <run>/applets/cat
 shenko tool list
 ```
 
