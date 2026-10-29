@@ -732,6 +732,9 @@ impl ComputerUseBackend {
     ) -> std::io::Result<JoinHandle<()>> {
         let (watch_conn, _) = RustConnection::connect(Some(display))
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "watcher connect failed"))?;
+        // The watcher always runs: even without XI it still consumes the
+        // broadcast MappingNotify that invalidates the domain keyboard
+        // caches (MappingNotify reaches every client with no event mask).
         let negotiated = match watch_conn.extension_information(xinput::X11_EXTENSION_NAME) {
             Ok(Some(_)) => xinput::xi_query_version(&watch_conn, 2, 3)
                 .ok()
@@ -740,35 +743,31 @@ impl ComputerUseBackend {
             _ => None,
         };
         // sourceid is only defined for clients negotiating XI >= 2.1 — on
-        // older servers the watcher would misclassify, so refuse to run.
-        let (major, minor) = negotiated
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "xi negotiation failed"))?;
-        let raw_defined = major > 2 || (major == 2 && minor >= 1);
-        if !raw_defined {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "xi < 2.1: raw sourceid undefined",
-            ));
+        // older servers the watcher must not classify raw events, so no
+        // mask is selected; external-input detection stays off.
+        if let Some((major, minor)) = negotiated {
+            let raw_defined = major > 2 || (major == 2 && minor >= 1);
+            let touch = major > 2 || (major == 2 && minor >= 2);
+            if raw_defined {
+                let mut mask_bits = u32::from(XIEventMask::RAW_KEY_PRESS)
+                    | u32::from(XIEventMask::RAW_KEY_RELEASE)
+                    | u32::from(XIEventMask::RAW_BUTTON_PRESS)
+                    | u32::from(XIEventMask::RAW_BUTTON_RELEASE)
+                    | u32::from(XIEventMask::RAW_MOTION);
+                if touch {
+                    mask_bits |= u32::from(XIEventMask::RAW_TOUCH_BEGIN)
+                        | u32::from(XIEventMask::RAW_TOUCH_UPDATE)
+                        | u32::from(XIEventMask::RAW_TOUCH_END);
+                }
+                let masks = [xinput::EventMask {
+                    deviceid: XI_ALL_MASTER_DEVICES,
+                    mask: vec![XIEventMask::from(mask_bits)],
+                }];
+                let _ = xinput::xi_select_events(&watch_conn, root, &masks)
+                    .ok()
+                    .and_then(|c| c.check().ok());
+            }
         }
-        let touch = major > 2 || (major == 2 && minor >= 2);
-        let mut mask_bits = u32::from(XIEventMask::RAW_KEY_PRESS)
-            | u32::from(XIEventMask::RAW_KEY_RELEASE)
-            | u32::from(XIEventMask::RAW_BUTTON_PRESS)
-            | u32::from(XIEventMask::RAW_BUTTON_RELEASE)
-            | u32::from(XIEventMask::RAW_MOTION);
-        if touch {
-            mask_bits |= u32::from(XIEventMask::RAW_TOUCH_BEGIN)
-                | u32::from(XIEventMask::RAW_TOUCH_UPDATE)
-                | u32::from(XIEventMask::RAW_TOUCH_END);
-        }
-        let masks = [xinput::EventMask {
-            deviceid: XI_ALL_MASTER_DEVICES,
-            mask: vec![XIEventMask::from(mask_bits)],
-        }];
-        xinput::xi_select_events(&watch_conn, root, &masks)
-            .ok()
-            .and_then(|c| c.check().ok())
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "xi select failed"))?;
         let weak = Arc::downgrade(domain);
         let ids = xtest_ids.to_vec();
         Ok(std::thread::spawn(move || {
@@ -798,6 +797,35 @@ impl ComputerUseBackend {
                 "no explicit display and $DISPLAY unset",
             );
         };
+        // Parse the display BEFORE connecting: the resolver's TCP fallback
+        // computes `6000 + display` in u16, so display numbers above 59535
+        // overflow (panic under overflow checks) before any socket attempt.
+        // Reject them typed-unavailable instead of letting a malformed
+        // DISPLAY crash the backend.
+        let normalized_display =
+            match x11rb::reexports::x11rb_protocol::parse_display::parse_display(
+                Some(display.as_str()),
+            ) {
+                Ok(parsed) => {
+                    if parsed.display > 59535 {
+                        return DriveOutcome::unavailable(
+                            "display_address_invalid",
+                            format!("display {} exceeds resolver range", parsed.display),
+                        );
+                    }
+                    normalize_display_authority(
+                        &parsed.host,
+                        parsed.protocol.as_deref(),
+                        parsed.display,
+                    )
+                }
+                Err(_) => {
+                    return DriveOutcome::unavailable(
+                        "display_address_invalid",
+                        format!("unparseable display {display:?}"),
+                    )
+                }
+            };
         let (conn, default_screen) = match RustConnection::connect(Some(display.as_str())) {
             Ok(pair) => pair,
             Err(error) => {
@@ -854,28 +882,13 @@ impl ComputerUseBackend {
             .map(|(major, minor)| major > 2 || (major == 2 && minor >= 1))
             .unwrap_or(false);
         let xtest_ids = xtest_device_ids(&conn);
-        // The domain binds the display+root only; resource_id_base differs per
-        // client connection and must never split the writer lease.
-        // Different spellings of one server (":11", "unix:11", "localhost:11",
-        // TCP v. unix) must collapse to the same lease domain: normalize the
-        // authority to `unix:` for local transports and lowercase the host.
-        // Identity key uses the REAL parsed display, not the spelling the
-        // caller gave. Different transport/host aliases to the same server
-        // share one domain; two remote hosts never merge.
-        let normalized_display =
-            match x11rb::reexports::x11rb_protocol::parse_display::parse_display(
-                Some(display.as_str()),
-            ) {
-                Ok(parsed) => normalize_display_authority(
-                    &parsed.host,
-                    parsed.protocol.as_deref(),
-                    parsed.display,
-                ),
-                Err(_) => return DriveOutcome::unavailable(
-                    "display_address_invalid",
-                    format!("unparseable display {display:?}"),
-                ),
-            };
+        // The domain binds the display+root only; resource_id_base differs
+        // per client connection and must never split the writer lease. The
+        // key is the transport the resolver actually picked (computed above
+        // from the parsed display): unix-socket spellings collapse to one
+        // `unix:N` domain, and every TCP-target spelling collapses to
+        // `tcp:host:N` since x11rb ignores the protocol token for non-unix
+        // hosts.
         let domain_id = format!("x11/{}/root{:08x}", normalized_display, screen.root);
         let dpi_x = if screen.width_in_millimeters > 0 {
             f64::from(screen.width_in_pixels) * 25.4 / f64::from(screen.width_in_millimeters)
@@ -912,49 +925,47 @@ impl ComputerUseBackend {
             },
             Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         };
-        // XI2 raw watcher, at most one LIVE thread per domain — creation,
-        // liveness check and publication all happen inside the domain lock so
-        // two concurrent opens cannot race a duplicate watcher, and a watcher
-        // whose thread already exited is rebuilt rather than counted as
-        // detection. Each watcher negotiates XI on its OWN connection: the
-        // session connection's version does not confer sourceid/touch
-        // semantics on another client. On Xvfb all sources are XTEST so this
-        // is a no-op; explicit takeover is unconditional either way.
+        // Domain watcher, at most one LIVE thread per domain — creation,
+        // liveness check and publication all happen inside the domain lock
+        // so two concurrent opens cannot race a duplicate watcher, and a
+        // dead thread is rebuilt rather than counted as live. The thread
+        // always runs (its MappingNotify invalidation needs no XI); external
+        // raw-input DETECTION additionally requires XI >= 2.1 negotiated on
+        // the watcher's own connection — the session connection's version
+        // does not confer sourceid/touch semantics on another client.
         let mut detection = false;
-        if xi_raw_defined {
-            match domain.lock() {
-                Ok(mut locked) => {
-                    let live = locked
-                        .watch
-                        .as_ref()
-                        .is_some_and(|handle| !handle.is_finished());
-                    if live {
-                        detection = true;
-                    } else {
-                        // A finished thread's join returns at once, so it is
-                        // safe to join under the domain lock — which also
-                        // closes the check/spawn/publish critical section.
-                        if let Some(old) = locked.watch.take() {
-                            let _ = old.join();
+        match domain.lock() {
+            Ok(mut locked) => {
+                let live = locked
+                    .watch
+                    .as_ref()
+                    .is_some_and(|handle| !handle.is_finished());
+                if live {
+                    detection = xi_raw_defined;
+                } else {
+                    // A finished thread's join returns at once, so it is
+                    // safe to join under the domain lock — which also
+                    // closes the check/spawn/publish critical section.
+                    if let Some(old) = locked.watch.take() {
+                        let _ = old.join();
+                    }
+                    let stop = Arc::clone(&locked.watch_stop);
+                    match Self::spawn_domain_watcher(
+                        &domain,
+                        &display,
+                        screen.root,
+                        &xtest_ids,
+                        stop,
+                    ) {
+                        Ok(handle) => {
+                            locked.watch = Some(handle);
+                            detection = xi_raw_defined;
                         }
-                        let stop = Arc::clone(&locked.watch_stop);
-                        match Self::spawn_domain_watcher(
-                            &domain,
-                            &display,
-                            screen.root,
-                            &xtest_ids,
-                            stop,
-                        ) {
-                            Ok(handle) => {
-                                locked.watch = Some(handle);
-                                detection = true;
-                            }
-                            Err(_) => detection = false,
-                        }
+                        Err(_) => detection = false,
                     }
                 }
-                Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
             }
+            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         }
         let info = SessionInfo {
             session_id,
@@ -1194,14 +1205,24 @@ impl ComputerUseBackend {
             Ok(s) => s,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
-        // The bound epoch is taken BEFORE reading pixels; after capture the
-        // epoch is re-read and a change rejects the frame — otherwise a
-        // mid-capture takeover would stamp pre-takeover pixels with the new
-        // epoch and let the new holder skip re-observation.
-        let epoch_before = match session.domain_locked() {
-            Ok(domain) => domain.lease_epoch,
+        // Close/capture fence: the domain lock is held from liveness check
+        // through publication. `close` stores `closed` before touching the
+        // domain, so a completed close always flips the flag before it can
+        // block on us; if `closed` is still false at the post-capture check
+        // then close has not even started and CANNOT complete while we hold
+        // this lock — an observation is therefore never published for a
+        // session whose close already returned.
+        let domain_guard = match session.domain_locked() {
+            Ok(domain) => domain,
             Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         };
+        if session.closed.load(Ordering::Relaxed) {
+            return DriveOutcome::unavailable("session_closed", String::new());
+        }
+        // The bound epoch is taken BEFORE reading pixels; the domain lock
+        // already prevents any epoch change mid-capture, and the explicit
+        // post-capture comparison keeps that contract visible.
+        let epoch_before = domain_guard.lease_epoch;
         // Default region means the whole CURRENT root, not the open-time
         // snapshot: a RandR-grown root must be observed in full.
         let region = match frozen.region {
@@ -1239,15 +1260,20 @@ impl ComputerUseBackend {
             Ok(f) => f,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
-        match session.domain_locked() {
-            Ok(domain) if domain.lease_epoch == epoch_before => {}
-            _ => {
-                return DriveOutcome::unavailable(
-                    "epoch_changed_during_capture",
-                    format!("epoch changed mid-capture on {}", session.info.domain_id),
-                )
-            }
-        };
+        if domain_guard.lease_epoch != epoch_before {
+            return DriveOutcome::unavailable(
+                "epoch_changed_during_capture",
+                format!("epoch changed mid-capture on {}", session.info.domain_id),
+            );
+        }
+        // Final liveness fence before anything derived from this session is
+        // published: close cannot have completed while we held the domain
+        // lock, and a flag that IS set here means close began between the
+        // earlier check and now — but still could not finish, so refusing is
+        // the only honest answer either way.
+        if session.closed.load(Ordering::Relaxed) {
+            return DriveOutcome::unavailable("session_closed", String::new());
+        }
         let (fingerprint, shapes) = match Self::layout_fingerprint(&session.conn, session.screen.root) {
             Ok(pair) => pair,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
@@ -1559,9 +1585,10 @@ impl ComputerUseBackend {
         let mut lost = false;
         let mut failure: Option<&'static str> = None;
         for (index, action) in frozen.actions.iter().enumerate() {
-            // Every event inside send_action re-validates the lease under the
-            // domain lock (per-event boundary, including inside Text), so a
-            // takeover or external input revokes between any two events.
+            // Each action re-validates the lease under the domain lock —
+            // per-pointer-event, per-button-action and per-KEYSYM inside
+            // Text — so a takeover or external input revokes between any
+            // two atomic send units, never only between actions.
             let result = send_action(&session, frozen.lease_token, bound_epoch, action);
             match result {
                 Ok(receipt) => {
@@ -1725,20 +1752,18 @@ impl Drop for ComputerUseBackend {
 /// action so partial effects are never under-counted.
 type SendFail = (SendError, usize);
 
-/// One abortable send boundary: re-check lease token + epoch under the
-/// domain lock, emit the XTEST event, apply the held-input mutation, then
-/// RELEASE the lock — an external-input watcher or explicit takeover can
-/// revoke between any two events, not only between actions.
+/// One abortable send boundary inside an already-acquired domain guard:
+/// emit the XTEST event, then apply the held-input mutation. Callers keep
+/// the guard for a whole multi-event sequence so an interleaved revoke
+/// cannot slip between an action's own press and release bookkeeping.
 fn bounded_input(
     session: &X11Session,
-    token: EntityId,
-    epoch: u64,
+    domain: &mut MutexGuard<'_, DomainState>,
     kind: u8,
     detail: u8,
     x: i16,
     y: i16,
 ) -> Result<(), SendError> {
-    let mut domain = session.lease_guard(token, epoch)?;
     let sent_ok = xtest::fake_input(&session.conn, kind, detail, 0, session.screen.root, x, y, 0)
         .ok()
         .and_then(|c| c.check().ok())
@@ -1769,6 +1794,40 @@ fn bounded_input(
         _ => {}
     }
     Ok(())
+}
+
+/// Whether the input is ALREADY down — either tracked in `domain.held` as
+/// pressed by this product, or physically down on the server right now
+/// (the caller may hold a modifier, or a human may). A release we did not
+/// originate must never be emitted: it would lift a hold the domain does
+/// not own. `None` means the live query failed (unknown, not assumed up).
+fn input_is_down(
+    conn: &RustConnection,
+    domain: &DomainState,
+    root: u32,
+    input: HeldInput,
+) -> Option<bool> {
+    if domain.held.contains(&input) {
+        return Some(true);
+    }
+    match input {
+        HeldInput::Key(code) => {
+            let reply = xproto::query_keymap(conn).ok()?.reply().ok()?;
+            let byte = reply.keys.get(usize::from(code) / 8)?;
+            Some(((*byte) >> (code % 8)) & 1 == 1)
+        }
+        HeldInput::Button(button) => {
+            // Button mask bits exist only for buttons 1..=5 (bits 8..12);
+            // anything else is treated as physically unknown → conservative
+            // "not down" only when it is also untracked.
+            if !(1..=5).contains(&button) {
+                return Some(false);
+            }
+            let reply = xproto::query_pointer(conn, root).ok()?.reply().ok()?;
+            let mask = u16::from(reply.mask);
+            Some(mask & (1u16 << (u16::from(button) + 7)) != 0)
+        }
+    }
 }
 
 fn send_action(
@@ -1809,32 +1868,36 @@ fn send_action(
             if !(1..=7).contains(button) {
                 return Err((SendError::Rejected("button_out_of_range"), 0));
             }
+            // One guard per button action so the down-state probe and the
+            // press/release pair cannot be split by a revoke.
+            let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
             match press {
                 PressKind::Tap => {
-                    bounded_input(session, token, epoch, BUTTON_PRESS_EVENT, *button, 0, 0)
-                        .map_err(|e| (e, 0))?;
-                    bounded_input(
-                        session, token, epoch, BUTTON_RELEASE_EVENT, *button, 0, 0,
+                    let held = HeldInput::Button(*button);
+                    let was_down = input_is_down(
+                        &session.conn, &domain, session.screen.root, held,
                     )
-                    .map_err(|e| (e, 1))?;
+                    .ok_or((SendError::Lost, 0))?;
+                    bounded_input(session, &mut domain, BUTTON_PRESS_EVENT, *button, 0, 0)
+                        .map_err(|e| (e, 0))?;
+                    let mut sent = 1usize;
+                    if !was_down {
+                        // Release only the press WE originated — a button
+                        // already held (by us or by a human) must stay held.
+                        bounded_input(session, &mut domain, BUTTON_RELEASE_EVENT, *button, 0, 0)
+                            .map_err(|e| (e, sent))?;
+                        sent += 1;
+                    }
                     Ok(SendResult {
-                        events_sent: 2,
+                        events_sent: sent,
                         postcondition_verified: false,
                         kind: "button".into(),
                         detail: None,
                     })
                 }
                 PressKind::Down => {
-                    bounded_input(
-                        session,
-                        token,
-                        epoch,
-                        BUTTON_PRESS_EVENT,
-                        *button,
-                        0,
-                        0,
-                    )
-                    .map_err(|e| (e, 0))?;
+                    bounded_input(session, &mut domain, BUTTON_PRESS_EVENT, *button, 0, 0)
+                        .map_err(|e| (e, 0))?;
                     Ok(SendResult {
                         events_sent: 1,
                         postcondition_verified: false,
@@ -1843,16 +1906,8 @@ fn send_action(
                     })
                 }
                 PressKind::Up => {
-                    bounded_input(
-                        session,
-                        token,
-                        epoch,
-                        BUTTON_RELEASE_EVENT,
-                        *button,
-                        0,
-                        0,
-                    )
-                    .map_err(|e| (e, 0))?;
+                    bounded_input(session, &mut domain, BUTTON_RELEASE_EVENT, *button, 0, 0)
+                        .map_err(|e| (e, 0))?;
                     Ok(SendResult {
                         events_sent: 1,
                         postcondition_verified: false,
@@ -1902,28 +1957,55 @@ fn send_keysym(
     press: PressKind,
     kind: &str,
 ) -> Result<SendResult, SendFail> {
-    let mapped = {
-        // Resolving an unmapped keysym may mutate the server-global keyboard
-        // map. This external effect needs the same lease/epoch gate as the
-        // XTEST events; no revoked action can remap the next owner's keys.
-        let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
-        keysym_to_keycode(session, &mut domain, keysym).map_err(|e| (e, 0))?
+    // One lease-guarded domain section per keysym: keymap resolution (which
+    // may mutate the server-global map), the physical down-state probes,
+    // and the whole event sequence stay atomic against revocation — the
+    // per-event boundary is therefore the keysym, and an interleaved
+    // takeover can never slip between a press and its matching release.
+    let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
+    let mapped = keysym_to_keycode(session, &mut domain, keysym).map_err(|e| (e, 0))?;
+    // Live physical state of the inputs this sequence may touch. A release
+    // is emitted ONLY for a press this action originated — releasing a
+    // key/button the caller (or a human) already held would silently lift
+    // that hold.
+    let key_down = input_is_down(
+        &session.conn,
+        &domain,
+        session.screen.root,
+        HeldInput::Key(mapped.code),
+    )
+    .ok_or((SendError::Lost, 0))?;
+    let shift_free = match mapped.shift_code {
+        Some(code) => !input_is_down(
+            &session.conn,
+            &domain,
+            session.screen.root,
+            HeldInput::Key(code),
+        )
+        .ok_or((SendError::Lost, 0))?,
+        None => true,
     };
+    // Temporary Shift events exist only when the modifier is free for us:
+    // an already-down Shift still produces the shifted keysym, and we must
+    // neither press-track it nor release the original hold.
+    let temporary_shift = if shift_free { mapped.shift_code } else { None };
     let mut sent = 0usize;
     macro_rules! emit {
         ($kind:expr, $detail:expr) => {
-            bounded_input(session, token, epoch, $kind, $detail, 0, 0)
+            bounded_input(session, &mut domain, $kind, $detail, 0, 0)
                 .map_err(|e| (e, sent))?;
             sent += 1;
         };
     }
-    if let Some(shift_code) = mapped.shift_code {
+    if let Some(shift_code) = temporary_shift {
         emit!(KEY_PRESS_EVENT, shift_code);
     }
     match press {
         PressKind::Tap => {
             emit!(KEY_PRESS_EVENT, mapped.code);
-            emit!(KEY_RELEASE_EVENT, mapped.code);
+            if !key_down {
+                emit!(KEY_RELEASE_EVENT, mapped.code);
+            }
         }
         PressKind::Down => {
             emit!(KEY_PRESS_EVENT, mapped.code);
@@ -1932,7 +2014,7 @@ fn send_keysym(
             emit!(KEY_RELEASE_EVENT, mapped.code);
         }
     }
-    if let Some(shift_code) = mapped.shift_code {
+    if let Some(shift_code) = temporary_shift {
         emit!(KEY_RELEASE_EVENT, shift_code);
     }
     Ok(SendResult {
@@ -2131,6 +2213,20 @@ fn raw_watch_loop(
         }
         match conn.poll_for_event() {
             Ok(Some(event)) => {
+                if matches!(event, Event::MappingNotify(_)) {
+                    // Broadcast to EVERY client with no selection: another
+                    // client remapped keys or modifiers on the live server.
+                    // Drop the cached map/shift so the next keysym resolve
+                    // re-queries the real mapping instead of emitting the
+                    // stale keycode under the still-valid epoch.
+                    if let Some(strong) = shared.upgrade() {
+                        if let Ok(mut locked) = strong.lock() {
+                            locked.keymap = None;
+                            locked.shift_code_cache = None;
+                        }
+                    }
+                    continue;
+                }
                 let source = match &event {
                     Event::XinputRawButtonPress(e) => Some(e.sourceid),
                     Event::XinputRawButtonRelease(e) => Some(e.sourceid),
@@ -2181,26 +2277,20 @@ fn connect_error_kind(error: &x11rb::errors::ConnectError) -> &'static str {
     }
 }
 
-/// Canonical authority+number from a real parsed display. Any local
-/// transport (unix socket, unix-path host, localhost, unix/…) maps to the
-/// `unix:` namespace so alias spellings for the same server collapse;
-/// remote hosts are keyed by protocol+lowercased host to avoid merging
-/// distinct servers.
+/// Canonical authority+number mirroring `connect_addresses`: the key is the
+/// transport endpoint the resolver actually picks, not the protocol token
+/// the caller spelled. Every spelling that resolves to the unix socket —
+/// `unix:N`, `unix/host:N`, `:N`, a unix-path host, or `host:N` with
+/// `protocol="unix"` — collapses to `unix:N`; every spelling that resolves
+/// to `Hostname(host, 6000+N)` (`tcp/host:N`, `inet/host:N`, `host:N` with
+/// a non-local host, …) collapses to `tcp:host:N`. Truly different
+/// endpoints (different host names, different socket paths) stay distinct.
 fn normalize_display_authority(host: &str, protocol: Option<&str>, display: u16) -> String {
-    let host = host.to_ascii_lowercase();
-    let local = host.is_empty()
-        || host.eq_ignore_ascii_case("unix")
-        || host.eq_ignore_ascii_case("localhost")
-        || host == "127.0.0.1"
-        || host == "::1"
-        || host.starts_with('/') // unix path form "/tmp/launch-x:N"
-        || host.contains("/local")
-        || protocol == Some("unix");
-    if local {
+    let unix_transport = protocol == Some("unix") || host.is_empty() || host == "unix";
+    if unix_transport {
         format!("unix:{display}")
     } else {
-        let proto = protocol.unwrap_or("tcp");
-        format!("{proto}:{host}:{display}")
+        format!("tcp:{}:{display}", host.to_ascii_lowercase())
     }
 }
 

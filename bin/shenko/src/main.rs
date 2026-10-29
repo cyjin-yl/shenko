@@ -2062,20 +2062,29 @@ mod recovery_integration_tests {
     fn x11_display_or_skip() -> Option<X11Display> {
         use x11rb::rust_connection::RustConnection;
         if let Ok(display) = std::env::var("SHENKO_TEST_X11_DISPLAY") {
-            if RustConnection::connect(Some(display.as_str())).is_ok() {
+            // Same u16 overflow guard as below: a >59535 display in the
+            // injected value panics inside the resolver's TCP fallback.
+            let safe = x11rb::reexports::x11rb_protocol::parse_display::parse_display(
+                Some(display.as_str()),
+            )
+            .is_ok_and(|p| p.display <= 59535);
+            if safe && RustConnection::connect(Some(display.as_str())).is_ok() {
                 return Some(X11Display { display, owned: None });
             }
         }
         // Parallel test processes must not reserve the same display: spread
-        // candidates across the whole legal range seeded by this pid, skip
-        // numbers with a live server lock or answering socket BEFORE spawn,
-        // then admit only when the answering server is provably THIS child
-        // — the X lock file is created atomically by Xvfb and carries its
-        // PID. Residual hazard: two children may still race into spawn; the
+        // candidates seeded by this pid, skip numbers with a live server
+        // lock or answering socket BEFORE spawn, then admit only when the
+        // answering server is provably THIS child — the X lock file is
+        // created atomically by Xvfb and carries its PID. The upper bound
+        // is 59535, not 65535: the x11rb resolver computes `6000 + display`
+        // in u16 for its TCP fallback, so larger numbers panic under
+        // overflow checks even when only the unix socket is usable.
+        // Residual hazard: two children may still race into spawn; the
         // loser exits or fails to claim the lock and is killed below, so an
         // external server is never killed nor silently adopted.
         let pid = std::process::id() as usize;
-        let range = 65535usize - 90;
+        let range = 59535usize - 90;
         for attempt in 0..48usize {
             let n = 90usize + (pid.wrapping_mul(2654435761).wrapping_add(attempt * 7919)) % range;
             let display = format!(":{n}");
