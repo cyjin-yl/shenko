@@ -24,6 +24,11 @@ Git/SSH 端到端认证）。
   `TOOL_ABI_UNSUPPORTED` 四个显式错误。
 - **`Node::open_inspect`** 提供不建库、不迁移的只读打开；`tool list`
   只读、不会初始化或改写任何存储。
+- **安装身份**：CLI 执行先通过 `Store::inspect_installation_binding`
+  对既有数据库做只读快照，比较 home manifest 的 installation_id 与真实
+  ledger_id；缺库、旧库或异库不会在拒绝前被创建/迁移。CLI、native handler
+  与 `node_sync::open_node` 共用 subject/genesis/branch 的身份投影，node
+  不匹配则拒绝，native 也检查路径上数据库仍匹配活跃 Store。
 - **执行重验**：`wasi.exec` 与 `tool exec` 每次执行前用 unit_object_bytes
   重新读封 bytes 并对 recorded digest——被替换的物化文件没有权威，
   外来 `tools/` 目录永远顶替不了已装记录（没有独立 store 可被换绑）。
@@ -35,7 +40,8 @@ Git/SSH 端到端认证）。
   安装 node 库存的物化根（`Node::materialization_roots` 命中），否则在
   写入任何安装状态前就 `DATA_PATH_CONFLICT`。
 - **`wasi.exec` native definition**（`crates/shenko-exec-host/src/wasi_task.rs`）：
-  `{tool, args, env, stdin_b64, timeout_secs}`；T1 arm 后 guest 在真实
+  当前为 **v2**：`[delegate:wasi.exec:2]`
+  `{tool, args, env, stdin_b64, timeout_secs, mount_profile}`；T1 arm 后 guest 在真实
   WasmRuntime 跑工件本体；`timeout_secs` 是真实 C05 guest 控制
   （`WasiRunControl::deadline`，epoch checkpoint 处中断——CPU 忙 guest
   会终止；阻塞在 host call 里的 guest 如实不受此保证），worker 总是被
@@ -43,9 +49,23 @@ Git/SSH 端到端认证）。
   流式落入 CAS（SealedObjectRef 可整流回放），normalized result 只放
   ≤16KiB utf8 preview + `ObjectRef` 身份，序列化远低于 512KiB settlement
   上限。
-  `EffectStatus`：仅当挂载闭包全只读且有观察结果 → `None`；其余
-  （含任何 RW 挂载或截断/拦截结束）如实 `Unknown`——guest 写过的持久
-  效果不因一次退出观察而宣称已结清。reconcile 不重放。
+  durable `abort_request` 经每调用独立 cancellation token 到 guest；取消
+  如实记为 `OperationOutcome::Cancelled`，deadline 记为 `Interrupted`，均不
+  推导效果。取消控制读取失败会请求停止并 join，然后传播原错误，不忽略失败。
+- **显式只读 profile**：`mount_profile:"read_only"`（CLI 为 `--read-only`）
+  从已准入挂载保持 source/guest path/持久标志，只将实际 guest 权限降为
+  ReadOnly；这份实际闭包完整冻结进 final_input 和 T1 bindings，并由同一
+  FrozenInput 移交 worker，不改 home manifest，也不按 `cat`/`ls` 名称猜测。
+  默认 `managed_home` 保留原声明权限。
+  `EffectStatus` 仅当**实际**闭包全只读且获得真实 terminal outcome 时为
+  `None`，因此只读调用可复用现有 T2/task_result 路径。任何 RW 闭包仍是
+  `Unknown`/`Reconciling`，没有假 `Partial`/`Complete`，没有自动重放；普通
+  RW 结果尚不能完成 T2，这是仍 open 的效果合同缺口，不是本次消除。
+  v2 的 definition/implementation/codec/operation/receipt metadata 一起迁移；
+  v1 旧任务不能借新 authority 重跑。
+- **opaque CAS**：发送端和接收端只展开声明为 JSON 的对象；guest 流
+  即使输出 ObjectRef 形状 JSON 也不产生引用权威。同 digest 先 opaque 后
+  typed-JSON 的引用仍会补展开真实 child，内容收录与 JSON 展开分别去重。
 
 ## 具名目标真实状态（`NAMED_TARGETS`）
 
@@ -93,7 +113,8 @@ Git/SSH 端到端认证）。
 - `yamt/toywasm` v76.0.0：`toywasm-v76.0.0-wasm32-wasi.tgz`（GitHub release，
   ~600KB preview1 command 模块；上游无校验和，安装以实际 BLAKE3 落账）。
 - `vmware-labs/webassembly-language-runtimes` `python/3.12.0+20231211-040d5a6`：
-  `python-3.12.0.wasm`（26MB，带官方 `.sha256sum`）。
+  `python-3.12.0.wasm`（26MB）超过当前 canonical unit 的 1MiB 工件上限，
+  **不能由本切片安装**，不能拿它宣称当前端到端管线已覆盖大型工具。
 
 ```sh
 WORK=/tank/shared/projects/shenko/build/c06-tool-artifacts
@@ -112,28 +133,17 @@ b3sum toywasm-v76/**/toywasm.wasm   # 得 <hex>
 # 具名目标拒绝：./shenko --data-dir <data> tool exec --tool toybox → TOOL_UNSUPPORTED
 ```
 
-python（C14 归档，非本切片目标）：
-
-```sh
-REL=python/3.12.0+20231211-040d5a6
-BASE=https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/$REL
-curl -fsSL -o /tank/shared/projects/shenko/build/c06-tool-artifacts/python.wasm "$BASE/python-3.12.0.wasm"
-curl -fsSL "$BASE/python-3.12.0.wasm.sha256sum"   # 核对 sha256
-./shenko --data-dir <data> tool install --file /tank/shared/projects/shenko/build/c06-tool-artifacts/python.wasm \
-  --name python --version 3.12.0 --abi wasi_preview1 \
-  --expected-digest blake3:<b3sum-of-file> \
-  --source-uri "$BASE" --source-release "$REL" --provenance upstream_release
-```
-
 ## 未验证边界（如实）
 
-- 本切片未跑 build/test/native 验证：新的 7 个独立场景
+- 本切片未跑 build/test/native 验证：共 9 个新增独立永久场景
   （inspect_module 真实 ABI：runnable/错误 _start 签名/外部 import；
-  unit-import→resolve→执行→重开 roundtrip；resolution 策略：named-target
-  拒绝、version 消歧、foreign-ABI 拒执行；prepare 分类：named-target 拒绝、
-  argv 超界、坏 base64）由 parent 在受管构建者上验证。
+  unit-import→resolve→执行→重开 roundtrip；prepare 分类：named-target 拒绝、
+  argv 超界、坏 base64）；另 2 个真实 CAS/archive 场景分别覆盖 opaque
+  guest JSON 不扩图、先 opaque 后 typed alias 的 child 闭包。由 parent
+  在受管构建者上验证；显式 RO 的权限拒写、T1 闭包、T2、重启复用及
+  RW 不结清/不重跑需要独立 native consumer 观察，未在本 worker 运行。
 - artifact 每次执行经 unit_object_bytes 全量读封 + 每次执行重新编译模块
-  （无 module 缓存）；600KB 级可接受，26MB python 级首次编译有可见延迟。
+  （无 module 缓存）；沿用 Node 1MiB 工件上限，大型工具安装仍有明确缺口。
 - guest 流的 io 目录文件在 join 后删除，但完整字节已先 seal 进 CAS；
   retained 证据是 `ObjectRef`（digest+bytes）+ 有界 head preview。
 - deadline 中断阻塞在 host call（如 fd_read 空流）内的 guest 不受保证

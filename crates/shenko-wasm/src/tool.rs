@@ -43,6 +43,29 @@ pub const TOOL_UNIT_PREFIX: &str = "tool.";
 /// deliberate profile decision and a raised bound, never a silent truncation.
 pub const TOOL_ARTIFACT_MAX_BYTES: u64 = shenko_node::MAX_ARTIFACT_BYTES as u64;
 
+/// An explicit invocation choice, never inferred from a tool name. ReadOnly
+/// preserves the admitted mount sources/guest paths but withdraws every guest
+/// write permission; it does not change the persistent home declaration.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolMountProfile {
+    #[default]
+    ManagedHome,
+    ReadOnly,
+}
+
+impl ToolMountProfile {
+    pub fn resolve(self, declared: &[crate::MountSpec]) -> Vec<crate::MountSpec> {
+        declared.iter().map(|mount| {
+            let mut actual = mount.clone();
+            if self == Self::ReadOnly {
+                actual.mode = crate::MountMode::ReadOnly;
+            }
+            actual
+        }).collect()
+    }
+}
+
 /// The ABI an artifact was built for. Only a WASI preview1 *command* module
 /// (function imports all supplied by the preview1 linker, exporting a
 /// `() -> ()` `_start` and `memory`) can execute through
@@ -629,7 +652,11 @@ mod tests {
                         "abi": "wasi_preview1",
                         "entrypoint": "/tools/fixture.echo",
                         "source": {"uri": "builtin:test", "release": "1.0.0", "provenance": "test_fixture"},
-                        "imports": ["wasi_snapshot_preview1.fd_write"],
+                        "imports": [
+                            "wasi_snapshot_preview1.fd_write",
+                            "wasi_snapshot_preview1.path_open",
+                            "wasi_snapshot_preview1.proc_exit"
+                        ],
                     }}),
                     applicability: None,
                 },
@@ -648,10 +675,11 @@ mod tests {
         // Resolve from a fresh read-only inspection of the same installation.
         let inspect = Node::open_inspect(&node_dir)?.expect("node exists");
         let facts = inspect.tool_unit_facts()?;
-        let (record, fact) = resolve_tool(&facts, "fixture.echo")?;
+        let (record, _) = resolve_tool(&facts, "fixture.echo")?;
         assert_eq!(record.version, "1.0.0");
-        let bytes = inspect.unit_object_bytes(&fact.artifact_digest)?;
+        let (bytes, inspection) = tool_module(&inspect, &record)?;
         assert_eq!(Digest::blake3(&bytes), digest);
+        assert_eq!(inspection.imports, record.imports);
 
         let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
             home.clone(),

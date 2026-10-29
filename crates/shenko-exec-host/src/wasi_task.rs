@@ -22,7 +22,7 @@ use shenko_types::{
 };
 use shenko_wasm::{
     InputFile, MountMode, MountSpec, OutputFile, WasiCancellation, WasiCommand, WasiRunControl, WasiRunOutcome,
-    WasmRuntime, resolve_tool, tool_module,
+    ToolMountProfile, WasmRuntime, resolve_tool, tool_module,
 };
 use std::{
     collections::BTreeMap,
@@ -43,14 +43,19 @@ const MAX_STDIN_BYTES: usize = 64 * 1024;
 const MAX_STREAM_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const CONTRACT: &[u8] =
-    b"shenko.wasi.exec/v1: resolve an installed WASI preview1 tool record, execute its exact \
-      bytes under declared mounts with deadline control, and report the true exit code";
+    b"shenko.wasi.exec/v2: execute digest-verified WASI preview1 bytes under the actual frozen \
+      mount closure and explicit managed_home/read_only profile, preserve cancellation and \
+      deadline outcomes, and retain unknown RW effects without replay or false settlement";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WasiExecInput {
     /// Tool name, or name@version when several versions are installed.
     tool: String,
+    /// Explicit capability profile. The default keeps the managed home's
+    /// declared permissions; read_only actually withdraws write capabilities.
+    #[serde(default)]
+    mount_profile: ToolMountProfile,
     /// Arguments after argv[0]; argv[0] is the installed tool's entry name.
     #[serde(default)]
     args: Vec<String>,
@@ -79,6 +84,8 @@ enum PrepareError {
 #[derive(Debug, Serialize)]
 struct FrozenInput {
     tool: String,
+    mount_profile: ToolMountProfile,
+    mounts: Vec<MountSpec>,
     args: Vec<String>,
     env: BTreeMap<String, String>,
     stdin_len: usize,
@@ -144,6 +151,7 @@ impl StreamReport {
 struct WasiObservation {
     operation_id: EntityId,
     tool: ResolvedTool,
+    mount_profile: ToolMountProfile,
     outcome: Option<String>,
     exit_code: Option<i32>,
     stdout: Option<StreamReport>,
@@ -154,6 +162,7 @@ struct WasiObservation {
 #[derive(Debug, Serialize)]
 struct WasiExecResult {
     tool: String,
+    mount_profile: ToolMountProfile,
     version: String,
     digest: String,
     outcome: Option<String>,
@@ -201,7 +210,7 @@ impl WasiExecHandler {
             "application/json",
             "wasi-exec-effects",
             schema,
-            1,
+            2,
         ) {
             Ok(sealed) => Ok(sealed.object),
             Err(error) => {
@@ -272,22 +281,14 @@ impl WasiExecHandler {
         // check node_sync::open_node enforces on the writable path. A
         // transplanted sibling installation's node/ cannot lend its tool
         // records into this home's mounts.
-        if let Some(agent) = self
-            .store
-            .get_existing_agent_id()
-            .map_err(PrepareError::Fault)?
-        {
-            let expected = self
-                .expected_node_identity(agent)
-                .map_err(PrepareError::Fault)?;
-            let actual = node.local_identity().map_err(PrepareError::Fault)?;
-            if actual.as_ref() != Some(&expected) {
-                return Err(PrepareError::Refusal(
-                    "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
-                     this installation's subject binding; reconcile before exec"
-                        .into(),
-                ));
-            }
+        let expected = self.expected_node_identity().map_err(PrepareError::Fault)?;
+        let actual = node.local_identity().map_err(PrepareError::Fault)?;
+        if actual != expected {
+            return Err(PrepareError::Refusal(
+                "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
+                 this installation's subject binding; reconcile before exec"
+                    .into(),
+            ));
         }
         // Re-verify the exact artifact bytes against the retained digest on
         // every execution: the materialized copy is never trusted.
@@ -305,6 +306,8 @@ impl WasiExecHandler {
         };
         let frozen = FrozenInput {
             tool: input.tool,
+            mount_profile: input.mount_profile,
+            mounts: input.mount_profile.resolve(&self.mounts),
             args: input.args,
             env: input.env,
             stdin_len: stdin.len(),
@@ -317,17 +320,16 @@ impl WasiExecHandler {
 
     /// The subject-derived identity this installation's node must carry — the
     /// exact derivation `node_sync::open_node` uses for Initialize/Join.
-    fn expected_node_identity(&self, agent: EntityId) -> Result<shenko_node::Identity> {
-        let genesis = self
-            .store
-            .get_subject_genesis(agent)?
-            .ok_or_else(|| anyhow::anyhow!("subject identity has no actual genesis"))?;
-        let (head, _) = self.store.load_subject(agent)?;
-        Ok(shenko_node::Identity {
-            agent_id: agent,
-            branch_id: EntityId(head.branch_id.0),
-            origin_proof: Digest::blake3(&serde_json::to_vec(&genesis)?),
-        })
+    fn expected_node_identity(&self) -> Result<Option<shenko_node::Identity>> {
+        let live = self.store.installation_binding()?;
+        let current = Store::inspect_installation_binding(&self.data_dir.join("shenko.db"))?;
+        ensure!(live == current,
+            "INSTALLATION_IDENTITY_MISMATCH: managed home database no longer matches the live Store");
+        Ok(live.subject.map(|subject| shenko_node::Identity {
+            agent_id: subject.agent_id,
+            branch_id: subject.branch_id,
+            origin_proof: subject.origin_proof,
+        }))
     }
 
     /// Retain every byte in CAS by streaming, plus a bounded text preview.
@@ -360,7 +362,6 @@ impl WasiExecHandler {
     /// and is always joined by the caller — no detached guest ownership.
     fn execute_blocking(
         store: Arc<Store>,
-        mounts: Vec<MountSpec>,
         bytes: Vec<u8>,
         frozen: FrozenInput,
         stdin: Vec<u8>,
@@ -392,7 +393,7 @@ impl WasiExecHandler {
                 deadline: Some(Duration::from_secs(frozen.timeout_secs)),
                 cancel: Some(cancel),
             };
-            let mut runtime = WasmRuntime::with_mounts(mounts)?;
+            let mut runtime = WasmRuntime::with_mounts(frozen.mounts)?;
             runtime.run_wasi_module(&bytes, command)
         })();
         let stdout = Some(Self::stream_evidence(&store, &stdout_path)?);
@@ -433,9 +434,9 @@ impl WasiExecHandler {
             record_revision: RecordRevision(0),
             task_id: invocation.task_invocation.task_id,
             logical_key: "native-handler".into(),
-            operation_name: "wasi.exec.v1".into(),
-            input_schema_version: 1,
-            output_schema_version: 1,
+            operation_name: "wasi.exec.v2".into(),
+            input_schema_version: 2,
+            output_schema_version: 2,
             final_input_ref: input_ref.clone(),
             input_digest: input_ref.digest.clone(),
             contract_ref: OperationContractRef {
@@ -486,12 +487,12 @@ impl WasiExecHandler {
         VersionRef {
             artifact: ArtifactRef {
                 digest: contract_digest.clone(),
-                locator: "builtin:wasi-exec-v1".into(),
+                locator: "builtin:wasi-exec-v2".into(),
             },
             symbol: "wasi.exec.execute".into(),
             schema: SchemaRef {
-                name: "wasi-exec-observation-v1".into(),
-                major: 1,
+                name: "wasi-exec-observation-v2".into(),
+                major: 2,
                 digest: contract_digest,
             },
         }
@@ -506,10 +507,12 @@ impl WasiExecHandler {
             Err(PrepareError::Fault(error)) => return Err(error),
         };
         let resolved_tool = frozen.resolved_tool.clone();
+        let mount_profile = frozen.mount_profile;
+        let all_read_only = frozen.mounts.iter().all(|mount| mount.mode == MountMode::ReadOnly);
 
         let input_ref = self.seal(&frozen, "wasi-exec-frozen-input")?;
         let bindings = ResourceBindings {
-            provider: "wasi.exec.v1".into(),
+            provider: "wasi.exec.v2".into(),
             account_identity: String::new(),
             runtime_node: invocation.task_invocation.node_id.to_string(),
             mount_generation: 0,
@@ -519,10 +522,8 @@ impl WasiExecHandler {
                 "version": resolved_tool.version,
                 "artifact_digest": resolved_tool.digest,
                 "abi": resolved_tool.abi,
-                "mounts": self.mounts.iter().map(|mount| serde_json::json!({
-                    "guest_path": mount.guest_path,
-                    "mode": format!("{:?}", mount.mode),
-                })).collect::<Vec<_>>(),
+                "mount_profile": mount_profile,
+                "mounts": frozen.mounts,
             }),
         };
         let resource = self.seal(&bindings, "wasi-exec-binding")?;
@@ -559,7 +560,6 @@ impl WasiExecHandler {
         // and the stream directory is removed only after the join.
         let io_dir = std::env::temp_dir().join(format!("shenko-wasi-io-{}", EntityId::new()));
         fs::create_dir_all(&io_dir)?;
-        let mounts = self.mounts.clone();
         let stream_store = Arc::clone(&self.store);
         let io_dir_run = io_dir.clone();
         // C05's interruptible token: durable abort_request propagates into the
@@ -568,24 +568,35 @@ impl WasiExecHandler {
         let cancel = WasiCancellation::default();
         let worker_cancel = cancel.clone();
         let blocking = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(stream_store, mounts, bytes, &frozen, stdin, io_dir_run, worker_cancel)
+            Self::execute_blocking(stream_store, bytes, frozen, stdin, io_dir_run, worker_cancel)
         });
+        let mut cancellation_read_error = None;
         let join_result = {
-            let mut blocking = blocking;
             loop {
                 if blocking.is_finished() {
                     break blocking.await;
                 }
                 // Poll the durable task record: a committed abort_request
                 // reaches the guest through the cancellation token.
-                if let Ok(task) = self.store.external_task(invocation.task.task_id) {
-                    if task.abort_request.is_some() {
+                match self.store.external_task(invocation.task.task_id) {
+                    Ok(task) if task.abort_request.is_some() => cancel.cancel(),
+                    Ok(_) => {}
+                    Err(error) => {
+                        // Loss of durable cancellation authority must not be
+                        // silently treated as permission to keep running.
+                        // Request a stop, join, then preserve this primary
+                        // error; the armed operation remains unreplayed.
+                        cancellation_read_error = Some(error);
                         cancel.cancel();
+                        break blocking.await;
                     }
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
         };
+        if let Some(error) = cancellation_read_error {
+            return Err(error);
+        }
         let guest = match join_result {
             Ok(Ok(guest)) => Some(guest),
             Ok(Err(error)) => return Err(error),
@@ -599,9 +610,16 @@ impl WasiExecHandler {
         };
         let _ = fs::remove_dir_all(&io_dir);
 
+        let outcome = guest.as_ref().and_then(|guest| guest.outcome).map(|outcome| match outcome {
+            WasiRunOutcome::Exited(0) => OperationOutcome::Succeeded,
+            WasiRunOutcome::Exited(_) => OperationOutcome::Failed,
+            WasiRunOutcome::Cancelled => OperationOutcome::Cancelled,
+            WasiRunOutcome::DeadlineExceeded => OperationOutcome::Interrupted,
+        });
         let normalized = self.seal(
             &WasiExecResult {
                 tool: resolved_tool.name.clone(),
+                mount_profile,
                 version: resolved_tool.version.clone(),
                 digest: resolved_tool.digest.to_string(),
                 outcome: guest.as_ref().and_then(|o| o.outcome.map(|v| format!("{v:?}"))),
@@ -626,14 +644,12 @@ impl WasiExecHandler {
         let observation = guest.map(|guest| WasiObservation {
             operation_id: invocation.operation_id,
             tool: resolved_tool.clone(),
+            mount_profile,
             outcome: guest.outcome.map(|outcome| format!("{outcome:?}")),
             exit_code: guest.exit_code,
             stdout: guest.stdout.as_ref().map(StreamReport::from_evidence),
             stderr: guest.stderr.as_ref().map(StreamReport::from_evidence),
             transport_error: guest.transport_error,
-        });
-        let outcome = observation.as_ref().map(|obs| {
-            if obs.exit_code == Some(0) { OperationOutcome::Succeeded } else { OperationOutcome::Failed }
         });
         let raw = self.seal(&observation, "wasi-exec-observation")?;
         let evidence = EvidenceReceipt {
@@ -641,11 +657,11 @@ impl WasiExecHandler {
             receipt_id: EntityId::new(),
             operation_id: Some(invocation.operation_id),
             attempt_id: Some(attempt.attempt_id),
-            source_id: "wasi.exec.v1".into(),
+            source_id: "wasi.exec.v2".into(),
             source_instance_id: invocation.task_invocation.node_id.to_string(),
             source_event_key: None,
             producer_epoch: Some(invocation.task_invocation.epoch.0),
-            producer_schema_version: Some("1".into()),
+            producer_schema_version: Some("2".into()),
             raw_ref: raw,
             decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
             decode_status: if observation.is_some() {
@@ -655,6 +671,7 @@ impl WasiExecHandler {
             },
             observation_level: observation
                 .as_ref()
+                .and_then(|o| o.outcome.as_ref())
                 .map(|_| ObservationLevel::RemoteCompleted),
             normalized_ref: Some(normalized),
             observed_at: Some(chrono::Utc::now()),
@@ -665,17 +682,11 @@ impl WasiExecHandler {
             attempt.attempt_id,
             evidence,
             outcome,
-            // An observed exit or controlled stop is not proof of absent
-            // effects: a guest with read-write mounts may have written to
-            // /home or /memory before trapping or exiting nonzero. Only a
-            // fully read-only mount closure with an observed result has no
-            // writable surface, so only then is `None` justified; everything
-            // else retains the uncertainty instead of settling prematurely.
-            if observation.is_some()
-                && self
-                    .mounts
-                    .iter()
-                    .all(|mount| mount.mode == MountMode::ReadOnly)
+            // Process completion is not an effect assessment. Only a real
+            // terminal observation under an entirely read-only capability
+            // closure proves there was no external writable surface.
+            if observation.as_ref().is_some_and(|o| o.outcome.is_some())
+                && all_read_only
             {
                 EffectStatus::None
             } else {
@@ -692,12 +703,14 @@ impl WasiExecHandler {
         invocation: NativeTaskInvocation,
         detail: String,
     ) -> Result<OperationRecord> {
-        let tool = serde_json::from_value::<serde_json::Value>(invocation.input.clone())
-            .ok()
-            .and_then(|value| value.get("tool").and_then(|t| t.as_str()).map(String::from))
-            .unwrap_or_else(|| "(unparsed)".into());
+        let refused: WasiExecInput = serde_json::from_value(invocation.input.clone())?;
+        let tool = refused.tool;
+        let mount_profile = refused.mount_profile;
         let frozen = FrozenInput {
             tool: tool.clone(),
+            mount_profile,
+            // No guest received capabilities after resolution was refused.
+            mounts: vec![],
             args: vec![],
             env: BTreeMap::new(),
             stdin_len: 0,
@@ -715,12 +728,12 @@ impl WasiExecHandler {
         };
         let input_ref = self.seal(&frozen, "wasi-exec-frozen-input")?;
         let bindings = ResourceBindings {
-            provider: "wasi.exec.v1".into(),
+            provider: "wasi.exec.v2".into(),
             account_identity: String::new(),
             runtime_node: invocation.task_invocation.node_id.to_string(),
             mount_generation: 0,
             capability_level: "tool_resolution".into(),
-            extra: serde_json::json!({"tool": tool}),
+            extra: serde_json::json!({"tool": tool, "mount_profile": mount_profile, "mounts": []}),
         };
         let resource = self.seal(&bindings, "wasi-exec-binding")?;
         let acceptance = self.seal(&"explicit resolution refusal", "wasi-exec-acceptance")?;
@@ -753,6 +766,7 @@ impl WasiExecHandler {
         let normalized = self.seal(
             &WasiExecResult {
                 tool: tool.clone(),
+                mount_profile,
                 version: String::new(),
                 digest: String::new(),
                 outcome: None,
@@ -773,11 +787,11 @@ impl WasiExecHandler {
             receipt_id: EntityId::new(),
             operation_id: Some(invocation.operation_id),
             attempt_id: Some(attempt.attempt_id),
-            source_id: "wasi.exec.v1".into(),
+            source_id: "wasi.exec.v2".into(),
             source_instance_id: invocation.task_invocation.node_id.to_string(),
             source_event_key: None,
             producer_epoch: Some(invocation.task_invocation.epoch.0),
-            producer_schema_version: Some("1".into()),
+            producer_schema_version: Some("2".into()),
             raw_ref: raw,
             decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
             decode_status: DecodeStatus::Decoded,
@@ -801,22 +815,25 @@ impl NativeTaskHandler for WasiExecHandler {
     fn descriptor(&self) -> NativeTaskDescriptor {
         NativeTaskDescriptor {
             kind: "wasi.exec".into(),
-            definition_version: 1,
+            definition_version: 2,
             implementation_ref: ImplementationRef {
                 plugin_id: Self::plugin_id(),
                 artifact_digest: Digest::blake3(CONTRACT),
                 registry_revision: 0,
             },
-            role_revision: "native-wasi-exec/1".into(),
-            authority_refs: vec!["wasm.managed_home.execute_installed_tool/v1".into()],
+            role_revision: "native-wasi-exec/2".into(),
+            authority_refs: vec!["wasm.managed_home.execute_installed_tool/v2".into()],
             prompt_section: Some(
-                "wasi.exec/v1 运行已安装的 WASI preview1 工具（真实 WASM 模块在受管 \
-                 挂载闭包内执行）：[delegate:wasi.exec:1] \
+                "wasi.exec/v2 运行已安装的 WASI preview1 工具（真实 WASM 模块在受管 \
+                 挂载闭包内执行）：[delegate:wasi.exec:2] \
                  {\"tool\":\"名字\"或\"名字@版本\",\"args\":[...],\"env\":{\"K\":\"V\"},\
-                 \"stdin_b64\":\"...\",\"timeout_secs\":60}。argv[0] 是已安装工具名；\
+                 \"stdin_b64\":\"...\",\"timeout_secs\":60,\"mount_profile\":\"read_only\"}。\
+                 read_only 会真实撤销所有挂载写权限，不按工具名猜测；省略此字段默认 \
+                 managed_home 保留声明权限，RW effects 仍未知且不能 T2/自动重放。\
+                 argv[0] 是已安装工具名；\
                  未安装的名字返回明确 TOOL_UNAVAILABLE，已声明但未移植的具名目标返回 \
-                 TOOL_UNSUPPORTED，宿主工具不会被冒名顶替。宿主观察截止只证明 \
-                 host 侧观察超时，不证明 guest 停止。"
+                 TOOL_UNSUPPORTED，宿主工具不会被冒名顶替。截止/取消在 guest epoch \
+                 checkpoint 生效；阻塞 host call 不承诺硬期限，worker 总会 join。"
                     .into(),
             ),
         }
@@ -833,7 +850,7 @@ impl NativeTaskHandler for WasiExecHandler {
     ) -> Result<OperationRecord> {
         let operation = self.store.external_operation(operation_id)?;
         ensure!(
-            operation.task_id == task.task_id && operation.operation_name == "wasi.exec.v1",
+            operation.task_id == task.task_id && operation.operation_name == "wasi.exec.v2",
             "original_operation_contract_mismatch"
         );
         // A guest run has no durable provider handle. A controller restart
@@ -856,11 +873,11 @@ impl NativeTaskHandler for WasiExecHandler {
                     receipt_id: EntityId::new(),
                     operation_id: Some(operation_id),
                     attempt_id: Some(attempt.attempt_id),
-                    source_id: "wasi.exec.recovery".into(),
+                    source_id: "wasi.exec.recovery.v2".into(),
                     source_instance_id: self.store.capabilities.incarnation.to_string(),
                     source_event_key: Some(format!("controller-recovery:{}", attempt.attempt_id)),
                     producer_epoch: None,
-                    producer_schema_version: Some("1".into()),
+                    producer_schema_version: Some("2".into()),
                     raw_ref: raw,
                     decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
                     decode_status: DecodeStatus::Decoded,
@@ -896,7 +913,7 @@ mod tests {
         NativeTaskInvocation {
             context: CallContext {
                 caller_instance_id: EntityId::new(),
-                role_revision: "native-wasi-exec/1".into(),
+                role_revision: "native-wasi-exec/2".into(),
                 task_id: Some(task_id),
                 expected_task_revision: Some(1),
                 invocation_id: Some(EntityId::new()),
@@ -926,7 +943,7 @@ mod tests {
                 },
                 background: false,
                 kind: "wasi.exec".into(),
-                definition_version: 1,
+                definition_version: 2,
                 implementation_ref: ImplementationRef {
                     plugin_id: EntityId::new(),
                     artifact_digest: Digest::blake3(CONTRACT),

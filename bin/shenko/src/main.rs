@@ -128,6 +128,10 @@ enum ToolCommand {
         /// name or name@version
         #[arg(long)]
         tool: String,
+        /// Grant only read permissions on the admitted home/memory mounts.
+        /// This is an actual guest capability restriction, not an effect label.
+        #[arg(long)]
+        read_only: bool,
         /// Guest argv after argv[0].
         #[arg(last = true)]
         args: Vec<String>,
@@ -936,7 +940,7 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // foreign-content check Bootstrap::validate_target enforces. An
             // unowned nonempty tools/ directory must fail here rather than be
             // overwritten by write_package after the import is recorded.
-            let tools_dir = data_dir.join(TOOL_DIR_NAME);
+            let tools_dir = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
             if tools_dir.exists() && std::fs::read_dir(&tools_dir)?.next().is_some() {
                 let node_check = Node::open_inspect(&data_dir.join("node"))?
                     .ok_or_else(|| anyhow::anyhow!(
@@ -1022,6 +1026,7 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
         }
         ToolCommand::Exec {
             tool,
+            read_only,
             args,
             env,
             stdin_file,
@@ -1042,12 +1047,11 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // Installation binding part 1: the home manifest's declared
             // installation must be this store's ledger identity — a copied
             // home/ manifest cannot alias a sibling installation's ledger.
-            let store = shenko_store::store::Store::open(
-                data_dir.join("shenko.db"),
-                data_dir.join("cas"),
+            let binding = shenko_store::Store::inspect_installation_binding(
+                &data_dir.join("shenko.db"),
             )?;
             anyhow::ensure!(
-                manifest.installation_id == store.ledger.ledger_id(),
+                manifest.installation_id == binding.ledger_id,
                 "INSTALLATION_IDENTITY_MISMATCH: home manifest installation_id \
                  does not match this store's ledger; reconcile before exec"
             );
@@ -1062,24 +1066,16 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // subject — the same identity check node_sync::open_node enforces
             // on the writable path. A transplanted node's tool records cannot
             // execute against this home.
-            if let Some(agent) = store.get_existing_agent_id()? {
-                let genesis = store
-                    .get_subject_genesis(agent)?
-                    .context("subject identity has no actual genesis")?;
-                let (head, _) = store.load_subject(agent)?;
-                let expected = shenko_node::Identity {
-                    agent_id: agent,
-                    branch_id: shenko_types::ids::EntityId(head.branch_id.0),
-                    origin_proof: shenko_types::object::Digest::blake3(
-                        &serde_json::to_vec(&genesis)?,
-                    ),
-                };
-                anyhow::ensure!(
-                    node.local_identity()?.as_ref() == Some(&expected),
-                    "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
-                     this installation's subject binding; reconcile before exec"
-                );
-            }
+            let expected = binding.subject.map(|subject| shenko_node::Identity {
+                agent_id: subject.agent_id,
+                branch_id: subject.branch_id,
+                origin_proof: subject.origin_proof,
+            });
+            anyhow::ensure!(
+                node.local_identity()? == expected,
+                "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
+                 this installation's subject binding; reconcile before exec"
+            );
             let facts = node.tool_unit_facts()?;
             let (record, _) = resolve_tool(&facts, &tool)?;
             // Every execution re-verifies the sealed bytes and the real ABI;
@@ -1116,7 +1112,12 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                     .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
                 command.environment.push((key.into(), value.into()));
             }
-            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(manifest.mounts.clone())?;
+            let profile = if read_only {
+                shenko_wasm::ToolMountProfile::ReadOnly
+            } else {
+                shenko_wasm::ToolMountProfile::ManagedHome
+            };
+            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(profile.resolve(&manifest.mounts))?;
             let code = runtime.run_wasi_module(&module, command);
             if stdout_file.is_none() {
                 std::io::stdout().write_all(&std::fs::read(&stdout_path).unwrap_or_default())?;

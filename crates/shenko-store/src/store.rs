@@ -1,8 +1,8 @@
 //! Main store — SPEC §41.2.1
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use parking_lot::Mutex;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use std::path::PathBuf;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
 
@@ -10,7 +10,7 @@ use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedE
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::ids::{BranchId, RecordRevision};
-use shenko_types::object::ObjectRef;
+use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::store::{StoreCapabilities, WriteBatch};
 use shenko_types::subject::{
     SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
@@ -19,6 +19,21 @@ use shenko_types::subject::{
 use crate::cas::ContentStore;
 use crate::ledger::Ledger;
 use crate::semantic_wait::WaitClock;
+
+/// Existing ledger/subject authority, projected without initialization,
+/// migrations, CAS setup, or recovery writes.
+#[derive(Debug, PartialEq, Eq)]
+pub struct InstallationBinding {
+    pub ledger_id: EntityId,
+    pub subject: Option<SubjectBinding>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SubjectBinding {
+    pub agent_id: EntityId,
+    pub branch_id: EntityId,
+    pub origin_proof: Digest,
+}
 
 pub struct Store {
     pub ledger: Arc<Ledger>,
@@ -34,6 +49,33 @@ pub struct Store {
 }
 
 impl Store {
+    /// Inspect an existing database only. Failure (including a missing or old
+    /// database) leaves its original bytes and installation state untouched.
+    pub fn inspect_installation_binding(db_path: &Path) -> Result<InstallationBinding> {
+        let metadata = std::fs::symlink_metadata(db_path)?;
+        ensure!(metadata.is_file(), "installation database must be a regular file");
+        let mut conn = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        let tx = conn.transaction()?;
+        let binding = read_installation_binding(&tx)?;
+        tx.commit()?;
+        Ok(binding)
+    }
+
+    /// Use exactly the same identity projection for a live Store and a
+    /// read-only CLI admission; neither path infers an identity from paths.
+    pub fn installation_binding(&self) -> Result<InstallationBinding> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction()?;
+        let binding = read_installation_binding(&tx)?;
+        ensure!(binding.ledger_id == self.ledger.ledger_id(), "ledger identity changed");
+        tx.commit()?;
+        Ok(binding)
+    }
+
     pub fn open(db_path: PathBuf, cas_dir: PathBuf) -> Result<Self> {
         let conn = Connection::open(&db_path)?;
         configure_sqlite(&conn)?;
@@ -714,25 +756,7 @@ impl Store {
     ) -> Result<(SubjectBranchHead, SubjectStep), ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction().map_err(storage_error)?;
-        let json: String = tx
-            .query_row(
-                "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
-                [agent_id.to_string()],
-                |r| r.get(0),
-            )
-            .map_err(storage_error)?;
-        let head: SubjectBranchHead = serde_json::from_str(&json)?;
-        if head.agent_id != agent_id {
-            return Err(ShenkoError::conflict("stored head identity mismatch"));
-        }
-        let head = checked_head_mode(&tx, &head, false)?;
-        if head.mode == SubjectMode::Paused {
-            crate::runtime_boundary::validate_paused_head(&tx, &head)?;
-        }
-        let step = read_step(&tx, &head.branch_id, head.next_step_id)?.ok_or_else(|| {
-            ShenkoError::not_found("head.next_step_id has no stored successor; recovery required")
-        })?;
-        validate_step_binding(&head, &step)?;
+        let (head, step) = read_subject(&tx, agent_id)?;
         tx.commit().map_err(storage_error)?;
         Ok((head, step))
     }
@@ -969,6 +993,54 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 
 pub(crate) fn storage_error(error: rusqlite::Error) -> ShenkoError {
     ShenkoError::storage(error.to_string())
+}
+
+fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
+    let ledger_id: String = conn.query_row(
+        "SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |r| r.get(0),
+    )?;
+    let mut genesis_rows = conn.prepare("SELECT subject_id,data FROM subject_genesis LIMIT 2")?;
+    let mut rows = genesis_rows.query([])?;
+    let subject = if let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let json: String = row.get(1)?;
+        let agent_id: EntityId = id.parse()?;
+        let genesis: SubjectGenesis = serde_json::from_str(&json)?;
+        ensure!(genesis.subject_id == agent_id, "subject genesis identity mismatch");
+        ensure!(rows.next()?.is_none(), "installation has more than one subject");
+        let (head, _) = read_subject(conn, agent_id)?;
+        Some(SubjectBinding {
+            agent_id,
+            branch_id: EntityId(head.branch_id.0),
+            origin_proof: Digest::blake3(&serde_json::to_vec(&genesis)?),
+        })
+    } else {
+        None
+    };
+    Ok(InstallationBinding { ledger_id: ledger_id.parse()?, subject })
+}
+
+fn read_subject(
+    conn: &Connection,
+    agent_id: EntityId,
+) -> Result<(SubjectBranchHead, SubjectStep), ShenkoError> {
+    let json: String = conn.query_row(
+        "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+        [agent_id.to_string()], |r| r.get(0),
+    ).map_err(storage_error)?;
+    let head: SubjectBranchHead = serde_json::from_str(&json)?;
+    if head.agent_id != agent_id {
+        return Err(ShenkoError::conflict("stored head identity mismatch"));
+    }
+    let head = checked_head_mode(conn, &head, false)?;
+    if head.mode == SubjectMode::Paused {
+        crate::runtime_boundary::validate_paused_head(conn, &head)?;
+    }
+    let step = read_step(conn, &head.branch_id, head.next_step_id)?.ok_or_else(|| {
+        ShenkoError::not_found("head.next_step_id has no stored successor; recovery required")
+    })?;
+    validate_step_binding(&head, &step)?;
+    Ok((head, step))
 }
 
 pub(crate) fn read_step(
