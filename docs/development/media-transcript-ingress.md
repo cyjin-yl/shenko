@@ -151,6 +151,24 @@ a conflicting fact cannot leak a ready delivery or advance its baseline.
 Missing/inconsistent fact↔delivery identities or audio closure lengths block
 import before publication and therefore block a verified ACK.
 
+Staged delivery is also a recovery path: `prepare_context` can recover
+`session_events` through `subject_raw_inputs` without reading the inbox.
+Before committing an import containing media, the importer therefore checks
+the **actual reconciled SQLite state** with the same closure validator.
+A rejected admission must not leave its staged original/link behind; a
+mismatched or orphaned staging link makes the import return an error and
+roll back the whole SQLite publication, including subject rows and peer
+baselines, rather than merely withholding a verified ACK. This does not
+change the existing CAS/file-transfer staging policy.
+
+Later `superseded_by_revision` updates remain separate from immutable event
+envelopes. Closure admission resolves forward/backward links and embedded
+prior-effective snapshots to the same retained revision originals, verifies
+the partial/final disposition relationship, and requires exactly one
+effective revision per retained segment. Dropping a successor while leaving
+its predecessor hidden, or forging a historical prior, cannot be verified
+as a complete transcript. The immutable-envelope normalization is unchanged.
+
 Previously incomplete media rows are retained, not rewritten into invented
 receipts. If a prior implementation failed to retain an original open commit
 or terminal notice, replay/settlement reports `media_receipt_incomplete` with
@@ -240,3 +258,18 @@ suffix/absolute path and rewritten algorithm before any lookup; same-length
 CAS corruption; an escaping CAS symlink; an archive with a media fact,
 delivery identity or audio payload removed; and a stream conflict that must
 not publish its inbox originals. These are unexecuted acceptance work.
+
+Two additional ephemeral review probes (not permanent scenarios, not yet run):
+
+- From a shared snapshot, let source and receiver admit different text under
+  the same revision identity; stage only the source's event into their still
+  planned step. Source import must return an error before SQLite publication,
+  leaving the receiver's admission, staged originals/links, subject state and
+  baselines unchanged; recovering its planned step must not expose the rejected
+  source event through `stage_subject_inputs(..., &[])`.
+- Start with a valid revision-1→revision-2 progression. Remove revision 2 and
+  its inbox original while retaining revision 1's forward link, and rebuild the
+  archive fingerprint normally: closure admission must reject it rather than
+  ACK a transcript with no effective segment. Independently altering an
+  embedded prior or its reciprocal link must also reject, while an intact
+  chain still retains the original envelopes exactly.

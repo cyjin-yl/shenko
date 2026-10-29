@@ -701,7 +701,7 @@ pub(crate) fn media_recovery_gaps(
 ) -> Vec<crate::cognition_archive::CognitionGap> {
     use anyhow::{Context, Result, ensure};
     use crate::cognition_archive::{CognitionGap, CognitionRow};
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet};
 
     fn required<'a>(row: &'a CognitionRow, column: &str) -> Result<&'a str> {
         row.value(column).with_context(|| format!("{} {} lacks {column}", row.table, row.key))
@@ -714,12 +714,21 @@ pub(crate) fn media_recovery_gaps(
         Ok(commit)
     }
 
+    struct RetainedRevision {
+        original: StoredMediaRevision,
+        superseded_by: Option<u64>,
+        prior_effective: Option<Box<StoredMediaRevision>>,
+    }
+
     fn validate(rows: &[CognitionRow]) -> Result<()> {
         let streams: HashMap<_, _> = rows.iter().filter(|row| row.table == "media_streams")
             .map(|row| (row.key.as_str(), row)).collect();
         let inbox: HashMap<_, _> = rows.iter().filter(|row| row.table == "inbox_events")
             .map(|row| (row.key.as_str(), row)).collect();
+        let sessions: HashMap<_, _> = rows.iter().filter(|row| row.table == "session_events")
+            .map(|row| (row.key.as_str(), row)).collect();
         let mut bound = HashMap::new();
+        let mut revisions = HashMap::new();
         for row in rows.iter().filter(|row| matches!(row.table.as_str(),
             "media_streams" | "media_stream_ends" | "media_segment_revisions"))
         {
@@ -814,10 +823,72 @@ pub(crate) fn media_recovery_gaps(
                         admitted_commit: receipt(row, "admitted_commit_ref")?,
                     };
                     ensure!(record == expected, "media normalized original disagrees with raw admission");
+                    let key = (stream_key, expected.segment, expected.revision);
+                    let retained = RetainedRevision {
+                        original: expected,
+                        superseded_by: row.value("superseded_by_revision").map(str::parse::<u64>).transpose()?,
+                        prior_effective,
+                    };
+                    ensure!(revisions.insert(key, retained).is_none(), "duplicate media segment/revision slot");
                 }
             }
             bound.insert(event_id, envelope);
         }
+
+        // The original envelope is immutable and intentionally has no later
+        // superseded_by link. Validate that mutable graph separately: every
+        // link and embedded historical prior must resolve to the SAME retained
+        // fact, and each segment must still have exactly one effective row.
+        let mut effective_counts = HashMap::new();
+        for (&(stream_key, segment, revision), retained) in &revisions {
+            let original = &retained.original;
+            let effective = effective_counts.entry((stream_key, segment)).or_insert(0usize);
+            if original.disposition != MediaRevisionDisposition::Superseded && retained.superseded_by.is_none() {
+                *effective += 1;
+            }
+            if let Some(next) = retained.superseded_by {
+                let successor = revisions.get(&(stream_key, segment, next))
+                    .context("media superseded_by link has no retained revision")?;
+                ensure!(next > revision && successor.original.supersedes_revision == Some(revision)
+                    && matches!(successor.original.disposition,
+                        MediaRevisionDisposition::AppliedSupersedes | MediaRevisionDisposition::FinalCorrection),
+                    "media supersession forward/backward links disagree");
+            }
+            let prior = retained.prior_effective.as_deref();
+            if let Some(prior) = prior {
+                let previous = revisions.get(&(stream_key, segment, prior.revision))
+                    .context("media prior-effective snapshot has no retained revision")?;
+                ensure!(prior == &previous.original
+                    && prior.disposition != MediaRevisionDisposition::Superseded,
+                    "media prior-effective snapshot differs from its retained original");
+            }
+            match original.disposition {
+                MediaRevisionDisposition::Applied => {
+                    ensure!(original.supersedes_revision.is_none() && prior.is_none(),
+                        "initial media revision carries a contradictory predecessor");
+                }
+                MediaRevisionDisposition::Superseded => {
+                    ensure!(original.supersedes_revision.is_none() && retained.superseded_by.is_none()
+                        && prior.is_some_and(|prior| prior.revision > revision),
+                        "late media revision does not resolve to its newer effective prior");
+                }
+                MediaRevisionDisposition::AppliedSupersedes | MediaRevisionDisposition::FinalCorrection => {
+                    let prior = prior.context("media superseding revision lacks its prior-effective snapshot")?;
+                    let previous = revisions.get(&(stream_key, segment, prior.revision))
+                        .context("media supersedes link has no retained revision")?;
+                    ensure!(prior.revision < revision && original.supersedes_revision == Some(prior.revision)
+                        && previous.superseded_by == Some(revision)
+                        && original.disposition == (if prior.partial {
+                            MediaRevisionDisposition::AppliedSupersedes
+                        } else {
+                            MediaRevisionDisposition::FinalCorrection
+                        }), "media superseding revision disagrees with its retained predecessor");
+                }
+            }
+        }
+        ensure!(effective_counts.values().all(|count| *count == 1),
+            "media segment does not have exactly one retained effective revision");
+
         for stream in streams.values() {
             let state = parse_stream_state(required(stream, "state")?)?;
             if let Some(end_id) = stream.value("end_id") {
@@ -832,6 +903,7 @@ pub(crate) fn media_recovery_gaps(
                 ensure!(!state.is_terminal(), "terminal media stream has no terminal notice");
             }
         }
+        let mut media_raw_sources = HashMap::new();
         for row in rows.iter().filter(|row| row.table == "inbox_events" || row.table == "session_events") {
             let media_inbox = row.table == "inbox_events" &&
                 (row.value("source").is_some_and(|source| source.starts_with("media/"))
@@ -853,14 +925,33 @@ pub(crate) fn media_recovery_gaps(
             } else { &value };
             let media_kind = matches!(original.get("kind").and_then(serde_json::Value::as_str),
                 Some("media_revision" | "media_stream"));
-            if media_kind || media_inbox
+            let original_id = original.get("event_id").and_then(serde_json::Value::as_str);
+            if media_kind || media_inbox || original_id.is_some_and(|id| bound.contains_key(id))
             {
-                let id = original.get("event_id").and_then(serde_json::Value::as_str)
-                    .context("media original event identity missing")?;
-                let admitted = bound.get(id).context("media original has no immutable admission fact")?;
+                let id = original_id.context("media original event identity missing")?;
+                let (source_id, admitted) = bound.get_key_value(id)
+                    .context("media original has no immutable admission fact")?;
                 ensure!(original == admitted, "staged media differs from the admitted original");
+                if row.table == "session_events" {
+                    media_raw_sources.insert(row.key.as_str(), *source_id);
+                }
             }
         }
+        let mut staged_raw = HashSet::new();
+        for link in rows.iter().filter(|row| row.table == "subject_raw_inputs") {
+            let source_id = required(link, "source_event_id")?;
+            let raw_id = required(link, "raw_event_id")?;
+            let raw_source = media_raw_sources.get(raw_id).copied();
+            if raw_source.is_some() || bound.contains_key(source_id) {
+                ensure!(raw_source == Some(source_id), "media staging link has no matching admitted original");
+                let raw = sessions.get(raw_id).context("media staging raw event missing")?;
+                ensure!(link.value("session_id") == raw.value("session_id")
+                    && link.value("seq") == raw.value("seq") && staged_raw.insert(raw_id),
+                    "media staging link disagrees with its unique raw event");
+            }
+        }
+        ensure!(media_raw_sources.keys().all(|raw_id| staged_raw.contains(*raw_id)),
+            "staged media original lacks its subject-input link");
         Ok(())
     }
 

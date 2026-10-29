@@ -1910,6 +1910,25 @@ impl Store {
                         unchanged += 1;
                     }
                 }
+                // Staged inputs can reach prepare_context without traversing
+                // inbox_events again. Recheck the ACTUAL reconciled store,
+                // not only the incoming manifest: if a media conflict rolled
+                // back admission but ordinary history imported its staged
+                // delivery, reject before commit and roll back every SQL row.
+                if ordered.iter().any(|row| matches!(row.table.as_str(),
+                    "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+                {
+                    let mut media_rows = Vec::new();
+                    for spec in TABLES.iter().filter(|spec| matches!(spec.name,
+                        "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                            | "inbox_events" | "session_events" | "subject_raw_inputs"))
+                    {
+                        media_rows.extend(read_table(&tx, spec)?);
+                    }
+                    if let Some(gap) = crate::media::media_recovery_gaps(&media_rows).first() {
+                        bail!("media import would publish a partial recovery binding; SQLite publication rolled back: {}", gap.detail);
+                    }
+                }
                 if inserted > 0 || updated > 0 {
                     tx.execute(
                         "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count)
