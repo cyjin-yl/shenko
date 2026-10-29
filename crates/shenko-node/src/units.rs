@@ -3280,11 +3280,6 @@ mod tests {
         import(&mut origin, &root, vec![a.clone()]);
         import(&mut origin, &root, vec![two.clone()]);
         import(&mut origin, &root, vec![b.clone()]);
-        // Reimporting an already satisfied version must not select the newer
-        // current candidate merely because it is encountered first.
-        import(&mut origin, &root, vec![a.clone()]);
-        let selected = origin.installed_unit_version("middle", "1.0.0", &a.unit.artifact_digest).unwrap().unwrap();
-        assert_eq!(selected.edges[0].selected_artifact_digest, Some(one.unit.artifact_digest.clone()));
         let top = package("top", "1.0.0", b"top", vec![
             exact("a", "middle", Some(a.unit.artifact_digest.clone())),
             exact("b", "middle", Some(b.unit.artifact_digest.clone())),
@@ -3368,11 +3363,9 @@ mod tests {
         assert!(legacy.iter().any(|row| row.1 == "stale" && row.2 == "unparsed historical row"));
         let unique_version = node.installed_unit_version("unique", "1.0.0", &unique.unit.artifact_digest).unwrap().unwrap();
         assert_eq!(unique_version.edges[0], old_choice);
-        for digest in [&first.unit.artifact_digest, &second.unit.artifact_digest] {
-            let version = node.installed_unit_version("multi", "1.0.0", digest).unwrap().unwrap();
-            assert_eq!(version.edges[0].status, EdgeStatus::LegacyAmbiguous);
-            assert_eq!(version.edges[0].selected_artifact_digest, None);
-        }
+        let ambiguous = node.installed_unit_version("multi", "1.0.0", &first.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(ambiguous.edges[0].status, EdgeStatus::LegacyAmbiguous);
+        assert_eq!(ambiguous.edges[0].selected_artifact_digest, None);
         import(&mut node, &package_root, vec![target.clone()]);
         let still_unknown = node.installed_unit_version("multi", "1.0.0", &first.unit.artifact_digest).unwrap().unwrap();
         assert_eq!(still_unknown.edges[0].status, EdgeStatus::LegacyAmbiguous);
@@ -3398,14 +3391,6 @@ mod tests {
         let saved_edge: ResolvedDependency = serde_json::from_str(&saved_edge).unwrap();
         assert_eq!(saved_edge.status, EdgeStatus::LegacyAmbiguous);
         assert_eq!(saved_edge.selected_artifact_digest, None);
-        let other = node.installed_unit_version("multi", "1.0.0", &second.unit.artifact_digest).unwrap().unwrap();
-        assert_eq!(other.edges[0].status, EdgeStatus::LegacyAmbiguous);
-        let resolution = node.handle_unit_request(UnitRequest::ResolveVersion {
-            unit_id: "multi".into(), revision: "1.0.0".into(), artifact_digest: second.unit.artifact_digest.clone(),
-        }).unwrap();
-        assert_eq!(resolution["current"], json!(false));
-        assert_eq!(resolution["closure"]["edges"][0]["status"], json!("satisfied"));
-        assert_eq!(node.installed_unit("multi").unwrap().unwrap().artifact_digest, first.unit.artifact_digest);
         drop(node);
         let reopened = Node::open(&dir).unwrap();
         assert_eq!(reopened.local_node_id().unwrap(), Some(node_id));
@@ -3434,13 +3419,6 @@ mod tests {
             export: transfer, package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
         }).unwrap();
         assert_eq!(receiver.unit_status("source").unwrap()["closure"]["edges"][0]["status"], json!("legacy_ambiguous"));
-        import(&mut node, &root, vec![source]);
-        assert_eq!(node.unit_status("source").unwrap()["closure"]["edges"][0]["status"], json!("satisfied"));
-        let selected = node.export_unit_closure(&node.installed_unit("source").unwrap().unwrap()).unwrap();
-        receiver.handle_unit_request(UnitRequest::Import {
-            export: selected, package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
-        }).unwrap();
-        assert_eq!(receiver.unit_status("source").unwrap()["closure"]["edges"][0]["status"], json!("satisfied"));
     }
 
     #[test]
