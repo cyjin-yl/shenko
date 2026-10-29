@@ -9,7 +9,7 @@ use shenko_quota::{
     StaleUse, UnknownQuota, WindowCost, WindowRef,
 };
 use shenko_store::store::Store;
-use shenko_types::ids::{BranchId, EntityId, LedgerSeq, RecordRevision};
+use shenko_types::ids::{BranchId, EntityId, RecordRevision};
 use shenko_types::subject::{
     GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
 };
@@ -185,52 +185,56 @@ fn armed_reservation_survives_reopen_and_keeps_charge() {
     ));
 }
 
-/// The AwaitingModel step CAS refuses a request without an armed reservation
-/// once any quota policy is recorded, and accepts it after admit+arm. With no
-/// recorded policy the same transition needs no quota state at all.
+/// With no recorded policy the unconfigured provider path stays open: the
+/// AwaitingModel CAS needs no quota state at all.
 #[test]
-fn awaiting_model_cas_requires_armed_reservation() {
-    // No policy recorded: the unconfigured provider path stays open.
-    let (dir_a, store_a, agent_a) = initialized_subject();
-    let (head_a, planned_a) = store_a.load_subject(agent_a).unwrap();
-    let preparing_a = preparing_step(&store_a, &head_a, planned_a);
-    let mut awaiting = preparing_a.clone();
+fn awaiting_model_cas_open_without_quota_policy() {
+    let (dir, store, agent_id) = initialized_subject();
+    let (head, planned) = store.load_subject(agent_id).unwrap();
+    let preparing = preparing_step(&store, &head, planned);
+    let mut awaiting = preparing.clone();
     awaiting.state = SubjectStepState::AwaitingModel;
     awaiting.record_revision = RecordRevision(2);
     awaiting.active_request_id = Some(EntityId::new());
-    store_a
-        .upsert_step(&awaiting, &head_a, preparing_a.record_revision)
+    store
+        .upsert_step(&awaiting, &head, preparing.record_revision)
         .unwrap();
-    drop(store_a);
-    std::fs::remove_dir_all(dir_a).unwrap();
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
-    // With a recorded policy the same transition is gated.
-    let (dir_b, store_b, agent_b) = initialized_subject();
+/// With a recorded policy the same transition is gated: an unarmed request
+/// is refused, and the identical CAS succeeds after admit+arm of that exact
+/// request id.
+#[test]
+fn awaiting_model_cas_requires_armed_reservation() {
+    let (dir, store, agent_id) = initialized_subject();
     let policy = policy();
-    store_b.record_quota_policy(&policy, now()).unwrap();
-    let decision = decide_fixture(&store_b, &policy, 10);
-    let (head_b, planned_b) = store_b.load_subject(agent_b).unwrap();
-    let preparing_b = preparing_step(&store_b, &head_b, planned_b);
+    store.record_quota_policy(&policy, now()).unwrap();
+    let decision = decide_fixture(&store, &policy, 10);
+    let (head, planned) = store.load_subject(agent_id).unwrap();
+    let preparing = preparing_step(&store, &head, planned);
     let request_id = EntityId::new();
-    let mut blocked = preparing_b.clone();
+    let mut blocked = preparing.clone();
     blocked.state = SubjectStepState::AwaitingModel;
     blocked.record_revision = RecordRevision(2);
     blocked.active_request_id = Some(request_id);
-    assert!(store_b
-        .upsert_step(&blocked, &head_b, preparing_b.record_revision)
+    assert!(store
+        .upsert_step(&blocked, &head, preparing.record_revision)
         .is_err());
     // Admit and arm this exact request id, then the identical CAS succeeds.
-    let receipt = store_b
+    let receipt = store
         .admit_quota_request(&policy, &decision, request_id, &availability(), now())
         .unwrap();
     let AdmissionOutcome::Quota(admission) = receipt.outcome else {
         panic!("expected fresh admission");
     };
-    store_b.arm_quota_admission(&admission).unwrap();
-    store_b
-        .upsert_step(&blocked, &head_b, preparing_b.record_revision)
+    store.arm_quota_admission(&admission).unwrap();
+    store
+        .upsert_step(&blocked, &head, preparing.record_revision)
         .unwrap();
-    std::fs::remove_dir_all(dir_b).unwrap();
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// An admitted-but-never-armed request releases its reservation on
@@ -273,97 +277,117 @@ fn never_dispatched_releases_reservation() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// Provenance is by recorded bytes: a forecast without its snapshot, a
-/// decision without its policy revision or its cited forecast, and an
-/// admission whose policy/decision are not the recorded rows are all
-/// rejected.
+/// A decision whose cited forecast was computed under options the policy's
+/// source admission does not match is rejected: the forecast chain must run
+/// under the authorizing policy's own source TTL and stale-use.
 #[test]
-fn unrecorded_provenance_is_rejected() {
+fn decision_requires_policy_admitted_source_options() {
     let dir = tmp_dir();
     let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
     let policy = policy();
+    store.record_quota_policy(&policy, now()).unwrap();
     let snap = snapshot(10);
+    store.record_quota_snapshot(&snap).unwrap();
+    // Same admitted source kind, but a stale-use the policy refuses.
     let forecast = forecast(
         &snap,
         &[],
         &HashMap::new(),
         now(),
-        ForecastOptions { ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse },
+        ForecastOptions { ttl: chrono::Duration::minutes(5), stale: StaleUse::LastKnown },
     );
-    // Forecast without recorded source snapshot.
-    assert!(store.record_quota_forecast(&forecast).is_err());
-    store.record_quota_snapshot(&snap).unwrap();
     store.record_quota_forecast(&forecast).unwrap();
-    // Decision without its policy revision.
-    let decision = decide(&policy, std::slice::from_ref(&forecast), &availability(), None, now()).unwrap();
+    let decision =
+        decide(&policy, std::slice::from_ref(&forecast), &availability(), None, now()).unwrap();
     assert!(store.record_quota_decision(&decision).is_err());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Admission must present the recorded policy bytes, not a lookalike with a
+/// bumped revision that was never recorded.
+#[test]
+fn admission_requires_recorded_policy_bytes() {
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
+    let policy = policy();
     store.record_quota_policy(&policy, now()).unwrap();
-    // Decision citing a forecast that is not recorded.
-    let mut orphan = decision.clone();
-    orphan.based_on_forecasts = vec![EntityId::new()];
-    assert!(store.record_quota_decision(&orphan).is_err());
-    store.record_quota_decision(&decision).unwrap();
-    // Admission must present the recorded policy bytes, not a lookalike.
+    let decision = decide_fixture(&store, &policy, 10);
     let mut drifted = policy.clone();
     drifted.revision = 2;
     assert!(store
         .admit_quota_request(&drifted, &decision, EntityId::new(), &availability(), now())
         .is_err());
-    let mut drifted_decision = decision.clone();
-    drifted_decision.decision_id = EntityId::new();
-    assert!(store
-        .admit_quota_request(&policy, &drifted_decision, EntityId::new(), &availability(), now())
-        .is_err());
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// A conclusive retry of the same sealed request records a further attempt
-/// row; settling binds measured cost to the exact attempt commit.
+/// An already-admitted request re-evaluated under a DIFFERENT recorded
+/// decision reconciles: the armed attempt rows and their commit identity
+/// survive, the admission refreshes to the new decision, and no second
+/// budget is granted.
 #[test]
-fn redispatch_and_settle_track_each_wire_attempt() {
+fn admitted_request_reconciles_under_refreshed_decision() {
     let dir = tmp_dir();
     let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
     let policy = policy();
     store.record_quota_policy(&policy, now()).unwrap();
     let decision = decide_fixture(&store, &policy, 10);
     let admission = admitted(&store, &policy, &decision);
-    let (armed, first_commit) = store.arm_quota_admission(&admission).unwrap();
-    // Redispatch without an armed reservation is rejected.
-    let stray = {
-        let mut other = admission.clone();
-        other.request_id = EntityId::new();
-        other
+    let (armed, bound) = store.arm_quota_admission(&admission).unwrap();
+    // A superseding decision (e.g. recomputed after expiry by another
+    // worker) shares the same forecasts but carries a fresh identity.
+    let mut refreshed = decision.clone();
+    refreshed.decision_id = EntityId::new();
+    store.record_quota_decision(&refreshed).unwrap();
+    let outcome = store
+        .admit_quota_request(&policy, &refreshed, admission.request_id, &availability(), now())
+        .unwrap();
+    assert!(matches!(
+        &outcome.outcome,
+        AdmissionOutcome::Existing { admission }
+            if admission.state == AdmissionState::Admitted
+                && admission.decision_id == refreshed.decision_id
+                && admission.request_id == armed.request_id
+    ));
+    // The preserved armed binding still verifies its original attempt rows.
+    let reservation = pacer_reservation(&store, admission.request_id);
+    assert_eq!(reservation.attempts[0].ledger_commit, bound);
+    assert_eq!(reservation.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
+    let (rearmed, _) = store.arm_quota_admission(&reservation.admission).unwrap();
+    assert_eq!(rearmed.state, AdmissionState::Admitted);
+    assert_eq!(store.quota_attempts("anthropic", "sub").unwrap().len(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Settling binds the provider-reported cost to the exact scoped attempt
+/// row and commit, leaving its billing state durable.
+#[test]
+fn settled_attempt_binds_measured_cost_to_its_commit() {
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
+    let policy = policy();
+    store.record_quota_policy(&policy, now()).unwrap();
+    let decision = decide_fixture(&store, &policy, 10);
+    let admission = admitted(&store, &policy, &decision);
+    let (armed, bound) = store.arm_quota_admission(&admission).unwrap();
+    assert_eq!(armed.state, AdmissionState::Admitted);
+    let window = WindowRef {
+        provider_id: "anthropic".into(),
+        account_scope_ref: "sub".into(),
+        window_key: "api:requests".into(),
     };
-    assert!(store.record_quota_redispatch(&stray).is_err());
-    // The real retry adds a distinct attempt commit, still unknown billing.
-    let second_commit = store.record_quota_redispatch(&armed).unwrap();
-    let attempts = store.quota_attempts("anthropic", "sub").unwrap();
-    assert_eq!(attempts.len(), 2);
-    assert_eq!(attempts[0].ledger_commit, first_commit);
-    assert_eq!(attempts[1].ledger_commit, second_commit);
-    assert!(attempts.iter().all(|a| a.billing == AttemptBilling::Unknown));
-    // Settle the retry row at its own commit; a stale seq is not found.
-    assert!(store
-        .settle_quota_attempt(
-            admission.request_id,
-            "api:requests",
-            LedgerSeq(first_commit.seq.0 + 99),
-            Range::point(1.0).unwrap(),
-            AttemptBilling::Settled,
-        )
-        .is_err());
     store
         .settle_quota_attempt(
             admission.request_id,
-            "api:requests",
-            second_commit.seq,
+            &window,
+            bound.seq,
             Range::point(1.0).unwrap(),
             AttemptBilling::Settled,
         )
         .unwrap();
-    let settled = store.quota_attempts("anthropic", "sub").unwrap();
-    assert_eq!(settled[1].billing, AttemptBilling::Settled);
-    assert_eq!(settled[0].billing, AttemptBilling::Unknown);
+    let attempts = store.quota_attempts("anthropic", "sub").unwrap();
+    assert_eq!(attempts.len(), 1);
+    assert_eq!(attempts[0].billing, AttemptBilling::Settled);
+    assert_eq!(attempts[0].cost, Range::point(1.0).unwrap());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

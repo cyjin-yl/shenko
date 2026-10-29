@@ -18,7 +18,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 use shenko_quota::{
     admit, cancel, mark_armed, AdmissionOutcome, AttemptBilling, BackendState, DispatchEvidence,
     LocalAttempt, Pacer, PolicyDecision, QuotaAdmission, QuotaForecast, QuotaPolicy, QuotaSnapshot,
-    Range, WindowCost,
+    Range, SourceKind, WindowCost, WindowRef,
 };
 use shenko_types::commit::{CommitRef, CommitReceipt, UpdatedEntity};
 use shenko_types::error::ShenkoError;
@@ -61,10 +61,12 @@ CREATE TABLE IF NOT EXISTS quota_pacer (
 );
 CREATE TABLE IF NOT EXISTS quota_attempts (
     request_id TEXT NOT NULL,
+    provider_id TEXT NOT NULL,
+    account_scope_ref TEXT NOT NULL,
     window_key TEXT NOT NULL,
     commit_seq INTEGER NOT NULL,
     data TEXT NOT NULL,
-    PRIMARY KEY (request_id, window_key, commit_seq)
+    PRIMARY KEY (request_id, provider_id, account_scope_ref, window_key, commit_seq)
 );
 "#;
 
@@ -352,16 +354,50 @@ impl Store {
                     return Err(conflict("decision is not bound to the recorded policy"));
                 }
                 for forecast_id in &decision.based_on_forecasts {
-                    let present: Option<i64> = tx
+                    let forecast_data: Option<String> = tx
                         .query_row(
-                            "SELECT 1 FROM quota_forecasts WHERE forecast_id=?1",
+                            "SELECT data FROM quota_forecasts WHERE forecast_id=?1",
                             [forecast_id.to_string()],
                             |r| r.get(0),
                         )
                         .optional()
                         .map_err(storage_error)?;
-                    if present.is_none() {
+                    let Some(forecast_data) = forecast_data else {
                         return Err(conflict("decision cites an unrecorded forecast"));
+                    };
+                    let cited: QuotaForecast = serde_json::from_str(&forecast_data)?;
+                    // The forecast chain must have been produced under this
+                    // policy's own source admission: the base snapshot must
+                    // be recorded, come from a source this policy admits,
+                    // and be computed with that source's exact TTL and
+                    // stale-use options. A forecast produced under another
+                    // source's (or a guessed) lifetime can never authorize
+                    // admission under this policy.
+                    let snapshot_data: Option<String> = tx
+                        .query_row(
+                            "SELECT data FROM quota_snapshots WHERE snapshot_id=?1",
+                            [cited.based_on_snapshot.to_string()],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    let Some(snapshot_data) = snapshot_data else {
+                        return Err(conflict("cited forecast has no recorded snapshot"));
+                    };
+                    let snapshot: QuotaSnapshot = serde_json::from_str(&snapshot_data)?;
+                    let Some(source_policy) = policy
+                        .observation_sources
+                        .iter()
+                        .find(|entry| entry.source_kind == snapshot.source_kind)
+                    else {
+                        return Err(conflict(
+                            "decision relies on a source the policy does not admit",
+                        ));
+                    };
+                    if cited.options != source_policy.options() {
+                        return Err(conflict(
+                            "cited forecast was not computed under the policy's source options",
+                        ));
                     }
                 }
                 let existing: Option<(String, i64)> = tx
@@ -447,22 +483,32 @@ impl Store {
         Ok(Some((serde_json::from_str(&policy_data)?, serde_json::from_str(&data)?)))
     }
 
-    /// The most recently recorded snapshot for one provider/account scope.
-    pub fn latest_quota_snapshot(
+    /// The most recently recorded snapshot for one provider/account scope
+    /// produced by one observation source. Forecasts may only consume a
+    /// snapshot through the policy's admission entry for that exact source.
+    pub fn latest_quota_snapshot_for_source(
         &self,
         provider_id: &str,
         account_scope_ref: &str,
+        source: SourceKind,
     ) -> Result<Option<QuotaSnapshot>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let data: Option<String> = conn
-            .query_row(
-                "SELECT data FROM quota_snapshots WHERE provider_id=?1 AND account_scope_ref=?2 ORDER BY commit_seq DESC LIMIT 1",
-                params![provider_id, account_scope_ref],
-                |r| r.get(0),
+        let mut stmt = conn
+            .prepare(
+                "SELECT data FROM quota_snapshots WHERE provider_id=?1 AND account_scope_ref=?2 ORDER BY commit_seq DESC",
             )
-            .optional()
             .map_err(storage_error)?;
-        data.map(|data| serde_json::from_str(&data).map_err(ShenkoError::from)).transpose()
+        let rows = stmt
+            .query_map(params![provider_id, account_scope_ref], |r| r.get::<_, String>(0))
+            .map_err(storage_error)?;
+        for row in rows {
+            let data = row.map_err(storage_error)?;
+            let snapshot: QuotaSnapshot = serde_json::from_str(&data)?;
+            if snapshot.source_kind == source {
+                return Ok(Some(snapshot));
+            }
+        }
+        Ok(None)
     }
 
     /// Every recorded attempt in one provider/account scope, commit order.
@@ -473,18 +519,17 @@ impl Store {
     ) -> Result<Vec<LocalAttempt>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         let mut stmt = conn
-            .prepare("SELECT data FROM quota_attempts ORDER BY commit_seq")
+            .prepare(
+                "SELECT data FROM quota_attempts WHERE provider_id=?1 AND account_scope_ref=?2 ORDER BY commit_seq",
+            )
             .map_err(storage_error)?;
         let rows = stmt
-            .query_map([], |r| r.get::<_, String>(0))
+            .query_map(params![provider_id, account_scope_ref], |r| r.get::<_, String>(0))
             .map_err(storage_error)?;
         let mut attempts = Vec::new();
         for row in rows {
             let attempt: LocalAttempt = serde_json::from_str(&row.map_err(storage_error)?)?;
-            if attempt.provider_id == provider_id && attempt.account_scope_ref == account_scope_ref
-            {
-                attempts.push(attempt);
-            }
+            attempts.push(attempt);
         }
         Ok(attempts)
     }
@@ -600,8 +645,9 @@ impl Store {
                         }
                         let present: Option<i64> = tx
                             .query_row(
-                                "SELECT 1 FROM quota_attempts WHERE request_id=?1 AND window_key=?2 AND commit_seq=?3",
+                                "SELECT 1 FROM quota_attempts WHERE request_id=?1 AND provider_id=?2 AND account_scope_ref=?3 AND window_key=?4 AND commit_seq=?5",
                                 params![admission.request_id.to_string(),
+                                    bound.window.provider_id, bound.window.account_scope_ref,
                                     bound.window.window_key, bound.ledger_commit.seq.0 as i64],
                                 |r| r.get(0),
                             )
@@ -633,8 +679,9 @@ impl Store {
                         })?;
                     for attempt in &attempts {
                         tx.execute(
-                            "INSERT INTO quota_attempts(request_id,window_key,commit_seq,data) VALUES(?1,?2,?3,?4)",
-                            params![attempt.request_id.to_string(), attempt.window_key,
+                            "INSERT INTO quota_attempts(request_id,provider_id,account_scope_ref,window_key,commit_seq,data) VALUES(?1,?2,?3,?4,?5,?6)",
+                            params![attempt.request_id.to_string(), attempt.provider_id,
+                                attempt.account_scope_ref, attempt.window_key,
                                 commit.seq.0 as i64, serde_json::to_string(attempt)?],
                         )
                         .map_err(storage_error)?;
@@ -645,57 +692,6 @@ impl Store {
                 self.record_subject_commit(&tx, commit, 1)?;
                 tx.commit().map_err(storage_error)?;
                 Ok((armed, commit))
-            },
-            |e| matches!(e, ShenkoError::Storage(_)),
-        )
-    }
-
-    /// A conclusive retry of the same sealed request dispatches a second wire
-    /// attempt. Record that attempt so the ledger reflects every real send;
-    /// the reservation keeps its bound cost until coverage proves it.
-    pub fn record_quota_redispatch(
-        &self,
-        admission: &QuotaAdmission,
-    ) -> Result<CommitRef, ShenkoError> {
-        self.ledger.with_mutation(
-            || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(storage_error)?;
-                let pacer = read_pacer(&tx)?;
-                let armed = pacer.reservation(&admission.request_id).is_some_and(|reservation| {
-                    reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
-                        && reservation.admission == *admission
-                });
-                if !armed {
-                    return Err(conflict(
-                        "quota redispatch without an armed reservation",
-                    ));
-                }
-                let seq = self.ledger.allocate_seq(&tx)?;
-                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                for cost in &admission.estimated_cost {
-                    let attempt = LocalAttempt {
-                        request_id: admission.request_id,
-                        provider_id: cost.window.provider_id.clone(),
-                        account_scope_ref: cost.window.account_scope_ref.clone(),
-                        window_key: cost.window.window_key.clone(),
-                        unit: cost.unit.clone(),
-                        ledger_commit: commit,
-                        cost: cost.amount,
-                        billing: AttemptBilling::Unknown,
-                    };
-                    tx.execute(
-                        "INSERT INTO quota_attempts(request_id,window_key,commit_seq,data) VALUES(?1,?2,?3,?4)",
-                        params![attempt.request_id.to_string(), attempt.window_key,
-                            commit.seq.0 as i64, serde_json::to_string(&attempt)?],
-                    )
-                    .map_err(storage_error)?;
-                }
-                self.record_subject_commit(&tx, commit, 1)?;
-                tx.commit().map_err(storage_error)?;
-                Ok(commit)
             },
             |e| matches!(e, ShenkoError::Storage(_)),
         )
@@ -737,12 +733,12 @@ impl Store {
     }
 
     /// Settle one recorded attempt's cost interval and billing state. The row
-    /// is matched on its exact request/window/commit identity; a stale or
-    /// rewritten row is a conflict, never overwritten.
+    /// is matched on its exact request, full scoped window identity and
+    /// commit; a stale or rewritten row is a conflict, never overwritten.
     pub fn settle_quota_attempt(
         &self,
         request_id: EntityId,
-        window_key: &str,
+        window: &WindowRef,
         seq: LedgerSeq,
         cost: Range,
         billing: AttemptBilling,
@@ -758,8 +754,9 @@ impl Store {
                     .map_err(storage_error)?;
                 let old: Option<String> = tx
                     .query_row(
-                        "SELECT data FROM quota_attempts WHERE request_id=?1 AND window_key=?2 AND commit_seq=?3",
-                        params![request_id.to_string(), window_key, seq.0 as i64],
+                        "SELECT data FROM quota_attempts WHERE request_id=?1 AND provider_id=?2 AND account_scope_ref=?3 AND window_key=?4 AND commit_seq=?5",
+                        params![request_id.to_string(), window.provider_id,
+                            window.account_scope_ref, window.window_key, seq.0 as i64],
                         |r| r.get(0),
                     )
                     .optional()
@@ -769,7 +766,9 @@ impl Store {
                 };
                 let mut attempt: LocalAttempt = serde_json::from_str(&old)?;
                 if attempt.request_id != request_id
-                    || attempt.window_key != window_key
+                    || attempt.provider_id != window.provider_id
+                    || attempt.account_scope_ref != window.account_scope_ref
+                    || attempt.window_key != window.window_key
                     || attempt.ledger_commit != CommitRef::new(self.ledger.ledger_id(), seq)
                 {
                     return Err(conflict("quota attempt identity mismatch"));
@@ -780,8 +779,9 @@ impl Store {
                 let commit = CommitRef::new(self.ledger.ledger_id(), commit_seq);
                 let changed = tx
                     .execute(
-                        "UPDATE quota_attempts SET data=?4 WHERE request_id=?1 AND window_key=?2 AND commit_seq=?3 AND data=?5",
-                        params![request_id.to_string(), window_key, seq.0 as i64,
+                        "UPDATE quota_attempts SET data=?6 WHERE request_id=?1 AND provider_id=?2 AND account_scope_ref=?3 AND window_key=?4 AND commit_seq=?5 AND data=?7",
+                        params![request_id.to_string(), window.provider_id,
+                            window.account_scope_ref, window.window_key, seq.0 as i64,
                             serde_json::to_string(&attempt)?, old],
                     )
                     .map_err(storage_error)?;
