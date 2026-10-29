@@ -171,6 +171,21 @@ struct winsize {
 #endif
 
 /* ---- misc ------------------------------------------------------------------ */
+#if defined(__has_include)
+#  if !__has_include(<sys/statfs.h>)
+/* wasi-libc omits statfs entirely; provide the shape so FLAG(f)-guarded code
+ * still compiles. The syscall itself is an honest ENOSYS. */
+struct statfs {
+  long f_type, f_bsize;
+  unsigned long long f_blocks, f_bfree, f_bavail, f_files, f_ffree;
+  int f_fsid[2];
+  long f_namelen, f_frsize, f_iosize, f_spare[6];
+};
+#  endif
+#endif
+#define statfs(p, b)   (errno = ENOSYS, -1)
+#define fstatfs(f, b)  (errno = ENOSYS, -1)
+
 #define getdtablesize()  ((int)sysconf(_SC_OPEN_MAX))
 #ifndef _SC_OPEN_MAX
 #define _SC_OPEN_MAX 31
