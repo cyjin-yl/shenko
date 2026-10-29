@@ -77,6 +77,9 @@ pub struct NativeChildService {
     instance_id: EntityId,
     registry: RwLock<RegistryState>,
     run_lock: tokio::sync::Mutex<()>,
+    /// In-memory dispatch scan position over (created_at, task_id). It is not a
+    /// completion watermark and does not survive a restart.
+    scan_cursor: std::sync::Mutex<Option<(String, EntityId)>>,
 }
 
 impl Service for NativeChildService {
@@ -91,6 +94,7 @@ impl NativeChildService {
             instance_id: EntityId::new(),
             registry: RwLock::new(RegistryState::default()),
             run_lock: tokio::sync::Mutex::new(()),
+            scan_cursor: std::sync::Mutex::new(None),
         }
     }
 
@@ -178,9 +182,26 @@ impl NativeChildService {
     /// this state; CAS determines whether a handler/attempt may be created.
     pub async fn run_once(&self) -> Result<usize> {
         let _guard = self.run_lock.lock().await;
-        let candidates = self.store.native_task_candidates(32)?;
+        let after = self.scan_cursor.lock().map_err(|_| {
+            ShenkoError::conflict("native dispatch scan cursor poisoned")
+        })?.clone();
+        const PAGE: usize = 32;
+        let candidates = self.store.native_task_candidates_after(
+            after.as_ref().map(|(created, id)| (created.as_str(), *id)),
+            PAGE,
+        )?;
+        // A short page means the scan reached the end; the next pass restarts
+        // from the beginning instead of treating this position as completed.
+        let next = if candidates.len() < PAGE {
+            None
+        } else {
+            candidates.last().map(|(created, task)| (created.clone(), task.task_id))
+        };
+        *self.scan_cursor.lock().map_err(|_| {
+            ShenkoError::conflict("native dispatch scan cursor poisoned")
+        })? = next;
         let mut progressed = 0;
-        for task in candidates {
+        for (_, task) in candidates {
             progressed += usize::from(self.process(task).await?);
         }
         Ok(progressed)

@@ -144,9 +144,16 @@ impl Store {
         )
     }
 
-    pub fn native_task_candidates(&self, limit: usize) -> Result<Vec<TaskRecord>> {
+    /// One bounded page of dispatchable work strictly after `after`, ordered by
+    /// the same stable key as recovery. `after` is a scan position, not a
+    /// completion watermark: callers wrap to the beginning when a page is short.
+    pub fn native_task_candidates_after(
+        &self,
+        after: Option<(&str, EntityId)>,
+        limit: usize,
+    ) -> Result<Vec<(String, TaskRecord)>> {
         let conn = self.ledger.conn.lock();
-        read_candidates_tx(&conn, limit)
+        read_candidates_tx(&conn, after, limit)
     }
 
     /// Park is a durable, diagnosable non-terminal state. A missing definition,
@@ -801,19 +808,31 @@ fn parked(
     }
 }
 
-fn read_candidates_tx(conn: &rusqlite::Connection, limit: usize) -> Result<Vec<TaskRecord>> {
+fn read_candidates_tx(
+    conn: &rusqlite::Connection,
+    after: Option<(&str, EntityId)>,
+    limit: usize,
+) -> Result<Vec<(String, TaskRecord)>> {
+    let (created_after, id_after) = after
+        .map(|(created, id)| (created.to_string(), id.to_string()))
+        .unwrap_or_default();
     let mut query = conn.prepare(
-        "SELECT data FROM tasks
+        "SELECT data, created_at FROM tasks
          WHERE json_extract(data,'$.kind')!='subject_publication'
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
-         ORDER BY created_at,task_id LIMIT ?1",
+           AND (?1='' OR created_at>?1 OR (created_at=?1 AND task_id>?2))
+         ORDER BY created_at,task_id LIMIT ?3",
     )?;
     let rows = query
-        .query_map([limit as i64], |row| row.get::<_, String>(0))?
+        .query_map(rusqlite::params![created_after, id_after, limit as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     rows.into_iter()
-        .map(|data| serde_json::from_str(&data).map_err(Into::into))
+        .map(|(data, created)| {
+            Ok((created, serde_json::from_str(&data)?))
+        })
         .collect()
 }
 
