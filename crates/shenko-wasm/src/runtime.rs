@@ -6,6 +6,11 @@ use wasmtime::{Engine, Instance, Linker, Module, Store, Val};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
+/// Bounded in-memory streams for callers that must cap guest output
+/// (Playground backend receipts) without binding the whole crate to a
+/// preview-2 path. A full buffer makes the guest's write trap, so the bound
+/// is a real contract rather than silent truncation.
+pub use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
 /// Guest path where the persistent WASM home is mounted for WASI commands
 /// (SPEC §8.3: every mount declares its source path and guest path; the home

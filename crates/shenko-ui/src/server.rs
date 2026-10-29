@@ -97,6 +97,11 @@ impl UiServer {
         if let Some(inbox_tx) = self.inbox_tx.clone() {
             playground_state = playground_state.with_inbox(inbox_tx);
         }
+        // The durable store lets the backend bind modules, inputs and
+        // receipts into CAS; without it the artifact files stay the truth.
+        if let Some(store) = self.store.clone() {
+            playground_state = playground_state.with_store(store);
+        }
         let playground_root = playground_state.root().to_path_buf();
 
         // Observe the subject outbox independently of any browser client, so

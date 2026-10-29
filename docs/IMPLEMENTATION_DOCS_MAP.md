@@ -95,7 +95,7 @@
   - docs/requirements/requirements.json (R071)
   - docs/requirements/acceptance-cases.json (V1-05, V1-06, V1-13)
 
-- **Playground UI (shadcn + config)** — 部分实现：CRUD + 原子写 + artifact_changed 事件已具备，后端为回显:
+- **Playground UI (shadcn + config)** — 部分实现：CRUD + 原子写 + 版本历史/回滚 + artifact_changed 事件已具备；后端走真实 WASI guest（durable action 准入/去重回执/CAS 封存），尚无 manifest 全字段或多 runtime:
   - SPEC.md §43 (Conversation config + Playground)
   - docs/research/archive/shenko_u42_u43_ui_config_playground.md
   - docs/requirements/requirements.json (R096, R097)
