@@ -2062,12 +2062,19 @@ mod recovery_integration_tests {
     fn x11_display_or_skip() -> Option<X11Display> {
         use x11rb::rust_connection::RustConnection;
         if let Ok(display) = std::env::var("SHENKO_TEST_X11_DISPLAY") {
-            // Same u16 overflow guard as below: a >59535 display in the
-            // injected value panics inside the resolver's TCP fallback.
+            // The port bound only applies when the resolver constructs a
+            // TCP address; Unix-only `unix/:60000` is valid.
             let safe = x11rb::reexports::x11rb_protocol::parse_display::parse_display(
                 Some(display.as_str()),
             )
-            .is_ok_and(|p| p.display <= 59535);
+            .is_ok_and(|p| {
+                let wants_tcp = ((p.protocol.is_none()
+                    || p.protocol.as_deref() != Some("unix"))
+                    && !p.host.is_empty()
+                    && p.host != "unix")
+                    || (p.protocol.is_none() && p.host.is_empty());
+                !wants_tcp || p.display <= 59535
+            });
             if safe && RustConnection::connect(Some(display.as_str())).is_ok() {
                 return Some(X11Display { display, owned: None });
             }

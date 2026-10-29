@@ -345,9 +345,8 @@ struct DomainState {
     /// Keycodes remapped for unmapped text keysyms on this domain;
     /// server-global, so they live with the domain and are restored under
     /// the same revocation handover as held inputs. Each entry is
-    /// (keycode, original_row, row_we_wrote) — restore is verified against
-    /// the live row so a foreign client that remapped our code after us
-    /// is never clobbered.
+    /// (keycode, original_row, server_applied_row) — restore is verified
+    /// against the live row so later foreign changes are not clobbered.
     remapped: Vec<(u8, Vec<Keysym>, Vec<Keysym>)>,
     /// Session ids currently open on this domain.
     session_ids: BTreeSet<EntityId>,
@@ -731,11 +730,22 @@ impl ComputerUseBackend {
         domain: &Arc<Mutex<DomainState>>,
         display: &str,
         root: u32,
+        endpoint: &str,
         xtest_ids: &[u16],
         stop: Arc<AtomicBool>,
     ) -> std::io::Result<(JoinHandle<()>, bool)> {
         let (watch_conn, _) = RustConnection::connect(Some(display))
             .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "watcher connect failed"))?;
+        // DNS or resolver fallback can change between the session and this
+        // second connection. Never publish a watcher on another X server.
+        if socket_endpoint_key(&watch_conn)? != endpoint
+            || !watch_conn.setup().roots.iter().any(|screen| screen.root == root)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "watcher connected to a different display endpoint",
+            ));
+        }
         let negotiated = match watch_conn.extension_information(xinput::X11_EXTENSION_NAME) {
             Ok(Some(_)) => xinput::xi_query_version(&watch_conn, 2, 3)
                 .ok()
@@ -810,9 +820,8 @@ impl ComputerUseBackend {
         };
         // Parse the display BEFORE connecting. The u16 `6000 + display`
         // bound applies ONLY when the resolver's address list actually
-        // contains a TCP target — a unix-only spelling (protocol="unix",
-        // or a bare number with no TCP fallback needed... note `unix/:N`)
-        // never runs that arithmetic, so large display numbers stay legal.
+        // contains a TCP target; unix-only spellings such as `unix/:N`
+        // never run that arithmetic, so large display numbers stay legal.
         let parsed = match x11rb::reexports::x11rb_protocol::parse_display::parse_display(
             Some(display.as_str()),
         ) {
@@ -895,23 +904,15 @@ impl ComputerUseBackend {
         // per client connection and must never split the writer lease. The
         // key is the endpoint THIS connection actually used — read from the
         // real socket, not the spelling: ":90" that fell back to TCP joins
-        // the same domain as "localhost:90", and a remote host spelled any
-        // TCP way joins `tcp:host:N`. Different real servers never merge.
-        let normalized_display = match socket_is_unix(&conn) {
-            Some(true) => format!("unix:{}", parsed.display),
-            Some(false) => {
-                let host = if parsed.host.is_empty() || parsed.host == "unix" {
-                    "localhost"
-                } else {
-                    parsed.host.as_str()
-                };
-                format!("tcp:{}:{}", host.to_ascii_lowercase(), parsed.display)
+        // the same domain as "localhost:90" via the connected peer address,
+        // and TCP spellings that resolve to different peers keep distinct
+        // domains. If the endpoint cannot be determined, refuse the open
+        // rather than guessing a key that could merge distinct servers.
+        let normalized_display = match socket_endpoint_key(&conn) {
+            Ok(endpoint) => endpoint,
+            Err(error) => {
+                return DriveOutcome::unavailable("display_endpoint_unknown", error.to_string())
             }
-            None => normalize_display_authority(
-                &parsed.host,
-                parsed.protocol.as_deref(),
-                parsed.display,
-            ),
         };
         let domain_id = format!("x11/{}/root{:08x}", normalized_display, screen.root);
         let dpi_x = if screen.width_in_millimeters > 0 {
@@ -979,6 +980,7 @@ impl ComputerUseBackend {
                         &domain,
                         &display,
                         screen.root,
+                        &normalized_display,
                         &xtest_ids,
                         stop,
                     ) {
@@ -1802,12 +1804,12 @@ fn bounded_input(
     match kind {
         KEY_PRESS_EVENT | BUTTON_PRESS_EVENT => {
             if new_hold {
-            let input = if kind == KEY_PRESS_EVENT {
-                HeldInput::Key(detail)
-            } else {
-                HeldInput::Button(detail)
-            };
-            domain.held.insert(input);
+                let input = if kind == KEY_PRESS_EVENT {
+                    HeldInput::Key(detail)
+                } else {
+                    HeldInput::Button(detail)
+                };
+                domain.held.insert(input);
             }
         }
         KEY_RELEASE_EVENT | BUTTON_RELEASE_EVENT => {
@@ -1825,38 +1827,63 @@ fn bounded_input(
     Ok(())
 }
 
-/// Whether the input is ALREADY down — either tracked in `domain.held` as
-/// pressed by this product, or physically down on the server right now
-/// (the caller may hold a modifier, or a human may). A release we did not
-/// originate must never be emitted: it would lift a hold the domain does
-/// not own. `None` means the live query failed (unknown, not assumed up).
-fn input_is_down(
-    conn: &RustConnection,
-    domain: &DomainState,
-    root: u32,
-    input: HeldInput,
-) -> Option<bool> {
-    if domain.held.contains(&input) {
-        return Some(true);
+/// Read the raw down bitmap of the XTEST slave that receives our events.
+/// XI1 QueryDeviceState returns that device's key->down/button->down, not
+/// the master aggregate. XIQueryPointer cannot query an attached slave.
+/// Button bits use the button number directly (bit 0 is unused); key bits
+/// use the keycode. A missing device/class is unknown, never assumed up.
+fn xtest_down_bits(session: &X11Session, keyboard: bool) -> Option<[u8; 32]> {
+    let conn = &session.conn;
+    // Trigger PickPointer on this connection before asking XI which master
+    // the server chose. XTEST uses the paired master for keyboard events.
+    xproto::query_pointer(conn, session.screen.root).ok()?.reply().ok()?;
+    let client_pointer = xinput::xi_get_client_pointer(conn, 0).ok()?.reply().ok()?;
+    if !client_pointer.set {
+        return None;
     }
-    match input {
-        HeldInput::Key(code) => {
-            let reply = xproto::query_keymap(conn).ok()?.reply().ok()?;
-            let byte = reply.keys.get(usize::from(code) / 8)?;
-            Some(((*byte) >> (code % 8)) & 1 == 1)
-        }
-        HeldInput::Button(button) => {
-            // Button mask bits exist only for buttons 1..=5 (bits 8..12);
-            // anything else is treated as physically unknown → conservative
-            // "not down" only when it is also untracked.
-            if !(1..=5).contains(&button) {
-                return Some(false);
-            }
-            let reply = xproto::query_pointer(conn, root).ok()?.reply().ok()?;
-            let mask = u16::from(reply.mask);
-            Some(mask & (1u16 << (u16::from(button) + 7)) != 0)
-        }
+    let devices = xinput::xi_query_device(conn, XI_ALL_DEVICES).ok()?.reply().ok()?;
+    let master_pointer = client_pointer.deviceid;
+    let master_keyboard = devices.infos.iter().find(|device| {
+        device.deviceid == master_pointer && device.type_ == xinput::DeviceType::MASTER_POINTER
+    })?.attachment;
+    let master = if keyboard { master_keyboard } else { master_pointer };
+    let wanted = if keyboard {
+        xinput::DeviceType::SLAVE_KEYBOARD
+    } else {
+        xinput::DeviceType::SLAVE_POINTER
+    };
+    let mut matches = devices.infos.iter().filter(|device| {
+        device.enabled
+            && device.type_ == wanted
+            && device.attachment == master
+            && String::from_utf8_lossy(&device.name).contains("XTEST")
+    });
+    let slave = matches.next()?.deviceid;
+    // XI1 device identifiers are limited to 0..127 even though XI2 uses
+    // u16 ids. Never query a truncated or ambiguous synthetic device.
+    if matches.next().is_some() || slave > 127 {
+        return None;
     }
+    let slave = u8::try_from(slave).ok()?;
+    let reply = xinput::query_device_state(conn, slave).ok()?.reply().ok()?;
+    reply.classes.into_iter().find_map(|class| match class.data {
+        xinput::InputStateData::Key(state) if keyboard => Some(state.keys),
+        xinput::InputStateData::Button(state) if !keyboard => Some(state.buttons),
+        _ => None,
+    })
+}
+
+/// Holds we already own remain ours; a foreign hold on this SAME XTEST
+/// slave stays foreign. Physical slaves do not affect this decision: a
+/// physically-held button must not hide the new XTEST hold we must pair
+/// with a release (or remember for revocation cleanup).
+fn input_is_down(domain: &DomainState, input: HeldInput, bits: &[u8; 32]) -> bool {
+    let detail = match input {
+        HeldInput::Key(code) => code,
+        HeldInput::Button(button) => button,
+    };
+    domain.held.contains(&input)
+        || bits[usize::from(detail) / 8] & (1u8 << (detail % 8)) != 0
 }
 
 fn send_action(
@@ -1902,17 +1929,18 @@ fn send_action(
             let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
             match press {
                 PressKind::Tap => {
+                    // The probe and press must not race another XTEST
+                    // client's press on this same shared injection slave.
+                    let _grab = ServerGrab::acquire(&session.conn).map_err(|e| (e, 0))?;
                     let held = HeldInput::Button(*button);
-                    let was_down = input_is_down(
-                        &session.conn, &domain, session.screen.root, held,
-                    )
-                    .ok_or((SendError::Lost, 0))?;
+                    let bits = xtest_down_bits(session, false).ok_or((SendError::Lost, 0))?;
+                    let was_down = input_is_down(&domain, held, &bits);
                     bounded_input(session, &mut domain, BUTTON_PRESS_EVENT, *button, 0, 0, !was_down)
                         .map_err(|e| (e, 0))?;
                     let mut sent = 1usize;
                     if !was_down {
-                        // Release only the press WE originated — a button
-                        // already held (by us or by a human) must stay held.
+                        // Pair this new XTEST-slave press even if a physical
+                        // slave is holding the same button independently.
                         bounded_input(session, &mut domain, BUTTON_RELEASE_EVENT, *button, 0, 0, false)
                             .map_err(|e| (e, sent))?;
                         sent += 1;
@@ -1926,12 +1954,10 @@ fn send_action(
                 }
                 PressKind::Down => {
                     // Adopt the hold for cleanup ONLY if it wasn't already
-                    // down (foreign holds stay foreign-owned).
-                    let was_down = input_is_down(
-                        &session.conn, &domain, session.screen.root,
-                        HeldInput::Button(*button),
-                    )
-                    .ok_or((SendError::Lost, 0))?;
+                    // down on this XTEST slave (foreign holds stay foreign).
+                    let _grab = ServerGrab::acquire(&session.conn).map_err(|e| (e, 0))?;
+                    let bits = xtest_down_bits(session, false).ok_or((SendError::Lost, 0))?;
+                    let was_down = input_is_down(&domain, HeldInput::Button(*button), &bits);
                     bounded_input(session, &mut domain, BUTTON_PRESS_EVENT, *button, 0, 0, !was_down)
                         .map_err(|e| (e, 0))?;
                     Ok(SendResult {
@@ -1999,28 +2025,15 @@ fn send_keysym(
     // per-event boundary is therefore the keysym, and an interleaved
     // takeover can never slip between a press and its matching release.
     let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
+    let _grab = ServerGrab::acquire(&session.conn).map_err(|e| (e, 0))?;
     let mapped = keysym_to_keycode(session, &mut domain, keysym).map_err(|e| (e, 0))?;
-    // Live physical state of the inputs this sequence may touch. A release
-    // is emitted ONLY for a press this action originated — releasing a
-    // key/button the caller (or a human) already held would silently lift
-    // that hold.
-    let key_down = input_is_down(
-        &session.conn,
-        &domain,
-        session.screen.root,
-        HeldInput::Key(mapped.code),
-    )
-    .ok_or((SendError::Lost, 0))?;
-    let shift_free = match mapped.shift_code {
-        Some(code) => !input_is_down(
-            &session.conn,
-            &domain,
-            session.screen.root,
-            HeldInput::Key(code),
-        )
-        .ok_or((SendError::Lost, 0))?,
-        None => true,
-    };
+    // One slave-state query covers both the key and temporary Shift. A
+    // physical hold on another slave cannot hide a new synthetic hold;
+    // a foreign client's existing XTEST hold is preserved instead.
+    let bits = xtest_down_bits(session, true).ok_or((SendError::Lost, 0))?;
+    let key_down = input_is_down(&domain, HeldInput::Key(mapped.code), &bits);
+    let shift_free = mapped.shift_code
+        .is_none_or(|code| !input_is_down(&domain, HeldInput::Key(code), &bits));
     // Temporary Shift events exist only when the modifier is free for us:
     // an already-down Shift still produces the shifted keysym, and we must
     // neither press-track it nor release the original hold.
@@ -2061,6 +2074,29 @@ fn send_keysym(
     })
 }
 
+/// Bound a keyboard-map compare/write/readback or XTEST slave-state probe
+/// and input unit to one X server transaction. Other clients cannot change
+/// the compared row or synthetic hold between our check and our effect.
+struct ServerGrab<'a>(&'a RustConnection);
+
+impl<'a> ServerGrab<'a> {
+    fn acquire(conn: &'a RustConnection) -> Result<Self, SendError> {
+        xproto::grab_server(conn)
+            .ok()
+            .and_then(|cookie| cookie.check().ok())
+            .ok_or(SendError::Lost)?;
+        Ok(Self(conn))
+    }
+}
+
+impl Drop for ServerGrab<'_> {
+    fn drop(&mut self) {
+        let _ = xproto::ungrab_server(self.0)
+            .ok()
+            .and_then(|cookie| cookie.check().ok());
+    }
+}
+
 fn keysym_to_keycode(
     session: &X11Session,
     shared: &mut DomainState,
@@ -2083,34 +2119,37 @@ fn keysym_to_keycode(
     if per == 0 {
         return Err(SendError::Rejected("key_unmappable"));
     }
-    // The real Shift keycode comes from the server modifier mapping (row 0),
-    // not a guessed constant: queried live for the same freshness reason
-    // as the keymap above. An unmapped Shift means the key cannot be
-    // produced honestly and the action is rejected.
-    let shift_code: Option<u8> = xproto::get_modifier_mapping(conn)
+    // The real Shift keycode comes from the live modifier map (row 0),
+    // never a guessed constant. Failed queries are transport loss, not an
+    // empty modifier map.
+    let modifiers = xproto::get_modifier_mapping(conn)
         .ok()
         .and_then(|c| c.reply().ok())
-        .and_then(|reply| {
-            // First row = Shift modifier (8 rows: Shift..Mod5).
-            let per_mod = reply.keycodes.len() / 8;
-            reply.keycodes[..per_mod.max(1).min(reply.keycodes.len())]
-                .iter()
-                .copied()
-                .find(|c| *c != 0)
-        });
+        .ok_or(SendError::Lost)?;
+    let per_mod = modifiers.keycodes.len() / 8;
+    let shift_code = modifiers.keycodes[..per_mod]
+        .iter()
+        .copied()
+        .find(|code| *code != 0);
     for (index, row) in keymap.chunks(per).enumerate() {
         let code = min.saturating_add(index as u8);
         if code > max {
             break;
         }
         if row.first() == Some(&keysym) {
-            return Ok(MappedKey { code, shift_code: None });
+            return Ok(MappedKey {
+                code,
+                shift_code: None,
+            });
         }
         if row.get(1) == Some(&keysym) {
             let Some(code_mod) = shift_code else {
                 return Err(SendError::Rejected("shift_modifier_unmapped"));
             };
-            return Ok(MappedKey { code, shift_code: Some(code_mod) });
+            return Ok(MappedKey {
+                code,
+                shift_code: Some(code_mod),
+            });
         }
     }
     // Unmapped: find a spare keycode (all-zero row), remap it, restore later.
@@ -2122,19 +2161,45 @@ fn keysym_to_keycode(
             if code > max {
                 continue;
             }
-            let original = row.to_vec();
+            // Re-check this spare row under the server grab: another client
+            // can modify it between the initial live mapping and this write.
+            let live = xproto::get_keyboard_mapping(conn, code, 1)
+                .ok()
+                .and_then(|cookie| cookie.reply().ok())
+                .ok_or(SendError::Lost)?;
+            if usize::from(live.keysyms_per_keycode) != per
+                || live.keysyms.len() != per
+                || live.keysyms.iter().any(|symbol| *symbol != 0)
+            {
+                continue;
+            }
+            let original = live.keysyms;
             let mut new_row = original.clone();
             new_row[0] = keysym;
             xproto::change_keyboard_mapping(conn, 1, code, per as u8, &new_row)
                 .ok()
                 .and_then(|c| c.check().ok())
                 .ok_or(SendError::Lost)?;
-            // Record BOTH rows: restore must verify the live row still holds
-            // what we wrote before putting `original` back — otherwise we'd
-            // clobber a foreign client that remapped our code after us.
-            shared.remapped.push((code, original, new_row));
+            // Read back the row the server ACTUALLY applied — XKB may
+            // canonicalize what we sent (e.g. replicating slot 0 into
+            // trailing slots on wide maps), so `new_row` is not a safe
+            // ownership baseline. The applied row is.
+            let applied = xproto::get_keyboard_mapping(conn, code, 1)
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .map(|r| r.keysyms)
+                .ok_or(SendError::Lost)?;
+            if applied.first() != Some(&keysym) {
+                // Do not claim or later restore a mapping the server did not
+                // apply as requested.
+                return Err(SendError::Lost);
+            }
+            shared.remapped.push((code, original, applied));
             // A remapped row binds the keysym unshifted at slot 0.
-            return Ok(MappedKey { code, shift_code: None });
+            return Ok(MappedKey {
+                code,
+                shift_code: None,
+            });
         }
     }
     Err(SendError::Rejected("key_unmappable"))
@@ -2156,6 +2221,12 @@ fn release_held(conn: &RustConnection, root: u32, held: &[HeldInput]) {
 /// code after us (live != what we wrote), our original is stale and
 /// restoring it would clobber their change — skip it instead.
 fn restore_keymap(conn: &RustConnection, remapped: &[(u8, Vec<Keysym>, Vec<Keysym>)]) {
+    if remapped.is_empty() {
+        return;
+    }
+    let Ok(_grab) = ServerGrab::acquire(conn) else {
+        return;
+    };
     for (keycode, original, ours) in remapped {
         let live = xproto::get_keyboard_mapping(conn, *keycode, 1)
             .ok()
@@ -2304,57 +2375,58 @@ fn connect_error_kind(error: &x11rb::errors::ConnectError) -> &'static str {
     }
 }
 
-/// Which transport the LIVE connection socket actually is: Some(true) for
-/// unix-domain, Some(false) for TCP — read from the fd's inode in
-/// /proc/net/* so the lease domain binds the real endpoint, not the
-/// display spelling the caller used. None when undetermined (fall back to
-/// the parsed-spelling normalizer).
-fn socket_is_unix(conn: &RustConnection) -> Option<bool> {
+/// Bind the domain to the peer of the actual connected socket, not the
+/// display spelling or a pre-connect DNS result. Duplicating the fd lets the
+/// safe standard-library socket APIs inspect it without taking ownership of
+/// or altering the live X11 connection.
+fn socket_endpoint_key(conn: &RustConnection) -> std::io::Result<String> {
     #[cfg(unix)]
     {
-        use std::os::fd::{AsFd, AsRawFd};
-        let fd = conn.stream().as_fd().as_raw_fd();
-        let target = "socket:[";
-        let inode: u64 = std::fs::read_link(format!("/proc/self/fd/{fd}"))
-            .ok()
-            .and_then(|p| {
-                let s = p.to_string_lossy();
-                s.strip_prefix(target)?.strip_suffix(']')?.parse().ok()
-            })?;
-        let has_inode = |path: &str| -> bool {
-            std::fs::read_to_string(path)
-                .map(|t| t.split_whitespace().any(|tok| tok.parse::<u64>().ok() == Some(inode)))
-                .unwrap_or(false)
-        };
-        if has_inode("/proc/net/unix") {
-            return Some(true);
+        use std::os::fd::AsFd;
+        let stream = std::net::TcpStream::from(conn.stream().as_fd().try_clone_to_owned()?);
+        match stream.peer_addr() {
+            Ok(peer) => return Ok(format!("tcp:{peer}")),
+            Err(tcp_error) => {
+                let unix = std::os::unix::net::UnixStream::from(
+                    conn.stream().as_fd().try_clone_to_owned()?,
+                );
+                let peer = unix.peer_addr().map_err(|_| tcp_error)?;
+                if let Some(path) = peer.as_pathname() {
+                    use std::os::unix::ffi::OsStrExt;
+                    let mut key = String::from("unix:path:");
+                    use std::fmt::Write as _;
+                    for byte in path.as_os_str().as_bytes() {
+                        let _ = write!(key, "{byte:02x}");
+                    }
+                    return Ok(key);
+                }
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    #[cfg(target_os = "android")]
+                    use std::os::android::net::SocketAddrExt;
+                    #[cfg(target_os = "linux")]
+                    use std::os::linux::net::SocketAddrExt;
+                    if let Some(name) = peer.as_abstract_name() {
+                        let mut key = String::from("unix:abstract:");
+                        use std::fmt::Write as _;
+                        for byte in name {
+                            let _ = write!(key, "{byte:02x}");
+                        }
+                        return Ok(key);
+                    }
+                }
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "X11 Unix peer has no address",
+                ))
+            }
         }
-        if has_inode("/proc/net/tcp") || has_inode("/proc/net/tcp6") {
-            return Some(false);
-        }
-        return None;
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        let _ = conn;
-        None
-    }
-}
-
-/// Canonical authority+number mirroring `connect_addresses`: the key is the
-/// transport endpoint the resolver actually picks, not the protocol token
-/// the caller spelled. Every spelling that resolves to the unix socket —
-/// `unix:N`, `unix/host:N`, `:N`, a unix-path host, or `host:N` with
-/// `protocol="unix"` — collapses to `unix:N`; every spelling that resolves
-/// to `Hostname(host, 6000+N)` (`tcp/host:N`, `inet/host:N`, `host:N` with
-/// a non-local host, …) collapses to `tcp:host:N`. Truly different
-/// endpoints (different host names, different socket paths) stay distinct.
-fn normalize_display_authority(host: &str, protocol: Option<&str>, display: u16) -> String {
-    let unix_transport = protocol == Some("unix") || host.is_empty() || host == "unix";
-    if unix_transport {
-        format!("unix:{display}")
-    } else {
-        format!("tcp:{}:{display}", host.to_ascii_lowercase())
+        use std::os::windows::io::AsSocket;
+        let stream = std::net::TcpStream::from(conn.stream().as_socket().try_clone_to_owned()?);
+        Ok(format!("tcp:{}", stream.peer_addr()?))
     }
 }
 
@@ -2376,6 +2448,7 @@ fn find_visual(screen: &xproto::Screen, id: u32) -> Option<xproto::Visualtype> {
     None
 }
 
+/// XTEST source ids used for self-injection suppression in the raw watcher.
 fn xtest_device_ids(conn: &RustConnection) -> Vec<u16> {
     let mut ids = vec![];
     if let Some(reply) = xinput::xi_query_device(conn, XI_ALL_DEVICES)
