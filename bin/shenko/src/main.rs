@@ -452,18 +452,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
                 tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
-            let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
-                agent_id,
-                Arc::clone(&subject_inbox),
-                Arc::clone(&store),
-                identity_context.clone(),
-            )?
-            .with_broker(broker_handle)
-            .with_model_capabilities(capabilities)
-            .with_native_capabilities(native_child.installed_prompt_sections())
-            .with_awareness(awareness)
-            .with_hooks(Arc::clone(&hook_registry))
-            .with_outbox(outbox_tx.clone());
+            // The contacts query handler is only real while its connector is
+            // configured; the plugin handle must outlive the napcat block.
+            let mut _native_contacts_plugin = None;
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
@@ -487,6 +478,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 let event_tx = client.event_sender();
                 let pending_actions = client.pending_actions.clone();
                 let cancel_napcat = consumer_cancel.clone();
+
+                // Read-only contact/identity queries ride the same echo
+                // protocol and durable task/evidence path as every native
+                // child. Installing only while the connector exists keeps the
+                // advertised capability honest: no NapCat, no definition.
+                let contacts_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                    Arc::new(shenko_exec_host::NapCatContactsHandler::new(
+                        Arc::clone(&store),
+                        Arc::clone(&client),
+                    ));
+                _native_contacts_plugin = Some(
+                    supervisor
+                        .spawn(shenko_subject::NativeTaskHandlerPlugin, contacts_handler)
+                        .await?,
+                );
 
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
@@ -669,6 +675,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 });
                 info!("NapCat connector started");
             }
+
+            // Built after any connector-scoped handler install so the sealed
+            // tool contract advertises exactly the installed definitions.
+            let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
+                agent_id,
+                Arc::clone(&subject_inbox),
+                Arc::clone(&store),
+                identity_context.clone(),
+            )?
+            .with_broker(broker_handle)
+            .with_model_capabilities(capabilities)
+            .with_native_capabilities(native_child.installed_prompt_sections())
+            .with_awareness(awareness)
+            .with_hooks(Arc::clone(&hook_registry))
+            .with_outbox(outbox_tx.clone());
 
             // Connector/ACK storage failures also stop admission in the subject.
             let connector_failure = cancel.clone();

@@ -1008,12 +1008,14 @@
       "evidence_state": [],
       "acceptance_case_ids": [],
       "implementation_refs": [
-        "crates/shenko-broker/src/broker.rs"
+        "crates/shenko-broker/src/broker.rs",
+        "crates/shenko-channel-napcat/src/client.rs",
+        "crates/shenko-exec-host/src/contact_task.rs"
       ],
       "evidence_refs": [],
       "blockers": [],
       "satisfied": false,
-      "note": "C=1 admission, submit/receive oneshot"
+      "note": "C=1 admission, submit/receive oneshot; napcat.contacts/v1 只读 native handler（ContactQuery allowlist get_login_info/friend/stranger/group_list/member_list/member_info）经同一 echo 关联+durable task/evidence 提供真实联系人/群/身份读取，账号绑定与拒绝/unknown 类型化；person 级联系人修订/别名/跨平台映射仍欠"
     },
     {
       "requirement_id": "R060",
