@@ -2190,8 +2190,9 @@ fn keysym_to_keycode(
                 .map(|r| r.keysyms)
                 .ok_or(SendError::Lost)?;
             if applied.first() != Some(&keysym) {
-                // Do not claim or later restore a mapping the server did not
-                // apply as requested.
+                // Record the applied row before bailing so restore can undo
+                // a mapping the server ACKed but reported differently.
+                shared.remapped.push((code, original.clone(), applied));
                 return Err(SendError::Lost);
             }
             shared.remapped.push((code, original, applied));
@@ -2427,6 +2428,13 @@ fn socket_endpoint_key(conn: &RustConnection) -> std::io::Result<String> {
         use std::os::windows::io::AsSocket;
         let stream = std::net::TcpStream::from(conn.stream().as_socket().try_clone_to_owned()?);
         Ok(format!("tcp:{}", stream.peer_addr()?))
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "peer endpoint inspection unsupported on this platform",
+        ))
     }
 }
 
