@@ -709,6 +709,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
+                .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");
@@ -1462,6 +1463,25 @@ mod recovery_integration_tests {
         Ok(())
     }
 
+    /// Drive bounded dispatcher passes until a durable condition is met. The
+    /// dispatcher manages executions asynchronously; asserting "two passes
+    /// finish a task" would re-serialize them in the test's favour.
+    async fn drive_native_until(
+        native: &Arc<shenko_subject::NativeChildService>,
+        mut met: impl FnMut() -> Result<bool>,
+    ) -> Result<()> {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                native.run_once().await?;
+                if met()? {
+                    return Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await?
+    }
+
     // Real local process boundary: one process executes the committed Pending
     // task and exits; its parent reopens the ledger and must not execute it again.
     // The model output is a deterministic fixture, not production-model evidence.
@@ -1541,8 +1561,11 @@ mod recovery_integration_tests {
             .try_service::<shenko_subject::NativeChildService>()
             .unwrap();
         native.recover().unwrap();
-        native.run_once().await.unwrap();
-        native.run_once().await.unwrap();
+        drive_native_until(&native, || {
+            Ok(store.native_task_result(printf_task)?.is_some())
+        })
+        .await
+        .unwrap();
 
         let result = store.native_task_result(printf_task).unwrap().unwrap();
         assert!(matches!(&result.outcome, TaskOutcome::Succeeded));
@@ -1956,8 +1979,13 @@ mod recovery_integration_tests {
             .try_service::<shenko_subject::NativeChildService>()
             .unwrap();
         native.recover().unwrap();
-        native.run_once().await.unwrap();
-        native.run_once().await.unwrap();
+        drive_native_until(&native, || {
+            let task = reopened.external_task(unknown_task)?;
+            Ok(matches!(task.state, TaskState::Pending { .. })
+                && shenko_store::child::park_reason(&task) == Some("reconciling"))
+        })
+        .await
+        .unwrap();
 
         let unknown = reopened
             .external_operation(unknown_claim.operation_id)

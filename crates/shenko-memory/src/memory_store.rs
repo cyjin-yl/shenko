@@ -3,6 +3,10 @@
 //! An intent is accepted immediately and made durable as an `accepted` row in
 //! `memory_intents`. Processing an intent turns it into a searchable memory
 //! entry and marks the intent `committed`, or marks it `failed` with a reason.
+//! A `forget` intent is bound to the entry it retires: processing marks that
+//! entry deleted (semantic forget, SPEC §12.4) and commits the intent in one
+//! ledger transaction. The original text stays durable and readable through
+//! [`MemoryStore::read`]; search and list simply stop surfacing it.
 //! The legacy channel-based constructor is kept for callers that only need
 //! acceptance notifications; persistence requires [`MemoryStore::with_store`].
 use std::collections::VecDeque;
@@ -131,6 +135,11 @@ impl MemoryStore {
         intent: MemoryIntent,
         content: Option<String>,
     ) -> Result<AcceptedRef, anyhow::Error> {
+        if intent.kind == MemoryIntentKind::Forget {
+            return Err(anyhow::anyhow!(
+                "forget intents bind the retired entry id; use accept_forget()"
+            ));
+        }
         let intent_id = intent.intent_id;
         let mut entry_id = EntityId::new();
         let content = content.unwrap_or_default();
@@ -181,6 +190,89 @@ impl MemoryStore {
                 intent: intent.clone(),
                 entry_id,
                 content,
+                scope,
+            });
+        }
+        drop(queue);
+
+        if let Some(tx) = &self.legacy_tx {
+            tx.send(intent)
+                .map_err(|e| anyhow::anyhow!("memory intent channel closed: {e}"))?;
+        }
+
+        Ok(AcceptedRef { intent_id, status: "accepted" })
+    }
+
+    /// Admit a semantic-forget intent bound to the entry it retires.
+    ///
+    /// The caller keeps the intent id, so a replay after a restart re-reads
+    /// the same durable request instead of fabricating a second one; the
+    /// intent's `entry_id` binding is the target being forgotten. A `Forget`
+    /// intent carries no object reference.
+    pub fn accept_forget(
+        &self,
+        intent: MemoryIntent,
+        entry_id: EntityId,
+    ) -> Result<AcceptedRef, anyhow::Error> {
+        if intent.kind != MemoryIntentKind::Forget {
+            return Err(anyhow::anyhow!("accept_forget requires a Forget intent"));
+        }
+        if intent.content_ref.is_some() {
+            return Err(anyhow::anyhow!("forget intents do not carry an object reference"));
+        }
+        let intent_id = intent.intent_id;
+        let scope = if intent.scope.is_empty() {
+            "personal".to_string()
+        } else {
+            intent.scope.clone()
+        };
+
+        if let Some(store) = &self.store {
+            let record = MemoryIntentRecord::accepted(
+                intent_id,
+                self.agent_id,
+                kind_str(intent.kind),
+                scope.clone(),
+                String::new(),
+                None,
+                Some(entry_id),
+            );
+            let admitted = store
+                .admit_memory_intent(&record, None)
+                .map_err(|e| anyhow::anyhow!("persist accepted memory intent: {e}"))?;
+            let stored = match admitted {
+                MemoryIntentAdmission::Inserted(stored) | MemoryIntentAdmission::Existing(stored) => stored,
+            };
+            // The durable binding wins over the terminal status: a replay
+            // bound to a different target must refuse even when the original
+            // request already committed or failed — reporting "committed" for
+            // a differently targeted request would let it masquerade as
+            // settled while its real target stays searchable.
+            if stored.record.entry_id != Some(entry_id) {
+                return Err(anyhow::anyhow!(
+                    "forget intent is already bound to a different target entry"
+                ));
+            }
+            match stored.record.state.as_str() {
+                "committed" => {
+                    self.remove_queued(intent_id);
+                    return Ok(AcceptedRef { intent_id, status: "committed" });
+                }
+                "failed" => {
+                    self.remove_queued(intent_id);
+                    return Ok(AcceptedRef { intent_id, status: "failed" });
+                }
+                "accepted" => {}
+                _ => return Err(anyhow::anyhow!("unsupported durable memory intent state")),
+            }
+        }
+
+        let mut queue = self.queue.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !queue.iter().any(|item| item.intent.intent_id == intent_id) {
+            queue.push_back(QueuedIntent {
+                intent: intent.clone(),
+                entry_id,
+                content: String::new(),
                 scope,
             });
         }
@@ -341,6 +433,18 @@ impl MemoryStore {
             .map_err(|e| anyhow::anyhow!("list memory: {e}"))
     }
 
+    /// Read one entry by id, including semantically forgotten rows. This is
+    /// the read-back channel SPEC §12.4 requires: forget hides the entry
+    /// from `search`/`list` but never erases the original text.
+    pub fn read(&self, entry_id: EntityId) -> Result<Option<StoredMemoryEntry>, anyhow::Error> {
+        let store = self.store.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("memory store has no persistence backend; use with_store()")
+        })?;
+        store
+            .memory_entry(entry_id)
+            .map_err(|e| anyhow::anyhow!("read memory: {e}"))
+    }
+
     fn commit_queued(
         &self,
         store: &Store,
@@ -349,9 +453,18 @@ impl MemoryStore {
         match queued.intent.kind {
             MemoryIntentKind::Save | MemoryIntentKind::Correct => {}
             MemoryIntentKind::Forget => {
-                return Err(anyhow::anyhow!(
-                    "forget requires a resolved target entry; not supported yet"
-                ));
+                store
+                    .commit_memory_forget(queued.intent.intent_id)
+                    .map_err(anyhow::Error::new)?;
+                // The intent row already committed above; the read-back only
+                // reports what was retired and can never silently succeed —
+                // a missing row surfaces as an error, not a fake outcome.
+                return store
+                    .memory_entry(queued.entry_id)
+                    .map_err(anyhow::Error::new)?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!("forgotten memory entry is missing after commit")
+                    });
             }
             MemoryIntentKind::Recall => {
                 return Err(anyhow::anyhow!(

@@ -56,9 +56,18 @@ Unix 为每次调用创建独立进程组，超时或 future drop 时向该组�
 
 `execution_id` 是本次本地调用的关联 ID，**不是远端 operation handle，不保证幂等，也不内建持久查询服务**。整合者须在外层 §41 的 T1 中先持久保存 operation/attempt 和目标，再调用执行器；T2 保存完整结果，按 operation/attempt 关联此 ID。unknown 进入 reconciliation，按原 seat/任务、进程或可验证后置条件查询现场；没有明确证据前不能自动重发。调用 future 被 drop 时没有返回结果，外层持久 supervisor 须依据已 armed attempt 保持 unknown，而不是记录取消成功。
 
+## tmux seat 发现与受守卫的写入（C07 / #12 切片）
+
+- `TmuxPane` 现在携带 `pane_pid` 与 `dead`（`pane_dead`）：seat 身份是 pane + 进程现场，不是永久不变的 pane 编号。
+- `discover_agent_seats` 返回 `AgentSeat { pane, kind, processes }`：确定遍历真实进程子树，只按 **pane 根终端**的前台组归类（成员 `pgid` 和 `tpgid` 都匹配根的正 `tpgid`），不采纳后代独立 PTY 的前台程序。跳过 shell/wrapper 后识别 `claude`/`omp`/`codex` 或 `Other(comm)`；前台 shell、后台 agent 与 dead pane 不被当成 seat。只有进程证据不可得（PID=0、根缺失、ps 不可用）才退回未核验的 `pane_current_command`；真实 shell 证据不能被旧 tmux 命令覆盖。
+- `send_keys_verified`/`send_input_verified` 在同一条远端命令里先检查 pane 存在、非 `pane_dead`、`pane_current_command` 仍等于 `expected_command`，再 `send-keys`；三种拒绝映射为可下转的 `SeatRefusal`（`PaneMissing`/`PaneDead`/`ProgramChanged`），不再把为 seat 准备的输入盲发进 shell。检查与发送之间仍存在 tmux 无法消除的竞态窗口——这是拒绝盲输，不是送达证明。
+- `SeatObservation.screen_hash` 是纯文本画面的稳定 digest，供调用方在回答前比对问题/画面 revision 是否变化。
+
 ## 本轮验证范围
 
-仅新增两个针对性测试，串行运行：
+seat 增量保留 8 个独立永久场景：前台 agent、停止 agent 与旧命令、内层 PTY、PID=0 fallback、三类拒绝及普通失败；不保留生成命令源码断言。实际运行结果以父验证记录为准。
+
+既有 transport 的两个针对性测试继续复用，串行运行：
 
 ```sh
 CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
@@ -74,7 +83,7 @@ CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
 - R019/A09：WASM SSH/keygen/transfer、托管签名桥；本 provider 不能抵扣这些目标。
 - R016/R017：密钥创建、轮换/撤销与公钥 UI。
 - R041：stat/read/write/hash patch、SFTP、stdin、stream/poll/cancel API、输出截断及有界 spool；本轮只提供有界 stdin/输出、1MiB upload/download；完整文件 API、流式 spool 与远端取消仍未交付。
-- §17.1/§17.5/§35.5：稳定 seat/process 身份、lease、版本化问题与原子协议、高亮/grid 状态机、真实 Claude/OMP journey。既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
+- §17.1/§17.5/§35.5：持久 seat/lease 记录、版本化问题协议、高亮/grid 状态机、真实 Claude/OMP journey 仍未交付。本轮补上了进程子树 seat 识别与受守卫写入，但既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
 - §36/§41、RT09/P41-03：本轮有 task-bound T1/E1 和远端 receipt 的原生适配；完整调度器 T2、祖先取消、授权 registry、writer/node fencing、残余 supervisor 与真实部署验收仍未接全。不保证 arbitrary shell 的业务效果已完成或可撤销。
 
 这些是已有 SPEC 范围，不因本轮实现或测试通过而标记 satisfied。

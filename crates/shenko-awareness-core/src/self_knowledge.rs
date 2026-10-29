@@ -154,6 +154,7 @@ impl SelfKnowledgeProvider {
                          shenko-kernel (插件注册+生命周期), shenko-broker (推理调度), \
                          shenko-subject (持续主体), shenko-memory, shenko-channel-napcat, \
                          shenko-exec-ssh (SSH+tmux seat), shenko-wasm, \
+                         shenko-repl (WASI REPL sessions + R0 journal), \
                          shenko-compact-budget, shenko-compact-snap, \
                          shenko-awareness-core (自解释), shenko-ui, shenko-seed".into(),
                 source_revision: Some(revision),
