@@ -284,6 +284,32 @@ pub async fn run_subject_loop(
 ) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
 
+    // Re-feed durably admitted but never-staged web inputs. An event row is
+    // only marked consumed inside the S0 staging transaction, so anything
+    // still pending here is accepted input that never reached a step. A
+    // read failure stops admission work rather than masking it.
+    match state.store.pending_web_inputs(state.agent_id) {
+        Ok(rows) => {
+            if !rows.is_empty() {
+                info!(count = rows.len(), "re-feeding durable web inputs");
+            }
+            for data in rows {
+                match serde_json::from_str::<InboxEvent>(&data) {
+                    Ok(event) => {
+                        if let Err(error) = state.inbox.sender().send(event).await {
+                            warn!(%error, "inbox closed during durable refeed");
+                            break;
+                        }
+                    }
+                    Err(error) => {
+                        warn!(%error, "skipping unparsable durable web input");
+                    }
+                }
+            }
+        }
+        Err(error) => return Err(error),
+    }
+
     let result = loop {
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");

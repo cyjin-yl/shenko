@@ -15,6 +15,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shenko_subject::inbox::{InboxEvent, InboxEventKind};
 use shenko_subject::outbox::OutboxMessage;
+use shenko_store::web_input::WebAdmission;
+use shenko_types::store::RawInboxEvent;
 use shenko_types::ids::EntityId;
 use tokio::sync::{broadcast, mpsc::Sender};
 use tracing::{debug, info, warn};
@@ -244,7 +246,8 @@ fn browser_origin_matches_host(headers: &HeaderMap) -> bool {
 #[derive(Serialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 enum SubmissionStage {
-    Queued,
+    Accepted,
+    Conflict,
     Rejected,
 }
 
@@ -266,7 +269,34 @@ struct SubmissionReceipt<'a> {
     mode: Option<SubmissionMode>,
     #[serde(skip_serializing_if = "Option::is_none")]
     durability: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accepted_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replayed: Option<bool>,
     detail: &'static str,
+}
+
+/// Durable view of one admitted submission — SPEC §41.18 get_web_input.
+/// accepted/selected/committed are separate fact receipts, not a progress bar.
+#[derive(Serialize)]
+struct SubmissionView {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    submission_id: String,
+    result: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stage: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accepted_commit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selected_step_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    committed_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -315,6 +345,81 @@ fn validate_submission(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubmissionQuery {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    kind: String,
+    submission_id: String,
+    subject_id: String,
+}
+
+/// The dedup key payload: the canonical client fields, serialized with fixed
+/// ordering so identical retries compare equal byte-for-byte.
+fn submission_payload(submission: &UserSubmission) -> String {
+    serde_json::json!({
+        "schema_version": submission.schema_version,
+        "type": &submission.kind,
+        "submission_id": &submission.submission_id,
+        "message_id": &submission.message_id,
+        "subject_id": &submission.subject_id,
+        "mode": submission.mode,
+        "content": &submission.content,
+        "attachment_refs": &submission.attachment_refs,
+        "rich_content_ref": &submission.rich_content_ref,
+        "observed_step_id": &submission.observed_step_id,
+        "observed_request_id": &submission.observed_request_id,
+    })
+    .to_string()
+}
+
+/// Resolve a reconnect/replay query against the durable admission record.
+/// Returns the view JSON to send; never invents selected/committed facts.
+fn submission_view(state: &WsState, query: &SubmissionQuery) -> SubmissionView {
+    let base = |result: &'static str| SubmissionView {
+        schema_version: 2,
+        kind: "submission_view",
+        submission_id: query.submission_id.clone(),
+        result,
+        stage: None,
+        event_id: None,
+        accepted_commit: None,
+        selected_step_id: None,
+        committed_at: None,
+    };
+    let (Some(store), Some(subject_id)) = (&state.store, state.subject_id) else {
+        return base("temporarily_unavailable");
+    };
+    if subject_id.to_string() != query.subject_id {
+        return base("not_admitted");
+    }
+    let record = match store.web_submission(subject_id, &query.submission_id) {
+        Ok(Some(record)) => record,
+        Ok(None) => return base("not_admitted"),
+        Err(_) => return base("temporarily_unavailable"),
+    };
+    let mut view = base("found");
+    view.event_id = Some(record.event_id.to_string());
+    view.accepted_commit = Some(record.accepted_commit.to_string());
+    match store.event_disposition_commit(subject_id, record.event_id) {
+        Ok(Some(commit)) => {
+            view.stage = Some("committed");
+            view.committed_at = Some(commit.to_string());
+        }
+        Ok(None) => match store.web_input_selected_step(subject_id, record.event_id) {
+            Ok(Some(step_id)) => {
+                view.stage = Some("selected");
+                view.selected_step_id = Some(step_id.to_string());
+            }
+            Ok(None) => view.stage = Some("accepted"),
+            Err(_) => return base("temporarily_unavailable"),
+        },
+        Err(_) => return base("temporarily_unavailable"),
+    }
+    view
+}
+
 async fn handle_socket(mut socket: WebSocket, state: WsState) {
     info!("ws client connected");
     let _connection = state.live.connection_added();
@@ -326,10 +431,11 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
         "type": "hello",
         "server_version": env!("CARGO_PKG_VERSION"),
         "capabilities": {
-            "append": state.inbox_tx.is_some() && state.subject_id.is_some(),
+            "append": state.inbox_tx.is_some() && state.subject_id.is_some()
+                && state.store.is_some(),
             "steer": false,
             "attachments": false,
-            "durable_input_receipts": false,
+            "durable_input_receipts": state.store.is_some(),
             "committed_replay": state.store.is_some(),
         }
     });
@@ -376,63 +482,179 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         debug!("ws recv {} bytes", text.len());
-                        let parsed = serde_json::from_str::<UserSubmission>(&text);
-                        let (submission_id, mode, stage, durability, detail) = match parsed {
-                            Ok(user_msg) => {
-                                if let Err(detail) = validate_submission(&user_msg, state.subject_id) {
-                                    (user_msg.submission_id, Some(user_msg.mode), SubmissionStage::Rejected, None, detail)
-                                } else {
-                                    let event = InboxEvent {
-                                        event_id: EntityId::new(),
-                                        kind: InboxEventKind::Message,
-                                        payload: serde_json::json!({
-                                            "content": user_msg.content,
-                                            "message_id": user_msg.message_id,
-                                            "submission_id": user_msg.submission_id,
-                                            "subject_id": user_msg.subject_id,
-                                            "mode": "append",
-                                            "attachment_refs": user_msg.attachment_refs,
-                                            "observed_step_id": user_msg.observed_step_id,
-                                            "observed_request_id": user_msg.observed_request_id,
-                                            "role": "user",
-                                        }),
-                                        created_at: Utc::now(),
-                                        source: "web_ui".to_string(),
-                                    };
-                                    // try_send proves only volatile queue admission. It
-                                    // is not durable accepted/selected/committed and no
-                                    // placement is invented for the browser.
-                                    let (stage, detail) = match &state.inbox_tx {
-                                        Some(tx) => match tx.try_send(event) {
-                                            Ok(()) => (SubmissionStage::Queued, "已进入内存队列；尚未持久化、选入或处理。"),
-                                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => (SubmissionStage::Rejected, "主体输入队列已满，请稍后重试。"),
-                                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => (SubmissionStage::Rejected, "主体已停止，需要恢复。"),
-                                        },
-                                        None => (SubmissionStage::Rejected, "主体输入未连接。"),
-                                    };
-                                    let durability = matches!(stage, SubmissionStage::Queued).then_some("volatile");
-                                    (user_msg.submission_id, Some(user_msg.mode), stage, durability, detail)
+                        if let Ok(user_msg) = serde_json::from_str::<UserSubmission>(&text) {
+                            let reply = if let Err(detail) =
+                                validate_submission(&user_msg, state.subject_id)
+                            {
+                                SubmissionReceipt {
+                                    schema_version: 2,
+                                    kind: "receipt",
+                                    submission_id: &user_msg.submission_id,
+                                    stage: SubmissionStage::Rejected,
+                                    mode: Some(user_msg.mode),
+                                    durability: None,
+                                    event_id: None,
+                                    accepted_commit: None,
+                                    replayed: None,
+                                    detail,
                                 }
+                            } else {
+                                let event_id = EntityId::new();
+                                let event = InboxEvent {
+                                    event_id,
+                                    kind: InboxEventKind::Message,
+                                    payload: serde_json::json!({
+                                        "content": &user_msg.content,
+                                        "message_id": &user_msg.message_id,
+                                        "submission_id": &user_msg.submission_id,
+                                        "subject_id": &user_msg.subject_id,
+                                        "mode": "append",
+                                        "attachment_refs": &user_msg.attachment_refs,
+                                        "observed_step_id": &user_msg.observed_step_id,
+                                        "observed_request_id": &user_msg.observed_request_id,
+                                        "role": "user",
+                                    }),
+                                    created_at: Utc::now(),
+                                    source: shenko_store::web_input::WEB_INPUT_SOURCE.to_string(),
+                                };
+                                let data_json = match serde_json::to_string(&event) {
+                                    Ok(json) => json,
+                                    Err(_) => {
+                                        warn!("inbox event serialization failed; not admitted");
+                                        break;
+                                    }
+                                };
+                                let raw = RawInboxEvent {
+                                    event_id,
+                                    agent_id: state.subject_id.expect("validated subject"),
+                                    source: shenko_store::web_input::WEB_INPUT_SOURCE.to_string(),
+                                    kind: "message".into(),
+                                    payload_json: data_json,
+                                    received_at_ms: Utc::now().timestamp_millis(),
+                                };
+                                let admission = state.store.as_ref().map(|store| {
+                                    store.admit_web_submission(
+                                        raw.agent_id,
+                                        &user_msg.submission_id,
+                                        &submission_payload(&user_msg),
+                                        &raw,
+                                    )
+                                });
+                                let mut reply = SubmissionReceipt {
+                                    schema_version: 2,
+                                    kind: "receipt",
+                                    submission_id: &user_msg.submission_id,
+                                    stage: SubmissionStage::Rejected,
+                                    mode: Some(user_msg.mode),
+                                    durability: None,
+                                    event_id: None,
+                                    accepted_commit: None,
+                                    replayed: None,
+                                    detail: "",
+                                };
+                                match admission {
+                                    // Admission commits raw input + binding
+                                    // before any transport answer. accepted ≠
+                                    // selected/committed; no placement invented.
+                                    Some(Ok(WebAdmission::Admitted(record))) => {
+                                        reply.stage = SubmissionStage::Accepted;
+                                        reply.durability = Some("durable");
+                                        reply.event_id = Some(record.event_id.to_string());
+                                        reply.accepted_commit =
+                                            Some(record.accepted_commit.to_string());
+                                        let delivery = match &state.inbox_tx {
+                                            Some(tx) => tx.send(event).await.is_ok(),
+                                            None => false,
+                                        };
+                                        reply.detail = if delivery {
+                                            "已持久接纳；已进入当前循环队列，尚未选入或处理。"
+                                        } else {
+                                            "已持久接纳；当前循环未连接，重启后将补送。"
+                                        };
+                                    }
+                                    // Same key + identical payload replays the
+                                    // original fact without another input.
+                                    Some(Ok(WebAdmission::Replay(record))) => {
+                                        reply.stage = SubmissionStage::Accepted;
+                                        reply.durability = Some("durable");
+                                        reply.event_id = Some(record.event_id.to_string());
+                                        reply.accepted_commit =
+                                            Some(record.accepted_commit.to_string());
+                                        reply.replayed = Some(true);
+                                        reply.detail =
+                                            "相同提交重放；返回原回执，未新增输入。";
+                                    }
+                                    Some(Ok(WebAdmission::Conflict)) => {
+                                        reply.stage = SubmissionStage::Conflict;
+                                        reply.detail =
+                                            "同一 submission_id 内容不同；原输入未改写。";
+                                    }
+                                    Some(Err(error)) => {
+                                        warn!(%error, "durable input admission failed");
+                                        reply.detail =
+                                            "持久接纳暂不可用；未接纳输入，请稍后用同一 ID 重试。";
+                                    }
+                                    None => {
+                                        reply.detail = "持久接纳未连接；未接纳输入。";
+                                    }
+                                }
+                                reply
+                            };
+                            let json =
+                                serde_json::to_string(&reply).expect("receipt serialization");
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
                             }
-                            Err(_) => {
-                                let submission_id = serde_json::from_str::<serde_json::Value>(&text)
-                                    .ok()
-                                    .and_then(|value| value.get("submission_id")?.as_str().map(ToOwned::to_owned))
-                                    .unwrap_or_else(|| Uuid::new_v4().to_string());
-                                (submission_id, None, SubmissionStage::Rejected, None, "无效或未知字段的输入协议；未接纳输入。")
+                        } else if let Ok(query) = serde_json::from_str::<SubmissionQuery>(&text)
+                        {
+                            let view = if query.schema_version == 2
+                                && query.kind == "query_submission"
+                                && !query.submission_id.is_empty()
+                            {
+                                submission_view(&state, &query)
+                            } else {
+                                SubmissionView {
+                                    schema_version: 2,
+                                    kind: "submission_view",
+                                    submission_id: query.submission_id.clone(),
+                                    result: "not_admitted",
+                                    stage: None,
+                                    event_id: None,
+                                    accepted_commit: None,
+                                    selected_step_id: None,
+                                    committed_at: None,
+                                }
+                            };
+                            let json =
+                                serde_json::to_string(&view).expect("view serialization");
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
                             }
-                        };
-                        let reply = SubmissionReceipt {
-                            schema_version: 2,
-                            kind: "receipt",
-                            submission_id: &submission_id,
-                            stage,
-                            mode,
-                            durability,
-                            detail,
-                        };
-                        let json = serde_json::to_string(&reply).expect("receipt serialization");
-                        if socket.send(Message::Text(json.into())).await.is_err() { break; }
+                        } else {
+                            let submission_id = serde_json::from_str::<serde_json::Value>(&text)
+                                .ok()
+                                .and_then(|value| {
+                                    value.get("submission_id")?.as_str().map(ToOwned::to_owned)
+                                })
+                                .unwrap_or_else(|| Uuid::new_v4().to_string());
+                            let reply = SubmissionReceipt {
+                                schema_version: 2,
+                                kind: "receipt",
+                                submission_id: &submission_id,
+                                stage: SubmissionStage::Rejected,
+                                mode: None,
+                                durability: None,
+                                event_id: None,
+                                accepted_commit: None,
+                                replayed: None,
+                                detail: "无效或未知字段的输入协议；未接纳输入。",
+                            };
+                            let json =
+                                serde_json::to_string(&reply).expect("receipt serialization");
+                            if socket.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
                     }
                     Some(Ok(Message::Close(_))) | None => { info!("ws disconnected"); break; }
                     Some(Err(e)) => { warn!(err=%e, "ws error"); break; }

@@ -377,6 +377,16 @@ fn stage_input(
         ],
     )
     .map_err(storage_error)?;
+    // Selection is durable here: the delivery flag moves inside the same
+    // transaction as the staging link, so a crash can never leave an input
+    // staged but still reported as undelivered. Only web-source rows carry
+    // this flag; other ingress lanes own their own consumption bookkeeping.
+    tx.execute(
+        "UPDATE inbox_events SET consumed=1
+         WHERE event_id=?1 AND source=?2 AND consumed=0",
+        params![input.event_id.to_string(), crate::web_input::WEB_INPUT_SOURCE],
+    )
+    .map_err(storage_error)?;
     Ok(true)
 }
 
