@@ -56,6 +56,13 @@ Unix 为每次调用创建独立进程组，超时或 future drop 时向该组�
 
 `execution_id` 是本次本地调用的关联 ID，**不是远端 operation handle，不保证幂等，也不内建持久查询服务**。整合者须在外层 §41 的 T1 中先持久保存 operation/attempt 和目标，再调用执行器；T2 保存完整结果，按 operation/attempt 关联此 ID。unknown 进入 reconciliation，按原 seat/任务、进程或可验证后置条件查询现场；没有明确证据前不能自动重发。调用 future 被 drop 时没有返回结果，外层持久 supervisor 须依据已 armed attempt 保持 unknown，而不是记录取消成功。
 
+## tmux seat 发现与受守卫的写入（C07 / #12 切片）
+
+- `TmuxPane` 现在携带 `pane_pid` 与 `dead`（`pane_dead`）：seat 身份是 pane + 进程现场，不是永久不变的 pane 编号。
+- `discover_agent_seats` 返回 `AgentSeat { pane, kind, processes }`：对每条 pane 从 `pane_pid` 向下收集真实进程子树（`ps -axo pid=,ppid=,args=`），跳过 shell/tmux/sudo 等 wrapper 后按第一个非 wrapper 程序归类 `claude`/`omp`/`codex` → 对应 `SeatKind`，其余 → `Other(comm)`；裸 shell 和 dead pane 不再被当成 seat。`ps` 不可得时退化到 `pane_current_command` 分类且 `processes` 为空——调用方应把该 seat 视为未核验。
+- `send_keys_verified`/`send_input_verified` 在同一条远端命令里先检查 pane 存在、非 `pane_dead`、`pane_current_command` 仍等于 `expected_command`，再 `send-keys`；三种拒绝映射为可下转的 `SeatRefusal`（`PaneMissing`/`PaneDead`/`ProgramChanged`），不再把为 seat 准备的输入盲发进 shell。检查与发送之间仍存在 tmux 无法消除的竞态窗口——这是拒绝盲输，不是送达证明。
+- `SeatObservation.screen_hash` 是纯文本画面的稳定 digest，供调用方在回答前比对问题/画面 revision 是否变化。
+
 ## 本轮验证范围
 
 仅新增两个针对性测试，串行运行：
@@ -74,7 +81,7 @@ CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
 - R019/A09：WASM SSH/keygen/transfer、托管签名桥；本 provider 不能抵扣这些目标。
 - R016/R017：密钥创建、轮换/撤销与公钥 UI。
 - R041：stat/read/write/hash patch、SFTP、stdin、stream/poll/cancel API、输出截断及有界 spool；本轮只提供有界 stdin/输出、1MiB upload/download；完整文件 API、流式 spool 与远端取消仍未交付。
-- §17.1/§17.5/§35.5：稳定 seat/process 身份、lease、版本化问题与原子协议、高亮/grid 状态机、真实 Claude/OMP journey。既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
+- §17.1/§17.5/§35.5：持久 seat/lease 记录、版本化问题协议、高亮/grid 状态机、真实 Claude/OMP journey 仍未交付。本轮补上了进程子树 seat 识别与受守卫写入，但既有 tmux 观察仍只是兼容路径，不能宣称完整通过。
 - §36/§41、RT09/P41-03：本轮有 task-bound T1/E1 和远端 receipt 的原生适配；完整调度器 T2、祖先取消、授权 registry、writer/node fencing、残余 supervisor 与真实部署验收仍未接全。不保证 arbitrary shell 的业务效果已完成或可撤销。
 
 这些是已有 SPEC 范围，不因本轮实现或测试通过而标记 satisfied。
