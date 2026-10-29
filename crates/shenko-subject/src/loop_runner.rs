@@ -612,6 +612,15 @@ async fn execute_step(
                     })
                     .await;
                 debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PreModel hooks ran");
+                if dispatch.stopped_early {
+                    // A stop_unit contract cut the dispatch: the unit is not
+                    // allowed, so nothing is submitted to the broker. The
+                    // durable Preparing step stays resumable; reconciliation
+                    // of the failing handler decides whether it retries.
+                    return Err(ShenkoError::conflict(
+                        "pre-inference hook dispatch stopped the unit; frozen preparation remains resumable",
+                    ));
+                }
             }
         }
         // Close is not abort. Before dispatch, the frozen Preparing/RetryPending
@@ -785,6 +794,14 @@ async fn execute_step(
             })
             .await;
         debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PostModel hooks ran");
+        if dispatch.stopped_early {
+            // A stop_unit dispatch before S1 means the unit is not allowed:
+            // no decision seal, commit or publication follows. The durable
+            // ResultRecorded step keeps its terminal evidence resumable.
+            return Err(ShenkoError::conflict(
+                "post-inference hook dispatch stopped the unit; recorded result remains resumable",
+            ));
+        }
     }
 
     // S1 decision — SPEC §41.5: commit decision + event disposition +
@@ -832,6 +849,14 @@ async fn execute_step(
             })
             .await;
         debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PreEffect hooks ran");
+        if dispatch.stopped_early {
+            // A stop_unit dispatch before the S1 commit means the unit is not
+            // allowed: no decision intents, head advance or outbox message.
+            // The durable ResultRecorded step stays resumable.
+            return Err(ShenkoError::conflict(
+                "pre-commit hook dispatch stopped the unit; recorded result remains resumable",
+            ));
+        }
     }
 
     let mut decision_delegation_intents = vec![];

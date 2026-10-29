@@ -84,6 +84,7 @@ async fn main() -> Result<()> {
             .iter()
             .all(|r| r.allowed && r.error.is_none())
     );
+    anyhow::ensure!(!results.stopped_early);
     anyhow::ensure!(*seen.lock().unwrap() == ["first", "second"]);
     let mut incompatible = entry(
         "00000000-0000-0000-0000-000000000003",
