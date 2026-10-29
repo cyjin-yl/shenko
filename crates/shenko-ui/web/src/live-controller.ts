@@ -18,7 +18,9 @@ import {
 } from './projection';
 
 const DRAFT_KEY = 'shenko.draft.v1';
+const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
 const THEME_KEY = 'shenko.theme.v1';
+const RECEIPT_REFRESH_MS = 2000;
 const RECONNECT_BASE = [1, 2, 4, 8, 15];
 const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config']);
 const VALID_READING = new Set<ReadingState>([
@@ -51,6 +53,85 @@ function uid(): string {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function submissionKey(submissionId: string): string {
+  return `${SUBMISSION_KEY_PREFIX}${submissionId}`;
+}
+
+// Each submission persists under its own key so concurrent tabs never
+// overwrite one another's unconfirmed IDs — the UI outbox is a per-submission
+// recovery record, never an authoritative whole-array ledger.
+function saveSubmission(submission: Submission): boolean {
+  try {
+    localStorage.setItem(submissionKey(submission.payload.submission_id), JSON.stringify({
+      payload: submission.payload,
+      created_at: submission.created_at,
+      receipt: submission.receipt,
+      send_epoch: submission.send_epoch,
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function retireSubmission(submission: Submission): void {
+  // Only a committed disposition retires the persisted pending payload: it is
+  // the sole fact whose truth is already durable in the Store ledger. Every
+  // non-committed row keeps ID+payload until an explicit retry (same-key
+  // overwrite) or a real durable admission — an unrelated newer draft must
+  // never strand the only copy of a rejected/conflicting/absent input.
+  try {
+    localStorage.removeItem(submissionKey(submission.payload.submission_id));
+  } catch {
+    // Storage is optional; the in-memory row retires regardless.
+  }
+}
+
+function storedSubmissions(): Submission[] {
+  const restored: Submission[] = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith(SUBMISSION_KEY_PREFIX)) continue;
+      const saved: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+      if (!isObject(saved) || !isObject(saved.payload)) continue;
+      const payload = saved.payload;
+      if (
+        payload.schema_version !== 2 || payload.type !== 'submit' || payload.mode !== 'append' ||
+        typeof payload.submission_id !== 'string' || !payload.submission_id ||
+        payload.submission_id !== key.slice(SUBMISSION_KEY_PREFIX.length) ||
+        typeof payload.message_id !== 'string' || !payload.message_id ||
+        typeof payload.subject_id !== 'string' || !payload.subject_id ||
+        typeof payload.content !== 'string' || !payload.content.trim() ||
+        !Array.isArray(payload.attachment_refs) || payload.attachment_refs.length !== 0 ||
+        typeof saved.created_at !== 'string' || !Number.isFinite(Date.parse(saved.created_at))
+      ) continue;
+      restored.push({
+        payload: {
+          schema_version: 2, type: 'submit', mode: 'append',
+          submission_id: payload.submission_id, message_id: payload.message_id,
+          subject_id: payload.subject_id, content: payload.content, attachment_refs: [],
+          ...(typeof payload.observed_step_id === 'string'
+            ? { observed_step_id: payload.observed_step_id } : {}),
+        },
+        created_at: saved.created_at,
+        receipt: saved.receipt === 'conflict' ? 'conflict'
+          : saved.receipt === 'rejected' ? 'rejected' : 'unknown',
+        detail: saved.receipt === 'conflict'
+          ? '原提交 ID 已关联不同内容；此冲突内容未改写原输入。'
+          : saved.receipt === 'rejected'
+          ? '服务端已确认未接纳此提交；可用同一 ID 重发。'
+          : '已恢复原提交 ID 与内容；等待持久查询，不会生成新 ID 重发。',
+        send_epoch: validRevision(saved.send_epoch) ? saved.send_epoch : 0,
+      });
+    }
+  } catch {
+    // Browser storage is optional; an unreadable entry recovers as absent,
+    // never as an admitted fact.
+  }
+  return restored.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+}
+
 function initialTheme(): 'dark' | 'light' {
   const query = new URLSearchParams(location.search).get('theme');
   if (query === 'light' || query === 'dark') return query;
@@ -71,11 +152,14 @@ function initialState(): UiState {
     source: 'live',
     connection: 'connecting',
     reconnect_seconds: 0,
+    append_available: false,
+    durable_receipts: false,
+    committed_replay: false,
     subject_id: null,
     wanted_identity_revision: null,
     step: null,
     timeline: [],
-    submissions: [],
+    submissions: storedSubmissions(),
     draft: storageGet(DRAFT_KEY),
     config_error: false,
     self_error: false,
@@ -114,6 +198,7 @@ class LiveController implements ProjectionController {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private identityTimer: ReturnType<typeof setTimeout> | null = null;
+  private receiptTimer: number | null = null;
   private identityRetryDelay = 1000;
   private selfSeq = 0;
   private selfApplied = 0;
@@ -245,7 +330,11 @@ class LiveController implements ProjectionController {
       case 'submission.retry': {
         const id = action.payload?.submission_id;
         const submission = this.state.submissions.find((row) => row.payload.submission_id === id);
-        if (submission && submission.receipt === 'rejected') this.sendSubmission(submission, true);
+        // A rejected or unknown-receipt row resends the SAME submission ID:
+        // the server replays the original receipt instead of double-input.
+        if (submission && (submission.receipt === 'rejected' || submission.receipt === 'unknown')) {
+          this.sendSubmission(submission, true);
+        }
         break;
       }
     }
@@ -304,7 +393,15 @@ class LiveController implements ProjectionController {
       payload,
       created_at: new Date().toISOString(),
       receipt: 'sending',
+      send_epoch: 0,
     };
+    // Save the immutable ID and exact payload BEFORE the transport can send.
+    // A page reopen after a lost ACK must recover this ID, not mint another.
+    if (!saveSubmission(submission)) {
+      this.state.display.notice = '浏览器无法保存提交 ID；未发送，草稿已保留。';
+      this.emit();
+      return;
+    }
     this.state.submissions = [...this.state.submissions, submission];
     this.state.display.reading = 'following_latest';
     this.state.display.new_count = 0;
@@ -315,8 +412,15 @@ class LiveController implements ProjectionController {
   private sendSubmission(submission: Submission, retry: boolean): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    submission.send_epoch += 1;
     submission.receipt = 'sending';
     submission.detail = undefined;
+    if (!saveSubmission(submission)) {
+      submission.receipt = 'unknown';
+      submission.detail = '浏览器无法保存原提交；未发送，原 ID 已保留。';
+      this.emit();
+      return;
+    }
     this.emit();
     try {
       socket.send(JSON.stringify(submission.payload));
@@ -328,7 +432,7 @@ class LiveController implements ProjectionController {
       this.state.display.notice = undefined;
       this.emit();
     } catch {
-      submission.receipt = 'rejected';
+      submission.receipt = 'unknown';
       submission.detail = retry ? '重试未能写入传输。' : '未能写入传输；草稿与同一 submission ID 已保留。';
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
@@ -336,6 +440,8 @@ class LiveController implements ProjectionController {
       }
       this.emit();
     }
+    saveSubmission(submission);
+    this.scheduleReceiptRefresh();
   }
 
   private clearReconnectTimers(): void {
@@ -391,6 +497,7 @@ class LiveController implements ProjectionController {
       this.reconnectAttempt = 0;
       this.clearReconnectTimers();
       this.setConnection('online');
+      this.refreshSubmissions();
       void this.loadSelf();
     };
     socket.onmessage = (event) => this.onMessage(event);
@@ -399,14 +506,13 @@ class LiveController implements ProjectionController {
       if (this.socket !== socket) return;
       this.socket = null;
       if (this.disposed) return;
+      if (this.receiptTimer !== null) window.clearTimeout(this.receiptTimer);
+      this.receiptTimer = null;
       for (const submission of this.state.submissions) {
         if (submission.receipt === 'sending' || submission.receipt === 'sent') {
           submission.receipt = 'unknown';
           submission.detail = '连接中断，服务端回执未知；未生成新的 submission ID。';
-        } else if (submission.receipt === 'queued_volatile') {
-          submission.receipt = 'unknown';
-          submission.last_transport_receipt = 'queued_volatile';
-          submission.detail = '最后回执仅为内存队列；断连后的持久结果未知。';
+          saveSubmission(submission);
         }
       }
       this.scheduleReconnect();
@@ -425,6 +531,12 @@ class LiveController implements ProjectionController {
     try {
       if (data.type === 'hello') {
         if (typeof data.server_version === 'string') this.state.server_version = data.server_version;
+        const capabilities = isObject(data.capabilities) ? data.capabilities : {};
+        this.state.append_available = capabilities.append === true;
+        this.state.durable_receipts = capabilities.durable_input_receipts === true;
+        this.state.committed_replay = capabilities.committed_replay === true;
+        this.refreshSubmissions();
+        this.scheduleReceiptRefresh();
         this.emit();
         return;
       }
@@ -444,6 +556,10 @@ class LiveController implements ProjectionController {
         this.handleReceipt(data);
         return;
       }
+      if (data.type === 'submission_view') {
+        this.handleSubmissionView(data);
+        return;
+      }
       if (data.type === 'timeline_part') {
         this.handleTimelinePart(data);
       }
@@ -461,10 +577,28 @@ class LiveController implements ProjectionController {
     );
     if (!submission) return;
     const detail = typeof data.detail === 'string' ? data.detail : undefined;
-    if (data.stage === 'queued') {
-      submission.receipt = 'queued_volatile';
-      submission.last_transport_receipt = 'queued_volatile';
-      submission.detail = detail;
+    if (data.stage === 'accepted' && typeof data.event_id === 'string'
+      && typeof data.accepted_commit === 'string') {
+      // Durable acceptance, not selection or disposition. The same ID replayed
+      // returns this same receipt; the durable fact is not a progress bar.
+      // Replaying an acceptance must not erase a later, observed disposition.
+      if (submission.receipt !== 'selected' && submission.receipt !== 'committed') {
+        submission.receipt = 'accepted';
+      }
+      submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
+      submission.accepted_commit =
+        typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
+      if (submission.receipt === 'accepted') submission.detail = detail;
+    } else if (data.stage === 'unavailable') {
+      if (!submission.accepted_commit) submission.receipt = 'unknown';
+      submission.detail = detail ?? '持久结果暂不可用；保留原 ID 等待对账。';
+    } else if (data.stage === 'conflict') {
+      submission.receipt = 'conflict';
+      submission.detail = detail ?? '同一 submission_id 已关联不同内容；原输入未改写。';
+      if (!this.state.draft.trim()) {
+        this.state.draft = submission.payload.content;
+        storageSet(DRAFT_KEY, this.state.draft);
+      }
     } else if (data.stage === 'rejected') {
       submission.receipt = 'rejected';
       submission.detail = detail ?? '服务器拒绝接收。';
@@ -473,6 +607,110 @@ class LiveController implements ProjectionController {
         storageSet(DRAFT_KEY, this.state.draft);
       }
     }
+    // Non-committed outcomes stay persisted: they are the only copy of this
+    // input's identity and payload until the user retries or the Store holds
+    // a committed disposition for the original event.
+    saveSubmission(submission);
+    this.scheduleReceiptRefresh();
+    this.emit();
+  }
+
+  // Poll only while unresolved receipts exist and the real socket advertises
+  // durable queries. Timeline traffic is not evidence of this input's S0/S1.
+  private scheduleReceiptRefresh(): void {
+    if (this.receiptTimer !== null || this.disposed || this.state.connection !== 'online'
+      || !this.state.durable_receipts || !this.state.subject_id
+      || !this.state.submissions.some((submission) =>
+        submission.payload.subject_id === this.state.subject_id
+        && ['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt))) return;
+    this.receiptTimer = window.setTimeout(() => {
+      this.receiptTimer = null;
+      this.refreshSubmissions();
+      this.scheduleReceiptRefresh();
+    }, RECEIPT_REFRESH_MS);
+  }
+
+  /// Query the original durable key after reconnect and during live progress.
+  private refreshSubmissions(): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !this.state.durable_receipts) return;
+    const subjectId = this.state.subject_id;
+    if (!subjectId) return;
+    for (const submission of this.state.submissions) {
+      if (submission.payload.subject_id !== subjectId
+        || !['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)) {
+        continue;
+      }
+      try {
+        socket.send(
+          JSON.stringify({
+            schema_version: 2,
+            type: 'query_submission',
+            submission_id: submission.payload.submission_id,
+            subject_id: submission.payload.subject_id,
+            send_epoch: submission.send_epoch,
+          }),
+        );
+      } catch {
+        // A dead socket triggers onclose and schedules reconnect on its own.
+      }
+    }
+  }
+
+  private handleSubmissionView(data: Record<string, unknown>): void {
+    if (data.schema_version !== 2 || typeof data.submission_id !== 'string') return;
+    const submission = this.state.submissions.find(
+      (row) => row.payload.submission_id === data.submission_id,
+    );
+    if (!submission) return;
+    // Correlate the view with the send attempt that produced it. A stale
+    // not_admitted racing a newer retry must not restore the draft or demote
+    // a fact already returned by that retry.
+    if (validRevision(data.send_epoch) && data.send_epoch < submission.send_epoch) {
+      return;
+    }
+    if (data.result === 'found' && typeof data.event_id === 'string'
+      && typeof data.accepted_commit === 'string') {
+      submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
+      submission.accepted_commit =
+        typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
+      if (data.stage === 'committed' && typeof data.committed_at === 'string') {
+        submission.receipt = 'committed';
+        submission.committed_at =
+          typeof data.committed_at === 'string' ? data.committed_at : submission.committed_at;
+        submission.detail = undefined;
+        retireSubmission(submission);
+        this.scheduleReceiptRefresh();
+        this.emit();
+        return;
+      } else if (data.stage === 'selected' && typeof data.selected_step_id === 'string') {
+        if (submission.receipt !== 'committed') submission.receipt = 'selected';
+        submission.selected_step_id =
+          typeof data.selected_step_id === 'string' ? data.selected_step_id : submission.selected_step_id;
+        if (submission.receipt === 'selected') submission.detail = '已观察封口输入计划；等待处置回执。';
+      } else if (data.stage === 'accepted') {
+        if (submission.receipt !== 'selected' && submission.receipt !== 'committed') {
+          submission.receipt = 'accepted';
+          submission.detail = undefined;
+        }
+      }
+    } else if (data.result === 'not_admitted') {
+      // A durable query proves the input was never admitted; the stable ID is
+      // free to retry with identical content. The pending record is kept —
+      // it is the only copy of this attempt until the user acts.
+      submission.receipt = 'rejected';
+      submission.detail = '服务端无此提交记录；可以同一 ID 重发。';
+      if (!this.state.draft.trim()) {
+        this.state.draft = submission.payload.content;
+        storageSet(DRAFT_KEY, this.state.draft);
+      }
+    } else if (data.result === 'temporarily_unavailable') {
+      if (!submission.accepted_commit) submission.receipt = 'unknown';
+      submission.detail = '持久查询暂不可用；原 ID 与此前回执仍保留。';
+    }
+    // Query failure is not not_admitted and never restores an accepted draft.
+    saveSubmission(submission);
+    this.scheduleReceiptRefresh();
     this.emit();
   }
 
@@ -628,6 +866,8 @@ class LiveController implements ProjectionController {
         this.state.step = this.state.step === null ? self.step : Math.max(this.state.step, self.step);
       }
       this.ensureIdentityLoaded();
+      this.refreshSubmissions();
+      this.scheduleReceiptRefresh();
     } catch (error) {
       if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
       if (seq < this.selfApplied) return;
@@ -709,6 +949,8 @@ class LiveController implements ProjectionController {
     if (this.disposed) return;
     this.disposed = true;
     this.clearReconnectTimers();
+    if (this.receiptTimer !== null) window.clearTimeout(this.receiptTimer);
+    this.receiptTimer = null;
     if (this.identityTimer) clearTimeout(this.identityTimer);
     this.identityTimer = null;
     this.abort.abort();
