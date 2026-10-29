@@ -215,18 +215,18 @@ pub fn inspect_module(artifact: &[u8]) -> Result<ModuleInspection> {
         let bad = match (import.module(), import.ty()) {
             ("wasi_snapshot_preview1", ExternType::Func(typed)) => {
                 match linker.get(&mut store, import.module(), import.name()) {
-                    Some(Extern::Func(func)) if func_type_eq(&func.ty(&store), &typed) => None,
-                    Some(Extern::Func(func)) => Some(format!(
+                    Ok(Extern::Func(func)) if func_type_eq(&func.ty(&store), &typed) => None,
+                    Ok(Extern::Func(func)) => Some(format!(
                         "import wasi_snapshot_preview1.{} has type {:?}, linker provides {:?}",
                         import.name(),
                         typed,
                         func.ty(&store)
                     )),
-                    Some(_) => Some(format!(
+                    Ok(_) => Some(format!(
                         "import wasi_snapshot_preview1.{} is not a function",
                         import.name()
                     )),
-                    None => Some(format!(
+                    Err(_) => Some(format!(
                         "import wasi_snapshot_preview1.{} is not provided by this runtime's linker",
                         import.name()
                     )),
