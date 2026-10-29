@@ -511,7 +511,10 @@ mod context_tests {
 
     #[tokio::test]
     async fn unwired_context_does_not_invent_plugins_or_windows() {
-        let Json(report) = context_handler(State(ApiState::new())).await;
+        let Json(report) = context_handler(
+            State(ApiState::new()),
+            Query(ContextQuery { limit: None, before: None }),
+        ).await;
         assert_eq!(report["available"], false);
         assert_eq!(report["plugins_wired"], false);
         assert_eq!(report["strategies"], json!([]));
