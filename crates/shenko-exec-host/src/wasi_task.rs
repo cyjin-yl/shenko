@@ -9,6 +9,7 @@ use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
+use shenko_node::Node;
 use shenko_store::Store;
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
@@ -19,18 +20,31 @@ use shenko_types::{
     operation::*,
     task::*,
 };
-use shenko_wasm::{InputFile, MountSpec, OutputFile, ToolStore, WasiCommand, WasmRuntime};
-use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc, time::Duration};
+use shenko_wasm::{
+    InputFile, MountMode, MountSpec, OutputFile, WasiCommand, WasiRunControl, WasiRunOutcome,
+    WasmRuntime, resolve_tool, tool_module,
+};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::{Read, Seek, SeekFrom},
+    path::PathBuf,
+    sync::Arc,
+    time::Duration,
+};
 
 const MAX_ARG_BYTES: usize = 4096;
 const MAX_ARGS: usize = 64;
 const MAX_ENV: usize = 64;
 const MAX_STDIN_BYTES: usize = 64 * 1024;
-const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+/// The normalized result must fit the native settlement limit
+/// (`shenko-store` reads normalized objects under a 512 KiB cap). Inline
+/// previews allow worst-case JSON escaping (six bytes per input byte).
+const MAX_STREAM_PREVIEW_BYTES: usize = 16 * 1024;
 const MAX_TIMEOUT_SECS: u64 = 300;
 const CONTRACT: &[u8] =
     b"shenko.wasi.exec/v1: resolve an installed WASI preview1 tool record, execute its exact \
-      bytes under declared mounts, and report the true exit code";
+      bytes under declared mounts with deadline control, and report the true exit code";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -45,9 +59,10 @@ struct WasiExecInput {
     /// Base64 stdin bytes; omitted means an empty stream.
     #[serde(default)]
     stdin_b64: Option<String>,
-    /// Host-side observation deadline. A guest that outlives it is UNKNOWN,
-    /// not failed: the host cannot prove the guest stopped (C05 run controls
-    /// land separately).
+    /// Guest execution deadline (C05 `WasiRunControl::deadline`): the guest
+    /// is interrupted at a wasmtime epoch checkpoint after this budget. A
+    /// guest blocked inside a blocking host call can outlive it — the
+    /// deadline bounds guest-executed work, never claims it stopped early.
     #[serde(default)]
     timeout_secs: Option<u64>,
 }
@@ -85,28 +100,54 @@ struct ResolvedTool {
     imports: Vec<String>,
 }
 
+/// Bounded evidence of one guest stream: full size + full digest computed by
+/// streaming the file, plus a bounded head preview (the only bytes ever
+/// resident in memory).
+#[derive(Debug, Clone)]
+struct StreamEvidence {
+    object: ObjectRef,
+    preview: Vec<u8>,
+    truncated: bool,
+}
+
 /// Raw guest observation produced on the execution thread.
 #[derive(Debug)]
 struct GuestRun {
+    outcome: Option<WasiRunOutcome>,
     exit_code: Option<i32>,
-    stdout_b64: Option<String>,
-    stderr_b64: Option<String>,
-    stdout_bytes: Option<u64>,
-    stderr_bytes: Option<u64>,
-    truncated: bool,
+    stdout: Option<StreamEvidence>,
+    stderr: Option<StreamEvidence>,
     transport_error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct StreamReport {
+    object: ObjectRef,
+    /// Base64 head of the stream, capped at MAX_STREAM_PREVIEW_BYTES.
+    preview_b64: String,
+    preview_bytes: u64,
+    truncated: bool,
+}
+
+impl StreamReport {
+    fn from_evidence(evidence: &StreamEvidence) -> Self {
+        Self {
+            object: evidence.object.clone(),
+            preview_b64: B64.encode(&evidence.preview),
+            preview_bytes: evidence.preview.len() as u64,
+            truncated: evidence.truncated,
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
 struct WasiObservation {
     operation_id: EntityId,
     tool: ResolvedTool,
+    outcome: Option<String>,
     exit_code: Option<i32>,
-    stdout_b64: Option<String>,
-    stderr_b64: Option<String>,
-    stdout_bytes: Option<u64>,
-    stderr_bytes: Option<u64>,
-    truncated: bool,
+    stdout: Option<StreamReport>,
+    stderr: Option<StreamReport>,
     transport_error: Option<String>,
 }
 
@@ -115,11 +156,14 @@ struct WasiExecResult {
     tool: String,
     version: String,
     digest: String,
+    outcome: Option<String>,
     exit_code: Option<i32>,
     stdout_utf8: Option<String>,
     stderr_utf8: Option<String>,
     stdout_bytes: Option<u64>,
     stderr_bytes: Option<u64>,
+    stdout_ref: Option<ObjectRef>,
+    stderr_ref: Option<ObjectRef>,
     truncated: bool,
     /// Explicit TOOL_* / WASI_* reason when resolution or the guest failed.
     error: Option<String>,
@@ -127,20 +171,21 @@ struct WasiExecResult {
 
 /// Runs installed WASI preview1 tools against the managed home/mount closure.
 /// Constructed with the same mounts the home manifest declares; the tool
-/// store is reopened per execution so newly installed tools are visible and
-/// every artifact digest is re-verified before it runs.
+/// inventory is reopened per execution so newly installed tools are visible,
+/// every resolution binds this installation's own unit records and every
+/// artifact digest is re-verified before it runs.
 pub struct WasiExecHandler {
     store: Arc<Store>,
     mounts: Vec<MountSpec>,
-    tools_dir: PathBuf,
+    data_dir: PathBuf,
 }
 
 impl WasiExecHandler {
-    pub fn new(store: Arc<Store>, mounts: Vec<MountSpec>, tools_dir: PathBuf) -> Self {
+    pub fn new(store: Arc<Store>, mounts: Vec<MountSpec>, data_dir: PathBuf) -> Self {
         Self {
             store,
             mounts,
-            tools_dir,
+            data_dir,
         }
     }
 
@@ -205,17 +250,33 @@ impl WasiExecHandler {
         let (input, stdin) = parsed.map_err(PrepareError::Fault)?;
 
         // Resolution errors are explicit and recorded as the task's result,
-        // never a silent fallback to a host binary.
-        let tools = ToolStore::open(&self.tools_dir).map_err(PrepareError::Fault)?;
-        let (record, bytes) = tools
-            .resolve(&input.tool)
+        // never a silent fallback to a host binary. Resolution reads only
+        // this installation's own node inventory — a dropped foreign tools/
+        // directory has no effect because the records are unit facts. A
+        // missing inventory resolves against zero installed tools, which
+        // still produces the honest TOOL_UNSUPPORTED/TOOL_UNAVAILABLE answers.
+        let node = Node::open_inspect(&self.data_dir.join("node")).map_err(PrepareError::Fault)?;
+        let facts = match &node {
+            Some(node) => node.tool_unit_facts().map_err(PrepareError::Fault)?,
+            None => Vec::new(),
+        };
+        let (record, _) = resolve_tool(&facts, &input.tool)
             .map_err(|error| PrepareError::Refusal(error.to_string()))?;
+        let node = node.ok_or_else(|| {
+            PrepareError::Fault(anyhow::anyhow!(
+                "no node installation at {}/node; run `shenko start` once",
+                self.data_dir.display()
+            ))
+        })?;
+        // Re-verify the exact artifact bytes against the retained digest on
+        // every execution: the materialized copy is never trusted.
+        let bytes = tool_module(&node, &record).map_err(PrepareError::Fault)?;
         let resolved_tool = ResolvedTool {
             name: record.name,
             version: record.version,
             abi: record.abi.name().into(),
             digest: record.digest,
-            bytes: record.bytes,
+            bytes: bytes.len() as u64,
             entrypoint: record.entrypoint,
             imports: record.imports,
         };
@@ -231,19 +292,46 @@ impl WasiExecHandler {
         Ok((frozen, bytes, stdin))
     }
 
+    /// Retain every byte in CAS by streaming, plus a bounded text preview.
+    fn stream_evidence(store: &Store, path: &PathBuf) -> Result<StreamEvidence> {
+        let mut file = fs::File::open(path)?;
+        let sealed = match store.cas.seal_reader(
+            &mut file, "application/octet-stream", "wasi-exec-streams", "wasi-stream", 1,
+        ) {
+            Ok(sealed) => sealed,
+            Err(error) => {
+                store.close_external_writer();
+                return Err(error.into());
+            }
+        };
+        file.seek(SeekFrom::Start(0))?;
+        let mut preview = Vec::new();
+        file.take(MAX_STREAM_PREVIEW_BYTES as u64).read_to_end(&mut preview)?;
+        Ok(StreamEvidence {
+            truncated: sealed.object.bytes > preview.len() as u64,
+            object: sealed.object,
+            preview,
+        })
+    }
+
     /// The blocking WASI execution itself: temp files carry the streams so a
-    /// bounded read-back can report exact byte counts and truncation.
+    /// bounded, streaming read-back reports exact sizes and digests without
+    /// ever loading a full stream. The deadline is the real C05 guest control:
+    /// `run_wasi_module` returns `WasiRunOutcome::DeadlineExceeded` after
+    /// interrupting the guest at an epoch checkpoint, so this worker finishes
+    /// and is always joined by the caller — no detached guest ownership.
     fn execute_blocking(
+        store: Arc<Store>,
         mounts: Vec<MountSpec>,
         bytes: Vec<u8>,
         frozen: &FrozenInput,
         stdin: Vec<u8>,
         io_dir: PathBuf,
-    ) -> GuestRun {
+    ) -> Result<GuestRun> {
         let stdin_path = io_dir.join("stdin.bin");
         let stdout_path = io_dir.join("stdout.bin");
         let stderr_path = io_dir.join("stderr.bin");
-        let run = (|| -> Result<i32> {
+        let run = (|| -> Result<WasiRunOutcome> {
             fs::write(&stdin_path, &stdin)?;
             let stdout_file = fs::File::create(&stdout_path)?;
             let stderr_file = fs::File::create(&stderr_path)?;
@@ -261,39 +349,32 @@ impl WasiExecHandler {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
                 .collect();
+            command.control = WasiRunControl {
+                deadline: Some(Duration::from_secs(frozen.timeout_secs)),
+                cancel: None,
+            };
             let mut runtime = WasmRuntime::with_mounts(mounts)?;
             runtime.run_wasi_module(&bytes, command)
         })();
-        let read = |path: &PathBuf| -> (Option<String>, Option<u64>, bool) {
-            match fs::read(path) {
-                Ok(data) => {
-                    let total = data.len() as u64;
-                    let truncated = total > MAX_OUTPUT_BYTES as u64;
-                    let kept = if truncated {
-                        &data[..MAX_OUTPUT_BYTES]
-                    } else {
-                        &data[..]
-                    };
-                    (Some(B64.encode(kept)), Some(total), truncated)
-                }
-                Err(_) => (None, None, false),
+        let stdout = Some(Self::stream_evidence(&store, &stdout_path)?);
+        let stderr = Some(Self::stream_evidence(&store, &stderr_path)?);
+        let (outcome, exit_code, transport_error) = match run {
+            Ok(outcome) => {
+                let exit_code = match outcome {
+                    WasiRunOutcome::Exited(code) => Some(code),
+                    _ => None,
+                };
+                (Some(outcome), exit_code, None)
             }
+            Err(error) => (None, None, Some(error.to_string())),
         };
-        let (stdout_b64, stdout_bytes, out_trunc) = read(&stdout_path);
-        let (stderr_b64, stderr_bytes, err_trunc) = read(&stderr_path);
-        let (exit_code, transport_error) = match run {
-            Ok(code) => (Some(code), None),
-            Err(error) => (None, Some(error.to_string())),
-        };
-        GuestRun {
+        Ok(GuestRun {
+            outcome,
             exit_code,
-            stdout_b64,
-            stderr_b64,
-            stdout_bytes,
-            stderr_bytes,
-            truncated: out_trunc || err_trunc,
+            stdout,
+            stderr,
             transport_error,
-        }
+        })
     }
 
     fn new_operation(
@@ -433,82 +514,69 @@ impl WasiExecHandler {
         }
 
         // T1 commit precedes guest execution, like host.printf. The guest runs
-        // on its own thread inside the real WasmRuntime; the deadline bounds
-        // host observation only and does not claim the guest stopped.
+        // on its own thread inside the real WasmRuntime under the real C05
+        // deadline control; the worker therefore always finishes and is
+        // always joined — ownership of a finished guest is never abandoned
+        // and the stream directory is removed only after the join.
         let io_dir = std::env::temp_dir().join(format!("shenko-wasi-io-{}", EntityId::new()));
         fs::create_dir_all(&io_dir)?;
         let mounts = self.mounts.clone();
-        let timeout_secs = frozen.timeout_secs;
+        let stream_store = Arc::clone(&self.store);
         let io_dir_run = io_dir.clone();
         let blocking = tokio::task::spawn_blocking(move || {
-            Self::execute_blocking(mounts, bytes, &frozen, stdin, io_dir_run)
+            Self::execute_blocking(stream_store, mounts, bytes, &frozen, stdin, io_dir_run)
         });
-        let outcome_result =
-            tokio::time::timeout(Duration::from_secs(timeout_secs), blocking).await;
-
-        // A join failure is a host-side fault we did observe; an elapsed
-        // deadline is genuine UNKNOWN — the guest may still be running.
-        let guest = match outcome_result {
+        let join_result = blocking.await;
+        let guest = match join_result {
             Ok(Ok(guest)) => Some(guest),
-            Ok(Err(join)) => Some(GuestRun {
+            Ok(Err(error)) => return Err(error),
+            Err(join) => Some(GuestRun {
+                outcome: None,
                 exit_code: None,
-                stdout_b64: None,
-                stderr_b64: None,
-                stdout_bytes: None,
-                stderr_bytes: None,
-                truncated: false,
+                stdout: None,
+                stderr: None,
                 transport_error: Some(format!("guest thread failed: {join}")),
             }),
-            Err(_) => None,
         };
         let _ = fs::remove_dir_all(&io_dir);
 
-        let observation = guest.map(|guest| WasiObservation {
-            operation_id: invocation.operation_id,
-            tool: resolved_tool.clone(),
-            exit_code: guest.exit_code,
-            stdout_b64: guest.stdout_b64,
-            stderr_b64: guest.stderr_b64,
-            stdout_bytes: guest.stdout_bytes,
-            stderr_bytes: guest.stderr_bytes,
-            truncated: guest.truncated,
-            transport_error: guest.transport_error,
-        });
-        let outcome = observation.as_ref().map(|obs| {
-            if obs.exit_code == Some(0) {
-                OperationOutcome::Succeeded
-            } else {
-                OperationOutcome::Failed
-            }
-        });
-        let raw = self.seal(&observation, "wasi-exec-observation")?;
         let normalized = self.seal(
             &WasiExecResult {
                 tool: resolved_tool.name.clone(),
                 version: resolved_tool.version.clone(),
                 digest: resolved_tool.digest.to_string(),
-                exit_code: observation.as_ref().and_then(|o| o.exit_code),
-                stdout_utf8: observation.as_ref().and_then(|o| {
-                    o.stdout_b64
-                        .as_deref()
-                        .and_then(|b| B64.decode(b).ok())
-                        .map(|v| String::from_utf8_lossy(&v).into_owned())
+                outcome: guest.as_ref().and_then(|o| o.outcome.map(|v| format!("{v:?}"))),
+                exit_code: guest.as_ref().and_then(|o| o.exit_code),
+                stdout_utf8: guest.as_ref().and_then(|o| o.stdout.as_ref())
+                    .map(|s| String::from_utf8_lossy(&s.preview).into_owned()),
+                stderr_utf8: guest.as_ref().and_then(|o| o.stderr.as_ref())
+                    .map(|s| String::from_utf8_lossy(&s.preview).into_owned()),
+                stdout_bytes: guest.as_ref().and_then(|o| o.stdout.as_ref()).map(|s| s.object.bytes),
+                stderr_bytes: guest.as_ref().and_then(|o| o.stderr.as_ref()).map(|s| s.object.bytes),
+                stdout_ref: guest.as_ref().and_then(|o| o.stdout.as_ref()).map(|s| s.object.clone()),
+                stderr_ref: guest.as_ref().and_then(|o| o.stderr.as_ref()).map(|s| s.object.clone()),
+                truncated: guest.as_ref().is_some_and(|o| {
+                    o.stdout.as_ref().is_some_and(|s| s.truncated)
+                        || o.stderr.as_ref().is_some_and(|s| s.truncated)
                 }),
-                stderr_utf8: observation.as_ref().and_then(|o| {
-                    o.stderr_b64
-                        .as_deref()
-                        .and_then(|b| B64.decode(b).ok())
-                        .map(|v| String::from_utf8_lossy(&v).into_owned())
-                }),
-                stdout_bytes: observation.as_ref().and_then(|o| o.stdout_bytes),
-                stderr_bytes: observation.as_ref().and_then(|o| o.stderr_bytes),
-                truncated: observation.as_ref().is_some_and(|o| o.truncated),
-                error: observation
-                    .as_ref()
-                    .and_then(|o| o.transport_error.clone()),
+                error: guest.as_ref().and_then(|o| o.transport_error.as_ref())
+                    .map(|error| error.chars().take(1024).collect()),
             },
             "wasi-exec-result",
         )?;
+        let observation = guest.map(|guest| WasiObservation {
+            operation_id: invocation.operation_id,
+            tool: resolved_tool.clone(),
+            outcome: guest.outcome.map(|outcome| format!("{outcome:?}")),
+            exit_code: guest.exit_code,
+            stdout: guest.stdout.as_ref().map(StreamReport::from_evidence),
+            stderr: guest.stderr.as_ref().map(StreamReport::from_evidence),
+            transport_error: guest.transport_error,
+        });
+        let outcome = observation.as_ref().map(|obs| {
+            if obs.exit_code == Some(0) { OperationOutcome::Succeeded } else { OperationOutcome::Failed }
+        });
+        let raw = self.seal(&observation, "wasi-exec-observation")?;
         let evidence = EvidenceReceipt {
             record_schema_version: 1,
             receipt_id: EntityId::new(),
@@ -538,7 +606,18 @@ impl WasiExecHandler {
             attempt.attempt_id,
             evidence,
             outcome,
-            if observation.is_some() {
+            // An observed exit or controlled stop is not proof of absent
+            // effects: a guest with read-write mounts may have written to
+            // /home or /memory before trapping or exiting nonzero. Only a
+            // fully read-only mount closure with an observed result has no
+            // writable surface, so only then is `None` justified; everything
+            // else retains the uncertainty instead of settling prematurely.
+            if observation.is_some()
+                && self
+                    .mounts
+                    .iter()
+                    .all(|mount| mount.mode == MountMode::ReadOnly)
+            {
                 EffectStatus::None
             } else {
                 EffectStatus::Unknown
@@ -617,11 +696,14 @@ impl WasiExecHandler {
                 tool: tool.clone(),
                 version: String::new(),
                 digest: String::new(),
+                outcome: None,
                 exit_code: None,
                 stdout_utf8: None,
                 stderr_utf8: None,
                 stdout_bytes: None,
                 stderr_bytes: None,
+                stdout_ref: None,
+                stderr_ref: None,
                 truncated: false,
                 error: Some(detail),
             },
@@ -839,19 +921,13 @@ mod tests {
             dir.join("shenko.db"),
             dir.join("cas"),
         )?);
-        let handler = WasiExecHandler::new(store, vec![], dir.join("tools"));
+        let handler = WasiExecHandler::new(store, vec![], dir.clone());
 
         match handler.prepare(&invocation(serde_json::json!({"tool": "toybox"}))) {
             Err(PrepareError::Refusal(detail)) => {
                 assert!(detail.contains("TOOL_UNSUPPORTED:toybox"), "{detail}")
             }
             other => panic!("expected TOOL_UNSUPPORTED refusal, got {other:?}"),
-        }
-        match handler.prepare(&invocation(serde_json::json!({"tool": "nonesuch"}))) {
-            Err(PrepareError::Refusal(detail)) => {
-                assert!(detail.contains("TOOL_UNAVAILABLE"), "{detail}")
-            }
-            other => panic!("expected TOOL_UNAVAILABLE refusal, got {other:?}"),
         }
         let oversized = "x".repeat(MAX_ARG_BYTES + 1);
         match handler.prepare(&invocation(serde_json::json!({

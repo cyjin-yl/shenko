@@ -4,127 +4,140 @@
 需求 R008/R014/R019/R101；验收 case A09（仅部分推进，未完成 A09 要求的
 Git/SSH 端到端认证）。
 
-## 已实现（本切片，源码层）
+## 架构（authority = installation-unit inventory）
 
-- **`ToolStore`（`crates/shenko-wasm/src/tool.rs`）**：`<data>/tools/` 下的
-  受管工具库。工件按 BLAKE3 摘要存为 `artifacts/<digest>.wasm`；
-  `tools.json` 注册表经 tmp+fsync+rename+目录 fsync 原子发表。
-  - `ToolStore::open` 空目录初始化；有 registry 则逐条**重新校验工件字节 ==
-    记录 digest**（稳定 reopen）；有内容无 registry → `DATA_PATH_CONFLICT`，
-    绝不收养未知数据。`bind_installation` 把 registry 绑定到当前
-    installation（ledger id），外来安装的 store 被拒。
-  - `install`：只收二进制模块（`\0asm`）；经 wasmtime `Module::new` 读真实
-    imports/exports 判定 `preview1-runnable`（imports ⊆
-    `wasi_snapshot_preview1` 且导出 `_start`+`memory`）。声明 ABI 与实际
-    必须一致；其他 ABI（wasix/component/host_imports/other）可入库编目但
-    **不可执行**。同名@同版本不同内容 → `TOOL_INSTALL_CONFLICT`；多版本共存，
-    `name@version` 消歧。
-  - `resolve`：未知名 → `TOOL_UNAVAILABLE`；已声明具名目标未装工件 →
-    `TOOL_UNSUPPORTED`（含真实原因）；工件被改 → `TOOL_ARTIFACT_MISMATCH`，
-    拒绝执行也不自愈。
-- **`wasi.exec` native definition（`crates/shenko-exec-host/src/wasi_task.rs`）**：
-  kind `wasi.exec` v1。`{tool:"name[@version]", args, env, stdin_b64,
-  timeout_secs}` → 解析记录、arm T1、在真实 WasmRuntime（宿主挂载闭包 +
-  argv/env/stdin/stdout/stderr 文件流）里跑**工件本体**，回执带真实退出码、
-  流字节数、截断标志；resolution 拒绝作为明确 TOOL_* 结果返回给模型；
-  deadline 只是宿主观察超时（不证明 guest 停止）；reconcile 不重放。
-  宿主二进制永远不会顶替具名目标。
-- **`shenko tool` CLI（`bin/shenko`）**：`list`（记录 + 具名目标真实状态）、
-  `install --file --name --version --abi [--expected-digest ...]`、
-  `exec --tool name [-- args] [--env K=V] [--stdin-file/--stdout-file/--stderr-file]`。
-  退出码原样透传；传输错误 exit 2。
-- **`Bootstrap::prepare`**：打开并绑定 ToolStore；`validate_target` 允许
-  `tools/`。home-manifest 的 static capabilities/checkpoint 声明**未变**——
-  否则既有 data dir 的重开会因声明漂移被拒（SEED_CLOSURE_INCOMPLETE）；
-  目标级真相看 `tools.json` 与 `shenko tool list`。
+工具的注册权威是节点既有的安装单元库存（`unit_versions`/`unit_current`
++ 内联对象存储），**不是** `<data>/tools` 下任何文件：
+
+- **`shenko tool install`** 把工件字节构成 schema-3 `UnitExport`
+  （`unit_id = "tool.<name>"`、`revision = <version>`、`artifact_digest` =
+  BLAKE3、`config.tool` = 名称/ABI/入口/来源/imports 声明），经
+  `Node::handle_unit_request(UnitRequest::Import)` 入库并把字节物化到
+  `package_root = <data>/tools` 下的
+  `units/<unit_id>/<revision>/<digest>/package.bin`。`tools/` 目录因此只是
+  **物化**，不是第二个注册表——node_sync 的 `export_installation_units`
+  复制路径天然覆盖工具单元。
+- **验收读取**：`Node::tool_unit_facts()`（只读投影）+
+  `Node::unit_object_bytes()`（密封对象字节，读取时重验 digest）。
+  `shenko-wasm::resolve_tool(facts, spec)` 做 `name[@version]` 解析：
+  `TOOL_UNAVAILABLE`/`TOOL_UNSUPPORTED`/`TOOL_AMBIGUOUS`/
+  `TOOL_ABI_UNSUPPORTED` 四个显式错误。
+- **`Node::open_inspect`** 提供不建库、不迁移的只读打开；`tool list`
+  只读、不会初始化或改写任何存储。
+- **执行重验**：`wasi.exec` 与 `tool exec` 每次执行前用 unit_object_bytes
+  重新读封 bytes 并对 recorded digest——被替换的物化文件没有权威，
+  外来 `tools/` 目录永远顶替不了已装记录（没有独立 store 可被换绑）。
+- **`inspect_module`（`crates/shenko-wasm/src/tool.rs`）**：ABI 按真实
+  字节判定——所有 import 必须是 preview1 linker 实际能解析且函数签名
+  逐一匹配的 `wasi_snapshot_preview1` 函数；`_start` 必须是 `() -> ()`
+  函数、`memory` 必须导出。只查名字或只查导出存在都不够。
+- **`Bootstrap::validate_target`**：root 存在非空 `tools/` 时要求其是本
+  安装 node 库存的物化根（`Node::materialization_roots` 命中），否则在
+  写入任何安装状态前就 `DATA_PATH_CONFLICT`。
+- **`wasi.exec` native definition**（`crates/shenko-exec-host/src/wasi_task.rs`）：
+  `{tool, args, env, stdin_b64, timeout_secs}`；T1 arm 后 guest 在真实
+  WasmRuntime 跑工件本体；`timeout_secs` 是真实 C05 guest 控制
+  （`WasiRunControl::deadline`，epoch checkpoint 处中断——CPU 忙 guest
+  会终止；阻塞在 host call 里的 guest 如实不受此保证），worker 总是被
+  join（无 detached guest）。stdout/stderr 以流式 blake3 + 有界 preview
+  落证据（不整流加载）；normalized result 内联文本 ≤128KiB/流（总序列化
+  远低于 512KiB settlement 上限），完整流身份靠 digest+bytes。
+  `EffectStatus`：仅当挂载闭包全只读且有观察结果 → `None`；其余
+  （含任何 RW 挂载或截断/拦截结束）如实 `Unknown`——guest 写过的持久
+  效果不因一次退出观察而宣称已结清。reconcile 不重放。
 
 ## 具名目标真实状态（`NAMED_TARGETS`）
 
 | 目标 | 状态 | 真实原因 |
 | --- | --- | --- |
-| toybox | **unresolved** | landley/toybox 0.8.x 无已发布 WASI 工件；需用 wasi-sdk 从源码做 wasm32-wasip1 移植（依赖 fork/exec/sockets 的 applets 在 preview1 下不适用） |
+| toybox | **unresolved**（移植配方已就绪） | 上游无已发布 WASI 工件；landley/toybox 0.8.15 源码移植配方在 `crates/shenko-wasm/ports/toybox-wasi/`（miniconfig + build.sh + patches + ACQUISITION），需受管构建者以 wasi-sdk-34 构建后逐 applet 安装 |
 | gcc-wasm | unresolved | 未核验 WASM 编译器成品；hosted-vs-target 含义未定（§8.2） |
 | git | unresolved | 无已核验 wasm32-wasip1 Git client；WASIX ports 需要 WASIX runtime |
 | gh | unresolved | wasi-gh 存在但需专用 HTTP/exec host imports（§8.2 W2），本 runtime 不提供 |
 | tea | unresolved | 未发现可核验的 Gitea CLI WASM 成品 |
 | ssh | unresolved | OpenSSH WASIX port 需要 WASIX runtime + socket imports；wasmtime-45 preview1 均无；宿主 ssh 不算 WASM SSH（R019） |
 
-可直接安装的已发布 WASI preview1 工件（非具名目标，但证明端到端管线）：
-
-- `yamt/toywasm` v76.0.0：`toywasm-v76.0.0-wasm32-wasi.tgz`（GitHub release
-  资产，wasi-sdk 构建的 preview1 command 模块，~600KB；上游未发布校验和，
-  安装时以实际 BLAKE3 落账）。
-- `vmware-labs/webassembly-language-runtimes` `python/3.12.0+20231211-040d5a6`：
-  `python-3.12.0.wasm`（26MB）带官方 `.sha256sum` —— 最可验证的已发布工件。
-
 ## 给受管构建者的获取配方（parent action）
 
-优先路径（最小下载、最快通过验收）：**toywasm 工件安装 + 执行**。
+所有产物路径只用 owner-persistent 存储：`/tank/shared/projects/shenko/build/…`。
+
+### 1. toybox 真实源码移植（具名目标的主路径）
+
+见 `crates/shenko-wasm/ports/toybox-wasi/ACQUISITION.md`（精确资产清单 +
+校验方法）与 `build.sh`。要点：
+
+- 源：`landley/toybox` 0.8.15 tarball（commit a57b091d05ec366dcd4dd737784c03761cb6a4b1，
+  sha256 `52452b68a6cf50f9a9728b0f844b03c4dd1f70463675b202e6cf0475bda3934f`）。
+- 工具链：wasi-sdk-34.0（`wasm32-wasip1`）；构建脚本还需宿主 C 编译器
+  （kconfig/mkflags/instlist 在宿主上运行）。
+- 产物：每个 applet 一个独立 `<applet>.wasm`（WASI 无进程，不用
+  multiplexer）；然后逐个 `tool install --name <applet>`。
+- 能编出的只是 WASI-compatible applet 子集（无 fork/exec/sockets/uid/
+  signals/termios）——这是真实移植结果，不得用宿主 toybox 或 WAT 仿制品
+  冒充；依赖缺口的操作在运行时明确报错（ENOSYS），不是静默降级。
 
 ```sh
-# 1) 下载（~614KB）：
-curl -fsSL -o /tmp/toywasm.tgz \
-  https://github.com/yamt/toywasm/releases/download/v76.0.0/toywasm-v76.0.0-wasm32-wasi.tgz
-tar -xzf /tmp/toywasm.tgz -C /tmp/toywasm-v76
-# 取其中的 toywasm.wasm（真正的 wasm32-wasi command 模块），记录 b3sum。
-
-# 2) 安装到受管 store（在已有 installation 的 data_dir 上）：
-b3sum /tmp/toywasm-v76/**/toywasm.wasm   # 得 <hex>
+# 例（构建完成后）：
 ./shenko --data-dir <data> tool install \
-  --file /tmp/toywasm-v76/**/toywasm.wasm \
+  --file /tank/shared/projects/shenko/build/c06-toybox-wasi-<date>/cat \
+  --name cat --version 0.8.15-wasi --abi wasi_preview1 \
+  --expected-digest blake3:<b3sum-of-file> \
+  --source-uri https://github.com/landley/toybox/releases/tag/0.8.15 \
+  --source-release 0.8.15 --provenance source_build:wasi-sdk-34.0
+./shenko --data-dir <data> tool exec --tool cat -- /home/a.txt
+```
+
+### 2. 已发布 WASI 工件（证明端到端管线；非具名目标）
+
+- `yamt/toywasm` v76.0.0：`toywasm-v76.0.0-wasm32-wasi.tgz`（GitHub release，
+  ~600KB preview1 command 模块；上游无校验和，安装以实际 BLAKE3 落账）。
+- `vmware-labs/webassembly-language-runtimes` `python/3.12.0+20231211-040d5a6`：
+  `python-3.12.0.wasm`（26MB，带官方 `.sha256sum`）。
+
+```sh
+WORK=/tank/shared/projects/shenko/build/c06-tool-artifacts
+mkdir -p "$WORK" && cd "$WORK"
+curl -fsSL -o toywasm.tgz \
+  https://github.com/yamt/toywasm/releases/download/v76.0.0/toywasm-v76.0.0-wasm32-wasi.tgz
+tar -xzf toywasm.tgz -C toywasm-v76
+b3sum toywasm-v76/**/toywasm.wasm   # 得 <hex>
+./shenko --data-dir <data> tool install \
+  --file "$WORK/toywasm-v76/<path>/toywasm.wasm" \
   --name toywasm --version v76.0.0 --abi wasi_preview1 \
   --expected-digest blake3:<hex> \
   --source-uri https://github.com/yamt/toywasm/releases/tag/v76.0.0 \
   --source-release v76.0.0 --provenance upstream_release
-
-# 3) 执行（真实 argv/流/退出码）：
 ./shenko --data-dir <data> tool exec --tool toywasm -- --version
 # 具名目标拒绝：./shenko --data-dir <data> tool exec --tool toybox → TOOL_UNSUPPORTED
-
-# 4) 模型路径（可选，需 start）：[delegate:wasi.exec:1] {"tool":"toywasm","args":["--version"]}
 ```
 
-可验证性更强的备选（发布方带 sha256sum；文件 26MB，首次编译有可见延迟）：
+python（C14 归档，非本切片目标）：
 
 ```sh
 REL=python/3.12.0+20231211-040d5a6
 BASE=https://github.com/vmware-labs/webassembly-language-runtimes/releases/download/$REL
-curl -fsSL -o /tmp/python.wasm "$BASE/python-3.12.0.wasm"
+curl -fsSL -o /tank/shared/projects/shenko/build/c06-tool-artifacts/python.wasm "$BASE/python-3.12.0.wasm"
 curl -fsSL "$BASE/python-3.12.0.wasm.sha256sum"   # 核对 sha256
-./shenko --data-dir <data> tool install --file /tmp/python.wasm \
+./shenko --data-dir <data> tool install --file /tank/shared/projects/shenko/build/c06-tool-artifacts/python.wasm \
   --name python --version 3.12.0 --abi wasi_preview1 \
   --expected-digest blake3:<b3sum-of-file> \
   --source-uri "$BASE" --source-release "$REL" --provenance upstream_release
-./shenko --data-dir <data> tool exec --tool python -- -c 'print(40+2)'
-```
-
-具名目标路径（**toybox，需要真实移植工作，不能跳过**）：
-
-```sh
-# 源 + 工具链（均带已发布 sha256sum 资产）：
-# - landley/toybox 0.8.15, commit a57b091d05ec366dcd4dd737784c03761cb6a4b1
-# - WebAssembly/wasi-sdk wasi-sdk-34.0-x86_64-linux.tar.gz (+ libclang_rt-34.0)
-# 构建：CC=wasi-sdk clang --target=wasm32-wasip1，POSIX 缺口逐 applet 处理；
-# 只能编出 WASI-compatible applet 子集是真实移植结果的一部分，
-# 不得以宿主 toybox 或 WAT 仿制品冒充。完成后按上方 tool install 安装，
-# provenance "source_build:wasi-sdk-34.0"。
 ```
 
 ## 未验证边界（如实）
 
-- 本切片未跑 build/test/native 验证：ToolStore 6 个新单测场景与 wasi.exec
-  handler 均由 parent 在受管构建者上验证（仓库 shenko-dev-verify 约束）。
-- C05 同栈把 `run_wasi_module` 改为 `Result<WasiRunOutcome>`（Exited /
-  DeadlineExceeded / Cancelled）并给 `WasiCommand` 加 `control` 字段；本切片
-  按当前 `Result<i32>` API 写，合并后以 `WasiRunOutcome` 映射 exit/cancel
-  并可把 timeout 换成真实 `WasiRunControl`。
-- artifact 每次 resolve 全量读文件 + 每次执行重新编译模块（无 module 缓存）；
-  toywasm 600KB 级可接受，26MB python 级首次编译有可见延迟。
-- `ToolStore::open` 的 foreign-content 检查在 registry 缺失时拒绝一切文件；
-  崩溃可能留下 `.tools.*.tmp`/`artifacts/*.wasm.tmp` 临时文件——下次 open 会因
-  foreign-content 拒绝收养，需要 parent 观察是否可接受（或后续显式 GC）。
-- ToolStore 假设单写入者（与 home manifest/persist_manifest 同级强度）：两个
-  并发 `shenko tool install` 进程的竞争不在防御范围；registry 最终一致性依赖
-  原子 rename，但并发冲突检测可能漏判同名@同版本。
+- 本切片未跑 build/test/native 验证：新的 9 个独立场景
+  （inspect_module 真实 ABI：runnable/错误 _start 签名/外部 import；
+  unit-import→resolve→执行→重开 roundtrip；resolution 策略：named-target
+  拒绝、version 消歧、foreign-ABI 拒执行；prepare 分类：named-target 拒绝、
+  argv 超界、坏 base64）由 parent 在受管构建者上验证。
+- artifact 每次执行经 unit_object_bytes 全量读封 + 每次执行重新编译模块
+  （无 module 缓存）；600KB 级可接受，26MB python 级首次编译有可见延迟。
+- guest 流的完整字节不进 CAS：retained 证据是 digest+size+有界 head
+  preview；需要整流回放的分析要读挂载目录里的原始文件（io_dir 在用后即删）。
+- deadline 中断阻塞在 host call（如 fd_read 空流）内的 guest 不受保证
+  （wasmtime 能力边界，如实标注）；此时 worker 仍会被 join 等待。
+- `tool install` 的同名@同版本检查依赖单写入者假设（与 home manifest 同级
+  强度）；并发 install 竞态不在防御范围。
 - A09 要求（私有 Git/GitHub/Gitea 端到端认证、真实 WASM SSH keygen/exec/
   transfer）**未达成**；该 case 保持 open。

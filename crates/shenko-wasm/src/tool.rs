@@ -1,43 +1,53 @@
 //! Named WASM tool installation and execution — SPEC §8.2/§8.3/§18.8/R008/R101.
 //!
 //! A tool is a real upstream artifact (WASI command module bytes) with a
-//! declared name, version, ABI, source and content digest. Installed records
-//! live in a content-addressed registry under the seed data directory — NOT
-//! inside the guest-writable `/home` mount, so a guest cannot rewrite the
-//! executable it will be run as. Every run re-verifies the artifact digest;
-//! a record without a verified identical artifact never executes.
+//! declared name, version, ABI, source and content digest. Installation
+//! authority is the node's existing installation-unit inventory
+//! (`shenko_node::Node::handle_unit_request(UnitRequest::Import)`): the unit
+//! record, its sealed artifact bytes and the materialized
+//! `<data>/tools/units/<unit>/<revision>/<digest>/package.bin` all live
+//! through that one path, so `node_sync` replication carries tools exactly
+//! like every other code unit — no second registry exists to diverge.
+//!
+//! Every execution re-reads the unit inventory of *this* installation and
+//! re-verifies the artifact bytes against the recorded digest inside the node
+//! object store, so a foreign directory dropped at `<data>/tools` can never
+//! substitute for an installed record, and an artifact that does not match
+//! its descriptor never executes.
 //!
 //! Named product targets (toybox, gcc-wasm, git, gh, tea, ssh) are declared in
-//! [`NAMED_TARGETS`] with their actual acquisition state. A target that has no
-//! verified WASI artifact stays `Unresolved` with the honest reason; resolving
+//! [`NAMED_TARGETS`] with their actual acquisition state. A target with no
+//! verified WASI artifact stays unresolved with the honest reason; resolving
 //! it fails with `TOOL_UNSUPPORTED`, and it is never advertised as installed.
 //! Host-CLI relays, imitation WATs and manifest-only entries are not named
 //! targets by construction: only real artifact bytes admitted below produce a
 //! runnable record.
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
-use shenko_types::ids::EntityId;
+use shenko_node::{Node, ToolUnitFact, UnitKind};
 use shenko_types::object::Digest;
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use wasmtime::{Engine, Module};
+use wasmtime::{Engine, Extern, ExternType, FuncType, Linker, Module, Store};
+use wasmtime_wasi::p1;
+use wasmtime_wasi::{WasiCtxBuilder, p1::WasiP1Ctx};
 
-/// Registry filename inside the tool directory.
-pub const TOOL_REGISTRY_FILE: &str = "tools.json";
-/// Subdirectory of the seed data dir holding the tool closure.
+/// Subdirectory of the seed data dir used as the tool materialization root
+/// (`UnitRequest::Import{package_root}`). It holds only bytes the unit
+/// authority already verified; dropping foreign files there changes nothing
+/// because execution always resolves through the node inventory.
 pub const TOOL_DIR_NAME: &str = "tools";
-/// Current registry schema. Schema changes need an explicit migration.
-pub const TOOL_REGISTRY_SCHEMA: u32 = 1;
+/// `unit_id` prefix for installed tools. The tool name after the prefix is
+/// the caller-facing resolution name.
+pub const TOOL_UNIT_PREFIX: &str = "tool.";
 /// Upper bound on a single artifact the host will admit. Larger tools need a
 /// deliberate profile decision and a raised bound, never a silent truncation.
-pub const TOOL_ARTIFACT_MAX_BYTES: u64 = 512 * 1024 * 1024;
+pub const TOOL_ARTIFACT_MAX_BYTES: u64 = shenko_node::MAX_ARTIFACT_BYTES as u64;
 
 /// The ABI an artifact was built for. Only a WASI preview1 *command* module
-/// (imports restricted to `wasi_snapshot_preview1`, exporting `_start` and
-/// `memory`) can execute through [`crate::WasmRuntime::run_wasi_module`];
-/// anything else is recorded honestly and rejected.
+/// (function imports all supplied by the preview1 linker, exporting a
+/// `() -> ()` `_start` and `memory`) can execute through
+/// [`crate::WasmRuntime::run_wasi_module`]; anything else is recorded
+/// honestly and rejected at execution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolAbi {
@@ -65,23 +75,38 @@ impl ToolAbi {
             Self::Other => "other",
         }
     }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "wasi_preview1" => Self::WasiPreview1,
+            "wasi_component" => Self::WasiComponent,
+            "wasix" => Self::Wasix,
+            "host_imports" => Self::HostImports,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
 }
 
 /// Where the artifact's upstream content came from. `uri` is informational
 /// provenance; the digest is the identity.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolSource {
     pub uri: String,
-    /// Upstream version/release tag as published (e.g. "v76.0.0").
+    /// Upstream version/release tag as published (e.g. "0.8.15").
     pub release: String,
     /// How the artifact was obtained: "upstream_release" for a downloaded
     /// published binary, "source_build:<toolchain>" for a local port build.
     pub provenance: String,
 }
 
-/// Caller-supplied install request. `bytes` are the actual artifact.
-#[derive(Debug, Clone)]
-pub struct ToolInstallSpec {
+/// The tool manifest stored inside a unit's declared `config.tool`. These are
+/// the unit author's claims; admission verifies the executable ones
+/// (`abi`, `imports`) against the actual bytes before the record is written.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolDescriptor {
     pub name: String,
     pub version: String,
     pub abi: ToolAbi,
@@ -89,40 +114,149 @@ pub struct ToolInstallSpec {
     /// "/tools/toybox". Free-form, informational.
     pub entrypoint: String,
     pub source: ToolSource,
-    /// Expected blake3 digest ("blake3:<hex>"). Required for named targets;
-    /// optional for generic tools — either way the actual digest is verified
-    /// and recorded.
-    pub expected_digest: Option<Digest>,
-    pub artifact: Vec<u8>,
-}
-
-/// One installed tool record. `artifact_file` names `artifacts/<digest>.wasm`
-/// inside the tool dir; the digest alone is the identity.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ToolRecord {
-    pub name: String,
-    pub version: String,
-    pub abi: ToolAbi,
-    pub entrypoint: String,
-    pub source: ToolSource,
-    pub digest: Digest,
-    pub bytes: u64,
-    pub artifact_file: String,
-    /// Import module names observed at admission (e.g.
-    /// ["wasi_snapshot_preview1"]). Recorded evidence, not a promise.
-    pub imports: Vec<String>,
-    pub installed_at: chrono::DateTime<chrono::Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolRegistryFile {
-    pub schema_version: u32,
-    /// Set when a managed installation binds the registry; blocks adopting a
-    /// foreign installation's tool store.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub installation_id: Option<EntityId>,
+    /// Import module/function pairs observed at admission (e.g.
+    /// "wasi_snapshot_preview1.fd_write"). Recorded evidence, not a promise.
     #[serde(default)]
-    pub tools: Vec<ToolRecord>,
+    pub imports: Vec<String>,
+}
+
+/// Result of inspecting the actual module bytes: what the artifact really is
+/// and whether this runtime can execute it. `runnable` is derived from the
+/// real ABI — every function import resolvable with an exact signature match
+/// against the preview1 linker — never from names or caller claims.
+#[derive(Debug, Clone)]
+pub struct ModuleInspection {
+    /// ABI detected from the bytes.
+    pub abi: ToolAbi,
+    /// True iff every import is a `wasi_snapshot_preview1` function with an
+    /// exactly matching linker signature, and `_start`/`memory` exports have
+    /// the required kinds and signatures.
+    pub runnable: bool,
+    /// `module.name` pairs actually imported.
+    pub imports: Vec<String>,
+    /// Why `runnable` is false (missing export, foreign import, type
+    /// mismatch); `None` when runnable.
+    pub detail: Option<String>,
+}
+
+fn func_type_eq(a: &FuncType, b: &FuncType) -> bool {
+    a.params().eq(b.params()) && a.results().eq(b.results())
+}
+
+/// Classify real artifact bytes. Binary modules only: WAT text and random
+/// files are not installable identities. A component-model binary is
+/// classified `WasiComponent` even though it never links under preview1.
+pub fn inspect_module(artifact: &[u8]) -> Result<ModuleInspection> {
+    ensure!(
+        artifact.starts_with(b"\0asm"),
+        "artifact is not a WASM binary module"
+    );
+    let engine = Engine::default();
+    let module = match Module::new(&engine, artifact) {
+        Ok(module) => module,
+        Err(core_error) => {
+            // Component binaries are not core modules; recognize them so they
+            // can be catalogued honestly instead of failing admission.
+            return match wasmtime::component::Component::new(&engine, artifact) {
+                Ok(_) => Ok(ModuleInspection {
+                    abi: ToolAbi::WasiComponent,
+                    runnable: false,
+                    imports: Vec::new(),
+                    detail: Some(format!(
+                        "component-model module; no preview1 command ABI ({core_error})"
+                    )),
+                }),
+                Err(_) => {
+                    bail!("not a valid WASM module or component: {core_error}")
+                }
+            };
+        }
+    };
+    // Build the real preview1 linker this runtime uses: an import is runnable
+    // only if the linker actually provides that exact function signature,
+    // not merely an import whose module name spells "wasi_snapshot_preview1".
+    let mut linker: Linker<WasiP1Ctx> = Linker::new(&engine);
+    p1::add_to_linker_sync(&mut linker, |cx| cx)
+        .context("configure wasi preview1 linker")?;
+    let mut store = Store::new(&engine, WasiCtxBuilder::new().build_p1());
+
+    let mut import_modules = Vec::new();
+    let mut imports_sorted = Vec::new();
+    let mut detail: Option<String> = None;
+    let mut preview1_only = true;
+    for import in module.imports() {
+        import_modules.push(import.module().to_string());
+        imports_sorted.push(format!("{}.{}", import.module(), import.name()));
+        let bad = match (import.module(), import.ty()) {
+            ("wasi_snapshot_preview1", ExternType::Func(typed)) => {
+                match linker.get(&mut store, import.module(), import.name()) {
+                    Some(Extern::Func(func)) if func_type_eq(&func.ty(&store), &typed) => None,
+                    Some(Extern::Func(func)) => Some(format!(
+                        "import wasi_snapshot_preview1.{} has type {:?}, linker provides {:?}",
+                        import.name(),
+                        typed,
+                        func.ty(&store)
+                    )),
+                    Some(_) => Some(format!(
+                        "import wasi_snapshot_preview1.{} is not a function",
+                        import.name()
+                    )),
+                    None => Some(format!(
+                        "import wasi_snapshot_preview1.{} is not provided by this runtime's linker",
+                        import.name()
+                    )),
+                }
+            }
+            (module, _) => {
+                preview1_only = false;
+                Some(format!("foreign import {module}.{}", import.name()))
+            }
+        };
+        if detail.is_none() {
+            detail = bad;
+        }
+    }
+    imports_sorted.sort();
+    let abi = if preview1_only && !import_modules.is_empty() {
+        ToolAbi::WasiPreview1
+    } else if import_modules.is_empty() {
+        ToolAbi::Other
+    } else {
+        ToolAbi::HostImports
+    };
+    match module.get_export("_start") {
+        Some(ExternType::Func(typed))
+            if typed.params().len() == 0 && typed.results().len() == 0 => {}
+        Some(other) => {
+            if detail.is_none() {
+                detail = Some(format!("_start export is {other:?}, expected a () -> () function"));
+            }
+        }
+        None => {
+            if detail.is_none() {
+                detail = Some("no _start export (WASI command modules export _start)".into());
+            }
+        }
+    }
+    match module.get_export("memory") {
+        Some(ExternType::Memory(_)) => {}
+        Some(other) => {
+            if detail.is_none() {
+                detail = Some(format!("memory export is {other:?}, expected a memory"));
+            }
+        }
+        None => {
+            if detail.is_none() {
+                detail = Some("no memory export".into());
+            }
+        }
+    }
+    Ok(ModuleInspection {
+        runnable: preview1_only && detail.is_none(),
+        abi,
+        imports: imports_sorted,
+        detail,
+    })
 }
 
 /// A declared named product target and its real state. This is the honest
@@ -140,9 +274,9 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
     NamedToolTarget {
         name: "toybox",
         unresolved_reason: Some(
-            "no published WASI artifact found for landley/toybox 0.8.x; a \
-             wasm32-wasip1 port must be built from pinned source with \
-             wasi-sdk (fork/exec-dependent applets do not apply to preview1)",
+            "no upstream WASI release exists; landley/toybox 0.8.15 is ported \
+             from source under crates/shenko-wasm/ports/toybox-wasi/ and must \
+             be built with wasi-sdk-34 then installed per applet",
         ),
     },
     NamedToolTarget {
@@ -182,7 +316,7 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
     },
 ];
 
-fn validate_tool_name(name: &str) -> Result<()> {
+pub fn validate_tool_name(name: &str) -> Result<()> {
     ensure!(
         !name.is_empty()
             && name.len() <= 64
@@ -198,427 +332,171 @@ fn named_target(name: &str) -> Option<&'static NamedToolTarget> {
     NAMED_TARGETS.iter().find(|target| target.name == name)
 }
 
-/// Persisted tool store rooted at `<data>/tools`. Artifacts are addressed by
-/// digest; the registry file is rewritten atomically (tmp+fsync+rename+dir
-/// fsync), so a torn write can never publish a truncated registry.
-pub struct ToolStore {
-    dir: PathBuf,
-    registry: ToolRegistryFile,
+/// One installed tool as resolved from the installation-unit inventory. The
+/// unit tables are the registry of record; this is a per-read projection.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolRecord {
+    pub name: String,
+    pub version: String,
+    pub abi: ToolAbi,
+    pub entrypoint: String,
+    pub source: ToolSource,
+    pub digest: Digest,
+    pub imports: Vec<String>,
+    pub enabled: bool,
+    pub current: bool,
+    pub unit_id: String,
+    /// Host-side materialized path (`<tools>/units/.../package.bin`) when the
+    /// materialization completed; informational — execution reads the
+    /// verified object bytes, never this copy.
+    pub materialized_path: Option<String>,
 }
 
-impl ToolStore {
-    /// Open (and for an empty directory, initialize) the tool store.
-    ///
-    /// - empty dir → fresh empty registry, published durably.
-    /// - dir with `tools.json` → load and re-verify every record's artifact
-    ///   bytes against its recorded digest (stable reopen; wrong bytes are
-    ///   reported, never silently replaced).
-    /// - dir with other content but no registry → `DATA_PATH_CONFLICT`;
-    ///   unknown files are never adopted into a new registry.
-    pub fn open(dir: &Path) -> Result<Self> {
-        if dir.exists() && !dir.is_dir() {
-            bail!("DATA_PATH_CONFLICT: {} is not a directory", dir.display());
-        }
-        fs::create_dir_all(dir)
-            .with_context(|| format!("create tool directory {}", dir.display()))?;
-        let dir = dir.canonicalize()?;
-        let registry_path = dir.join(TOOL_REGISTRY_FILE);
-        let registry = if registry_path.exists() {
-            let bytes = fs::read(&registry_path).map_err(|error| {
-                anyhow!(
-                    "TOOL_REGISTRY_CORRUPT: read {}: {error}",
-                    registry_path.display()
-                )
-            })?;
-            let stored: ToolRegistryFile = serde_json::from_slice(&bytes).map_err(|error| {
-                anyhow!(
-                    "TOOL_REGISTRY_CORRUPT: decode {}: {error}",
-                    registry_path.display()
-                )
-            })?;
-            ensure!(
-                stored.schema_version == TOOL_REGISTRY_SCHEMA,
-                "TOOL_REGISTRY_CORRUPT: unsupported schema {}; migrate explicitly",
-                stored.schema_version
-            );
-            stored
+fn record_from_fact(fact: &ToolUnitFact) -> Result<ToolRecord> {
+    ensure!(
+        fact.kind == UnitKind::Code,
+        "TOOL_RECORD_CORRUPT:{}: unit kind {} is not code",
+        fact.unit_id,
+        fact.kind.as_str()
+    );
+    let descriptor: ToolDescriptor = serde_json::from_value(fact.tool.clone())
+        .with_context(|| format!("TOOL_RECORD_CORRUPT:{}: tool manifest", fact.unit_id))?;
+    validate_tool_name(&descriptor.name)?;
+    ensure!(fact.unit_id == format!("{TOOL_UNIT_PREFIX}{}", descriptor.name)
+        && fact.revision == descriptor.version,
+        "TOOL_RECORD_CORRUPT:{}: tool manifest does not match its unit identity", fact.unit_id);
+    Ok(ToolRecord {
+        name: descriptor.name,
+        version: descriptor.version,
+        abi: descriptor.abi,
+        entrypoint: descriptor.entrypoint,
+        source: descriptor.source,
+        digest: fact.artifact_digest.clone(),
+        imports: descriptor.imports,
+        enabled: fact.enabled,
+        current: fact.current,
+        unit_id: fact.unit_id.clone(),
+        materialized_path: fact.materialization_path.clone(),
+    })
+}
+
+/// Facts of every installed tool, newest state first — one call of
+/// `Node::tool_unit_facts`, projected to records.
+pub fn installed_tools(node: &Node) -> Result<Vec<ToolRecord>> {
+    node.tool_unit_facts()?
+        .iter()
+        .map(record_from_fact)
+        .collect()
+}
+
+/// Real availability of every declared named target right now.
+pub fn named_target_report(records: &[ToolRecord]) -> BTreeMap<String, String> {
+    let mut report = BTreeMap::new();
+    for target in NAMED_TARGETS {
+        let installed: Vec<String> = records
+            .iter()
+            .filter(|record| record.name == target.name)
+            .map(|record| format!("{}@{}", record.version, record.digest))
+            .collect();
+        let status = if installed.is_empty() {
+            format!("unresolved: {}", target.unresolved_reason.unwrap_or(""))
         } else {
-            // Foreign content without a registry is not adoptable.
-            for entry in fs::read_dir(&dir)? {
-                let entry = entry?;
+            format!("installed: {}", installed.join(", "))
+        };
+        report.insert(target.name.to_string(), status);
+    }
+    report
+}
+
+/// Resolve a tool name (optionally `name@version`) to its installed record.
+/// Errors are explicit and stable:
+///
+/// - `TOOL_UNSUPPORTED:<name>`  — a declared named target with no
+///   installed artifact; detail carries the honest reason.
+/// - `TOOL_UNAVAILABLE:<name>`  — unknown or uninstalled name.
+/// - `TOOL_AMBIGUOUS:<name>`    — several versions installed; the caller
+///   must pass an explicit version.
+/// - `TOOL_ABI_UNSUPPORTED:<name>` — installed but not executable under this
+///   runtime (catalogued foreign-ABI records stay honest metadata).
+pub fn resolve_tool<'f>(
+    facts: &'f [ToolUnitFact],
+    spec: &str,
+) -> Result<(ToolRecord, &'f ToolUnitFact)> {
+    let (name, version) = match spec.split_once('@') {
+        Some((name, version)) => (name, Some(version)),
+        None => (spec, None),
+    };
+    validate_tool_name(name)?;
+    let mut matched = Vec::new();
+    for fact in facts {
+        if !fact.unit_id.starts_with(TOOL_UNIT_PREFIX) {
+            continue;
+        }
+        let record = record_from_fact(fact)?;
+        if record.name == name && version.map_or(record.current, |v| record.version == v) {
+            matched.push((record, fact));
+        }
+    }
+    let (record, fact) = match matched.len() {
+        0 => {
+            if let Some(target) = named_target(name) {
+                let any_version = facts.iter().filter_map(|f| record_from_fact(f).ok()).any(|r| r.name == name);
+                ensure!(
+                    !any_version,
+                    "TOOL_UNAVAILABLE:{spec}: named target {name} is installed only at other version(s)"
+                );
                 bail!(
-                    "DATA_PATH_CONFLICT: unrecognized data {} in tool store {}; import explicitly",
-                    entry.file_name().to_string_lossy(),
-                    dir.display()
+                    "TOOL_UNSUPPORTED:{name}: declared target has no installed \
+                     artifact — {}",
+                    target.unresolved_reason.unwrap_or("unresolved")
                 );
             }
-            let created = ToolRegistryFile {
-                schema_version: TOOL_REGISTRY_SCHEMA,
-                installation_id: None,
-                tools: Vec::new(),
-            };
-            persist_registry(&registry_path, &created)?;
-            created
-        };
-        let store = Self { dir, registry };
-        // Reopen verification: every recorded artifact must still be the exact
-        // recorded bytes. Unrelated extra files are reported only when they
-        // collide with a recorded path; other files are simply not tools.
-        store.verify_all()?;
-        Ok(store)
-    }
-
-    /// Bind this registry to a managed installation identity (the ledger id).
-    /// Once bound, a different installation refuses to adopt the store.
-    pub fn bind_installation(&mut self, installation_id: EntityId) -> Result<()> {
-        match self.registry.installation_id {
-            Some(bound) if bound != installation_id => bail!(
-                "DATA_PATH_CONFLICT: tool store belongs to installation {bound}; \
-                 data preserved"
-            ),
-            Some(_) => Ok(()),
-            None => {
-                self.registry.installation_id = Some(installation_id);
-                persist_registry(&self.registry_path(), &self.registry)
-            }
+            bail!("TOOL_UNAVAILABLE:{spec}: no installed WASI tool by that name")
         }
-    }
-
-    pub fn dir(&self) -> &Path {
-        &self.dir
-    }
-
-    pub fn registry_path(&self) -> PathBuf {
-        self.dir.join(TOOL_REGISTRY_FILE)
-    }
-
-    pub fn records(&self) -> &[ToolRecord] {
-        &self.registry.tools
-    }
-
-    /// Host-side absolute path of a record's artifact (for callers that hand
-    /// bytes to the runtime themselves).
-    pub fn artifact_path(&self, record: &ToolRecord) -> PathBuf {
-        self.dir.join(&record.artifact_file)
-    }
-
-    /// Real availability of every declared named target right now.
-    pub fn named_target_report(&self) -> BTreeMap<String, String> {
-        let mut report = BTreeMap::new();
-        for target in NAMED_TARGETS {
-            let installed: Vec<String> = self
-                .registry
-                .tools
-                .iter()
-                .filter(|record| record.name == target.name)
-                .map(|record| format!("{}@{}", record.version, record.digest))
-                .collect();
-            let status = if installed.is_empty() {
-                format!("unresolved: {}", target.unresolved_reason.unwrap_or(""))
-            } else {
-                format!("installed: {}", installed.join(", "))
-            };
-            report.insert(target.name.to_string(), status);
-        }
-        report
-    }
-
-    /// Resolve a tool name (optionally `name@version`) to its verified
-    /// artifact bytes. Errors are explicit and stable:
-    ///
-    /// - `TOOL_UNSUPPORTED:<name>`  — a declared named target with no
-    ///   installed artifact; detail carries the honest reason.
-    /// - `TOOL_UNAVAILABLE:<name>`  — unknown or uninstalled name.
-    /// - `TOOL_AMBIGUOUS:<name>`    — several versions installed; the caller
-    ///   must pass an explicit version.
-    /// - `TOOL_ARTIFACT_MISMATCH:<name>` — recorded artifact bytes changed.
-    pub fn resolve(&self, spec: &str) -> Result<(ToolRecord, Vec<u8>)> {
-        let (name, version) = match spec.split_once('@') {
-            Some((name, version)) => (name, Some(version)),
-            None => (spec, None),
-        };
-        validate_tool_name(name)?;
-        let candidates: Vec<&ToolRecord> = self
-            .registry
-            .tools
-            .iter()
-            .filter(|record| {
-                record.name == name && version.is_none_or(|v| record.version == v)
-            })
-            .collect();
-        let record = match candidates.len() {
-            0 => {
-                if let Some(target) = named_target(name) {
-                    if self
-                        .registry
-                        .tools
-                        .iter()
-                        .any(|record| record.name == name)
-                    {
-                        bail!(
-                            "TOOL_UNAVAILABLE:{spec}: named target {name} is installed \
-                             only at other version(s)"
-                        );
-                    }
-                    bail!(
-                        "TOOL_UNSUPPORTED:{name}: declared target has no installed \
-                         artifact — {}",
-                        target.unresolved_reason.unwrap_or("unresolved")
-                    );
-                }
-                bail!("TOOL_UNAVAILABLE:{spec}: no installed WASI tool by that name")
-            }
-            1 => candidates[0],
-            _ => bail!(
-                "TOOL_AMBIGUOUS:{name}: {} versions installed; pass name@version",
-                candidates.len()
-            ),
-        };
-        // Installed under a foreign ABI is catalogued, never executed: only a
-        // preview1 command module can actually run in this runtime.
-        ensure!(
-            record.abi == ToolAbi::WasiPreview1,
-            "TOOL_ABI_UNSUPPORTED:{}: installed ABI {} cannot execute under \
-             wasmtime preview1 ({} imports {:?})",
-            record.name,
-            record.abi.name(),
-            record.name,
-            record.imports
-        );
-        let bytes = self.read_verified_artifact(record)?;
-        Ok((record.clone(), bytes))
-    }
-
-    /// Read a record's artifact and prove it is exactly the recorded bytes.
-    fn read_verified_artifact(&self, record: &ToolRecord) -> Result<Vec<u8>> {
-        let path = self.artifact_path(record);
-        let bytes = fs::read(&path).map_err(|error| {
-            anyhow!(
-                "TOOL_ARTIFACT_MISSING:{}: {}: {error}",
-                record.name,
-                path.display()
-            )
-        })?;
-        let actual = Digest::blake3(&bytes);
-        ensure!(
-            actual == record.digest && bytes.len() as u64 == record.bytes,
-            "TOOL_ARTIFACT_MISMATCH:{}: recorded {} ({} bytes), found {} ({} bytes); \
-             refusing to execute",
-            record.name,
-            record.digest,
-            record.bytes,
-            actual,
-            bytes.len()
-        );
-        Ok(bytes)
-    }
-
-    /// Re-verify every recorded artifact. Called on open; idempotent repair is
-    /// deliberately NOT performed — a wrong artifact is reported, not replaced.
-    pub fn verify_all(&self) -> Result<()> {
-        for record in &self.registry.tools {
-            self.read_verified_artifact(record)?;
-        }
-        Ok(())
-    }
-
-    /// Install real artifact bytes under a name. Idempotent for an identical
-    /// record; a conflicting same-name@same-version record fails loudly —
-    /// upgrades happen as a distinct version (new content gets a new identity;
-    /// already-dispatched invocations keep their recorded digest).
-    pub fn install(&mut self, spec: ToolInstallSpec) -> Result<ToolRecord> {
-        validate_tool_name(&spec.name)?;
-        ensure!(
-            spec.artifact.len() as u64 <= TOOL_ARTIFACT_MAX_BYTES,
-            "TOOL_ARTIFACT_TOO_LARGE:{}: {} bytes exceeds {}",
-            spec.name,
-            spec.artifact.len(),
-            TOOL_ARTIFACT_MAX_BYTES
-        );
-        let actual = Digest::blake3(&spec.artifact);
-        if let Some(expected) = &spec.expected_digest {
-            ensure!(
-                expected.algorithm() == "blake3",
-                "TOOL_DIGEST_UNSUPPORTED:{}: only blake3 digests are admitted",
-                expected
-            );
-            ensure!(
-                *expected == actual,
-                "TOOL_DIGEST_MISMATCH:{}: expected {expected}, artifact is {actual}",
-                spec.name
-            );
-        }
-        // Real ABI from the real bytes, not the caller's claim. Binary modules
-        // only: WAT text is not an installable upstream artifact identity.
-        ensure!(
-            spec.artifact.starts_with(b"\0asm"),
-            "TOOL_ABI_UNSUPPORTED:{}: artifact is not a WASM binary module",
-            spec.name
-        );
-        let engine = Engine::default();
-        let module = Module::new(&engine, &spec.artifact).map_err(|error| {
-            anyhow!("TOOL_ABI_UNSUPPORTED:{}: not a valid core module: {error}", spec.name)
-        })?;
-        let imports: Vec<String> = module
-            .imports()
-            .iter()
-            .map(|import| import.module().to_string())
-            .collect();
-        let unique_imports: std::collections::BTreeSet<&String> = imports.iter().collect();
-        let preview1_only =
-            unique_imports.iter().all(|module| module.as_str() == "wasi_snapshot_preview1");
-        let runnable = preview1_only
-            && module.exports().iter().any(|export| export.name() == "_start")
-            && module.exports().iter().any(|export| export.name() == "memory");
-        // The declared ABI must agree with what the bytes actually are:
-        // `wasi_preview1` is admitted only when the module is runnable by this
-        // runtime; any other declared ABI is admitted only when it is NOT —
-        // cataloguing a preview1-runnable module under a foreign ABI is a lie.
-        ensure!(
-            runnable == (spec.abi == ToolAbi::WasiPreview1),
-            "TOOL_ABI_UNSUPPORTED:{}: declared {} but imports are {:?} \
-             (preview1-runnable: {})",
-            spec.name,
-            spec.abi.name(),
-            unique_imports,
-            runnable
-        );
-
-        let artifact_file = format!("artifacts/{}.wasm", actual.hex());
-        let record = ToolRecord {
-            name: spec.name.clone(),
-            version: spec.version.clone(),
-            abi: spec.abi,
-            entrypoint: spec.entrypoint.clone(),
-            source: spec.source.clone(),
-            digest: actual,
-            bytes: spec.artifact.len() as u64,
-            artifact_file,
-            imports: unique_imports.into_iter().cloned().collect(),
-            installed_at: chrono::Utc::now(),
-        };
-        if let Some(existing) = self
-            .registry
-            .tools
-            .iter()
-            .find(|existing| existing.name == record.name && existing.version == record.version)
-        {
-            ensure!(
-                *existing == record || (existing.digest == record.digest
-                    && existing.abi == record.abi
-                    && existing.entrypoint == record.entrypoint
-                    && existing.source == record.source),
-                "TOOL_INSTALL_CONFLICT:{}@{}: a different artifact/record is \
-                 already installed under this name@version",
-                record.name,
-                record.version
-            );
-            // Same digest + same identity fields: idempotent re-install; the
-            // stored timestamp is authoritative for first install.
-            return Ok(existing.clone());
-        }
-
-        // Content-addressed artifact write: identical content is never
-        // rewritten; a file under the same name with different bytes is
-        // corruption we refuse to paper over.
-        let artifact_path = self.dir.join(&record.artifact_file);
-        fs::create_dir_all(artifact_path.parent().expect("artifacts/ has a parent"))?;
-        if artifact_path.exists() {
-            let existing = fs::read(&artifact_path)?;
-            ensure!(
-                Digest::blake3(&existing) == record.digest,
-                "TOOL_ARTIFACT_MISMATCH: {} exists with different bytes; investigate before \
-                 overwriting",
-                artifact_path.display()
-            );
-        } else {
-            let temporary = artifact_path.with_extension("wasm.tmp");
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)
-                .with_context(|| format!("create {}", temporary.display()))?;
-            file.write_all(&spec.artifact)?;
-            file.sync_all()?;
-            drop(file);
-            fs::rename(&temporary, &artifact_path).with_context(|| {
-                format!(
-                    "publish artifact {} -> {}",
-                    temporary.display(),
-                    artifact_path.display()
-                )
-            })?;
-            fs::File::open(artifact_path.parent().expect("artifacts/ has a parent"))?
-                .sync_all()?;
-        }
-
-        self.registry.tools.push(record.clone());
-        self.registry
-            .tools
-            .sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.version.cmp(&b.version)));
-        if let Err(error) = persist_registry(&self.registry_path(), &self.registry) {
-            // Roll the in-memory record back so this ToolStore stays consistent
-            // with the durable registry.
-            self.registry
-                .tools
-                .retain(|existing| !(existing.name == record.name && existing.version == record.version));
-            return Err(error);
-        }
-        Ok(record)
-    }
+        1 => matched.remove(0),
+        _ => bail!(
+            "TOOL_AMBIGUOUS:{name}: {} versions installed; pass name@version",
+            matched.len()
+        ),
+    };
+    // Installed under a foreign ABI is catalogued, never executed: only a
+    // preview1 command module can actually run in this runtime.
+    ensure!(record.enabled, "TOOL_DISABLED:{name}: installed unit is disabled");
+    ensure!(
+        record.abi == ToolAbi::WasiPreview1,
+        "TOOL_ABI_UNSUPPORTED:{}: installed ABI {} cannot execute under \
+         wasmtime preview1 ({} imports {:?})",
+        record.name,
+        record.abi.name(),
+        record.name,
+        record.imports
+    );
+    Ok((record, fact))
 }
 
-fn persist_registry(path: &Path, registry: &ToolRegistryFile) -> Result<()> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| anyhow!("tool registry has no parent"))?;
-    let temporary = parent.join(format!(".tools.{}.tmp", EntityId::new()));
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)
-        .with_context(|| format!("create {}", temporary.display()))?;
-    serde_json::to_writer_pretty(&mut file, registry)?;
-    file.write_all(b"\n")?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&temporary, path).with_context(|| {
-        format!(
-            "publish tool registry {} -> {}",
-            temporary.display(),
-            path.display()
-        )
-    })?;
-    fs::File::open(parent)?.sync_all()?;
-    Ok(())
+/// Fetch and verify the selected unit's executable bytes. Generic package
+/// imports/replication may carry authored metadata, so recheck the real ABI
+/// at execution too; imported claims cannot acquire preview1 authority.
+pub fn tool_module(node: &Node, record: &ToolRecord) -> Result<Vec<u8>> {
+    let bytes = node.unit_object_bytes(&record.digest)?;
+    ensure!(bytes.len() as u64 <= TOOL_ARTIFACT_MAX_BYTES, "TOOL_ARTIFACT_TOO_LARGE:{}", record.name);
+    let inspection = inspect_module(&bytes)?;
+    ensure!(inspection.runnable && record.abi == ToolAbi::WasiPreview1,
+        "TOOL_ABI_UNSUPPORTED:{}: {:?}", record.name, inspection.detail);
+    Ok(bytes)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{MountMode, MountSpec, WasiCommand, WasmRuntime, HOME_GUEST_PATH};
+    use shenko_node::{UnitDescriptor, UnitExport, UnitPackage, UnitRequest};
     use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64_STD};
 
-    fn temp_tools(tag: &str) -> PathBuf {
-        let dir =
-            std::env::temp_dir().join(format!("shenko-tools-{tag}-{}", uuid::Uuid::new_v4()));
-        dir
-    }
-
-    fn spec(name: &str, version: &str, abi: ToolAbi, artifact: Vec<u8>) -> ToolInstallSpec {
-        ToolInstallSpec {
-            name: name.into(),
-            version: version.into(),
-            abi,
-            entrypoint: format!("/tools/{name}"),
-            source: ToolSource {
-                uri: format!("builtin:test/{name}"),
-                release: version.into(),
-                provenance: "test_fixture".into(),
-            },
-            expected_digest: None,
-            artifact,
-        }
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("shenko-tools-{tag}-{}", shenko_types::ids::EntityId::new()))
     }
 
     /// A real preview1 command compiled to actual binary module bytes. It
@@ -635,6 +513,7 @@ mod tests {
               (memory (export "memory") 1)
               (data (i32.const 100) "tool-out\n")
               (data (i32.const 140) "wrote-by-tool")
+              (data (i32.const 200) "x")
               (func (export "_start")
                 (i32.store (i32.const 0) (i32.const 100))
                 (i32.store (i32.const 4) (i32.const 9))
@@ -648,7 +527,6 @@ mod tests {
                         (i32.const 9) (i64.const 64) (i64.const 0) (i32.const 0) (i32.const 20))
                       (i32.const 0))
                   (then (call $exit (i32.const 92))))
-                (data (i32.const 200) "x")
                 (i32.store (i32.const 0) (i32.const 200))
                 (i32.store (i32.const 4) (i32.const 1))
                 (if (call $fd_write (i32.load (i32.const 20)) (i32.const 0) (i32.const 1) (i32.const 8))
@@ -659,42 +537,102 @@ mod tests {
         wat::parse_str(wat).expect("fixture module must assemble")
     }
 
-    /// Fresh dir → empty registry; named targets resolve with explicit
-    /// TOOL_UNSUPPORTED (not a fake available), unknown names TOOL_UNAVAILABLE.
+    /// Byte-level ABI proof: a real preview1 command module is runnable with
+    /// its exact imports recorded; a `_start` with the wrong signature or a
+    /// module importing a foreign host module are detected from the actual
+    /// ABI, never from export names alone.
     #[test]
-    fn named_targets_and_unknown_names_fail_explicitly() -> Result<()> {
-        let dir = temp_tools("explicit");
-        let store = ToolStore::open(&dir)?;
-        assert!(store.records().is_empty());
-        let err = store.resolve("toybox").unwrap_err().to_string();
-        assert!(err.contains("TOOL_UNSUPPORTED:toybox"), "{err}");
-        let err = store.resolve("ssh").unwrap_err().to_string();
-        assert!(err.contains("TOOL_UNSUPPORTED:ssh"), "{err}");
-        let err = store.resolve("nonesuch").unwrap_err().to_string();
-        assert!(err.contains("TOOL_UNAVAILABLE:nonesuch"), "{err}");
-        let report = store.named_target_report();
-        assert!(report["toybox"].starts_with("unresolved:"));
-        assert_eq!(report.len(), NAMED_TARGETS.len());
-        fs::remove_dir_all(&dir).ok();
+    fn inspection_proves_real_abi() -> Result<()> {
+        let ok = inspect_module(&echo_writer_wasm())?;
+        assert!(ok.runnable, "{:?}", ok.detail);
+        assert_eq!(ok.abi, ToolAbi::WasiPreview1);
+        assert!(ok.imports.contains(&"wasi_snapshot_preview1.fd_write".to_string()));
+
+        let wrong_start = wat::parse_str(
+            r#"(module
+                (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+                (memory (export "memory") 1)
+                (func (export "_start") (param i32) (call $exit (i32.const 0))))"#,
+        )?;
+        let bad = inspect_module(&wrong_start)?;
+        assert!(!bad.runnable);
+        assert!(bad.detail.unwrap().contains("_start"), "wrong signature must be reported");
+
+        let foreign = wat::parse_str(
+            r#"(module
+                (import "env" "custom" (func $custom))
+                (memory (export "memory") 1)
+                (func (export "_start") (call $custom)))"#,
+        )?;
+        let bad = inspect_module(&foreign)?;
+        assert!(!bad.runnable);
+        assert_eq!(bad.abi, ToolAbi::HostImports);
+        assert!(bad.imports.contains(&"env.custom".to_string()));
         Ok(())
     }
 
-    /// Install a real module, run it through the real runtime with argv and a
-    /// stdout stream, observe its guest-visible file write, then reopen the
-    /// store: the record persists, resolves, and unrelated data stays intact.
+    /// The full authority path: import a tool through the unit authority
+    /// (UnitRequest::Import, package_root = <data>/tools), then resolve it
+    /// from the read-only inventory, verify the sealed bytes and execute it
+    /// through the real runtime — argv, streams and the guest-visible file
+    /// write all observable; reopening still resolves the same digest.
     #[test]
-    fn installed_tool_executes_and_survives_reopen() -> Result<()> {
-        let dir = temp_tools("roundtrip");
-        let home = temp_tools("roundtrip-home");
-        fs::create_dir_all(&home)?;
-        fs::write(home.join("keep.txt"), b"unrelated")?;
+    fn installed_tool_unit_executes() -> Result<()> {
+        let root = temp_dir("roundtrip");
+        let node_dir = root.join("node");
+        let home = temp_dir("roundtrip-home");
+        std::fs::create_dir_all(&home)?;
         let wasm = echo_writer_wasm();
-        let expected = Digest::blake3(&wasm);
+        let digest = Digest::blake3(&wasm);
+        let mut node = Node::open(&node_dir)?;
+        node.handle(shenko_node::Request::Initialize {
+            node_id: shenko_types::ids::EntityId::new(),
+            identity: None,
+        })?;
+        let export = UnitExport {
+            schema: shenko_node::UNIT_SCHEMA,
+            root_unit_id: "tool.fixture.echo".into(),
+            root_revision: Some("1.0.0".into()),
+            root_artifact_digest: Some(digest.clone()),
+            origin_node: None,
+            enabled: true,
+            packages: vec![UnitPackage {
+                unit: UnitDescriptor {
+                    unit_id: "tool.fixture.echo".into(),
+                    kind: UnitKind::Code,
+                    revision: "1.0.0".into(),
+                    artifact_digest: digest.clone(),
+                    provides: vec![],
+                    dependencies: vec![],
+                    config: serde_json::json!({"tool": {
+                        "name": "fixture.echo",
+                        "version": "1.0.0",
+                        "abi": "wasi_preview1",
+                        "entrypoint": "/tools/fixture.echo",
+                        "source": {"uri": "builtin:test", "release": "1.0.0", "provenance": "test_fixture"},
+                        "imports": ["wasi_snapshot_preview1.fd_write"],
+                    }}),
+                    applicability: None,
+                },
+                artifact_base64: B64_STD.encode(&wasm),
+                evidence: vec![],
+                resolved_dependencies: None,
+            }],
+        };
+        let tools_root = root.join(TOOL_DIR_NAME);
+        node.handle_unit_request(UnitRequest::Import {
+            export,
+            package_root: tools_root.to_string_lossy().into_owned(),
+            enable: Some(true),
+        })?;
 
-        let mut store = ToolStore::open(&dir)?;
-        let record = store.install(spec("fixture.echo", "1.0.0", ToolAbi::WasiPreview1, wasm))?;
-        assert_eq!(record.digest, expected);
-        assert_eq!(record.imports, vec!["wasi_snapshot_preview1".to_string()]);
+        // Resolve from a fresh read-only inspection of the same installation.
+        let inspect = Node::open_inspect(&node_dir)?.expect("node exists");
+        let facts = inspect.tool_unit_facts()?;
+        let (record, fact) = resolve_tool(&facts, "fixture.echo")?;
+        assert_eq!(record.version, "1.0.0");
+        let bytes = inspect.unit_object_bytes(&fact.artifact_digest)?;
+        assert_eq!(Digest::blake3(&bytes), digest);
 
         let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
             home.clone(),
@@ -703,154 +641,17 @@ mod tests {
             true,
             false,
         )])?;
-        let (resolved, bytes) = store.resolve("fixture.echo")?;
         let stdout = MemoryOutputPipe::new(4096);
         let mut command = WasiCommand::new(std::io::empty(), stdout.clone(), std::io::empty());
         command.arguments = vec!["fixture.echo".into()];
-        let code = rt.run_wasi_module(&bytes, command)?;
-        assert_eq!(code, 0);
-        assert_eq!(resolved.name, "fixture.echo");
+        let outcome = rt.run_wasi_module(&bytes, command)?;
+        assert_eq!(outcome, crate::WasiRunOutcome::Exited(0));
         assert_eq!(stdout.contents().as_ref(), b"tool-out\n");
         assert!(home.join("wrote-by-tool").exists(), "guest write must persist");
 
-        // Stable reopen: same records, resolution still works, unrelated files
-        // and unrelated installations' records are untouched.
-        drop(store);
-        let reopened = ToolStore::open(&dir)?;
-        assert_eq!(reopened.records(), &[record]);
-        assert_eq!(fs::read(home.join("keep.txt"))?, b"unrelated");
-        let (_, bytes2) = reopened.resolve("fixture.echo@1.0.0")?;
-        assert_eq!(Digest::blake3(&bytes2), expected);
-        fs::remove_dir_all(&dir).ok();
-        fs::remove_dir_all(&home).ok();
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&home).ok();
         Ok(())
     }
 
-    /// A recorded artifact whose bytes changed on disk is reported
-    /// TOOL_ARTIFACT_MISMATCH and never executes; the corrupt bytes are not
-    /// repaired or overwritten behind the record's back.
-    #[test]
-    fn tampered_artifact_is_detected_and_refused() -> Result<()> {
-        let dir = temp_tools("tampered");
-        let mut store = ToolStore::open(&dir)?;
-        let wasm = echo_writer_wasm();
-        let record = store.install(spec("fixture.echo", "1.0.0", ToolAbi::WasiPreview1, wasm))?;
-        fs::write(store.artifact_path(&record), b"tampered")?;
-
-        let err = store.resolve("fixture.echo").unwrap_err().to_string();
-        assert!(err.contains("TOOL_ARTIFACT_MISMATCH"), "{err}");
-        let err = ToolStore::open(&dir).unwrap_err().to_string();
-        assert!(err.contains("TOOL_ARTIFACT_MISMATCH"), "{err}");
-        // Corrupt bytes remain for diagnosis; the store does not self-heal
-        // silently.
-        assert_eq!(fs::read(store.artifact_path(&record))?, b"tampered");
-        fs::remove_dir_all(&dir).ok();
-        Ok(())
-    }
-
-    /// Declared-vs-observed ABI and identity mismatches fail admission: a
-    /// preview2/foreign-import module is not "wasi_preview1", a wrong
-    /// expected digest is rejected, and WAT text is not an install artifact.
-    #[test]
-    fn admission_rejects_wrong_abi_digest_and_nonbinary() -> Result<()> {
-        let dir = temp_tools("admission");
-        let mut store = ToolStore::open(&dir)?;
-        // Real binary module importing a non-preview1 host module.
-        let foreign = wat::parse_str(
-            r#"(module
-                (import "env" "custom" (func $custom))
-                (memory (export "memory") 1)
-                (func (export "_start") (call $custom)))"#,
-        )?;
-        let err = store
-            .install(spec("fixture.foreign", "1", ToolAbi::WasiPreview1, foreign.clone()))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("TOOL_ABI_UNSUPPORTED"), "{err}");
-        // Same module honestly declared as host-imports is admitted and
-        // recorded as unrunnable-by-this-runtime metadata.
-        let record = store.install(spec("fixture.foreign", "1", ToolAbi::HostImports, foreign))?;
-        assert_eq!(record.imports, vec!["env".to_string()]);
-        // Catalogued but not executable in this runtime: explicit ABI refusal.
-        let err = store.resolve("fixture.foreign").unwrap_err().to_string();
-        assert!(err.contains("TOOL_ABI_UNSUPPORTED"), "{err}");
-
-        let wasm = echo_writer_wasm();
-        let mut wrong = spec("fixture.echo", "1.0.0", ToolAbi::WasiPreview1, wasm.clone());
-        wrong.expected_digest = Some(Digest::blake3(b"not the artifact"));
-        let err = store.install(wrong).unwrap_err().to_string();
-        assert!(err.contains("TOOL_DIGEST_MISMATCH"), "{err}");
-
-        let err = store
-            .install(spec(
-                "fixture.wat",
-                "1",
-                ToolAbi::WasiPreview1,
-                b"(module)".to_vec(),
-            ))
-            .unwrap_err()
-            .to_string();
-        assert!(err.contains("TOOL_ABI_UNSUPPORTED"), "{err}");
-        fs::remove_dir_all(&dir).ok();
-        Ok(())
-    }
-
-    /// name@version disambiguates; a same-name@same-version record with a
-    /// different artifact is a loud conflict, never an in-place overwrite.
-    #[test]
-    fn versions_disambiguate_and_conflicts_fail_loudly() -> Result<()> {
-        let dir = temp_tools("versions");
-        let mut store = ToolStore::open(&dir)?;
-        let v1 = echo_writer_wasm();
-        // A second, genuinely different real module (exits 7).
-        let v2 = wat::parse_str(
-            r#"(module
-                (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
-                (memory (export "memory") 1)
-                (func (export "_start") (call $exit (i32.const 7))))"#,
-        )?;
-        store.install(spec("fixture.echo", "1.0.0", ToolAbi::WasiPreview1, v1.clone()))?;
-        store.install(spec("fixture.echo", "2.0.0", ToolAbi::WasiPreview1, v2))?;
-        let err = store.resolve("fixture.echo").unwrap_err().to_string();
-        assert!(err.contains("TOOL_AMBIGUOUS"), "{err}");
-        let (r1, b1) = store.resolve("fixture.echo@1.0.0")?;
-        assert_eq!(r1.version, "1.0.0");
-        assert_eq!(Digest::blake3(&b1), Digest::blake3(&v1));
-
-        // Same name@version, different artifact → conflict, original kept.
-        let mut clash = spec("fixture.echo", "1.0.0", ToolAbi::WasiPreview1, v1.clone());
-        clash.entrypoint = "/tools/other".into();
-        let err = store.install(clash).unwrap_err().to_string();
-        assert!(err.contains("TOOL_INSTALL_CONFLICT"), "{err}");
-        let (kept, _) = store.resolve("fixture.echo@1.0.0")?;
-        assert_eq!(kept.entrypoint, "/tools/fixture.echo");
-        fs::remove_dir_all(&dir).ok();
-        Ok(())
-    }
-
-    /// A foreign directory (content without a registry) is never adopted; a
-    /// registry bound to another installation id refuses to open for us.
-    #[test]
-    fn foreign_tool_data_is_not_adopted() -> Result<()> {
-        let dir = temp_tools("foreign");
-        fs::create_dir_all(&dir)?;
-        fs::write(dir.join("stray.bin"), b"someone else's data")?;
-        let err = ToolStore::open(&dir).unwrap_err().to_string();
-        assert!(err.contains("DATA_PATH_CONFLICT"), "{err}");
-        assert_eq!(fs::read(dir.join("stray.bin"))?, b"someone else's data");
-        fs::remove_dir_all(&dir).ok();
-
-        let dir = temp_tools("bound");
-        let mut store = ToolStore::open(&dir)?;
-        let id_a = EntityId::new();
-        store.bind_installation(id_a)?;
-        drop(store);
-        // Reopening with the same installation is fine; rebinding to another
-        // installation id is refused.
-        let mut reopened = ToolStore::open(&dir)?;
-        let err = reopened.bind_installation(EntityId::new()).unwrap_err().to_string();
-        assert!(err.contains("DATA_PATH_CONFLICT"), "{err}");
-        fs::remove_dir_all(&dir).ok();
-        Ok(())
-    }
 }

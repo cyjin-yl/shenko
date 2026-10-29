@@ -3,8 +3,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{EntityId, RuntimeGeneration};
 use shenko_types::object::ObjectRef;
+use shenko_node::Node;
 use shenko_wasm::{
-    HOME_GUEST_PATH, MountMode, MountSpec, TOOL_DIR_NAME, ToolStore, WasiCommand, WasmRuntime,
+    HOME_GUEST_PATH, MountMode, MountSpec, TOOL_DIR_NAME, WasiCommand, WasiRunOutcome,
+    WasmRuntime,
 };
 use std::collections::BTreeMap;
 use std::fs;
@@ -172,10 +174,11 @@ pub struct PreparedHome {
     /// Kept only for the bootstrap phase; the caller drops it before the main
     /// loop so merely holding a home does not keep an engine per subject step.
     pub runtime: WasmRuntime,
-    /// The managed named-WASM-tool store (`<data>/tools`), bound to this
-    /// installation and verified on open. Tools install real artifact bytes
-    /// under names; unresolved named targets stay explicit (SPEC §8.2/R008).
-    pub tools: ToolStore,
+    /// The named-WASM-tool materialization root (`<data>/tools`). Tool
+    /// records themselves live in the node installation-unit inventory; this
+    /// directory only holds the bytes the unit authority materialized, so a
+    /// foreign copy here is inert.
+    pub tools_root: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -292,6 +295,38 @@ impl Bootstrap {
             if path.exists() && !path.is_dir() {
                 bail!("DATA_PATH_CONFLICT: {} is not a directory", path.display());
             }
+        }
+        // Foreign tool ownership is admitted BEFORE any installation state
+        // is written: a `tools/` directory is only valid as the
+        // materialization root of this installation's own node inventory.
+        // A foreign tools tree (or one with no inventory behind it) is a
+        // conflict reported here, never absorbed by later bootstrap writes.
+        let tools_dir = root.join(TOOL_DIR_NAME);
+        if tools_dir.is_dir() {
+            let owned = match Node::open_inspect(&root.join("node"))? {
+                Some(node) => {
+                    let roots = node.materialization_roots()?;
+                    let tools = absolute(&tools_dir)
+                        .ok()
+                        .and_then(|p| p.canonicalize().ok());
+                    match tools {
+                        Some(tools) => roots.iter().any(|r| {
+                            Path::new(r)
+                                .canonicalize()
+                                .map(|r| r == tools)
+                                .unwrap_or(false)
+                        }),
+                        None => false,
+                    }
+                }
+                None => false,
+            };
+            ensure!(
+                owned || !tools_dir.read_dir()?.next().is_some(),
+                "DATA_PATH_CONFLICT: {} holds tool data this installation did not \
+                 materialize; data preserved",
+                tools_dir.display()
+            );
         }
         Ok(())
     }
@@ -480,9 +515,9 @@ impl Bootstrap {
         // This fixed probe uses only its preopens and deliberately has no
         // process input or output. Other commands must choose their streams.
         let command = WasiCommand::new(std::io::empty(), std::io::empty(), std::io::empty());
-        let exit = runtime.run_wasi_module(HOME_PROBE_WAT.as_bytes(), command)?;
-        if exit != 0 {
-            bail!("SEED_CLOSURE_INCOMPLETE: home guest probe exited {exit}");
+        let outcome = runtime.run_wasi_module(HOME_PROBE_WAT.as_bytes(), command)?;
+        if outcome != WasiRunOutcome::Exited(0) {
+            bail!("SEED_CLOSURE_INCOMPLETE: home guest probe outcome {outcome:?}");
         }
         let observed = fs::read_to_string(&ready_file)
             .with_context(|| format!("host readback of {}", ready_file.display()))?;
@@ -497,17 +532,11 @@ impl Bootstrap {
             manifest.state = HomeState::Ready;
             persist_manifest(&manifest_path, &manifest)?;
         }
-        // Open and bind the managed named-WASM-tool store. Open re-verifies
-        // every recorded artifact's digest (stable reopen); binding prevents
-        // adopting a foreign installation's registry. Unresolved named
-        // targets stay explicit — nothing is installed by declaration alone.
-        let mut tools = ToolStore::open(&root.join(TOOL_DIR_NAME))?;
-        tools.bind_installation(installation_id)?;
         Ok(PreparedHome {
             manifest,
             manifest_path,
             runtime,
-            tools,
+            tools_root: root.join(TOOL_DIR_NAME),
         })
     }
 }
@@ -518,6 +547,80 @@ fn absolute(path: &Path) -> Result<PathBuf> {
     } else {
         Ok(std::env::current_dir()?.join(path))
     }
+}
+
+/// Admission checks for executing a guest under a stored managed home —
+/// shared by `Bootstrap::prepare` and any caller that runs a tool with the
+/// declared mounts (`shenko tool exec`). Validates the manifest's schema,
+/// stored installation and mount bindings (mount sources must be this data
+/// dir's own home/memory, so a copied installation cannot alias a sibling's
+/// files), runtime/generation markers and the persisted checkpoint and
+/// capability declarations. Read-only: it never creates or mutates state.
+pub fn validate_home_for_exec(data_dir: &Path) -> Result<HomeManifest> {
+    let root = absolute(data_dir)?.canonicalize()?;
+    let manifest_path = root.join(HOME_MANIFEST_FILE);
+    let bytes = fs::read(&manifest_path).map_err(|error| {
+        anyhow!(
+            "SEED_CLOSURE_INCOMPLETE: read {}: {error}",
+            manifest_path.display()
+        )
+    })?;
+    let stored: HomeManifest = serde_json::from_slice(&bytes).map_err(|error| {
+        anyhow!(
+            "SEED_CLOSURE_INCOMPLETE: decode {}: {error}",
+            manifest_path.display()
+        )
+    })?;
+    if stored.schema_version != 1 {
+        bail!(
+            "SEED_CLOSURE_INCOMPLETE: unsupported home manifest schema {}",
+            stored.schema_version
+        );
+    }
+    // Mount sources must resolve to this data dir's own managed directories.
+    for (guest_path, name) in [(HOME_GUEST_PATH, "home"), (MEMORY_GUEST_PATH, "memory")] {
+        let expected = root.join(name).canonicalize().with_context(|| {
+            format!("managed {} is missing under {}", name, root.display())
+        })?;
+        let actual = stored
+            .mounts
+            .iter()
+            .find(|mount| mount.guest_path == guest_path)
+            .and_then(|mount| mount.source.canonicalize().ok());
+        ensure!(
+            actual.as_ref() == Some(&expected),
+            "DATA_PATH_CONFLICT: stored {guest_path} mount does not resolve to {}; data preserved",
+            expected.display()
+        );
+    }
+    if stored.mounts.len() != 2 {
+        bail!("SEED_CLOSURE_INCOMPLETE: unexpected mount declaration in home manifest");
+    }
+    if stored.home_guest_path != HOME_GUEST_PATH
+        || stored.runtime != "wasmtime-45"
+        || stored.wasi != "preview1"
+        || stored.runtime_generation != RuntimeGeneration::default()
+    {
+        bail!(
+            "WASM_PROFILE_UNAVAILABLE: stored runtime/generation/guest binding requires an explicit compatible activation; data preserved"
+        );
+    }
+    if stored.checkpoint != home_checkpoint() || stored.capabilities != home_capabilities() {
+        bail!(
+            "SEED_CLOSURE_INCOMPLETE: stored checkpoint/capability declaration differs from this seed; migrate explicitly"
+        );
+    }
+    let ready_file = stored.home_dir().join(HOME_READY_FILE);
+    let previous = fs::read_to_string(&ready_file).with_context(|| {
+        format!("read existing guest readiness file {}", ready_file.display())
+    })?;
+    if previous != HOME_READY_BODY {
+        bail!(
+            "SEED_CLOSURE_INCOMPLETE: guest readiness content changed at {}; data preserved",
+            ready_file.display()
+        );
+    }
+    Ok(stored)
 }
 
 fn directory_has_entries(path: &Path) -> Result<bool> {
