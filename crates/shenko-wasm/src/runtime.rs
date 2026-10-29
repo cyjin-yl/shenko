@@ -1006,9 +1006,9 @@ mod tests {
     /// The deadline turns an unbounded CPU-loop guest into a bounded typed
     /// outcome and keeps output already written. The deadline is measured
     /// from run start and covers compilation, so it is generously larger than
-    /// the marker+spin portion; the elapsed guard below asserts the run was
-    /// actually interrupted rather than joined forever (an infinite guest
-    /// without working controls would hang until the guard window). After a
+    /// the marker+spin portion, but setup may legitimately consume the whole
+    /// budget before any guest code executes. Marker-synchronized cancellation
+    /// separately verifies that prior output survives an interruption. After a
     /// stopped run the same runtime serves the next command normally.
     /// `Duration::ZERO` is a distinct boundary: the run reports
     /// `DeadlineExceeded` before any guest code can execute.
@@ -1029,12 +1029,6 @@ mod tests {
         let started = Instant::now();
         let outcome = rt.run_wasi_module(SPIN_WAT.as_bytes(), command)?;
         assert_eq!(outcome, WasiRunOutcome::DeadlineExceeded);
-        assert_eq!(
-            stdout.contents().as_ref(),
-            b"spin",
-            "a 5s budget leaves ample room to compile and write, so the \
-             committed output is retained across the deadline trap"
-        );
         assert!(
             started.elapsed() < Duration::from_secs(60),
             "the deadline must interrupt the infinite guest well inside the \
