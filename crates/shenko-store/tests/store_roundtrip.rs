@@ -1029,6 +1029,39 @@ fn native_recovery_recovers_more_than_one_page_of_running_work() {
 }
 
 #[test]
+fn dispatch_cursor_reaches_later_work_and_wraps_without_starving() {
+    let (_, store, agent) = initialized_subject();
+    let mut batch = WriteBatch::new();
+    for number in 1..=40 { batch.task_upserts.push(recovery_task(&store, agent, number, false)); }
+    store.commit(batch).unwrap();
+    let mut seen = Vec::new();
+    let mut after: Option<(String, shenko_types::ids::EntityId)> = None;
+    let mut pages = 0;
+    let last_key = loop {
+        let page = store.native_task_candidates_after(
+            after.as_ref().map(|(created, id)| (created.as_str(), *id)), 32,
+        ).unwrap();
+        pages += 1;
+        assert!(pages <= 3, "scan did not terminate");
+        seen.extend(page.iter().map(|(_, task)| task.task_id.to_string()));
+        let page_end = page.last().map(|(created, task)| (created.clone(), task.task_id));
+        if page.len() < 32 {
+            // Short page: the scan reached the end and the next pass restarts.
+            break page_end;
+        }
+        after = page_end;
+    };
+    assert_eq!(seen.len(), 40, "a later page hid work: {seen:?}");
+    assert!(seen.windows(2).all(|pair| pair[0] < pair[1]), "pagination duplicated or reordered work");
+    let upper = store.native_task_scan_upper().unwrap().unwrap();
+    assert_eq!(Some(upper), last_key, "the round boundary is the last scanned key");
+    // Wraparound returns the same complete set rather than staying at the end.
+    let restarted = store.native_task_candidates_after(None, 32).unwrap();
+    assert_eq!(restarted.len(), 32);
+    assert_eq!(restarted[0].1.task_id.to_string(), seen[0]);
+}
+
+#[test]
 fn native_recovery_rolls_back_all_pages_when_later_identity_is_corrupt() {
     use shenko_types::{ids::*, task::TaskState};
     let (dir, store, agent) = initialized_subject();
