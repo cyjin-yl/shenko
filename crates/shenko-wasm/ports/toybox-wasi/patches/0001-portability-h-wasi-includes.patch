@@ -1,6 +1,6 @@
 --- a/lib/portability.h
 +++ b/lib/portability.h
-@@ -173,6 +173,9 @@
+@@ -173,5 +173,7 @@
  // Linux headers not listed by POSIX or LSB
 -#include <sys/mount.h>
 +#ifndef __wasi__
