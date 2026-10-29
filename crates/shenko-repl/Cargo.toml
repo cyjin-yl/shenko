@@ -1,0 +1,18 @@
+[package]
+name = "shenko-repl"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+shenko-wasm = { path = "../shenko-wasm" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+blake3 = { workspace = true }
+uuid = { workspace = true }
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"
