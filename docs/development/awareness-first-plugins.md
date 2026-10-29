@@ -59,6 +59,31 @@
   candidate/unknown` 状态与来源版本。查询按既有的 frozen-input → armed attempt →
   sealed evidence 合同走，重启按原始 attempt 重观察，不产生第二条证据。
 
+### 自解释查询的有界实测（2026-10-29，评阅于 2026-10-30）
+
+源码候选 `2677a2ba1ec667d9d5b0dd8a9e3f93388659d374`，真实 Store、主体、
+provider wire、解析器及 native child；模型为当前服务的
+`swift-qwen3.8-27b-nvfp4`，服务声明的模型根为
+`/tank/hot/models/Merkyor-Coder390-NVFP4-W4A16-3e644f23`。
+三个独立沙箱各运行一次，按已提交输出及其 frozen input 中实际消费的结果评阅：
+
+| 场景 | 观察到的行为 | 结果 |
+| --- | --- | --- |
+| 已安装 definitions 与源码归属 | 先查目录，再 get capabilities/source 正文；报告三个真实 kind/version、source_revision 和 shenko-exec-host 归属 | 通过本次有界查询 |
+| 搜索后精确读取 | 消费 search/list 返回的 URI 后再 get，消费完整正文后总结，没有拿截断预览冒充正文 | 通过本次有界查询 |
+| 不存在的资源 | 实际 get self://runtime/teleportation，消费 resource_not_found 后明确报告不存在、没有正文 | 通过本次有界查询 |
+
+证据位于 `build/c10-selfknow-native-20261029/coder390-a0e803d74ca9/`：
+`receipt.json`、三个场景的 `summary.json` 与带摘要的 `native-evidence.json`。
+12 次真实转发均观察到完整 provider 终态；三个 native 进程退出 0，已观察的
+自有子进程均清空。输入文件摘要前后一致。模型服务前后声明相同 id、root 与
+上下文上限，但 `created` 和 permission id 改变，完整元数据摘要并不相同；
+这不是模型权重字节未变的证明。
+
+这是**用户明确要求查询后的工具使用**，不是自发想起、自解释的全范围完成，
+也不是任何 awareness 的效力证明。每场景只有一次，没有停用对照、重复成功率
+或留出通用性验收；不据此修改任何单元的 `accepted` 状态，C10/#15 仍开放。
+
 ## 写一个 awareness
 
 ```md
