@@ -150,7 +150,7 @@ fn armed_reservation_survives_reopen() {
     assert_eq!(reservation.outstanding.len(), 1);
     assert_eq!(
         store.quota_send_ids(sealed).unwrap(),
-        vec![(admission.request_id, false)]
+        vec![(admission.request_id, 0)]
     );
     drop(store);
 
@@ -162,7 +162,7 @@ fn armed_reservation_survives_reopen() {
     assert_eq!(retained.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
     assert_eq!(
         reopened.quota_send_ids(sealed).unwrap(),
-        vec![(admission.request_id, false)]
+        vec![(admission.request_id, 0)]
     );
     std::fs::remove_dir_all(dir).unwrap();
 }

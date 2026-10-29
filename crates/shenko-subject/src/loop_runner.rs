@@ -547,7 +547,6 @@ async fn quota_dispatch_gate(
     store: &shenko_store::store::Store,
     binding: &shenko_broker::request::ProviderBinding,
     request_id: EntityId,
-    resumed_awaiting: bool,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<QuotaGate, ShenkoError> {
     use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
@@ -583,33 +582,17 @@ async fn quota_dispatch_gate(
     // across gate re-entries instead of minting ghost budgets.
     let pacer = store.quota_pacer()?;
     let sends = store.quota_send_ids(request_id)?;
-    let send_id = if resumed_awaiting {
-        // A resumed AwaitingModel step already dispatched: its wire-bound
-        // send is the most recently CLAIMED one — durable CAS evidence,
-        // never an inferred "latest armed".
-        sends
-            .iter()
-            .rev()
-            .find(|(_, claim_seq)| *claim_seq > 0)
-            .map(|(send_id, _)| *send_id)
-            .ok_or_else(|| {
-                ShenkoError::conflict(
-                    "awaiting step has no claimed quota send; reconcile before resuming",
-                )
-            })?
-    } else {
-        sends
-            .iter()
-            .rev()
-            .find(|(send_id, claim_seq)| {
-                *claim_seq == 0
-                    && pacer.reservation(send_id).is_some_and(|reservation| {
-                        reservation.admission.state != AdmissionState::Cancelled
-                    })
-            })
-            .map(|(send_id, _)| *send_id)
-            .unwrap_or_else(EntityId::new)
-    };
+    let send_id = sends
+        .iter()
+        .rev()
+        .find(|(send_id, claim_seq)| {
+            *claim_seq == 0
+                && pacer.reservation(send_id).is_some_and(|reservation| {
+                    reservation.admission.state != AdmissionState::Cancelled
+                })
+        })
+        .map(|(send_id, _)| *send_id)
+        .unwrap_or_else(EntityId::new);
     // Recomputations and re-eligible outcomes that make no progress are
     // bounded; a decision that still cannot settle is a reconciliation
     // fact, not a spin. The counter covers only CONSECUTIVE recompute
@@ -1083,12 +1066,10 @@ async fn execute_step(
         // rejected send retries under a fresh send id with its own budget
         // and pacing; the prior send keeps its armed unknown charge.
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
-        let resumed_awaiting = step.state == SubjectStepState::AwaitingModel;
         let claimed_send = match quota_dispatch_gate(
             &store,
             broker.binding(),
             request_id,
-            resumed_awaiting,
             cancel,
         )
         .await
