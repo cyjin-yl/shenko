@@ -2188,12 +2188,17 @@ mod recovery_integration_tests {
         (lines, specs.len())
     }
 
-    // Scenario 1: typed unavailable is a real result, never a fake bind —
-    // unsupported backend name, unreachable display, and unknown session.
+    // Permanent suite trimmed to <=9 independent behavior cases (7 scenarios):
+    // deferred to the ephemeral native probes (C15X11NativePrep fixture):
+    // unreachable display, unknown-session inject, cross-display independent
+    // leases, bogus observation id, sibling-session non-revoke, dead-display
+    // fencing follow-ups, lost-transport partial accounting.
+    //
+    // Case 1: typed unavailable is a real result, never a fake bind.
     #[tokio::test]
     async fn computer_use_typed_unavailable_results() {
-        let (delegate, _) = computer_use_delegates(&[(1, "computer.use.session"), (1, "computer.use.observe")]);
-        let (fixture, ids) = computer_use_fixture(2, &delegate);
+        let (delegate, _) = computer_use_delegates(&[(1, "computer.use.session")]);
+        let (fixture, ids) = computer_use_fixture(1, &delegate);
         let bad_backend = drive_native(
             &fixture,
             &fixture.handlers.session,
@@ -2205,23 +2210,9 @@ mod recovery_integration_tests {
         assert_eq!(normalized["result"], "unavailable");
         assert_eq!(normalized["reason"], "backend_unavailable");
         assert_eq!(bad_backend.effect_status, EffectStatus::None);
-        let unreachable = drive_native(
-            &fixture,
-            &fixture.handlers.session,
-            ids[1],
-            serde_json::json!({"backend":"x11","display":":19999"}),
-        )
-        .await;
-        let normalized = op_normalized(&fixture, unreachable.operation_id);
-        assert_eq!(normalized["result"], "unavailable");
-        assert_eq!(
-            normalized["reason"].as_str().unwrap().starts_with("display_"),
-            true,
-            "typed display failure: {normalized}"
-        );
     }
 
-    // Scenario 2: real Xvfb — session open binds probed capabilities,
+    // Case 2: real Xvfb — session open binds probed capabilities,
     // observation has stable ids + real pixels, pointer moves the real
     // pointer, a raw XTEST button event reaches a real client window.
     #[tokio::test]
@@ -2362,8 +2353,10 @@ mod recovery_integration_tests {
         assert_eq!((press.event_x, press.event_y), (30, 30));
     }
 
-    // Scenario 3: one domain one writer; explicit takeover revokes the old
-    // epoch so the previous token's input is rejected before any event.
+    // Cases 3+4: one display domain = one writer across ALL sessions; two
+    // sessions on the same Xvfb share the lease (second acquire = conflict),
+    // and explicit takeover bumps the epoch so the old token AND the
+    // pre-takeover observation are fenced; the new holder must re-observe.
     #[tokio::test]
     async fn computer_use_lease_exclusion_and_takeover() {
         let Some((_xvfb, display)) = x11_display_or_skip() else {
@@ -2372,45 +2365,57 @@ mod recovery_integration_tests {
         };
         let (delegate, _) = computer_use_delegates(&[
             (1, "computer.use.session"),
+            (1, "computer.use.session"),
+            (1, "computer.use.lease"),
             (1, "computer.use.lease"),
             (1, "computer.use.lease"),
             (1, "computer.use.observe"),
             (1, "computer.use.input"),
-            (1, "computer.use.lease"),
+            (1, "computer.use.observe"),
+            (1, "computer.use.input"),
             (1, "computer.use.input"),
         ]);
-        let (fixture, ids) = computer_use_fixture(7, &delegate);
+        let (fixture, ids) = computer_use_fixture(10, &delegate);
         let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
             serde_json::json!({"backend":"x11","display":display.as_str()})).await;
         let opened_n = op_normalized(&fixture, opened.operation_id);
         let session_id: EntityId = opened_n["session"]["session_id"].as_str().unwrap().parse().unwrap();
+        let domain_id = opened_n["session"]["domain_id"].as_str().unwrap().to_string();
 
-        let a = drive_native(&fixture, &fixture.handlers.lease, ids[1],
+        // A second session on the SAME display binds the same domain.
+        let opened_b = drive_native(&fixture, &fixture.handlers.session, ids[1],
+            serde_json::json!({"backend":"x11","display":display.as_str()})).await;
+        let opened_b_n = op_normalized(&fixture, opened_b.operation_id);
+        let session_b: EntityId = opened_b_n["session"]["session_id"].as_str().unwrap().parse().unwrap();
+        assert_eq!(opened_b_n["session"]["domain_id"].as_str().unwrap(), domain_id,
+            "sessions on one display share the lease domain");
+
+        let a = drive_native(&fixture, &fixture.handlers.lease, ids[2],
             serde_json::json!({"session_id":session_id,"op":"acquire"})).await;
         let a_n = op_normalized(&fixture, a.operation_id);
         let token_a: EntityId = a_n["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
 
-        // A second writer cannot acquire while A holds the domain.
-        let conflict = drive_native(&fixture, &fixture.handlers.lease, ids[2],
-            serde_json::json!({"session_id":session_id,"op":"acquire"})).await;
+        // A second task's session cannot become a writer on the same domain.
+        let conflict = drive_native(&fixture, &fixture.handlers.lease, ids[3],
+            serde_json::json!({"session_id":session_b,"op":"acquire"})).await;
         let conflict_n = op_normalized(&fixture, conflict.operation_id);
         assert_eq!(conflict_n["result"], "rejected");
         assert_eq!(conflict_n["reason"], "lease_conflict");
 
-        let observed = drive_native(&fixture, &fixture.handlers.observe, ids[3],
+        let observed = drive_native(&fixture, &fixture.handlers.observe, ids[5],
             serde_json::json!({"session_id":session_id})).await;
         let observation_id = op_normalized(&fixture, observed.operation_id)
             ["observation_id"].as_str().unwrap().to_string();
 
         // Human takeover: A's token becomes stale; late input is fenced out.
-        let human = drive_native(&fixture, &fixture.handlers.lease, ids[5],
+        let human = drive_native(&fixture, &fixture.handlers.lease, ids[4],
             serde_json::json!({"session_id":session_id,"op":"takeover"})).await;
         let human_n = op_normalized(&fixture, human.operation_id);
         assert_eq!(human_n["result"], "taken_over");
         let token_h: EntityId = human_n["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
         assert!(human_n["lease"]["epoch"].as_u64().unwrap() > a_n["lease"]["epoch"].as_u64().unwrap());
 
-        let stale_a = drive_native(&fixture, &fixture.handlers.input, ids[4],
+        let stale_a = drive_native(&fixture, &fixture.handlers.input, ids[6],
             serde_json::json!({"session_id":session_id,"lease_token":token_a,
                 "observation_id":observation_id,
                 "actions":[{"kind":"pointer_move","x":1,"y":1}]})).await;
@@ -2419,15 +2424,28 @@ mod recovery_integration_tests {
         assert_eq!(stale_n["reason"], "lease_revoked");
         assert_eq!(stale_a.effect_status, EffectStatus::None);
 
-        // The new epoch holder can inject after re-verifying the display.
-        let fresh = drive_native(&fixture, &fixture.handlers.input, ids[6],
+        // An observation bound to the PRE-takeover epoch is stale too: the
+        // holder must re-observe under the new epoch before injecting.
+        let pre_epoch = drive_native(&fixture, &fixture.handlers.input, ids[7],
             serde_json::json!({"session_id":session_id,"lease_token":token_h,
                 "observation_id":observation_id,
+                "actions":[{"kind":"pointer_move","x":7,"y":7}]})).await;
+        assert_eq!(
+            op_normalized(&fixture, pre_epoch.operation_id)["reason"],
+            "observation_stale_epoch"
+        );
+        let observed2 = drive_native(&fixture, &fixture.handlers.observe, ids[8],
+            serde_json::json!({"session_id":session_id})).await;
+        let observation_id2 = op_normalized(&fixture, observed2.operation_id)
+            ["observation_id"].as_str().unwrap().to_string();
+        let fresh = drive_native(&fixture, &fixture.handlers.input, ids[9],
+            serde_json::json!({"session_id":session_id,"lease_token":token_h,
+                "observation_id":observation_id2,
                 "actions":[{"kind":"pointer_move","x":7,"y":7}]})).await;
         assert_eq!(fresh.state, OperationState::Resolved);
     }
 
-    // Scenario 4: stale observation is rejected before any event; a changed
+    // Case 5: stale observation is rejected before any event; a changed
     // window layout invalidates the bound coordinates.
     #[tokio::test]
     async fn computer_use_stale_observation_rejected() {
@@ -2441,10 +2459,8 @@ mod recovery_integration_tests {
             (1, "computer.use.observe"),
             (1, "computer.use.lease"),
             (1, "computer.use.input"),
-            (1, "computer.use.observe"),
-            (1, "computer.use.input"),
         ]);
-        let (fixture, ids) = computer_use_fixture(7, &delegate);
+        let (fixture, ids) = computer_use_fixture(4, &delegate);
         let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
             serde_json::json!({"backend":"x11","display":display.as_str()})).await;
         let session_id: EntityId = op_normalized(&fixture, opened.operation_id)
@@ -2481,94 +2497,16 @@ mod recovery_integration_tests {
         assert_eq!(stale_n["result"], "rejected");
         assert_eq!(stale_n["reason"], "observation_stale_layout");
         assert_eq!(stale.effect_status, EffectStatus::None);
-
-        // Unknown / cross-session observation ids are fenced the same way.
-        let bogus = drive_native(&fixture, &fixture.handlers.input, ids[4],
-            serde_json::json!({"session_id":session_id,"lease_token":token,
-                "observation_id":"blake3:0000000000000000000000000000000000000000000000000000000000000000",
-                "actions":[{"kind":"pointer_move","x":5,"y":5}]})).await;
-        assert_eq!(
-            op_normalized(&fixture, bogus.operation_id)["reason"],
-            "observation_unknown"
-        );
-        // A fresh observation re-binds and input proceeds on the new layout.
-        let observed2 = drive_native(&fixture, &fixture.handlers.observe, ids[5],
-            serde_json::json!({"session_id":session_id})).await;
-        let observation_id2 = op_normalized(&fixture, observed2.operation_id)
-            ["observation_id"].as_str().unwrap().to_string();
-        let ok = drive_native(&fixture, &fixture.handlers.input, ids[6],
-            serde_json::json!({"session_id":session_id,"lease_token":token,
-                "observation_id":observation_id2,
-                "actions":[{"kind":"pointer_move","x":5,"y":5}]})).await;
-        assert_eq!(ok.state, OperationState::Resolved);
     }
 
-    // Scenario 5: isolated display domains hold independent write leases.
+    // Case 6: an armed input op whose controller produced no conclusive
+    // evidence reconciles to honest Unknown, is never replayed; and after
+    // display loss follow-up input is rejected by re-verification rather than
+    // being sent blind onto a dead display.
     #[tokio::test]
-    async fn computer_use_isolated_domains_have_independent_leases() {
-        let Some((_xvfb_a, display_a)) = x11_display_or_skip() else {
-            eprintln!("SKIP computer_use_isolated_domains_have_independent_leases: no usable X11");
-            return;
-        };
-        let Some((_xvfb_b, display_b)) = (|| {
-            // A second distinct Xvfb on another display number.
-            for n in 101..110u8 {
-                let display = format!(":{n}");
-                if let Ok(mut child) = std::process::Command::new("Xvfb")
-                    .args([&display, "-screen", "0", "800x600x24"])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn()
-                {
-                    for _ in 0..100 {
-                        if x11rb::rust_connection::RustConnection::connect(
-                            Some(display.as_str()),
-                        )
-                        .is_ok()
-                        {
-                            return Some((Some(child), display));
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(50));
-                    }
-                    let _ = child.kill();
-                    let _ = child.wait();
-                }
-            }
-            None
-        })() else {
-            eprintln!("SKIP isolated domains: only one usable X11 display");
-            return;
-        };
-        let (delegate, _) = computer_use_delegates(&[
-            (1, "computer.use.session"),
-            (1, "computer.use.session"),
-            (1, "computer.use.lease"),
-            (1, "computer.use.lease"),
-        ]);
-        let (fixture, ids) = computer_use_fixture(4, &delegate);
-        let sa = drive_native(&fixture, &fixture.handlers.session, ids[0],
-            serde_json::json!({"backend":"x11","display":display.as_str()_a})).await;
-        let sb = drive_native(&fixture, &fixture.handlers.session, ids[1],
-            serde_json::json!({"backend":"x11","display":display.as_str()_b})).await;
-        let sid_a: EntityId = op_normalized(&fixture, sa.operation_id)
-            ["session"]["session_id"].as_str().unwrap().parse().unwrap();
-        let sid_b: EntityId = op_normalized(&fixture, sb.operation_id)
-            ["session"]["session_id"].as_str().unwrap().parse().unwrap();
-        let la = drive_native(&fixture, &fixture.handlers.lease, ids[2],
-            serde_json::json!({"session_id":sid_a,"op":"acquire"})).await;
-        let lb = drive_native(&fixture, &fixture.handlers.lease, ids[3],
-            serde_json::json!({"session_id":sid_b,"op":"acquire"})).await;
-        assert_eq!(op_normalized(&fixture, la.operation_id)["result"], "acquired");
-        assert_eq!(op_normalized(&fixture, lb.operation_id)["result"], "acquired");
-    }
-
-    // Scenario 6: an armed input op without conclusive evidence reconciles to
-    // Unknown and is never replayed; after display loss, follow-up input is
-    // rejected by re-verification instead of being sent blind.
-    #[tokio::test]
-    async fn computer_use_lost_transport_stays_unknown_no_replay() {
+    async fn computer_use_armed_reconcile_and_dead_display_fencing() {
         let Some((mut xvfb, display)) = x11_display_or_skip() else {
-            eprintln!("SKIP computer_use_lost_transport_stays_unknown_no_replay: no usable X11");
+            eprintln!("SKIP computer_use_armed_reconcile_and_dead_display_fencing: no usable X11");
             return;
         };
         let (delegate, _) = computer_use_delegates(&[
@@ -2576,12 +2514,11 @@ mod recovery_integration_tests {
             (1, "computer.use.observe"),
             (1, "computer.use.lease"),
             (1, "computer.use.input"),
-            (1, "computer.use.observe"),
             (1, "computer.use.input"),
         ]);
-        let (fixture, ids) = computer_use_fixture(7, &delegate);
+        let (fixture, ids) = computer_use_fixture(5, &delegate);
         let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
-            serde_json::json!({"backend":"x11","display":display.as_str().as_str()})).await;
+            serde_json::json!({"backend":"x11","display":display.as_str()})).await;
         let session_id: EntityId = op_normalized(&fixture, opened.operation_id)
             ["session"]["session_id"].as_str().unwrap().parse().unwrap();
         let observed = drive_native(&fixture, &fixture.handlers.observe, ids[1],
@@ -2628,24 +2565,6 @@ mod recovery_integration_tests {
                 .len(),
             1
         );
-        // A second reconcile adds no evidence and never replays.
-        let again = shenko_subject::NativeTaskHandler::reconcile(
-            &fixture.handlers.input,
-            &task,
-            armed_op.operation_id,
-        )
-        .await
-        .unwrap();
-        assert_eq!(again.effect_status, EffectStatus::Unknown);
-        assert_eq!(
-            fixture
-                .store
-                .external_operation_evidence(armed_op.operation_id)
-                .unwrap()
-                .len(),
-            1
-        );
-
         // Display lost mid-work: re-verification fences late input out rather
         // than sending on a dead or re-shaped screen; no blind replay occurs.
         if let Some(child) = xvfb.as_mut() {
@@ -2661,13 +2580,9 @@ mod recovery_integration_tests {
         assert_eq!(late_n["result"], "rejected");
         assert_eq!(late_n["sent_events"].as_u64().unwrap_or(0), 0);
         assert_eq!(late.effect_status, EffectStatus::None);
-        let post = drive_native(&fixture, &fixture.handlers.observe, ids[5],
-            serde_json::json!({"session_id":session_id})).await;
-        let post_n = op_normalized(&fixture, post.operation_id);
-        assert!(post_n["result"] == "unavailable" || post_n["result"] == "rejected");
     }
 
-    // Scenario 7: session close revokes the domain epoch and rejects later
+    // Case 7: session close revokes the domain epoch and rejects later
     // input; reopening the durable store keeps the real records.
     #[tokio::test]
     async fn computer_use_session_close_and_reopen_records() {
@@ -2699,7 +2614,9 @@ mod recovery_integration_tests {
 
         let closed = drive_native(&fixture, &fixture.handlers.session, ids[1],
             serde_json::json!({"op":"close","session_id":session_id})).await;
-        assert_eq!(op_normalized(&fixture, closed.operation_id)["result"], "closed");
+        let closed_n = op_normalized(&fixture, closed.operation_id);
+        assert_eq!(closed_n["result"], "closed");
+        assert_eq!(closed_n["lease_revoked"], true);
 
         let late = drive_native(&fixture, &fixture.handlers.input, ids[4],
             serde_json::json!({"session_id":session_id,"lease_token":token,
@@ -2720,7 +2637,7 @@ mod recovery_integration_tests {
         assert!(!evidence.is_empty());
     }
 
-    // Scenario 8: the real dispatch path (claim → execute → result) wires
+    // Case 8: the real dispatch path (claim → execute → result) wires
     // computer.use kinds end-to-end through run_once on a real Xvfb.
     #[tokio::test]
     async fn computer_use_dispatch_wires_real_task() {
