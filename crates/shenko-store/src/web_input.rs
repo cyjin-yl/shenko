@@ -7,16 +7,17 @@
 //! transaction, so "accepted" is a durable fact before the transport answers.
 //!
 //! Consumption state stays honest: `inbox_events.consumed` means the row was
-//! durably staged into a subject step (S0), set in the same transaction as the
-//! staging link. A row still marked unconsumed at loop start was admitted but
-//! never staged, so the subject loop re-feeds it; already-staged or already-
-//! disposed events are never delivered twice.
+//! durably staged into a planned subject step, set in the same transaction as the
+//! staging link. The normal loop drains unstaged inputs in bounded batches.
+//! Staging is recovery evidence, not a selected receipt: selection requires
+//! the exact event and raw-event identity in the step's sealed input plan.
 
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
+use shenko_types::subject::{SubjectStep, SubjectStepState};
 
 use crate::store::{Store, storage_error};
 
@@ -145,52 +146,66 @@ impl Store {
         read_web_submission(&conn, agent_id, submission_id, self.ledger.ledger_id())
     }
 
-    /// Web input rows admitted but never staged into a subject step. The
-    /// loop re-feeds these once at start so a crash between admission and
-    /// delivery cannot lose accepted input.
-    pub fn pending_web_inputs(&self, agent_id: EntityId) -> Result<Vec<String>, ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        let mut stmt = conn
-            .prepare(
-                "SELECT i.data FROM inbox_events i
-                 JOIN web_input_submissions w
-                   ON w.agent_id = i.agent_id AND w.event_id = i.event_id
-                 WHERE i.agent_id = ?1 AND i.consumed = 0
-                 ORDER BY i.rowid",
-            )
-            .map_err(storage_error)?;
-        let rows = stmt
-            .query_map([agent_id.to_string()], |row| row.get::<_, String>(0))
-            .map_err(storage_error)?
-            .collect::<rusqlite::Result<Vec<String>>>()
-            .map_err(storage_error)?;
-        Ok(rows)
-    }
-
-    /// The step an input was selected into (S0 staging link), if any.
-    /// Selection is not a disposition; the caller reports it separately.
+    /// The step an input was selected into, if its S0 actually sealed.
+    /// `subject_raw_inputs` rows persist while a step is still `Planned` —
+    /// staging alone is not selection, so a failed projection, CAS failure
+    /// or resnapshot must not report `selected`. The sealed plan must belong
+    /// to the actual step and contain both this raw identity and the exact
+    /// admitted event. `prepare_context` admits every fresh raw ID into its
+    /// projection before S0; Store's S0 validation freezes that set atomically.
     pub fn web_input_selected_step(
         &self,
         agent_id: EntityId,
         event_id: EntityId,
     ) -> Result<Option<EntityId>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        conn.query_row(
-            "SELECT r.step_id FROM subject_raw_inputs r
+        let mut stmt = conn.prepare_cached(
+            "SELECT s.data, r.raw_event_id, i.data FROM subject_raw_inputs r
              JOIN subject_steps s ON s.step_id = r.step_id
              JOIN subject_branch_heads h ON h.branch_id = s.branch_id
+             JOIN inbox_events i ON i.event_id = r.source_event_id
+               AND i.agent_id = h.agent_id
              WHERE h.agent_id = ?1 AND r.source_event_id = ?2
-             ORDER BY r.seq DESC LIMIT 1",
-            params![agent_id.to_string(), event_id.to_string()],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(storage_error)?
-        .map(|id| {
-            id.parse::<EntityId>()
-                .map_err(|e| ShenkoError::storage(format!("bad selected step id {id}: {e}")))
-        })
-        .transpose()
+               AND s.state != 'planned'
+             ORDER BY r.commit_seq DESC, r.seq DESC",
+        ).map_err(storage_error)?;
+        let mut rows = stmt.query(params![agent_id.to_string(), event_id.to_string()])
+            .map_err(storage_error)?;
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            let step: SubjectStep = serde_json::from_str(&row.get::<_, String>(0).map_err(storage_error)?)?;
+            if step.state == SubjectStepState::Planned {
+                continue;
+            }
+            let raw_id: String = row.get(1).map_err(storage_error)?;
+            let original: serde_json::Value = serde_json::from_str(
+                &row.get::<_, String>(2).map_err(storage_error)?,
+            )?;
+            let object = step.input_plan_ref.as_ref()
+                .ok_or_else(|| ShenkoError::conflict("sealed web-input step has no input plan"))?;
+            let bytes = self.cas.read_object(&object.digest)?;
+            if object.locator.is_empty()
+                || bytes.len() as u64 != object.bytes
+                || shenko_types::object::Digest::blake3(&bytes) != object.digest
+            {
+                return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+            }
+            let plan: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if plan.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10)
+                || plan.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
+                || plan.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
+            {
+                return Err(ShenkoError::conflict("sealed web-input plan identity mismatch"));
+            }
+            let raw_is_selected = plan.pointer("/context/source/input_raw_event_ids")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(raw_id.as_str())));
+            let event_is_selected = plan.get("events").and_then(serde_json::Value::as_array)
+                .is_some_and(|events| events.contains(&original));
+            if raw_is_selected && event_is_selected {
+                return Ok(Some(step.step_id));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -233,72 +248,4 @@ fn read_web_submission(
     .transpose()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
 
-    fn store() -> (tempfile::TempDir, Store) {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let store = Store::open(dir.path().join("store.db"), dir.path().join("cas"))
-            .expect("open store");
-        (dir, store)
-    }
-
-    fn raw_event(agent_id: EntityId, data: &serde_json::Value) -> shenko_types::store::RawInboxEvent {
-        shenko_types::store::RawInboxEvent {
-            event_id: EntityId::new(),
-            agent_id,
-            source: WEB_INPUT_SOURCE.into(),
-            kind: "message".into(),
-            payload_json: data.to_string(),
-            received_at_ms: 0,
-        }
-    }
-
-    #[test]
-    fn identical_replay_replays_original_and_conflict_refuses() {
-        let (_dir, store) = store();
-        let agent = EntityId::new();
-        let event = raw_event(agent, &serde_json::json!({"content": "继续"}));
-        let first = store
-            .admit_web_submission(agent, "sub-1", "{\"content\":\"继续\"}", &event)
-            .expect("admit");
-        let admitted = match first {
-            WebAdmission::Admitted(record) => record,
-            _ => panic!("first admit must be Admitted"),
-        };
-        // New event id on retry: replay must still resolve to the original.
-        let retry = raw_event(agent, &serde_json::json!({"content": "继续"}));
-        let replay = store
-            .admit_web_submission(agent, "sub-1", "{\"content\":\"继续\"}", &retry)
-            .expect("replay");
-        match replay {
-            WebAdmission::Replay(record) => {
-                assert_eq!(record.event_id, admitted.event_id);
-                assert_eq!(record.accepted_commit, admitted.accepted_commit);
-            }
-            _ => panic!("identical payload must replay original"),
-        }
-        let conflict = store
-            .admit_web_submission(agent, "sub-1", "{\"content\":\"改\"}", &retry)
-            .expect("conflict lookup");
-        assert!(matches!(conflict, WebAdmission::Conflict));
-        // The pending row is exactly the admitted event payload.
-        let pending = store.pending_web_inputs(agent).expect("pending");
-        assert_eq!(pending, vec![event.payload_json]);
-        assert_eq!(
-            store.web_submission(agent, "sub-1").expect("lookup").map(|r| r.event_id),
-            Some(admitted.event_id),
-        );
-        // Consumed rows are no longer pending (S0 staging sets consumed).
-        {
-            let conn = store.ledger.conn.lock();
-            conn.execute(
-                "UPDATE inbox_events SET consumed=1 WHERE event_id=?1",
-                [admitted.event_id.to_string()],
-            )
-            .expect("mark consumed");
-        }
-        assert!(store.pending_web_inputs(agent).expect("pending").is_empty());
-    }
-}

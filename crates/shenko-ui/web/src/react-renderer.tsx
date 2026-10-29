@@ -594,9 +594,10 @@ function ReceiptView({ submission, emit, node }: { submission: Submission; emit:
   const labels: Record<string, string> = {
     sending: '发送中',
     sent: '已写入传输 · 等待服务端回执',
-    accepted: '已持久接纳 · 尚未选入或处理',
-    selected: '已选入某一轮 · 尚未处置',
+    accepted: '已持久接纳 · 等待选入/处置回执',
+    selected: '已选入封口输入计划 · 等待处置回执',
     committed: '主体已提交处置',
+    conflict: '提交 ID 冲突 · 原输入未改写',
     rejected: '未接收',
     unknown: '传输回执未知 · 可用同一 ID 查询或重试',
   };

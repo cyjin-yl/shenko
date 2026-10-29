@@ -18,7 +18,9 @@ import {
 } from './projection';
 
 const DRAFT_KEY = 'shenko.draft.v1';
+const SUBMISSIONS_KEY = 'shenko.submissions.v1';
 const THEME_KEY = 'shenko.theme.v1';
+const RECEIPT_REFRESH_MS = 2000;
 const RECONNECT_BASE = [1, 2, 4, 8, 15];
 const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config']);
 const VALID_READING = new Set<ReadingState>([
@@ -51,6 +53,51 @@ function uid(): string {
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function saveSubmissions(submissions: Submission[]): boolean {
+  try {
+    localStorage.setItem(SUBMISSIONS_KEY, JSON.stringify(submissions));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function storedSubmissions(): Submission[] {
+  try {
+    const saved: unknown = JSON.parse(storageGet(SUBMISSIONS_KEY) || '[]');
+    if (!Array.isArray(saved)) return [];
+    return saved.flatMap((row): Submission[] => {
+      if (!isObject(row) || !isObject(row.payload)) return [];
+      const payload = row.payload;
+      if (
+        payload.schema_version !== 2 || payload.type !== 'submit' || payload.mode !== 'append' ||
+        typeof payload.submission_id !== 'string' || !payload.submission_id ||
+        typeof payload.message_id !== 'string' || !payload.message_id ||
+        typeof payload.subject_id !== 'string' || !payload.subject_id ||
+        typeof payload.content !== 'string' || !payload.content.trim() ||
+        !Array.isArray(payload.attachment_refs) || payload.attachment_refs.length !== 0 ||
+        typeof row.created_at !== 'string' || !Number.isFinite(Date.parse(row.created_at))
+      ) return [];
+      return [{
+        payload: {
+          schema_version: 2, type: 'submit', mode: 'append',
+          submission_id: payload.submission_id, message_id: payload.message_id,
+          subject_id: payload.subject_id, content: payload.content, attachment_refs: [],
+          ...(typeof payload.observed_step_id === 'string'
+            ? { observed_step_id: payload.observed_step_id } : {}),
+        },
+        created_at: row.created_at,
+        receipt: row.receipt === 'conflict' ? 'conflict' : 'unknown',
+        detail: row.receipt === 'conflict'
+          ? '原提交 ID 已关联不同内容；此冲突内容未改写原输入。'
+          : '已恢复原提交 ID 与内容；等待持久查询，不会生成新 ID 重发。',
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 function initialTheme(): 'dark' | 'light' {
   const query = new URLSearchParams(location.search).get('theme');
   if (query === 'light' || query === 'dark') return query;
@@ -71,13 +118,14 @@ function initialState(): UiState {
     source: 'live',
     connection: 'connecting',
     reconnect_seconds: 0,
+    append_available: false,
     durable_receipts: false,
     committed_replay: false,
     subject_id: null,
     wanted_identity_revision: null,
     step: null,
     timeline: [],
-    submissions: [],
+    submissions: storedSubmissions(),
     draft: storageGet(DRAFT_KEY),
     config_error: false,
     self_error: false,
@@ -116,6 +164,7 @@ class LiveController implements ProjectionController {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
   private identityTimer: ReturnType<typeof setTimeout> | null = null;
+  private receiptTimer: number | null = null;
   private identityRetryDelay = 1000;
   private selfSeq = 0;
   private selfApplied = 0;
@@ -311,6 +360,13 @@ class LiveController implements ProjectionController {
       created_at: new Date().toISOString(),
       receipt: 'sending',
     };
+    // Save the immutable ID and exact payload BEFORE the transport can send.
+    // A page reopen after a lost ACK must recover this ID, not mint another.
+    if (!saveSubmissions([...this.state.submissions, submission])) {
+      this.state.display.notice = '浏览器无法保存提交 ID；未发送，草稿已保留。';
+      this.emit();
+      return;
+    }
     this.state.submissions = [...this.state.submissions, submission];
     this.state.display.reading = 'following_latest';
     this.state.display.new_count = 0;
@@ -323,6 +379,12 @@ class LiveController implements ProjectionController {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     submission.receipt = 'sending';
     submission.detail = undefined;
+    if (!saveSubmissions(this.state.submissions)) {
+      submission.receipt = 'unknown';
+      submission.detail = '浏览器无法保存原提交；未发送，原 ID 已保留。';
+      this.emit();
+      return;
+    }
     this.emit();
     try {
       socket.send(JSON.stringify(submission.payload));
@@ -334,7 +396,7 @@ class LiveController implements ProjectionController {
       this.state.display.notice = undefined;
       this.emit();
     } catch {
-      submission.receipt = 'rejected';
+      submission.receipt = 'unknown';
       submission.detail = retry ? '重试未能写入传输。' : '未能写入传输；草稿与同一 submission ID 已保留。';
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
@@ -342,6 +404,8 @@ class LiveController implements ProjectionController {
       }
       this.emit();
     }
+    saveSubmissions(this.state.submissions);
+    this.scheduleReceiptRefresh();
   }
 
   private clearReconnectTimers(): void {
@@ -406,12 +470,15 @@ class LiveController implements ProjectionController {
       if (this.socket !== socket) return;
       this.socket = null;
       if (this.disposed) return;
+      if (this.receiptTimer !== null) window.clearTimeout(this.receiptTimer);
+      this.receiptTimer = null;
       for (const submission of this.state.submissions) {
         if (submission.receipt === 'sending' || submission.receipt === 'sent') {
           submission.receipt = 'unknown';
           submission.detail = '连接中断，服务端回执未知；未生成新的 submission ID。';
         }
       }
+      saveSubmissions(this.state.submissions);
       this.scheduleReconnect();
     };
   }
@@ -429,8 +496,11 @@ class LiveController implements ProjectionController {
       if (data.type === 'hello') {
         if (typeof data.server_version === 'string') this.state.server_version = data.server_version;
         const capabilities = isObject(data.capabilities) ? data.capabilities : {};
+        this.state.append_available = capabilities.append === true;
         this.state.durable_receipts = capabilities.durable_input_receipts === true;
         this.state.committed_replay = capabilities.committed_replay === true;
+        this.refreshSubmissions();
+        this.scheduleReceiptRefresh();
         this.emit();
         return;
       }
@@ -471,16 +541,23 @@ class LiveController implements ProjectionController {
     );
     if (!submission) return;
     const detail = typeof data.detail === 'string' ? data.detail : undefined;
-    if (data.stage === 'accepted') {
+    if (data.stage === 'accepted' && typeof data.event_id === 'string'
+      && typeof data.accepted_commit === 'string') {
       // Durable acceptance, not selection or disposition. The same ID replayed
       // returns this same receipt; the durable fact is not a progress bar.
-      submission.receipt = 'accepted';
+      // Replaying an acceptance must not erase a later, observed disposition.
+      if (submission.receipt !== 'selected' && submission.receipt !== 'committed') {
+        submission.receipt = 'accepted';
+      }
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
         typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
-      submission.detail = detail;
+      if (submission.receipt === 'accepted') submission.detail = detail;
+    } else if (data.stage === 'unavailable') {
+      if (!submission.accepted_commit) submission.receipt = 'unknown';
+      submission.detail = detail ?? '持久结果暂不可用；保留原 ID 等待对账。';
     } else if (data.stage === 'conflict') {
-      submission.receipt = 'rejected';
+      submission.receipt = 'conflict';
       submission.detail = detail ?? '同一 submission_id 已关联不同内容；原输入未改写。';
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
@@ -494,18 +571,35 @@ class LiveController implements ProjectionController {
         storageSet(DRAFT_KEY, this.state.draft);
       }
     }
+    saveSubmissions(this.state.submissions);
+    this.scheduleReceiptRefresh();
     this.emit();
   }
 
-  /// Re-query every unresolved submission after (re)connect using its stable
-  /// client-side ID — SPEC §41.18: never mint a new key for a lost receipt.
+  // Poll only while unresolved receipts exist and the real socket advertises
+  // durable queries. Timeline traffic is not evidence of this input's S0/S1.
+  private scheduleReceiptRefresh(): void {
+    if (this.receiptTimer !== null || this.disposed || this.state.connection !== 'online'
+      || !this.state.durable_receipts || !this.state.subject_id
+      || !this.state.submissions.some((submission) =>
+        submission.payload.subject_id === this.state.subject_id
+        && ['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt))) return;
+    this.receiptTimer = window.setTimeout(() => {
+      this.receiptTimer = null;
+      this.refreshSubmissions();
+      this.scheduleReceiptRefresh();
+    }, RECEIPT_REFRESH_MS);
+  }
+
+  /// Query the original durable key after reconnect and during live progress.
   private refreshSubmissions(): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== WebSocket.OPEN || !this.state.durable_receipts) return;
     const subjectId = this.state.subject_id;
     if (!subjectId) return;
     for (const submission of this.state.submissions) {
-      if (!['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)) {
+      if (submission.payload.subject_id !== subjectId
+        || !['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)) {
         continue;
       }
       try {
@@ -514,7 +608,7 @@ class LiveController implements ProjectionController {
             schema_version: 2,
             type: 'query_submission',
             submission_id: submission.payload.submission_id,
-            subject_id: subjectId,
+            subject_id: submission.payload.subject_id,
           }),
         );
       } catch {
@@ -529,23 +623,26 @@ class LiveController implements ProjectionController {
       (row) => row.payload.submission_id === data.submission_id,
     );
     if (!submission) return;
-    if (data.result === 'found') {
+    if (data.result === 'found' && typeof data.event_id === 'string'
+      && typeof data.accepted_commit === 'string') {
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
         typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
-      if (data.stage === 'committed') {
+      if (data.stage === 'committed' && typeof data.committed_at === 'string') {
         submission.receipt = 'committed';
         submission.committed_at =
           typeof data.committed_at === 'string' ? data.committed_at : submission.committed_at;
         submission.detail = undefined;
-      } else if (data.stage === 'selected') {
-        submission.receipt = 'selected';
+      } else if (data.stage === 'selected' && typeof data.selected_step_id === 'string') {
+        if (submission.receipt !== 'committed') submission.receipt = 'selected';
         submission.selected_step_id =
           typeof data.selected_step_id === 'string' ? data.selected_step_id : submission.selected_step_id;
-        submission.detail = '已选入某一轮；尚未作出处置。';
-      } else {
-        submission.receipt = 'accepted';
-        submission.detail = undefined;
+        if (submission.receipt === 'selected') submission.detail = '已观察封口输入计划；等待处置回执。';
+      } else if (data.stage === 'accepted') {
+        if (submission.receipt !== 'selected' && submission.receipt !== 'committed') {
+          submission.receipt = 'accepted';
+          submission.detail = undefined;
+        }
       }
     } else if (data.result === 'not_admitted') {
       // A durable query proves the input was never admitted; the stable ID is
@@ -556,8 +653,13 @@ class LiveController implements ProjectionController {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
+    } else if (data.result === 'temporarily_unavailable') {
+      if (!submission.accepted_commit) submission.receipt = 'unknown';
+      submission.detail = '持久查询暂不可用；原 ID 与此前回执仍保留。';
     }
-    // temporarily_unavailable keeps 'unknown': it is not not_admitted.
+    // Query failure is not not_admitted and never restores an accepted draft.
+    saveSubmissions(this.state.submissions);
+    this.scheduleReceiptRefresh();
     this.emit();
   }
 
@@ -713,6 +815,8 @@ class LiveController implements ProjectionController {
         this.state.step = this.state.step === null ? self.step : Math.max(this.state.step, self.step);
       }
       this.ensureIdentityLoaded();
+      this.refreshSubmissions();
+      this.scheduleReceiptRefresh();
     } catch (error) {
       if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
       if (seq < this.selfApplied) return;
@@ -794,6 +898,8 @@ class LiveController implements ProjectionController {
     if (this.disposed) return;
     this.disposed = true;
     this.clearReconnectTimers();
+    if (this.receiptTimer !== null) window.clearTimeout(this.receiptTimer);
+    this.receiptTimer = null;
     if (this.identityTimer) clearTimeout(this.identityTimer);
     this.identityTimer = null;
     this.abort.abort();

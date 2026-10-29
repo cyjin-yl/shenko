@@ -377,13 +377,15 @@ fn stage_input(
         ],
     )
     .map_err(storage_error)?;
-    // Selection is durable here: the delivery flag moves inside the same
+    // Staging is durable here: the recovery flag moves inside the same
     // transaction as the staging link, so a crash can never leave an input
-    // staged but still reported as undelivered. Only web-source rows carry
-    // this flag; other ingress lanes own their own consumption bookkeeping.
+    // staged but still queued for recovery delivery. This does not claim a
+    // sealed presentation; selected receipts require sealed InputPlan membership.
+    // Web/Playground sources persist complete InboxEvent originals. Native
+    // child T2 keeps its own task_result consumption bookkeeping.
     tx.execute(
         "UPDATE inbox_events SET consumed=1
-         WHERE event_id=?1 AND source=?2 AND consumed=0",
+         WHERE event_id=?1 AND source IN (?2, 'playground') AND consumed=0",
         params![input.event_id.to_string(), crate::web_input::WEB_INPUT_SOURCE],
     )
     .map_err(storage_error)?;
@@ -586,6 +588,31 @@ impl Store {
             return Err(ShenkoError::conflict("S0 history/window/model generation changed"));
         }
         Ok(())
+    }
+
+    /// Bounded recovery of complete subject-input originals, read directly by
+    /// the normal Planned loop when a volatile wake was lost or backpressured.
+    /// Web and Playground ingress share this lane and its staging transaction;
+    /// native-child task_result rows retain their existing T2 delivery path.
+    pub fn pending_inbox_events(
+        &self,
+        agent_id: EntityId,
+        limit: usize,
+    ) -> Result<Vec<String>, ShenkoError> {
+        let limit = i64::try_from(limit)
+            .map_err(|_| ShenkoError::conflict("pending input limit is too large"))?;
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT data FROM inbox_events
+             WHERE agent_id=?1 AND consumed=0 AND source IN (?2, 'playground')
+             ORDER BY rowid LIMIT ?3",
+        ).map_err(storage_error)?;
+        let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE, limit],
+            |row| row.get::<_, String>(0))
+            .map_err(storage_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(storage_error)?;
+        Ok(rows)
     }
 
     /// Stage the real input facts of one planned subject step.

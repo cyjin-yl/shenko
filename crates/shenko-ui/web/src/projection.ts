@@ -19,6 +19,7 @@ export type ReceiptState =
   | 'accepted'
   | 'selected'
   | 'committed'
+  | 'conflict'
   | 'rejected'
   | 'unknown';
 
@@ -115,6 +116,7 @@ export interface UiState {
   connection: ConnectionState;
   reconnect_seconds: number;
   server_version?: string;
+  append_available: boolean;
   durable_receipts: boolean;
   committed_replay: boolean;
   subject_id: string | null;
@@ -334,6 +336,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   const canAppend =
     state.source === 'live' &&
     state.connection === 'online' &&
+    state.append_available &&
     state.durable_receipts &&
     Boolean(state.subject_id) &&
     draft.trim().length > 0;
@@ -424,7 +427,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         manifest: state.manifest,
         step: state.step,
         capabilities: {
-          append: state.source === 'live',
+          append: state.append_available,
           steer: false,
           attachments: false,
           durable_input_receipts: state.durable_receipts,
@@ -438,7 +441,7 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       }),
     ],
     capabilities: {
-      append: state.source === 'live',
+      append: state.append_available,
       steer: false,
       attachments: false,
       durable_input_receipts: state.durable_receipts,
