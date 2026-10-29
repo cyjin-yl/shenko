@@ -908,9 +908,7 @@ impl Store {
             fingerprint == manifest.fingerprint,
             "cognition manifest fingerprint does not match its received rows and verified payload descriptors"
         );
-        for row in &manifest.rows {
-            ensure!(spec_for(&row.table).is_some(), "unsupported cognition fact table {}", row.table);
-        }
+        validate_cognition_rows(&manifest)?;
 
         let mut gaps = manifest.gaps.clone();
         gaps.extend(memory_intent_binding_gaps(&manifest.rows));
@@ -1646,6 +1644,7 @@ impl Store {
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(db)?;
+                validate_cognition_rows(manifest)?;
                 check_import_order_conn(&tx, manifest)?;
                 validate_subject_boundaries(&tx, manifest)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
@@ -2682,6 +2681,36 @@ fn file_origin_name(origin: CognitionFileOrigin) -> &'static str {
 
 fn spec_for(table: &str) -> Option<&'static TableSpec> {
     TABLES.iter().find(|spec| spec.name == table)
+}
+
+/// `insert_row` uses positional values while admission and recovery use
+/// labels. Bind those two views, and the primary-key identity, before any
+/// publication. Both supported archive schemas use these same TableSpecs.
+fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
+    let mut identities = HashSet::with_capacity(manifest.rows.len());
+    for row in &manifest.rows {
+        let spec = spec_for(&row.table)
+            .ok_or_else(|| anyhow!("unsupported cognition fact table {}", row.table))?;
+        ensure!(row.values.len() == spec.columns.len()
+            && row.values.iter().zip(spec.columns).all(|((name, _), expected)| name.as_str() == *expected),
+            "invalid cognition column layout for {}", row.table);
+
+        // Use the same encoding as read_table, without allocating another
+        // joined key for every row. NULL has the exporter's empty encoding.
+        let mut remainder = row.key.as_str();
+        for (index, name) in spec.key.iter().enumerate() {
+            if index != 0 {
+                remainder = remainder.strip_prefix('\u{1f}')
+                    .ok_or_else(|| anyhow!("cognition primary key mismatch for {}", row.table))?;
+            }
+            remainder = remainder.strip_prefix(row.value(name).unwrap_or_default())
+                .ok_or_else(|| anyhow!("cognition primary key mismatch for {}", row.table))?;
+        }
+        ensure!(remainder.is_empty(), "cognition primary key mismatch for {}", row.table);
+        ensure!(identities.insert((row.table.as_str(), row.key.as_str())),
+            "duplicate cognition fact identity in {}", row.table);
+    }
+    Ok(())
 }
 
 fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
@@ -3741,6 +3770,82 @@ fn storage_failure(error: &anyhow::Error) -> bool {
 mod archive_admission_tests {
     use super::*;
     use crate::memory::MemoryEntry;
+
+    #[test]
+    fn reordered_labels_cannot_publish_a_paused_head_or_files() {
+        use shenko_types::commit::CommitRef;
+        use shenko_types::ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
+        use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep};
+
+        let root = std::env::temp_dir().join(format!("shenko-row-order-{}", EntityId::new()));
+        fs::create_dir(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        let object = source.cas.seal_object(b"seed", "text/plain", "test", "raw", 1).unwrap().object;
+        let agent = EntityId::new();
+        let genesis_id = EntityId::new();
+        let branch = BranchId::new();
+        let first = EntityId::new();
+        let commit = CommitRef::new(source.ledger.ledger_id(), LedgerSeq::ZERO);
+        let genesis = SubjectGenesis {
+            genesis_id, subject_id: agent, bootstrap_id: EntityId::new(), launch_id: EntityId::new(),
+            seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(),
+            home_manifest_ref: object.clone(), bootstrap_event_ref: object, created_commit: commit,
+        };
+        let head = SubjectBranchHead {
+            agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
+            controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration::default(),
+            genesis_ref: GenesisRef { ledger_id: commit.ledger_id, genesis_id },
+            committed_step_no: 0, committed_step_id: None, committed_at: commit,
+            next_step_id: first, mode: SubjectMode::Active, mode_reason_ref: None,
+            record_revision: RecordRevision(0),
+        };
+        let step = SubjectStep {
+            step_id: first, branch_id: branch, step_no: 1, expected_parent_commit: commit,
+            controller_epoch: head.controller_epoch, software_generation: head.software_generation.clone(),
+            state: SubjectStepState::Planned, input_plan_ref: None, context_revision: None,
+            active_request_id: None, active_attempt_id: None, model_result_ref: None,
+            model_outcome_ref: None, decision_ref: None, commit_ref: None,
+            retry_reason_ref: None, record_revision: RecordRevision(0), created_by_step_id: None,
+        };
+        source.initialize_genesis(&genesis, &head, &step).unwrap();
+        let memory = root.join("source-memory");
+        fs::create_dir(&memory).unwrap();
+        fs::write(memory.join("remote.txt"), b"must not publish").unwrap();
+        let mut export = source.export_cognition(&CognitionSnapshotOptions {
+            memory_root: Some(memory), include_git_history: false, ..Default::default()
+        }).unwrap();
+        // Schema 2 takes the same admission path. The named fields look active
+        // to a label-based guard, while positional SQL would insert a paused
+        // column and paused serialized head without a local boundary record.
+        export.manifest.schema = 2;
+        let row = export.manifest.rows.iter_mut().find(|row| row.table == "subject_branch_heads").unwrap();
+        let active = row.value("data").unwrap().to_string();
+        let mut paused: serde_json::Value = serde_json::from_str(&active).unwrap();
+        paused["mode"] = "paused".into();
+        row.values[3] = ("mode".into(), Some("active".into()));
+        row.values[5] = ("committed_step_id".into(), Some("paused".into()));
+        row.values[7] = ("created_at".into(), Some(serde_json::to_string(&paused).unwrap()));
+        row.values[8] = ("data".into(), Some(active));
+        assert_eq!(row.value("mode"), Some("active"));
+        assert_eq!(serde_json::from_str::<serde_json::Value>(row.value("data").unwrap()).unwrap()["mode"], "active");
+        assert_eq!(row.values[5].1.as_deref(), Some("paused"));
+        assert_eq!(serde_json::from_str::<serde_json::Value>(row.values[7].1.as_deref().unwrap()).unwrap()["mode"], "paused");
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let receiver_memory = root.join("receiver-memory");
+        fs::create_dir(&receiver_memory).unwrap();
+        let before = receiver.current_commit_seq().unwrap();
+        let error = receiver.import_cognition_archive(&archive[..], &CognitionImportOptions {
+            memory_root: Some(receiver_memory.clone()), ..Default::default()
+        }).unwrap_err();
+        assert!(error.to_string().contains("invalid cognition column layout"));
+        assert_eq!(receiver.current_commit_seq().unwrap(), before);
+        assert!(receiver.get_existing_agent_id().unwrap().is_none());
+        assert!(!receiver_memory.join("remote.txt").exists());
+    }
 
     #[test]
     fn unknown_fact_does_not_produce_a_verified_partial_import() {
