@@ -34,8 +34,9 @@ Git/SSH 端到端认证）。
   `exec --tool name [-- args] [--env K=V] [--stdin-file/--stdout-file/--stderr-file]`。
   退出码原样透传；传输错误 exit 2。
 - **`Bootstrap::prepare`**：打开并绑定 ToolStore；`validate_target` 允许
-  `tools/`；manifest capabilities 新增 `named_wasm_tools: available`（机制可用；
-  目标级真相看 tool store report）。
+  `tools/`。home-manifest 的 static capabilities/checkpoint 声明**未变**——
+  否则既有 data dir 的重开会因声明漂移被拒（SEED_CLOSURE_INCOMPLETE）；
+  目标级真相看 `tools.json` 与 `shenko tool list`。
 
 ## 具名目标真实状态（`NAMED_TARGETS`）
 

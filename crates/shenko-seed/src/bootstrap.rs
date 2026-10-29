@@ -276,7 +276,7 @@ impl Bootstrap {
         }
         let manifest_exists = root.join(HOME_MANIFEST_FILE).exists();
         let store_exists = root.join("shenko.db").exists();
-            if !manifest_exists && !store_exists {
+        if !manifest_exists && !store_exists {
             for entry in fs::read_dir(root)? {
                 let name = entry?.file_name();
                 if name != "home" && name != "memory" && name != TOOL_DIR_NAME {
@@ -643,14 +643,6 @@ fn home_capabilities() -> BTreeMap<String, Capability> {
         "copy_on_write_mounts",
         CapabilityStatus::Unsupported,
         "COW requests fail explicitly; never downgraded to direct RW",
-    );
-    add(
-        "named_wasm_tools",
-        CapabilityStatus::Available,
-        "managed <data>/tools store installs real WASI preview1 artifacts by \
-         digest and runs them via wasi.exec; declared targets without a \
-         verified artifact stay TOOL_UNSUPPORTED (toybox, gcc-wasm, git, gh, \
-         tea, ssh unresolved — see tools store report)",
     );
     add(
         "live_wasm_memory_checkpoint",
