@@ -30,7 +30,7 @@ use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-/// Tables owned by this module; additive node storage schema 4.
+/// Tables owned by this module; additive node storage schema 5.
 pub(crate) const CAPABILITY_SCHEMA: &str = "
 CREATE TABLE node_capability_facts(node TEXT PRIMARY KEY,latest_seq TEXT NOT NULL,digest TEXT NOT NULL,data TEXT NOT NULL,provenance TEXT NOT NULL,received_at TEXT NOT NULL);
 CREATE TABLE node_capability_observations(seq INTEGER PRIMARY KEY AUTOINCREMENT,node TEXT NOT NULL,advertisement_seq TEXT NOT NULL,digest TEXT NOT NULL,outcome TEXT NOT NULL,provenance TEXT NOT NULL,received_at TEXT NOT NULL);";

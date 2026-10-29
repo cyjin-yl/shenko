@@ -725,7 +725,10 @@ impl Store {
         if head.agent_id != agent_id {
             return Err(ShenkoError::conflict("stored head identity mismatch"));
         }
-        let head = checked_head(&tx, &head)?;
+        let head = checked_head_mode(&tx, &head, false)?;
+        if head.mode == SubjectMode::Paused {
+            crate::runtime_boundary::validate_paused_head(&tx, &head)?;
+        }
         let step = read_step(&tx, &head.branch_id, head.next_step_id)?.ok_or_else(|| {
             ShenkoError::not_found("head.next_step_id has no stored successor; recovery required")
         })?;
@@ -989,6 +992,14 @@ pub(crate) fn checked_head(
     conn: &Connection,
     expected: &SubjectBranchHead,
 ) -> Result<SubjectBranchHead, ShenkoError> {
+    checked_head_mode(conn, expected, true)
+}
+
+pub(crate) fn checked_head_mode(
+    conn: &Connection,
+    expected: &SubjectBranchHead,
+    require_active: bool,
+) -> Result<SubjectBranchHead, ShenkoError> {
     let row: Option<(String, i64, String)> = conn.query_row(
         "SELECT data, record_revision, next_step_id FROM subject_branch_heads WHERE agent_id=?1 AND branch_id=?2",
         params![expected.agent_id.to_string(), expected.branch_id.0.to_string()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -1007,7 +1018,8 @@ pub(crate) fn checked_head(
         || head.committed_step_id != expected.committed_step_id
         || head.controller_epoch != expected.controller_epoch
         || head.software_generation != expected.software_generation
-        || head.mode != SubjectMode::Active
+        || head.mode != expected.mode
+        || (require_active && head.mode != SubjectMode::Active)
     {
         return Err(ShenkoError::conflict(
             "stale/inactive branch head or controller",

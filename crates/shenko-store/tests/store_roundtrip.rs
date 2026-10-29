@@ -157,6 +157,95 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     (dir, store, agent_id)
 }
 
+
+#[test]
+fn boundary_waits_for_recorded_step_and_survives_reopen() {
+    use shenko_store::runtime_boundary::SubjectQuiesceState;
+    use shenko_types::{ids::*, subject::*};
+
+    let (dir, store, agent) = initialized_subject();
+    let (head, step) = store.load_subject(agent).unwrap();
+    let recorded = recorded_result(&store, &head, step);
+    let request_id = EntityId::new();
+    let request = store.request_subject_quiesce(agent, request_id).unwrap();
+    assert_eq!(request.state, SubjectQuiesceState::Requested);
+    assert!(store.pause_subject_at_boundary(&head).unwrap().is_none());
+    assert_eq!(store.load_subject(agent).unwrap().1.state, SubjectStepState::ResultRecorded);
+
+    let successor = EntityId::new();
+    let candidate = committed_candidate(&store, recorded, successor);
+    store.commit_step_and_advance_head(&candidate, &head, successor).unwrap();
+    let (current, planned) = store.load_subject(agent).unwrap();
+    let paused = store.pause_subject_at_boundary(&current).unwrap().unwrap();
+    assert_eq!(paused.mode, SubjectMode::Paused);
+    assert_eq!(paused.next_step_id, planned.step_id);
+    assert!(store.export_cognition(&Default::default()).is_err(),
+        "an archive must not omit the local pause record and claim a complete paused head");
+    let mut stale_step = planned.clone();
+    stale_step.state = SubjectStepState::Preparing;
+    stale_step.record_revision = stale_step.record_revision.next();
+    assert!(store.upsert_step(&stale_step, &current, planned.record_revision).is_err());
+    let boundary = store.subject_quiesce(request_id).unwrap().unwrap();
+    assert_eq!(boundary.state, SubjectQuiesceState::Paused);
+    assert!(boundary.boundary_at.unwrap().seq > request.requested_at.seq);
+    drop(store);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    let (retained, step) = reopened.load_subject(agent).unwrap();
+    assert_eq!(retained.mode, SubjectMode::Paused);
+    assert_eq!(step.step_id, successor);
+    let closed = reopened.resume_subject_quiesce(agent, request_id).unwrap();
+    assert_eq!(closed.state, SubjectQuiesceState::Resumed);
+    assert!(closed.closed_at.unwrap().seq > boundary.boundary_at.unwrap().seq);
+    let (active, step) = reopened.load_subject(agent).unwrap();
+    assert_eq!(active.mode, SubjectMode::Active);
+    assert_eq!(active.controller_epoch, current.controller_epoch);
+    assert_eq!(active.software_generation, current.software_generation);
+    assert_eq!(step.step_id, successor);
+    assert!(reopened.export_cognition(&Default::default()).is_ok());
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn peer_cannot_advance_successor_of_a_locally_paused_head() {
+    use shenko_store::cognition::CognitionImportOptions;
+    use shenko_types::ids::EntityId;
+    use shenko_types::subject::{SubjectMode, SubjectStepState};
+
+    let (_source_dir, source, agent) = initialized_subject();
+    let receiver_dir = tmp_dir();
+    let receiver = Store::open(receiver_dir.join("receiver.db"), receiver_dir.join("cas")).unwrap();
+    let peer = EntityId::new();
+    let options = CognitionImportOptions { peer_id: Some(peer), ..Default::default() };
+    let mut initial = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut initial).unwrap();
+    assert!(receiver.import_cognition_archive(&initial[..], &options).unwrap().ack(peer).verified);
+    let (local, successor) = receiver.load_subject(agent).unwrap();
+    let request = EntityId::new();
+    receiver.request_subject_quiesce(agent, request).unwrap();
+    let paused = receiver.pause_subject_at_boundary(&local).unwrap().unwrap();
+    assert_eq!(paused.mode, SubjectMode::Paused);
+    let before = receiver.current_commit_seq().unwrap();
+
+    // A real source Store advances its existing S0/result while the receiver
+    // retains a different local head. The old row-by-row merge could apply the
+    // source step despite keeping the conflicting paused head.
+    let (source_head, source_step) = source.load_subject(agent).unwrap();
+    let recorded = recorded_result(&source, &source_head, source_step);
+    assert_eq!(recorded.state, SubjectStepState::ResultRecorded);
+    let mut newer = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut newer).unwrap();
+    assert!(receiver.import_cognition_archive(&newer[..], &options).is_err());
+    assert_eq!(receiver.current_commit_seq().unwrap(), before);
+    let (retained, step) = receiver.load_subject(agent).unwrap();
+    assert_eq!(serde_json::to_value(&retained).unwrap(), serde_json::to_value(&paused).unwrap());
+    assert_eq!(serde_json::to_value(&step).unwrap(), serde_json::to_value(&successor).unwrap());
+    receiver.resume_subject_quiesce(agent, request).unwrap();
+    assert_eq!(receiver.load_subject(agent).unwrap().1.state, SubjectStepState::Planned);
+}
+
+
 fn recorded_result(
     store: &Arc<Store>,
     head: &shenko_types::subject::SubjectBranchHead,
