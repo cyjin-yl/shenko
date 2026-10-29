@@ -161,7 +161,8 @@ pub struct QueryReceipt {
 
 impl QueryReceipt {
     /// The observed connection account, if the response carried `self_id`.
-    /// `Some(0)` is never meaningful: unsigned `0` is not a real account.
+    /// A `0` or otherwise unexpected value still surfaces verbatim — callers
+    /// classify it via `foreign_self_id()` rather than trusting the frame.
     pub fn observed_self_id(&self) -> Option<u64> {
         self.raw.get("self_id").and_then(|v| v.as_u64())
     }
