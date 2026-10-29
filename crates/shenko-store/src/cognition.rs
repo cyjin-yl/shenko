@@ -2863,7 +2863,12 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
         let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
         let entry_id = intent.value("entry_id");
-        let duplicate_entry = entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
+        // Only producing intents own their entry: a forget *references* the
+        // entry it retires, so a Save→Forget history legitimately binds the
+        // same entry_id twice without sharing a produced identity.
+        let produces_entry = intent.value("kind") != Some("forget");
+        let duplicate_entry = produces_entry
+            && entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
         let missing_committed_entry = intent.value("state") == Some("committed")
             && entry_id.is_none_or(|entry| !entries.contains(entry));
         let missing_pending_identity = library_pending
@@ -3006,9 +3011,51 @@ fn apply_media_streams<'a>(
     Ok((outcome, media_events))
 }
 
-/// A request, immutable reference and associated committed entry are reconciled
-/// together. A locator-only legacy request cannot acquire another source's
-/// digest merely because its intent ID or locator happens to match.
+/// One memory intent inside an archive conflict unit: the request, its
+/// durable binding, the local rows it would replace and the per-row apply
+/// results a committed unit reports.
+struct MemoryIntentMember {
+    key: String,
+    parent: CognitionRow,
+    binding: Option<CognitionRow>,
+    local: Option<Vec<(String, Option<String>)>>,
+    local_binding: Option<String>,
+    compatible: bool,
+    results: [Option<RecoveryFactOutcome>; 2],
+}
+
+/// Did the unit refuse a peer fact that differs from what this store holds?
+/// An identical row kept by the rejection is not a conflict; a refused
+/// insertion, update or identity-mismatched request is.
+fn memory_member_differs(member: &MemoryIntentMember) -> bool {
+    let parent_differs = match member.results[0] {
+        Some(RecoveryFactOutcome::Conflict | RecoveryFactOutcome::Inserted | RecoveryFactOutcome::Updated) => true,
+        Some(RecoveryFactOutcome::Unchanged) => false,
+        None => match &member.local {
+            None => true,
+            Some(local) => local != &member.parent.values,
+        },
+    };
+    let binding_differs = match member.results[1] {
+        Some(RecoveryFactOutcome::Conflict | RecoveryFactOutcome::Inserted | RecoveryFactOutcome::Updated) => true,
+        Some(RecoveryFactOutcome::Unchanged) => false,
+        None => match (&member.local_binding, &member.binding) {
+            (None, None) => false,
+            (Some(_), None) => true,
+            (None, Some(incoming)) => incoming.value("data").is_some(),
+            (Some(local), Some(incoming)) => incoming.value("data") != Some(local.as_str()),
+        },
+    };
+    parent_differs || binding_differs
+}
+
+/// A request, its immutable reference, the produced or targeted entry and
+/// every other intent bound to that same entry are reconciled as one atomic
+/// conflict unit. A locator-only legacy request cannot acquire another
+/// source's digest merely because its intent ID or locator happens to match,
+/// and a refused intent can never publish its effect through a sibling: a
+/// divergent `forget` cannot hide the entry its `save` parent still
+/// protects, and a divergent entry refuses the intents that reference it.
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<CognitionApplyOutcome> {
@@ -3021,12 +3068,17 @@ fn apply_memory_pairs(
     let entries: HashMap<&str, &CognitionRow> = rows.iter()
         .filter(|row| row.table == entry_spec.name)
         .map(|row| (row.key.as_str(), *row)).collect();
-    let mut outcome = CognitionApplyOutcome::default();
+
+    // Group intents by the entry they reference: every intent bound to the
+    // same `entry_id` shares that entry's fate, so the whole group must
+    // reconcile together or not at all. Intents without an entry form their
+    // own unit. Grouping follows manifest order so application and conflict
+    // reporting stay deterministic.
+    let mut units: Vec<(String, Vec<MemoryIntentMember>)> = Vec::new();
+    let mut unit_index: HashMap<String, usize> = HashMap::new();
     for row in rows.iter().filter(|row| row.table == parents.name) {
         let mut parent = effective_row(row, parents)?;
         let mut binding = bindings.get(row.key.as_str()).map(|row| effective_row(row, sidecars)).transpose()?;
-        let entry = parent.value("entry_id").and_then(|id| entries.get(id))
-            .map(|row| effective_row(row, entry_spec)).transpose()?;
         let local = read_existing(tx, parents, &parent)?;
         let local_binding: Option<String> = tx.query_row(
             "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
@@ -3068,39 +3120,109 @@ fn apply_memory_pairs(
             compatible = false;
         }
 
-        let mut results = [None; 3];
-        if compatible {
-            tx.execute("SAVEPOINT memory_intent_pair", []).map_err(db)?;
-            results[0] = Some(apply_recovery_fact(tx, parents, &parent, peer_id, seq)?);
-            if !matches!(results[0], Some(RecoveryFactOutcome::Conflict)) {
-                if let Some(binding) = &binding {
-                    results[1] = Some(apply_recovery_fact(tx, sidecars, binding, peer_id, seq)?);
+        let unit_key = parent.value("entry_id").unwrap_or(row.key.as_str()).to_string();
+        let index = *unit_index.entry(unit_key.clone()).or_insert_with(|| {
+            units.push((unit_key, Vec::new()));
+            units.len() - 1
+        });
+        units[index].1.push(MemoryIntentMember {
+            key: row.key.clone(),
+            parent,
+            binding,
+            local,
+            local_binding,
+            compatible,
+            results: [None; 2],
+        });
+    }
+
+    let mut outcome = CognitionApplyOutcome::default();
+    for (entry_key, members) in &mut units {
+        let entry = entries
+            .get(entry_key.as_str())
+            .map(|row| effective_row(row, entry_spec))
+            .transpose()?;
+        // One savepoint covers the entry and every referencing intent: any
+        // refused member, or an entry the peer changed past its delivered
+        // baseline, rolls the whole unit back so no partial row or baseline
+        // mirror survives.
+        let mut rejected = members.iter().any(|member| !member.compatible);
+        let mut entry_result = None;
+        if !rejected {
+            tx.execute("SAVEPOINT memory_intent_unit", []).map_err(db)?;
+            for member in members.iter_mut() {
+                member.results[0] = Some(apply_recovery_fact(tx, parents, &member.parent, peer_id, seq)?);
+                if !matches!(member.results[0], Some(RecoveryFactOutcome::Conflict)) {
+                    if let Some(binding) = &member.binding {
+                        member.results[1] = Some(apply_recovery_fact(tx, sidecars, binding, peer_id, seq)?);
+                    }
                 }
             }
-            if !results.iter().any(|result| matches!(result, Some(RecoveryFactOutcome::Conflict))) {
+            if members.iter().all(|member| {
+                member.results.iter().all(|result| !matches!(result, Some(RecoveryFactOutcome::Conflict)))
+            }) {
                 if let Some(entry) = &entry {
-                    results[2] = Some(apply_recovery_fact(tx, entry_spec, entry, peer_id, seq)?);
+                    entry_result = Some(apply_recovery_fact(tx, entry_spec, entry, peer_id, seq)?);
                 }
             }
-            if results.iter().any(|result| matches!(result, Some(RecoveryFactOutcome::Conflict))) {
-                tx.execute("ROLLBACK TO memory_intent_pair", []).map_err(db)?;
-                compatible = false;
+            rejected = entry_result.is_some_and(|result| matches!(result, RecoveryFactOutcome::Conflict))
+                || members.iter().any(|member| {
+                    member.results.iter().any(|result| matches!(result, Some(RecoveryFactOutcome::Conflict)))
+                });
+            if rejected {
+                tx.execute("ROLLBACK TO memory_intent_unit", []).map_err(db)?;
             }
-            tx.execute("RELEASE memory_intent_pair", []).map_err(db)?;
+            tx.execute("RELEASE memory_intent_unit", []).map_err(db)?;
         }
-        if compatible {
-            for result in results.into_iter().flatten() {
-                match result {
-                    RecoveryFactOutcome::Inserted => outcome.inserted += 1,
-                    RecoveryFactOutcome::Updated => outcome.updated += 1,
-                    RecoveryFactOutcome::Unchanged => outcome.unchanged += 1,
-                    RecoveryFactOutcome::Conflict => unreachable!(),
+        if !rejected {
+            for member in members.iter() {
+                for result in member.results.into_iter().flatten() {
+                    match result {
+                        RecoveryFactOutcome::Inserted => outcome.inserted += 1,
+                        RecoveryFactOutcome::Updated => outcome.updated += 1,
+                        RecoveryFactOutcome::Unchanged => outcome.unchanged += 1,
+                        RecoveryFactOutcome::Conflict => unreachable!(),
+                    }
                 }
+            }
+            match entry_result {
+                Some(RecoveryFactOutcome::Inserted) => outcome.inserted += 1,
+                Some(RecoveryFactOutcome::Updated) => outcome.updated += 1,
+                Some(RecoveryFactOutcome::Unchanged) => outcome.unchanged += 1,
+                Some(RecoveryFactOutcome::Conflict) | None => {}
             }
         } else {
-            let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
-            record_conflict(tx, peer_id, parents.name, &row.key, &detail)?;
-            outcome.conflicts.push(CognitionConflict { table: parents.name.into(), key: row.key.clone(), detail });
+            for member in members.iter() {
+                if !memory_member_differs(member) {
+                    continue;
+                }
+                let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
+                record_conflict(tx, peer_id, parents.name, &member.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict {
+                    table: parents.name.into(),
+                    key: member.key.clone(),
+                    detail,
+                });
+            }
+            if let Some(entry) = &entry {
+                let entry_differs = match entry_result {
+                    Some(RecoveryFactOutcome::Conflict | RecoveryFactOutcome::Inserted | RecoveryFactOutcome::Updated) => true,
+                    Some(RecoveryFactOutcome::Unchanged) => false,
+                    None => match read_existing(tx, entry_spec, entry)? {
+                        None => true,
+                        Some(local) => local != entry.values,
+                    },
+                };
+                if entry_differs {
+                    let detail = "the memory entry reconciles with its intents; the local value is kept".to_string();
+                    record_conflict(tx, peer_id, entry_spec.name, &entry.key, &detail)?;
+                    outcome.conflicts.push(CognitionConflict {
+                        table: entry_spec.name.into(),
+                        key: entry.key.clone(),
+                        detail,
+                    });
+                }
+            }
         }
     }
     Ok(outcome)

@@ -86,6 +86,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "state",
         "TEXT NOT NULL DEFAULT 'present'",
     )?;
+    // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
+    // additive, own tables only; location history is never rewritten.
+    conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
     Ok(())
 }
 

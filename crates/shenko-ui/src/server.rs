@@ -22,6 +22,7 @@ pub struct UiServer {
     /// `available: false` instead of inventing task rows.
     store: Option<std::sync::Arc<shenko_store::store::Store>>,
     inference: Option<api::InferenceStatus>,
+    context: Option<api::ContextFacts>,
     inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>>,
     /// Live media ingress service for `/api/media/*`; `None` leaves those
     /// routes answering `available: false` instead of faking admission.
@@ -37,6 +38,7 @@ impl UiServer {
             data_dir: None,
             store: None,
             inference: None,
+            context: None,
             inbox_tx: None,
             media_ingress: None,
         }
@@ -73,6 +75,18 @@ impl UiServer {
     /// Configured is not a successful model probe or a capacity guarantee.
     pub fn with_inference_status(mut self, model: Option<String>, configured: bool) -> Self {
         self.inference = Some(api::InferenceStatus::new(model, configured));
+        self
+    }
+
+    /// Wire the subject's live context-policy registry and the advertised
+    /// capabilities it binds, so `/api/context` reports real strategy and
+    /// window facts. Omitting it reports `plugins_wired: false`.
+    pub fn with_context(
+        mut self,
+        registry: std::sync::Arc<shenko_context_policy::PolicyRegistry>,
+        capabilities: Option<shenko_broker::request::ProviderCapabilities>,
+    ) -> Self {
+        self.context = Some(api::ContextFacts { registry: Some(registry), capabilities });
         self
     }
 
@@ -142,6 +156,9 @@ impl UiServer {
         }
         if let Some(inference) = self.inference.clone() {
             api_state = api_state.with_inference(inference);
+        }
+        if let Some(context) = self.context.clone() {
+            api_state = api_state.with_context(context);
         }
         // Shared Arc registries: `/api/self` reports the same live objects the
         // Playground routes and WS handler use, not a second copy.

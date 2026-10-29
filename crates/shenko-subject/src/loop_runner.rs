@@ -639,17 +639,28 @@ async fn execute_step(
     } else {
         if step.state == SubjectStepState::Preparing {
             if let Some(reg) = &hooks_ref {
-                reg.run_phase(&HookPayload::BeforeInference {
-                    request_id: step_id,
-                    agent_id: state.agent_id,
-                    model: input
-                        .provider_binding
-                        .as_ref()
-                        .map(|binding| binding.model())
-                        .unwrap_or("unbound")
-                        .into(),
-                })
-                .await;
+                let dispatch = reg
+                    .run_phase(&HookPayload::BeforeInference {
+                        request_id: step_id,
+                        agent_id: state.agent_id,
+                        model: input
+                            .provider_binding
+                            .as_ref()
+                            .map(|binding| binding.model())
+                            .unwrap_or("unbound")
+                            .into(),
+                    })
+                    .await;
+                debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PreModel hooks ran");
+                if dispatch.stopped_early {
+                    // A stop_unit contract cut the dispatch: the unit is not
+                    // allowed, so nothing is submitted to the broker. The
+                    // durable Preparing step stays resumable; reconciliation
+                    // of the failing handler decides whether it retries.
+                    return Err(ShenkoError::conflict(
+                        "pre-inference hook dispatch stopped the unit; frozen preparation remains resumable",
+                    ));
+                }
             }
         }
         // Close is not abort. Before dispatch, the frozen Preparing/RetryPending
@@ -815,14 +826,22 @@ async fn execute_step(
 
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
     if let Some(reg) = &hooks_ref {
-        let results = reg
+        let dispatch = reg
             .run_phase(&HookPayload::AfterInference {
                 request_id: step_id,
                 stop_reason: stop_reason.clone(),
                 output_tokens: model_output.as_ref().map(|o| o.len() as u64).unwrap_or(0),
             })
             .await;
-        debug!(seq, hooks=%results.len(), "PostModel hooks ran");
+        debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PostModel hooks ran");
+        if dispatch.stopped_early {
+            // A stop_unit dispatch before S1 means the unit is not allowed:
+            // no decision seal, commit or publication follows. The durable
+            // ResultRecorded step keeps its terminal evidence resumable.
+            return Err(ShenkoError::conflict(
+                "post-inference hook dispatch stopped the unit; recorded result remains resumable",
+            ));
+        }
     }
 
     // S1 decision — SPEC §41.5: commit decision + event disposition +
@@ -863,13 +882,21 @@ async fn execute_step(
 
     // Hook: PreEffect — SPEC §37. Fires before S1 commit is written to the ledger.
     if let Some(reg) = &hooks_ref {
-        let results = reg
+        let dispatch = reg
             .run_phase(&HookPayload::BeforeOperation {
                 operation_id: step_id,
                 operation_name: format!("commit_step/{seq}"),
             })
             .await;
-        debug!(seq, hooks=%results.len(), "PreEffect hooks ran");
+        debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PreEffect hooks ran");
+        if dispatch.stopped_early {
+            // A stop_unit dispatch before the S1 commit means the unit is not
+            // allowed: no decision intents, head advance or outbox message.
+            // The durable ResultRecorded step stays resumable.
+            return Err(ShenkoError::conflict(
+                "pre-commit hook dispatch stopped the unit; recorded result remains resumable",
+            ));
+        }
     }
 
     let mut decision_delegation_intents = vec![];
@@ -1053,14 +1080,14 @@ async fn execute_step(
 
             // Hook: PostEffect — SPEC §37. Fires after S1 is durably committed.
             if let Some(reg) = &hooks_ref {
-                let results = reg
+                let dispatch = reg
                     .run_phase(&HookPayload::AfterOperation {
                         operation_id: step_id,
                         outcome: "committed".to_string(),
                         effect_status: format!("commit/{seq}"),
                     })
                     .await;
-                debug!(seq, hooks=%results.len(), "PostEffect hooks ran");
+                debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PostEffect hooks ran");
             }
 
             Ok(Some(receipt.commit_ref))
