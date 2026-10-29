@@ -240,20 +240,6 @@ impl NapCatContactsHandler {
         })
     }
 
-    fn frozen(&self, operation: &OperationRecord) -> Result<FrozenInput> {
-        let object = &operation.final_input_ref;
-        let bytes = self.store.cas.read_object(&object.digest)?;
-        ensure!(
-            bytes.len() as u64 == object.bytes
-                && Digest::blake3(&bytes) == object.digest
-                && operation.input_digest == object.digest,
-            "contacts_frozen_input_mismatch"
-        );
-        let frozen: FrozenInput = serde_json::from_slice(&bytes)?;
-        ensure!(frozen.schema_version == 1, "unsupported_contacts_input_schema");
-        Ok(frozen)
-    }
-
     fn operation_parts(
         &self,
         invocation: &NativeTaskInvocation,
@@ -829,6 +815,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("shenko-contacts-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
+        // T2 completion requires a current subject dispatcher owner: the same
+        // gate production installs before any native child may settle. Arm/E1
+        // do not need it, so install it before the first complete call rather
+        // than faking task state to bypass the check.
+        store.start_subject_dispatcher().unwrap();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("ws://{}", listener.local_addr().unwrap());
         let config = NapCatConfig {
