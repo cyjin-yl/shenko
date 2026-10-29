@@ -964,6 +964,8 @@ fn dispatch_cursor_reaches_later_work_and_wraps_without_starving() {
     }
     assert_eq!(seen.len(), 40, "a later page hid work: {seen:?}");
     assert!(seen.windows(2).all(|pair| pair[0] < pair[1]), "pagination duplicated or reordered work");
+    let upper = store.native_task_scan_upper().unwrap().unwrap();
+    assert_eq!(upper.0, seen.last().unwrap(), "the round boundary is the last scan key");
     // Wraparound returns the same complete set rather than staying at the end.
     let restarted = store.native_task_candidates_after(None, 32).unwrap();
     assert_eq!(restarted.len(), 32);

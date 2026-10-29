@@ -156,6 +156,14 @@ impl Store {
         read_candidates_tx(&conn, after, limit)
     }
 
+    /// Last dispatchable candidate in scan order. A dispatcher records it when
+    /// a round starts so continuously arriving later work cannot postpone the
+    /// wrap past older tasks that become eligible meanwhile.
+    pub fn native_task_scan_upper(&self) -> Result<Option<(String, EntityId)>> {
+        let conn = self.ledger.conn.lock();
+        read_scan_upper_tx(&conn)
+    }
+
     /// Park is a durable, diagnosable non-terminal state. A missing definition,
     /// handler failure, cancellation race or unknown effect never becomes success.
     pub fn park_native_task(
@@ -834,6 +842,22 @@ fn read_candidates_tx(
             Ok((created, serde_json::from_str(&data)?))
         })
         .collect()
+}
+
+fn read_scan_upper_tx(conn: &rusqlite::Connection) -> Result<Option<(String, EntityId)>> {
+    let row = conn.query_row(
+        "SELECT data, created_at, task_id FROM tasks
+         WHERE json_extract(data,'$.kind')!='subject_publication'
+           AND json_extract(data,'$.memos.cognition_imported') IS NULL
+           AND json_extract(data,'$.state.status') IN ('pending','running','completing')
+         ORDER BY created_at DESC, task_id DESC LIMIT 1",
+        [],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+    ).optional()?;
+    row.map(|(data, created, task_id)| {
+        let task: TaskRecord = serde_json::from_str(&data)?;
+        Ok((created, task.task_id))
+    }).transpose()
 }
 
 fn read_recovery_candidates_tx(conn: &rusqlite::Connection, after: &str) -> Result<Vec<(String, TaskRecord)>> {
