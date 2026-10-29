@@ -125,11 +125,26 @@ pub struct AccountedAttempt {
     pub covered: bool,
 }
 
+/// Evidence about the original observation, not a claim that it is still fresh.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderExhaustionEvidence {
+    /// No independently reported empty provider limit is established.
+    #[default]
+    Unknown,
+    /// A provider-origin hard-limit window independently proves zero: either
+    /// reported remaining is zero, or reported usage and capacity prove it.
+    ReportedEmpty,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WindowForecast {
     pub window_key: String,
     pub unit: String,
     pub remaining: Option<Range>,
+    /// Legacy forecasts have no proof of provider-reported exhaustion.
+    #[serde(default)]
+    pub provider_exhaustion: ProviderExhaustionEvidence,
     pub unreflected_own_cost: Option<Range>,
     pub external_cost: Option<Range>,
     /// Exact inputs used to produce this window's plan.
@@ -216,6 +231,29 @@ pub fn forecast(
         .map(|window| {
             let assume = assumptions.get(&window.window_key).copied().unwrap_or_default();
             let remaining = window.remaining_range();
+            // Reconciled remaining can be zero because of a local capacity or
+            // usage value. Require an independent all-provider proof as well:
+            // either reported remaining or both reported capacity and usage.
+            let reported_remaining_empty = window.remaining.is_some_and(|reading|
+                reading.basis == Basis::ProviderReported
+                    && reading.range().is_some_and(|range| range.upper == 0.0));
+            let reported_usage_empty = match (window.capacity, window.used) {
+                (Some(capacity), Some(used)) if capacity.basis == Basis::ProviderReported
+                    && used.basis == Basis::ProviderReported => capacity.range().zip(used.range())
+                        .and_then(|(capacity, used)| capacity.checked_sub(used))
+                        .is_some_and(|range| range.upper == 0.0),
+                _ => false,
+            };
+            let provider_exhaustion = if matches!(snapshot.source_kind,
+                SourceKind::ApiHeaders | SourceKind::AdminApi | SourceKind::CliStatusline | SourceKind::CliUi)
+                && window.enforcement == Enforcement::ProviderHardLimit
+                && remaining.is_some_and(|range| range.upper == 0.0)
+                && (reported_remaining_empty || reported_usage_empty)
+            {
+                ProviderExhaustionEvidence::ReportedEmpty
+            } else {
+                ProviderExhaustionEvidence::Unknown
+            };
             let (own, accounted_attempts) = match unreflected(snapshot, window, attempts) {
                 Some((cost, attempts)) => (Some(cost), attempts),
                 None => (None, Vec::new()),
@@ -236,6 +274,7 @@ pub fn forecast(
                 window_key: window.window_key.clone(),
                 unit: window.unit.clone(),
                 remaining,
+                provider_exhaustion,
                 unreflected_own_cost: own,
                 external_cost: external,
                 assumptions: assume,

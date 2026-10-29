@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-use crate::forecast::{AccountedAttempt, Planning, QuotaForecast, SourceValidity, WindowAssumptions};
+use crate::forecast::{AccountedAttempt, Planning, ProviderExhaustionEvidence, QuotaForecast, SourceValidity, WindowAssumptions};
 use crate::model::Range;
 
 /// One quota window of one account at one provider.
@@ -205,6 +205,11 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
         rate_per_hour,
         accounted_attempts: w.accounted_attempts.clone(),
     };
+    // A last-known reading may still be used for planning, but it cannot
+    // establish that the provider is currently exhausted.
+    let provider_at_limit = forecast.freshness == crate::model::Freshness::Fresh
+        && w.provider_exhaustion == ProviderExhaustionEvidence::ReportedEmpty
+        && w.remaining.is_some_and(|remaining| remaining.upper == 0.0);
     match &w.planning {
         Planning::Period { available, per_hour, resets_at }
             if available.is_finite() && *available >= 0.0 && per_hour.is_finite() && *per_hour >= 0.0
@@ -217,8 +222,7 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
                 return Bound::Unknown;
             }
             if *available < cost.amount.upper || *per_hour == 0.0 {
-                return Bound::Short { until: Some(*resets_at),
-                    provider_at_limit: *available == 0.0 && w.remaining.is_some_and(|r| r.upper == 0.0) };
+                return Bound::Short { until: Some(*resets_at), provider_at_limit };
             }
             let rate = per_hour / cost.amount.upper;
             if !rate.is_finite() || rate <= 0.0 { return Bound::Unknown; }
@@ -230,9 +234,7 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
             let Some(reported) = w.remaining else { return Bound::Unknown };
             if remaining.upper > reported.upper { return Bound::Unknown; }
             if remaining.lower < cost.amount.upper {
-                // A depleted net budget may only reflect our policy deductions.
-                // Only a zero reported upper bound proves provider exhaustion.
-                Bound::Short { until: *refill_by, provider_at_limit: reported.upper == 0.0 }
+                Bound::Short { until: *refill_by, provider_at_limit }
             } else {
                 Bound::Bucket { constraint: constraint(remaining.lower, None, *refill_by) }
             }

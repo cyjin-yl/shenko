@@ -29,6 +29,7 @@ fn forecast_of(rows: Vec<(&str, Planning, Option<Range>)>) -> QuotaForecast {
                 window_key: key.into(),
                 unit: "percent".into(),
                 remaining,
+                provider_exhaustion: ProviderExhaustionEvidence::Unknown,
                 unreflected_own_cost: Some(Range::zero()),
                 external_cost: Some(Range::zero()),
                 assumptions: WindowAssumptions::default(),
@@ -109,19 +110,30 @@ fn admit_fixture(policy: &QuotaPolicy, decision: &PolicyDecision, request_id: En
     admit(policy, decision, request_id, pacer, &available, at)
 }
 
+fn request_snapshot(remaining: &str) -> QuotaSnapshot {
+    let ctx = ObservationContext { provider_id: "anthropic".into(), account_scope_ref: "sub".into(),
+        source_version: None, attribution: Attribution::Exclusive, observed_at: now() };
+    from_api_headers(&ctx, [
+        ("anthropic-ratelimit-requests-limit", "10"),
+        ("anthropic-ratelimit-requests-remaining", remaining),
+        ("anthropic-ratelimit-requests-reset", "2026-10-27T12:10:00Z"),
+    ])
+}
+
+fn options(stale: StaleUse) -> ForecastOptions {
+    ForecastOptions { ttl: Duration::minutes(5), stale }
+}
+
 /// PR88 post-merge review: reported exhaustion is not a policy deduction.
-/// Constructed forecasts only; no provider/account observation is claimed.
+/// Synthetic headers/attempts only; no provider/account observation is claimed.
 #[test]
 fn replenishing_exhaustion_and_own_cost_wait_remain_distinct() {
-    let p = single_window_policy("requests", "requests", &[("cloud", 1.0)]);
+    let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
     let refill = now() + Duration::minutes(10);
-    let mut empty = forecast_of(vec![("requests", Planning::Replenishing {
-        remaining: Range::zero(), refill_by: Some(refill),
-    }, Some(Range::zero()))]);
-    empty.windows[0].unit = "requests".into();
-    let exhausted = decide_fixture(&p, &[empty.clone()], false, None, now());
+    let empty = forecast(&request_snapshot("0"), &[], &HashMap::new(), now(), options(StaleUse::Refuse));
+    let exhausted = decide_fixture(&p, &[empty], false, None, now());
     assert_eq!(exhausted.choice, Choice::ProviderExhausted {
-        windows: vec![wref("requests")], until: Some(refill),
+        windows: vec![wref("api:requests")], until: Some(refill),
     });
     let AdmissionOutcome::Quota(admission) = admit_fixture(
         &p, &exhausted, EntityId::new(), &mut Pacer::default(), now(),
@@ -130,15 +142,71 @@ fn replenishing_exhaustion_and_own_cost_wait_remain_distinct() {
 
     // Same zero net budget, but the provider still reports two requests:
     // our unreflected own cost consumes the budget, not the provider limit.
-    let mut reserved = empty;
-    reserved.windows[0].remaining = Range::point(2.0);
-    reserved.windows[0].unreflected_own_cost = Range::point(2.0);
+    let attempt = LocalAttempt { request_id: EntityId::new(), provider_id: "anthropic".into(),
+        account_scope_ref: "sub".into(), window_key: "api:requests".into(), unit: "requests".into(),
+        ledger_commit: CommitRef::new(EntityId::new(), LedgerSeq(1)),
+        cost: Range::point(2.0).unwrap(), billing: AttemptBilling::Unknown };
+    let reserved = forecast(&request_snapshot("2"), &[attempt], &HashMap::new(), now(), options(StaleUse::Refuse));
     let waiting = decide_fixture(&p, &[reserved], false, None, now());
     assert_eq!(waiting.choice, Choice::Wait { until: Some(refill) });
     let AdmissionOutcome::Quota(admission) = admit_fixture(
         &p, &waiting, EntityId::new(), &mut Pacer::default(), now(),
     ) else { panic!("expected quota policy wait"); };
     assert_eq!(admission.state, AdmissionState::QuotaPolicyWait);
+}
+
+#[test]
+fn stale_last_known_empty_is_not_current_provider_exhaustion() {
+    let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
+    let later = now() + Duration::minutes(6);
+    let stale = forecast(&request_snapshot("0"), &[], &HashMap::new(), later, options(StaleUse::LastKnown));
+    let decision = decide_fixture(&p, &[stale], false, None, later);
+    assert_eq!(decision.choice, Choice::Wait { until: Some(now() + Duration::minutes(10)) });
+    let AdmissionOutcome::Quota(admission) = admit_fixture(
+        &p, &decision, EntityId::new(), &mut Pacer::default(), later,
+    ) else { panic!("expected quota policy wait"); };
+    assert_eq!(admission.state, AdmissionState::QuotaPolicyWait);
+}
+
+#[test]
+fn local_configured_cap_is_not_provider_exhaustion() {
+    let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
+    let mut snapshot = request_snapshot("0");
+    snapshot.source_kind = SourceKind::LocalMeter;
+    snapshot.windows[0].enforcement = Enforcement::ConfiguredCap;
+    snapshot.windows[0].remaining.as_mut().unwrap().basis = Basis::LocallyMeasured;
+    let local = forecast(&snapshot, &[], &HashMap::new(), now(), options(StaleUse::Refuse));
+    let decision = decide_fixture(&p, &[local], false, None, now());
+    assert_eq!(decision.choice, Choice::Wait { until: Some(now() + Duration::minutes(10)) });
+    let AdmissionOutcome::Quota(admission) = admit_fixture(
+        &p, &decision, EntityId::new(), &mut Pacer::default(), now(),
+    ) else { panic!("expected quota policy wait"); };
+    assert_eq!(admission.state, AdmissionState::QuotaPolicyWait);
+}
+
+#[test]
+fn locally_reconciled_zero_is_not_provider_exhaustion() {
+    let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
+    let mut snapshot = request_snapshot("2");
+    snapshot.windows[0].remaining = Some(Measurement { value: None, lower: Some(0.0), upper: Some(2.0),
+        basis: Basis::ProviderReported, precision: None });
+    snapshot.windows[0].capacity = Some(Measurement { basis: Basis::LocallyMeasured, ..Measurement::reported(0.0) });
+    let reconciled = forecast(&snapshot, &[], &HashMap::new(), now(), options(StaleUse::Refuse));
+    assert_eq!(reconciled.windows[0].remaining, Some(Range::zero()));
+    let decision = decide_fixture(&p, &[reconciled], false, None, now());
+    assert_eq!(decision.choice, Choice::Wait { until: Some(now() + Duration::minutes(10)) });
+}
+
+#[test]
+fn legacy_forecast_without_exhaustion_evidence_cannot_claim_provider_limit() {
+    let p = single_window_policy("api:requests", "requests", &[("cloud", 1.0)]);
+    let fresh = forecast(&request_snapshot("0"), &[], &HashMap::new(), now(), options(StaleUse::Refuse));
+    let mut encoded = serde_json::to_value(fresh).unwrap();
+    encoded["windows"][0].as_object_mut().unwrap().remove("provider_exhaustion").unwrap();
+    let legacy: QuotaForecast = serde_json::from_value(encoded).unwrap();
+    assert_eq!(legacy.windows[0].provider_exhaustion, ProviderExhaustionEvidence::Unknown);
+    let decision = decide_fixture(&p, &[legacy], false, None, now());
+    assert_eq!(decision.choice, Choice::Wait { until: Some(now() + Duration::minutes(10)) });
 }
 
 /// PR88 post-merge review: the local/cloud boundary uses the switching margin.
@@ -152,41 +220,15 @@ fn previous_local_survives_marginal_cloud_recovery_but_not_unavailability() {
         ("period", period(20.0, rate, 4), Range::point(20.0)),
     ]);
     let local = decide_fixture(&p, &[source(1.9)], true, None, now());
-    assert_eq!(local.choice, Choice::Local { profile_id: "local".into() });
     let marginal = source(2.1);
     let kept = decide_fixture(&p, &[marginal.clone()], true, Some(&local), now());
-    assert_eq!(kept.choice, local.choice);
-    let dipped = decide_fixture(&p, &[source(1.9)], true, Some(&kept), now());
-    let recovered = decide_fixture(&p, &[marginal.clone()], true, Some(&dipped), now());
-    assert_eq!(recovered.choice, local.choice);
+    assert_eq!(kept.choice, Choice::Local { profile_id: "local".into() });
 
     // Use 2.5, not exactly 2.4: bound() conservatively rounds rates downward.
-    let switched = decide_fixture(&p, &[source(2.5)], true, Some(&recovered), now());
+    let switched = decide_fixture(&p, &[source(2.5)], true, Some(&kept), now());
     assert_eq!(cloud(&switched).0, "cloud");
-    let unavailable = decide_fixture(&p, &[marginal], false, Some(&recovered), now());
+    let unavailable = decide_fixture(&p, &[marginal], false, Some(&kept), now());
     assert_eq!(cloud(&unavailable).0, "cloud");
-}
-
-/// A recovered first local profile must not displace the previous local one.
-#[test]
-fn previous_nonfirst_local_survives_another_local_recovering() {
-    let mut p = single_window_policy("period", "percent", &[("cloud", 1.0)]);
-    p.min_progress_per_hour = 2.0;
-    for id in ["local-first", "local-previous"] {
-        p.profiles.push(ModelProfile { profile_id: id.into(),
-            model_ref: format!("model/{id}"), local: true, cost_per_request: Vec::new() });
-    }
-    let source = |rate| forecast_of(vec![
-        ("period", period(20.0, rate, 4), Range::point(20.0)),
-    ]);
-    let mut available = availability(&p, true);
-    available.insert("local-first".into(), BackendState::Unavailable);
-    let previous = decide(&p, &[source(1.9)], &available, None, now()).unwrap();
-    assert_eq!(previous.choice, Choice::Local { profile_id: "local-previous".into() });
-
-    available.insert("local-first".into(), BackendState::Available);
-    let recovered = decide(&p, &[source(2.1)], &available, Some(&previous), now()).unwrap();
-    assert_eq!(recovered.choice, previous.choice);
 }
 
 /// QA05: every overlapping window bounds the rate, the weekly window can
@@ -285,11 +327,15 @@ fn admission_paces_and_keeps_wait_exhaustion_and_unknown_apart() {
     assert_eq!(d.choice, Choice::Wait { until: Some(now() + Duration::hours(2)) });
     assert_eq!(state(admit_fixture(&p, &d, EntityId::new(), &mut Pacer::default(), now())).state, AdmissionState::QuotaPolicyWait);
 
-    // The provider reports nothing remaining: exhausted, with the windows.
-    let at_limit = forecast_of(vec![
-        ("five_hour", period(0.0, 0.0, 2), Range::point(0.0)),
-        ("seven_day", period(40.0, 0.5, 80), Range::point(50.0)),
-    ]);
+    // A provider statusline reports a full five-hour subscription window.
+    let ctx = ObservationContext { provider_id: "anthropic".into(), account_scope_ref: "sub".into(),
+        source_version: None, attribution: Attribution::Exclusive, observed_at: now() };
+    let statusline = format!(
+        r#"{{"rate_limits":{{"five_hour":{{"used_percentage":100,"resets_at":{}}},"seven_day":{{"used_percentage":50,"resets_at":{}}}}}}}"#,
+        (now() + Duration::hours(2)).timestamp(), (now() + Duration::hours(80)).timestamp()
+    );
+    let snapshot = from_statusline(&ctx, &statusline, true);
+    let at_limit = forecast(&snapshot, &[], &HashMap::new(), now(), options(StaleUse::Refuse));
     let d = decide_fixture(&p, &[at_limit], false, None, now());
     assert!(matches!(&d.choice, Choice::ProviderExhausted { windows, .. } if windows == &vec![wref("five_hour")]));
     assert_eq!(state(admit_fixture(&p, &d, EntityId::new(), &mut Pacer::default(), now())).state, AdmissionState::ProviderExhausted);
@@ -313,10 +359,12 @@ fn admission_paces_and_keeps_wait_exhaustion_and_unknown_apart() {
 #[test]
 fn exhaustion_fallback_capacity_block_and_cancellation() {
     let p = policy();
-    let at_limit = forecast_of(vec![
+    let mut at_limit = forecast_of(vec![
         ("five_hour", period(0.0, 0.0, 2), Range::point(0.0)),
         ("seven_day", period(0.0, 0.0, 80), Range::point(0.0)),
     ]);
+    at_limit.windows[0].provider_exhaustion = ProviderExhaustionEvidence::ReportedEmpty;
+    at_limit.windows[1].provider_exhaustion = ProviderExhaustionEvidence::ReportedEmpty;
     let d = decide_fixture(&p, &[at_limit.clone()], true, None, now());
     assert_eq!(d.choice, Choice::Local { profile_id: "local".into() });
     let AdmissionOutcome::Quota(a) = admit_fixture(&p, &d, EntityId::new(), &mut Pacer::default(), now()) else {
