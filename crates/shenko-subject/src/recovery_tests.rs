@@ -4,6 +4,7 @@ use crate::inbox::Inbox;
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
 use shenko_types::{commit::CommitRef, ids::*, subject::*};
+use shenko_types::{operation::OperationRecord, task::*};
 use std::{path::PathBuf, sync::Arc};
 
 fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
@@ -1760,5 +1761,312 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     // Rejecting stale or renewing controls never costs the subject its successor.
     assert_eq!(subject.head.committed_step_no, 8);
     assert_eq!(subject.step.step_no, 9);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/B03: a finite child whose handler waits is driven by a bounded managed
+/// execution, not by the dispatcher pass. One short child must still project
+/// its T2/result while a sibling holds an execution. The fixture seals real
+/// T1/E1 records; nothing fakes a terminal outcome.
+struct GatedHandler {
+    store: Arc<Store>,
+    started: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl GatedHandler {
+    fn seal(&self, value: &serde_json::Value, schema: &str) -> shenko_types::object::ObjectRef {
+        self.store
+            .cas
+            .seal_object(
+                &serde_json::to_vec(value).unwrap(),
+                "application/json",
+                "gated-fixture",
+                schema,
+                1,
+            )
+            .unwrap()
+            .object
+    }
+
+    fn fixed_operation(&self, invocation: &crate::NativeTaskInvocation) -> (
+        shenko_types::operation::OperationRecord,
+        shenko_types::operation::AttemptRecord,
+    ) {
+        use shenko_types::{commit::CommitRef, ids::LedgerSeq, object::*, operation::*};
+        let input_ref = self.seal(&serde_json::json!({"input":invocation.input}), "frozen-input");
+        let bindings = ResourceBindings {
+            provider: "fixture.gated.v1".into(),
+            account_identity: String::new(),
+            runtime_node: invocation.task_invocation.node_id.to_string(),
+            mount_generation: 0,
+            capability_level: "no_declared_external_effects".into(),
+            extra: serde_json::json!({"fixture":true}),
+        };
+        let resource = self.seal(&serde_json::to_value(bindings).unwrap(), "bindings");
+        let acceptance = self.seal(&serde_json::json!("fixture resolves"), "acceptance");
+        let retry = self.seal(&serde_json::json!("no automatic replay"), "retry");
+        let version = VersionRef {
+            artifact: ArtifactRef {
+                digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                locator: "builtin:fixture-gated-v1".into(),
+            },
+            symbol: "fixture.gated.execute".into(),
+            schema: SchemaRef {
+                name: "gated-observation-v1".into(),
+                major: 1,
+                digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+            },
+        };
+        let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
+        let operation = OperationRecord {
+            record_schema_version: 1,
+            operation_id: invocation.operation_id,
+            record_revision: RecordRevision(0),
+            task_id: invocation.task_invocation.task_id,
+            logical_key: "native-handler".into(),
+            operation_name: "fixture.gated.v1".into(),
+            input_schema_version: 1,
+            output_schema_version: 1,
+            final_input_ref: input_ref.clone(),
+            input_digest: input_ref.digest.clone(),
+            contract_ref: OperationContractRef {
+                plugin_id: Self::plugin_id(),
+                artifact_digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                contract_digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                receipt_reader_ref: version.clone(),
+            },
+            resource_bindings_ref: resource,
+            authority_ref: invocation.authority.clone(),
+            acceptance_predicate_ref: acceptance,
+            retry_contract_ref: retry,
+            checkpoint_scope_ref: None,
+            state: OperationState::InFlight,
+            outcome: None,
+            outcome_conflict: false,
+            effect_status: EffectStatus::Unknown,
+            retry_of: None,
+            compensates: None,
+            possible_duplicate_of: vec![],
+            prepared_commit: zero,
+            evidence_through: None,
+        };
+        let attempt = AttemptRecord {
+            record_schema_version: 1,
+            attempt_id: EntityId::new(),
+            operation_id: invocation.operation_id,
+            attempt_no: 1,
+            invocation_id: invocation.task_invocation.invocation_id,
+            worker_id: invocation.task_invocation.worker_id,
+            node_id: invocation.task_invocation.node_id,
+            epoch: invocation.task_invocation.epoch,
+            implementation_ref: version,
+            dispatch_stage: AttemptDispatchStage::Armed,
+            armed_commit: zero,
+            provider_handle: None,
+            provider_idempotency: None,
+            transport_ref: None,
+            started_at: None,
+            last_observed_at: None,
+            final_receipt_id: None,
+        };
+        (operation, attempt)
+    }
+}
+
+impl GatedHandler {
+    fn plugin_id() -> EntityId {
+        "0b8f2f2e-5b6b-4d5c-9a1e-1f2a3b4c5d6e".parse().expect("fixture plugin UUID")
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::NativeTaskHandler for GatedHandler {
+    fn descriptor(&self) -> crate::NativeTaskDescriptor {
+        crate::NativeTaskDescriptor {
+            kind: "fixture.gated".into(),
+            definition_version: 1,
+            implementation_ref: shenko_types::task::ImplementationRef {
+                plugin_id: Self::plugin_id(),
+                artifact_digest: shenko_types::object::Digest::blake3(b"fixture.gated/v1"),
+                registry_revision: 0,
+            },
+            role_revision: "native-child/1".into(),
+            authority_refs: vec!["fixture.gated.no_effects/v1".into()],
+            prompt_section: None,
+        }
+    }
+
+    async fn execute(&self, invocation: crate::NativeTaskInvocation) -> anyhow::Result<OperationRecord> {
+        use shenko_types::{evidence::*, operation::*};
+        let hold = invocation
+            .input
+            .get("hold")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let (mut operation, mut attempt) = self.fixed_operation(&invocation);
+        if let Some(existing) = self
+            .store
+            .arm_external_operation(&invocation.task_invocation, &mut operation, &mut attempt)?
+        {
+            return Ok(existing);
+        }
+        if hold {
+            self.started.notify_one();
+            self.release.notified().await;
+        }
+        let raw = self.seal(
+            &serde_json::json!({"operation_id":invocation.operation_id,"resolved":!hold}),
+            "gated-observation",
+        );
+        let normalized = self.seal(
+            &serde_json::json!({"outcome":"ok"}),
+            "gated-result",
+        );
+        let evidence = EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: EntityId::new(),
+            operation_id: Some(invocation.operation_id),
+            attempt_id: Some(attempt.attempt_id),
+            source_id: "fixture.gated.v1".into(),
+            source_instance_id: invocation.task_invocation.node_id.to_string(),
+            source_event_key: None,
+            producer_epoch: Some(invocation.task_invocation.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw,
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: DecodeStatus::Decoded,
+            observation_level: Some(ObservationLevel::PostconditionVerified),
+            normalized_ref: Some(normalized),
+            observed_at: Some(chrono::Utc::now()),
+            received_commit: operation.prepared_commit,
+        };
+        self.store.record_external_evidence(
+            invocation.operation_id,
+            attempt.attempt_id,
+            evidence,
+            Some(OperationOutcome::Succeeded),
+            EffectStatus::None,
+        )
+    }
+
+    async fn reconcile(
+        &self,
+        task: &TaskRecord,
+        operation_id: EntityId,
+    ) -> anyhow::Result<OperationRecord> {
+        let operation = self.store.external_operation(operation_id)?;
+        anyhow::ensure!(
+            operation.task_id == task.task_id && operation.operation_name == "fixture.gated.v1",
+            "original_operation_contract_mismatch"
+        );
+        Ok(operation)
+    }
+}
+
+#[tokio::test]
+async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\n[delegate:fixture.gated:1] {\"hold\":false}\n已分别委派两个有限 child。",
+    )
+    .await;
+    // Identify the two committed children by their frozen definition input;
+    // task identity comes from the decision, not from creation order.
+    let mut holds = Vec::new();
+    let mut frees = Vec::new();
+    for task in store.native_task_candidates(8).unwrap() {
+        let bytes = store.cas.read_object(&task.input_ref.digest).unwrap();
+        let decision: StepDecision = serde_json::from_slice(&bytes).unwrap();
+        let intent = decision
+            .delegated_task_intents
+            .iter()
+            .find(|intent| intent.intent_id == task.task_id)
+            .unwrap();
+        let hold = intent
+            .definition
+            .as_ref()
+            .and_then(|d| d.input.get("hold"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if hold {
+            holds.push(task.task_id);
+        } else {
+            frees.push(task.task_id);
+        }
+    }
+    assert_eq!(holds.len(), 1);
+    assert_eq!(frees.len(), 1);
+    let slow = holds[0];
+    let fast = frees[0];
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: started.clone(),
+            release: release.clone(),
+        }))
+        .unwrap();
+
+    // One pass claims both durable candidates synchronously. The gated child
+    // is Running and its handler is still parked on `release` while the pass
+    // has long since returned.
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("slow handler did not start");
+    service.run_once().await.unwrap();
+    assert!(store.external_task(slow).unwrap().is_running());
+    assert!(store.native_task_result(slow).unwrap().is_none());
+
+    // The finished short child projects its T2/result and durable ready inbox
+    // entry while the long child is still executing. Before managed
+    // executions the second pass could not even run until the slow handler
+    // returned.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.native_task_result(fast).unwrap().is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("short child result was not projected while a sibling ran");
+    let fast_result = store.native_task_result(fast).unwrap().unwrap();
+    assert!(matches!(fast_result.outcome, TaskOutcome::Succeeded));
+    assert!(store.external_task(fast).unwrap().is_terminal());
+    assert!(store.external_task(slow).unwrap().is_running());
+    assert!(store
+        .ready_native_results(agent, 8)
+        .unwrap()
+        .iter()
+        .any(|result| result.result_id == fast_result.result_id));
+
+    // Releasing the gate lets the original claim finish; recovery bookkeeping
+    // keeps exactly one durable result per task.
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.native_task_result(slow).unwrap().is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("slow child did not settle after release");
+    assert!(matches!(
+        store.native_task_result(slow).unwrap().unwrap().outcome,
+        TaskOutcome::Succeeded
+    ));
+    drop(service);
+    drop(subject);
     // Keep the fixture on container disk for independent inspection.
 }

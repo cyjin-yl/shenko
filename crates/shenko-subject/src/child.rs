@@ -1,6 +1,15 @@
 //! Native finite-child registry and dispatcher on the pinned Cordis lifecycle.
 //! Model output can request a definition, but only this typed Service creates
 //! CallContext/authority. Natural-language goals are not executable definitions.
+//!
+//! Dispatch is claim-driven: `run_once` only reads durable candidates, performs
+//! the synchronous CAS claim and spawns a bounded managed execution. Slow or
+//! unknown handlers no longer hold the dispatcher pass hostage, so a finished
+//! short child can project its T2/result while a long child is still running.
+//! Spawning never escapes the store contract: the claim fences task identity
+//! before any handler code runs, a rejected/late completion only leaves a
+//! durable park, and restart recovery is unchanged because a `Running` task
+//! whose owner died is reconciled from its own memos, never from task handles.
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use cordis_core::{Context, InjectSpec, Plugin, Service};
@@ -9,7 +18,7 @@ use shenko_store::{
     Store, TaskCancellation,
     child::{
         COGNITION_IMPORTED, NATIVE_CHILD, NATIVE_INPUT, NATIVE_OPERATION_ID, NATIVE_RECOVERY,
-        memo_flag, memo_uuid, park_reason,
+        NativeTaskClaim, memo_flag, memo_uuid, park_reason,
     },
 };
 use shenko_types::{
@@ -20,7 +29,36 @@ use shenko_types::{
     subject::{DelegationIntent, StepDecision},
     task::*,
 };
-use std::{borrow::Cow, collections::BTreeMap, convert::Infallible, sync::Arc};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap},
+    convert::Infallible,
+    sync::Arc,
+};
+
+/// A slow child may keep a bounded number of managed executions alive; the
+/// dispatcher itself is never one of them.
+const MAX_INFLIGHT_EXECUTIONS: usize = 8;
+
+enum WorkerJob {
+    /// Fresh T1 claim: run the handler, then settle the resolved operation.
+    Execute {
+        claim: NativeTaskClaim,
+        invocation: NativeTaskInvocation,
+    },
+    /// Recovery settlement: query the original provider handle/receipt only,
+    /// then claim the same operation settlement-only. No replay happens here.
+    Settle {
+        task: TaskRecord,
+        operation_id: EntityId,
+        implementation: ImplementationRef,
+    },
+}
+
+struct Worker {
+    task_id: EntityId,
+    handle: tokio::task::JoinHandle<()>,
+}
 
 #[derive(Debug, Clone)]
 pub struct NativeTaskDescriptor {
@@ -77,6 +115,11 @@ pub struct NativeChildService {
     instance_id: EntityId,
     registry: RwLock<RegistryState>,
     run_lock: tokio::sync::Mutex<()>,
+    /// Handles of spawned managed executions, keyed by task identity. A task
+    /// with a live worker is already `Running` in the store; the handle only
+    /// bounds local concurrency and drives settlement, it is never the source
+    /// of truth for recovery.
+    executions: parking_lot::Mutex<HashMap<EntityId, Worker>>,
 }
 
 impl Service for NativeChildService {
@@ -91,6 +134,7 @@ impl NativeChildService {
             instance_id: EntityId::new(),
             registry: RwLock::new(RegistryState::default()),
             run_lock: tokio::sync::Mutex::new(()),
+            executions: parking_lot::Mutex::new(HashMap::new()),
         }
     }
 
@@ -115,7 +159,10 @@ impl NativeChildService {
         )
     }
 
-    fn install(
+    /// Register a handler for the current Cordis generation. `pub(crate)` so
+    /// the plugin entry and in-crate dispatch tests share the one path; the
+    /// registry still rejects generic or duplicate definitions.
+    pub(crate) fn install(
         self: &Arc<Self>,
         handler: Arc<dyn NativeTaskHandler>,
     ) -> Result<((String, u32), u64)> {
@@ -176,14 +223,76 @@ impl NativeChildService {
 
     /// One bounded pass over durable candidates. Duplicate wakeups only reread
     /// this state; CAS determines whether a handler/attempt may be created.
-    pub async fn run_once(&self) -> Result<usize> {
+    /// Finished managed executions are reclaimed first, so a completed short
+    /// child projects its result even while another child keeps running.
+    /// Handler waits themselves happen inside spawned executions, never under
+    /// this pass's lock.
+    pub async fn run_once(self: &Arc<Self>) -> Result<usize> {
         let _guard = self.run_lock.lock().await;
+        self.reclaim_finished().await;
         let candidates = self.store.native_task_candidates(32)?;
         let mut progressed = 0;
         for task in candidates {
-            progressed += usize::from(self.process(task).await?);
+            progressed += usize::from(self.process(task)?);
         }
         Ok(progressed)
+    }
+
+    /// Reclaim every already-finished managed execution. A panicked worker
+    /// left the task `Running` without durable settlement; it is parked as
+    /// reconciling so the normal recovery/reconcile path—not a blind replay—
+    /// decides the original operation's fate.
+    async fn reclaim_finished(&self) {
+        let finished: Vec<Worker> = {
+            let mut executions = self.executions.lock();
+            let ids: Vec<EntityId> = executions
+                .iter()
+                .filter(|(_, worker)| worker.handle.is_finished())
+                .map(|(task_id, _)| *task_id)
+                .collect();
+            ids.into_iter()
+                .filter_map(|task_id| executions.remove(&task_id))
+                .collect()
+        };
+        for worker in finished {
+            match worker.handle.await {
+                Ok(()) => {}
+                Err(error) => {
+                    tracing::warn!(task_id=%worker.task_id, %error, "managed native execution lost; parking for reconciliation");
+                    if let Ok(task) = self.store.external_task(worker.task_id) {
+                        park_managed(
+                            &self.store,
+                            &task,
+                            "reconciling",
+                            "managed execution ended without a durable settlement; reconcile original evidence",
+                            true,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Spawn a bounded managed execution for a task whose claim/settlement is
+    /// already durable. Returns false when the execution budget is full or a
+    /// worker already owns this task; the caller leaves the durable state
+    /// untouched and retries on a later pass.
+    fn worker_available(&self, task_id: EntityId) -> bool {
+        let executions = self.executions.lock();
+        executions.len() < MAX_INFLIGHT_EXECUTIONS && !executions.contains_key(&task_id)
+    }
+
+    fn spawn_execution(
+        &self,
+        task_id: EntityId,
+        registered: RegisteredHandler,
+        job: WorkerJob,
+    ) {
+        let store = self.store.clone();
+        let handle = tokio::spawn(async move {
+            drive_execution(store, registered, job).await;
+        });
+        self.executions.lock().insert(task_id, Worker { task_id, handle });
     }
 
     /// Deterministic guidance from currently installed handlers, ordered by
@@ -197,7 +306,10 @@ impl NativeChildService {
             .collect()
     }
 
-    async fn process(&self, task: TaskRecord) -> Result<bool> {
+    /// Advance one durable candidate by at most one synchronous CAS step. Any
+    /// handler wait (fresh `execute` or recovery `reconcile`) is delegated to a
+    /// spawned managed execution; this pass itself never awaits a handler.
+    fn process(&self, task: TaskRecord) -> Result<bool> {
         if task.memos.contains_key(COGNITION_IMPORTED) {
             // Do not even rewrite the import into an ordinary retryable park.
             // Only an explicit local continuation may remove this marker.
@@ -271,28 +383,23 @@ impl NativeChildService {
         let recovery = memo_flag(&task, NATIVE_RECOVERY) || existing.is_some();
         if recovery && existing.is_some() {
             let operation_id = operation_id.expect("checked above");
-            let mut operation = existing.expect("checked above");
+            let operation = existing.expect("checked above");
             if operation.state != OperationState::Resolved {
-                match registered.handler.reconcile(&task, operation_id).await {
-                    Ok(observed) => operation = observed,
-                    Err(error) => {
-                        self.park_current(
-                            task.task_id,
-                            "reconciling",
-                            &format!("original operation remains unresolved: {error}"),
-                            true,
-                        )?;
-                        return Ok(true);
-                    }
+                // The original provider query runs in a managed execution so a
+                // slow or unreachable handle cannot hold the dispatcher pass.
+                if !self.worker_available(task.task_id) {
+                    return Ok(false);
                 }
-            }
-            if operation.state != OperationState::Resolved {
-                self.park_current(
+                let implementation = registered.descriptor.implementation_ref.clone();
+                self.spawn_execution(
                     task.task_id,
-                    "reconciling",
-                    "original armed operation has no conclusive outcome; no replay",
-                    true,
-                )?;
+                    registered,
+                    WorkerJob::Settle {
+                        task,
+                        operation_id,
+                        implementation,
+                    },
+                );
                 return Ok(true);
             }
             let Some(claim) = self.store.claim_native_task(
@@ -311,6 +418,11 @@ impl NativeChildService {
         if matches!(park_reason(&task), Some(reason) if !matches!(reason,
             "handler_unavailable" | "reconciling") && !recovery)
         {
+            return Ok(false);
+        }
+        // The claim must never be created without a spawned owner to settle
+        // it; capacity is checked before the CAS transitions Pending→Running.
+        if !self.worker_available(task.task_id) {
             return Ok(false);
         }
         let Some(claim) = self.store.claim_native_task(
@@ -371,46 +483,13 @@ impl NativeChildService {
             authority,
             input,
         };
-        let operation = match registered.handler.execute(invocation).await {
-            Ok(operation) => operation,
-            Err(error) => {
-                let has_operation = self.store.get_operation(claim.operation_id)?.is_some();
-                self.park_current(
-                    task.task_id,
-                    if has_operation {
-                        "reconciling"
-                    } else {
-                        "handler_failed"
-                    },
-                    &format!("native handler did not produce a settled result: {error}"),
-                    has_operation,
-                )?;
-                return Ok(true);
-            }
-        };
-        if operation.task_id != task.task_id || operation.operation_id != claim.operation_id {
-            self.park_current(
-                task.task_id,
-                "handler_contract_violation",
-                "handler returned an operation with a different task/operation identity",
-                false,
-            )?;
-            return Ok(true);
-        }
-        if operation.state == OperationState::Resolved {
-            Ok(self
-                .store
-                .complete_native_task(&claim, &operation)?
-                .is_some())
-        } else {
-            self.park_current(
-                task.task_id,
-                "reconciling",
-                "armed native operation is unresolved; query original evidence before any replay",
-                true,
-            )?;
-            Ok(true)
-        }
+        let task_id = claim.task.task_id;
+        self.spawn_execution(
+            task_id,
+            registered,
+            WorkerJob::Execute { claim, invocation },
+        );
+        Ok(true)
     }
 
     fn park_current(
@@ -421,9 +500,7 @@ impl NativeChildService {
         retry: bool,
     ) -> Result<()> {
         let current = self.store.external_task(task_id)?;
-        self.store
-            .park_native_task(task_id, current.record_revision, reason, detail, retry)?;
-        Ok(())
+        park_or_report(&self.store, task_id, current.record_revision, reason, detail, retry)
     }
 
     fn native_input(&self, task: &TaskRecord) -> Result<serde_json::Value> {
@@ -453,6 +530,208 @@ impl NativeChildService {
             }
             Some("object") => Ok(serde_json::from_slice(&bytes)?),
             _ => anyhow::bail!("unknown_native_input_encoding"),
+        }
+    }
+}
+
+/// Park from inside a managed execution where errors cannot propagate. The
+/// park CAS is retried once against the current record revision; if even that
+/// fails the durable state is untouched and normal recovery decides.
+/// A task that committed an abort_request keeps its `cancel_requested`
+/// disposition: a late worker outcome never relabels a cancelled task.
+fn park_managed(store: &Store, task: &TaskRecord, reason: &str, detail: &str, retry: bool) {
+    if task.abort_request.is_some() {
+        return;
+    }
+    if let Err(error) = park_or_report(store, task.task_id, task.record_revision, reason, detail, retry) {
+        tracing::warn!(task_id=%task.task_id, %error, reason, "managed park rejected; recovery decides");
+        if let Ok(current) = store.external_task(task.task_id) {
+            if current.abort_request.is_some() {
+                return;
+            }
+            if let Err(error) = park_or_report(store, task.task_id, current.record_revision, reason, detail, retry) {
+                tracing::warn!(task_id=%task.task_id, %error, reason, "managed park retry rejected; recovery decides");
+            }
+        }
+    }
+}
+
+fn park_or_report(
+    store: &Store,
+    task_id: EntityId,
+    expected_revision: RecordRevision,
+    reason: &str,
+    detail: &str,
+    retry: bool,
+) -> Result<()> {
+    store.park_native_task(task_id, expected_revision, reason, detail, retry)?;
+    Ok(())
+}
+
+/// One managed execution lifetime: exactly one durable claim or settlement,
+/// one handler wait, then a single settlement attempt. Every outcome that is
+/// not a committed T2 leaves an explicit durable park; a lost worker is
+/// reclaimed by `reclaim_finished` and a lost process by startup recovery.
+async fn drive_execution(
+    store: Arc<Store>,
+    registered: RegisteredHandler,
+    job: WorkerJob,
+) {
+    match job {
+        WorkerJob::Execute { claim, invocation } => {
+            let task_id = invocation.task.task_id;
+            let operation = match registered.handler.execute(invocation).await {
+                Ok(operation) => operation,
+                Err(error) => {
+                    let current = match store.external_task(task_id) {
+                        Ok(task) => task,
+                        Err(read_error) => {
+                            tracing::warn!(task_id=%task_id, %read_error, "task read failed; recovery decides");
+                            return;
+                        }
+                    };
+                    let has_operation =
+                        store
+                            .get_operation(claim.operation_id)
+                            .is_ok_and(|op| op.is_some());
+                    park_managed(
+                        &store,
+                        &current,
+                        if has_operation {
+                            "reconciling"
+                        } else {
+                            "handler_failed"
+                        },
+                        &format!("native handler did not produce a settled result: {error}"),
+                        has_operation,
+                    );
+                    return;
+                }
+            };
+            let Some(task) = fetch_task(&store, task_id) else { return };
+            if operation.task_id != task_id || operation.operation_id != claim.operation_id {
+                park_managed(
+                    &store,
+                    &task,
+                    "handler_contract_violation",
+                    "handler returned an operation with a different task/operation identity",
+                    false,
+                );
+                return;
+            }
+            if operation.state == OperationState::Resolved {
+                settle_claim(&store, &task, &claim, operation);
+            } else {
+                park_managed(
+                    &store,
+                    &task,
+                    "reconciling",
+                    "armed native operation is unresolved; query original evidence before any replay",
+                    true,
+                );
+            }
+        }
+        WorkerJob::Settle {
+            task,
+            operation_id,
+            implementation,
+        } => {
+            let operation = match registered.handler.reconcile(&task, operation_id).await {
+                Ok(operation) => operation,
+                Err(error) => {
+                    park_managed(
+                        &store,
+                        &task,
+                        "reconciling",
+                        &format!("original operation remains unresolved: {error}"),
+                        true,
+                    );
+                    return;
+                }
+            };
+            if operation.state != OperationState::Resolved {
+                park_managed(
+                    &store,
+                    &task,
+                    "reconciling",
+                    "original armed operation has no conclusive outcome; no replay",
+                    true,
+                );
+                return;
+            }
+            let claim = match store.claim_native_task(task.task_id, implementation, true) {
+                Ok(Some(claim)) => claim,
+                Ok(None) => return,
+                Err(error) => {
+                    tracing::warn!(task_id=%task.task_id, %error, "settlement-only claim failed; recovery decides");
+                    if let Some(task) = fetch_task(&store, task.task_id) {
+                        park_managed(
+                            &store,
+                            &task,
+                            "reconciling",
+                            "settlement-only claim could not be made; reconcile again",
+                            true,
+                        );
+                    }
+                    return;
+                }
+            };
+            match store.complete_native_task(&claim, &operation) {
+                Ok(Some(_)) | Ok(None) => {}
+                Err(error) => {
+                    tracing::warn!(task_id=%task.task_id, %error, "native settlement failed; recovery decides");
+                    if let Some(task) = fetch_task(&store, task.task_id) {
+                        park_managed(
+                            &store,
+                            &task,
+                            "reconciling",
+                            "resolved operation could not be committed; reconcile evidence and retry",
+                            true,
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Settle the stable claim of a fresh execution. `complete_native_task`
+/// compares claim identity (task revision, invocation, epoch) against the
+/// CURRENT task record, so a cancelled or superseded claim silently keeps the
+/// parked state instead of writing a late T2.
+fn settle_claim(store: &Store, task: &TaskRecord, claim: &NativeTaskClaim, operation: OperationRecord) {
+    match store.complete_native_task(claim, &operation) {
+        Ok(Some(_)) | Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(task_id=%task.task_id, %error, "native settlement failed; recovery decides");
+            park_managed(
+                store,
+                task,
+                "reconciling",
+                "resolved operation could not be committed; reconcile evidence and retry",
+                true,
+            );
+        }
+    }
+}
+
+fn fetch_task(store: &Store, task_id: EntityId) -> Option<TaskRecord> {
+    match store.external_task(task_id) {
+        Ok(task) => Some(task),
+        Err(error) => {
+            tracing::warn!(task_id=%task_id, %error, "task read failed; recovery decides");
+            None
+        }
+    }
+}
+
+impl Drop for NativeChildService {
+    /// Dropping the service aborts its managed executions instead of detaching
+    /// them. A dropped JoinHandle in tokio keeps running; the task would then
+    /// hold a claim no one can settle while the process still lives.
+    fn drop(&mut self) {
+        for (_, worker) in self.executions.get_mut().drain() {
+            worker.handle.abort();
         }
     }
 }
