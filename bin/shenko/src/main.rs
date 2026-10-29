@@ -10,6 +10,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
 mod node_sync;
+mod runtime_owner;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -109,12 +110,29 @@ fn main() -> Result<()> {
 
     // This guard outlives the Tokio runtime. In particular, cancellation of
     // an async task is not proof that a blocking/provider operation has ended.
-    let owner = if matches!(&cli.command, Command::Start { .. }) {
+    let (owner, data_dir) = if matches!(&cli.command, Command::Start { .. }) {
+        let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: data_dir.clone(), ..Default::default()
+        });
+        // Reject an unrelated target before creating any owner or store file.
+        bootstrap.validate_target()?;
         std::fs::create_dir_all(&data_dir)?;
-        Some(shenko_store::runtime_boundary::RuntimeOwner::try_acquire(&data_dir)
-            .context("another native runtime may own this data directory; do not start a second subject")?)
+        let data_dir = data_dir.canonicalize()?;
+        let owner = runtime_owner::RuntimeOwner::try_acquire(&data_dir)
+            .context("cannot establish exclusive ownership of this data directory")?;
+        // Recheck after obtaining the guard: another starter may have finished
+        // bootstrap between the initial read and lock acquisition.
+        let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: data_dir.clone(), ..Default::default()
+        });
+        bootstrap.validate_target()?;
+        owner.verify_path(&data_dir)?;
+        if let Some(ledger_id) = runtime_owner::admit_existing_store(&data_dir)? {
+            bootstrap.validate_existing_manifest(ledger_id)?;
+        }
+        (Some(owner), data_dir)
     } else {
-        None
+        (None, data_dir)
     };
     let runtime = tokio::runtime::Runtime::new()?;
     let result = runtime.block_on(run(cli.command, data_dir));

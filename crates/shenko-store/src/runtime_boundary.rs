@@ -1,9 +1,7 @@
-//! Local runtime ownership and a durable subject-only pause boundary.
+//! A durable subject-only pause boundary.
 //!
 //! This is not an activation selector: it neither selects a copied store nor
 //! fences independent stores, ingress, or previously admitted operations.
-use std::path::Path;
-
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::{
@@ -26,22 +24,6 @@ CREATE TABLE IF NOT EXISTS subject_quiesce_requests (
 CREATE UNIQUE INDEX IF NOT EXISTS subject_quiesce_one_open
     ON subject_quiesce_requests(agent_id) WHERE state IN ('requested','paused');
 "#;
-
-/// Held for the complete native runtime lifetime, including Tokio teardown.
-/// SQLite releases the reserved lock when the connection/process disappears.
-/// All cooperating starters must use the same file on a locking-capable VFS.
-pub struct RuntimeOwner {
-    _connection: Connection,
-}
-
-impl RuntimeOwner {
-    pub fn try_acquire(data_dir: &Path) -> anyhow::Result<Self> {
-        let connection = Connection::open(data_dir.join("runtime-owner.sqlite"))?;
-        connection.busy_timeout(std::time::Duration::ZERO)?;
-        connection.execute_batch("BEGIN IMMEDIATE")?;
-        Ok(Self { _connection: connection })
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

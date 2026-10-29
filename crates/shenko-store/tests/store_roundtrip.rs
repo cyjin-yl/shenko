@@ -157,17 +157,6 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     (dir, store, agent_id)
 }
 
-#[test]
-fn local_runtime_owner_excludes_another_live_starter() {
-    use shenko_store::runtime_boundary::RuntimeOwner;
-    let dir = tmp_dir();
-    let first = RuntimeOwner::try_acquire(&dir).unwrap();
-    assert!(RuntimeOwner::try_acquire(&dir).is_err());
-    drop(first);
-    let reopened = RuntimeOwner::try_acquire(&dir).unwrap();
-    drop(reopened);
-    std::fs::remove_dir_all(dir).unwrap();
-}
 
 #[test]
 fn boundary_waits_for_recorded_step_and_survives_reopen() {
