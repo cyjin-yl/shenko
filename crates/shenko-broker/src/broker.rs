@@ -140,6 +140,7 @@ impl ActiveProvider {
                 response: None,
                 effective: EffectiveInference::for_request(req),
                 termination: TerminationEvidence::never_dispatched(),
+                quota_headers: Vec::new(),
             };
         }
 
@@ -166,6 +167,7 @@ fn provider_response(
     terminal: bool,
 ) -> InferenceResult {
     let effective = EffectiveInference::for_request(req);
+    let quota_headers = response.ratelimit_headers.clone();
     let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
     let termination = if terminal {
         TerminationEvidence {
@@ -194,6 +196,7 @@ fn provider_response(
         response: Some(response),
         effective,
         termination,
+        quota_headers,
     }
 }
 
@@ -234,6 +237,10 @@ fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceRes
         response: None,
         effective: EffectiveInference::for_request(req),
         termination,
+        quota_headers: error
+            .downcast_ref::<ProviderRejection>()
+            .map(|rejection| rejection.ratelimit_headers.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -357,6 +364,18 @@ impl Broker {
     /// measured physical stream count or any KV residency capacity.
     pub fn with_capacity(max: u64) -> Result<(Self, BrokerHandle)> {
         Self::from_env_with_admission(AdmissionController::new(max))
+    }
+
+    /// Bind an explicitly configured real Anthropic provider without reading
+    /// ambient credentials. Credentials stay separate from the validated
+    /// endpoint; dispatch shares the ordinary broker queue and compute budget.
+    pub fn with_anthropic_provider(
+        provider: AnthropicProvider,
+        max: u64,
+    ) -> Result<(Self, BrokerHandle)> {
+        let provider = ActiveProvider::Anthropic(provider);
+        provider.binding().validate_endpoint()?;
+        Ok(Self::with_provider(provider, AdmissionController::new(max)))
     }
 
     fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
@@ -617,6 +636,7 @@ mod tests {
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),
+                ratelimit_headers: Vec::new(),
             })
         }
     }

@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 shenko-types = { path = "../shenko-types" }
+shenko-quota = { path = "../shenko-quota" }
 rusqlite = { workspace = true }
 rusqlite_migration = { workspace = true }
 serde = { workspace = true }

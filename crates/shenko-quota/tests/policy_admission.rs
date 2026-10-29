@@ -23,6 +23,7 @@ fn forecast_of(rows: Vec<(&str, Planning, Option<Range>)>) -> QuotaForecast {
         computed_at: now(),
         freshness: Freshness::Fresh,
         source_validity: SourceValidity::FreshUntil { exclusive: now() + Duration::hours(24) },
+        options: ForecastOptions { ttl: Duration::minutes(5), stale: StaleUse::Refuse },
         windows: rows
             .into_iter()
             .map(|(key, planning, remaining)| WindowForecast {
@@ -74,6 +75,7 @@ fn policy() -> QuotaPolicy {
         allow_overage: false,
         spending_authority_ref: None,
         decision_ttl: Duration::minutes(20),
+        observation_sources: Vec::new(),
     }
 }
 
