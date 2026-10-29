@@ -14,6 +14,7 @@ mod roles;
 pub use roles::*;
 mod peers;
 pub use peers::*;
+mod admission;
 pub mod units;
 pub use units::*;
 
@@ -192,6 +193,10 @@ impl Node {
                 && metadata.permissions().mode() & 0o077 == 0,
             "private nonsymlink data directory required"
         );
+        // Serialize cooperating openers across inspection, preflight,
+        // original recovery and migration; an unknown directory gains no
+        // lock file from this.
+        let _initialization = admission::lock_initialization(dir)?;
         let db = dir.join("node.sqlite3");
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
@@ -210,15 +215,7 @@ impl Node {
         }
         let existing = db.try_exists()?;
         if existing {
-            // immutable prevents even a read-only SQLite open from creating WAL
-            // sidecars or recovering another application's journal during preflight.
-            let readonly = Connection::open_with_flags(
-                readonly_uri(&db)?,
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-                    | OpenFlags::SQLITE_OPEN_URI
-                    | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-            )?;
-            validate_installation(&readonly)?;
+            admission::validate_existing(&db)?;
         } else {
             ensure!(
                 std::fs::read_dir(dir)?.next().is_none(),

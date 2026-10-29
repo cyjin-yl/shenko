@@ -10,5 +10,7 @@ serde.workspace = true
 serde_json.workspace = true
 rusqlite.workspace = true
 chrono.workspace = true
+tempfile = "3"
+blake3 = "1"
 libc = "0.2"
 shenko-types = { path = "../shenko-types" }

@@ -211,9 +211,19 @@ one JSON response after committed work. Existing unrelated data is rejected;
 never use a live main-app directory. Storage schema **4** is separate from
 record/wire schema **1**. Existing databases first undergo an immutable/read-only
 application/schema/installation preflight: even WAL sidecar creation or journal
-recovery is not allowed for an unknown database. Then the writable open rechecks
-ownership before persistent PRAGMAs. New files use exclusive creation and 0600;
-unrelated directory entries and symlinks are rejected.
+recovery is not allowed for an unknown database. If an interrupted DELETE-mode
+migration makes that view inconsistent, Node serializes cooperating initializers,
+captures the database and optional journal under SQLite's own exclusive lock,
+then lets SQLite recover only a private copy before repeating the full fingerprint
+and identity check. Staged recovery refuses WAL, extension loading and paths
+outside its temporary files, including a referenced super-journal; it never
+promotes that copy over the original. A second content/presence check precedes
+ordinary SQLite recovery and locked migration of an admitted original. The lock
+handoff to the original pager is not atomic against a hostile actor replacing
+files in the private data directory; this does not add inode confinement. The
+exceptional recovery path does not process WAL/SHM sidecars. Then the writable
+open rechecks ownership before persistent PRAGMAs. New files use exclusive
+creation and 0600; unrelated directory entries and symlinks are rejected.
 
 The only unmarked legacy format eligible for migration is the exact original v1
 schema (all non-SQLite schema objects) with valid durable node/ledger/identity
