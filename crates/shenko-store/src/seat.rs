@@ -5,6 +5,9 @@
 //! identity. When the same work moves to a different pane/host the old record
 //! keeps its history and the new record names it via `supersedes`; when the
 //! position is gone the record is retired, not rewritten in place.
+//! At most one active record may claim a `(host, pane_id)` location; the
+//! invariant is enforced inside the admitting transaction and backed by a
+//! partial unique index.
 //!
 //! `check_seat_write` exposes durable lease/seat facts to trusted executors;
 //! it neither arms an operation nor sends input. The current runtime does not
@@ -33,6 +36,12 @@ CREATE TABLE IF NOT EXISTS seat_records(
 );
 CREATE INDEX IF NOT EXISTS idx_seat_task ON seat_records(task_id, updated_commit_seq);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_successor ON seat_records(supersedes) WHERE supersedes IS NOT NULL;
+-- A pane id is a physical location, and one location hosts at most one live
+-- work position (SPEC §17.1): SQLite enforces it on the stored location facts,
+-- so no trusted caller can admit a second active seat for the same pane.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seat_active_location ON seat_records(
+    json_extract(data,'$.location.host'), json_extract(data,'$.location.pane_id')
+) WHERE status='active';
 CREATE TABLE IF NOT EXISTS seat_leases(
     lease_id TEXT PRIMARY KEY,
     seat_id TEXT NOT NULL,
@@ -157,6 +166,42 @@ pub enum LeaseEndReason {
     Released,
 }
 
+impl LeaseEndReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Superseded => "superseded",
+            Self::SeatSuperseded => "seat_superseded",
+            Self::SeatRetired => "seat_retired",
+            Self::HumanTakeover => "human_takeover",
+            Self::Released => "released",
+        }
+    }
+}
+
+/// End reasons a caller may record explicitly through `end_seat_lease`.
+/// The remaining `LeaseEndReason` values describe transitions this operation
+/// does not perform — supersede, relocation and retirement are recorded only
+/// by `acquire_seat_lease`, `relocate_seat` and `retire_seat`, which make the
+/// corresponding seat/lease change in the same commit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeatLeaseEnd {
+    /// The holder released the seat normally.
+    Released,
+    /// A human (or unmanaged actor) took the input path over, proven by a
+    /// real observation.
+    HumanTakeover,
+}
+
+impl SeatLeaseEnd {
+    fn reason(self) -> LeaseEndReason {
+        match self {
+            Self::Released => LeaseEndReason::Released,
+            Self::HumanTakeover => LeaseEndReason::HumanTakeover,
+        }
+    }
+}
+
 impl SeatLease {
     pub fn is_current(&self) -> bool {
         self.state == SeatLeaseState::Current
@@ -228,7 +273,7 @@ fn write_lease(tx: &Transaction<'_>, lease: &SeatLease, seq: u64) -> Result<()> 
             },
             lease
                 .ended_reason
-                .map(|r| serde_json::to_string(&r)).transpose()?,
+                .map(|r| r.as_str()),
             lease.superseded_by.map(|s| s.to_string()),
             serde_json::to_string(lease)?,
             seq as i64,
@@ -246,6 +291,57 @@ fn current_lease(tx: &Transaction<'_>, seat_id: EntityId) -> Result<Option<SeatL
         )
         .optional()?;
     data.map(|d| serde_json::from_str(&d).map_err(Into::into)).transpose()
+}
+
+/// The single active seat bound to `(host, pane_id)` — the invariant behind
+/// `idx_seat_active_location`, evaluated inside the caller's transaction so a
+/// competing registration can never slip between lookup and insert. More than
+/// one row means durable history already violates the invariant: surface the
+/// conflict rather than picking a winner.
+fn active_seat_at_pane(
+    conn: &rusqlite::Connection,
+    host: &str,
+    pane_id: &str,
+) -> Result<Option<SeatRecord>> {
+    let mut q = conn.prepare(
+        "SELECT data FROM seat_records WHERE status='active'
+         AND json_extract(data,'$.location.host')=?1
+         AND json_extract(data,'$.location.pane_id')=?2",
+    )?;
+    let rows = q
+        .query_map([host, pane_id], |r| r.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    match rows.len() {
+        0 => Ok(None),
+        1 => Ok(Some(serde_json::from_str(&rows[0])?)),
+        _ => Err(ShenkoError::conflict(format!(
+            "multiple active seat records claim pane {pane_id}"
+        ))
+        .into()),
+    }
+}
+
+/// Refuse to admit a second active seat at `location`. The typed error names
+/// the incumbent so the caller can retire/relocate it or bind to it after
+/// reconciliation — never silently stacked on the same pane.
+fn claim_seat_location(conn: &rusqlite::Connection, location: &SeatLocation) -> Result<()> {
+    let (host, pane_id) = match location {
+        SeatLocation::Tmux { host, pane_id, .. } => (host.as_str(), pane_id.as_str()),
+    };
+    if let Some(incumbent) = active_seat_at_pane(conn, host, pane_id)? {
+        return Err(seat_error(
+            "seat_location_occupied",
+            RetryStrategy::AfterReconcile,
+            serde_json::json!({
+                "claimant_seat_id": incumbent.seat_id.to_string(),
+                "claimant_task_id": incumbent.task_id.to_string(),
+                "host": host,
+                "pane_id": pane_id,
+            }),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 /// End `lease` inside `tx` at `commit`. No-op if already ended (idempotent —
@@ -290,6 +386,8 @@ fn storage_failure(e: &anyhow::Error) -> bool {
 impl Store {
     /// Register a newly discovered seat. Returns the existing record when the
     /// id is already known (idempotent re-registration after a restart).
+    /// Refuses a second active seat at an already-claimed pane inside the same
+    /// transaction — `seat_at_pane` is a lookup hint, not the admission check.
     pub fn register_seat(
         &self,
         seat_id: EntityId,
@@ -311,6 +409,7 @@ impl Store {
                     tx.commit()?;
                     return Ok(existing);
                 }
+                claim_seat_location(&tx, &location)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let seat = SeatRecord {
@@ -339,6 +438,9 @@ impl Store {
     /// Register the confirmed new location of work that used to live at
     /// `previous`. The predecessor record keeps its history, is retired, and
     /// its current lease (if any) ends — a stale pane id never stays writable.
+    /// `task_id` must name the predecessor's own task: relocating a seat can
+    /// never rebind the position to a different task, and the active target
+    /// pane must be free.
     pub fn relocate_seat(
         &self,
         previous: EntityId,
@@ -356,6 +458,18 @@ impl Store {
                 let mut old = read_seat(&tx, previous)?.ok_or_else(|| {
                     ShenkoError::not_found("relocate_seat: unknown predecessor seat")
                 })?;
+                if old.task_id != task_id {
+                    return Err(seat_error(
+                        "seat_task_mismatch",
+                        RetryStrategy::NeverAutomatically,
+                        serde_json::json!({
+                            "seat_id": previous.to_string(),
+                            "seat_task_id": old.task_id.to_string(),
+                            "claimed_task_id": task_id.to_string(),
+                        }),
+                    )
+                    .into());
+                }
                 // Idempotent replay of an already-committed relocation.
                 if let Some(next) = old.supersedes_or_successor(&tx)? {
                     ensure!(next.task_id == task_id && next.adapter == adapter
@@ -364,6 +478,12 @@ impl Store {
                     tx.commit()?;
                     return Ok(next);
                 }
+                // No confirmed move: nothing to relocate, report the seat as-is.
+                if location == old.location {
+                    tx.commit()?;
+                    return Ok(old);
+                }
+                claim_seat_location(&tx, &location)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let seat = SeatRecord {
@@ -430,6 +550,11 @@ impl Store {
     /// current it is ended with `Superseded` — by §17.1 a new valid writer
     /// always displaces the old one, and the displaced holder's writes are
     /// refused by lease id afterwards.
+    /// `lease_id` is the caller's acquisition identity, chosen before the
+    /// attempt so the outcome is always re-identifiable: replaying the same
+    /// acquisition after a crash or an uncertain commit returns the stored
+    /// lease — even one already ended — instead of minting a new lease that
+    /// could displace a newer legitimate writer.
     /// Trusted runtime API, not a model-facing authority constructor: callers
     /// must validate the task/controller delegation before acquiring a lease.
     /// These local records are not replicated authority or remote fencing.
@@ -437,11 +562,20 @@ impl Store {
         &self,
         seat_id: EntityId,
         holder_task_id: EntityId,
+        lease_id: EntityId,
     ) -> Result<SeatLease> {
         self.ledger.with_mutation(
             || {
                 let mut c = self.ledger.conn.lock();
                 let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                if let Some(existing) = read_lease(&tx, lease_id)? {
+                    // This exact acquisition already committed; replay returns
+                    // it verbatim, never a phantom second displacement.
+                    ensure!(existing.seat_id == seat_id && existing.holder_task_id == holder_task_id,
+                        "seat lease id already bound to different acquisition facts");
+                    tx.commit()?;
+                    return Ok(existing);
+                }
                 let seat = read_seat(&tx, seat_id)?
                     .ok_or_else(|| ShenkoError::not_found("acquire_seat_lease: unknown seat"))?;
                 ensure!(
@@ -456,7 +590,7 @@ impl Store {
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let lease = SeatLease {
                     schema_version: 1,
-                    lease_id: EntityId::new(),
+                    lease_id,
                     seat_id,
                     holder_task_id,
                     acquired_at_incarnation: seat.incarnation,
@@ -485,10 +619,13 @@ impl Store {
         )
     }
 
-    /// End a lease explicitly (normal release, proven human takeover, or the
-    /// seat record's own lifecycle). Idempotent: replaying an end on an
-    /// already-ended lease returns the stored record unchanged.
-    pub fn end_seat_lease(&self, lease_id: EntityId, reason: LeaseEndReason) -> Result<SeatLease> {
+    /// End a lease explicitly: a normal release or a proven human takeover.
+    /// `SeatLeaseEnd` cannot express `Superseded`/`SeatSuperseded`/`SeatRetired`
+    /// — those reasons only become true alongside the transition that produces
+    /// them, so the public path can never record a lifecycle claim without
+    /// making it. Idempotent: replaying an end on an already-ended lease
+    /// returns the stored record unchanged.
+    pub fn end_seat_lease(&self, lease_id: EntityId, end: SeatLeaseEnd) -> Result<SeatLease> {
         self.ledger.with_mutation(
             || {
                 let mut c = self.ledger.conn.lock();
@@ -498,7 +635,7 @@ impl Store {
                 if lease.is_current() {
                     let seq = self.ledger.allocate_seq(&tx)?;
                     let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                    end_lease_tx(&tx, &mut lease, reason, None, commit)?;
+                    end_lease_tx(&tx, &mut lease, end.reason(), None, commit)?;
                     seat_log(&tx, self, commit, 1)?;
                 }
                 tx.commit()?;
@@ -536,10 +673,12 @@ impl Store {
             .into());
         }
         if !lease.is_current() {
+            // The end reason goes into details as its real JSON value so
+            // consumers can deserialize `reason` back into `LeaseEndReason`.
             let reason = lease
                 .ended_reason
-                .map(|r| serde_json::to_string(&r)).transpose()?
-                .unwrap_or_else(|| "ended".to_string());
+                .map(serde_json::to_value).transpose()?
+                .unwrap_or_else(|| serde_json::Value::String("ended".to_string()));
             return Err(seat_error(
                 "seat_lease_ended",
                 match lease.ended_reason {
@@ -615,9 +754,10 @@ impl Store {
             Some(s) => s,
             None => return Ok(None),
         };
-        // Depth bound: a malformed chain (cycle) surfaces as an error, never
-        // an infinite loop or a silently picked winner.
-        for _ in 0..64 {
+        // Every link visits one more record, so a walk that revisits an id can
+        // only be a malformed cycle: surface it, never loop or cap valid moves.
+        let mut visited = std::collections::HashSet::from([current.seat_id]);
+        loop {
             let next: Option<String> = conn
                 .query_row(
                     "SELECT data FROM seat_records WHERE supersedes=?1",
@@ -629,33 +769,23 @@ impl Store {
                 None => return Ok(Some(current)),
                 Some(data) => {
                     current = serde_json::from_str(&data)?;
+                    if !visited.insert(current.seat_id) {
+                        return Err(ShenkoError::conflict(format!(
+                            "seat supersedes chain cycles at {}",
+                            current.seat_id
+                        ))
+                        .into());
+                    }
                 }
             }
         }
-        Err(ShenkoError::conflict("seat supersedes chain exceeds 64 links").into())
     }
 
     /// Find a live seat at a given tmux pane id — the "find the existing
     /// work position again" lookup. Returns at most one *active* record; a
     /// retired record at the same locator is not resurrected.
     pub fn seat_at_pane(&self, host: &str, pane_id: &str) -> Result<Option<SeatRecord>> {
-        let conn = self.ledger.conn.lock();
-        let mut q = conn.prepare(
-            "SELECT data FROM seat_records WHERE status='active'
-             AND json_extract(data,'$.location.host')=?1
-             AND json_extract(data,'$.location.pane_id')=?2",
-        )?;
-        let rows = q
-            .query_map([host, pane_id], |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        match rows.len() {
-            0 => Ok(None),
-            1 => Ok(Some(serde_json::from_str(&rows[0])?)),
-            _ => Err(ShenkoError::conflict(format!(
-                "multiple active seat records claim pane {pane_id}"
-            ))
-            .into()),
-        }
+        active_seat_at_pane(&self.ledger.conn.lock(), host, pane_id)
     }
 }
 
