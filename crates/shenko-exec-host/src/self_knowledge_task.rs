@@ -481,8 +481,9 @@ mod tests {
     use super::*;
     use shenko_store::TaskInvocation;
     use shenko_types::agent::CallContext;
+    use shenko_types::ids::TaskRevision;
     use shenko_types::store::WriteBatch;
-    use shenko_types::task::{DispatchEligibility, RunMode, TaskOwner, TaskRevision, TaskState};
+    use shenko_types::task::{DispatchEligibility, RunMode, TaskOwner, TaskState};
 
     /// Search/list/get answer from installed resources only; a misspelt kind
     /// or unknown self:// URI is an explicit failure, not an empty verdict.
