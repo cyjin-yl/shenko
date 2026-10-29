@@ -59,11 +59,11 @@ systemd timer 例：`*-*-* *:0/5` 调 `sample`。采样器可以死在任意时�
 
 | 义务 | 状态 |
 | --- | --- |
-| 任何 7/30 天实际窗口 | 没有任何候选长跑结果；schema 2 修复尚待父级执行验证，首个 run 需绑定实际交付候选与环境。 |
+| 任何 7/30 天实际窗口 | 没有任何候选长跑结果；schema 2 已通过短时 procfs/合成故障 smoke，长跑 run 仍需绑定实际交付候选与环境并经过真实墙钟窗口。 |
 | kernel/rescue 常驻 RSS ≤16 MiB、静止 ≤64 MiB（§22 拟定目标） | 未测量；采样拿到实际值后再定值/裁剪。 |
 | 路由器 64 位/512 MB profile、Android profile、多节点长跑 | 未开始；需要真实设备与部署。 |
 | 主体行为正确性（持续思考、消息不丢） | 本工具只看进程资源与存活，不看语义；行为验收仍须产品侧协议证据。 |
 
 ## 自检
 
-`python3 -I scripts/observe_longrun_test.py`：**9 个独立永久场景**，分别为完整窗口精确边界、30 天端点之间的已知采样缺口、缺失 header、撕裂追加尾部、kernel boot-id 路径、换 PID 后样本写入失败再重试、创建日志时目录 fsync、zombie 主体、样本序号跳变。重试场景只包含一次 PID 转换，不另藏同 PID/reappeared 等独立转换；移除了原来分组中重复的其他行为场景，而不是改名隐藏数量。夹具全部是短时合成证据，落在本工作树 `build/`，不是产品/长跑结果。修复作者未执行这些检查，父级负责执行并另做真实 procfs smoke。
+`python3 -I scripts/observe_longrun_test.py`：**9 个独立永久场景**，分别为完整窗口精确边界、30 天端点之间的已知采样缺口、缺失 header、撕裂追加尾部、kernel boot-id 路径、换 PID 后样本写入失败再重试、创建日志时目录 fsync、zombie 主体、样本序号跳变。重试场景只包含一次 PID 转换，不另藏同 PID/reappeared 等独立转换；移除了原来分组中重复的其他行为场景，而不是改名隐藏数量。父级已在 source `17ccbd92` 通过九场景和真实 procfs 短时 smoke；完整回执见 `build/c19-observation-native-20261029/native-17ccbd92-67b907cd/summary.json`。合成副本故障明确标注且原真实 run 保持不变；它们不是 Shenko 产品长跑结果或物理断电证明。
