@@ -80,6 +80,7 @@ pub enum CellKind {
 /// of them; `inspect` returns them with `enforced: false` rather than
 /// pretending a guard exists.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ResourceLimits {
     pub max_wall_clock_ms: Option<u64>,
     pub max_fuel: Option<u64>,
@@ -92,6 +93,7 @@ pub struct ResourceLimits {
 /// Binding of a session to its delegating context (§19: each REPL binds a
 /// task, worker and scope; free-form fields keep this adapter-neutral).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TaskBinding {
     pub task: Option<EntityId>,
     pub worker: Option<EntityId>,
@@ -115,7 +117,7 @@ pub struct StreamPreview {
 
 /// What actually happened when one cell ran.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum CellOutcome {
     /// `_start` returned normally (exit code 0).
     Completed { exit_code: i32 },
@@ -129,6 +131,7 @@ pub enum CellOutcome {
 
 /// Durable record of one executed cell (the R0 journal line).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CellRecord {
     /// "cell"; distinguishes record kinds in one JSONL journal.
     pub kind: String,
@@ -191,6 +194,8 @@ pub struct SessionInfo {
 pub enum SessionState {
     Ready,
     Busy,
+    /// An interrupted restore must be retried before another cell can run.
+    RecoveryRequired,
     Disposed,
 }
 
@@ -219,6 +224,8 @@ pub enum CellRecovery {
     ReceiptOnly,
     /// Unclassifiable cell left for reconciliation; not replayed.
     NeedsReconciliation,
+    /// Historical work retained, but excluded from the current state by reset.
+    BeforeReset { reset: EntityId },
     /// Record could not be trusted (missing/corrupt stream or source file).
     Corrupt { detail: String },
 }
@@ -310,15 +317,17 @@ pub trait ReplSession {
     /// Rebuild this session's interpreter state by re-executing journaled
     /// Pure cells. Declared-effect cells keep their durable record as the
     /// receipt; Unknown cells are reconciliation gaps. External effects are
-    /// never re-executed (§19 replay boundary, A15).
+    /// never re-executed (§19 replay boundary, A15). Rebuild starts from the
+    /// session's immutable baseline (empty after reset), not surviving state.
     fn restore(&mut self) -> anyhow::Result<RecoverReport>;
     /// Create a new session whose guest-visible state is a copy of this
     /// session's; the new session keeps its own journal from scratch.
     fn fork(&self, sessions_root: &std::path::Path) -> anyhow::Result<Box<dyn ReplSession>>;
     /// Report the real interrupt ability; never claims work stopped.
     fn cancel(&self) -> anyhow::Result<CancelOutcome>;
-    /// Remove kernel-declared interpreter state files; journaled work is
-    /// retained. Sessions without declared state files fail, never pretend.
+    /// Durably mark a replay boundary, then remove declared state. Historical
+    /// work remains in the journal but is not resurrected by recovery. A failed
+    /// state removal is retryable, including after reopen.
     fn reset(&mut self) -> anyhow::Result<()>;
     /// R083 surface; currently always reports Unsupported.
     fn install_dependencies(

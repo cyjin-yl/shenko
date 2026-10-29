@@ -2754,6 +2754,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-repl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "cap-std",
+ "serde",
+ "serde_json",
+ "shenko-types",
+ "shenko-wasm",
+ "uuid",
+]
+
+[[package]]
 name = "shenko-seed"
 version = "0.1.0"
 dependencies = [

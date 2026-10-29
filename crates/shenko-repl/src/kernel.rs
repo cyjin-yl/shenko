@@ -4,7 +4,7 @@
 use crate::contract::{BackendKind, ReplRuntime};
 use serde::{Deserialize, Serialize};
 use shenko_wasm::{MountMode, MountSpec};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 /// Where the interpreter command module comes from. The path is re-read and
 /// re-hashed for every cell, so a swapped file fails binding instead of
@@ -18,7 +18,7 @@ pub enum ModuleSource {
 
 /// Guest-side persistence convention (§19.1 cell-model adapter).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum StatePersistence {
     /// The kernel keeps interpreter state inside a guest file under its work
     /// directory (e.g. an interpreter started with a state-file flag). The
@@ -31,6 +31,7 @@ pub enum StatePersistence {
 /// One dependency entry in an environment lock (R083 surface; recording only —
 /// no installer exists yet).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageSpec {
     pub name: String,
     /// Pinned version/url the caller resolved; free-form on purpose.
@@ -39,6 +40,7 @@ pub struct PackageSpec {
 
 /// A real kernel binding for the WASI preview1 backend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KernelProfile {
     /// Stable kernel name, e.g. "python-wasi-3.13".
     pub kernel_id: String,
@@ -176,17 +178,12 @@ pub fn validate_profile(profile: &KernelProfile) -> anyhow::Result<()> {
             }
         }
     }
-    if !profile.workdir_guest.starts_with('/') {
-        bail!("REPL_KERNEL_INVALID: workdir_guest must be absolute");
+    if profile.backend != BackendKind::WasiPreview1 {
+        bail!("REPL_KERNEL_INVALID: only the WASI preview1 backend is implemented");
     }
+    validate_guest_path(&profile.workdir_guest)?;
     if let StatePersistence::GuestFile { guest_path } = &profile.persistence {
-        if !guest_path.starts_with(&profile.workdir_guest) {
-            bail!(
-                "REPL_KERNEL_INVALID: state file {} is outside workdir {}",
-                guest_path,
-                profile.workdir_guest
-            );
-        }
+        state_relative_path(&profile.workdir_guest, guest_path)?;
     }
     for mount in &profile.extra_mounts {
         if mount.mode == MountMode::CopyOnWrite {
@@ -194,4 +191,26 @@ pub fn validate_profile(profile: &KernelProfile) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+fn validate_guest_path(path: &str) -> anyhow::Result<()> {
+    if !path.starts_with('/') || path.contains('\0')
+        || (path != "/" && path[1..].split('/').any(|part| part.is_empty() || part == "." || part == ".."))
+    {
+        anyhow::bail!("REPL_KERNEL_INVALID: non-canonical guest path {path:?}");
+    }
+    Ok(())
+}
+
+/// Component-aware admission: `/home2` is not below `/home`.
+pub(crate) fn state_relative_path(workdir: &str, guest_path: &str) -> anyhow::Result<PathBuf> {
+    validate_guest_path(guest_path)?;
+    let relative = Path::new(guest_path).strip_prefix(workdir)
+        .map_err(|_| anyhow::anyhow!("REPL_KERNEL_INVALID: state path escapes workdir"))?;
+    if relative.as_os_str().is_empty()
+        || relative.components().any(|part| !matches!(part, Component::Normal(_)))
+    {
+        anyhow::bail!("REPL_KERNEL_INVALID: state path must name a file below workdir");
+    }
+    Ok(relative.to_path_buf())
 }

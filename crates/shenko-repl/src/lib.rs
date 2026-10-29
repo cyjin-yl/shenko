@@ -13,6 +13,7 @@ pub mod contract;
 pub mod journal;
 pub mod kernel;
 pub mod session;
+mod state;
 
 pub use contract::*;
 pub use journal::*;

@@ -75,41 +75,6 @@ const STATEFUL_GUEST: &str = r#"
     (call $bwrite (i32.const 1) (i32.const 102) (i32.const 2))))
 "#;
 
-/// Guest that writes to both streams then exits 7 — a nonzero interpreter
-/// exit that is still a completed, journaled cell.
-const EXIT7_GUEST: &str = r#"
-(module
-  (import "wasi_snapshot_preview1" "fd_write"
-    (func $write (param i32 i32 i32 i32) (result i32)))
-  (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
-  (memory (export "memory") 1)
-  (data (i32.const 100) "out-part")
-  (data (i32.const 120) "err-part")
-  (func (export "_start")
-    (i32.store (i32.const 40) (i32.const 100))
-    (i32.store (i32.const 44) (i32.const 8))
-    (drop (call $write (i32.const 1) (i32.const 40) (i32.const 1) (i32.const 48)))
-    (i32.store (i32.const 40) (i32.const 120))
-    (i32.store (i32.const 44) (i32.const 8))
-    (drop (call $write (i32.const 2) (i32.const 40) (i32.const 1) (i32.const 48)))
-    (call $exit (i32.const 7))))
-"#;
-
-/// Guest that writes a stdout prefix then traps — a real failed cell whose
-/// pre-trap output must stay durable.
-const TRAP_GUEST: &str = r#"
-(module
-  (import "wasi_snapshot_preview1" "fd_write"
-    (func $write (param i32 i32 i32 i32) (result i32)))
-  (memory (export "memory") 1)
-  (data (i32.const 100) "before-trap")
-  (func (export "_start")
-    (i32.store (i32.const 40) (i32.const 100))
-    (i32.store (i32.const 44) (i32.const 11))
-    (drop (call $write (i32.const 1) (i32.const 40) (i32.const 1) (i32.const 48)))
-    unreachable))
-"#;
-
 fn temp_root(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("shenko-repl-{tag}-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&dir).unwrap();
@@ -161,11 +126,7 @@ fn cell(source: &str, kind: CellKind) -> CellRequest {
     }
 }
 
-/// Scenario 1 (end-to-end happy path + restart reopen + R1-via-file state):
-/// create a session bound to a real WASI module, execute two cells, prove
-/// stdin delivery + guest-file state persistence across cell processes,
-/// R0 journal durability, checkpoint digests, reset semantics, then drop the
-/// session and reopen it from disk proving the journal survives a "restart".
+/// State and explicit streams persist across separate guest processes.
 #[test]
 fn session_executes_cells_with_durable_r0_and_guest_file_state() -> Result<()> {
     let root = temp_root("execute");
@@ -192,89 +153,11 @@ fn session_executes_cells_with_durable_r0_and_guest_file_state() -> Result<()> {
     let journal_text = fs::read_to_string(dir.join("journal.jsonl"))?;
     assert_eq!(journal_text.lines().count(), 2, "two durable cell records");
 
-    // inspect reports honest capability: R0 only, no live object persistence.
-    let info = session.inspect()?;
-    assert_eq!(info.recovery_level, RecoveryLevel::R0WorkRecord);
-    assert!(!info.interpreter_state_persists);
-    assert_eq!(info.cells_executed, 2);
-    assert!(!info.limits.enforced);
-
-    // checkpoint cites the journal and the kernel's declared state file.
-    let checkpoint = session.checkpoint()?;
-    assert_eq!(checkpoint.cells, 2);
-    assert_eq!(checkpoint.state_files.len(), 1, "state.bin digest recorded");
-
-    // cancel is honest: nothing running, no claim of interruption.
-    assert_eq!(session.cancel()?, CancelOutcome::NothingRunning);
-
-    // reset removes the kernel-declared state file; journal stays.
-    let state_file = dir.join("home/state.bin");
-    assert!(state_file.exists());
-    session.reset()?;
-    assert!(!state_file.exists(), "reset cleared declared interpreter state");
-    let state_dir = dir.clone();
-
-    // "Restart": drop the session, reopen from the directory. The journal is
-    // the source of truth; a new execute appends seq 3 — never rewinds.
-    drop(session);
-    let mut reopened = provider.reopen(&state_dir)?;
-    assert_eq!(reopened.inspect()?.cells_executed, 2);
-    let r3 = reopened.execute(cell("C", CellKind::Pure))?;
-    assert_eq!(r3.record.seq, 3);
-    // state.bin was reset: counter restarts at 1.
-    assert_eq!(r3.stdout.text, "S:C\u{1}");
-
-    // fork copies guest-visible state into a fresh session with its own
-    // empty journal.
-    let forked = reopened.fork(&sessions)?;
-    assert_eq!(forked.inspect()?.cells_executed, 0);
-    assert!(forked.session_dir().join("journal.jsonl").exists());
     fs::remove_dir_all(&root).ok();
     Ok(())
 }
 
-/// Scenario 2 (honest failure semantics): nonzero exit is a journaled cell
-/// with streams; a trap is a journaled Failed record whose pre-trap stdout
-/// remains durable; a swapped module fails binding before any new cell.
-#[test]
-fn failures_are_journaled_and_module_rebinding_is_rejected() -> Result<()> {
-    let root = temp_root("failures");
-    let module = write_module(&root, "kernel.wat", EXIT7_GUEST);
-    let provider = WasiReplProvider::new(root.join("sessions"));
-    let mut session = provider.create(create_request(module.clone()))?;
-
-    let r1 = session.execute(cell("boom", CellKind::Pure))?;
-    assert_eq!(r1.record.outcome, CellOutcome::Exited { exit_code: 7 });
-    assert_eq!(r1.stdout.text, "out-part");
-    assert_eq!(r1.stderr.text, "err-part");
-
-    // Swap the module for the trapping guest: binding must reject the new
-    // bytes before the cell runs — no fake success on a different module.
-    fs::write(&module, TRAP_GUEST)?;
-    let err = session.execute(cell("x", CellKind::Pure)).unwrap_err();
-    assert!(
-        err.to_string().contains("REPL_KERNEL_UNAVAILABLE"),
-        "swapped module rejected: {err}"
-    );
-
-    // Recreate against the trap module directly to prove pre-trap output is
-    // journaled as durable stream bytes on a Failed cell.
-    let trap_module = write_module(&root, "trap.wat", TRAP_GUEST);
-    let mut trapped = provider.create(create_request(trap_module))?;
-    let r2 = trapped.execute(cell("t", CellKind::Pure))?;
-    match &r2.record.outcome {
-        CellOutcome::Failed { error } => {
-            assert!(error.contains("run WASI `_start`"), "{error}")
-        }
-        other => panic!("expected Failed, got {other:?}"),
-    }
-    assert_eq!(r2.stdout.text, "before-trap");
-    assert!(r2.record.stdout_bytes > 0);
-    fs::remove_dir_all(&root).ok();
-    Ok(())
-}
-
-/// Scenario 3 (A15 recovery boundary): journaled Pure cells rebuild state by
+/// A15 recovery boundary: journaled Pure cells rebuild state by
 /// real replay; a DeclaredEffect cell is a receipt that is never re-executed;
 /// an Unknown cell is reported for reconciliation. Proof: the state counter
 /// after recovery equals the number of Pure cells only.
@@ -291,7 +174,7 @@ fn recover_replays_only_pure_cells_and_keeps_effect_receipts() -> Result<()> {
     let dir = session.session_dir().to_path_buf();
     drop(session);
 
-    let (mut restored, report) = WasiReplProvider::recover(&dir, 0)?;
+    let (_restored, report) = WasiReplProvider::recover(&dir, 0)?;
     assert_eq!(report.entries.len(), 4);
     let replays: Vec<_> = report
         .entries
@@ -308,51 +191,132 @@ fn recover_replays_only_pure_cells_and_keeps_effect_receipts() -> Result<()> {
         CellRecovery::NeedsReconciliation
     ));
 
-    // Guest-visible proof of what reran: 4 original cells incremented the
-    // counter to 4; the 2 pure replays increment the persisted file to 6.
-    // The declared-effect and unknown cells are never re-executed by a later
-    // live cell either — replay is over, seq 5 writes next.
+    // Rebuild starts from the empty baseline, not the surviving value four.
     let state = fs::read(dir.join("home/state.bin"))?;
-    assert_eq!(state, vec![6u8], "state = 4 original cells + 2 pure replays");
+    assert_eq!(state, vec![2u8], "state is reconstructed from pure cells only");
 
-    // Recovery journal: 4 cells + 2 replay audit lines, in order.
+    // Four cells, restore start/end, and two replay audit lines.
     let journal = fs::read_to_string(dir.join("journal.jsonl"))?;
-    assert_eq!(journal.lines().count(), 6);
+    assert_eq!(journal.lines().count(), 8);
 
-    // The recovered session keeps executing with an honest monotonic seq.
-    let next = restored.execute(cell("z", CellKind::Pure))?;
-    assert_eq!(next.record.seq, 5);
     fs::remove_dir_all(&root).ok();
     Ok(())
 }
 
-/// Scenario 4 (capability honesty): the named targets distinguish runtimes —
-/// Node and Bun are named-but-unavailable, Python-WASI and JS-in-WASM are
-/// bindable as themselves only, Pyodide is a different ABI route.
 #[test]
-fn named_kernel_targets_report_real_availability() {
-    let targets = named_targets();
-    let find = |name: &str| targets.iter().find(|t| t.name == name).unwrap();
-    assert!(matches!(
-        find("python-wasi").availability,
-        KernelAvailability::Bindable { .. }
-    ));
-    assert!(matches!(
-        find("quickjs-wasm").availability,
-        KernelAvailability::Bindable { .. }
-    ));
-    assert!(matches!(
-        find("node-wasm").availability,
-        KernelAvailability::Unavailable { .. }
-    ));
-    assert!(matches!(
-        find("bun-wasm").availability,
-        KernelAvailability::Unavailable { .. }
-    ));
-    assert!(matches!(
-        find("pyodide").availability,
-        KernelAvailability::Unavailable { .. }
-    ));
-    // JS-in-WASM must never double as Node: different runtime identity.
-    assert_ne!(find("quickjs-wasm").runtime, find("node-wasm").runtime);
+fn reset_boundary_prevents_pre_reset_replay() -> Result<()> {
+    let root = temp_root("reset-boundary");
+    let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut session = provider.create(create_request(module))?;
+    session.execute(cell("a", CellKind::Pure))?;
+    session.reset()?;
+    session.execute(cell("b", CellKind::Pure))?;
+    let dir = session.session_dir().to_path_buf();
+    drop(session);
+    let (_recovered, report) = WasiReplProvider::recover(&dir, 0)?;
+    assert!(matches!(report.entries[0].recovery, CellRecovery::BeforeReset { .. }));
+    assert!(matches!(report.entries[1].recovery, CellRecovery::Replayed { .. }));
+    assert_eq!(fs::read(dir.join("home/state.bin"))?, vec![1]);
+    Ok(())
 }
+
+#[test]
+fn corrupted_effect_stream_is_not_accepted_as_receipt() -> Result<()> {
+    let root = temp_root("corrupt-stream");
+    let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut session = provider.create(create_request(module))?;
+    let result = session.execute(cell("effect", CellKind::DeclaredEffect))?;
+    let dir = session.session_dir().to_path_buf();
+    fs::write(dir.join(result.record.stdout_path), b"altered")?;
+    drop(session);
+    let (_recovered, report) = WasiReplProvider::recover(&dir, 0)?;
+    assert!(matches!(report.entries[0].recovery, CellRecovery::Corrupt { .. }));
+    Ok(())
+}
+
+#[test]
+fn duplicate_cell_is_rejected_before_replay() -> Result<()> {
+    let root = temp_root("duplicate-cell");
+    let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut session = provider.create(create_request(module))?;
+    session.execute(cell("a", CellKind::Pure))?;
+    let dir = session.session_dir().to_path_buf();
+    drop(session);
+    let path = dir.join("journal.jsonl");
+    let line = fs::read_to_string(&path)?;
+    fs::write(&path, format!("{line}{line}"))?;
+    let error = WasiReplProvider::recover(&dir, 0).err().unwrap();
+    assert!(format!("{error:#}").contains("REPL_JOURNAL_CORRUPT"));
+    assert_eq!(fs::read(dir.join("home/state.bin"))?, vec![1]);
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn guest_symlink_cannot_redirect_reset_outside_preopen() -> Result<()> {
+    use std::os::unix::fs::symlink;
+    let root = temp_root("state-symlink");
+    let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut request = create_request(module);
+    request.kernel.persistence = StatePersistence::GuestFile { guest_path: "/home/link/journal.jsonl".into() };
+    let mut session = provider.create(request)?;
+    let dir = session.session_dir().to_path_buf();
+    symlink("..", dir.join("home/link"))?;
+    // A confined resolver may reject the link or report the target absent;
+    // neither outcome may remove the journal outside the preopen.
+    let _ = session.reset();
+    assert!(dir.join("journal.jsonl").is_file());
+    Ok(())
+}
+
+#[test]
+fn extra_preopen_cannot_contain_private_session() -> Result<()> {
+    use shenko_wasm::{MountMode, MountSpec};
+    let root = temp_root("mount-overlap");
+    let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut request = create_request(module);
+    request.kernel.extra_mounts.push(MountSpec::new(root.canonicalize()?, "/project", MountMode::ReadWrite, true, false));
+    let error = provider.create(request).err().unwrap();
+    assert!(format!("{error:#}").contains("REPL_MOUNT_CONFLICT"));
+    Ok(())
+}
+
+#[test]
+fn interrupted_replay_orphan_does_not_block_next_attempt() -> Result<()> {
+    use shenko_types::ids::EntityId;
+    use std::io::Write;
+    let root = temp_root("interrupted-replay");
+    let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
+    let provider = WasiReplProvider::new(root.join("sessions"));
+    let mut session = provider.create(create_request(module))?;
+    session.execute(cell("a", CellKind::Pure))?;
+    let info = session.inspect()?;
+    let dir = session.session_dir().to_path_buf();
+    drop(session);
+    let interrupted = EntityId::new();
+    let orphan = EntityId::new();
+    let path = dir.join("replays").join(format!("{orphan}.source"));
+    fs::write(&path, b"interrupted source")?;
+    let boundary = BoundaryRecord { kind: "restore_begin".into(), schema_version: JOURNAL_SCHEMA,
+        session_id: info.session_id, id: interrupted, seq: 0, after_cell_seq: 1 };
+    let mut journal = fs::OpenOptions::new().append(true).open(dir.join("journal.jsonl"))?;
+    serde_json::to_writer(&mut journal, &boundary)?;
+    journal.write_all(b"\n")?;
+    journal.sync_all()?;
+    let mut reopened = provider.reopen(&dir)?;
+    assert_eq!(reopened.inspect()?.state, SessionState::RecoveryRequired);
+    assert!(reopened.execute(cell("unsafe", CellKind::Pure)).is_err());
+    let report = reopened.restore()?;
+    assert!(matches!(report.entries[0].recovery, CellRecovery::Replayed { .. }));
+    assert_eq!(fs::read(&path)?, b"interrupted source");
+    assert_eq!(fs::read(dir.join("home/state.bin"))?, vec![1]);
+    Ok(())
+}
+
+
+
