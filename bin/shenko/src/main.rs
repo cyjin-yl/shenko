@@ -72,10 +72,78 @@ enum Command {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
+    /// Manage named WASM tools in the seed's managed tool store — SPEC §8.2.
+    /// Artifacts are real upstream WASI binaries; declared targets with no
+    /// verified artifact are reported unresolved, never faked.
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+enum ToolCommand {
+    /// List installed tool records and the honest status of every declared
+    /// named target (toybox, gcc-wasm, git, gh, tea, ssh).
+    List,
+    /// Install a real WASI artifact under a name. `--abi wasi_preview1`
+    /// requires the module to actually import only wasi_snapshot_preview1 and
+    /// export `_start`+`memory`; any other declared ABI is catalogued but not
+    /// executable in this runtime.
+    Install {
+        /// Host path of the artifact (.wasm binary module).
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        /// wasi_preview1 | wasi_component | wasix | host_imports | other
+        #[arg(long)]
+        abi: String,
+        /// Free-form entrypoint label (e.g. /tools/toybox); defaults to /tools/<name>.
+        #[arg(long)]
+        entrypoint: Option<String>,
+        /// Upstream origin URI (informational provenance).
+        #[arg(long)]
+        source_uri: Option<String>,
+        /// Upstream release tag (e.g. v76.0.0).
+        #[arg(long)]
+        source_release: Option<String>,
+        /// e.g. "upstream_release" or "source_build:wasi-sdk-34.0".
+        #[arg(long)]
+        provenance: Option<String>,
+        /// Expected blake3:<hex> digest; install aborts on mismatch.
+        #[arg(long)]
+        expected_digest: Option<String>,
+    },
+    /// Execute an installed tool with real argv/env/stdio under the managed
+    /// mounts. Exit code is reported exactly; tool names resolve against the
+    /// installed registry only — host binaries are never substituted.
+    Exec {
+        /// name or name@version
+        #[arg(long)]
+        tool: String,
+        /// Guest argv after argv[0].
+        #[arg(last = true)]
+        args: Vec<String>,
+        /// KEY=VALUE guest environment entries (repeatable).
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Host file whose bytes become guest stdin (default: empty).
+        #[arg(long)]
+        stdin_file: Option<PathBuf>,
+        /// Host file receiving guest stdout (default: this process's stdout).
+        #[arg(long)]
+        stdout_file: Option<PathBuf>,
+        /// Host file receiving guest stderr (default: this process's stderr).
+        #[arg(long)]
+        stderr_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -152,6 +220,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let result: Result<()> = async {
     match command {
         Command::Node => node_sync::node_command(&data_dir)?,
+        Command::Tool { command } => tool_command(&data_dir, command)?,
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
             let db_path = data_dir.join("shenko.db");
@@ -317,6 +386,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &prepared_home.manifest,
                 &model_profile,
             )?;
+            // The wasi.exec handler keeps only the mount closure and the tool
+            // dir; per-execution it reopens the tool store so installs made
+            // after startup are visible.
+            let wasi_mounts = prepared_home.manifest.mounts.clone();
+            let wasi_tools_dir = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
             drop(prepared_home);
             let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
@@ -356,6 +430,18 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(&store)));
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
+                .await?;
+            // Real named-WASM-tool execution: wasi.exec resolves records in
+            // the managed tool store and runs their exact artifact bytes in
+            // the real WasmRuntime under the home mounts.
+            let wasi_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::WasiExecHandler::new(
+                    Arc::clone(&store),
+                    wasi_mounts.clone(),
+                    wasi_tools_dir.clone(),
+                ));
+            let _native_wasi_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
                 .await?;
             let native_child = supervisor
                 .context()
@@ -758,6 +844,144 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     }.await;
     supervisor.stop().await?;
     result
+}
+
+/// `shenko tool …` — inspect and manage the seed's named WASM tool store.
+/// The store binds to the live installation when a store exists; install and
+/// exec never substitute host binaries for unresolved named targets.
+fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
+    use shenko_wasm::{InputFile, OutputFile, ToolAbi, ToolInstallSpec, ToolSource, ToolStore};
+
+    let tools_dir = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
+    let ledger_id = data_dir
+        .join("shenko.db")
+        .is_file()
+        .then(|| {
+            shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))
+                .map(|store| store.ledger.ledger_id())
+        })
+        .transpose()?;
+    match command {
+        ToolCommand::List => {
+            let store = ToolStore::open(&tools_dir)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "tools": store.records(),
+                    "named_targets": store.named_target_report(),
+                }))?
+            );
+        }
+        ToolCommand::Install {
+            file,
+            name,
+            version,
+            abi,
+            entrypoint,
+            source_uri,
+            source_release,
+            provenance,
+            expected_digest,
+        } => {
+            let abi = match abi.as_str() {
+                "wasi_preview1" => ToolAbi::WasiPreview1,
+                "wasi_component" => ToolAbi::WasiComponent,
+                "wasix" => ToolAbi::Wasix,
+                "host_imports" => ToolAbi::HostImports,
+                "other" => ToolAbi::Other,
+                other => anyhow::bail!("unknown --abi {other:?}"),
+            };
+            let artifact = std::fs::read(&file)
+                .with_context(|| format!("read artifact {}", file.display()))?;
+            let mut store = ToolStore::open(&tools_dir)?;
+            if let Some(id) = ledger_id {
+                store.bind_installation(id)?;
+            }
+            let record = store.install(ToolInstallSpec {
+                name: name.clone(),
+                version,
+                abi,
+                entrypoint: entrypoint.unwrap_or_else(|| format!("/tools/{name}")),
+                source: ToolSource {
+                    uri: source_uri.unwrap_or_default(),
+                    release: source_release.unwrap_or_default(),
+                    provenance: provenance.unwrap_or_else(|| "manual".into()),
+                },
+                expected_digest: expected_digest.map(shenko_types::object::Digest),
+                artifact,
+            })?;
+            println!("{}", serde_json::to_string_pretty(&record)?);
+        }
+        ToolCommand::Exec {
+            tool,
+            args,
+            env,
+            stdin_file,
+            stdout_file,
+            stderr_file,
+        } => {
+            let manifest_path = data_dir.join(shenko_seed::HOME_MANIFEST_FILE);
+            anyhow::ensure!(
+                manifest_path.is_file(),
+                "WASM_PROFILE_UNAVAILABLE: no managed home at {}; run `shenko start` once",
+                manifest_path.display()
+            );
+            let bytes = std::fs::read(&manifest_path)?;
+            let manifest: shenko_seed::HomeManifest = serde_json::from_slice(&bytes)?;
+            let store = ToolStore::open(&tools_dir)?;
+            let (record, module) = store.resolve(&tool)?;
+            let stdin_bytes = match &stdin_file {
+                Some(path) => std::fs::read(path)
+                    .with_context(|| format!("read stdin file {}", path.display()))?,
+                None => Vec::new(),
+            };
+            // Streams always ride real files: an explicit destination file, a
+            // temp file copied to the inherited terminal stream afterwards.
+            let io_dir = std::env::temp_dir().join(format!(
+                "shenko-tool-exec-{}",
+                shenko_types::ids::EntityId::new()
+            ));
+            std::fs::create_dir_all(&io_dir)?;
+            let stdin_path = io_dir.join("stdin.bin");
+            let stdout_path = stdout_file.clone().unwrap_or_else(|| io_dir.join("stdout.bin"));
+            let stderr_path = stderr_file.clone().unwrap_or_else(|| io_dir.join("stderr.bin"));
+            std::fs::write(&stdin_path, &stdin_bytes)?;
+            let mut command = shenko_wasm::WasiCommand::new(
+                InputFile::new(std::fs::File::open(&stdin_path)?),
+                OutputFile::new(std::fs::File::create(&stdout_path)?),
+                OutputFile::new(std::fs::File::create(&stderr_path)?),
+            );
+            let mut arguments = Vec::with_capacity(args.len() + 1);
+            arguments.push(record.name.clone());
+            arguments.extend(args);
+            command.arguments = arguments;
+            for entry in env {
+                let (key, value) = entry
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
+                command.environment.push((key.into(), value.into()));
+            }
+            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(manifest.mounts.clone())?;
+            let code = runtime.run_wasi_module(&module, command);
+            if stdout_file.is_none() {
+                use std::io::Write as _;
+                std::io::stdout().write_all(&std::fs::read(&stdout_path).unwrap_or_default())?;
+            }
+            if stderr_file.is_none() {
+                use std::io::Write as _;
+                std::io::stderr().write_all(&std::fs::read(&stderr_path).unwrap_or_default())?;
+            }
+            let _ = std::fs::remove_dir_all(&io_dir);
+            match code {
+                Ok(code) => std::process::exit(code),
+                Err(error) => {
+                    eprintln!("wasi exec transport error: {error:#}");
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Deterministic no-model service: keep the existing UI, configuration and

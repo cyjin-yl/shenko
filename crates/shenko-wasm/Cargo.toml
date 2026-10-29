@@ -19,5 +19,8 @@ async-trait = { workspace = true }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 
+[dev-dependencies]
+wat = "1"
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

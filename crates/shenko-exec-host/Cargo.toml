@@ -9,6 +9,7 @@ license.workspace = true
 shenko-types = { path = "../shenko-types" }
 shenko-store = { path = "../shenko-store" }
 shenko-subject = { path = "../shenko-subject" }
+shenko-wasm = { path = "../shenko-wasm" }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

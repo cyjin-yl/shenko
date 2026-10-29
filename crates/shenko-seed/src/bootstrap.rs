@@ -3,7 +3,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{EntityId, RuntimeGeneration};
 use shenko_types::object::ObjectRef;
-use shenko_wasm::{HOME_GUEST_PATH, MountMode, MountSpec, WasiCommand, WasmRuntime};
+use shenko_wasm::{
+    HOME_GUEST_PATH, MountMode, MountSpec, TOOL_DIR_NAME, ToolStore, WasiCommand, WasmRuntime,
+};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -170,6 +172,10 @@ pub struct PreparedHome {
     /// Kept only for the bootstrap phase; the caller drops it before the main
     /// loop so merely holding a home does not keep an engine per subject step.
     pub runtime: WasmRuntime,
+    /// The managed named-WASM-tool store (`<data>/tools`), bound to this
+    /// installation and verified on open. Tools install real artifact bytes
+    /// under names; unresolved named targets stay explicit (SPEC §8.2/R008).
+    pub tools: ToolStore,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,10 +276,10 @@ impl Bootstrap {
         }
         let manifest_exists = root.join(HOME_MANIFEST_FILE).exists();
         let store_exists = root.join("shenko.db").exists();
-        if !manifest_exists && !store_exists {
+            if !manifest_exists && !store_exists {
             for entry in fs::read_dir(root)? {
                 let name = entry?.file_name();
-                if name != "home" && name != "memory" {
+                if name != "home" && name != "memory" && name != TOOL_DIR_NAME {
                     bail!(
                         "DATA_PATH_CONFLICT: unrecognized data in {}; choose a new path or import explicitly",
                         root.display()
@@ -281,7 +287,7 @@ impl Bootstrap {
                 }
             }
         }
-        for managed in ["home", "memory"] {
+        for managed in ["home", "memory", TOOL_DIR_NAME] {
             let path = root.join(managed);
             if path.exists() && !path.is_dir() {
                 bail!("DATA_PATH_CONFLICT: {} is not a directory", path.display());
@@ -491,10 +497,17 @@ impl Bootstrap {
             manifest.state = HomeState::Ready;
             persist_manifest(&manifest_path, &manifest)?;
         }
+        // Open and bind the managed named-WASM-tool store. Open re-verifies
+        // every recorded artifact's digest (stable reopen); binding prevents
+        // adopting a foreign installation's registry. Unresolved named
+        // targets stay explicit — nothing is installed by declaration alone.
+        let mut tools = ToolStore::open(&root.join(TOOL_DIR_NAME))?;
+        tools.bind_installation(installation_id)?;
         Ok(PreparedHome {
             manifest,
             manifest_path,
             runtime,
+            tools,
         })
     }
 }
@@ -630,6 +643,14 @@ fn home_capabilities() -> BTreeMap<String, Capability> {
         "copy_on_write_mounts",
         CapabilityStatus::Unsupported,
         "COW requests fail explicitly; never downgraded to direct RW",
+    );
+    add(
+        "named_wasm_tools",
+        CapabilityStatus::Available,
+        "managed <data>/tools store installs real WASI preview1 artifacts by \
+         digest and runs them via wasi.exec; declared targets without a \
+         verified artifact stay TOOL_UNSUPPORTED (toybox, gcc-wasm, git, gh, \
+         tea, ssh unresolved — see tools store report)",
     );
     add(
         "live_wasm_memory_checkpoint",
