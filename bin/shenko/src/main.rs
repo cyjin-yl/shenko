@@ -2387,7 +2387,7 @@ mod recovery_integration_tests {
             serde_json::json!({"backend":"x11","display":display.as_str()})).await;
         let opened_b_n = op_normalized(&fixture, opened_b.operation_id);
         let session_b: EntityId = opened_b_n["session"]["session_id"].as_str().unwrap().parse().unwrap();
-        assert_eq!(opened_b_n["session"]["domain_id"].as_str().unwrap(), domain_id,
+        assert_eq!(opened_b_n["session"]["domain_id"].as_str().unwrap(), domain_id.as_str(),
             "sessions on one display share the lease domain");
 
         let a = drive_native(&fixture, &fixture.handlers.lease, ids[2],
