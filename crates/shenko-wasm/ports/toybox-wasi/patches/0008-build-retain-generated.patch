@@ -1,0 +1,107 @@
+--- a/scripts/single.sh
++++ b/scripts/single.sh
+@@ -55,6 +55,6 @@
+     "$KCONFIG_CONFIG" || exit 1
+ 
+   export OUTNAME="$PREFIX$i"
+-  rm -f "$OUTNAME" &&
++  "$SHENKO_TOYBOX_RETAIN" -f "$OUTNAME" &&
+   scripts/make.sh || exit 1
+ done
+--- a/scripts/make.sh
++++ b/scripts/make.sh
+@@ -90,7 +90,7 @@
+ # Force full rebuild if our compiler/linker options changed
+ OBJDIR="$UNSTRIPPED/obj"
+ cmp -s <(compflags | grep '#d') <(grep '#d' "$GENDIR"/build.sh 2>/dev/null) ||
+-  rm -rf "$UNSTRIPPED"
++  "$SHENKO_TOYBOX_RETAIN" -rf "$UNSTRIPPED" || exit 1
+ mkdir -p "$OBJDIR" "$(dirname $OUTNAME)" || exit 1
+ 
+ # Extract a list of toys/*/*.c files to compile from the data in $KCONFIG_CONFIG
+@@ -199,5 +199,5 @@
+ else
+-  rm -f "$GENDIR"/zhelp.h
++  "$SHENKO_TOYBOX_RETAIN" -f "$GENDIR"/zhelp.h || exit 1
+ fi
+ 
+ [ -n "$NOBUILD" ] && exit 0
+@@ -211,8 +211,8 @@
+ X="$(ls -1t "$OBJDIR"/* 2>/dev/null | tail -n 1)"
+ if [ ! -e "$X" ] || [ -n "$(find toys -name "*.h" -newer "$X")" ]
+ then
+-  rm -f "$OBJDIR"/*.o || exit 1
++  "$SHENKO_TOYBOX_RETAIN" -f "$OBJDIR"/*.o || exit 1
+ else
+   # always redo toy_list[] and help_data[]
+-  rm -f "$OBJDIR"/main.o || exit 1
++  "$SHENKO_TOYBOX_RETAIN" -f "$OBJDIR"/main.o || exit 1
+ fi
+@@ -251,7 +251,7 @@
+   ! do_loudly ${CROSS_COMPILE}${STRIP} "$UNSTRIPPED" -o "$OUTNAME"
+ then
+   [ -z "$NOSTRIP" ] && echo "strip failed, using unstripped"
+-  rm -f "$OUTNAME" &&
++  "$SHENKO_TOYBOX_RETAIN" -f "$OUTNAME" &&
+   cp "$UNSTRIPPED" "$OUTNAME" || exit 1
+ fi
+ 
+--- a/scripts/genconfig.sh
++++ b/scripts/genconfig.sh
+@@ -44,7 +44,7 @@
+ }
+ 
+-genconfig > "$GENDIR"/Config.in || { rm "$GENDIR"/Config.in; exit 1; }
++genconfig > "$GENDIR"/Config.in || { "$SHENKO_TOYBOX_RETAIN" "$GENDIR"/Config.in; exit 1; }
+ 
+ # Find names of commands that can be built standalone in these C files
+ toys()
+ {
+@@ -65,7 +65,7 @@
+   [ "${FILE/pending//}" != "$FILE" ] && PENDING="$PENDING $NAME" ||
+     WORKING="$WORKING $NAME"
+ done &&
+-echo -e "clean::\n\t@rm -f $WORKING $PENDING" &&
++echo -e "clean::\n\t@\"$SHENKO_TOYBOX_RETAIN\" -f $WORKING $PENDING" &&
+ echo -e "list:\n\t@echo $(echo $WORKING | tr ' ' '\n' | sort | xargs)" &&
+ echo -e "list_example:\n\t@echo $(echo $EXAMPLE | tr ' ' '\n' | sort | xargs)"&&
+ echo -e "list_pending:\n\t@echo $(echo $PENDING | tr ' ' '\n' | sort | xargs)"&&
+@@ -79,10 +79,10 @@
+   # when $KCONFIG_ALLCONFIG and $KCONFIG_CONFIG are the same, redirect would zap
+   if [ "$KCONFIG_ALLCONFIG" -ef "$KCONFIG_CONFIG" ]
+   then
+-    X=$(mktemp) &&
+-    mv "$KCONFIG_ALLCONFIG" $X &&
+-    export KCONFIG_ALLCONFIG=$X &&
+-    trap "rm -f $X" EXIT || exit 1
++    X=$(mktemp -d) &&
++    X="$X/config" &&
++    cp -- "$KCONFIG_ALLCONFIG" "$X" &&
++    export KCONFIG_ALLCONFIG="$X" || exit 1
+   fi
+   brun kconfig "$1" > "${KCONFIG_CONFIG:-.config}"
+ fi
+--- a/Makefile
++++ b/Makefile
+@@ -88,14 +88,14 @@
+ root_clean:
+-	@rm -rf root
+-	@echo root cleaned
++	@"$(SHENKO_TOYBOX_RETAIN)" -rf root
++	@echo root archived
+ 
+ clean::
+ 	@chmod -fR 700 generated 2>/dev/null || true
+-	@rm -rf toybox generated change install .singleconfig*
+-	@rm -rf prereq prereq.mini toybox-prereq
+-	@echo cleaned
++	@"$(SHENKO_TOYBOX_RETAIN)" -rf toybox generated change install .singleconfig*
++	@"$(SHENKO_TOYBOX_RETAIN)" -rf prereq prereq.mini toybox-prereq
++	@echo generated paths archived
+ 
+ # If singlemake was in generated/ "make clean; make test_ls" wouldn't work.
+ distclean: clean root_clean
+-	@rm -f toybox* .config* .singlemake
+-	@echo removed .config
++	@"$(SHENKO_TOYBOX_RETAIN)" -f toybox* .config* .singlemake
++	@echo configs archived

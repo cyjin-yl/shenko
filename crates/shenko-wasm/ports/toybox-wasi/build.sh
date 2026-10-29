@@ -4,10 +4,10 @@
 #
 # The caller supplies a fresh directory on persistent storage. This script
 # claims it with mkdir (no reuse), retains the probe, applets, receipt and
-# logs, and unpacks a private vendor tree there. Upstream single.sh/make.sh
-# remove their own output/generated/object files while rebuilding: all such
-# paths, including mktemp scratch, are confined to this new run. Existing
-# source trees, project inputs and previous runs are never build directories.
+# logs, and unpacks a private vendor tree there. Patch 0008 replaces upstream
+# cleanup calls with explicit move-to-archive operations, including generated
+# object files. No rm command is masked and no existing file is deleted.
+# Existing trees, project inputs and previous runs are never build directories.
 # Nothing is downloaded. Requires host cc, GNU make, bash, patch, tar and
 # coreutils in addition to the selected WASI SDK.
 set -euo pipefail
@@ -32,8 +32,12 @@ mkdir -- "$RUN_DIR" || {
   exit 2
 }
 RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
-mkdir -- "$RUN_DIR/applets" "$RUN_DIR/vendor" "$RUN_DIR/scratch" "$RUN_DIR/logs"
+mkdir -- "$RUN_DIR/applets" "$RUN_DIR/vendor" "$RUN_DIR/scratch" "$RUN_DIR/logs" "$RUN_DIR/retired"
 cp -- "$PORT_DIR/miniconfig.wasi" "$RUN_DIR/miniconfig.wasi"
+cp -- "$PORT_DIR/retain-generated.sh" "$RUN_DIR/retain-generated.sh"
+printf 'action\toriginal_path\tretained_path\n' > "$RUN_DIR/retired/INDEX.tsv"
+export SHENKO_TOYBOX_RUN_DIR="$RUN_DIR"
+export SHENKO_TOYBOX_RETAIN="$RUN_DIR/retain-generated.sh"
 
 # Override upstream output locations, not just the applet destination. In
 # particular, genconfig may move/remove KCONFIG_ALLCONFIG if it aliases the
@@ -98,6 +102,7 @@ done
   printf 'wasi_sdk=%s\nsource_archive=%s\nsource_sha256=%s\nCPUS=1\nbuilt=%s\n' \
     "$WASI_SDK" "$SOURCE_ARCHIVE" "$SOURCE_SHA256" "$built"
   printf 'skipped_config_only=%s\n' "${skipped[*]:-none}"
+  printf 'retirement_index=%s/retired/INDEX.tsv\n' "$RUN_DIR"
   for f in "$RUN_DIR"/applets/*; do
     [ -f "$f" ] && sha256sum -- "$f"
   done

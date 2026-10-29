@@ -19,14 +19,25 @@ sha256sum toybox-0.8.15.tar.gz
 
 ## 2. Private patched vendor tree
 
-`build.sh` unpacks the pinned archive into `<run>/vendor/` and applies all
-seven patches with `--fuzz=0`; the patch logs are retained in `<run>/logs/`.
+`build.sh` unpacks the pinned archive into `<run>/vendor/` and applies the
+patches with `--fuzz=0`; the patch logs are retained in `<run>/logs/`.
 Do not patch or build in an existing upstream or project source tree.
-Upstream scripts remove/rewrite generated files and their own output while
-building; `GENDIR`, `UNSTRIPPED`, config paths and `TMPDIR` are therefore
-confined to the new run. The product miniconfig is copied, never moved or
-offered as the generated-config output. Builds enforce `CPUS=1` and
-`MAKEFLAGS=-j1`.
+Upstream scripts normally delete generated files and their own output while
+building. Patch `0008-build-retain-generated.patch` changes each cleanup in
+single.sh/make.sh/genconfig.sh and the Makefile to call `retain-generated.sh`:
+existing targets are **moved**, with their original paths recorded, into
+`<run>/retired/item.*/payload`. `retired/INDEX.tsv` records moved and absent
+targets. Failure to archive propagates to the original failure boundary;
+there is no suppressed `rm`, successful no-op cleanup, or deletion fallback.
+The config-alias branch copies into retained run-owned scratch instead of
+moving the input and deleting it on exit.
+
+`GENDIR`, `UNSTRIPPED`, config paths and `TMPDIR` are confined to the run;
+retirement rejects paths or ancestors outside its vendor/applets/scratch
+trees. The product miniconfig is copied, never moved or offered as the
+generated-config output. Builds enforce `CPUS=1` and `MAKEFLAGS=-j1`.
+This retention patch/helper has not been executed or build-verified by the
+worker; guarded parent verification must check the real archive receipts.
 
 ## 3. WASI SDK
 
