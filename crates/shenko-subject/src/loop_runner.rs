@@ -548,7 +548,7 @@ async fn quota_dispatch_gate(
     request_id: EntityId,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<QuotaGate, ShenkoError> {
-    use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence, SourceKind};
+    use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
 
     let Some(policy) = store.latest_quota_policy()? else {
         return Ok(QuotaGate::Ready);
@@ -800,9 +800,6 @@ fn observe_quota_response(
     }) else {
         return;
     };
-    if provider_id != binding.profile_id() {
-        return;
-    }
     let context = shenko_quota::ObservationContext {
         provider_id,
         account_scope_ref: scope,
