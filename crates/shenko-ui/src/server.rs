@@ -17,9 +17,10 @@ pub struct UiServer {
     pub playground_root: PathBuf,
     /// Data directory reported by `/api/config`. None = unknown.
     data_dir: Option<PathBuf>,
-    /// Read-only store handle for `/api/tasks`. None = endpoint reports
-    /// `available: false` instead of inventing task rows.
+    /// Durable task/input store. Without it task APIs and Playground writes
+    /// report unavailable rather than admitting volatile effects.
     store: Option<std::sync::Arc<shenko_store::store::Store>>,
+    native: Option<Arc<shenko_subject::NativeChildService>>,
     inference: Option<api::InferenceStatus>,
     inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>>,
 }
@@ -32,6 +33,7 @@ impl UiServer {
             playground_root: default_playground_root(),
             data_dir: None,
             store: None,
+            native: None,
             inference: None,
             inbox_tx: None,
         }
@@ -39,6 +41,11 @@ impl UiServer {
 
     pub fn ws_state(&self) -> WsState {
         self.state.clone()
+    }
+
+    pub fn with_native(mut self, native: Arc<shenko_subject::NativeChildService>) -> Self {
+        self.native = Some(native);
+        self
     }
 
     /// Point the persistent Playground at `<data_dir>/playground`. SPEC §43.2.
@@ -93,16 +100,13 @@ impl UiServer {
     pub async fn run(self) -> Result<()> {
         // Playground shares the inbox the WS handler already writes to, so
         // artifact changes are perceived by the same subject loop. SPEC §43.2.
-        let mut playground_state = PlaygroundState::new(self.playground_root);
-        if let Some(inbox_tx) = self.inbox_tx.clone() {
-            playground_state = playground_state.with_inbox(inbox_tx);
-        }
-        // The durable store lets the backend bind modules, inputs and
-        // receipts into CAS; without it the artifact files stay the truth.
-        if let Some(store) = self.store.clone() {
-            playground_state = playground_state.with_store(store);
-        }
-        let playground_root = playground_state.root().to_path_buf();
+        let playground_root = self.playground_root;
+        let playground_state = if let Some(store) = self.store.clone() {
+            let mut pg = PlaygroundState::open(playground_root.clone(), store)?;
+            if let Some(tx) = self.inbox_tx.clone() { pg = pg.with_inbox(tx); }
+            if let Some(native) = self.native.clone() { pg = pg.with_native(native); }
+            Some(pg)
+        } else { None };
 
         // Observe the subject outbox independently of any browser client, so
         // `/api/self` knows the last committed thought step and whether the
@@ -131,9 +135,15 @@ impl UiServer {
         }
         // Shared Arc registries: `/api/self` reports the same live objects the
         // Playground routes and WS handler use, not a second copy.
-        api_state = api_state.with_playground(playground_state.clone());
+        if let Some(pg) = playground_state.clone() { api_state = api_state.with_playground(pg); }
         api_state = api_state.with_live(Arc::clone(&self.state.live));
 
+        let playground_routes = match playground_state {
+            Some(pg) => playground::router(pg),
+            None => Router::new()
+                .route("/playground", axum::routing::any(playground_unavailable))
+                .route("/playground/{*path}", axum::routing::any(playground_unavailable)),
+        };
         let app = Router::new()
             .route("/", get(index_handler))
             .route("/assets/app.js", get(app_js_handler))
@@ -148,7 +158,7 @@ impl UiServer {
             .route("/assets/licenses/REACT-DOM-LICENSE", get(react_dom_license_handler))
             .route("/health", get(health_handler))
             .route("/ws", get(ws_handler))
-            .merge(playground::router(playground_state))
+            .merge(playground_routes)
             .merge(api::router(api_state))
             .layer(Extension(self.state));
         info!(addr=%self.bind, playground=%playground_root.display(), "UI server starting");
@@ -156,6 +166,11 @@ impl UiServer {
         axum::serve(listener, app).await?;
         Ok(())
     }
+}
+
+async fn playground_unavailable() -> (axum::http::StatusCode, axum::Json<serde_json::Value>) {
+    (axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        axum::Json(serde_json::json!({"accepted":false,"error":"Playground requires a durable Store and subject"})))
 }
 
 /// Fallback used by `UiServer::new` when the caller does not pass a data dir.

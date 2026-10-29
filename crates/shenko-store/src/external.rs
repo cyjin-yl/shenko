@@ -19,6 +19,14 @@ pub struct TaskInvocation {
     pub node_id: EntityId,
 }
 
+/// Result of a durable inbox admission: the caller learns whether its row
+/// was new or already admitted identically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboxAdmission {
+    Inserted,
+    Replay,
+}
+
 impl Store {
     pub fn close_external_writer(&self) {
         self.ledger.close_writer();
@@ -184,6 +192,87 @@ impl Store {
         )?;
         tx.commit()?;
         Ok(None)
+    }
+
+    /// Durably admit one subject inbox event from an external producer.
+    ///
+    /// This is the pending durable row the subject drains each step; the
+    /// caller's separate volatile wake (try_send) is not the admission. A
+    /// replay of the same event_id with the same facts returns
+    /// [`InboxAdmission::Replay`]; a different fact under the same event_id
+    /// is a conflict, matching raw-session rules. The subject head must
+    /// exist so the event has a real drain owner.
+    pub fn admit_inbox_event(
+        &self,
+        event_id: EntityId,
+        agent_id: EntityId,
+        kind: &str,
+        source: &str,
+        data: &serde_json::Value,
+    ) -> Result<InboxAdmission> {
+        ensure!(
+            data.get("event_id").and_then(serde_json::Value::as_str) == Some(event_id.to_string().as_str())
+                && data.get("kind").and_then(serde_json::Value::as_str) == Some(kind)
+                && data.get("source").and_then(serde_json::Value::as_str) == Some(source)
+                && data.get("payload").is_some_and(serde_json::Value::is_object)
+                && data.get("created_at").is_some_and(serde_json::Value::is_string),
+            "inbox admission needs the complete original event identity/payload/timestamp"
+        );
+        self.ledger.with_mutation(
+            || {
+                let mut c = self.ledger.conn.lock();
+                let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                // A head must exist or nothing would ever drain this event.
+                let _: String = tx.query_row(
+                    "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                    [agent_id.to_string()],
+                    |r| r.get(0),
+                )?;
+                let existing: Option<(String, String, String, String)> = tx
+                    .query_row(
+                        "SELECT agent_id, kind, source, data FROM inbox_events WHERE event_id=?1",
+                        [event_id.to_string()],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    )
+                    .optional()?;
+                let serialized = serde_json::to_string(data)?;
+                if let Some((stored_agent, stored_kind, stored_source, stored_data)) = existing {
+                    ensure!(
+                        stored_agent == agent_id.to_string()
+                            && stored_kind == kind
+                            && stored_source == source
+                            && stored_data == serialized,
+                        "inbox_event_conflict: same event_id with different facts"
+                    );
+                    tx.commit()?;
+                    return Ok(InboxAdmission::Replay);
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                tx.execute(
+                    "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data)
+                     VALUES(?1,?2,?3,?4,0,?5)",
+                    params![
+                        event_id.to_string(),
+                        agent_id.to_string(),
+                        kind,
+                        source,
+                        serialized,
+                    ],
+                )?;
+                tx.execute(
+                    "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,1)",
+                    params![
+                        commit.ledger_id.to_string(),
+                        commit.seq.0 as i64,
+                        self.capabilities.incarnation.to_string()
+                    ],
+                )?;
+                tx.commit()?;
+                Ok(InboxAdmission::Inserted)
+            },
+            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
     }
 
     /// Evidence may arrive after cancellation/epoch change. This method does

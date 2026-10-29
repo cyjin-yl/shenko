@@ -144,6 +144,13 @@ impl Store {
         )
     }
 
+    /// Read one durable task record without claiming it. Returns `None` for
+    /// an unknown id instead of a storage error.
+    pub fn get_task(&self, id: EntityId) -> Result<Option<TaskRecord>> {
+        let conn = self.ledger.conn.lock();
+        read_task(&conn, id)
+    }
+
     /// One bounded page of dispatchable work strictly after `after`, ordered by
     /// the same stable key as recovery. `after` is a scan position, not a
     /// completion watermark: callers wrap to the beginning when a page is short.
@@ -374,6 +381,85 @@ impl Store {
             },
             storage_failure,
         )
+    }
+
+    /// Admit a fresh native task durably outside a subject S1 decision.
+    ///
+    /// This is the same task ledger dispatch already scans — no second
+    /// queue. Callers that produce deterministic work ids (Playground
+    /// backend actions keyed by (artifact_id, request_id)) get either the
+    /// inserted task or the stored task back; dedup/conflict semantics on
+    /// the stored input belong to the caller, which reads the returned
+    /// record. The frozen input object must already be sealed in CAS, the
+    /// owning subject head must exist, and the record must be a Pending,
+    /// Ready native task. The input event commits in the SAME transaction,
+    /// before any accepted response. Claims still require the dispatcher
+    /// owner; admission alone never authorizes a guest/process effect.
+    pub fn admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
+        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event), storage_failure)
+    }
+
+    fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(existing) = read_task(&tx, task.task_id)? {
+            tx.commit()?;
+            return Ok(Some(existing));
+        }
+        // The subject head must exist or this task would be undispatchable
+        // forever: claims resolve the owner chain against the live head.
+        read_head(&tx, task.agent_id)?;
+        ensure!(
+            matches!(task.state, TaskState::Pending { .. })
+                && matches!(task.dispatch_eligibility, DispatchEligibility::Ready)
+                && task.abort_request.is_none()
+                && task.record_revision == RecordRevision(0)
+                && task.task_revision == TaskRevision(0)
+                && task.memos.contains_key(NATIVE_INPUT)
+                && task.memos.contains_key("intent_id")
+                && !task.memos.contains_key(NATIVE_CHILD)
+                && input_event.agent_id == task.agent_id
+                && !input_event.kind.is_empty()
+                && !input_event.source.is_empty(),
+            "native_task_not_admissible"
+        );
+        // The frozen input object is part of admission: a task whose CAS
+        // input cannot be resolved would die parked as input_unavailable.
+        let bytes = self.cas.read_object(&task.input_ref.digest)?;
+        ensure!(
+            bytes.len() as u64 == task.input_ref.bytes
+                && Digest::blake3(&bytes) == task.input_ref.digest,
+            "native_input_object_mismatch"
+        );
+        let seq = self.ledger.allocate_seq(&tx)?;
+        let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        let mut admitted = task.clone();
+        admitted.created_commit = commit;
+        admitted.updated_commit = commit;
+        tx.execute(
+            "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![
+                admitted.task_id.to_string(),
+                admitted.record_revision.0 as i64,
+                serde_json::to_string(&admitted)?,
+                seq.0 as i64,
+            ],
+        )?;
+        let event: serde_json::Value = serde_json::from_str(&input_event.payload_json)?;
+        ensure!(event.get("event_id").and_then(serde_json::Value::as_str) == Some(input_event.event_id.to_string().as_str())
+            && event.get("source").and_then(serde_json::Value::as_str) == Some(input_event.source.as_str())
+            && event.get("kind").and_then(serde_json::Value::as_str) == Some(input_event.kind.as_str())
+            && event.get("payload").is_some_and(serde_json::Value::is_object)
+            && event.get("created_at").is_some_and(serde_json::Value::is_string),
+            "native admission input must be a complete original event object");
+        tx.execute(
+            "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data) VALUES(?1,?2,?3,?4,0,?5)",
+            params![input_event.event_id.to_string(), input_event.agent_id.to_string(),
+                input_event.kind, input_event.source, input_event.payload_json],
+        )?;
+        child_log(&tx, self, commit, 2)?;
+        tx.commit()?;
+        Ok(None)
     }
 
     /// Durable cancellation fences the old task revision before any signal.

@@ -2848,7 +2848,9 @@ name = "shenko-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
+ "blake3",
  "bytes",
  "chrono",
  "futures",
@@ -2859,6 +2861,7 @@ dependencies = [
  "shenko-store",
  "shenko-subject",
  "shenko-types",
+ "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.26.2",
