@@ -22,6 +22,27 @@ use shenko_types::ids::EntityId;
 /// outcome is declared unknown. SPEC §35.6.
 pub const SEND_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// Credential-free endpoint provenance: scheme, host and port only.
+/// Userinfo, path, query and fragment are stripped so tokens or secrets
+/// embedded in a configured URL can never reach logs, resource bindings or
+/// sealed evidence. An unparseable URL reports a fixed marker, never raw text.
+pub fn endpoint_provenance(ws_url: &str) -> String {
+    match Url::parse(ws_url) {
+        Ok(parsed) => {
+            let mut endpoint = format!(
+                "{}://{}",
+                parsed.scheme(),
+                parsed.host_str().unwrap_or("<redacted>")
+            );
+            if let Some(port) = parsed.port() {
+                endpoint.push_str(&format!(":{port}"));
+            }
+            endpoint
+        }
+        Err(_) => "<unparseable ws_url>".to_string(),
+    }
+}
+
 /// Pending outbound actions, keyed by echo token.
 pub type PendingActions =
     Arc<parking_lot::Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>;
@@ -64,6 +85,136 @@ pub struct SendReceipt {
 impl SendReceipt {
     pub fn is_success(&self) -> bool {
         self.retcode == 0 && self.status != "failed"
+    }
+}
+
+/// Read-only OneBot v11 query actions — SPEC §15.2, §16.
+///
+/// This is the *only* wire surface admitted for contact/identity reads. A
+/// caller cannot name an arbitrary action: the allowlist is the type itself,
+/// so a contact query can never reach `send_*` or another effectful action.
+/// The request is correlated by `echo` exactly like outbound sends; a missing
+/// response stays unknown, never an empty contact list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactQuery {
+    /// `get_login_info` — observed bot identity bound to this connection.
+    LoginInfo,
+    /// `get_friend_list` — full friend list (paginated client-side).
+    FriendList,
+    /// `get_stranger_info` — one platform profile by exact unsigned user id.
+    StrangerInfo { user_id: u64, no_cache: bool },
+    /// `get_group_list` — full group list (paginated client-side).
+    GroupList,
+    /// `get_group_member_list` — all members of one exact group.
+    GroupMemberList { group_id: u64 },
+    /// `get_group_member_info` — one exact member in one exact group.
+    GroupMemberInfo { group_id: u64, user_id: u64, no_cache: bool },
+}
+
+impl ContactQuery {
+    /// The fixed read-only OneBot action allowlist.
+    pub const ACTIONS: &'static [&'static str] = &[
+        "get_login_info",
+        "get_friend_list",
+        "get_stranger_info",
+        "get_group_list",
+        "get_group_member_list",
+        "get_group_member_info",
+    ];
+
+    fn action(self) -> &'static str {
+        match self {
+            Self::LoginInfo => "get_login_info",
+            Self::FriendList => "get_friend_list",
+            Self::StrangerInfo { .. } => "get_stranger_info",
+            Self::GroupList => "get_group_list",
+            Self::GroupMemberList { .. } => "get_group_member_list",
+            Self::GroupMemberInfo { .. } => "get_group_member_info",
+        }
+    }
+
+    fn params(self) -> serde_json::Value {
+        match self {
+            Self::LoginInfo | Self::FriendList | Self::GroupList => {
+                serde_json::Value::Null
+            }
+            Self::StrangerInfo { user_id, no_cache } => {
+                serde_json::json!({ "user_id": user_id, "no_cache": no_cache })
+            }
+            Self::GroupMemberList { group_id } => {
+                serde_json::json!({ "group_id": group_id })
+            }
+            Self::GroupMemberInfo {
+                group_id,
+                user_id,
+                no_cache,
+            } => serde_json::json!({
+                "group_id": group_id,
+                "user_id": user_id,
+                "no_cache": no_cache,
+            }),
+        }
+    }
+}
+
+/// The observed provenance of one read-only query exchange: the exact action,
+/// its echo token, which account/channel answered, when, and the untouched
+/// raw frame. A caller must classify `raw` itself — a nonzero retcode or a
+/// response carrying another account's `self_id` is a real observation, not a
+/// silently failed request.
+#[derive(Debug, Clone)]
+pub struct QueryReceipt {
+    /// The OneBot action that was actually sent (allowlist member).
+    pub action: &'static str,
+    /// Correlation token; identical semantics to outbound sends.
+    pub echo: String,
+    /// When this process observed the matched raw response.
+    pub observed_at: chrono::DateTime<chrono::Utc>,
+    /// Configured local account the connector serves (`bot_qq`), recorded as
+    /// provenance — the observed `self_id` inside `raw` may legitimately
+    /// disagree and must be classified, not ignored.
+    pub configured_account: u64,
+    /// The connector endpoint in credential-free form (scheme/host/port only).
+    pub ws_url: String,
+    /// The complete unmodified response frame matched to `echo`.
+    pub raw: serde_json::Value,
+}
+
+impl QueryReceipt {
+    /// The observed connection account, if the response carried `self_id`.
+    /// A `0` or otherwise unexpected value still surfaces verbatim — callers
+    /// classify it via `foreign_self_id()` rather than trusting the frame.
+    pub fn observed_self_id(&self) -> Option<u64> {
+        self.raw.get("self_id").and_then(|v| v.as_u64())
+    }
+
+    /// `Some(id)` only when the response binds an account that is not the
+    /// configured one — a foreign-account admission attempt.
+    pub fn foreign_self_id(&self) -> Option<u64> {
+        match self.observed_self_id() {
+            Some(id) if id != self.configured_account => Some(id),
+            _ => None,
+        }
+    }
+
+    /// Parsed convenience view; `raw` remains authoritative.
+    pub fn receipt(&self) -> SendReceipt {
+        SendReceipt {
+            echo: self.echo.clone(),
+            status: self
+                .raw
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            retcode: self.raw.get("retcode").and_then(|v| v.as_i64()).unwrap_or(-1),
+            data: self.raw.get("data").cloned().unwrap_or(serde_json::Value::Null),
+            message: self
+                .raw
+                .get("message")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+        }
     }
 }
 
@@ -210,21 +361,9 @@ impl NapCatClient {
         params: serde_json::Value,
         echo: String,
     ) -> Result<SendReceipt, SendError> {
-        let (tx, rx) = oneshot::channel();
-        self.pending_actions.lock().insert(echo.clone(), tx);
-
-        let action = OneBotAction {
-            action: action.to_string(),
-            params,
-            echo: Some(echo.clone()),
-        };
-        if self.action_tx.send(action).await.is_err() {
-            self.pending_actions.lock().remove(&echo);
-            return Err(SendError::Disconnected);
-        }
-
-        match tokio::time::timeout(SEND_RESPONSE_TIMEOUT, rx).await {
-            Ok(Ok(value)) => Ok(SendReceipt {
+        self.send_action_value(action, params, echo.clone())
+            .await
+            .map(|value| SendReceipt {
                 echo,
                 status: value
                     .get("status")
@@ -240,7 +379,33 @@ impl NapCatClient {
                     .get("message")
                     .and_then(|v| v.as_str())
                     .map(str::to_string),
-            }),
+            })
+    }
+
+    /// Enqueue one action and await the raw correlated response frame.
+    /// Echo matching is the single correlation path shared with outbound
+    /// sends: duplicate, late and unmatched responses never reach the caller.
+    async fn send_action_value(
+        &self,
+        action: &str,
+        params: serde_json::Value,
+        echo: String,
+    ) -> Result<serde_json::Value, SendError> {
+        let (tx, rx) = oneshot::channel();
+        self.pending_actions.lock().insert(echo.clone(), tx);
+
+        let action = OneBotAction {
+            action: action.to_string(),
+            params,
+            echo: Some(echo.clone()),
+        };
+        if self.action_tx.send(action).await.is_err() {
+            self.pending_actions.lock().remove(&echo);
+            return Err(SendError::Disconnected);
+        }
+
+        match tokio::time::timeout(SEND_RESPONSE_TIMEOUT, rx).await {
+            Ok(Ok(value)) => Ok(value),
             // The connector dropped the waiter (disconnect/cancel) — the action
             // may already have been written to the socket. Unknown, not failed.
             Ok(Err(_)) => Err(SendError::Unknown(
@@ -255,6 +420,42 @@ impl NapCatClient {
                 )))
             }
         }
+    }
+
+    /// Run one read-only contact/identity query over the same connection and
+    /// echo protocol as outbound sends — SPEC §15.2, §16.
+    ///
+    /// The wire surface is fixed by `ContactQuery`; this method cannot send
+    /// messages or perform any mutating action. The returned receipt carries
+    /// the untouched raw frame plus connection provenance; classification
+    /// (retcode, foreign `self_id`, payload shape) is the caller's job.
+    ///
+    /// `SendError::Disconnected` means the request provably never reached the
+    /// socket; `SendError::Unknown` means it may have been delivered — the
+    /// caller must reconcile instead of assuming no answer.
+    pub async fn query(&self, query: ContactQuery) -> Result<QueryReceipt, SendError> {
+        let echo = uuid::Uuid::new_v4().to_string();
+        self.query_with_echo(query, echo).await
+    }
+
+    /// Read-only query with a caller-supplied echo token, mirroring
+    /// `send_*_with_echo` so a durable caller can keep the same token.
+    pub async fn query_with_echo(
+        &self,
+        query: ContactQuery,
+        echo: String,
+    ) -> Result<QueryReceipt, SendError> {
+        let action = query.action();
+        let params = query.params();
+        let raw = self.send_action_value(action, params, echo.clone()).await?;
+        Ok(QueryReceipt {
+            action,
+            echo,
+            observed_at: chrono::Utc::now(),
+            configured_account: self.config.bot_qq,
+            ws_url: endpoint_provenance(&self.config.ws_url),
+            raw,
+        })
     }
 
     /// Run the WS connection loop — reconnects on disconnect
@@ -332,7 +533,7 @@ impl NapCatClient {
                 Err(e) => return Err(anyhow::anyhow!("NapCat WS URL 无效: {e}")),
             };
 
-            info!(url=%config.ws_url, "NapCat: connecting");
+            info!(url=%endpoint_provenance(&config.ws_url), "NapCat: connecting");
 
             let connected = tokio::select! {
                 result = connect_async(url.as_str()) => result,
@@ -550,5 +751,182 @@ mod tests {
         assert_eq!(reopened.pending_count().unwrap(), 601);
         assert_eq!(reopened.consume(1).unwrap()[0].spool_id, first.unwrap());
         // Keep the fixture on container disk for independent inspection.
+    }
+
+    /// Loopback OneBot read: the request is echo-correlated, the untouched raw
+    /// frame and credential-free connection provenance come back, and a
+    /// duplicate response frame can never reach a second caller.
+    #[tokio::test]
+    async fn contact_query_matches_echo_with_provenance_and_ignores_duplicates() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let config = NapCatConfig {
+            // Embedded credentials must never survive into receipts or logs.
+            ws_url: format!(
+                "ws://token:secret@{}/p?access_token=redacted-secret",
+                addr
+            ),
+            bot_qq: 9,
+            reconnect_interval_ms: 50,
+            ..Default::default()
+        };
+        let (client, _events, actions) = NapCatClient::new(config.clone());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let connector = tokio::spawn(NapCatClient::run_connection_loop(
+            config.clone(),
+            client.event_sender(),
+            actions,
+            client.pending_actions.clone(),
+            client.spool.clone(),
+            cancel.clone(),
+        ));
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let Some(Ok(Message::Text(text))) = ws.next().await else {
+                panic!("no request");
+            };
+            let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(request["action"].as_str().unwrap(), "get_friend_list");
+            let echo = request["echo"].as_str().unwrap().to_string();
+            // The provider answers the same echo twice; the waiter is gone
+            // after the first match and the duplicate is dropped unmatched.
+            for _ in 0..2 {
+                ws.send(Message::Text(json!({
+                    "status": "ok", "retcode": 0, "echo": echo,
+                    "data": [
+                        {"user_id": 1001u64, "nickname": "阿澈", "remark": "澈"},
+                        {"user_id": 18446744073709551615u64, "nickname": "高位", "remark": ""}
+                    ],
+                    "self_id": 9u64,
+                }).to_string().into())).await.unwrap();
+            }
+            echo
+        });
+        let friends = tokio::time::timeout(Duration::from_secs(10), async {
+            client.query(ContactQuery::FriendList).await
+        }).await.unwrap().unwrap();
+        assert_eq!(friends.action, "get_friend_list");
+        assert_eq!(friends.configured_account, 9);
+        assert_eq!(
+            friends.ws_url,
+            format!("ws://{addr}")
+        );
+        assert!(!friends.ws_url.contains("secret") && !friends.ws_url.contains('?'));
+        assert_eq!(friends.observed_self_id(), Some(9));
+        assert_eq!(friends.foreign_self_id(), None);
+        assert!(friends.receipt().is_success());
+        // The exact unsigned id survives the raw frame unmodified.
+        assert_eq!(
+            friends.raw.pointer("/data/1/user_id").and_then(|v| v.as_u64()),
+            Some(u64::MAX)
+        );
+        assert_eq!(server.await.unwrap(), friends.echo);
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(5), connector)
+            .await.unwrap().unwrap().unwrap();
+    }
+
+    /// A request whose socket dies after its pending entry was established is
+    /// typed unknown (never failed, never an empty list), and a replayed frame
+    /// under the old echo is ignored rather than admitted on reconnect.
+    #[tokio::test]
+    async fn contact_query_drop_is_unknown_and_stale_echo_not_admitted() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = NapCatConfig {
+            ws_url: format!("ws://{}", listener.local_addr().unwrap()),
+            bot_qq: 9,
+            reconnect_interval_ms: 50,
+            ..Default::default()
+        };
+        let (client, _events, actions) = NapCatClient::new(config.clone());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let connector = tokio::spawn(NapCatClient::run_connection_loop(
+            config.clone(),
+            client.event_sender(),
+            actions,
+            client.pending_actions.clone(),
+            client.spool.clone(),
+            cancel.clone(),
+        ));
+        let (first_echo_tx, first_echo_rx) = oneshot::channel::<String>();
+        let (read_ack_tx, read_ack_rx) = oneshot::channel::<()>();
+        let mut first_echo_tx = Some(first_echo_tx);
+        let mut read_ack_tx = Some(read_ack_tx);
+        let server = tokio::spawn(async move {
+            // Connection 1: answer the first request, then read the second
+            // request and only then drop the socket — the pending entry is
+            // provably established before the disconnect.
+            {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+                let Some(Ok(Message::Text(text))) = ws.next().await else {
+                    panic!("no first request");
+                };
+                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                let echo = request["echo"].as_str().unwrap().to_string();
+                first_echo_tx.take().unwrap().send(echo.clone()).unwrap();
+                ws.send(Message::Text(json!({
+                    "status": "ok", "retcode": 0, "echo": echo,
+                    "data": [{"group_id": 100u64, "group_name": "g"}],
+                }).to_string().into())).await.unwrap();
+                let Some(Ok(Message::Text(text))) = ws.next().await else {
+                    panic!("no second request on the first connection");
+                };
+                let _request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                // Pending entry exists; now the socket dies unanswered.
+                read_ack_tx.take().unwrap().send(()).unwrap();
+            }
+            // Connection 2: read the next real request, then replay the first
+            // echo's frame before answering — the stale frame must not be
+            // admitted as the new answer.
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let first = first_echo_rx.await.unwrap();
+            let Some(Ok(Message::Text(text))) = ws.next().await else {
+                panic!("no request on the second connection");
+            };
+            let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let echo = request["echo"].as_str().unwrap().to_string();
+            ws.send(Message::Text(json!({
+                "status": "ok", "retcode": 0, "echo": first,
+                "data": [{"group_id": 100u64, "group_name": "stale"}],
+            }).to_string().into())).await.unwrap();
+            ws.send(Message::Text(json!({
+                "status": "ok", "retcode": 0, "echo": echo,
+                "data": [{"group_id": 200u64, "group_name": "fresh"}],
+            }).to_string().into())).await.unwrap();
+            echo
+        });
+        let first = tokio::time::timeout(Duration::from_secs(10), async {
+            client.query(ContactQuery::GroupList).await
+        }).await.unwrap().unwrap();
+        assert_eq!(first.raw.pointer("/data/0/group_id").and_then(|v| v.as_u64()), Some(100));
+        let dropped = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client.query(ContactQuery::StrangerInfo { user_id: 7, no_cache: false }).await
+            }
+        });
+        // The server has received the second request: its pending entry is
+        // established before the socket closes, so the outcome is provably
+        // unknown delivery, not "never sent".
+        read_ack_rx.await.unwrap();
+        let dropped = tokio::time::timeout(Duration::from_secs(10), dropped)
+            .await.unwrap().unwrap();
+        assert!(matches!(dropped, Err(SendError::Unknown(_))));
+        // The next real query is written on the reconnected socket; the server
+        // answers it only after replaying a stale frame under the first echo.
+        let third = tokio::time::timeout(Duration::from_secs(10), async {
+            client.query(ContactQuery::GroupList).await
+        }).await.unwrap().unwrap();
+        // Stale-echo admission is impossible: the matched answer is the fresh
+        // one bound to this request's own echo.
+        assert_eq!(third.raw.pointer("/data/0/group_name").and_then(|v| v.as_str()), Some("fresh"));
+        assert_ne!(third.echo, first.echo);
+        assert_eq!(server.await.unwrap(), third.echo);
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(5), connector)
+            .await.unwrap().unwrap().unwrap();
     }
 }
