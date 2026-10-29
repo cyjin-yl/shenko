@@ -25,6 +25,18 @@ use shenko_store::store::Store;
 use crate::playground::PlaygroundState;
 use crate::ws::LiveStatus;
 
+/// Live context-policy facts supplied by the same bootstrap that installs the
+/// strategies. `capabilities` is the advertised binding, never inferred.
+#[derive(Clone, Default)]
+pub struct ContextFacts {
+    /// Registry the subject loop actually selects and commits windows through.
+    /// None means no live registry was supplied to this reporter.
+    pub registry: Option<Arc<shenko_context_policy::PolicyRegistry>>,
+    /// Advertised capabilities of the bound model; strategy availability is
+    /// evaluated against exactly this, or reported not_evaluated.
+    pub capabilities: Option<shenko_broker::request::ProviderCapabilities>,
+}
+
 /// Actual provider selection supplied by the production bootstrap. Configured
 /// means a provider can be constructed, not that a probe or capacity succeeded.
 #[derive(Clone, Debug)]
@@ -67,6 +79,9 @@ pub struct ApiState {
     /// Provider binding from the same bootstrap that decided whether to start
     /// the subject loop. None means no runtime binding was supplied.
     pub inference: Option<InferenceStatus>,
+    /// Live context-policy wiring for `/api/context`. None means installation
+    /// state is not observed rather than fabricated strategies.
+    pub context: Option<ContextFacts>,
 }
 
 impl ApiState {
@@ -100,6 +115,13 @@ impl ApiState {
         self.inference = Some(inference);
         self
     }
+
+    /// Wire the same registry and advertised capabilities the subject loop
+    /// uses, so `/api/context` can report real installed strategies.
+    pub fn with_context(mut self, facts: ContextFacts) -> Self {
+        self.context = Some(facts);
+        self
+    }
 }
 
 /// Mount the JSON API. Registered from [`crate::server::UiServer::run`] so
@@ -110,6 +132,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/memory", get(memory_handler))
         .route("/api/config", get(config_handler))
         .route("/api/self", get(self_status_handler))
+        .route("/api/context", get(context_handler))
         .with_state(state)
 }
 
@@ -274,4 +297,218 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         "activities": [],
         "artifacts": artifacts,
     }))
+}
+
+fn availability_json(availability: shenko_context_policy::Availability) -> Value {
+    use shenko_context_policy::Availability::*;
+    match availability {
+        Available => json!({"state": "available"}),
+        Degraded(reason) => json!({"state": "degraded", "reason": reason}),
+        Unavailable(reason) => json!({"state": "unavailable", "reason": reason}),
+    }
+}
+
+fn context_window_json(window: &shenko_context_policy::CommittedWindow) -> Value {
+    let kind = |entry: &shenko_context_policy::WindowEntry| match entry {
+        shenko_context_policy::WindowEntry::Verbatim { .. } => "verbatim",
+        shenko_context_policy::WindowEntry::Pointer { .. } => "pointer",
+        shenko_context_policy::WindowEntry::Text { .. } => "text",
+        shenko_context_policy::WindowEntry::Image { .. } => "image",
+    };
+    let mut counts = serde_json::Map::new();
+    for entry in &window.entries {
+        let count = counts.entry(kind(entry).to_string()).or_insert(json!(0));
+        *count = json!(count.as_u64().unwrap_or(0) + 1);
+    }
+    json!({
+        "id": window.id.to_string(),
+        "generation": window.generation,
+        "base": window.base,
+        "policy_id": window.policy_id,
+        "policy_version": window.policy_version,
+        "model_generation": window.model_generation,
+        "covers_through": window.covers_through,
+        "entry_kinds": Value::Object(counts),
+        "call_states": window.call_states,
+        "derivatives": window
+            .derivatives
+            .iter()
+            .map(|derivative| json!({
+                "media_type": derivative.media_type,
+                "blake3": derivative.blake3,
+                "bytes": derivative.bytes.len(),
+            }))
+            .collect::<Vec<_>>(),
+        // Reported cost, including the conservative reusable-prefix bound;
+        // never a backend KV cache-hit claim (SPEC §12.3.2).
+        "cost": window.cost,
+    })
+}
+
+/// `GET /api/context` → the subject scope's committed window chain, installed
+/// context-policy strategies and their availability against the observed
+/// model capabilities. Every field is a real record: committed windows from
+/// the durable chain, strategies/epochs/preference from the live registry.
+/// `plugins_wired: false` means no live registry was supplied to this reporter
+/// (as in deterministic no-model mode); it never fabricates an install.
+async fn context_handler(State(state): State<ApiState>) -> Json<Value> {
+    let mut report = json!({
+        "scope": Value::Null,
+        "plugins_wired": false,
+        "preference": [],
+        "strategies": [],
+        "capabilities": Value::Null,
+        "availability": [],
+        "windows": [],
+    });
+    if let Some(context) = &state.context {
+        report["capabilities"] = context
+            .capabilities
+            .as_ref()
+            .map(|caps| {
+                json!({
+                    "advertised": true,
+                    "model": caps.binding.model(),
+                    "max_context_tokens": caps.max_context_tokens,
+                    "vision": caps.vision,
+                })
+            })
+            .unwrap_or(Value::Null);
+        if let Some(registry) = &context.registry {
+            report["plugins_wired"] = json!(true);
+            report["preference"] = json!(registry.preference());
+            report["strategies"] = registry
+                .installed()
+                .iter()
+                .map(|(manifest, epoch)| json!({
+                    "id": manifest.id,
+                    "version": manifest.version,
+                    "contract": manifest.contract,
+                    "requires": manifest.requires,
+                    "epoch": epoch,
+                }))
+                .collect();
+            report["availability"] = match &context.capabilities {
+                Some(caps) if caps.max_context_tokens.is_some_and(|limit| limit > 0) => {
+                    let caps = shenko_context_policy::ModelCaps {
+                        model_id: caps.binding.model().into(),
+                        max_context: caps.max_context_tokens.unwrap_or(0),
+                        vision: caps.vision.map(|vision| shenko_context_policy::VisionCaps {
+                            max_image_context: vision.max_image_context,
+                            patch_px: vision.patch_px,
+                        }),
+                    };
+                    registry
+                        .availability(&caps)
+                        .into_iter()
+                        .map(|(id, availability)| json!({
+                            "id": id,
+                            "availability": availability_json(availability),
+                        }))
+                        .collect()
+                }
+                _ => {
+                    report["availability_note"] = json!(
+                        "provider capabilities not observed; strategy availability not evaluated"
+                    );
+                    json!([])
+                }
+            };
+        }
+    }
+    let Some(store) = state.store.as_ref() else {
+        report["available"] = json!(false);
+        report["note"] = json!("store 尚未接入 UI server");
+        return Json(report);
+    };
+    let Some(agent_id) = (match store.get_existing_agent_id() {
+        Ok(agent_id) => agent_id,
+        Err(error) => {
+            report["available"] = json!(false);
+            report["note"] = json!(format!("subject identity unreadable: {error}"));
+            return Json(report);
+        }
+    }) else {
+        report["available"] = json!(false);
+        report["note"] = json!("subject 尚未初始化");
+        return Json(report);
+    };
+    let (head, _) = match store.load_subject(agent_id) {
+        Ok(subject) => subject,
+        Err(error) => {
+            report["available"] = json!(false);
+            report["scope"] = json!({"agent_id": agent_id.to_string()});
+            report["note"] = json!(format!("subject head unreadable: {error}"));
+            return Json(report);
+        }
+    };
+    let scope_id = shenko_types::ids::EntityId(head.branch_id.0);
+    report["scope"] = json!({
+        "agent_id": agent_id.to_string(),
+        "branch_id": head.branch_id.to_string(),
+    });
+    let log = shenko_context_policy::StoreWindowLog::new(Arc::clone(store), scope_id);
+    let scope_facts = (|| -> Result<Value, String> {
+        use shenko_context_policy::WindowLog;
+        Ok(json!({
+            "model_generation": store.context_model_generation(scope_id).map_err(|e| e.to_string())?,
+            "profile_digest": store.context_profile(scope_id).map_err(|e| e.to_string())?.map(|(_, digest)| digest),
+            "windows": log
+                .all()
+                .map_err(|e| e.to_string())?
+                .iter()
+                .map(context_window_json)
+                .collect::<Vec<_>>(),
+        }))
+    })();
+    match scope_facts {
+        Ok(facts) => {
+            if let (Some(report), Some(facts)) = (report.as_object_mut(), facts.as_object()) {
+                report.extend(facts.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+            report["available"] = json!(true);
+        }
+        Err(error) => {
+            report["available"] = json!(false);
+            report["note"] = json!(format!("context window chain unreadable: {error}"));
+        }
+    }
+    Json(report)
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unwired_context_does_not_invent_plugins_or_windows() {
+        let Json(report) = context_handler(State(ApiState::new())).await;
+        assert_eq!(report["available"], false);
+        assert_eq!(report["plugins_wired"], false);
+        assert_eq!(report["strategies"], json!([]));
+        assert_eq!(report["windows"], json!([]));
+        assert_eq!(report["capabilities"], Value::Null);
+    }
+
+    #[test]
+    fn window_report_retains_policy_cost_and_derivative_identity_not_payload() {
+        use shenko_context_policy::{CommittedWindow, Derivative, WindowEntry};
+        let mut window = CommittedWindow::genesis();
+        window.policy_id = Some("snapcompact".into());
+        window.policy_version = Some("test-decoder".into());
+        window.entries.push(WindowEntry::Image { from: 1, to: 9, derivative: 0, tokens: 7 });
+        window.derivatives.push(Derivative::new("image/png", vec![1, 2, 3]));
+        window.cost.window_tokens = 7;
+        window.cost.reusable_prefix_tokens = 0;
+        window.cost.recompute_tokens = 7;
+        let report = context_window_json(&window);
+        assert_eq!(report["id"], window.id.to_string());
+        assert_eq!(report["policy_id"], "snapcompact");
+        assert_eq!(report["policy_version"], "test-decoder");
+        assert_eq!(report["entry_kinds"]["image"], 1);
+        assert_eq!(report["cost"], json!(window.cost));
+        assert_eq!(report["derivatives"][0]["bytes"], 3);
+        assert_eq!(report["derivatives"][0]["blake3"], window.derivatives[0].blake3);
+        assert!(report["derivatives"][0].get("payload").is_none());
+    }
 }
