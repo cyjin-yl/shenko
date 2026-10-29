@@ -78,6 +78,19 @@ def fsync_dir(path):
         os.close(fd)
 
 
+def create_run_dir_durable(path):
+    path.mkdir(parents=True, exist_ok=True)
+    # Sync reachability bottom-up, including parents created in an earlier
+    # failed init. An existing directory is not proof its entry was synced.
+    current = path.resolve(strict=True)
+    while True:
+        fsync_dir(current)
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+
+
 def write_json_durable(path, obj):
     raw = (json.dumps(obj, ensure_ascii=False, sort_keys=True,
                       indent=2) + "\n").encode("utf-8")
@@ -514,7 +527,7 @@ def cmd_init(args):
         raise SystemExit(
             f"{manifest_file} already exists; a declared manifest is immutable "
             "— start a new run_id for a changed candidate or window")
-    run_dir.mkdir(parents=True, exist_ok=True)
+    create_run_dir_durable(run_dir)
     now = utcnow()
     windows = {}
     for item in args.window or []:

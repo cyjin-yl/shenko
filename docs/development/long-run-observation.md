@@ -14,6 +14,8 @@ C19/#24 与 [COMPLETION](../governance/COMPLETION.md) §2「长期性」要求 S
 
 每条记录是 `records.jsonl` 的一行，追加后先 `fsync` 文件再 `fsync` 所在目录（包括第一次创建日志和重试）；manifest 与目录也 `fsync`。manifest 在 `init` 时冻结（包含声明窗口与候选身份）。一目录只绑定一个 run：必须有且只有一个位于记录开头、schema/manifest hash/recorder 身份均匹配的 `run_header`。缺 header、别的 run_id、未知/损坏记录、缺失/重复序号、未核验的存活主体指纹都不能准入；采样前发现这些问题会拒绝继续。manifest 改动产生 `manifest_drift`，全部窗口降为 `unobserved`，不会补写 header 将旧样本重新绑定。
 
+初始化在写 manifest 前从实际 run 目录向上逐层 fsync 到根，持久化每一层新建目录在父目录中的入口；已有目录也同步，以覆盖先前失败初始化留下但未确认持久的入口。此协议检查仍不等于物理断电证明。
+
 修复后的格式是 **schema 2**，增加同 kernel boot 的 uptime 佐证与边界的 `sample_seq`。schema 1 的记录缺少这些证据，明确拒绝，不进行推断式升级；原字节保留。不同候选/闭包、recorder 变更或已损坏证据均使用新目录和新 `run_id`。
 
 ## 用法
