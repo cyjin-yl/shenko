@@ -74,9 +74,10 @@ export UNSTRIPPED="$GENDIR/unstripped"
 export KCONFIG_CONFIG="$RUN_DIR/vendor/.config"
 unset KCONFIG_ALLCONFIG
 export CFLAGS="--target=wasm32-wasip1 --sysroot=$WASI_SDK/share/wasi-sysroot \
+  -D_WASI_EMULATED_SIGNAL \
   -O2 -fno-builtin -Wall -Wno-unused-function \
   -include $PORT_DIR/wasi-compat.h"
-export LDFLAGS=""
+export LDFLAGS="-lwasi-emulated-signal"
 
 # Both source and binary probe are retained. There is no /tmp path and no
 # cleanup trap that could erase a previous run or its evidence.
