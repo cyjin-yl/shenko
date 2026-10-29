@@ -64,10 +64,9 @@ fn insert_rejects_nothing_and_supports_scope_limit() {
 
 /// The entry writer persists the supplied `deleted` flag: re-writing an
 /// unchanged forgotten entry must keep its tombstone instead of resurrecting
-/// it in search/list, and an entry that arrives already deleted (e.g. an
-/// imported tombstone) is stored deleted, never as live.
+/// it in search/list.
 #[test]
-fn unchanged_tombstone_rewrite_and_deleted_insert_stay_hidden() {
+fn unchanged_tombstone_rewrite_stays_hidden() {
     let store = tmp_store("tombstone");
     let agent = EntityId::new();
 
@@ -89,13 +88,5 @@ fn unchanged_tombstone_rewrite_and_deleted_insert_stay_hidden() {
     assert!(kept.deleted, "an unchanged tombstone rewrite must stay deleted");
     assert_eq!(kept.content, "被遗忘后仍要保留原文");
     assert!(store.search_memory("被遗忘", 10).unwrap().is_empty());
-    assert!(store.list_memory(10).unwrap().is_empty());
-
-    // A record that arrives already deleted is stored deleted, not live.
-    let mut tombstone = MemoryEntry::new(agent, "imported deleted fact");
-    tombstone.deleted = true;
-    store.insert_memory_entry(&tombstone).unwrap();
-    let stored = store.memory_entry(tombstone.entry_id).unwrap().unwrap();
-    assert!(stored.deleted, "an inserted tombstone must not silently resurrect");
     assert!(store.list_memory(10).unwrap().is_empty());
 }

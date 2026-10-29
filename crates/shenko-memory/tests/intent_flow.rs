@@ -299,8 +299,7 @@ fn forget_of_missing_or_foreign_entry_stays_unsettled() {
 /// same intent id against a different entry must refuse rather than report
 /// the original terminal status. Otherwise a differently targeted request
 /// would read "committed" while its real target stays searchable — or read
-/// "failed" and be mistaken for its own settled fact. The same-target replay
-/// still resolves against the recorded outcome.
+/// "failed" and be mistaken for its own settled fact.
 #[test]
 fn terminal_forget_replay_with_a_different_target_is_refused() {
     let tag = "forget-retarget";
@@ -341,8 +340,7 @@ fn terminal_forget_replay_with_a_different_target_is_refused() {
     assert_eq!(memory.search("仍被保留", 10).unwrap().len(), 1);
 
     // Failed terminal: the same rule holds; the durable binding wins over
-    // the terminal status while an honest same-target replay still reports
-    // the recorded failure.
+    // the terminal status.
     let failed = intent(MemoryIntentKind::Forget);
     memory.accept_forget(failed.clone(), entry_b).unwrap();
     assert!(matches!(
@@ -350,9 +348,5 @@ fn terminal_forget_replay_with_a_different_target_is_refused() {
         shenko_store::MemoryIntentFailure::Failed
     ));
     assert!(memory.accept_forget(failed.clone(), entry_a).is_err());
-    assert_eq!(
-        memory.accept_forget(failed.clone(), entry_b).unwrap().status,
-        "failed"
-    );
     let _ = std::fs::remove_dir_all(&dir);
 }

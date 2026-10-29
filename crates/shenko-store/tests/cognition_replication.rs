@@ -228,6 +228,91 @@ fn saved_then_forgotten_entry_survives_archive_roundtrip() {
     assert_eq!(kept.content, "被遗忘的正文");
 }
 
+/// An entry, its producing save and the forget that targets it reconcile as
+/// one conflict unit: when the receiver settled the same forget request as
+/// `failed` while the source committed it, the divergent terminal refuses the
+/// whole unit — the rejected forget must not publish its tombstone through
+/// the unchanged save parent, and the producer's committed identity and the
+/// receiver's terminal decision are both kept.
+#[test]
+fn a_rejected_forget_cannot_tombstone_its_shared_entry() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
+    let agent = EntityId::new();
+    let save = EntityId::new();
+    let entry_id = EntityId::new();
+    let forget = EntityId::new();
+
+    // Source: save produces the entry, then a forget request targets it.
+    let record = MemoryIntentRecord::accepted(
+        save, agent, "save", "personal", "将被裁决的正文", None, Some(entry_id),
+    );
+    source.admit_memory_intent(&record, None).unwrap();
+    let mut entry = MemoryEntry::new(agent, "将被裁决的正文");
+    entry.entry_id = entry_id;
+    entry.kind = "save".into();
+    source.commit_memory_intent(&entry, save).unwrap();
+    let forget_record = MemoryIntentRecord::accepted(
+        forget, agent, "forget", "personal", "", None, Some(entry_id),
+    );
+    source.admit_memory_intent(&forget_record, None).unwrap();
+
+    // Receiver verifies the accepted state: entry live, forget pending.
+    let mut first = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut first).unwrap();
+    let accepted = receiver
+        .import_cognition_archive(&first[..], &CognitionImportOptions::default())
+        .unwrap();
+    assert!(accepted.conflicts.is_empty(), "accepted state import: {:?}", accepted.conflicts);
+    assert_eq!(receiver.memory_intent_state(forget).unwrap().as_deref(), Some("accepted"));
+
+    // The same request diverges: receiver fails it, source commits it.
+    assert_eq!(
+        receiver.fail_memory_intent(forget, "worker refused").unwrap(),
+        shenko_store::MemoryIntentFailure::Failed,
+    );
+    source.commit_memory_forget(forget).unwrap();
+
+    // The follow-up archive carries the committed tombstone through the same
+    // entry the save still produces. Reconciliation must keep the receiver's
+    // terminal decision and every fact it protected.
+    let mut second = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut second).unwrap();
+    let outcome = receiver
+        .import_cognition_archive(&second[..], &CognitionImportOptions::default())
+        .unwrap();
+    assert!(!outcome.conflicts.is_empty(), "a divergent terminal must stay explicit");
+
+    let entry_after = receiver
+        .memory_entry(entry_id)
+        .unwrap()
+        .expect("the rejected unit publishes no partial row");
+    assert!(
+        !entry_after.deleted,
+        "a rejected forget cannot hide the entry through its save parent"
+    );
+    assert_eq!(entry_after.content, "将被裁决的正文");
+    assert_eq!(receiver.list_memory(10).unwrap().len(), 1);
+    assert!(!receiver.search_memory("裁决", 10).unwrap().is_empty());
+    assert_eq!(
+        receiver.memory_intent_state(forget).unwrap().as_deref(),
+        Some("failed"),
+        "the local terminal decision is kept"
+    );
+    assert_eq!(
+        receiver.memory_intent_state(save).unwrap().as_deref(),
+        Some("committed"),
+        "the producer identity survives the refused unit"
+    );
+    let recorded = receiver.cognition_conflicts(10).unwrap();
+    assert!(
+        recorded.iter().any(|conflict| conflict.key == forget.to_string()),
+        "the refused forget must be named: {recorded:?}"
+    );
+}
+
 fn version_ref(name: &str) -> VersionedRef {
     VersionedRef {
         artifact: ArtifactRef {
