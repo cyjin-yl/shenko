@@ -58,6 +58,10 @@ png = "0.17"
 # GNU Unifont 15.1.05 glyphs (OFL-1.1 or GPL-2+ with font exception); crate MIT.
 unifont = "=1.1.0"
 
+# X11 desktop Computer Use backend (observation, XTEST input, XI2 raw-event
+# human-input detection). Pure Rust; no system X11 client libraries required.
+x11rb = { version = "0.13.2", default-features = false, features = ["xinput", "xtest", "image"] }
+
 # IDs and hashing
 uuid = { version = "1", features = ["v4", "serde"] }
 ulid = { version = "1", features = ["serde"] }

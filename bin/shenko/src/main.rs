@@ -357,6 +357,29 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
                 .await?;
+            // Real X11 Computer Use: four kinds share one live backend state
+            // so lease authority and session identity agree across tasks.
+            let computer_use_backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(
+                Arc::clone(&store),
+            ));
+            for handler in [
+                Arc::new(shenko_exec_host::ComputerUseSessionHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )) as Arc<dyn shenko_subject::NativeTaskHandler>,
+                Arc::new(shenko_exec_host::ComputerUseObserveHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+                Arc::new(shenko_exec_host::ComputerUseLeaseHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+                Arc::new(shenko_exec_host::ComputerUseInputHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+            ] {
+                let _computer_use_plugin = supervisor
+                    .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+                    .await?;
+            }
             let native_child = supervisor
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;

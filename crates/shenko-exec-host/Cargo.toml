@@ -19,5 +19,8 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+blake3 = { workspace = true }
+png = { workspace = true }
+x11rb = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"
