@@ -339,15 +339,26 @@ impl BrokerHandle {
     pub fn reconcile_recorded(&self, request_id: EntityId) -> Result<()> {
         let source = self.recovery_sources.lock().expect("broker recovery sources poisoned")
             .get(&request_id).cloned().ok_or_else(|| anyhow!("request has no original durable recovery reader"))?;
-        let Some(result) = source.read_terminal_result()? else {
-            self.recover_unknown(source.request_id());
+        let result = source.read_terminal_result()?;
+        if let Some(result) = &result {
+            ensure!(result.request_id == source.request_id()
+                && result.effective.matches_seal(source.binding(), source.payload())
+                && result.termination.kind != TerminationKind::Unknown,
+                "recovered inference lacks matching original terminal evidence");
+        }
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
+        let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+        // Reading the ledger must not hold the broker lock. A real terminal
+        // completion may retire this reader while that read is in progress:
+        // its stale None must not recreate debt after release, nor may an old
+        // reader release a later registration using the same request key.
+        if !sources.get(&request_id).is_some_and(|current| Arc::ptr_eq(current, &source)) {
+            return Ok(());
+        }
+        let Some(result) = result else {
+            accounting.entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
             return Ok(());
         };
-        ensure!(result.request_id == source.request_id()
-            && result.effective.matches_seal(source.binding(), source.payload())
-            && result.termination.kind != TerminationKind::Unknown,
-            "recovered inference lacks matching original terminal evidence");
-        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
         if accounting.get(&source.request_id()).is_some_and(Option::is_some) {
             let guard = accounting.remove(&source.request_id()).flatten().expect("checked charge");
             match result.termination.kind {
@@ -358,7 +369,7 @@ impl BrokerHandle {
             self.accounting_changed.notify_one();
         }
         if !accounting.contains_key(&request_id) {
-            self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
+            sources.remove(&request_id);
         }
         Ok(())
     }
