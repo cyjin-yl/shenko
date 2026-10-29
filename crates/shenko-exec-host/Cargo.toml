@@ -23,5 +23,6 @@ async-trait = { workspace = true }
 [dev-dependencies]
 futures = { workspace = true }
 tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

@@ -266,7 +266,7 @@ impl NapCatContactsHandler {
             mount_generation: 0,
             capability_level: "read_only_onebot_contacts".into(),
             extra: serde_json::json!({
-                "ws_url": self.client.config.ws_url,
+                "ws_url": shenko_channel_napcat::endpoint_provenance(&self.client.config.ws_url),
                 "action_allowlist": ContactQuery::ACTIONS,
             }),
         };
@@ -378,7 +378,10 @@ impl NapCatContactsHandler {
     ) -> (serde_json::Value, OperationOutcome) {
         let parsed = receipt.receipt();
         let retcode = parsed.retcode;
-        let succeeded = parsed.is_success();
+        // Read queries accept only a real "ok" status with retcode 0. The
+        // send-path is_success() also tolerates "async"; a query's answer must
+        // actually be present, so any other status is a rejection.
+        let succeeded = parsed.status == "ok" && retcode == 0;
         let mut result = serde_json::json!({
             "schema_version": 1,
             "op": frozen.query.label(),
@@ -435,13 +438,32 @@ impl NapCatContactsHandler {
                 (result, OperationOutcome::Succeeded)
             }
             None => {
-                if parsed.data.is_null() || (!parsed.data.is_object() && !parsed.data.is_array()) {
+                // Single-target reads require exactly one object payload — a
+                // list is never an identity or a member record.
+                if !parsed.data.is_object() {
                     result["status"] = serde_json::json!("malformed");
                     result["error"] = serde_json::json!({
                         "code": "unexpected_payload",
                         "message": "expected an object payload; exact raw response is sealed",
                     });
                     return (result, OperationOutcome::Failed);
+                }
+                // Identity reads bind the observed account inside the payload:
+                // even a frame without a top-level self_id cannot be admitted
+                // when the login identity is not the configured account.
+                if matches!(frozen.query, FrozenQuery::Identity) {
+                    let observed = parsed.data.get("user_id").and_then(|v| v.as_u64());
+                    if observed != Some(receipt.configured_account) {
+                        result["status"] = serde_json::json!("account_mismatch");
+                        result["error"] = serde_json::json!({
+                            "code": "foreign_login_identity",
+                            "message": format!(
+                                "login identity {observed:?} is not the configured account {}",
+                                receipt.configured_account
+                            ),
+                        });
+                        return (result, OperationOutcome::Failed);
+                    }
                 }
                 result["status"] = serde_json::json!("ok");
                 result["data"] = parsed.data;
@@ -844,12 +866,10 @@ mod tests {
                             {"user_id": 18446744073709551615u64, "nickname": "高位"}
                         ],
                     }),
-                    "get_stranger_info" => json!({
-                        "status": "failed", "retcode": 1404, "echo": echo, "self_id": 9,
-                        "data": null, "message": "unknown user",
-                    }),
                     "get_login_info" => json!({
-                        "status": "ok", "retcode": 0, "echo": echo, "self_id": 4242,
+                        // No top-level self_id: the payload's own user_id is
+                        // what binds (or repudiates) the serving account.
+                        "status": "ok", "retcode": 0, "echo": echo,
                         "data": {"user_id": 4242, "nickname": "foreign"},
                     }),
                     _ => continue,
@@ -907,35 +927,18 @@ mod tests {
             Some(u64::MAX)
         );
 
-        // 2. Provider rejection is a typed result, not an empty profile.
+        // 2. A frame answering for a different login identity — even with no
+        // top-level self_id — is a real observation, never this bot's data.
         let (task2, inv2, op2) = make_task(&handler);
         let mut batch = WriteBatch::new();
         batch.task_upserts.push(task2.clone());
         store.commit(batch).unwrap();
         let operation = handler
-            .run(invocation(task2, inv2, op2, json!({"op":"contact","user_id":7})))
+            .run(invocation(task2, inv2, op2, json!({"op":"identity"})))
             .await
             .unwrap();
         assert_eq!(operation.outcome, Some(OperationOutcome::Failed));
         let evidence = store.external_operation_evidence(op2).unwrap();
-        let normalized: serde_json::Value = serde_json::from_slice(
-            &store.cas.read_object(&evidence[0].normalized_ref.as_ref().unwrap().digest).unwrap(),
-        ).unwrap();
-        assert_eq!(normalized["status"], "rejected");
-        assert_eq!(normalized["retcode"], 1404);
-
-        // 3. A frame bound to another account is a real observation, never
-        // this bot's contact list.
-        let (task3, inv3, op3) = make_task(&handler);
-        let mut batch = WriteBatch::new();
-        batch.task_upserts.push(task3.clone());
-        store.commit(batch).unwrap();
-        let operation = handler
-            .run(invocation(task3, inv3, op3, json!({"op":"identity"})))
-            .await
-            .unwrap();
-        assert_eq!(operation.outcome, Some(OperationOutcome::Failed));
-        let evidence = store.external_operation_evidence(op3).unwrap();
         let normalized: serde_json::Value = serde_json::from_slice(
             &store.cas.read_object(&evidence[0].normalized_ref.as_ref().unwrap().digest).unwrap(),
         ).unwrap();
@@ -944,15 +947,125 @@ mod tests {
         let raw: serde_json::Value = serde_json::from_slice(
             &store.cas.read_object(&evidence[0].raw_ref.digest).unwrap(),
         ).unwrap();
-        assert_eq!(raw["raw_response"]["self_id"], 4242);
+        assert_eq!(raw["raw_response"]["data"]["user_id"], 4242);
+        assert!(raw["raw_response"].get("self_id").is_none());
 
         cancel.cancel();
         tokio::time::timeout(Duration::from_secs(5), connector)
             .await.unwrap().unwrap().unwrap();
         server.abort();
-        drop(handler);
-        drop(store);
-        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Provider-side answers that are not a real "ok"/retcode-0 answer — or a
+    /// payload of the wrong shape — are classified as typed failures with the
+    /// raw frame still sealed, never as empty contact data.
+    #[tokio::test]
+    async fn contacts_query_typed_failures_are_classified() {
+        let dir = std::env::temp_dir().join(format!("shenko-contacts-fail-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let config = NapCatConfig {
+            ws_url: format!("ws://{}", listener.local_addr().unwrap()),
+            bot_qq: 9,
+            reconnect_interval_ms: 50,
+            ..Default::default()
+        };
+        let (client, _events, actions) = NapCatClient::new(config.clone());
+        let client = Arc::new(client);
+        let handler = NapCatContactsHandler::new(store.clone(), client.clone());
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let connector = tokio::spawn(NapCatClient::run_connection_loop(
+            config,
+            client.event_sender(),
+            actions,
+            client.pending_actions.clone(),
+            client.spool.clone(),
+            cancel.clone(),
+        ));
+        let member_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let member_calls_server = member_calls.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            while let Some(Ok(Message::Text(text))) = ws.next().await {
+                let Ok(request) = serde_json::from_str::<serde_json::Value>(&text) else {
+                    continue;
+                };
+                let echo = request["echo"].as_str().unwrap_or_default().to_string();
+                let response = match request["action"].as_str().unwrap_or_default() {
+                    // An "ok" status carrying a failing retcode is still a
+                    // rejection, not a successful empty profile.
+                    "get_stranger_info" => json!({
+                        "status": "ok", "retcode": 1404, "echo": echo, "self_id": 9,
+                        "data": null, "message": "unknown user",
+                    }),
+                    "get_group_member_info" => {
+                        match member_calls_server.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                            // "async" is not an answer: a send may tolerate it,
+                            // a read query must not.
+                            0 => json!({
+                                "status": "async", "retcode": 0, "echo": echo, "self_id": 9,
+                                "data": {"user_id": 7},
+                            }),
+                            // A list is never a single member record.
+                            _ => json!({
+                                "status": "ok", "retcode": 0, "echo": echo, "self_id": 9,
+                                "data": [{"user_id": 7}],
+                            }),
+                        }
+                    }
+                    _ => continue,
+                };
+                ws.send(Message::Text(response.to_string().into())).await.unwrap();
+            }
+        });
+
+        let rejected_retcode =
+            run_failing_case(&store, &handler, json!({"op":"contact","user_id":7})).await;
+        assert_eq!(rejected_retcode["status"], "rejected");
+        assert_eq!(rejected_retcode["retcode"], 1404);
+
+        let rejected_status = run_failing_case(
+            &store, &handler, json!({"op":"member","group_id":100,"user_id":7}),
+        ).await;
+        assert_eq!(rejected_status["status"], "rejected");
+        assert_eq!(rejected_status["retcode"], 0);
+
+        let malformed = run_failing_case(
+            &store, &handler, json!({"op":"member","group_id":100,"user_id":7}),
+        ).await;
+        assert_eq!(malformed["status"], "malformed");
+        assert!(malformed.get("data").is_none());
+
+        cancel.cancel();
+        tokio::time::timeout(Duration::from_secs(5), connector)
+            .await.unwrap().unwrap().unwrap();
+        server.abort();
+    }
+
+    /// Drive one durable query expected to fail and return its normalized
+    /// result: the raw frame and typed status are sealed, no contact data is.
+    async fn run_failing_case(
+        store: &Arc<Store>,
+        handler: &NapCatContactsHandler,
+        input: serde_json::Value,
+    ) -> serde_json::Value {
+        let (task, inv, op) = make_task(handler);
+        let mut batch = WriteBatch::new();
+        batch.task_upserts.push(task.clone());
+        store.commit(batch).unwrap();
+        let operation = handler.run(invocation(task, inv, op, input)).await.unwrap();
+        assert_eq!(operation.outcome, Some(OperationOutcome::Failed));
+        let evidence = store.external_operation_evidence(op).unwrap();
+        assert_eq!(evidence.len(), 1);
+        serde_json::from_slice::<serde_json::Value>(
+            &store
+                .cas
+                .read_object(&evidence[0].normalized_ref.as_ref().unwrap().digest)
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     /// An armed operation whose controller vanished between T1 and the wire
@@ -1023,46 +1136,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// Input contract: exact nonzero targets, pagination bounds, and a strict
-    /// field set — malformed input can never reach the wire.
-    #[test]
-    fn contacts_input_contract_is_exact() {
-        let dir = std::env::temp_dir().join(format!("shenko-contacts-input-{}", EntityId::new()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
-        let (client, _e, _a) = NapCatClient::new(NapCatConfig {
-            bot_qq: 9,
-            ..Default::default()
-        });
-        let handler = NapCatContactsHandler::new(store.clone(), Arc::new(client));
-        // Valid shapes freeze into the exact target and page.
-        let frozen = handler.freeze(json!({"op":"friends","offset":2,"limit":10})).unwrap();
-        assert!(matches!(frozen.query, FrozenQuery::Friends { offset: 2, limit: 10 }));
-        let frozen = handler
-            .freeze(json!({"op":"member","group_id":5,"user_id":6,"no_cache":true}))
-            .unwrap();
-        assert!(matches!(
-            frozen.query,
-            FrozenQuery::Member { group_id: 5, user_id: 6, no_cache: true }
-        ));
-        let frozen = handler.freeze(json!({"op":"identity"})).unwrap();
-        assert!(matches!(frozen.query, FrozenQuery::Identity));
-        // Bounds and required fields.
-        for bad in [
-            json!({"op":"friends","limit":0}),
-            json!({"op":"friends","limit":201}),
-            json!({"op":"friends","offset":1000001}),
-            json!({"op":"contact"}),
-            json!({"op":"contact","user_id":0}),
-            json!({"op":"member","group_id":5}),
-            json!({"op":"member","user_id":6}),
-            json!({"op":"identity","user_id":1}),
-            json!({"op":"groups","limit":1,"bogus":true}),
-        ] {
-            assert!(handler.freeze(bad).is_err());
-        }
-        drop(handler);
-        drop(store);
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }

@@ -22,6 +22,27 @@ use shenko_types::ids::EntityId;
 /// outcome is declared unknown. SPEC §35.6.
 pub const SEND_RESPONSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// Credential-free endpoint provenance: scheme, host and port only.
+/// Userinfo, path, query and fragment are stripped so tokens or secrets
+/// embedded in a configured URL can never reach logs, resource bindings or
+/// sealed evidence. An unparseable URL reports a fixed marker, never raw text.
+pub fn endpoint_provenance(ws_url: &str) -> String {
+    match Url::parse(ws_url) {
+        Ok(parsed) => {
+            let mut endpoint = format!(
+                "{}://{}",
+                parsed.scheme(),
+                parsed.host_str().unwrap_or("<redacted>")
+            );
+            if let Some(port) = parsed.port() {
+                endpoint.push_str(&format!(":{port}"));
+            }
+            endpoint
+        }
+        Err(_) => "<unparseable ws_url>".to_string(),
+    }
+}
+
 /// Pending outbound actions, keyed by echo token.
 pub type PendingActions =
     Arc<parking_lot::Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>;
@@ -153,7 +174,7 @@ pub struct QueryReceipt {
     /// provenance — the observed `self_id` inside `raw` may legitimately
     /// disagree and must be classified, not ignored.
     pub configured_account: u64,
-    /// The connector endpoint this exchange went through.
+    /// The connector endpoint in credential-free form (scheme/host/port only).
     pub ws_url: String,
     /// The complete unmodified response frame matched to `echo`.
     pub raw: serde_json::Value,
@@ -432,7 +453,7 @@ impl NapCatClient {
             echo,
             observed_at: chrono::Utc::now(),
             configured_account: self.config.bot_qq,
-            ws_url: self.config.ws_url.clone(),
+            ws_url: endpoint_provenance(&self.config.ws_url),
             raw,
         })
     }
@@ -512,7 +533,7 @@ impl NapCatClient {
                 Err(e) => return Err(anyhow::anyhow!("NapCat WS URL 无效: {e}")),
             };
 
-            info!(url=%config.ws_url, "NapCat: connecting");
+            info!(url=%endpoint_provenance(&config.ws_url), "NapCat: connecting");
 
             let connected = tokio::select! {
                 result = connect_async(url.as_str()) => result,
@@ -733,13 +754,17 @@ mod tests {
     }
 
     /// Loopback OneBot read: the request is echo-correlated, the untouched raw
-    /// frame and connection provenance come back, and a `self_id` that is not
-    /// the configured account is classified as foreign instead of admitted.
+    /// frame and credential-free connection provenance come back, and a
+    /// duplicate response frame can never reach a second caller.
     #[tokio::test]
-    async fn contact_query_matches_echo_and_binds_connection_identity() {
+    async fn contact_query_matches_echo_with_provenance_and_ignores_duplicates() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let config = NapCatConfig {
-            ws_url: format!("ws://{}", listener.local_addr().unwrap()),
+            // Embedded credentials must never survive into receipts or logs.
+            ws_url: format!(
+                "ws://token:secret@{}/p?access_token=redacted-secret",
+                listener.local_addr().unwrap()
+            ),
             bot_qq: 9,
             reconnect_interval_ms: 50,
             ..Default::default()
@@ -757,44 +782,36 @@ mod tests {
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
-            let mut echoes = Vec::new();
-            while echoes.len() < 2 {
-                let Some(Ok(Message::Text(text))) = ws.next().await else {
-                    continue;
-                };
-                let request: serde_json::Value = serde_json::from_str(&text).unwrap();
-                let echo = request["echo"].as_str().unwrap().to_string();
-                echoes.push(echo.clone());
-                match request["action"].as_str().unwrap() {
-                    "get_friend_list" => {
-                        ws.send(Message::Text(json!({
-                            "status": "ok", "retcode": 0, "echo": echo,
-                            "data": [
-                                {"user_id": 1001u64, "nickname": "阿澈", "remark": "澈"},
-                                {"user_id": 18446744073709551615u64, "nickname": "高位", "remark": ""}
-                            ],
-                            "self_id": 9u64,
-                        }).to_string().into())).await.unwrap();
-                    }
-                    "get_login_info" => {
-                        // A response bound to a different account.
-                        ws.send(Message::Text(json!({
-                            "status": "ok", "retcode": 0, "echo": echo,
-                            "data": {"user_id": 4242u64, "nickname": "other"},
-                            "self_id": 4242u64,
-                        }).to_string().into())).await.unwrap();
-                    }
-                    other => panic!("query surface must stay read-only, got {other}"),
-                }
+            let Some(Ok(Message::Text(text))) = ws.next().await else {
+                panic!("no request");
+            };
+            let request: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(request["action"].as_str().unwrap(), "get_friend_list");
+            let echo = request["echo"].as_str().unwrap().to_string();
+            // The provider answers the same echo twice; the waiter is gone
+            // after the first match and the duplicate is dropped unmatched.
+            for _ in 0..2 {
+                ws.send(Message::Text(json!({
+                    "status": "ok", "retcode": 0, "echo": echo,
+                    "data": [
+                        {"user_id": 1001u64, "nickname": "阿澈", "remark": "澈"},
+                        {"user_id": 18446744073709551615u64, "nickname": "高位", "remark": ""}
+                    ],
+                    "self_id": 9u64,
+                }).to_string().into())).await.unwrap();
             }
-            echoes
+            echo
         });
         let friends = tokio::time::timeout(Duration::from_secs(10), async {
             client.query(ContactQuery::FriendList).await
         }).await.unwrap().unwrap();
         assert_eq!(friends.action, "get_friend_list");
         assert_eq!(friends.configured_account, 9);
-        assert_eq!(friends.ws_url, config.ws_url);
+        assert_eq!(
+            friends.ws_url,
+            format!("ws://{}", listener.local_addr().unwrap())
+        );
+        assert!(!friends.ws_url.contains("secret") && !friends.ws_url.contains('?'));
         assert_eq!(friends.observed_self_id(), Some(9));
         assert_eq!(friends.foreign_self_id(), None);
         assert!(friends.receipt().is_success());
@@ -803,23 +820,17 @@ mod tests {
             friends.raw.pointer("/data/1/user_id").and_then(|v| v.as_u64()),
             Some(u64::MAX)
         );
-        let foreign = tokio::time::timeout(Duration::from_secs(10), async {
-            client.query(ContactQuery::LoginInfo).await
-        }).await.unwrap().unwrap();
-        assert_eq!(foreign.observed_self_id(), Some(4242));
-        assert_eq!(foreign.foreign_self_id(), Some(4242));
-        let echoes = server.await.unwrap();
-        assert_eq!(echoes, vec![friends.echo.clone(), foreign.echo.clone()]);
+        assert_eq!(server.await.unwrap(), friends.echo);
         cancel.cancel();
         tokio::time::timeout(Duration::from_secs(5), connector)
             .await.unwrap().unwrap().unwrap();
     }
 
-    /// A duplicate response frame can never reach a second caller, and a
-    /// response that arrives after its request was declared unknown is ignored
-    /// instead of corrupting the next query's correlation.
+    /// A request whose socket dies after its pending entry was established is
+    /// typed unknown (never failed, never an empty list), and a replayed frame
+    /// under the old echo is ignored rather than admitted on reconnect.
     #[tokio::test]
-    async fn contact_query_late_and_duplicate_replies_are_not_admitted() {
+    async fn contact_query_drop_is_unknown_and_stale_echo_not_admitted() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let config = NapCatConfig {
             ws_url: format!("ws://{}", listener.local_addr().unwrap()),
@@ -838,9 +849,13 @@ mod tests {
             cancel.clone(),
         ));
         let (first_echo_tx, first_echo_rx) = oneshot::channel::<String>();
+        let (read_ack_tx, read_ack_rx) = oneshot::channel::<()>();
         let mut first_echo_tx = Some(first_echo_tx);
+        let mut read_ack_tx = Some(read_ack_tx);
         let server = tokio::spawn(async move {
-            // Connection 1: answer the request twice, then drop the socket.
+            // Connection 1: answer the first request, then read the second
+            // request and only then drop the socket — the pending entry is
+            // provably established before the disconnect.
             {
                 let (stream, _) = listener.accept().await.unwrap();
                 let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
@@ -850,14 +865,16 @@ mod tests {
                 let request: serde_json::Value = serde_json::from_str(&text).unwrap();
                 let echo = request["echo"].as_str().unwrap().to_string();
                 first_echo_tx.take().unwrap().send(echo.clone()).unwrap();
-                for _ in 0..2 {
-                    ws.send(Message::Text(json!({
-                        "status": "ok", "retcode": 0, "echo": echo,
-                        "data": [{"group_id": 100u64, "group_name": "g"}],
-                    }).to_string().into())).await.unwrap();
-                }
-                // Socket closes with pending waiters dropped: the *second*
-                // query's delivery state is unknown to the client.
+                ws.send(Message::Text(json!({
+                    "status": "ok", "retcode": 0, "echo": echo,
+                    "data": [{"group_id": 100u64, "group_name": "g"}],
+                }).to_string().into())).await.unwrap();
+                let Some(Ok(Message::Text(text))) = ws.next().await else {
+                    panic!("no second request on the first connection");
+                };
+                let _request: serde_json::Value = serde_json::from_str(&text).unwrap();
+                // Pending entry exists; now the socket dies unanswered.
+                read_ack_tx.take().unwrap().send(()).unwrap();
             }
             // Connection 2: read the next real request, then replay the first
             // echo's frame before answering — the stale frame must not be
@@ -884,16 +901,19 @@ mod tests {
             client.query(ContactQuery::GroupList).await
         }).await.unwrap().unwrap();
         assert_eq!(first.raw.pointer("/data/0/group_id").and_then(|v| v.as_u64()), Some(100));
-        // The duplicate frame found no waiter: only one receipt ever existed.
-        let second = client.query(ContactQuery::StrangerInfo { user_id: 7, no_cache: false });
-        let late = tokio::time::timeout(Duration::from_secs(10), async {
-            client.query(ContactQuery::GroupList).await
+        let dropped = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client.query(ContactQuery::StrangerInfo { user_id: 7, no_cache: false }).await
+            }
         });
-        let (second, late) = tokio::join!(second, late);
-        // The dropped socket means delivery of both in-flight reads is unknown,
-        // not failed and not empty.
-        assert!(matches!(second, Err(SendError::Unknown(_)) | Err(SendError::Disconnected)));
-        assert!(matches!(late, Err(SendError::Unknown(_)) | Err(SendError::Disconnected)));
+        // The server has received the second request: its pending entry is
+        // established before the socket closes, so the outcome is provably
+        // unknown delivery, not "never sent".
+        read_ack_rx.await.unwrap();
+        let dropped = tokio::time::timeout(Duration::from_secs(10), dropped)
+            .await.unwrap().unwrap();
+        assert!(matches!(dropped, Err(SendError::Unknown(_))));
         // The next real query is written on the reconnected socket; the server
         // answers it only after replaying a stale frame under the first echo.
         let third = tokio::time::timeout(Duration::from_secs(10), async {
@@ -903,8 +923,7 @@ mod tests {
         // one bound to this request's own echo.
         assert_eq!(third.raw.pointer("/data/0/group_name").and_then(|v| v.as_str()), Some("fresh"));
         assert_ne!(third.echo, first.echo);
-        let second_echo = server.await.unwrap();
-        assert_eq!(second_echo, third.echo);
+        assert_eq!(server.await.unwrap(), third.echo);
         cancel.cancel();
         tokio::time::timeout(Duration::from_secs(5), connector)
             .await.unwrap().unwrap().unwrap();
