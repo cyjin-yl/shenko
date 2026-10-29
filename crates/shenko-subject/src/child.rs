@@ -205,7 +205,11 @@ impl NativeChildService {
         // round; the next pass restarts from the beginning. New work after the
         // captured upper key is visited by that next round, never deferred
         // forever by a permanently full page.
-        let complete = candidates.len() < PAGE
+        // An empty captured boundary must also complete: a producer may insert
+        // a full page between the two reads, and a nonempty cursor with no
+        // upper bound would never wrap.
+        let complete = (fresh_round && upper.is_none())
+            || candidates.len() < PAGE
             || last.as_ref().is_some_and(|last| upper.as_ref().is_some_and(|upper| last >= upper));
         {
             let mut state = self.scan.lock()

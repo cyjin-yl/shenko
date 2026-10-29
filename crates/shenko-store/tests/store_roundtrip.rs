@@ -946,6 +946,7 @@ fn dispatch_cursor_reaches_later_work_and_wraps_without_starving() {
     for number in 1..=40 { batch.task_upserts.push(recovery_task(&store, agent, number, false)); }
     store.commit(batch).unwrap();
     let mut seen = Vec::new();
+    let mut last_key = None;
     let mut after: Option<(String, shenko_types::ids::EntityId)> = None;
     let mut pages = 0;
     loop {
@@ -955,6 +956,7 @@ fn dispatch_cursor_reaches_later_work_and_wraps_without_starving() {
         pages += 1;
         assert!(pages <= 3, "scan did not terminate");
         seen.extend(page.iter().map(|(_, task)| task.task_id.to_string()));
+        last_key = page.last().map(|(created, task)| (created.clone(), task.task_id));
         if page.len() < 32 {
             // Short page: the scan reached the end and the next pass restarts.
             after = None;
@@ -965,7 +967,7 @@ fn dispatch_cursor_reaches_later_work_and_wraps_without_starving() {
     assert_eq!(seen.len(), 40, "a later page hid work: {seen:?}");
     assert!(seen.windows(2).all(|pair| pair[0] < pair[1]), "pagination duplicated or reordered work");
     let upper = store.native_task_scan_upper().unwrap().unwrap();
-    assert_eq!(upper.0, seen.last().unwrap(), "the round boundary is the last scan key");
+    assert_eq!(Some(upper), last_key, "the round boundary is the last scanned key");
     // Wraparound returns the same complete set rather than staying at the end.
     let restarted = store.native_task_candidates_after(None, 32).unwrap();
     assert_eq!(restarted.len(), 32);
