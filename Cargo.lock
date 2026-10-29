@@ -2653,13 +2653,17 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "futures",
  "serde",
  "serde_json",
+ "shenko-channel-napcat",
  "shenko-store",
  "shenko-subject",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -2754,6 +2758,20 @@ dependencies = [
  "serde",
  "serde_json",
  "shenko-types",
+]
+
+[[package]]
+name = "shenko-repl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "cap-std",
+ "serde",
+ "serde_json",
+ "shenko-types",
+ "shenko-wasm",
+ "uuid",
 ]
 
 [[package]]

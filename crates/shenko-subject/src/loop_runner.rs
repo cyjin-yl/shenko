@@ -334,6 +334,46 @@ pub async fn run_subject_loop(
             // Never consume new input into a recovered, already frozen step.
             vec![]
         };
+        // Drain durable input without sending into this consumer's own bounded
+        // channel. A backlog larger than inbox capacity must not block recovery.
+        if state.step.state == SubjectStepState::Planned {
+            // §41.6: at most 64 events are selected into one step; the durable
+            // drain only fills the remainder after the live batch.
+            let drain_limit = 64usize.saturating_sub(events.len());
+            match if drain_limit == 0 {
+                Ok(vec![])
+            } else {
+                state
+                    .store
+                    .pending_inbox_events(state.agent_id, drain_limit)
+            } {
+                Ok(rows) => {
+                    if !rows.is_empty() {
+                        debug!(count = rows.len(), "draining durable web inputs");
+                    }
+                    let pending = rows.into_iter().map(|data| {
+                        serde_json::from_str::<InboxEvent>(&data).map_err(ShenkoError::from)
+                    }).collect::<Result<Vec<_>, _>>();
+                    let pending = match pending {
+                        Ok(pending) => pending,
+                        Err(error) => break Err(error),
+                    };
+                    for event in pending {
+                        // A live wake may carry the same event. The persisted
+                        // original owns its identity and payload, never the
+                        // duplicate copy delivered by the volatile channel.
+                        if let Some(existing) = events.iter_mut()
+                            .find(|existing| existing.event_id == event.event_id)
+                        {
+                            *existing = event;
+                        } else {
+                            events.push(event);
+                        }
+                    }
+                }
+                Err(error) => break Err(error),
+            }
+        }
         // An ingress replay may already be queued when ResultRecorded resumes S1.
         // Recheck L at consumption time so that stable IDs are never executed twice.
         let filtered = events

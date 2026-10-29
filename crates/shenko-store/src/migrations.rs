@@ -74,6 +74,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // policies, decisions, the single-writer pacer and attempt ledger. All
     // writes happen inside the shared IMMEDIATE mutation line.
     conn.execute_batch(crate::quota::QUOTA_SCHEMA)?;
+    // Durable browser input submission bindings (SPEC §41.18). Additive,
+    // never rewrites the original event or its admission fact.
+    conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
