@@ -1678,13 +1678,17 @@ impl Store {
                     {
                         // raw_sessions and subject_steps have already applied,
                         // but NO pending/raw/staged delivery has been published.
-                        let (outcome, owned) =
+                        let (outcome, owned, rejected, rejected_ids) =
                             apply_task_closures(&tx, &ordered, peer_id, seq, manifest)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;
                         conflicts.extend(outcome.conflicts);
                         task_owned_rows = owned;
+                        quarantine_rejected_task_consumers(
+                            self, &tx, &ordered, &manifest.derivatives, peer_id, seq,
+                            &rejected, &rejected_ids, &mut conflicts,
+                        )?;
                         task_closure_applied = true;
                     }
                     if row.table == "memory_intents" || row.table == "memory_intent_bindings"
@@ -2967,7 +2971,12 @@ fn apply_task_closures<'a>(
     peer_id: EntityId,
     seq: LedgerSeq,
     manifest: &CognitionManifest,
-) -> Result<(CognitionApplyOutcome, HashSet<(&'a str, &'a str)>)> {
+) -> Result<(
+    CognitionApplyOutcome,
+    HashSet<(&'a str, &'a str)>,
+    HashSet<(&'a str, &'a str)>,
+    HashSet<String>,
+)> {
     fn add<'a>(
         groups: &mut HashMap<String, Vec<&'a CognitionRow>>,
         owned: &mut HashSet<(&'a str, &'a str)>, row: &'a CognitionRow, task: Option<String>,
@@ -3040,6 +3049,8 @@ fn apply_task_closures<'a>(
         }
     }
     let mut outcome = CognitionApplyOutcome::default();
+    let mut rejected = HashSet::new();
+    let mut rejected_ids = HashSet::new();
     for (task_id, mut group) in groups {
         let parent = tasks.get(task_id.as_str()).copied();
         let mut conflict = parent.is_none() || invalid_groups.contains(&task_id);
@@ -3084,7 +3095,10 @@ fn apply_task_closures<'a>(
         if conflict { tx.execute("ROLLBACK TO task_closure", []).map_err(db)?; }
         tx.execute("RELEASE task_closure", []).map_err(db)?;
         if conflict {
+            rejected_ids.insert(task_id.clone());
             for row in group {
+                rejected.insert((row.table.as_str(), row.key.as_str()));
+                rejected_ids.insert(row.key.clone());
                 let detail = format!("task {task_id} input/execution/delivery closure conflicts or lacks its incoming parent; the complete local unit is kept");
                 record_conflict(tx, peer_id, &row.table, &row.key, &detail)?;
                 outcome.conflicts.push(CognitionConflict { table: row.table.clone(), key: row.key.clone(), detail });
@@ -3095,7 +3109,192 @@ fn apply_task_closures<'a>(
             outcome.unchanged += part.unchanged;
         }
     }
-    Ok((outcome, owned))
+    Ok((outcome, owned, rejected, rejected_ids))
+}
+
+/// A rejected task must not survive through consumers that were committed in
+/// an earlier table phase: quarantine dependent steps and window generations
+/// inside the same publication transaction rather than leaving a model input
+/// whose raw/original parent no longer exists.
+fn quarantine_rejected_task_consumers(
+    store: &Store,
+    tx: &Transaction<'_>,
+    rows: &[&CognitionRow],
+    derivatives: &[CognitionDerivative],
+    peer_id: EntityId,
+    seq: LedgerSeq,
+    rejected: &HashSet<(&str, &str)>,
+    rejected_ids: &HashSet<String>,
+    conflicts: &mut Vec<CognitionConflict>,
+) -> Result<()> {
+    if rejected.is_empty() { return Ok(()); }
+    let step_spec = spec_for("subject_steps").expect("subject step table is registered");
+    let window_spec = spec_for("context_windows").expect("context window table is registered");
+    let scope_spec = spec_for("context_window_scopes").expect("context window scope table is registered");
+    let window_bodies: HashMap<&str, String> = rows.iter().copied()
+        .filter(|row| row.table == "context_windows")
+        .filter_map(|row| row.value("body").map(|body| (row.key.as_str(), body.to_owned())))
+        .collect();
+    let mut quarantined_windows = HashSet::new();
+    let mut quarantined_scopes = HashSet::new();
+    let mut record = |table: &str, key: &str, detail: String| -> Result<()> {
+        record_conflict(tx, peer_id, table, key, &detail)?;
+        conflicts.push(CognitionConflict { table: table.into(), key: key.into(), detail });
+        Ok(())
+    };
+
+    for row in rows.iter().copied().filter(|row| row.table == "subject_steps") {
+        let Some(data) = row.value("data").and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok()) else {
+            continue;
+        };
+        ensure!(data.is_object(), "imported subject step data is not an object");
+        let frozen_plan: Option<serde_json::Value> = data.get("input_plan_ref")
+            .and_then(|object| object.get("digest")).and_then(serde_json::Value::as_str)
+            .and_then(|digest| store.cas.read_object(&Digest(digest.to_owned())).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        let events = frozen_plan.as_ref().and_then(|plan| plan.get("events").and_then(serde_json::Value::as_array));
+        let raw_ids = frozen_plan.as_ref()
+            .and_then(|plan| plan.pointer("/context/source/input_raw_event_ids").and_then(serde_json::Value::as_array));
+        let window_id = frozen_plan.as_ref()
+            .and_then(|plan| plan.pointer("/context/source/window_id").and_then(serde_json::Value::as_str))
+            .map(str::to_owned);
+        let mut dirty = false;
+        if let Some(events) = events {
+            dirty |= events.iter().any(|event| {
+                event.get("event_id").and_then(serde_json::Value::as_str)
+                    .is_some_and(|id| rejected_ids.contains(id) || rejected.contains(&("inbox_events", id)))
+                    || event.pointer("/payload/task_id").and_then(serde_json::Value::as_str)
+                        .is_some_and(|id| rejected_ids.contains(id))
+                    || event.get("task_id").and_then(serde_json::Value::as_str)
+                        .is_some_and(|id| rejected_ids.contains(id))
+            });
+        }
+        if let Some(raw_ids) = raw_ids {
+            dirty |= raw_ids.iter().any(|id| id.as_str()
+                .is_some_and(|id| rejected_ids.contains(id) || rejected.contains(&("session_events", id))));
+        }
+        if dirty {
+            // Quarantine the dependent step through the same recovery helper:
+            // the rejected raw facts are still recorded as gaps rather than
+            // left committed and silently erased. The state string stays the
+            // real enum value; removing input_plan_ref makes validate_resume
+            // fail closed with recovery_blocked, never silently resuming
+            // model input whose parent delivery was rejected.
+            let mut quarantined = data.clone();
+            quarantined["import_quarantine"] = serde_json::json!({
+                "reason": "frozen S0 selected task input/result facts rejected by task closure",
+                "original_state": data.get("state"),
+                "rejected_references": rejected_ids.iter().cloned().collect::<Vec<_>>(),
+            });
+            quarantined["input_plan_ref"] = serde_json::Value::Null;
+            quarantined["active_request_id"] = serde_json::Value::Null;
+            quarantined["active_attempt_id"] = serde_json::Value::Null;
+            quarantined["model_result_ref"] = serde_json::Value::Null;
+            quarantined["model_outcome_ref"] = serde_json::Value::Null;
+            let mut effective = row.clone();
+            set_value(&mut effective, "data", Some(serde_json::to_string(&quarantined)?));
+            apply_recovery_fact(tx, step_spec, &effective, peer_id, seq)?;
+            record("subject_steps", &row.key,
+                format!("frozen S0 {} depends on rejected task facts and was quarantined; explicit reconciliation required", row.key))?;
+            if let Some(id) = window_id { quarantined_windows.insert(id); }
+        }
+    }
+
+    // Windows whose bodies reference rejected raw/task deliveries cannot be
+    // active generation: quarantine the row and any derivative bytes from the
+    // same manifest instead of leaving a partially valid window head.
+    let mut scope_dirty: HashMap<String, HashSet<String>> = HashMap::new();
+    for row in rows.iter().copied().filter(|row| row.table == "context_windows") {
+        let Some(body) = window_bodies.get(row.key.as_str()) else { continue };
+        let references = raw_event_references(body).or_else(|| Some(HashSet::new()));
+        let mut dirty = references.is_some_and(|refs| refs.iter().any(|id|
+            rejected_ids.contains(id) || rejected.contains(&("session_events", id.as_str()))));
+        if !dirty {
+            let parsed = serde_json::from_str::<serde_json::Value>(body).ok();
+            dirty = parsed.is_some_and(|body| window_mentions_rejected(&body, rejected, rejected_ids));
+        }
+        if dirty || quarantined_windows.contains(row.key.as_str()) {
+            let scope = row.value("scope_id").unwrap_or_default().to_owned();
+            scope_dirty.entry(scope).or_default().insert(row.key.clone());
+            quarantined_windows.insert(row.key.clone());
+        }
+    }
+    for derivative in derivatives.iter().filter(|d| quarantined_windows.contains(d.window_id.to_string().as_str())) {
+        record("context_window_derivatives", &format!("{}:{}", derivative.window_id, derivative.idx),
+            "derivative belongs to a rejected task delivery's active window".into())?;
+    }
+    for row in rows.iter().copied().filter(|row| row.table == "context_windows" && quarantined_windows.contains(row.key.as_str())) {
+        let scope = row.value("scope_id").unwrap_or_default().to_owned();
+        scope_dirty.entry(scope).or_default().insert(row.key.clone());
+        let mut effective = row.clone();
+        let mut body = window_bodies.get(row.key.as_str())
+            .and_then(|body| serde_json::from_str::<serde_json::Value>(body).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        ensure!(body.is_object(), "imported context window body is not an object");
+        body["import_quarantine"] = serde_json::json!({
+            "reason": "active window body references rejected task delivery/raw event",
+        });
+        set_value(&mut effective, "body", Some(serde_json::to_string(&body)?));
+        apply_recovery_fact(tx, window_spec, &effective, peer_id, seq)?;
+        record("context_windows", &row.key,
+            "active window generation references rejected task delivery/raw event; quarantined".into())?;
+    }
+    for row in rows.iter().copied().filter(|row| row.table == "context_window_scopes") {
+        if !scope_dirty.contains_key(row.key.as_str()) { continue; }
+        let mut effective = row.clone();
+        let mut scope = task_row_json(row).unwrap_or_else(|| serde_json::json!({}));
+        ensure!(scope.is_object(), "imported context window scope is not an object");
+        scope["import_quarantine"] = serde_json::json!({
+            "reason": "scope's imported head window references rejected task delivery",
+        });
+        scope["model_generation"] = serde_json::Value::from(0i64);
+        set_value(&mut effective, "model_generation", Some("0".into()));
+        let profile = scope.get("profile_digest").and_then(serde_json::Value::as_str).map(str::to_owned);
+        set_value(&mut effective, "profile_digest", profile);
+        apply_recovery_fact(tx, scope_spec, &effective, peer_id, seq)?;
+        record("context_window_scopes", &row.key,
+            "scope active window quarantined with rejected task delivery; model generation reset to 0".into())?;
+    }
+    Ok(())
+}
+
+/// Window body event ids it resolves verbatim (all JsonRef-shaped
+/// "event_id"/"at.event_id"/flat `"event_id"` values that parse as EntityId).
+fn raw_event_references(body: &str) -> Option<HashSet<String>> {
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    fn collect(value: &serde_json::Value, out: &mut HashSet<String>) {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(id) = map.get("event_id").and_then(serde_json::Value::as_str) {
+                    if id.parse::<EntityId>().is_ok() { out.insert(id.into()); }
+                }
+                map.values().for_each(|v| collect(v, out));
+            }
+            serde_json::Value::Array(items) => items.iter().for_each(|v| collect(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = HashSet::new();
+    collect(&value, &mut out);
+    Some(out)
+}
+
+fn window_mentions_rejected(
+    value: &serde_json::Value,
+    rejected: &HashSet<(&str, &str)>,
+    rejected_ids: &HashSet<String>,
+) -> bool {
+    match value {
+        serde_json::Value::Object(map) => {
+            let owned = map.get("task_id").and_then(serde_json::Value::as_str)
+                .is_some_and(|id| rejected_ids.contains(id));
+            owned || map.values().any(|v| window_mentions_rejected(v, rejected, rejected_ids))
+        }
+        serde_json::Value::Array(items) => items.iter().any(|v| window_mentions_rejected(v, rejected, rejected_ids)),
+        serde_json::Value::String(text) => rejected_ids.contains(text)
+            || rejected.iter().any(|(table, key)| text.as_str() == *key && *table == "inbox_events"),
+        _ => false,
+    }
 }
 
 /// The row as it will be stored here.
