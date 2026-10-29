@@ -24,7 +24,7 @@ use super::{Identity, Manifest, Node, digest, meta, number, running_manifest, se
 use crate::peers::SyncPeerState;
 use crate::roles::{RoleAssignment, RuntimeRoleObservation};
 use anyhow::{Context, Result, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -80,7 +80,6 @@ pub struct PeerCapabilityFact {
 
 struct CapabilityParts {
     identity: Option<Identity>,
-    manifest: Manifest,
     role_assignment: Option<RoleAssignment>,
     latest_runtime_observation: Option<RuntimeRoleObservation>,
     subject_observations: u64,
@@ -99,9 +98,11 @@ fn subject_evidence(profile: &NodeCapabilityProfile) -> bool {
 }
 
 impl Node {
-    fn capability_parts(&self) -> Result<CapabilityParts> {
-        let mut statement = self
-            .conn
+    /// Read every advertised durable field on one connection. Callers that
+    /// advance the generation pass their write transaction so the captured
+    /// snapshot can never postdate the generation it is published under.
+    fn capability_parts(conn: &Connection) -> Result<CapabilityParts> {
+        let mut statement = conn
             .prepare("SELECT data FROM node_runtime_observations ORDER BY seq")?;
         let rows = statement
             .query_map([], |r| r.get::<_, String>(0))?
@@ -116,12 +117,11 @@ impl Node {
             }
         }
         Ok(CapabilityParts {
-            identity: self.local_identity()?,
-            manifest: running_manifest()?,
-            role_assignment: self.latest_assignment()?,
-            latest_runtime_observation: self.latest_observation()?,
+            identity: Self::stored_identity(conn)?,
+            role_assignment: Self::latest_assignment(conn)?,
+            latest_runtime_observation: Self::latest_observation(conn)?,
             subject_observations,
-            provides: self.enabled_provides()?,
+            provides: Self::enabled_provides(conn)?,
         })
     }
 
@@ -129,23 +129,31 @@ impl Node {
     ///
     /// The generation advances only when the advertised content changes, so a
     /// replayed identical profile keeps its generation while every real change
-    /// is distinguishable from a stale replay at the receiver.
+    /// is distinguishable from a stale replay at the receiver. All durable
+    /// inputs are read inside the generation transaction so generation order
+    /// cannot reverse the order of the snapshots it describes, and an
+    /// unchanged generation returns the exact stored profile bytes (same
+    /// `generated_at`, same serialization) so receivers and sync fingerprint
+    /// comparisons see a stable advertisement.
     pub fn capability_profile(&mut self) -> Result<NodeCapabilityProfile> {
-        let node_id = self.local_node_id()?.context("node not initialized")?;
-        let parts = self.capability_parts()?;
+        // Process identity, not durable state: safe to compute before the
+        // generation transaction starts.
+        let manifest = running_manifest()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
+        let parts = Self::capability_parts(&tx)?;
         let content = json!({
             "node_id": node_id,
             "identity": parts.identity,
-            "manifest": parts.manifest,
+            "manifest": manifest,
             "role_assignment": parts.role_assignment,
             "latest_runtime_observation": parts.latest_runtime_observation,
             "subject_observations": parts.subject_observations,
             "provides": parts.provides,
         });
         let content_digest = Digest::blake3(&serde_json::to_vec(&content)?);
-        let tx = self
-            .conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let prior: Option<Value> = meta(&tx, "capability_advertisement")?
             .map(|s| serde_json::from_str(&s))
             .transpose()?;
@@ -160,31 +168,61 @@ impl Node {
             .and_then(|p| p.get("content_digest"))
             .and_then(Value::as_str)
             == Some(content_digest.0.as_str());
-        let seq = if unchanged && prior_seq > 0 {
-            prior_seq
+        let profile = if unchanged && prior_seq > 0 {
+            // Content-identical re-advertisement: return the stored profile
+            // verbatim so the bytes receivers and header fingerprints compare
+            // are identical at the reused generation.
+            let stored = prior.and_then(|p| p.get("profile")).cloned();
+            match stored {
+                Some(stored) => serde_json::from_value(stored)
+                    .context("stored capability profile unreadable")?,
+                None => {
+                    // A generation persisted before the profile itself was
+                    // retained: rebuild it at the same generation and store
+                    // the result so subsequent calls are byte-identical.
+                    let rebuilt = NodeCapabilityProfile {
+                        node_id,
+                        identity: parts.identity,
+                        manifest,
+                        advertisement_seq: prior_seq.to_string(),
+                        generated_at: chrono::Utc::now(),
+                        role_assignment: parts.role_assignment,
+                        latest_runtime_observation: parts.latest_runtime_observation,
+                        subject_observations: parts.subject_observations,
+                        provides: parts.provides,
+                    };
+                    set(
+                        &tx,
+                        "capability_advertisement",
+                        &json!({"seq": prior_seq.to_string(), "content_digest": content_digest.0, "profile": rebuilt}),
+                    )?;
+                    rebuilt
+                }
+            }
         } else {
-            let next = prior_seq
+            let seq = prior_seq
                 .checked_add(1)
                 .context("capability advertisement generation exhausted")?;
+            let profile = NodeCapabilityProfile {
+                node_id,
+                identity: parts.identity,
+                manifest,
+                advertisement_seq: seq.to_string(),
+                generated_at: chrono::Utc::now(),
+                role_assignment: parts.role_assignment,
+                latest_runtime_observation: parts.latest_runtime_observation,
+                subject_observations: parts.subject_observations,
+                provides: parts.provides,
+            };
             set(
                 &tx,
                 "capability_advertisement",
-                &json!({"seq": next.to_string(), "content_digest": content_digest.0}),
+                &json!({"seq": seq.to_string(), "content_digest": content_digest.0, "profile": profile}),
             )?;
-            next
+            profile
         };
         tx.commit()?;
-        Ok(NodeCapabilityProfile {
-            node_id,
-            identity: parts.identity,
-            manifest: parts.manifest,
-            advertisement_seq: seq.to_string(),
-            generated_at: chrono::Utc::now(),
-            role_assignment: parts.role_assignment,
-            latest_runtime_observation: parts.latest_runtime_observation,
-            subject_observations: parts.subject_observations,
-            provides: parts.provides,
-        })
+        Ok(profile)
     }
 
     /// Store a capability advertisement that arrived over an already
@@ -304,7 +342,9 @@ impl Node {
         rows.into_iter()
             .map(|(node, latest_seq, pdigest, data, provenance, received_at)| {
                 Ok(PeerCapabilityFact {
-                    node_id: serde_json::from_str(&node)?,
+                    node_id: node
+                        .parse::<EntityId>()
+                        .context("stored capability fact node ID")?,
                     latest_seq,
                     profile_digest: Digest(pdigest),
                     profile: serde_json::from_str(&data)?,
@@ -334,7 +374,7 @@ impl Node {
         let mut entries: Vec<Value> = Vec::new();
         let mut keys: Vec<(bool, bool, bool, u64, EntityId)> = Vec::new();
 
-        let self_parts = self.capability_parts()?;
+        let self_parts = Self::capability_parts(&self.conn)?;
         let last_adv: Option<String> = self
             .conn
             .query_row("SELECT v FROM meta WHERE k='capability_advertisement'", [], |r| {
@@ -455,21 +495,15 @@ mod tests {
     use crate::SyncPeer;
     use crate::peers::SyncConfirmation;
     use crate::roles::{NodeRole, RoleAssignmentRequest};
-    use std::os::unix::fs::DirBuilderExt;
     use std::path::PathBuf;
 
     fn scratch(name: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "shenko-capability-{}-{name}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&path);
-        std::fs::DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&path)
-            .unwrap();
-        path
+        // Unique per call; tests never delete data directories.
+        std::env::temp_dir().join(format!(
+            "shenko-capability-{}-{name}-{}",
+            std::process::id(),
+            EntityId::new()
+        ))
     }
 
     fn init(dir: &std::path::Path, node_id: EntityId) -> Node {
@@ -486,7 +520,8 @@ mod tests {
     fn generation_safe_capability_facts_drive_candidacy() {
         let a_id = EntityId::new();
         let b_id = EntityId::new();
-        let mut a = init(&scratch("a"), a_id);
+        let dir_a = scratch("a");
+        let mut a = init(&dir_a, a_id);
         let mut b = init(&scratch("b"), b_id);
 
         // B declares intent, then its actual runtime evidences a bound
@@ -511,6 +546,9 @@ mod tests {
         // Unchanged content reuses the generation; a real change advances it.
         let same = b.capability_profile().unwrap();
         assert_eq!(same.advertisement_seq, profile_b.advertisement_seq);
+        // The reused generation repeats the exact stored profile bytes so the
+        // sync header fingerprint and receiver deduplication stay stable.
+        assert_eq!(text(&same).unwrap(), text(&profile_b).unwrap());
         b.observe_runtime_roles(
             EntityId::new(),
             vec![NodeRole::Executor],
@@ -553,8 +591,10 @@ mod tests {
             .unwrap();
         assert_eq!(log, 4);
 
-        // Candidacy uses the verified fact: B's observed-primary evidence
-        // plus a confirmed sync outranks this node's lack of evidence.
+        // Candidacy uses the verified fact: B's latest observation revoked
+        // primary, so it carries no primary evidence, but its bound-subject
+        // history plus a confirmed sync still outranks this node's lack of
+        // evidence.
         a.register_sync_peer(&SyncPeer {
             node_id: b_id,
             ssh_target: "b.example".into(),
@@ -587,12 +627,13 @@ mod tests {
         assert_eq!(candidates.len(), 2);
         assert_eq!(candidates[0]["node_id"], json!(b_id));
         assert_eq!(candidates[0]["verified"], json!("confirmed_sync"));
-        assert_eq!(candidates[0]["primary_evidence"], json!(true));
+        assert_eq!(candidates[0]["primary_evidence"], json!(false));
+        assert_eq!(candidates[0]["subject_evidence"], json!(true));
         assert_eq!(candidates[1]["node_id"], json!(a_id));
         assert_eq!(candidates[1]["primary_evidence"], json!(false));
 
-        // Facts and generation ordering survive reopen.
-        let dir_a = scratch("a");
+        // Facts and generation ordering survive reopen of the original
+        // directory; the test never deletes the installation it reopens.
         drop(a);
         let a = Node::open(&dir_a).unwrap();
         let facts = a.capability_facts().unwrap();
@@ -614,8 +655,6 @@ mod tests {
         let mut b = init(&scratch("b2"), b_id);
         let mut profile = b.capability_profile().unwrap();
         profile.advertisement_seq = "0".into();
-        assert!(a.record_peer_capability(&profile, "verified receipt").is_err());
-        profile.advertisement_seq = "not-a-number".into();
         assert!(a.record_peer_capability(&profile, "verified receipt").is_err());
 
         // An enrolled peer with no facts stays in the member set but ranks

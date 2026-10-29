@@ -22,7 +22,7 @@
 
 use crate::Node;
 use anyhow::{Context, Result, bail, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::{ids::EntityId, object::Digest};
@@ -1669,13 +1669,22 @@ impl Node {
 
     /// Capability names declared by currently enabled units on this node.
     /// These are declarations for coordination candidacy, not readiness or
-    /// model-evidence claims.
-    pub(crate) fn enabled_provides(&self) -> Result<Vec<String>> {
+    /// model-evidence claims. Reads on the caller's connection so a
+    /// generation transaction can bind them to its own durable snapshot.
+    pub(crate) fn enabled_provides(conn: &Connection) -> Result<Vec<String>> {
         let mut provides = Vec::new();
-        for unit in self.installed_units()? {
-            if unit.enabled {
-                provides.extend(unit.descriptor.provides.clone());
+        let rows: Vec<(String, i64)> = conn
+            .prepare(
+                "SELECT v.data,c.enabled FROM unit_current c JOIN unit_versions v ON v.unit_id=c.unit_id AND v.revision=c.revision AND v.artifact_digest=c.artifact_digest ORDER BY c.unit_id",
+            )?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (data, enabled) in rows {
+            if enabled == 0 {
+                continue;
             }
+            let stored: StoredVersion = serde_json::from_str(&data)?;
+            provides.extend(stored.unit.provides);
         }
         provides.sort();
         provides.dedup();

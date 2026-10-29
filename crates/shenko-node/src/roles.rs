@@ -1,7 +1,7 @@
 //! Runtime roles are mutable facts of one Node, never device subclasses.
 use super::{Node, digest, get, number, text};
 use anyhow::{Context as _, Result, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -53,8 +53,13 @@ pub struct RuntimeRoleObservation {
 
 impl Node {
     pub fn local_identity(&self) -> Result<Option<super::Identity>> {
-        let value = self
-            .conn
+        Self::stored_identity(&self.conn)
+    }
+
+    /// Identity read on an explicit connection so generation transactions can
+    /// bind it to the same durable snapshot they advance.
+    pub(crate) fn stored_identity(conn: &Connection) -> Result<Option<super::Identity>> {
+        let value = conn
             .query_row("SELECT v FROM meta WHERE k='identity'", [], |r| {
                 r.get::<_, String>(0)
             })
@@ -66,7 +71,13 @@ impl Node {
     }
 
     pub fn local_node_id(&self) -> Result<Option<EntityId>> {
-        self.conn
+        Self::stored_node_id(&self.conn)
+    }
+
+    /// Node ID read on an explicit connection, for the same reason as
+    /// `stored_identity`.
+    pub(crate) fn stored_node_id(conn: &Connection) -> Result<Option<EntityId>> {
+        conn
             .query_row("SELECT v FROM meta WHERE k='node'", [], |r| {
                 r.get::<_, String>(0)
             })
@@ -173,9 +184,9 @@ impl Node {
         Ok(observation)
     }
 
-    pub(crate) fn latest_assignment(&self) -> Result<Option<RoleAssignment>> {
-        let assignment: Option<String> = self
-            .conn
+    /// Latest role intent read on an explicit connection.
+    pub(crate) fn latest_assignment(conn: &Connection) -> Result<Option<RoleAssignment>> {
+        let assignment: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_role_assignments ORDER BY revision DESC LIMIT 1",
                 [],
@@ -187,9 +198,9 @@ impl Node {
             .transpose()
     }
 
-    pub(crate) fn latest_observation(&self) -> Result<Option<RuntimeRoleObservation>> {
-        let observed: Option<String> = self
-            .conn
+    /// Latest runtime observation read on an explicit connection.
+    pub(crate) fn latest_observation(conn: &Connection) -> Result<Option<RuntimeRoleObservation>> {
+        let observed: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_runtime_observations ORDER BY seq DESC LIMIT 1",
                 [],
@@ -203,8 +214,8 @@ impl Node {
 
     pub fn role_status(&self) -> Result<Value> {
         let node_id = self.local_node_id()?.context("node not initialized")?;
-        let assignment = self.latest_assignment()?;
-        let observed = self.latest_observation()?;
+        let assignment = Self::latest_assignment(&self.conn)?;
+        let observed = Self::latest_observation(&self.conn)?;
         Ok(json!({
             "node_id": node_id,
             "assignment": assignment,
