@@ -2654,6 +2654,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "shenko-awareness-core",
  "shenko-store",
  "shenko-subject",
  "shenko-types",

@@ -52,7 +52,7 @@ struct KnowledgeInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 enum FrozenQuery {
-    Search { query: String },
+    Search { query: String, limit: usize },
     List { kind: Option<SelfResourceKind>, limit: usize },
     Get { uri: String },
 }
@@ -131,6 +131,7 @@ impl SelfKnowledgeHandler {
                 ensure!(query.len() <= MAX_QUERY_BYTES, "search query exceeds 4096 bytes");
                 FrozenQuery::Search {
                     query: query.into(),
+                    limit,
                 }
             }
             KnowledgeOp::List => {
@@ -266,10 +267,11 @@ impl SelfKnowledgeHandler {
 
     fn query(&self, frozen: &FrozenInput) -> Result<(serde_json::Value, OperationOutcome)> {
         match &frozen.query {
-            FrozenQuery::Search { query } => {
-                let resources = self.knowledge.query(query);
+            FrozenQuery::Search { query, limit } => {
+                let mut resources = self.knowledge.query(query);
+                resources.truncate(*limit);
                 Ok((
-                    collection_result("search", &resources[..resources.len().min(MAX_LIMIT)]),
+                    collection_result("search", &resources),
                     OperationOutcome::Succeeded,
                 ))
             }
@@ -517,6 +519,16 @@ mod tests {
 
         let (search, _) = query(serde_json::json!({"op":"search","query":"thought loop"})).unwrap();
         assert!(search["resources"].as_array().unwrap().iter().any(|r| r["uri"] == "self://design/philosophy"));
+
+        // A requested search limit is part of the frozen query and bounds the
+        // returned resource set, not just the parse-time validation.
+        let (limited, _) =
+            query(serde_json::json!({"op":"search","query":"self://","limit":1})).unwrap();
+        let limited_resources = limited["resources"].as_array().unwrap();
+        assert_eq!(limited_resources.len(), 1);
+        let (unbounded, _) =
+            query(serde_json::json!({"op":"search","query":"self://"})).unwrap();
+        assert!(unbounded["resources"].as_array().unwrap().len() > 1);
 
         let (get, outcome) =
             query(serde_json::json!({"op":"get","uri":"self://runtime/capabilities"})).unwrap();

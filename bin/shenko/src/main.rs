@@ -292,7 +292,7 @@ async fn main() -> Result<()> {
             // `self://runtime/capabilities` snapshot is installed below once
             // the native and awareness registries are populated.
             let self_knowledge = Arc::new(shenko_awareness_core::SelfKnowledgeProvider::new(
-                env!("CARGO_PKG_VERSION"),
+                option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound"),
                 "0.6.2",
             ));
             let self_knowledge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
