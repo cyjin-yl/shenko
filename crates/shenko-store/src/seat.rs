@@ -166,18 +166,6 @@ pub enum LeaseEndReason {
     Released,
 }
 
-impl LeaseEndReason {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Superseded => "superseded",
-            Self::SeatSuperseded => "seat_superseded",
-            Self::SeatRetired => "seat_retired",
-            Self::HumanTakeover => "human_takeover",
-            Self::Released => "released",
-        }
-    }
-}
-
 /// End reasons a caller may record explicitly through `end_seat_lease`.
 /// The remaining `LeaseEndReason` values describe transitions this operation
 /// does not perform — supersede, relocation and retirement are recorded only
@@ -273,7 +261,7 @@ fn write_lease(tx: &Transaction<'_>, lease: &SeatLease, seq: u64) -> Result<()> 
             },
             lease
                 .ended_reason
-                .map(|r| r.as_str()),
+                .map(|r| serde_json::to_string(&r)).transpose()?,
             lease.superseded_by.map(|s| s.to_string()),
             serde_json::to_string(lease)?,
             seq as i64,
@@ -295,40 +283,41 @@ fn current_lease(tx: &Transaction<'_>, seat_id: EntityId) -> Result<Option<SeatL
 
 /// The single active seat bound to `(host, pane_id)` — the invariant behind
 /// `idx_seat_active_location`, evaluated inside the caller's transaction so a
-/// competing registration can never slip between lookup and insert. More than
-/// one row means durable history already violates the invariant: surface the
-/// conflict rather than picking a winner.
+/// competing registration can never slip between lookup and insert.
 fn active_seat_at_pane(
     conn: &rusqlite::Connection,
     host: &str,
     pane_id: &str,
 ) -> Result<Option<SeatRecord>> {
-    let mut q = conn.prepare(
-        "SELECT data FROM seat_records WHERE status='active'
-         AND json_extract(data,'$.location.host')=?1
-         AND json_extract(data,'$.location.pane_id')=?2",
-    )?;
-    let rows = q
-        .query_map([host, pane_id], |r| r.get::<_, String>(0))?
-        .collect::<rusqlite::Result<Vec<_>>>()?;
-    match rows.len() {
-        0 => Ok(None),
-        1 => Ok(Some(serde_json::from_str(&rows[0])?)),
-        _ => Err(ShenkoError::conflict(format!(
-            "multiple active seat records claim pane {pane_id}"
-        ))
-        .into()),
-    }
+    let data: Option<String> = conn
+        .query_row(
+            "SELECT data FROM seat_records WHERE status='active'
+             AND json_extract(data,'$.location.host')=?1
+             AND json_extract(data,'$.location.pane_id')=?2",
+            [host, pane_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    data.map(|d| serde_json::from_str(&d).map_err(Into::into)).transpose()
 }
 
 /// Refuse to admit a second active seat at `location`. The typed error names
 /// the incumbent so the caller can retire/relocate it or bind to it after
-/// reconciliation — never silently stacked on the same pane.
-fn claim_seat_location(conn: &rusqlite::Connection, location: &SeatLocation) -> Result<()> {
+/// reconciliation — never silently stacked on the same pane. A relocation may
+/// replace its own predecessor at the same physical pane: the predecessor is
+/// retired before the successor is inserted in the same transaction.
+fn claim_seat_location(
+    conn: &rusqlite::Connection,
+    location: &SeatLocation,
+    replacing: Option<EntityId>,
+) -> Result<()> {
     let (host, pane_id) = match location {
         SeatLocation::Tmux { host, pane_id, .. } => (host.as_str(), pane_id.as_str()),
     };
     if let Some(incumbent) = active_seat_at_pane(conn, host, pane_id)? {
+        if Some(incumbent.seat_id) == replacing {
+            return Ok(());
+        }
         return Err(seat_error(
             "seat_location_occupied",
             RetryStrategy::AfterReconcile,
@@ -409,7 +398,7 @@ impl Store {
                     tx.commit()?;
                     return Ok(existing);
                 }
-                claim_seat_location(&tx, &location)?;
+                claim_seat_location(&tx, &location, None)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let seat = SeatRecord {
@@ -439,8 +428,8 @@ impl Store {
     /// `previous`. The predecessor record keeps its history, is retired, and
     /// its current lease (if any) ends — a stale pane id never stays writable.
     /// `task_id` must name the predecessor's own task: relocating a seat can
-    /// never rebind the position to a different task, and the active target
-    /// pane must be free.
+    /// never rebind the position to a different task. The target pane must be
+    /// free or still occupied only by this predecessor.
     pub fn relocate_seat(
         &self,
         previous: EntityId,
@@ -478,12 +467,7 @@ impl Store {
                     tx.commit()?;
                     return Ok(next);
                 }
-                // No confirmed move: nothing to relocate, report the seat as-is.
-                if location == old.location {
-                    tx.commit()?;
-                    return Ok(old);
-                }
-                claim_seat_location(&tx, &location)?;
+                claim_seat_location(&tx, &location, Some(previous))?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let seat = SeatRecord {
@@ -550,8 +534,9 @@ impl Store {
     /// current it is ended with `Superseded` — by §17.1 a new valid writer
     /// always displaces the old one, and the displaced holder's writes are
     /// refused by lease id afterwards.
-    /// `lease_id` is the caller's acquisition identity, chosen before the
-    /// attempt so the outcome is always re-identifiable: replaying the same
+    /// `lease_id` is the caller's acquisition identity, chosen and durably
+    /// saved before the attempt so the outcome is always re-identifiable:
+    /// replaying the same
     /// acquisition after a crash or an uncertain commit returns the stored
     /// lease — even one already ended — instead of minting a new lease that
     /// could displace a newer legitimate writer.
