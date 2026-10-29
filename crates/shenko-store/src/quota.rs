@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS quota_attempts (
     data TEXT NOT NULL,
     PRIMARY KEY (request_id, provider_id, account_scope_ref, window_key, commit_seq)
 );
+CREATE TABLE IF NOT EXISTS quota_sends (
+    send_id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL,
+    send_seq INTEGER NOT NULL
+);
 "#;
 
 /// The pacer write produced by `admit_quota_request`: the typed admission
@@ -117,15 +122,41 @@ pub(crate) fn quota_gate_open(conn: &Connection) -> Result<bool, ShenkoError> {
     Ok(count > 0)
 }
 
+/// The send ids of one sealed request in arming-commit order; the last
+/// element is the wire attempt currently awaiting dispatch.
+pub(crate) fn quota_request_sends(
+    conn: &Connection,
+    request_id: EntityId,
+) -> Result<Vec<EntityId>, ShenkoError> {
+    let mut stmt = conn
+        .prepare("SELECT send_id FROM quota_sends WHERE request_id=?1 ORDER BY send_seq")
+        .map_err(storage_error)?;
+    let rows = stmt
+        .query_map([request_id.to_string()], |r| r.get::<_, String>(0))
+        .map_err(storage_error)?;
+    let mut sends = Vec::new();
+    for row in rows {
+        let send = row.map_err(storage_error)?;
+        let send_id = send.parse::<EntityId>().map_err(|_| {
+            conflict("quota_sends row has a malformed send id")
+        })?;
+        sends.push(send_id);
+    }
+    Ok(sends)
+}
+
 /// The dispatch gate checked inside every AwaitingModel step CAS: once quota
-/// is configured, a request may be dispatched only after its reservation is
-/// admitted AND armed on this ledger.
+/// is configured, a request may be dispatched only after its LATEST recorded
+/// wire send is admitted AND armed on this ledger.
 pub(crate) fn quota_request_armed(
     conn: &Connection,
     request_id: EntityId,
 ) -> Result<bool, ShenkoError> {
     let pacer = read_pacer(conn)?;
-    Ok(pacer.reservation(&request_id).is_some_and(|reservation| {
+    let Some(send_id) = quota_request_sends(conn, request_id)?.pop() else {
+        return Ok(false);
+    };
+    Ok(pacer.reservation(&send_id).is_some_and(|reservation| {
         reservation.admission.state == shenko_quota::AdmissionState::Admitted
             && reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
     }))
@@ -511,6 +542,13 @@ impl Store {
         Ok(None)
     }
 
+    /// Send ids recorded for one sealed request, in arming-commit order.
+    /// The last entry is the wire attempt whose dispatch is pending.
+    pub fn quota_send_ids(&self, request_id: EntityId) -> Result<Vec<EntityId>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        quota_request_sends(&conn, request_id)
+    }
+
     /// Every recorded attempt in one provider/account scope, commit order.
     pub fn quota_attempts(
         &self,
@@ -605,14 +643,18 @@ impl Store {
         )
     }
 
-    /// Persist the armed binding for an admitted request BEFORE its dispatch:
-    /// one ledger attempt row per quota window, each bound to this same
-    /// commit. Replaying an already-armed admission verifies the original
-    /// rows instead of creating parallel attempts; the caller must pass the
-    /// armed admission record (from `quota_pacer`), since the pre-arm
-    /// revision can never prove its own arming.
-    pub fn arm_quota_admission(
+    /// Persist the armed binding for one wire SEND of `request_id` BEFORE
+    /// its dispatch: one ledger attempt row per quota window plus the
+    /// send→request lineage row, all in this same commit. The immutable
+    /// sealed request id is preserved; each retry wires a fresh admission
+    /// identity through a new `send_id` recorded here. Replaying an
+    /// already-armed send verifies its original rows and lineage instead
+    /// of creating parallel attempts; the caller must pass the armed
+    /// admission record (from `quota_pacer`), since the pre-arm revision
+    /// can never prove its own arming.
+    pub fn arm_quota_send(
         &self,
+        request_id: EntityId,
         admission: &QuotaAdmission,
     ) -> Result<(QuotaAdmission, CommitRef), ShenkoError> {
         self.ledger.with_mutation(
@@ -657,6 +699,18 @@ impl Store {
                             return Err(conflict("armed attempt row is missing"));
                         }
                     }
+                    // The send→request lineage must also match verbatim.
+                    let lineage: Option<String> = tx
+                        .query_row(
+                            "SELECT request_id FROM quota_sends WHERE send_id=?1",
+                            [admission.request_id.to_string()],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    if lineage.as_deref() != Some(request_id.to_string().as_str()) {
+                        return Err(conflict("armed send lineage is missing or bound elsewhere"));
+                    }
                     admission.clone()
                 } else {
                     let attempts: Vec<LocalAttempt> = admission
@@ -686,6 +740,12 @@ impl Store {
                         )
                         .map_err(storage_error)?;
                     }
+                    tx.execute(
+                        "INSERT INTO quota_sends(send_id,request_id,send_seq) VALUES(?1,?2,?3)",
+                        params![admission.request_id.to_string(),
+                            request_id.to_string(), commit.seq.0 as i64],
+                    )
+                    .map_err(storage_error)?;
                     write_pacer(&tx, &pacer, seq)?;
                     armed
                 };

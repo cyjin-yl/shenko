@@ -545,6 +545,7 @@ async fn quota_dispatch_gate(
     store: &shenko_store::store::Store,
     binding: &shenko_broker::request::ProviderBinding,
     request_id: EntityId,
+    new_send: bool,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<QuotaGate, ShenkoError> {
     use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
@@ -571,6 +572,27 @@ async fn quota_dispatch_gate(
             )
         })
         .collect();
+    // Admission identity is one wire SEND of the immutable sealed request:
+    // the request id never changes; each conclusively rejected send mints
+    // a fresh send id so every retry holds its own budget and pacing. A
+    // cancelled or absent latest send is also minted anew (a send proven
+    // never dispatched frees nothing to reuse).
+    let send_id = if !new_send {
+        match store.quota_send_ids(request_id)?.last().copied() {
+            Some(latest) => {
+                let reusable = store
+                    .quota_pacer()?
+                    .reservation(&latest)
+                    .is_some_and(|reservation| {
+                        reservation.admission.state != AdmissionState::Cancelled
+                    });
+                if reusable { latest } else { EntityId::new() }
+            }
+            None => EntityId::new(),
+        }
+    } else {
+        EntityId::new()
+    };
     // Recomputations and re-eligible outcomes that make no progress are
     // bounded; a decision that still cannot settle is a reconciliation
     // fact, not a spin. The counter covers only CONSECUTIVE recompute
@@ -665,7 +687,7 @@ async fn quota_dispatch_gate(
         let receipt = store.admit_quota_request(
             &policy_in_use,
             &decision,
-            request_id,
+            send_id,
             &availability,
             chrono::Utc::now(),
         )?;
@@ -691,7 +713,7 @@ async fn quota_dispatch_gate(
                     ));
                 }
                 let pacer = store.quota_pacer()?;
-                let Some(reservation) = pacer.reservation(&request_id) else {
+                let Some(reservation) = pacer.reservation(&send_id) else {
                     return Err(ShenkoError::conflict("admitted quota reservation vanished"));
                 };
                 match reservation.dispatch {
@@ -699,7 +721,7 @@ async fn quota_dispatch_gate(
                         return Ok(QuotaGate::Ready);
                     }
                     Some(DispatchEvidence::NeverDispatched) | None => {
-                        store.arm_quota_admission(&reservation.admission)?;
+                        store.arm_quota_send(request_id, &reservation.admission)?;
                         return Ok(QuotaGate::Ready);
                     }
                 }
@@ -765,18 +787,27 @@ async fn quota_dispatch_gate(
     }
 }
 
-/// The armed reservation for one request, if quota admission armed it.
-/// Observation and settlement evidence binds to THIS reservation's window
-/// scope — never to whichever policy happens to be latest when the
-/// response arrives.
+/// The armed reservation of this request's LATEST wire send, if quota
+/// admission armed one. Sends are serial by construction, so the send most
+/// recently armed is the one this response terminates; earlier concluded
+/// sends keep their own evidence. Observation and settlement bind to THIS
+/// reservation's window scope — never to whichever policy is latest when
+/// the response arrives.
 fn armed_quota_reservation(
     store: &shenko_store::store::Store,
     request_id: EntityId,
 ) -> Option<shenko_quota::Reservation> {
     let pacer = store.quota_pacer().ok()?;
-    pacer.reservation(&request_id).filter(|reservation| {
-        reservation.dispatch == Some(shenko_quota::DispatchEvidence::ArmedOrUnknown)
-    }).cloned()
+    store
+        .quota_send_ids(request_id)
+        .ok()?
+        .iter()
+        .rev()
+        .find_map(|send_id| {
+            pacer.reservation(send_id).filter(|reservation| {
+                reservation.dispatch == Some(shenko_quota::DispatchEvidence::ArmedOrUnknown)
+            }).cloned()
+        })
 }
 
 /// Update durable quota observations from one real provider result. This is
@@ -873,7 +904,7 @@ fn settle_quota_terminal(
             continue;
         };
         if let Err(error) = store.settle_quota_attempt(
-            request_id,
+            reservation.admission.request_id,
             &bound.window,
             bound.ledger_commit.seq,
             cost,
@@ -1024,18 +1055,17 @@ async fn execute_step(
                 shenko_types::error::RetryStrategy::NewRevision,
             ).with_details(serde_json::json!({"reason":"explicit S0 migration/reconciliation required; request not dispatched"}))));
         }
-        let request_id = match step.state {
-            // A conclusively rejected request retries as a NEW wire
-            // attempt: it needs its own fresh quota admission and pacing,
-            // never piggybacks on the original reservation's outstanding
-            // budget. The old reservation keeps its armed unknown charge.
-            SubjectStepState::RetryPending => EntityId::new(),
-            _ => step.active_request_id.unwrap_or_else(EntityId::new),
-        };
+        // The sealed provider request id is immutable: every wire send gets
+        // its own durable admission identity (send) instead. A conclusively
+        // rejected send retries under a fresh send id with its own budget
+        // and pacing; the prior send keeps its armed unknown charge.
+        let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
+        let new_send = step.state == SubjectStepState::RetryPending;
         match quota_dispatch_gate(
             &store,
             broker.binding(),
             request_id,
+            new_send,
             cancel,
         )
         .await

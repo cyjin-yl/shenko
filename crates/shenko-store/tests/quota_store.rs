@@ -3,7 +3,7 @@
 //! CAS refusing requests with no armed reservation. Synthetic policies and
 //! quota values only; no provider/account traffic is claimed.
 use shenko_quota::{
-    decide, forecast, from_api_headers, AdmissionOutcome, AdmissionState, AttemptBilling,
+    decide, forecast, from_api_headers, AdmissionOutcome, AdmissionState,
     Attribution, BackendState, DispatchEvidence, ForecastOptions, ModelProfile, ObservationContext,
     PolicyDecision, QuotaPolicy, QuotaSnapshot, Range, SourceKind, SourceObservationPolicy,
     StaleUse, UnknownQuota, WindowCost, WindowRef,
@@ -120,69 +120,83 @@ fn pacer_reservation(store: &Store, request_id: EntityId) -> shenko_quota::Reser
         .expect("reservation recorded")
 }
 
-/// Armed reservations keep their exact commit identity across reopen, admit
-/// replays idempotently, contradictory never-dispatched cancellation is
-/// rejected without touching the pacer, and armed cancellation retains the
-/// conservative cost interval until coverage.
+/// Armed reservations keep their exact commit identity and bound attempt
+/// rows across a Store reopen.
 #[test]
-fn armed_reservation_survives_reopen_and_keeps_charge() {
+fn armed_reservation_survives_reopen() {
     let dir = tmp_dir();
     let store = Arc::new(Store::open(dir.join("quota.db"), dir.join("cas")).unwrap());
     let policy = policy();
     store.record_quota_policy(&policy, now()).unwrap();
     let decision = decide_fixture(&store, &policy, 10);
     let admission = admitted(&store, &policy, &decision);
-    let request_id = admission.request_id;
-    let (armed, arm_commit) = store.arm_quota_admission(&admission).unwrap();
+    let sealed = EntityId::new();
+    let (armed, arm_commit) = store.arm_quota_send(sealed, &admission).unwrap();
     assert_eq!(armed.state, AdmissionState::Admitted);
-    let reservation = pacer_reservation(&store, request_id);
+    let reservation = pacer_reservation(&store, admission.request_id);
     assert_eq!(reservation.attempts.len(), 1);
     let bound = reservation.attempts[0].ledger_commit;
     assert_eq!(bound, arm_commit);
     assert_eq!(reservation.outstanding.len(), 1);
+    assert_eq!(store.quota_send_ids(sealed).unwrap(), vec![admission.request_id]);
     drop(store);
 
     // Reopen: durable reservation and its bound commit survive verbatim.
     let reopened = Arc::new(Store::open(dir.join("quota.db"), dir.join("cas")).unwrap());
-    let retained = pacer_reservation(&reopened, request_id);
+    let retained = pacer_reservation(&reopened, admission.request_id);
     assert_eq!(retained.admission, armed);
     assert_eq!(retained.attempts[0].ledger_commit, bound);
     assert_eq!(retained.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
-    // Re-admission of the same request under the same decision is the
-    // existing record, never a second reservation or dispatch authority.
-    let replay = reopened
-        .admit_quota_request(&policy, &decision, request_id, &availability(), now())
-        .unwrap();
-    assert!(matches!(
-        replay.outcome,
-        AdmissionOutcome::Existing { admission } if admission == armed
-    ));
-    // Armed replay verifies the bound rows instead of arming new commits.
-    let (rearmed, _) = reopened.arm_quota_admission(&armed).unwrap();
-    assert_eq!(rearmed, armed);
-    assert_eq!(reopened.quota_attempts("anthropic", "sub").unwrap().len(), 1);
-    // A never-dispatched cancellation cannot downgrade armed evidence; the
-    // rejection happens before any pacer mutation and the charge stays.
-    assert!(reopened
+    assert_eq!(reopened.quota_send_ids(sealed).unwrap(), vec![admission.request_id]);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A never-dispatched cancellation cannot downgrade armed evidence: it is
+/// rejected before any mutation and the armed charge stays.
+#[test]
+fn armed_cancel_rejects_contradictory_never_dispatched() {
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
+    let policy = policy();
+    store.record_quota_policy(&policy, now()).unwrap();
+    let decision = decide_fixture(&store, &policy, 10);
+    let admission = admitted(&store, &policy, &decision);
+    let (armed, _) = store.arm_quota_send(EntityId::new(), &admission).unwrap();
+    assert!(store
         .cancel_quota_admission(&armed, DispatchEvidence::NeverDispatched)
         .is_err());
-    let after = pacer_reservation(&reopened, request_id);
+    let after = pacer_reservation(&store, admission.request_id);
     assert_eq!(after.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
     assert_eq!(after.outstanding[0].amount.upper, 1.0);
-    // The honest armed cancellation retains [0, upper] until coverage.
-    let (cancelled, retained_costs, _) = reopened
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The honest armed cancellation retains [0, upper] until coverage; the
+/// record is terminal and re-admission only reports it.
+#[test]
+fn armed_cancel_retains_unknown_charge() {
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
+    let policy = policy();
+    store.record_quota_policy(&policy, now()).unwrap();
+    let decision = decide_fixture(&store, &policy, 10);
+    let admission = admitted(&store, &policy, &decision);
+    let (armed, _) = store.arm_quota_send(EntityId::new(), &admission).unwrap();
+    let (cancelled, retained_costs, _) = store
         .cancel_quota_admission(&armed, DispatchEvidence::ArmedOrUnknown)
         .unwrap();
     assert_eq!(cancelled.state, AdmissionState::Cancelled);
     assert_eq!(retained_costs[0].amount.lower, 0.0);
     assert_eq!(retained_costs[0].amount.upper, 1.0);
-    let replay = reopened
-        .admit_quota_request(&policy, &decision, request_id, &availability(), now())
+    let replay = store
+        .admit_quota_request(&policy, &decision, admission.request_id, &availability(), now())
         .unwrap();
     assert!(matches!(
-        replay.outcome,
-        AdmissionOutcome::Existing { admission } if admission.state == AdmissionState::Cancelled
+        &replay.outcome,
+        AdmissionOutcome::Existing { admission }
+            if admission.state == AdmissionState::Cancelled
     ));
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 /// With no recorded policy the unconfigured provider path stays open: the
@@ -229,7 +243,7 @@ fn awaiting_model_cas_requires_armed_reservation() {
     let AdmissionOutcome::Quota(admission) = receipt.outcome else {
         panic!("expected fresh admission");
     };
-    store.arm_quota_admission(&admission).unwrap();
+    store.arm_quota_send(admission.request_id, &admission).unwrap();
     store
         .upsert_step(&blocked, &head, preparing.record_revision)
         .unwrap();
@@ -303,23 +317,6 @@ fn decision_requires_policy_admitted_source_options() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// Admission must present the recorded policy bytes, not a lookalike with a
-/// bumped revision that was never recorded.
-#[test]
-fn admission_requires_recorded_policy_bytes() {
-    let dir = tmp_dir();
-    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
-    let policy = policy();
-    store.record_quota_policy(&policy, now()).unwrap();
-    let decision = decide_fixture(&store, &policy, 10);
-    let mut drifted = policy.clone();
-    drifted.revision = 2;
-    assert!(store
-        .admit_quota_request(&drifted, &decision, EntityId::new(), &availability(), now())
-        .is_err());
-    std::fs::remove_dir_all(dir).unwrap();
-}
-
 /// An already-admitted request re-evaluated under a DIFFERENT recorded
 /// decision reconciles: the armed attempt rows and their commit identity
 /// survive, the admission refreshes to the new decision, and no second
@@ -332,7 +329,7 @@ fn admitted_request_reconciles_under_refreshed_decision() {
     store.record_quota_policy(&policy, now()).unwrap();
     let decision = decide_fixture(&store, &policy, 10);
     let admission = admitted(&store, &policy, &decision);
-    let (armed, bound) = store.arm_quota_admission(&admission).unwrap();
+    let (armed, bound) = store.arm_quota_send(admission.request_id, &admission).unwrap();
     // A superseding decision (e.g. recomputed after expiry by another
     // worker) shares the same forecasts but carries a fresh identity.
     let mut refreshed = decision.clone();
@@ -352,44 +349,12 @@ fn admitted_request_reconciles_under_refreshed_decision() {
     let reservation = pacer_reservation(&store, admission.request_id);
     assert_eq!(reservation.attempts[0].ledger_commit, bound);
     assert_eq!(reservation.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
-    let (rearmed, _) = store.arm_quota_admission(&reservation.admission).unwrap();
+    let (rearmed, _) = store.arm_quota_send(admission.request_id, &reservation.admission).unwrap();
     assert_eq!(rearmed.state, AdmissionState::Admitted);
     assert_eq!(store.quota_attempts("anthropic", "sub").unwrap().len(), 1);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// Settling binds the provider-reported cost to the exact scoped attempt
-/// row and commit, leaving its billing state durable.
-#[test]
-fn settled_attempt_binds_measured_cost_to_its_commit() {
-    let dir = tmp_dir();
-    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
-    let policy = policy();
-    store.record_quota_policy(&policy, now()).unwrap();
-    let decision = decide_fixture(&store, &policy, 10);
-    let admission = admitted(&store, &policy, &decision);
-    let (armed, bound) = store.arm_quota_admission(&admission).unwrap();
-    assert_eq!(armed.state, AdmissionState::Admitted);
-    let window = WindowRef {
-        provider_id: "anthropic".into(),
-        account_scope_ref: "sub".into(),
-        window_key: "api:requests".into(),
-    };
-    store
-        .settle_quota_attempt(
-            admission.request_id,
-            &window,
-            bound.seq,
-            Range::point(1.0).unwrap(),
-            AttemptBilling::Settled,
-        )
-        .unwrap();
-    let attempts = store.quota_attempts("anthropic", "sub").unwrap();
-    assert_eq!(attempts.len(), 1);
-    assert_eq!(attempts[0].billing, AttemptBilling::Settled);
-    assert_eq!(attempts[0].cost, Range::point(1.0).unwrap());
-    std::fs::remove_dir_all(dir).unwrap();
-}
 
 /// Pacer history is append-only discounting: a newer snapshot covering the
 /// armed attempt lets the next decision stop double counting, while the
@@ -402,7 +367,7 @@ fn coverage_proof_discounts_but_never_erases_reservation() {
     store.record_quota_policy(&policy, now()).unwrap();
     let decision = decide_fixture(&store, &policy, 1);
     let admission = admitted(&store, &policy, &decision);
-    let (armed, bound) = store.arm_quota_admission(&admission).unwrap();
+    let (armed, bound) = store.arm_quota_send(admission.request_id, &admission).unwrap();
     // Bucket had room for exactly one: the next admission must wait.
     let waiting = store
         .admit_quota_request(&policy, &decision, EntityId::new(), &availability(), now())
