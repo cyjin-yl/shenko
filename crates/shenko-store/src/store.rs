@@ -1204,7 +1204,7 @@ unsafe fn copy_child_body(
 ) -> ! {
     unsafe {
         let mut report: CopyReport = std::mem::zeroed();
-        let fd = libc::open(path_ptr, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        let fd = libc::open(path_ptr, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
         if fd < 0 {
             copy_child_errno(&mut report);
         } else {
@@ -1314,7 +1314,7 @@ fn copy_member(src: &Path, dst: &Path, admitted: MemberSig) -> Result<MemberSig>
         .create_new(true)
         .open(dst)?;
     let mut pipe = [0 as libc::c_int; 2];
-    if unsafe { libc::pipe(pipe.as_mut_ptr()) } < 0 {
+    if unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
         return Err(std::io::Error::last_os_error()).context("create copy report pipe");
     }
     // Parent owns both pipe fds as Files for RAII close; the child inherits
@@ -1600,7 +1600,11 @@ mod staged_inspection_tests {
             fl.l_type = libc::F_WRLCK as _;
             fl.l_whence = libc::SEEK_SET as _;
             let rc = libc::fcntl(fd, libc::F_SETLK, &fl);
-            libc::_exit(if rc == 0 { 0 } else { 3 });
+            if rc == 0 {
+            libc::_exit(0);
+            }
+            let err = *libc::__errno_location();
+            libc::_exit(if err == libc::EACCES || err == libc::EAGAIN { 3 } else { 5 });
         }
     }
 

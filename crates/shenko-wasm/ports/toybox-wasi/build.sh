@@ -32,6 +32,7 @@ canon SOURCE_ARCHIVE "${2:?pass the pinned toybox-0.8.15.tar.gz}"
 RUN_DIR="${3:?pass a new persistent run directory whose parent exists}"
 # ${0%/*} splits on string length, not a subprocess: no nested substitution.
 __port_arg="${0%/*}"
+[ -n "$__port_arg" ] || __port_arg=/
 [ "$__port_arg" = "$0" ] && __port_arg=.
 canon PORT_DIR "$__port_arg"
 unset __port_arg
