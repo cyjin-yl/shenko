@@ -846,15 +846,15 @@ fn read_candidates_tx(
 
 fn read_scan_upper_tx(conn: &rusqlite::Connection) -> Result<Option<(String, EntityId)>> {
     let row = conn.query_row(
-        "SELECT data, created_at, task_id FROM tasks
+        "SELECT data, created_at FROM tasks
          WHERE json_extract(data,'$.kind')!='subject_publication'
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
          ORDER BY created_at DESC, task_id DESC LIMIT 1",
         [],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?)),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
     ).optional()?;
-    row.map(|(data, created, task_id)| {
+    row.map(|(data, created)| {
         let task: TaskRecord = serde_json::from_str(&data)?;
         Ok((created, task.task_id))
     }).transpose()
