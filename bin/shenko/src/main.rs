@@ -459,7 +459,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 identity_context.clone(),
             )?
             .with_broker(broker_handle)
-            .with_model_capabilities(capabilities)
+            .with_model_capabilities(capabilities.clone())
             .with_native_capabilities(native_child.installed_prompt_sections())
             .with_awareness(awareness)
             .with_hooks(Arc::clone(&hook_registry))
@@ -688,6 +688,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
+                .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");

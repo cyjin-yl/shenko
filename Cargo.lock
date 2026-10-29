@@ -2855,6 +2855,8 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-broker",
+ "shenko-context-policy",
  "shenko-kernel",
  "shenko-store",
  "shenko-subject",
