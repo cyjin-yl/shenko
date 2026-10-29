@@ -2,7 +2,7 @@
 pub use crate::executor::*;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 
 // 所有非命令参数均按远端 POSIX shell 的单个字面值引用。
@@ -74,7 +74,10 @@ pub enum SeatKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSeat {
     pub pane: TmuxPane,
-    /// 从 pane_pid 向下收集的进程 argv（根进程在前）。`ps` 不可得时为空。
+    /// 从 pane_pid 向下收集的子树 argv，含后台/停止任务；顺序确定
+    /// （根在前，广度优先、每层按 pid 升序）。`ps` 不可得或 pane_pid
+    /// 为 0/不在表中时为空——空证据走 current_command fallback，绝不
+    /// 把无关主机进程呈现为该 pane 的现场。
     pub processes: Vec<String>,
     pub kind: SeatKind,
 }
@@ -100,49 +103,77 @@ impl std::fmt::Display for SeatRefusal {
 }
 impl std::error::Error for SeatRefusal {}
 
-/// `ps -axo pid=,ppid=,args=` 输出 → (pid → ppid) 表与 (pid → argv) 表。
-fn parse_ps_table(stdout: &str) -> (HashMap<u32, u32>, HashMap<u32, String>) {
-    let mut ppid_of = HashMap::new();
-    let mut args_of = HashMap::new();
+/// `ps -axo pid=,ppid=,pgid=,tpgid=,args=` 的一行记录。
+struct ProcRow {
+    ppid: u32,
+    pgid: u32,
+    /// 该进程控制终端的前台进程组；-1/0 表示无前台（不可能是 seat 输入目标）。
+    tpgid: i64,
+    argv: String,
+}
+
+/// `ps -axo pid=,ppid=,pgid=,tpgid=,args=` 输出 → pid → ProcRow。
+/// pid/ppid/pgid 缺失或不可解析的行整条丢弃；tpgid 缺失或不可解析记 -1，
+/// 该行仍保留子树证据但永远不会被判为前台。
+fn parse_ps_table(stdout: &str) -> HashMap<u32, ProcRow> {
+    let mut table = HashMap::new();
     for line in stdout.lines() {
         let mut fields = line.split_whitespace();
-        let (Some(pid), Some(ppid)) = (
+        let (Some(pid), Some(ppid), Some(pgid)) = (
+            fields.next().and_then(|s| s.parse::<u32>().ok()),
             fields.next().and_then(|s| s.parse::<u32>().ok()),
             fields.next().and_then(|s| s.parse::<u32>().ok()),
         ) else {
             continue;
         };
-        ppid_of.insert(pid, ppid);
-        args_of.insert(pid, fields.collect::<Vec<_>>().join(" "));
+        let tpgid = fields
+            .next()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(-1);
+        let argv = fields.collect::<Vec<_>>().join(" ");
+        table.insert(pid, ProcRow { ppid, pgid, tpgid, argv });
     }
-    (ppid_of, args_of)
+    table
 }
 
-/// 收集 pane_pid 的进程子树 argv（根在前，按发现顺序去重）。
-fn process_subtree(
-    pane_pid: u32,
-    ppid_of: &HashMap<u32, u32>,
-    args_of: &HashMap<u32, String>,
-) -> Vec<String> {
+/// 收集 root 的进程子树 pid：广度优先、每层按 pid 升序，输出顺序确定。
+/// root 为 0（旧 tmux 缺 pane_pid 列）或不在 ps 表中时返回空证据——
+/// 绝不从 init/无关主机进程向下误走整棵进程树。
+fn process_subtree(root: u32, table: &HashMap<u32, ProcRow>) -> Vec<u32> {
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    for (&pid, &ppid) in ppid_of {
-        children.entry(ppid).or_default().push(pid);
+    for (&pid, row) in table {
+        children.entry(row.ppid).or_default().push(pid);
     }
     let mut out = Vec::new();
-    let mut stack = vec![pane_pid];
-    let mut seen = HashSet::new();
-    while let Some(pid) = stack.pop() {
-        if !seen.insert(pid) {
-            continue;
-        }
-        if let Some(args) = args_of.get(&pid) {
-            out.push(args.clone());
-        }
-        if let Some(kids) = children.get(&pid) {
-            stack.extend(kids.iter().copied());
+    if root == 0 || !table.contains_key(&root) {
+        return out;
+    }
+    let mut queue = VecDeque::from([root]);
+    let mut seen = HashSet::from([root]);
+    while let Some(pid) = queue.pop_front() {
+        out.push(pid);
+        if let Some(kids) = children.get_mut(&pid) {
+            kids.sort_unstable();
+            for &kid in kids.iter() {
+                if seen.insert(kid) {
+                    queue.push_back(kid);
+                }
+            }
         }
     }
     out
+}
+
+/// 子树中属于其控制终端前台进程组的 argv（pgid == tpgid > 0），保持遍历序。
+/// 后台与停止任务共享子树但不是前台组，收不到 pane 键盘输入——例如前台
+/// bash 下被 `Ctrl-Z` 停止的 agent 不得让该 pane 归类为 agent seat。
+fn foreground_group_argv(table: &HashMap<u32, ProcRow>, subtree: &[u32]) -> Vec<String> {
+    subtree
+        .iter()
+        .filter_map(|pid| table.get(pid))
+        .filter(|row| row.tpgid > 0 && row.tpgid == i64::from(row.pgid))
+        .map(|row| row.argv.clone())
+        .collect()
 }
 
 /// shell / 终端复用器本身不算 seat 前台程序。
@@ -162,7 +193,7 @@ fn is_shell_or_wrapper(argv: &str) -> bool {
     WRAPPERS.contains(&comm)
 }
 
-/// 取进程子树中第一个非 shell/wrapper 的程序名并归类已知 adapter。
+/// 取（前台进程组）argv 列表中第一个非 shell/wrapper 的程序名并归类已知 adapter。
 fn classify_seat(processes: &[String]) -> Option<SeatKind> {
     let argv = processes.iter().find(|a| !is_shell_or_wrapper(a))?;
     let comm = argv
@@ -361,29 +392,40 @@ impl TmuxSeat {
         Ok(out.stdout.lines().filter_map(parse_pane_line).collect())
     }
 
-    /// Discover agent seats by the pane's real process subtree. SPEC §17.1
+    /// Discover agent seats by the pane's foreground process group. SPEC §17.1
     ///
-    /// Walks `ps` from each pane's pane_pid: bare shells and wrappers are not
-    /// seats; the first non-shell program classifies the seat (claude/omp/codex
-    /// → typed adapter, anything else → Other). A pane whose process has exited
-    /// (`pane_dead`) is never returned as a seat. If `ps` is unavailable on the
-    /// remote, classification falls back to pane_current_command with an empty
-    /// `processes` evidence list — callers should treat that seat as unverified.
+    /// Walks `ps` from each pane's pane_pid, collecting the process subtree in
+    /// deterministic order (BFS, siblings by pid), then keeps only members of
+    /// the pane's foreground process group (`pgid == tpgid`): background and
+    /// stopped jobs share the subtree but cannot receive pane input — e.g. a
+    /// stopped `claude` under a foreground `bash` is never a seat. Bare
+    /// shells, wrappers and dead panes are not seats; the first non-shell
+    /// foreground program classifies the seat (claude/omp/codex → typed
+    /// adapter, anything else → Other). A zero pane_pid or one absent from the
+    /// ps table yields empty process evidence (never a walk from init). If
+    /// `ps` with pgid/tpgid columns is unavailable on the remote,
+    /// classification falls back to pane_current_command with an empty
+    /// `processes` evidence list — callers should treat that seat as
+    /// unverified.
     pub async fn discover_agent_seats(&self) -> Result<Vec<AgentSeat>> {
         let panes = self.list_panes().await?;
         let ps_out = self
             .executor
-            .run_command("ps -axo pid=,ppid=,args= 2>/dev/null || echo ''")
+            .run_command("ps -axo pid=,ppid=,pgid=,tpgid=,args= 2>/dev/null || echo ''")
             .await?;
         ps_out.require_success()?;
-        let (ppid_of, args_of) = parse_ps_table(&ps_out.stdout);
+        let table = parse_ps_table(&ps_out.stdout);
 
         Ok(panes
             .into_iter()
             .filter(|p| !p.dead)
             .filter_map(|pane| {
-                let processes = process_subtree(pane.pane_pid, &ppid_of, &args_of);
-                let kind = classify_seat(&processes)
+                let subtree = process_subtree(pane.pane_pid, &table);
+                let processes = subtree
+                    .iter()
+                    .filter_map(|pid| table.get(pid).map(|row| row.argv.clone()))
+                    .collect();
+                let kind = classify_seat(&foreground_group_argv(&table, &subtree))
                     .or_else(|| classify_seat(&[pane.current_command.clone()]))?;
                 Some(AgentSeat { pane, processes, kind })
             })
@@ -540,46 +582,83 @@ mod tests {
         }
     }
 
+    /// 与 discover_agent_seats 相同的证据收集：root → 子树 argv。
+    fn subtree_evidence(root: u32, table: &HashMap<u32, ProcRow>) -> Vec<String> {
+        process_subtree(root, table)
+            .iter()
+            .filter_map(|pid| table.get(pid).map(|r| r.argv.clone()))
+            .collect()
+    }
+
+    /// 与 discover_agent_seats 相同的归类：前台组 argv → fallback current_command。
+    fn seat_kind(pane_command: &str, root: u32, table: &HashMap<u32, ProcRow>) -> Option<SeatKind> {
+        let subtree = process_subtree(root, table);
+        classify_seat(&foreground_group_argv(table, &subtree))
+            .or_else(|| classify_seat(&[pane_command.to_string()]))
+    }
+
     #[test]
-    fn discovery_classifies_from_process_subtree() {
-        // pane 200 runs claude under its login shell; pane 300 is a bare shell;
-        // pane 400 runs an unknown foreground program; unrelated pids ignored.
-        let ps = "    1      0 /sbin/init\n\
-                  200      1 -bash\n\
-                  201    200 claude\n\
-                  300      1 /bin/zsh\n\
-                  400      1 -sh\n\
-                  401    400 node server.js\n\
-                  999      1 unrelated daemon --flag\n";
-        let (ppid_of, args_of) = parse_ps_table(ps);
+    fn discovery_classifies_only_the_foreground_process_group() {
+        // 列：pid ppid pgid tpgid args；tpgid 是控制终端的前台进程组。
+        let ps = "    1      0     1    -1 /sbin/init\n\
+                  200      1   200   201 -bash\n\
+                  201    200   201   201 claude\n\
+                  300      1   300   300 /bin/zsh\n\
+                  301    300   301   300 claude\n\
+                  999      1   999    -1 unrelated daemon --flag\n";
+        let table = parse_ps_table(ps);
 
-        let procs = process_subtree(200, &ppid_of, &args_of);
-        assert_eq!(procs, vec!["-bash".to_string(), "claude".to_string()]);
-        assert_eq!(classify_seat(&procs), Some(SeatKind::ClaudeCode));
-
-        // Bare shell subtree: not an agent seat.
-        assert_eq!(classify_seat(&process_subtree(300, &ppid_of, &args_of)), None);
+        // 场景 1：claude 占据前台进程组（pgid 201 == tpgid 201），登录 shell
+        // 的 pgid 200 ≠ tpgid 被排除；证据按确定顺序（根在前、同层 pid 升序），
+        // 无关主机进程不入子树。
+        assert_eq!(process_subtree(200, &table), vec![200, 201]);
         assert_eq!(
-            classify_seat(&process_subtree(400, &ppid_of, &args_of)),
+            subtree_evidence(200, &table),
+            vec!["-bash".to_string(), "claude".to_string()]
+        );
+        assert_eq!(seat_kind("claude", 200, &table), Some(SeatKind::ClaudeCode));
+
+        // 场景 2：claude 被 Ctrl-Z 停成后台任务（pgid 301 ≠ tpgid 300），
+        // zsh 才是前台——输入会落进 shell；前台组只剩 shell、经
+        // current_command fallback 也仍判为 shell，两层都不能把它当 seat。
+        assert_eq!(
+            foreground_group_argv(&table, &process_subtree(300, &table)),
+            vec!["/bin/zsh".to_string()]
+        );
+        assert_eq!(seat_kind("zsh", 300, &table), None);
+    }
+
+    #[test]
+    fn zero_or_unknown_pane_pid_yields_empty_evidence_and_fallback() {
+        // init 与无关进程存在：未知根绝不允许向下走到它们。
+        let table = parse_ps_table("    1      0     1    -1 /sbin/init\n500      1   500   500 vim\n");
+
+        // 场景 3：旧 tmux 缺两列的 9 列行兼容解析为 pane_pid=0/dead=false，
+        // 空证据 + current_command fallback 归类，不呈现无关进程为现场。
+        let pane = parse_pane_line("s1\t0\t0\t%7\tomp\t/repo\t1\t80\t24").unwrap();
+        assert_eq!((pane.pane_pid, pane.dead), (0, false));
+        assert!(process_subtree(pane.pane_pid, &table).is_empty());
+        assert_eq!(seat_kind(&pane.current_command, pane.pane_pid, &table), Some(SeatKind::Omp));
+
+        // 场景 4：pane_pid 已从 ps 表消失（进程刚退出）同样是空证据 + fallback。
+        let pane = parse_pane_line("s1\t0\t1\t%8\tnode\t/repo\t1\t80\t24\t4242\t0").unwrap();
+        assert_eq!((pane.pane_pid, pane.dead), (4242, false));
+        assert!(subtree_evidence(pane.pane_pid, &table).is_empty());
+        assert_eq!(
+            seat_kind(&pane.current_command, pane.pane_pid, &table),
             Some(SeatKind::Other("node".into()))
         );
-
-        // Empty evidence (ps unavailable): current_command fallback classifies.
-        assert_eq!(classify_seat(&[]), None);
-        assert_eq!(classify_seat(&["omp".to_string()]), Some(SeatKind::Omp));
     }
 
     #[test]
     fn guarded_send_refuses_stale_panes_and_maps_results() {
-        let line = "s1\t0\t0\t%7\tnode\t/repo\t1\t80\t24\t4321\t0\n";
-        let pane = parse_pane_line(line).unwrap();
-        assert_eq!((pane.pane_id.as_str(), pane.pane_pid, pane.dead), ("%7", 4321, false));
-
+        // 场景 5：单条远端命令内嵌 pane 存在/非 dead/前台程序三项检查后才 send。
         let cmd = guarded_send_command("%7", "node", "'continue' Enter");
         assert!(cmd.contains("pane_dead") && cmd.contains("pane_current_command"));
         assert!(cmd.contains("tmux send-keys -t '%7' 'continue' Enter"));
         assert!(cmd.contains("exit 66") && cmd.contains("exit 67") && cmd.contains("exit 68"));
 
+        // 场景 6-8：三种守卫退出码各自映射到可下转的 SeatRefusal（参数化，每案独立计数）。
         for (code, refusal) in [
             (EXIT_PANE_MISSING, SeatRefusal::PaneMissing),
             (EXIT_PANE_DEAD, SeatRefusal::PaneDead),
@@ -588,9 +667,7 @@ mod tests {
             let err = refusal_or_success(&result(code)).unwrap_err();
             assert_eq!(err.downcast_ref::<SeatRefusal>(), Some(&refusal));
         }
-        // Success passes through; ordinary tmux failure stays an ExecFailure,
-        // not a seat refusal and not a fake success.
-        refusal_or_success(&result(0)).unwrap();
+        // 场景 9：普通远端失败保持 ExecFailure，不伪装成 seat 拒绝也不伪装成功。
         let err = refusal_or_success(&result(1)).unwrap_err();
         assert!(err.downcast_ref::<ExecFailure>().is_some());
     }
