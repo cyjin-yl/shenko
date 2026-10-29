@@ -34,17 +34,31 @@ use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-/// Wire and storage schema of the installation-unit records.
-pub const UNIT_SCHEMA: u32 = 2;
+/// Transfer schema; the node storage schema is versioned independently.
+pub const UNIT_SCHEMA: u32 = 3;
 
-/// Tables owned by this module. The integration owner adds this DDL to the
-/// node create batch and to the installation fingerprint, and migrates an
-/// older installation by creating these tables and bumping the storage
-/// schema; existing rows are never rewritten.
-pub const UNIT_TABLES: &str = "
+/// Exact v3 node-storage fingerprint, retained for admission before migration.
+pub(crate) const UNIT_TABLES_V3: &str = "
 CREATE TABLE unit_versions(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
 CREATE TABLE unit_current(unit_id TEXT PRIMARY KEY,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,enabled INTEGER NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE unit_edges(unit_id TEXT NOT NULL,revision TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,edge_id));
+CREATE TABLE unit_materializations(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,root TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,detail TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
+CREATE TABLE unit_attempts(attempt_id TEXT PRIMARY KEY,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);
+CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT NOT NULL,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,outcome TEXT NOT NULL,artifact_bound INTEGER NOT NULL,artifact_verified INTEGER NOT NULL,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);";
+
+const UNIT_EDGE_TABLE: &str = "CREATE TABLE unit_edges(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest,edge_id));";
+const UNIT_VERSION_HISTORY_TABLE: &str = "CREATE TABLE unit_version_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL);";
+const UNIT_EDGE_HISTORY_TABLE: &str = "CREATE TABLE unit_edge_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL);";
+
+/// Current node-storage fingerprint. The legacy table retains every old row;
+/// it is evidence, not an authority for ambiguous version ownership.
+pub const UNIT_TABLES: &str = "
+CREATE TABLE unit_versions(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
+CREATE TABLE unit_version_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL);
+CREATE TABLE unit_current(unit_id TEXT PRIMARY KEY,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,enabled INTEGER NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE \"unit_edges_legacy\"(unit_id TEXT NOT NULL,revision TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,edge_id));
+CREATE TABLE unit_edges(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest,edge_id));
+CREATE TABLE unit_edge_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL);
 CREATE TABLE unit_materializations(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,root TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,detail TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
 CREATE TABLE unit_attempts(attempt_id TEXT PRIMARY KEY,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);
 CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT NOT NULL,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,outcome TEXT NOT NULL,artifact_bound INTEGER NOT NULL,artifact_verified INTEGER NOT NULL,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);";
@@ -211,6 +225,10 @@ pub struct UnitPackage {
     pub unit: UnitDescriptor,
     pub artifact_base64: String,
     pub evidence: Vec<TrialProvenance>,
+    /// A v3 export carries each version's own selections. An absent value
+    /// denotes an authored/v2 package, whose declarations must be resolved.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_dependencies: Option<Vec<ResolvedDependency>>,
 }
 
 /// A transferable closure: the requested unit plus the dependency units this
@@ -225,6 +243,11 @@ pub struct UnitPackage {
 pub struct UnitExport {
     pub schema: u32,
     pub root_unit_id: String,
+    /// Schema 3 exports bind the root independently of package ordering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_revision: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_artifact_digest: Option<Digest>,
     pub origin_node: Option<String>,
     /// The enable state of the root unit on the origin node. It travels as
     /// information; the receiving node decides whether to adopt it.
@@ -239,6 +262,9 @@ pub enum EdgeStatus {
     Satisfied,
     Omitted,
     Unresolved,
+    /// Old rows cannot be attributed to this digest. Resolve this exact
+    /// version or reimport it as an authored package to make a new decision.
+    LegacyAmbiguous,
 }
 
 /// A resolved edge with the evidence for the choice.
@@ -444,6 +470,13 @@ pub enum UnitRequest {
         unit_id: String,
         package_root: String,
     },
+    /// Make a new resolution decision for one retained version without
+    /// changing which version is current or rerunning any component.
+    ResolveVersion {
+        unit_id: String,
+        revision: String,
+        artifact_digest: Digest,
+    },
     /// Local facts of one installed unit.
     Status { unit_id: String },
     /// Local facts of every installed unit.
@@ -510,6 +543,74 @@ struct RequiredClosure {
     root_materialized: bool,
 }
 
+fn edge_matches_spec(edge: &ResolvedDependency, spec: &DependencySpec) -> bool {
+    edge.edge_id == spec.edge_id
+        && edge.strength == spec.strength
+        && edge.selector == spec.selector
+}
+
+fn legacy_ambiguous(spec: &DependencySpec, reason: &str) -> ResolvedDependency {
+    ResolvedDependency {
+        edge_id: spec.edge_id.clone(),
+        strength: spec.strength,
+        selector: spec.selector.clone(),
+        status: EdgeStatus::LegacyAmbiguous,
+        selected_unit_id: None,
+        selected_revision: None,
+        selected_artifact_digest: None,
+        reason: reason.to_string(),
+    }
+}
+
+/// Migrate only attributable legacy choices. Multiple retained digests may
+/// have overwritten each other's old rows, even if their declarations match.
+/// The untouched table remains available for investigation and recovery.
+pub(crate) fn migrate_v3_edges(tx: &rusqlite::Transaction<'_>) -> Result<()> {
+    tx.execute_batch("ALTER TABLE unit_edges RENAME TO unit_edges_legacy;")?;
+    tx.execute_batch(UNIT_EDGE_TABLE)?;
+    tx.execute_batch(UNIT_VERSION_HISTORY_TABLE)?;
+    tx.execute_batch(UNIT_EDGE_HISTORY_TABLE)?;
+    let versions: Vec<(String, String, String, String, i64)> = tx
+        .prepare(
+            "SELECT v.unit_id,v.revision,v.artifact_digest,v.data, \
+             (SELECT count(*) FROM unit_versions AS n WHERE n.unit_id=v.unit_id AND n.revision=v.revision) \
+             FROM unit_versions AS v ORDER BY v.unit_id,v.revision,v.artifact_digest",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for (unit_id, revision, artifact_digest, data, version_count) in versions {
+        let stored: StoredVersion = serde_json::from_str(&data)?;
+        ensure!(
+            stored.unit.unit_id == unit_id
+                && stored.unit.revision == revision
+                && stored.unit.artifact_digest.0 == artifact_digest,
+            "stored unit version identity does not match its key"
+        );
+        validate_descriptor(&stored.unit)?;
+        for spec in &stored.unit.dependencies {
+            let old: Option<String> = tx
+                .query_row(
+                    "SELECT data FROM unit_edges_legacy WHERE unit_id=?1 AND revision=?2 AND edge_id=?3",
+                    params![unit_id, revision, spec.edge_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let edge = if version_count == 1 {
+                old.and_then(|value| serde_json::from_str::<ResolvedDependency>(&value).ok())
+                    .filter(|edge| edge_matches_spec(edge, spec))
+                    .unwrap_or_else(|| legacy_ambiguous(spec, "legacy edge is missing or differs from the retained declaration; use resolve_version for this exact version"))
+            } else {
+                legacy_ambiguous(spec, "legacy edge ownership is ambiguous across retained artifact digests; use resolve_version for this exact version")
+            };
+            tx.execute(
+                "INSERT INTO unit_edges(unit_id,revision,artifact_digest,edge_id,data) VALUES(?1,?2,?3,?4,?5)",
+                params![unit_id, revision, artifact_digest, spec.edge_id, serde_json::to_string(&edge)?],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 // ----------------------------------------------------------------- node ----
 
 impl Node {
@@ -544,6 +645,9 @@ impl Node {
                 unit_id,
                 package_root,
             } => self.unit_materialize(&unit_id, &package_root)?,
+            UnitRequest::ResolveVersion { unit_id, revision, artifact_digest } => {
+                self.unit_resolve_version(&unit_id, &revision, &artifact_digest)?
+            }
             UnitRequest::Status { unit_id } => self.unit_status(&unit_id)?,
             UnitRequest::List {} => self.unit_list()?,
             UnitRequest::Export { unit_id } => self.unit_export(&unit_id)?,
@@ -590,7 +694,7 @@ impl Node {
         package_root: &str,
         enable: Option<bool>,
     ) -> Result<Value> {
-        ensure!(export.schema == UNIT_SCHEMA, "unit export schema mismatch");
+        ensure!(matches!(export.schema, 2 | UNIT_SCHEMA), "unit export schema mismatch");
         ensure!(
             !export.packages.is_empty() && export.packages.len() <= MAX_PACKAGES,
             "unit package count out of bounds"
@@ -598,7 +702,7 @@ impl Node {
         let root = normalize_root(package_root)?;
         // Verify every member before touching storage: a package with a wrong
         // digest is rejected as a whole.
-        let mut members: Vec<(UnitDescriptor, Vec<u8>, Vec<TrialProvenance>)> = Vec::new();
+        let mut members: Vec<(UnitDescriptor, Vec<u8>, Vec<TrialProvenance>, Option<Vec<ResolvedDependency>>)> = Vec::new();
         for package in &export.packages {
             let bytes = b64_decode(&package.artifact_base64)?;
             ensure!(
@@ -614,65 +718,88 @@ impl Node {
                 "unsupported artifact digest algorithm"
             );
             validate_descriptor(&package.unit)?;
+            ensure!(
+                !members.iter().any(|(unit, _, _, _)| unit.unit_id == package.unit.unit_id
+                    && unit.revision == package.unit.revision
+                    && unit.artifact_digest == package.unit.artifact_digest),
+                "duplicate unit version in package closure"
+            );
+            ensure!(export.schema != 2 || package.resolved_dependencies.is_none(), "schema-2 packages cannot carry selections");
             // The declared configuration is copied as the package authored it.
             // This module adds no gate on its content: actual local bindings
             // (environment values, secret files, provider grants) live outside
             // the unit configuration and are never read into a package.
-            members.push((package.unit.clone(), bytes, package.evidence.clone()));
+            members.push((package.unit.clone(), bytes, package.evidence.clone(), package.resolved_dependencies.clone()));
         }
-        // Available candidates: this package plus what is already installed.
-        let mut available: Vec<(String, String, Digest, Vec<String>)> = Vec::new();
-        for (descriptor, _, _) in &members {
-            available.push((
-                descriptor.unit_id.clone(),
-                descriptor.revision.clone(),
-                descriptor.artifact_digest.clone(),
-                descriptor.provides.clone(),
-            ));
-        }
-        for unit in self.installed_units()? {
-            available.push((
-                unit.unit_id.clone(),
-                unit.revision.clone(),
-                unit.artifact_digest.clone(),
-                unit.descriptor.provides.clone(),
-            ));
-        }
-        // Resolve every edge against the whole candidate set.
-        let mut resolutions: Vec<(String, String, Vec<ResolvedDependency>)> = Vec::new();
-        for (descriptor, _, _) in &members {
-            let mut edges = Vec::new();
-            for spec in &descriptor.dependencies {
-                edges.push(resolve_edge(spec, &available));
+        let root_index = match (&export.root_revision, &export.root_artifact_digest) {
+            (Some(revision), Some(digest)) => {
+                ensure!(export.schema == UNIT_SCHEMA, "schema-2 transfer cannot carry a digest-bound root");
+                members.iter().position(|(unit, _, _, _)| unit.unit_id == export.root_unit_id
+                    && &unit.revision == revision && &unit.artifact_digest == digest)
+                    .context("selected root version is absent from the package closure")?
             }
-            resolutions.push((
-                descriptor.unit_id.clone(),
-                descriptor.revision.clone(),
-                edges,
-            ));
-        }
-        // The previous enable state is read before the write transaction, so
-        // the transaction never needs a second borrow of the connection.
-        let mut previous_enabled: Vec<bool> = Vec::new();
-        for (descriptor, _, _) in &members {
-            let existing: Option<i64> = self
-                .conn
-                .query_row(
-                    "SELECT enabled FROM unit_current WHERE unit_id=?1",
-                    [&descriptor.unit_id],
-                    |r| r.get(0),
-                )
-                .optional()?;
-            previous_enabled.push(existing.map(|value| value != 0).unwrap_or(false));
-        }
+            (None, None) => {
+                let mut roots = members.iter().enumerate().filter(|(_, (unit, _, _, _))| unit.unit_id == export.root_unit_id);
+                let first = roots.next().context("root unit is absent from the package closure")?.0;
+                // Schema 2 exporters placed their root first. Schema 3 authored
+                // closures with several root versions must identify one.
+                ensure!(export.schema == 2 || roots.next().is_none(), "multiple root versions require a digest-bound root");
+                first
+            }
+            _ => bail!("root version reference is incomplete"),
+        };
         let imported_at = now();
+        let resolutions: Vec<Vec<ResolvedDependency>>;
         {
             let tx = self
                 .conn
                 .transaction_with_behavior(TransactionBehavior::Immediate)?;
-            for (index, ((descriptor, bytes, _evidence), (_, revision, edges))) in
+            // Bind the candidates and existing pins to the same write-locked
+            // database snapshot. Supplied versions take precedence only for
+            // new selections, never for an already pinned local selection.
+            let mut available: Vec<(String, String, Digest, Vec<String>)> = members.iter()
+                .map(|(unit, _, _, _)| (unit.unit_id.clone(), unit.revision.clone(), unit.artifact_digest.clone(), unit.provides.clone()))
+                .collect();
+            // Incoming versions replace the exact same identity, not merely
+            // take precedence. Their old retained descriptor would otherwise
+            // keep declaring capabilities the package explicitly removed.
+            available.extend(resolution_candidates(&tx)?.into_iter()
+                .filter(|candidate| !members.iter().any(|(unit, _, _, _)| unit.unit_id == candidate.0
+                    && unit.revision == candidate.1 && unit.artifact_digest == candidate.2)));
+            let mut resolved_versions = Vec::new();
+            for (descriptor, _, _, carried) in &members {
+                if let Some(carried) = carried {
+                    ensure!(carried.len() == descriptor.dependencies.len(), "exported dependency selections do not match the declaration");
+                    for edge in carried {
+                        ensure!(descriptor.dependencies.iter().filter(|spec| edge_matches_spec(edge, spec)).count() == 1
+                            && carried.iter().filter(|other| other.edge_id == edge.edge_id).count() == 1,
+                            "exported dependency selection does not match the declaration");
+                    }
+                }
+                let mut edges = Vec::new();
+                for spec in &descriptor.dependencies {
+                    let incoming = carried.as_ref().and_then(|edges| edges.iter().find(|edge| edge_matches_spec(edge, spec)));
+                    let incoming = incoming.map(|edge| carry_edge(spec, edge, &available)).transpose()?;
+                    let edge = if let Some(incoming) = incoming {
+                        incoming
+                    } else if export.schema == 2 {
+                        legacy_ambiguous(spec, "schema-2 transfer did not carry a digest-bound dependency selection; use resolve_version for this exact version")
+                    } else {
+                        resolve_edge(spec, &available)
+                    };
+                    edges.push(edge);
+                }
+                resolved_versions.push(edges);
+            }
+            resolutions = resolved_versions;
+            for (index, ((descriptor, bytes, evidence, carried), edges)) in
                 members.iter().zip(resolutions.iter()).enumerate()
             {
+                let old_version: Option<String> = tx.query_row(
+                    "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                    params![descriptor.unit_id, descriptor.revision, descriptor.artifact_digest.0], |r| r.get(0),
+                ).optional()?;
+                let old_version: Option<StoredVersion> = old_version.map(|data| serde_json::from_str(&data)).transpose()?;
                 // Package bytes reuse the existing inline object store.
                 let stored = crate::seal(&tx, bytes, "application/octet-stream", "unit-package")?;
                 ensure!(
@@ -681,52 +808,91 @@ impl Node {
                 );
                 let record = StoredVersion {
                     unit: descriptor.clone(),
-                    remote_evidence: _evidence
+                    remote_evidence: evidence
                         .iter()
                         .map(serde_json::to_value)
                         .collect::<serde_json::Result<Vec<_>>>()?,
                     imported_at: imported_at.clone(),
                     origin_node: export.origin_node.clone(),
                 };
+                // Reimport may update the descriptor or remote provenance at
+                // the same artifact identity. Retain the exact prior record.
+                tx.execute(
+                    "INSERT INTO unit_version_history(unit_id,revision,artifact_digest,imported_at,data) \
+                     SELECT unit_id,revision,artifact_digest,imported_at,data FROM unit_versions \
+                     WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                    params![descriptor.unit_id, descriptor.revision, descriptor.artifact_digest.0],
+                )?;
                 tx.execute(
                     "INSERT INTO unit_versions(unit_id,revision,artifact_digest,imported_at,data) \
                      VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id,revision,artifact_digest) DO UPDATE SET \
                      data=excluded.data,imported_at=excluded.imported_at",
                     params![
                         descriptor.unit_id,
-                        revision,
+                        descriptor.revision,
                         descriptor.artifact_digest.0,
                         imported_at,
                         serde_json::to_string(&record)?
                     ],
                 )?;
-                let enabled = if descriptor.unit_id == export.root_unit_id {
-                    enable.unwrap_or(previous_enabled[index])
-                } else {
-                    previous_enabled[index]
-                };
-                tx.execute(
+                // The first package for an identity chooses its current
+                // version; the declared root is explicitly first among root
+                // versions. Other retained closure members do not overwrite it.
+                let choose_current = index == root_index || (descriptor.unit_id != export.root_unit_id
+                    && !members[..index].iter().any(|(unit, _, _, _)| unit.unit_id == descriptor.unit_id));
+                if choose_current {
+                    let previous_enabled = tx.query_row(
+                        "SELECT enabled FROM unit_current WHERE unit_id=?1", [&descriptor.unit_id], |r| r.get::<_, i64>(0),
+                    ).optional()?.unwrap_or(0) != 0;
+                    let enabled = if index == root_index { enable.unwrap_or(previous_enabled) } else { previous_enabled };
+                    tx.execute(
                     "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
                      VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id) DO UPDATE SET \
                      revision=excluded.revision,artifact_digest=excluded.artifact_digest,\
                      enabled=excluded.enabled,updated_at=excluded.updated_at",
                     params![
                         descriptor.unit_id,
-                        revision,
+                        descriptor.revision,
                         descriptor.artifact_digest.0,
                         i64::from(enabled),
                         imported_at
                     ],
-                )?;
+                    )?;
+                }
                 for edge in edges {
+                    let old_data: Option<String> = tx.query_row(
+                        "SELECT data FROM unit_edges WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 AND edge_id=?4",
+                        params![descriptor.unit_id, descriptor.revision, descriptor.artifact_digest.0, edge.edge_id], |r| r.get(0),
+                    ).optional()?;
+                    let old_edge: Option<ResolvedDependency> = old_data.as_deref().map(serde_json::from_str).transpose()?;
+                    let old_pinned = old_edge.as_ref().filter(|old| {
+                        old_version.as_ref().is_some_and(|version| version.unit.dependencies.iter().any(|spec| edge_matches_spec(old, spec)))
+                            && old.edge_id == edge.edge_id && old.strength == edge.strength && old.selector == edge.selector
+                            && (old.status == EdgeStatus::Satisfied || old.selected_unit_id.is_some()
+                                || old.selected_revision.is_some() || old.selected_artifact_digest.is_some())
+                    });
+                    if let Some(old) = old_pinned {
+                        if carried.is_some() && edge.selected_artifact_digest.is_some() {
+                            ensure!(old.selected_unit_id == edge.selected_unit_id
+                                && old.selected_revision == edge.selected_revision
+                                && old.selected_artifact_digest == edge.selected_artifact_digest,
+                                "conflicting digest-bound dependency selections; neither pinned choice was replaced");
+                        }
+                    }
+                    let edge = old_pinned.unwrap_or(edge);
+                    let data = serde_json::to_string(&edge)?;
+                    if old_data.as_ref().is_some_and(|old| old != &data) {
+                        archive_edge(&tx, &descriptor.unit_id, &descriptor.revision, &descriptor.artifact_digest.0, &edge.edge_id)?;
+                    }
                     tx.execute(
-                        "INSERT INTO unit_edges(unit_id,revision,edge_id,data) VALUES(?1,?2,?3,?4) \
-                         ON CONFLICT(unit_id,revision,edge_id) DO UPDATE SET data=excluded.data",
+                        "INSERT INTO unit_edges(unit_id,revision,artifact_digest,edge_id,data) VALUES(?1,?2,?3,?4,?5) \
+                         ON CONFLICT(unit_id,revision,artifact_digest,edge_id) DO UPDATE SET data=excluded.data",
                         params![
                             descriptor.unit_id,
-                            revision,
+                            descriptor.revision,
+                            descriptor.artifact_digest.0,
                             edge.edge_id,
-                            serde_json::to_string(&edge)?
+                            data
                         ],
                     )?;
                 }
@@ -737,7 +903,7 @@ impl Node {
                      root='',path='',state='pending',detail='',updated_at=excluded.updated_at",
                     params![
                         descriptor.unit_id,
-                        revision,
+                        descriptor.revision,
                         descriptor.artifact_digest.0,
                         imported_at
                     ],
@@ -748,8 +914,9 @@ impl Node {
             // only retry unresolved/omitted edges against this import's facts.
             let pending_edges = tx
                 .prepare(
-                    "SELECT unit_id,revision,edge_id,data FROM unit_edges \
-                     WHERE json_extract(data,'$.status')!='satisfied'",
+                    "SELECT e.unit_id,e.revision,e.artifact_digest,e.edge_id,e.data,v.data FROM unit_edges AS e \
+                     JOIN unit_versions AS v ON v.unit_id=e.unit_id AND v.revision=e.revision AND v.artifact_digest=e.artifact_digest \
+                     WHERE json_extract(e.data,'$.status') NOT IN ('satisfied','legacy_ambiguous')",
                 )?
                 .query_map([], |row| {
                     Ok((
@@ -757,24 +924,23 @@ impl Node {
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
                         row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
                     ))
                 })?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
-            for (unit_id, revision, edge_id, data) in pending_edges {
+            for (unit_id, revision, artifact_digest, edge_id, data, version_data) in pending_edges {
                 let previous: ResolvedDependency = serde_json::from_str(&data)?;
-                let updated = resolve_edge(
-                    &DependencySpec {
-                        edge_id: previous.edge_id.clone(),
-                        strength: previous.strength,
-                        selector: previous.selector.clone(),
-                        purpose: None,
-                    },
-                    &available,
-                );
+                let stored: StoredVersion = serde_json::from_str(&version_data)?;
+                let Some(spec) = stored.unit.dependencies.iter().find(|spec| edge_matches_spec(&previous, spec)) else { continue; };
+                let updated = if previous.selected_artifact_digest.is_some() {
+                    carry_edge(spec, &previous, &available)?
+                } else { resolve_edge(spec, &available) };
                 if updated != previous {
+                    archive_edge(&tx, &unit_id, &revision, &artifact_digest, &edge_id)?;
                     tx.execute(
-                        "UPDATE unit_edges SET data=?4 WHERE unit_id=?1 AND revision=?2 AND edge_id=?3",
-                        params![unit_id, revision, edge_id, serde_json::to_string(&updated)?],
+                        "UPDATE unit_edges SET data=?5 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 AND edge_id=?4",
+                        params![unit_id, revision, artifact_digest, edge_id, serde_json::to_string(&updated)?],
                     )?;
                 }
             }
@@ -783,9 +949,24 @@ impl Node {
         // Materialization happens outside the database transaction; a partial
         // materialization leaves the unit not ready and is retryable.
         let mut statuses = Vec::new();
-        for (descriptor, _, _) in &members {
-            let status = self.materialize_unit(&descriptor.unit_id, &root)?;
+        for (descriptor, _, _, _) in &members {
+            let status = self.materialize_version(&descriptor.unit_id, &descriptor.revision, &descriptor.artifact_digest, &root)?;
             statuses.push(status);
+        }
+        let mut dependency_resolutions = Vec::new();
+        for ((descriptor, _, _, _), offered) in members.iter().zip(resolutions.iter()) {
+            let unit = self.installed_unit_version(&descriptor.unit_id, &descriptor.revision, &descriptor.artifact_digest)?
+                .context("imported unit version is not retained")?;
+            let closure = self.required_closure(&unit)?;
+            let closure = closure_value(&unit.edges, &closure);
+            dependency_resolutions.push(json!({
+                "unit_id": descriptor.unit_id,
+                "revision": descriptor.revision,
+                "artifact_digest": descriptor.artifact_digest,
+                "offered_edges": offered,
+                "retained_edges": &unit.edges,
+                "closure": closure,
+            }));
         }
         Ok(json!({
             "imported": statuses.len(),
@@ -793,6 +974,7 @@ impl Node {
             "readiness_basis": "local_trials_only",
             "note": "imported packages are not ready here; only a local trial can make them ready",
             "units": statuses,
+            "dependency_resolutions": dependency_resolutions,
         }))
     }
 
@@ -811,11 +993,75 @@ impl Node {
         }))
     }
 
+    fn unit_resolve_version(&mut self, unit_id: &str, revision: &str, artifact_digest: &Digest) -> Result<Value> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let available = resolution_candidates(&tx)?;
+        let data: Option<String> = tx.query_row(
+            "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, artifact_digest.0], |r| r.get(0),
+        ).optional()?;
+        let stored: StoredVersion = serde_json::from_str(&data.context("unit version is not retained")?)?;
+        ensure!(stored.unit.unit_id == unit_id && stored.unit.revision == revision && stored.unit.artifact_digest == *artifact_digest,
+            "stored unit version identity does not match its key");
+        for spec in &stored.unit.dependencies {
+            let old_data: Option<String> = tx.query_row(
+                "SELECT data FROM unit_edges WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 AND edge_id=?4",
+                params![unit_id, revision, artifact_digest.0, spec.edge_id], |r| r.get(0),
+            ).optional()?;
+            let old: Option<ResolvedDependency> = old_data.as_deref().map(serde_json::from_str).transpose()?;
+            let old = old.filter(|edge| edge_matches_spec(edge, spec)).unwrap_or_else(|| {
+                legacy_ambiguous(spec, "no matching digest-bound edge is retained; make a new resolution for this version")
+            });
+            let updated = if old.status == EdgeStatus::Satisfied {
+                old
+            } else if old.selected_artifact_digest.is_some() {
+                carry_edge(spec, &old, &available)?
+            } else {
+                let candidate = resolve_edge(spec, &available);
+                // A failed new attempt does not explain who owned the old row.
+                if old.status == EdgeStatus::LegacyAmbiguous && candidate.status != EdgeStatus::Satisfied { old } else { candidate }
+            };
+            let data = serde_json::to_string(&updated)?;
+            if old_data.as_ref().is_some_and(|old| old != &data) {
+                archive_edge(&tx, unit_id, revision, &artifact_digest.0, &spec.edge_id)?;
+            }
+            tx.execute(
+                "INSERT INTO unit_edges(unit_id,revision,artifact_digest,edge_id,data) VALUES(?1,?2,?3,?4,?5) \
+                 ON CONFLICT(unit_id,revision,artifact_digest,edge_id) DO UPDATE SET data=excluded.data",
+                params![unit_id, revision, artifact_digest.0, spec.edge_id, data],
+            )?;
+        }
+        tx.commit()?;
+        let unit = self.installed_unit_version(unit_id, revision, artifact_digest)?.context("unit version is not retained")?;
+        let closure = self.required_closure(&unit)?;
+        let current: bool = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM unit_current WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3)",
+            params![unit_id, revision, artifact_digest.0], |r| r.get(0),
+        )?;
+        Ok(json!({
+            "unit_id": unit_id,
+            "revision": revision,
+            "artifact_digest": artifact_digest,
+            "current": current,
+            "closure": closure_value(&unit.edges, &closure),
+            "note": "new resolution only; the current version and component activation were not changed",
+        }))
+    }
+
     /// Write the actual package bytes into the caller-scoped package root.
     fn materialize_unit(&mut self, unit_id: &str, root: &str) -> Result<Value> {
         let unit = self
             .installed_unit(unit_id)?
             .context("unit is not installed on this node")?;
+        self.materialize_version(&unit.unit_id, &unit.revision, &unit.artifact_digest, root)
+    }
+
+    /// Retained versions may share an id and revision; never overwrite their
+    /// bytes while another version remains selected in a dependency closure.
+    fn materialize_version(&mut self, unit_id: &str, revision: &str, artifact_digest: &Digest, root: &str) -> Result<Value> {
+        let unit = self
+            .installed_unit_version(unit_id, revision, artifact_digest)?
+            .context("unit version is not retained on this node")?;
         let bytes = self.object_bytes(&unit.artifact_digest)?;
         ensure!(
             Digest::blake3(&bytes) == unit.artifact_digest,
@@ -824,7 +1070,8 @@ impl Node {
         let directory = Path::new(root)
             .join("units")
             .join(safe_component(&unit.unit_id)?)
-            .join(safe_component(&unit.revision)?);
+            .join(safe_component(&unit.revision)?)
+            .join(safe_component(&unit.artifact_digest.0)?);
         let outcome = write_package(&directory, &bytes, &unit.descriptor);
         let (state, path, detail) = match &outcome {
             Ok(path) => ("materialized", path.clone(), String::new()),
@@ -953,9 +1200,11 @@ impl Node {
             .installed_unit(unit_id)?
             .context("unit is not installed on this node")?;
         let export = self.export_unit_closure(&root)?;
+        let closure = self.required_closure(&root)?;
         Ok(json!({
             "export": export,
             "unresolved_edges": unresolved_edges(&root.edges),
+            "closure": closure_value(&root.edges, &closure),
             "note": "exported evidence belongs to the origin node; importing it never makes the unit ready here",
         }))
     }
@@ -970,9 +1219,10 @@ impl Node {
             root.artifact_digest.clone(),
         )];
         while let Some(current) = queue.pop() {
-            if seen.contains(&current) || packages.len() >= MAX_PACKAGES {
+            if seen.contains(&current) {
                 continue;
             }
+            ensure!(packages.len() < MAX_PACKAGES, "unit dependency closure exceeds the transferable package limit");
             seen.push(current.clone());
             let Some(unit) = self.installed_unit_version(&current.0, &current.1, &current.2)?
             else {
@@ -983,6 +1233,7 @@ impl Node {
                 unit: unit.descriptor.clone(),
                 artifact_base64: b64_encode(&bytes),
                 evidence: self.local_provenance(&unit.unit_id, &unit.artifact_digest)?,
+                resolved_dependencies: Some(unit.edges.clone()),
             });
             for edge in &unit.edges {
                 if edge.status == EdgeStatus::Satisfied {
@@ -1003,6 +1254,8 @@ impl Node {
         Ok(UnitExport {
             schema: UNIT_SCHEMA,
             root_unit_id: root.unit_id.clone(),
+            root_revision: Some(root.revision.clone()),
+            root_artifact_digest: Some(root.artifact_digest.clone()),
             origin_node,
             enabled: root.enabled,
             packages,
@@ -1723,16 +1976,25 @@ impl Node {
             return Ok(None);
         };
         let stored: StoredVersion = serde_json::from_str(&data)?;
-        let edges: Vec<ResolvedDependency> = self
+        let stored_edges: Vec<ResolvedDependency> = self
             .conn
             .prepare(
-                "SELECT data FROM unit_edges WHERE unit_id=?1 AND revision=?2 ORDER BY edge_id",
+                "SELECT data FROM unit_edges WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 ORDER BY edge_id",
             )?
-            .query_map(params![unit_id, revision], |r| r.get::<_, String>(0))?
+            .query_map(params![unit_id, revision, artifact_digest.0], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?
             .into_iter()
             .map(|value| serde_json::from_str::<ResolvedDependency>(&value))
             .collect::<serde_json::Result<Vec<_>>>()?;
+        // Old descriptors can be updated under the same artifact identity.
+        // Stale edge rows must not become dependencies of the new descriptor,
+        // and a missing row must never make its required closure look complete.
+        let mut edges: Vec<ResolvedDependency> = stored.unit.dependencies.iter().map(|spec| {
+            stored_edges.iter().find(|edge| edge_matches_spec(edge, spec)).cloned().unwrap_or_else(|| {
+                legacy_ambiguous(spec, "no matching digest-bound edge is retained; use resolve_version for this exact version")
+            })
+        }).collect();
+        edges.sort_by(|left, right| left.edge_id.cmp(&right.edge_id));
         let materialization: Option<Materialization> = self
             .conn
             .query_row(
@@ -1867,9 +2129,6 @@ impl Node {
                     continue;
                 }
             };
-            if visited.contains(&selected) {
-                continue;
-            }
             let Some(dependency) =
                 self.installed_unit_version(&selected.0, &selected.1, &selected.2)?
             else {
@@ -1879,6 +2138,19 @@ impl Node {
                 ));
                 continue;
             };
+            let spec = unit.descriptor.dependencies.iter().find(|spec| edge_matches_spec(edge, spec))
+                .context("stored dependency edge has no matching declaration")?;
+            if !selection_matches(spec, &dependency.unit_id, &dependency.revision,
+                &dependency.artifact_digest, &dependency.descriptor.provides) {
+                closure.unresolved.push(format!(
+                    "{} revision {} edge {} retains a selection that no longer satisfies its declaration",
+                    unit.unit_id, unit.revision, edge.edge_id
+                ));
+                continue;
+            }
+            if visited.contains(&selected) {
+                continue;
+            }
             if !materialization_matches(&dependency) {
                 closure.unmaterialized.push(format!(
                     "{} revision {} does not have its selected artifact bytes",
@@ -2023,15 +2295,51 @@ fn now() -> String {
 fn ensure_unit_schema(conn: &rusqlite::Connection) -> Result<()> {
     let count: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN \
-         ('unit_versions','unit_current','unit_edges','unit_materializations','unit_attempts','unit_trials')",
+         ('unit_versions','unit_version_history','unit_current','unit_edges','unit_edge_history','unit_edges_legacy','unit_materializations','unit_attempts','unit_trials')",
         [],
         |r| r.get(0),
     )?;
     ensure!(
-        count == 6,
+        count == 9,
         "node storage schema lacks the installation-unit tables; migrate the node storage schema first"
     );
     Ok(())
+}
+
+fn archive_edge(tx: &rusqlite::Transaction<'_>, unit_id: &str, revision: &str, digest: &str, edge_id: &str) -> Result<()> {
+    tx.execute(
+        "INSERT INTO unit_edge_history(unit_id,revision,artifact_digest,edge_id,data) \
+         SELECT unit_id,revision,artifact_digest,edge_id,data FROM unit_edges \
+         WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 AND edge_id=?4",
+        params![unit_id, revision, digest, edge_id],
+    )?;
+    Ok(())
+}
+
+/// Current versions come first; retained non-current versions remain valid
+/// exact-digest candidates. This runs inside the import/resolution transaction.
+fn resolution_candidates(conn: &rusqlite::Connection) -> Result<Vec<(String, String, Digest, Vec<String>)>> {
+    let current: Vec<(String, String, String, Option<String>)> = conn.prepare(
+        "SELECT c.unit_id,c.revision,c.artifact_digest,v.data FROM unit_current AS c \
+         LEFT JOIN unit_versions AS v ON v.unit_id=c.unit_id AND v.revision=c.revision AND v.artifact_digest=c.artifact_digest \
+         ORDER BY c.unit_id"
+    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let retained: Vec<(String, String, String, Option<String>)> = conn.prepare(
+        "SELECT unit_id,revision,artifact_digest,data FROM unit_versions ORDER BY unit_id,revision,artifact_digest"
+    )?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut available = Vec::new();
+    for (unit_id, revision, digest, data) in current.into_iter().chain(retained) {
+        let stored: StoredVersion = serde_json::from_str(&data.context("current unit version is not retained")?)?;
+        ensure!(stored.unit.unit_id == unit_id && stored.unit.revision == revision && stored.unit.artifact_digest.0 == digest,
+            "stored unit version identity does not match its key");
+        if !available.iter().any(|candidate: &(String, String, Digest, Vec<String>)|
+            candidate.0 == unit_id && candidate.1 == revision && candidate.2 == stored.unit.artifact_digest) {
+            available.push((unit_id, revision, stored.unit.artifact_digest, stored.unit.provides));
+        }
+    }
+    Ok(available)
 }
 
 fn validate_descriptor(unit: &UnitDescriptor) -> Result<()> {
@@ -2091,6 +2399,67 @@ fn validate_descriptor(unit: &UnitDescriptor) -> Result<()> {
     Ok(())
 }
 
+/// A transferred pin is a historical selection, not permission to pick a
+/// different candidate. If its target is absent, retain the reference and
+/// retry only that target when it arrives.
+fn carry_edge(
+    spec: &DependencySpec,
+    edge: &ResolvedDependency,
+    available: &[(String, String, Digest, Vec<String>)],
+) -> Result<ResolvedDependency> {
+    ensure!(edge_matches_spec(edge, spec), "dependency selection does not match its declaration");
+    let selected = match (&edge.selected_unit_id, &edge.selected_revision, &edge.selected_artifact_digest) {
+        (None, None, None) => None,
+        (Some(id), Some(revision), Some(digest)) => Some((id, revision, digest)),
+        _ => bail!("dependency selection has an incomplete pinned reference"),
+    };
+    if selected.is_none() {
+        ensure!(edge.status != EdgeStatus::Satisfied, "satisfied dependency has no selected reference");
+        ensure!(edge.status != EdgeStatus::Omitted || spec.strength == DependencyStrength::Recommended,
+            "required dependency cannot be omitted");
+        return Ok(edge.clone());
+    }
+    ensure!(matches!(edge.status, EdgeStatus::Satisfied | EdgeStatus::Unresolved),
+        "dependency selection conflicts with its status");
+    let (id, revision, digest) = selected.unwrap();
+    if let DependencySelector::Exact { unit_id, revision_requirement, artifact_digest } = &spec.selector {
+        ensure!(id == unit_id
+            && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
+            && artifact_digest.as_ref().is_none_or(|expected| expected == digest),
+            "pinned dependency does not satisfy its exact selector");
+    }
+    let candidate = available.iter().find(|candidate| &candidate.0 == id && &candidate.1 == revision && &candidate.2 == digest);
+    let mut result = edge.clone();
+    if let Some(candidate) = candidate {
+        let checked = resolve_edge(spec, std::slice::from_ref(candidate));
+        if checked.status != EdgeStatus::Satisfied {
+            result.status = EdgeStatus::Unresolved;
+            result.reason = "the pinned dependency no longer satisfies its declaration; its exact selection is retained".into();
+        } else if result.status != EdgeStatus::Satisfied {
+            result.status = EdgeStatus::Satisfied;
+            result.reason = checked.reason;
+        }
+    } else {
+        result.status = EdgeStatus::Unresolved;
+        result.reason = "the pinned dependency version is not retained; its selection is preserved until that exact version arrives".into();
+    }
+    Ok(result)
+}
+
+fn selection_matches(spec: &DependencySpec, unit_id: &str, revision: &str, digest: &Digest, provides: &[String]) -> bool {
+    match &spec.selector {
+        DependencySelector::Exact { unit_id: expected, revision_requirement, artifact_digest } => {
+            unit_id == expected
+                && revision_requirement.as_ref().is_none_or(|requirement| revision_matches(requirement, revision))
+                && artifact_digest.as_ref().is_none_or(|expected| expected == digest)
+        }
+        DependencySelector::Abstract { capability_ref, topic_ref } => {
+            capability_ref.as_ref().is_none_or(|reference| provides.contains(reference))
+                && topic_ref.as_ref().is_none_or(|reference| provides.contains(reference))
+        }
+    }
+}
+
 /// Resolve one declared edge against the available candidate set.
 fn resolve_edge(
     spec: &DependencySpec,
@@ -2118,6 +2487,10 @@ fn resolve_edge(
                 .collect();
             if candidates.is_empty() {
                 resolved.reason = format!("no unit named {unit_id} is available here");
+                if spec.strength == DependencyStrength::Recommended {
+                    resolved.status = EdgeStatus::Omitted;
+                    resolved.reason = format!("recommended dependency omitted: {}", resolved.reason);
+                }
                 return resolved;
             }
             let mut mismatch: Option<String> = None;
@@ -2242,6 +2615,8 @@ fn closure_value(edges: &[ResolvedDependency], closure: &RequiredClosure) -> Val
         "state": if complete { "complete" } else { "incomplete" },
         "unresolved_required": closure.unresolved.len(),
         "unmaterialized_required": closure.unmaterialized.len(),
+        "unresolved_details": &closure.unresolved,
+        "unmaterialized_details": &closure.unmaterialized,
         "edges": edges,
     })
 }
@@ -2250,7 +2625,7 @@ fn unresolved_edges(edges: &[ResolvedDependency]) -> Value {
     json!(
         edges
             .iter()
-            .filter(|edge| edge.status == EdgeStatus::Unresolved)
+            .filter(|edge| matches!(edge.status, EdgeStatus::Unresolved | EdgeStatus::LegacyAmbiguous))
             .collect::<Vec<_>>()
     )
 }
@@ -2762,6 +3137,7 @@ mod tests {
             },
             artifact_base64: b64_encode(bytes),
             evidence: vec![],
+            resolved_dependencies: None,
         }
     }
 
@@ -2769,19 +3145,12 @@ mod tests {
         UnitExport {
             schema: UNIT_SCHEMA,
             root_unit_id: packages[0].unit.unit_id.clone(),
+            root_revision: Some(packages[0].unit.revision.clone()),
+            root_artifact_digest: Some(packages[0].unit.artifact_digest.clone()),
             origin_node: Some("node-a".into()),
             enabled: false,
             packages,
         }
-    }
-
-    /// The unit tables belong to the integration owner. The tests create them
-    /// when they are not part of the node schema yet, and do nothing when
-    /// they already are.
-    fn install_unit_tables(node: &mut Node) {
-        node.conn
-            .execute_batch(&UNIT_TABLES.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS "))
-            .unwrap();
     }
 
     fn trial(unit_id: &str, argv: Vec<&str>) -> UnitRequest {
@@ -2796,6 +3165,262 @@ mod tests {
         }
     }
 
+    fn exact(edge_id: &str, target: &str, digest: Option<Digest>) -> DependencySpec {
+        DependencySpec {
+            edge_id: edge_id.into(),
+            strength: DependencyStrength::Required,
+            selector: DependencySelector::Exact {
+                unit_id: target.into(),
+                revision_requirement: Some("1.0.0".into()),
+                artifact_digest: digest,
+            },
+            purpose: None,
+        }
+    }
+
+    fn import(node: &mut Node, root: &Path, packages: Vec<UnitPackage>) -> Value {
+        node.handle_unit_request(UnitRequest::Import {
+            export: export(packages),
+            package_root: root.to_string_lossy().into_owned(),
+            enable: None,
+        }).unwrap()
+    }
+
+    #[test]
+    fn digest_versions_keep_independent_edges_and_re_resolve() {
+        let dir = scratch("digest-node");
+        let root = scratch("digest-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let first = package("root", "1.0.0", b"root-one", vec![exact("edge", "first", None)]);
+        let second = package("root", "1.0.0", b"root-two", vec![exact("edge", "second", None)]);
+        import(&mut node, &root, vec![first.clone()]);
+        import(&mut node, &root, vec![second.clone()]);
+        import(&mut node, &root, vec![package("first", "1.0.0", b"first", vec![])]);
+        let first_version = node.installed_unit_version("root", "1.0.0", &first.unit.artifact_digest).unwrap().unwrap();
+        let second_version = node.installed_unit_version("root", "1.0.0", &second.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(first_version.edges[0].status, EdgeStatus::Satisfied);
+        assert_eq!(first_version.edges[0].selected_unit_id.as_deref(), Some("first"));
+        assert_eq!(second_version.edges[0].status, EdgeStatus::Unresolved);
+        assert!(node.required_closure(&first_version).unwrap().unresolved.is_empty());
+        assert_eq!(node.required_closure(&second_version).unwrap().unresolved.len(), 1);
+        assert_ne!(first_version.materialization.as_ref().unwrap().path, second_version.materialization.as_ref().unwrap().path);
+        import(&mut node, &root, vec![package("second", "1.0.0", b"second", vec![])]);
+        let resolved = node.installed_unit_version("root", "1.0.0", &second.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(resolved.edges[0].selected_unit_id.as_deref(), Some("second"));
+        assert!(node.required_closure(&resolved).unwrap().unresolved.is_empty());
+    }
+
+    #[test]
+    fn incoming_descriptor_supersedes_its_stale_retained_candidate() {
+        let mut node = Node::open(&scratch("capability-node")).unwrap();
+        let root = scratch("capability-packages");
+        let mut provider = package("provider", "1.0.0", b"provider", vec![]);
+        provider.unit.provides.push("capability/example".into());
+        import(&mut node, &root, vec![provider.clone()]);
+        let mut replacement = package("provider", "1.0.0", b"provider-two", vec![]);
+        replacement.unit.provides.push("capability/other".into());
+        import(&mut node, &root, vec![replacement]);
+
+        // The same retained digest is supplied with a new declaration that no
+        // longer provides the capability, together with a new consumer.
+        provider.unit.provides.clear();
+        let consumer = package("consumer", "1.0.0", b"consumer", vec![DependencySpec {
+            edge_id: "provider".into(), strength: DependencyStrength::Required,
+            selector: DependencySelector::Abstract { capability_ref: Some("capability/example".into()), topic_ref: None },
+            purpose: None,
+        }]);
+        import(&mut node, &root, vec![consumer, provider]);
+        let status = node.unit_status("consumer").unwrap();
+        assert_eq!(status["closure"]["state"], json!("incomplete"));
+        assert_eq!(status["closure"]["edges"][0]["status"], json!("unresolved"));
+        assert_eq!(status["closure"]["edges"][0]["selected_artifact_digest"], Value::Null);
+        let mut valid = package("provider-new", "1.0.0", b"provider-new", vec![]);
+        valid.unit.provides.push("capability/example".into());
+        import(&mut node, &root, vec![valid]);
+        assert_eq!(node.unit_status("consumer").unwrap()["closure"]["state"], json!("complete"));
+        assert_eq!(node.unit_status("consumer").unwrap()["closure"]["edges"][0]["selected_unit_id"], json!("provider-new"));
+    }
+
+    #[test]
+    fn exported_root_digest_is_independent_of_package_order() {
+        let mut source = Node::open(&scratch("root-binding-source")).unwrap();
+        let source_root = scratch("root-binding-source-packages");
+        let old = package("self", "1.0.0", b"self-old", vec![]);
+        let new = package("self", "1.0.0", b"self-new", vec![
+            exact("old", "self", Some(old.unit.artifact_digest.clone())),
+        ]);
+        import(&mut source, &source_root, vec![old.clone()]);
+        import(&mut source, &source_root, vec![new.clone()]);
+        let mut transfer = source.export_unit_closure(&source.installed_unit("self").unwrap().unwrap()).unwrap();
+        assert_eq!(transfer.root_artifact_digest, Some(new.unit.artifact_digest.clone()));
+        assert_eq!(transfer.packages.len(), 2);
+        transfer.packages.reverse();
+        let mut receiver = Node::open(&scratch("root-binding-receiver")).unwrap();
+        let receiver_root = scratch("root-binding-receiver-packages");
+        receiver.handle_unit_request(UnitRequest::Import {
+            export: transfer, package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
+        }).unwrap();
+        let status = receiver.unit_status("self").unwrap();
+        assert_eq!(status["artifact_digest"], json!(&new.unit.artifact_digest.0));
+        assert_eq!(status["closure"]["state"], json!("complete"));
+        let retained = receiver.installed_unit_version("self", "1.0.0", &old.unit.artifact_digest).unwrap().unwrap();
+        assert!(materialization_matches(&retained));
+    }
+
+    #[test]
+    fn export_retains_distinct_pins_and_recovers_a_missing_selected_version() {
+        let dir = scratch("pin-origin");
+        let root = scratch("pin-origin-packages");
+        let mut origin = Node::open(&dir).unwrap();
+        let one = package("target", "1.0.0", b"target-one", vec![]);
+        let two = package("target", "1.0.0", b"target-two", vec![]);
+        let a = package("middle", "1.0.0", b"middle-one", vec![exact("target", "target", None)]);
+        let b = package("middle", "1.0.0", b"middle-two", vec![exact("target", "target", None)]);
+        import(&mut origin, &root, vec![one.clone()]);
+        import(&mut origin, &root, vec![a.clone()]);
+        import(&mut origin, &root, vec![two.clone()]);
+        import(&mut origin, &root, vec![b.clone()]);
+        let top = package("top", "1.0.0", b"top", vec![
+            exact("a", "middle", Some(a.unit.artifact_digest.clone())),
+            exact("b", "middle", Some(b.unit.artifact_digest.clone())),
+        ]);
+        import(&mut origin, &root, vec![top]);
+        let transfer = origin.export_unit_closure(&origin.installed_unit("top").unwrap().unwrap()).unwrap();
+        assert_eq!(transfer.packages.len(), 5);
+
+        let mut incomplete = transfer;
+        incomplete.packages.retain(|p| p.unit.artifact_digest != one.unit.artifact_digest);
+        let mut recovering = Node::open(&scratch("pin-recovery")).unwrap();
+        let recovery_root = scratch("pin-recovery-packages");
+        recovering.handle_unit_request(UnitRequest::Import {
+            export: incomplete, package_root: recovery_root.to_string_lossy().into_owned(), enable: None,
+        }).unwrap();
+        let pending = recovering.installed_unit_version("middle", "1.0.0", &a.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(pending.edges[0].status, EdgeStatus::Unresolved);
+        assert_eq!(pending.edges[0].selected_artifact_digest, Some(one.unit.artifact_digest.clone()));
+        assert_eq!(recovering.unit_status("top").unwrap()["closure"]["state"], json!("incomplete"));
+        import(&mut recovering, &recovery_root, vec![one]);
+        assert_eq!(recovering.unit_status("top").unwrap()["closure"]["state"], json!("complete"));
+    }
+
+    #[test]
+    fn v3_migration_preserves_identity_history_and_ambiguous_legacy_rows() {
+        let dir = scratch("legacy-v3");
+        let package_root = scratch("legacy-v3-packages");
+        let target = package("target", "1.0.0", b"old-target", vec![]);
+        let unique = package("unique", "1.0.0", b"old-unique", vec![exact("edge", "target", None)]);
+        let first = package("multi", "1.0.0", b"old-one", vec![exact("edge", "target", None)]);
+        let second = package("multi", "1.0.0", b"old-two", vec![exact("edge", "target", None)]);
+        let node_id = EntityId::new();
+        let ledger = EntityId::new();
+        let installation = EntityId::new();
+        let old_choice = resolve_edge(&first.unit.dependencies[0], &[(
+            target.unit.unit_id.clone(), target.unit.revision.clone(), target.unit.artifact_digest.clone(), vec![],
+        )]);
+        let old_json = serde_json::to_string(&old_choice).unwrap();
+        {
+            let mut db = rusqlite::Connection::open(dir.join("node.sqlite3")).unwrap();
+            let tx = db.transaction().unwrap();
+            tx.execute_batch(crate::NODE_TABLES).unwrap();
+            tx.execute_batch(crate::RECEIPT_TABLE).unwrap();
+            tx.execute_batch(crate::roles::ROLE_SCHEMA).unwrap();
+            tx.execute_batch(crate::peers::SYNC_SCHEMA).unwrap();
+            tx.execute_batch(UNIT_TABLES_V3).unwrap();
+            crate::set(&tx, "installation", &installation).unwrap();
+            crate::set(&tx, "node", &node_id).unwrap();
+            crate::set(&tx, "ledger", &ledger).unwrap();
+            crate::set(&tx, "identity", &Option::<crate::Identity>::None).unwrap();
+            crate::set(&tx, "retired_identities", &Vec::<crate::Identity>::new()).unwrap();
+            for package in [&target, &unique, &first, &second] {
+                let bytes = b64_decode(&package.artifact_base64).unwrap();
+                crate::seal(&tx, &bytes, "application/octet-stream", "unit-package").unwrap();
+                let stored = StoredVersion { unit: package.unit.clone(), remote_evidence: vec![json!({"historical": true})], imported_at: "old".into(), origin_node: Some("origin".into()) };
+                tx.execute("INSERT INTO unit_versions VALUES(?1,?2,?3,'old',?4)",
+                    params![package.unit.unit_id, package.unit.revision, package.unit.artifact_digest.0, serde_json::to_string(&stored).unwrap()]).unwrap();
+                tx.execute("INSERT OR IGNORE INTO unit_current VALUES(?1,?2,?3,1,'old')",
+                    params![package.unit.unit_id, package.unit.revision, package.unit.artifact_digest.0]).unwrap();
+            }
+            for id in ["unique", "multi"] {
+                tx.execute("INSERT INTO unit_edges VALUES(?1,'1.0.0','edge',?2)", params![id, old_json]).unwrap();
+            }
+            tx.execute("INSERT INTO unit_edges VALUES('multi','1.0.0','stale','unparsed historical row')", []).unwrap();
+            tx.execute("INSERT INTO events(id,source,digest,data) VALUES('historic','source','digest','event bytes')", []).unwrap();
+            tx.pragma_update(None, "application_id", crate::APPLICATION_ID).unwrap();
+            tx.pragma_update(None, "user_version", 3).unwrap();
+            tx.commit().unwrap();
+        }
+        let mut node = Node::open(&dir).unwrap();
+        assert_eq!(node.local_node_id().unwrap(), Some(node_id));
+        let retained_installation: String = node.conn.query_row("SELECT v FROM meta WHERE k='installation'", [], |r| r.get(0)).unwrap();
+        let retained_ledger: String = node.conn.query_row("SELECT v FROM meta WHERE k='ledger'", [], |r| r.get(0)).unwrap();
+        assert_eq!(retained_installation, serde_json::to_string(&installation).unwrap());
+        assert_eq!(retained_ledger, serde_json::to_string(&ledger).unwrap());
+        let event: (i64, String) = node.conn.query_row("SELECT seq,data FROM events WHERE id='historic'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(event, (1, "event bytes".into()));
+        let legacy: Vec<(String, String, String)> = node.conn.prepare("SELECT unit_id,edge_id,data FROM unit_edges_legacy ORDER BY unit_id,edge_id").unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        assert_eq!(legacy.len(), 3);
+        assert!(legacy.iter().any(|row| row.1 == "stale" && row.2 == "unparsed historical row"));
+        let unique_version = node.installed_unit_version("unique", "1.0.0", &unique.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(unique_version.edges[0], old_choice);
+        let ambiguous = node.installed_unit_version("multi", "1.0.0", &first.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(ambiguous.edges[0].status, EdgeStatus::LegacyAmbiguous);
+        assert_eq!(ambiguous.edges[0].selected_artifact_digest, None);
+        import(&mut node, &package_root, vec![target.clone()]);
+        let still_unknown = node.installed_unit_version("multi", "1.0.0", &first.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(still_unknown.edges[0].status, EdgeStatus::LegacyAmbiguous);
+        assert_eq!(node.unit_status("multi").unwrap()["readiness"]["state"], json!("unresolved"));
+        // An authored schema-3 reimport is an explicit new decision for this
+        // digest, not an attribution of the old shared row.
+        import(&mut node, &package_root, vec![first.clone()]);
+        let recovered = node.installed_unit_version("multi", "1.0.0", &first.unit.artifact_digest).unwrap().unwrap();
+        assert_eq!(recovered.edges[0].status, EdgeStatus::Satisfied);
+        assert_eq!(recovered.edges[0].selected_artifact_digest, Some(target.unit.artifact_digest));
+        let saved: String = node.conn.query_row(
+            "SELECT data FROM unit_version_history WHERE unit_id='multi' AND revision='1.0.0' AND artifact_digest=?1 ORDER BY seq LIMIT 1",
+            [&first.unit.artifact_digest.0], |r| r.get(0),
+        ).unwrap();
+        let saved: StoredVersion = serde_json::from_str(&saved).unwrap();
+        assert_eq!(saved.imported_at, "old");
+        assert_eq!(saved.origin_node.as_deref(), Some("origin"));
+        assert_eq!(saved.remote_evidence, vec![json!({"historical": true})]);
+        let saved_edge: String = node.conn.query_row(
+            "SELECT data FROM unit_edge_history WHERE unit_id='multi' AND revision='1.0.0' AND artifact_digest=?1 AND edge_id='edge' ORDER BY seq LIMIT 1",
+            [&first.unit.artifact_digest.0], |r| r.get(0),
+        ).unwrap();
+        let saved_edge: ResolvedDependency = serde_json::from_str(&saved_edge).unwrap();
+        assert_eq!(saved_edge.status, EdgeStatus::LegacyAmbiguous);
+        assert_eq!(saved_edge.selected_artifact_digest, None);
+        drop(node);
+        let reopened = Node::open(&dir).unwrap();
+        assert_eq!(reopened.local_node_id().unwrap(), Some(node_id));
+        assert_eq!(reopened.conn.query_row("SELECT count(*) FROM unit_edges_legacy", [], |r| r.get::<_, i64>(0)).unwrap(), 3);
+    }
+
+    #[test]
+    fn schema_two_transfer_does_not_invent_an_old_selection() {
+        let mut node = Node::open(&scratch("old-wire-node")).unwrap();
+        let root = scratch("old-wire-packages");
+        let dependency = package("target", "1.0.0", b"wire-target", vec![]);
+        let source = package("source", "1.0.0", b"wire-source", vec![exact("edge", "target", None)]);
+        let mut old_transfer = export(vec![source.clone(), dependency.clone()]);
+        old_transfer.schema = 2;
+        old_transfer.root_revision = None;
+        old_transfer.root_artifact_digest = None;
+        let imported = node.handle_unit_request(UnitRequest::Import {
+            export: old_transfer, package_root: root.to_string_lossy().into_owned(), enable: None,
+        }).unwrap();
+        assert_eq!(imported["dependency_resolutions"][0]["offered_edges"][0]["status"], json!("legacy_ambiguous"));
+        import(&mut node, &root, vec![dependency]);
+        let transfer = node.export_unit_closure(&node.installed_unit("source").unwrap().unwrap()).unwrap();
+        let mut receiver = Node::open(&scratch("old-wire-receiver")).unwrap();
+        let receiver_root = scratch("old-wire-receiver-packages");
+        receiver.handle_unit_request(UnitRequest::Import {
+            export: transfer, package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
+        }).unwrap();
+        assert_eq!(receiver.unit_status("source").unwrap()["closure"]["edges"][0]["status"], json!("legacy_ambiguous"));
+    }
+
     #[test]
     fn package_transfers_between_nodes_without_inheriting_readiness() {
         let dir_a = scratch("node-a");
@@ -2803,7 +3428,6 @@ mod tests {
         let root_a = scratch("packages-a");
         let root_b = scratch("packages-b");
         let mut a = Node::open(&dir_a).unwrap();
-        install_unit_tables(&mut a);
         let dependency = package("demo.skill.base", "1.0.0", b"base-bytes", vec![]);
         let root = package(
             "demo.skill.root",
@@ -2858,7 +3482,6 @@ mod tests {
         let export: UnitExport = serde_json::from_value(exported["export"].clone()).unwrap();
 
         let mut b = Node::open(&dir_b).unwrap();
-        install_unit_tables(&mut b);
         b.handle_unit_request(UnitRequest::Import {
             export,
             package_root: root_b.to_string_lossy().into_owned(),
@@ -2914,7 +3537,6 @@ mod tests {
         let dir = scratch("trial-node");
         let root = scratch("trial-packages");
         let mut node = Node::open(&dir).unwrap();
-        install_unit_tables(&mut node);
         node.handle_unit_request(UnitRequest::Import {
             export: export(vec![package(
                 "demo.skill.trial",
@@ -2977,7 +3599,6 @@ mod tests {
         let dir = scratch("crash-node");
         let root = scratch("crash-packages");
         let mut node = Node::open(&dir).unwrap();
-        install_unit_tables(&mut node);
         node.handle_unit_request(UnitRequest::Import {
             export: export(vec![package(
                 "demo.skill.crash",

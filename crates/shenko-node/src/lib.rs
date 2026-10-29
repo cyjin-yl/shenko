@@ -14,13 +14,14 @@ mod roles;
 pub use roles::*;
 mod peers;
 pub use peers::*;
+mod admission;
 pub mod units;
 pub use units::*;
 
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 3;
+const STORAGE_SCHEMA: u32 = 4;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -192,6 +193,10 @@ impl Node {
                 && metadata.permissions().mode() & 0o077 == 0,
             "private nonsymlink data directory required"
         );
+        // Serialize cooperating openers across inspection, preflight,
+        // original recovery and migration; an unknown directory gains no
+        // lock file from this.
+        let _initialization = admission::lock_initialization(dir)?;
         let db = dir.join("node.sqlite3");
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
@@ -210,15 +215,7 @@ impl Node {
         }
         let existing = db.try_exists()?;
         if existing {
-            // immutable prevents even a read-only SQLite open from creating WAL
-            // sidecars or recovering another application's journal during preflight.
-            let readonly = Connection::open_with_flags(
-                readonly_uri(&db)?,
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-                    | OpenFlags::SQLITE_OPEN_URI
-                    | OpenFlags::SQLITE_OPEN_NOFOLLOW,
-            )?;
-            validate_installation(&readonly)?;
+            admission::validate_existing(&db)?;
         } else {
             ensure!(
                 std::fs::read_dir(dir)?.next().is_none(),
@@ -251,23 +248,48 @@ impl Node {
             journal == "delete" && synchronous == 2 && foreign_keys == 1,
             "node storage profile not adopted"
         );
-        let version: u32 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version != STORAGE_SCHEMA {
+        if existing && conn.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))? == STORAGE_SCHEMA {
+            return Ok(Self {
+                conn,
+                failed: false,
+            });
+        }
+        {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            if !existing {
-                tx.execute_batch(NODE_TABLES)?;
+            let locked = if !existing {
+                0
             } else {
-                // The exact v1 fingerprint and durable identities were validated
-                // read-only. Preserve all existing rows, identities and ledger seq.
-                validate_installation(&tx)?;
+                // Validate the exact old fingerprint again under the write lock.
+                // Identity, history and the old edge rows remain durable.
+                // A concurrent opener may have migrated this installation while
+                // we were waiting for the lock; trust only the version
+                // revalidated against the locked schema, never the stale one
+                // read before the transaction.
+                let locked = validate_installation(&tx)?;
+                if locked == STORAGE_SCHEMA {
+                    tx.commit()?;
+                    return Ok(Self {
+                        conn,
+                        failed: false,
+                    });
+                }
+                locked
+            };
+            if locked == 0 {
+                tx.execute_batch(NODE_TABLES)?;
             }
-            if version < 2 {
+            if locked <= 1 {
                 tx.execute_batch(RECEIPT_TABLE)?;
                 set(&tx, "installation", &EntityId::new())?;
             }
-            tx.execute_batch(roles::ROLE_SCHEMA)?;
-            tx.execute_batch(peers::SYNC_SCHEMA)?;
-            tx.execute_batch(units::UNIT_TABLES)?;
+            if locked <= 2 {
+                tx.execute_batch(roles::ROLE_SCHEMA)?;
+                tx.execute_batch(peers::SYNC_SCHEMA)?;
+                tx.execute_batch(units::UNIT_TABLES)?;
+            }
+            if locked == 3 {
+                units::migrate_v3_edges(&tx)?;
+            }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
             tx.commit()?;
@@ -886,7 +908,7 @@ impl Node {
             .conn
             .query_row("SELECT sqlite_version()", [], |r| r.get(0))?;
         Ok(
-            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v2","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
+            json!({"node_id":node,"metadata":metadata,"running_manifest":running_manifest()?,"roles":self.role_status()?,"observed_at":chrono::Utc::now(),"operation":command,"capabilities":{"os":std::env::consts::OS,"arch":std::env::consts::ARCH,"tools":[KIND],"node_roles":"v1","installation_units":"v3","llm":"not_configured_or_probed","smart_node_evidence":false,"service":"one_shot_worker_no_subject"},"storage":{"schema":STORAGE_SCHEMA,"application_id":APPLICATION_ID,"sqlite":sqlite,"journal":"delete","durability":"process_crash","global_quorum":false,"objects":"bounded_inline_same_transaction"}}),
         )
     }
 }
@@ -907,7 +929,11 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
     if version >= 3 {
         expected.execute_batch(roles::ROLE_SCHEMA)?;
         expected.execute_batch(peers::SYNC_SCHEMA)?;
-        expected.execute_batch(units::UNIT_TABLES)?;
+        expected.execute_batch(if version == 3 {
+            units::UNIT_TABLES_V3
+        } else {
+            units::UNIT_TABLES
+        })?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
@@ -918,6 +944,15 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         schema(conn)? == schema(&expected)?,
         "unrecognized installation schema fingerprint"
     );
+    // SQLite reserves the sqlite_ prefix, so an attacker-crafted file can hide
+    // executable schema objects from the name-filtered comparison above.
+    // Node defines no triggers or views; any such object is not an installation.
+    let executable: i64 = conn.query_row(
+        "SELECT count(*) FROM sqlite_master WHERE lower(type) IN ('trigger','view')",
+        [],
+        |r| r.get(0),
+    )?;
+    ensure!(executable == 0, "installation contains executable schema objects");
     fn value<T: for<'a> Deserialize<'a>>(conn: &Connection, key: &str) -> Result<T> {
         let s: String = conn.query_row("SELECT v FROM meta WHERE k=?1", [key], |r| r.get(0))?;
         Ok(serde_json::from_str(&s)?)
