@@ -103,6 +103,18 @@ impl<'de> Deserialize<'de> for Pacer {
     }
 }
 
+impl Pacer {
+    /// The durable reservation bound to a stable request id, if any.
+    pub fn reservation(&self, request_id: &EntityId) -> Option<&Reservation> {
+        self.reservations.get(request_id)
+    }
+
+    /// Every outstanding reservation, oldest-request ordering by id.
+    pub fn reservations(&self) -> impl Iterator<Item = &Reservation> {
+        self.reservations.values()
+    }
+}
+
 fn profile<'a>(policy: &'a QuotaPolicy, id: &str) -> Option<&'a ModelProfile> {
     policy.profiles.iter().find(|p| p.profile_id == id)
 }
