@@ -123,5 +123,8 @@ curl -fsSL "$BASE/python-3.12.0.wasm.sha256sum"   # 核对 sha256
 - `ToolStore::open` 的 foreign-content 检查在 registry 缺失时拒绝一切文件；
   崩溃可能留下 `.tools.*.tmp`/`artifacts/*.wasm.tmp` 临时文件——下次 open 会因
   foreign-content 拒绝收养，需要 parent 观察是否可接受（或后续显式 GC）。
+- ToolStore 假设单写入者（与 home manifest/persist_manifest 同级强度）：两个
+  并发 `shenko tool install` 进程的竞争不在防御范围；registry 最终一致性依赖
+  原子 rename，但并发冲突检测可能漏判同名@同版本。
 - A09 要求（私有 Git/GitHub/Gitea 端到端认证、真实 WASM SSH keygen/exec/
   transfer）**未达成**；该 case 保持 open。
