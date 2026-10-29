@@ -527,6 +527,369 @@ fn sealed_previous_projection(
     Ok((binding, estimated))
 }
 
+/// Quota admission gate for one sealed request (SPEC §42.5–42.6).
+///
+/// With no recorded policy there is no gate at all: the configured or
+/// unconfigured provider keeps dispatching exactly as before. Once a policy
+/// exists, the request must pass durable admit → arm → step-CAS → submit;
+/// quota_policy_wait / provider_exhausted / observation_blocked sleep on a
+/// bounded clock and re-admit, never occupying compute or fabricating
+/// inference. Unknown quota stays unknown and no request is generated to
+/// probe a balance.
+enum QuotaGate {
+    Ready,
+    Cancelled,
+}
+
+async fn quota_dispatch_gate(
+    store: &shenko_store::store::Store,
+    binding: &shenko_broker::request::ProviderBinding,
+    step_state: SubjectStepState,
+    request_id: EntityId,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<QuotaGate, ShenkoError> {
+    use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence, SourceKind};
+
+    let Some(policy) = store.latest_quota_policy()? else {
+        return Ok(QuotaGate::Ready);
+    };
+    // A profile is usable only if its declared model runs on the actual
+    // sealed backend: the bound model name plus the local/cloud split.
+    let availability: std::collections::HashMap<String, shenko_quota::BackendState> = policy
+        .profiles
+        .iter()
+        .map(|profile| {
+            let usable = profile.local
+                == matches!(binding, shenko_broker::request::ProviderBinding::Local { .. })
+                && profile.model_ref == binding.model();
+            (
+                profile.profile_id.clone(),
+                if usable {
+                    shenko_quota::BackendState::Available
+                } else {
+                    shenko_quota::BackendState::Unavailable
+                },
+            )
+        })
+        .collect();
+    // Recomputations and re-eligible outcomes are bounded; a decision that
+    // still cannot settle admission is a reconciliation fact, not a spin.
+    // Bounded waits on quota_policy_wait are the intended pacing clock and
+    // do not consume this budget.
+    let mut work = 0_u32;
+    // A retry of the same sealed request is a further wire dispatch once the
+    // reservation already exists; the first admission arm is separate.
+    let retry_dispatch = step_state == SubjectStepState::RetryPending;
+    loop {
+        let now = chrono::Utc::now();
+        let latest = store.latest_quota_decision()?;
+        let (policy_in_use, decision) = match &latest {
+            Some((policy_in_use, decision))
+                if decision.decided_at <= now
+                    && now < decision.valid_until
+                    && decision.policy_id == policy.policy_id
+                    && decision.policy_revision == policy.revision =>
+            {
+                (policy_in_use.clone(), decision.clone())
+            }
+            _ => {
+                work += 1;
+                if work > 32 {
+                    return Err(ShenkoError::conflict(
+                        "quota decision still requires recompute; reconcile snapshot evidence",
+                    ));
+                }
+                // Forecast each (provider, account scope) the policy's cloud
+                // profiles touch, only from the latest recorded snapshot of a
+                // source the policy actually admits.
+                let mut forecasts = Vec::new();
+                let mut scopes = std::collections::BTreeSet::new();
+                for profile in &policy.profiles {
+                    if profile.local {
+                        continue;
+                    }
+                    for cost in &profile.cost_per_request {
+                        scopes.insert((
+                            cost.window.provider_id.clone(),
+                            cost.window.account_scope_ref.clone(),
+                        ));
+                    }
+                }
+                for (provider_id, scope) in scopes {
+                    let Some(snapshot) =
+                        store.latest_quota_snapshot(&provider_id, &scope)?
+                    else {
+                        continue;
+                    };
+                    let Some(options) = policy.forecast_options(snapshot.source_kind) else {
+                        continue;
+                    };
+                    let attempts = store.quota_attempts(&provider_id, &scope)?;
+                    let assumptions: std::collections::HashMap<
+                        String,
+                        shenko_quota::WindowAssumptions,
+                    > = policy
+                        .assumptions
+                        .iter()
+                        .filter(|entry| {
+                            entry.window.provider_id == provider_id
+                                && entry.window.account_scope_ref == scope
+                        })
+                        .map(|entry| (entry.window.window_key.clone(), entry.value))
+                        .collect();
+                    let forecast = shenko_quota::forecast(
+                        &snapshot,
+                        &attempts,
+                        &assumptions,
+                        now,
+                        options,
+                    );
+                    store.record_quota_forecast(&forecast)?;
+                    forecasts.push(forecast);
+                }
+                let previous = latest.as_ref().map(|(_, decision)| decision);
+                let decision = shenko_quota::decide(
+                    &policy,
+                    &forecasts,
+                    &availability,
+                    previous,
+                    now,
+                )
+                .map_err(|error| {
+                    ShenkoError::conflict(&format!("quota policy cannot decide: {error}"))
+                })?;
+                store.record_quota_decision(&decision)?;
+                (policy.clone(), decision)
+            }
+        };
+        let receipt = store.admit_quota_request(
+            &policy_in_use,
+            &decision,
+            request_id,
+            &availability,
+            chrono::Utc::now(),
+        )?;
+        match receipt.outcome {
+            AdmissionOutcome::Quota(admission) | AdmissionOutcome::Existing { admission }
+                if admission.state == AdmissionState::Admitted =>
+            {
+                let profile = policy_in_use
+                    .profiles
+                    .iter()
+                    .find(|profile| Some(&profile.profile_id) == admission.profile_id.as_ref())
+                    .ok_or_else(|| ShenkoError::conflict("admitted profile is not configured"))?;
+                if profile.model_ref != binding.model() {
+                    return Err(ShenkoError::Protocol(
+                        shenko_types::error::ProtocolError::new(
+                            "MODEL_PROVIDER_BINDING_MISMATCH",
+                            shenko_types::error::ErrorScope::Request,
+                            shenko_types::error::RetryStrategy::NewRevision,
+                        )
+                        .with_details(serde_json::json!({
+                            "reason": "quota decision selected a model outside this seal's backend"
+                        })),
+                    ));
+                }
+                let pacer = store.quota_pacer()?;
+                let Some(reservation) = pacer.reservation(&request_id) else {
+                    return Err(ShenkoError::conflict("admitted quota reservation vanished"));
+                };
+                match reservation.dispatch {
+                    Some(DispatchEvidence::ArmedOrUnknown) => {
+                        if retry_dispatch {
+                            store.record_quota_redispatch(&reservation.admission)?;
+                        }
+                        return Ok(QuotaGate::Ready);
+                    }
+                    Some(DispatchEvidence::NeverDispatched) | None => {
+                        store.arm_quota_admission(&reservation.admission)?;
+                        return Ok(QuotaGate::Ready);
+                    }
+                }
+            }
+            AdmissionOutcome::Quota(admission) | AdmissionOutcome::Existing { admission } => {
+                use shenko_quota::AdmissionState::*;
+                match admission.state {
+                    Eligible => {
+                        work += 1;
+                        if work > 32 {
+                            return Err(ShenkoError::conflict(
+                                "quota admission cannot settle; reconcile evidence",
+                            ));
+                        }
+                        continue;
+                    }
+                    QuotaPolicyWait | ProviderExhausted | ObservationBlocked => {
+                        let wait = admission
+                            .next_eligible_at
+                            .and_then(|at| (at - chrono::Utc::now()).to_std().ok())
+                            .unwrap_or_else(|| std::time::Duration::from_secs(30))
+                            .clamp(
+                                std::time::Duration::from_millis(50),
+                                std::time::Duration::from_secs(30),
+                            );
+                        tokio::select! {
+                            _ = cancel.cancelled() => return Ok(QuotaGate::Cancelled),
+                            _ = tokio::time::sleep(wait) => {}
+                        }
+                        continue;
+                    }
+                    Cancelled => {
+                        return Err(ShenkoError::conflict(
+                            "quota reservation is terminal for this request; a changed request needs a new request_id",
+                        ));
+                    }
+                    Admitted => unreachable!("admitted handled above"),
+                }
+            }
+            AdmissionOutcome::CapacityBlocked { reason } => {
+                return Err(ShenkoError::other(format!(
+                    "capacity_blocked: {reason}"
+                )));
+            }
+            AdmissionOutcome::CapacityUnknown { reason } => {
+                return Err(ShenkoError::other(format!(
+                    "capacity_unknown: {reason}"
+                )));
+            }
+            AdmissionOutcome::Invalid { reason } => {
+                return Err(ShenkoError::conflict(format!(
+                    "quota admission invalid: {reason}"
+                )));
+            }
+        }
+    }
+}
+
+/// Update durable quota observations from one real provider result. This is
+/// ordinary-traffic evidence only — never a paid probe — and failure to
+/// record it must not fabricate or block the sealed model result.
+fn observe_quota_response(
+    store: &shenko_store::store::Store,
+    binding: &shenko_broker::request::ProviderBinding,
+    result: &shenko_broker::request::InferenceResult,
+) {
+    use shenko_broker::request::{InferenceStatus, TerminationKind};
+
+    let Some(policy) = (match store.latest_quota_policy() {
+        Ok(policy) => policy,
+        Err(error) => {
+            warn!(%error, "quota policy unreadable; observation skipped");
+            return;
+        }
+    }) else {
+        return;
+    };
+    // One unambiguous cloud account scope is required; anything else stays
+    // unrecorded rather than attributed to a guessed account.
+    let mut scopes = std::collections::BTreeSet::new();
+    for profile in &policy.profiles {
+        if profile.local {
+            continue;
+        }
+        for cost in &profile.cost_per_request {
+            scopes.insert((
+                cost.window.provider_id.clone(),
+                cost.window.account_scope_ref.clone(),
+            ));
+        }
+    }
+    let Some((provider_id, scope)) = (match scopes.len() {
+        1 => scopes.into_iter().next(),
+        _ => None,
+    }) else {
+        return;
+    };
+    if provider_id != binding.profile_id() {
+        return;
+    }
+    let context = shenko_quota::ObservationContext {
+        provider_id,
+        account_scope_ref: scope,
+        source_version: binding.api_version().map(str::to_owned),
+        attribution: shenko_quota::Attribution::Unknown,
+        observed_at: chrono::Utc::now(),
+    };
+    let snapshot = if !result.quota_headers.is_empty() {
+        shenko_quota::from_api_headers(
+            &context,
+            result
+                .quota_headers
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_str())),
+        )
+    } else if matches!(result.status, InferenceStatus::Rejected { http_status: 429 }) {
+        // A rate-limited read is a failed observation, never a balance fact.
+        shenko_quota::observation_failed(
+            &context,
+            shenko_quota::SourceKind::ApiHeaders,
+            &[],
+            shenko_quota::ObservationError::RateLimited,
+        )
+    } else {
+        return;
+    };
+    if let Err(error) = store.record_quota_snapshot(&snapshot) {
+        warn!(%error, "quota snapshot rejected; response evidence not recorded");
+        return;
+    }
+    // A terminal result settles what the provider actually reported for the
+    // bound attempt rows. Windows that cannot be measured keep billing
+    // unknown — never settled to a guessed cost.
+    if result.termination.kind != TerminationKind::ProviderTerminal {
+        return;
+    }
+    let attempts = match store.quota_attempts(&provider_id, &scope) {
+        Ok(attempts) => attempts,
+        Err(_) => return,
+    };
+    let usage = result
+        .response
+        .as_ref()
+        .and_then(|response| response.usage.as_ref());
+    // Only the latest committed attempt row per window corresponds to this
+    // response; earlier rows keep their own evidence until coverage settles.
+    let mut latest: std::collections::HashMap<&str, &shenko_quota::LocalAttempt> =
+        std::collections::HashMap::new();
+    for attempt in attempts.iter().filter(|attempt| attempt.request_id == result.request_id) {
+        latest
+            .entry(attempt.window_key.as_str())
+            .and_modify(|existing| {
+                if attempt.ledger_commit.seq > existing.ledger_commit.seq {
+                    *existing = attempt;
+                }
+            })
+            .or_insert(attempt);
+    }
+    for (window_key, attempt) in latest {
+        let Some(measured) = (match window_key {
+            "api:requests" => Some(1),
+            "api:input-tokens" => usage.and_then(|u| u.input_tokens),
+            "api:output-tokens" => usage.and_then(|u| u.output_tokens),
+            "api:tokens" => usage.map(|u| {
+                u.input_tokens
+                    .unwrap_or(0)
+                    .saturating_add(u.output_tokens.unwrap_or(0))
+            }),
+            _ => None,
+        }) else {
+            continue;
+        };
+        let Some(cost) = shenko_quota::Range::point(measured as f64) else {
+            continue;
+        };
+        if let Err(error) = store.settle_quota_attempt(
+            result.request_id,
+            window_key,
+            attempt.ledger_commit.seq,
+            cost,
+            shenko_quota::AttemptBilling::Settled,
+        ) {
+            warn!(%error, "quota attempt settle rejected");
+        }
+    }
+}
+
 /// CAS 失败直接返回，绝不制造空 locator 后继续提交。§41.2.2
 fn seal_step_object(
     store: &shenko_store::store::Store,
@@ -668,6 +1031,19 @@ async fn execute_step(
             ).with_details(serde_json::json!({"reason":"explicit S0 migration/reconciliation required; request not dispatched"}))));
         }
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
+        match quota_dispatch_gate(
+            &store,
+            broker.binding(),
+            step.state,
+            request_id,
+            cancel,
+        )
+        .await
+        {
+            Ok(QuotaGate::Ready) => {}
+            Ok(QuotaGate::Cancelled) => return Ok(None),
+            Err(error) => return Err(error),
+        }
         let (tx, rx) = tokio::sync::oneshot::channel();
         let req = shenko_broker::request::InferenceRequest {
             request_id,
@@ -701,6 +1077,7 @@ async fn execute_step(
                 "model result request identity mismatch",
             ));
         }
+        observe_quota_response(&store, broker.binding(), &result);
         use shenko_broker::request::InferenceStatus;
         match result.status {
             InferenceStatus::QueuedCapacityWait => {
