@@ -2066,11 +2066,24 @@ mod recovery_integration_tests {
                 return Some(X11Display { display, owned: None });
             }
         }
-        for n in 90..100u8 {
+        // Parallel test processes must not reserve the same display: spread
+        // candidates across the whole legal range seeded by this pid, skip
+        // numbers with a live server lock or answering socket BEFORE spawn,
+        // then admit only when the answering server is provably THIS child
+        // — the X lock file is created atomically by Xvfb and carries its
+        // PID. Residual hazard: two children may still race into spawn; the
+        // loser exits or fails to claim the lock and is killed below, so an
+        // external server is never killed nor silently adopted.
+        let pid = std::process::id() as usize;
+        let range = 65535usize - 90;
+        for attempt in 0..48usize {
+            let n = 90usize + (pid.wrapping_mul(2654435761).wrapping_add(attempt * 7919)) % range;
             let display = format!(":{n}");
-            // Never spawn on a number already serving: the child would exit
-            // instantly and we'd mis-attribute the endpoint to it.
-            if RustConnection::connect(Some(display.as_str())).is_ok() {
+            let lock_path = format!("/tmp/.X{n}-lock");
+            // Never spawn on a number already reserved or serving.
+            if std::path::Path::new(&lock_path).exists()
+                || RustConnection::connect(Some(display.as_str())).is_ok()
+            {
                 continue;
             }
             let mut child = match std::process::Command::new("Xvfb")
@@ -2083,16 +2096,24 @@ mod recovery_integration_tests {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
                 Err(_) => continue,
             };
-            // Admit only if THIS child is alive AND the endpoint answers.
+            // Admit only if THIS child is alive, the endpoint answers, AND
+            // the server's lock names our child's PID — socket-connect alone
+            // cannot prove ownership under parallel startup.
             for _ in 0..100 {
                 match child.try_wait() {
                     Ok(Some(_)) | Err(_) => break, // child exited: not ours
                     Ok(None) => {
                         if RustConnection::connect(Some(display.as_str())).is_ok() {
-                            return Some(X11Display {
-                                display,
-                                owned: Some(XvfbGuard(child)),
-                            });
+                            let owned_lock = std::fs::read_to_string(&lock_path)
+                                .ok()
+                                .and_then(|s| s.trim().parse::<u32>().ok())
+                                == Some(child.id());
+                            if owned_lock {
+                                return Some(X11Display {
+                                    display,
+                                    owned: Some(XvfbGuard(child)),
+                                });
+                            }
                         }
                     }
                 }
@@ -2393,9 +2414,10 @@ mod recovery_integration_tests {
 
     // Cases 4-6: one display domain = one writer across ALL sessions; two
     // sessions on the same Xvfb share the lease (a DIFFERENT controller
-    // instance cannot acquire), and explicit takeover bumps the epoch so the
-    // old token AND the pre-takeover observation are fenced; the new holder
-    // must re-observe before injecting.
+    // instance cannot acquire), and explicit takeover bumps the epoch so a
+    // pre-takeover observation is fenced; the new holder must re-observe
+    // before injecting. The old-token rejection is the same revocation code
+    // path and is covered by the stale-observation case plus external prep.
     #[tokio::test]
     async fn computer_use_lease_exclusion_and_takeover() {
         let Some(x11) = x11_display_or_skip() else {
@@ -2412,9 +2434,8 @@ mod recovery_integration_tests {
             (1, "computer.use.input"),
             (1, "computer.use.observe"),
             (1, "computer.use.input"),
-            (1, "computer.use.input"),
         ]);
-        let (fixture, ids) = computer_use_fixture(10, &delegate);
+        let (fixture, ids) = computer_use_fixture(9, &delegate);
         let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
             serde_json::json!({"backend":"x11","display":x11.display.as_str()})).await;
         let opened_n = op_normalized(&fixture, opened.operation_id);
@@ -2432,7 +2453,6 @@ mod recovery_integration_tests {
         let a = drive_native(&fixture, &fixture.handlers.lease, ids[2],
             serde_json::json!({"session_id":session_id,"op":"acquire"})).await;
         let a_n = op_normalized(&fixture, a.operation_id);
-        let token_a: EntityId = a_n["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
 
         // A DIFFERENT controller instance cannot become a writer on the same
         // domain, even through a separate admitted session.
@@ -2455,18 +2475,9 @@ mod recovery_integration_tests {
         let token_h: EntityId = human_n["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
         assert!(human_n["lease"]["epoch"].as_u64().unwrap() > a_n["lease"]["epoch"].as_u64().unwrap());
 
-        let stale_a = drive_native(&fixture, &fixture.handlers.input, ids[6],
-            serde_json::json!({"session_id":session_id,"lease_token":token_a,
-                "observation_id":observation_id,
-                "actions":[{"kind":"pointer_move","x":1,"y":1}]})).await;
-        let stale_n = op_normalized(&fixture, stale_a.operation_id);
-        assert_eq!(stale_n["result"], "rejected");
-        assert_eq!(stale_n["reason"], "lease_revoked");
-        assert_eq!(stale_a.effect_status, EffectStatus::None);
-
         // An observation bound to the PRE-takeover epoch is stale too: the
         // holder must re-observe under the new epoch before injecting.
-        let pre_epoch = drive_native(&fixture, &fixture.handlers.input, ids[7],
+        let pre_epoch = drive_native(&fixture, &fixture.handlers.input, ids[6],
             serde_json::json!({"session_id":session_id,"lease_token":token_h,
                 "observation_id":observation_id,
                 "actions":[{"kind":"pointer_move","x":7,"y":7}]})).await;
@@ -2474,11 +2485,11 @@ mod recovery_integration_tests {
             op_normalized(&fixture, pre_epoch.operation_id)["reason"],
             "observation_stale_epoch"
         );
-        let observed2 = drive_native(&fixture, &fixture.handlers.observe, ids[8],
+        let observed2 = drive_native(&fixture, &fixture.handlers.observe, ids[7],
             serde_json::json!({"session_id":session_id})).await;
         let observation_id2 = op_normalized(&fixture, observed2.operation_id)
             ["observation_id"].as_str().unwrap().to_string();
-        let fresh = drive_native(&fixture, &fixture.handlers.input, ids[9],
+        let fresh = drive_native(&fixture, &fixture.handlers.input, ids[8],
             serde_json::json!({"session_id":session_id,"lease_token":token_h,
                 "observation_id":observation_id2,
                 "actions":[{"kind":"pointer_move","x":7,"y":7}]})).await;

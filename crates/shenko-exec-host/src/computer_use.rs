@@ -322,18 +322,13 @@ enum HeldInput {
     Button(u8),
 }
 
-/// Per-session mutable state (never shared across sessions).
+/// Per-session mutable state (never shared across sessions). Small and
+/// short-lived — this mutex is never held across an X11 round-trip or a
+/// send boundary, so it can never block a takeover for the session.
 struct SessionShared {
-    closed: bool,
     next_frame: u64,
     /// Sent-event counts per operation for reconcile reporting.
     send_log: BTreeMap<EntityId, usize>,
-    /// Keycodes remapped for unmapped text keysyms; restored on close.
-    remapped: Vec<(u8, Vec<Keysym>)>,
-    /// Cached keyboard mapping: flat rows of `keysyms_per_keycode`.
-    keymap: Option<(u8, Vec<Keysym>)>,
-    /// Cached Shift modifier keycode: Some(queried result, possibly None).
-    shift_code_cache: Option<Option<u8>>,
 }
 
 /// One state machine per shared display domain: every session opened to the
@@ -345,6 +340,14 @@ struct DomainState {
     lease: Option<DomainLease>,
     /// Machine-held inputs on this domain; released on takeover/release/close.
     held: BTreeSet<HeldInput>,
+    /// Keycodes remapped for unmapped text keysyms on this domain;
+    /// server-global, so they live with the domain and are restored under
+    /// the same revocation handover as held inputs.
+    remapped: Vec<(u8, Vec<Keysym>)>,
+    /// Cached keyboard mapping: flat rows of `keysyms_per_keycode`.
+    keymap: Option<(u8, Vec<Keysym>)>,
+    /// Cached Shift modifier keycode: Some(queried result, possibly None).
+    shift_code_cache: Option<Option<u8>>,
     /// Session ids currently open on this domain.
     session_ids: BTreeSet<EntityId>,
     watch: Option<JoinHandle<()>>,
@@ -356,11 +359,17 @@ struct DomainState {
 struct DomainLease {
     /// The admitted controller instance holding the epoch.
     holder_instance: EntityId,
+    /// The session through which the holder wrote; losing THIS session
+    /// revokes the epoch — a non-holding sibling's close does not.
+    holder_session: EntityId,
     token: EntityId,
 }
 
 struct X11Session {
     session_id: EntityId,
+    /// Cheap, lock-free liveness: `session()` must answer a closed query
+    /// without contending on a send-critical mutex.
+    closed: AtomicBool,
     /// The admitted controller instance that opened this session.
     owner_instance: EntityId,
     conn: RustConnection,
@@ -396,8 +405,14 @@ impl X11Session {
             .domain
             .lock()
             .map_err(|_| SendError::Rejected("backend_state_poisoned"))?;
+        if self.closed.load(Ordering::Relaxed) {
+            return Err(SendError::Rejected("session_closed"));
+        }
         match &domain.lease {
-            Some(lease) if lease.token == token && domain.lease_epoch == epoch => {
+            Some(lease)
+                if lease.token == token
+                    && lease.holder_session == self.session_id
+                    && domain.lease_epoch == epoch => {
                 Ok(domain)
             }
             _ => Err(SendError::Rejected("lease_revoked")),
@@ -407,24 +422,29 @@ impl X11Session {
 
 impl Drop for X11Session {
     fn drop(&mut self) {
-        // Session-scoped teardown only: the domain lease and held inputs
-        // survive while a sibling session still shares this domain.
-        if let Ok(mut shared) = self.shared.lock() {
-            let remapped = std::mem::take(&mut shared.remapped);
-            drop(shared);
-            restore_keymap(&self.conn, &remapped);
-        }
-        // Remove this session from its domain; the last session leaving
-        // drops the lease and releases machine-held inputs on the wire.
+        self.closed.store(true, Ordering::Relaxed);
+        // Remove this session from its domain. The lease is revoked only
+        // when the departing session was the WRITER (holder_session) or it
+        // was the last session on the domain — a non-holding sibling's
+        // teardown must never drop the active writer's epoch.
         if let Ok(mut domain) = self.domain_locked() {
             domain.session_ids.remove(&self.session_id);
-            if domain.session_ids.is_empty() {
+            let holder_gone = domain
+                .lease
+                .as_ref()
+                .is_some_and(|l| l.holder_session == self.session_id);
+            if domain.session_ids.is_empty() || holder_gone {
                 domain.lease = None;
                 domain.lease_epoch += 1;
                 let held: Vec<HeldInput> =
                     std::mem::take(&mut domain.held).into_iter().collect();
-                drop(domain);
+                let remapped = std::mem::take(&mut domain.remapped);
+                // Release inside the domain critical section: the next lease
+                // cannot emit input until teardown completes (handover fence).
                 release_held(&self.conn, self.screen.root, &held);
+                restore_keymap(&self.conn, &remapped);
+                domain.keymap = None;
+                domain.shift_code_cache = None;
             }
         }
     }
@@ -536,8 +556,9 @@ impl ComputerUseBackend {
         let state = self.state().map_err(|_| "backend_state_poisoned")?;
         match state.sessions.get(&session_id) {
             Some(session) => {
-                let closed = session.locked().map(|s| s.closed).unwrap_or(true);
-                if closed {
+                // Lock-free liveness read: this path is on the takeover
+                // chain and must never wait on a send-critical mutex.
+                if session.closed.load(Ordering::Relaxed) {
                     Err("session_closed")
                 } else {
                     Ok(Arc::clone(session))
@@ -776,11 +797,12 @@ impl ComputerUseBackend {
                 "no_display_address",
                 "no explicit display and $DISPLAY unset",
             );
-        }
+        };
         let (conn, default_screen) = match RustConnection::connect(Some(display.as_str())) {
             Ok(pair) => pair,
             Err(error) => {
-                return DriveOutcome::unavailable(connect_error_kind(&error), error.to_string())
+                let kind = connect_error_kind(&error);
+                return DriveOutcome::unavailable(kind, error.to_string());
             }
         };
         let setup = conn.setup();
@@ -837,11 +859,24 @@ impl ComputerUseBackend {
         // Different spellings of one server (":11", "unix:11", "localhost:11",
         // TCP v. unix) must collapse to the same lease domain: normalize the
         // authority to `unix:` for local transports and lowercase the host.
-        let domain_id = format!(
-            "x11/{}/root{:08x}",
-            normalize_display_authority(&display),
-            screen.root
-        );
+        // Identity key uses the REAL parsed display, not the spelling the
+        // caller gave. Different transport/host aliases to the same server
+        // share one domain; two remote hosts never merge.
+        let normalized_display =
+            match x11rb::reexports::x11rb_protocol::parse_display::parse_display(
+                Some(display.as_str()),
+            ) {
+                Ok(parsed) => normalize_display_authority(
+                    &parsed.host,
+                    parsed.protocol.as_deref(),
+                    parsed.display,
+                ),
+                Err(_) => return DriveOutcome::unavailable(
+                    "display_address_invalid",
+                    format!("unparseable display {display:?}"),
+                ),
+            };
+        let domain_id = format!("x11/{}/root{:08x}", normalized_display, screen.root);
         let dpi_x = if screen.width_in_millimeters > 0 {
             f64::from(screen.width_in_pixels) * 25.4 / f64::from(screen.width_in_millimeters)
         } else {
@@ -862,6 +897,9 @@ impl ComputerUseBackend {
                         lease_epoch: 0,
                         lease: None,
                         held: BTreeSet::new(),
+                        remapped: vec![],
+                        keymap: None,
+                        shift_code_cache: None,
                         session_ids: BTreeSet::new(),
                         watch: None,
                         watch_stop: Arc::new(AtomicBool::new(false)),
@@ -939,17 +977,14 @@ impl ComputerUseBackend {
         };
         let session = Arc::new(X11Session {
             session_id,
+            closed: AtomicBool::new(false),
             owner_instance,
             conn,
             info: info.clone(),
             screen,
             shared: Arc::new(Mutex::new(SessionShared {
-                closed: false,
                 next_frame: 1,
                 send_log: BTreeMap::new(),
-                remapped: vec![],
-                keymap: None,
-                shift_code_cache: None,
             })),
             domain: Arc::clone(&domain),
         });
@@ -983,39 +1018,28 @@ impl ComputerUseBackend {
                 serde_json::json!({"session_id": session_id}),
             );
         }
-        // Session state: mark closed and take this session's remapped keys.
-        let remapped = match session.locked() {
-            Ok(mut shared) => {
-                shared.closed = true;
-                std::mem::take(&mut shared.remapped)
-            }
-            Err(_) => vec![],
-        };
-        // Domain state: leave the domain; revoke the lease + release held
-        // inputs only when this was the last session on the shared domain or
-        // the closing task is the current lease holder.
-        let (held, revoked) = match session.domain_locked() {
+        // Liveness does not contend with injection. Session lookup and a
+        // concurrent takeover never wait for the current Text action.
+        session.closed.store(true, Ordering::Relaxed);
+        // Revoke only when this exact session held the writer lease, or the
+        // last session leaves. A non-holding sibling can close without
+        // invalidating an active writer from the same controller.
+        let (released, revoked) = match session.domain_locked() {
             Ok(mut domain) => {
                 domain.session_ids.remove(&session_id);
                 let holder_gone = domain
                     .lease
                     .as_ref()
-                    .is_some_and(|l| l.holder_instance == caller_instance);
+                    .is_some_and(|l| l.holder_session == session_id);
                 if domain.session_ids.is_empty() || holder_gone {
-                    domain.lease = None;
-                    domain.lease_epoch += 1;
-                    (
-                        std::mem::take(&mut domain.held).into_iter().collect::<Vec<_>>(),
-                        true,
-                    )
+                    let (released, _) = Self::revoke_locked(&session, &mut domain);
+                    (released, true)
                 } else {
-                    (vec![], false)
+                    (0, false)
                 }
             }
-            Err(_) => (vec![], false),
+            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         };
-        release_held(&session.conn, session.screen.root, &held);
-        restore_keymap(&session.conn, &remapped);
         if let Ok(mut state) = self.state() {
             state.sessions.remove(&session_id);
         }
@@ -1025,7 +1049,7 @@ impl ComputerUseBackend {
             serde_json::json!({
                 "result": "closed",
                 "session_id": session_id,
-                "held_released": held.len(),
+                "held_released": released,
                 "lease_revoked": revoked,
             }),
         )
@@ -1202,6 +1226,15 @@ impl ComputerUseBackend {
                 }
             }
         };
+        // Fingerprint BEFORE and AFTER the pixel read: a window move/resize
+        // during capture cannot bind pre-change pixels to the post-change
+        // fingerprint — epoch equality alone does not see pure layout churn
+        // because no lease event is required for it.
+        let (fingerprint_before, _) =
+            match Self::layout_fingerprint(&session.conn, session.screen.root) {
+                Ok(pair) => pair,
+                Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            };
         let frame = match Self::capture_region(&session, region) {
             Ok(f) => f,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
@@ -1214,11 +1247,17 @@ impl ComputerUseBackend {
                     format!("epoch changed mid-capture on {}", session.info.domain_id),
                 )
             }
-        }
+        };
         let (fingerprint, shapes) = match Self::layout_fingerprint(&session.conn, session.screen.root) {
             Ok(pair) => pair,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
+        if fingerprint != fingerprint_before {
+            return DriveOutcome::unavailable(
+                "layout_changed_during_capture",
+                format!("window layout changed mid-capture on {}", session.info.domain_id),
+            );
+        }
         let pixel_hash = hex_digest(&frame.data);
         let rgb = match image_to_rgb8(&frame) {
             Ok(rgb) => rgb,
@@ -1303,6 +1342,10 @@ impl ComputerUseBackend {
         // lock: a concurrent injection action cannot slip events between the
         // epoch bump and the releases.
         release_held(&session.conn, session.screen.root, &held);
+        let remapped = std::mem::take(&mut domain.remapped);
+        restore_keymap(&session.conn, &remapped);
+        domain.keymap = None;
+        domain.shift_code_cache = None;
         (held.len(), epoch)
     }
 
@@ -1315,10 +1358,15 @@ impl ComputerUseBackend {
             Ok(s) => s,
             Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         };
+        if session.closed.load(Ordering::Relaxed) {
+            return DriveOutcome::rejected("session_closed", serde_json::json!({}));
+        }
         match frozen.op {
             LeaseOp::Acquire => {
                 if let Some(lease) = &domain.lease {
-                    if lease.holder_instance == caller_instance {
+                    if lease.holder_instance == caller_instance
+                        && lease.holder_session == frozen.session_id
+                    {
                         return DriveOutcome::done(
                             EffectStatus::None,
                             ObservationLevel::RemoteCompleted,
@@ -1346,6 +1394,7 @@ impl ComputerUseBackend {
                 let token = EntityId::new();
                 domain.lease = Some(DomainLease {
                     holder_instance: caller_instance,
+                    holder_session: frozen.session_id,
                     token,
                 });
                 DriveOutcome::done(
@@ -1400,6 +1449,7 @@ impl ComputerUseBackend {
                 let token = EntityId::new();
                 domain.lease = Some(DomainLease {
                     holder_instance: caller_instance,
+                    holder_session: frozen.session_id,
                     token,
                 });
                 DriveOutcome::done(
@@ -1512,22 +1562,7 @@ impl ComputerUseBackend {
             // Every event inside send_action re-validates the lease under the
             // domain lock (per-event boundary, including inside Text), so a
             // takeover or external input revokes between any two events.
-            let result = {
-                let mut shared = match session.locked() {
-                    Ok(s) => s,
-                    Err(_) => {
-                        failure = Some("backend_state_poisoned");
-                        break;
-                    }
-                };
-                send_action(
-                    &session,
-                    &mut shared,
-                    frozen.lease_token,
-                    bound_epoch,
-                    action,
-                )
-            };
+            let result = send_action(&session, frozen.lease_token, bound_epoch, action);
             match result {
                 Ok(receipt) => {
                     sent += receipt.events_sent;
@@ -1645,7 +1680,7 @@ impl ComputerUseBackend {
                 if let Ok(shared) = session.locked() {
                     if let Some(count) = shared.send_log.get(&operation_id) {
                         sent = Some(*count);
-                        alive = !shared.closed;
+                        alive = !session.closed.load(Ordering::Relaxed);
                     }
                 }
             }
@@ -1702,7 +1737,6 @@ fn bounded_input(
     detail: u8,
     x: i16,
     y: i16,
-    held_op: Option<(HeldInput, bool)>,
 ) -> Result<(), SendError> {
     let mut domain = session.lease_guard(token, epoch)?;
     let sent_ok = xtest::fake_input(&session.conn, kind, detail, 0, session.screen.root, x, y, 0)
@@ -1712,19 +1746,33 @@ fn bounded_input(
     if !sent_ok {
         return Err(SendError::Lost);
     }
-    if let Some((input, insert)) = held_op {
-        if insert {
+    // Track ALL unpaired presses — tap and temporary Shift included. A
+    // takeover after the press can then release it even though the old
+    // action's matching release is correctly rejected by the epoch gate.
+    match kind {
+        KEY_PRESS_EVENT | BUTTON_PRESS_EVENT => {
+            let input = if kind == KEY_PRESS_EVENT {
+                HeldInput::Key(detail)
+            } else {
+                HeldInput::Button(detail)
+            };
             domain.held.insert(input);
-        } else {
+        }
+        KEY_RELEASE_EVENT | BUTTON_RELEASE_EVENT => {
+            let input = if kind == KEY_RELEASE_EVENT {
+                HeldInput::Key(detail)
+            } else {
+                HeldInput::Button(detail)
+            };
             domain.held.remove(&input);
         }
+        _ => {}
     }
     Ok(())
 }
 
 fn send_action(
     session: &X11Session,
-    shared: &mut SessionShared,
     token: EntityId,
     epoch: u64,
     action: &ActionInput,
@@ -1763,10 +1811,10 @@ fn send_action(
             }
             match press {
                 PressKind::Tap => {
-                    bounded_input(session, token, epoch, BUTTON_PRESS_EVENT, *button, 0, 0, None)
+                    bounded_input(session, token, epoch, BUTTON_PRESS_EVENT, *button, 0, 0)
                         .map_err(|e| (e, 0))?;
                     bounded_input(
-                        session, token, epoch, BUTTON_RELEASE_EVENT, *button, 0, 0, None,
+                        session, token, epoch, BUTTON_RELEASE_EVENT, *button, 0, 0,
                     )
                     .map_err(|e| (e, 1))?;
                     Ok(SendResult {
@@ -1785,7 +1833,6 @@ fn send_action(
                         *button,
                         0,
                         0,
-                        Some((HeldInput::Button(*button), true)),
                     )
                     .map_err(|e| (e, 0))?;
                     Ok(SendResult {
@@ -1804,7 +1851,6 @@ fn send_action(
                         *button,
                         0,
                         0,
-                        Some((HeldInput::Button(*button), false)),
                     )
                     .map_err(|e| (e, 0))?;
                     Ok(SendResult {
@@ -1820,7 +1866,7 @@ fn send_action(
             let keysym =
                 parse_key_name(key).ok_or((SendError::Rejected("key_name_unknown"), 0))?;
             let press = press.unwrap_or(PressKind::Tap);
-            send_keysym(session, shared, token, epoch, keysym, press, "key")
+            send_keysym(session, token, epoch, keysym, press, "key")
         }
         ActionInput::Text { text } => {
             // Per-CHARACTER boundary: a mid-text takeover stops the rest of
@@ -1830,7 +1876,7 @@ fn send_action(
                 let Some(keysym) = char_to_keysym(ch) else {
                     return Err((SendError::Rejected("text_char_unmappable"), sent));
                 };
-                match send_keysym(session, shared, token, epoch, keysym, PressKind::Tap, "text") {
+                match send_keysym(session, token, epoch, keysym, PressKind::Tap, "text") {
                     Ok(result) => sent += result.events_sent,
                     Err((e, partial)) => return Err((e, sent + partial)),
                 }
@@ -1850,39 +1896,44 @@ fn send_action(
 /// boundary before every event.
 fn send_keysym(
     session: &X11Session,
-    shared: &mut SessionShared,
     token: EntityId,
     epoch: u64,
     keysym: Keysym,
     press: PressKind,
     kind: &str,
 ) -> Result<SendResult, SendFail> {
-    let mapped = keysym_to_keycode(session, shared, keysym).map_err(|e| (e, 0))?;
+    let mapped = {
+        // Resolving an unmapped keysym may mutate the server-global keyboard
+        // map. This external effect needs the same lease/epoch gate as the
+        // XTEST events; no revoked action can remap the next owner's keys.
+        let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
+        keysym_to_keycode(session, &mut domain, keysym).map_err(|e| (e, 0))?
+    };
     let mut sent = 0usize;
     macro_rules! emit {
-        ($kind:expr, $detail:expr, $held:expr) => {
-            bounded_input(session, token, epoch, $kind, $detail, 0, 0, $held)
+        ($kind:expr, $detail:expr) => {
+            bounded_input(session, token, epoch, $kind, $detail, 0, 0)
                 .map_err(|e| (e, sent))?;
             sent += 1;
         };
     }
     if let Some(shift_code) = mapped.shift_code {
-        emit!(KEY_PRESS_EVENT, shift_code, None);
+        emit!(KEY_PRESS_EVENT, shift_code);
     }
     match press {
         PressKind::Tap => {
-            emit!(KEY_PRESS_EVENT, mapped.code, None);
-            emit!(KEY_RELEASE_EVENT, mapped.code, None);
+            emit!(KEY_PRESS_EVENT, mapped.code);
+            emit!(KEY_RELEASE_EVENT, mapped.code);
         }
         PressKind::Down => {
-            emit!(KEY_PRESS_EVENT, mapped.code, Some((HeldInput::Key(mapped.code), true)));
+            emit!(KEY_PRESS_EVENT, mapped.code);
         }
         PressKind::Up => {
-            emit!(KEY_RELEASE_EVENT, mapped.code, Some((HeldInput::Key(mapped.code), false)));
+            emit!(KEY_RELEASE_EVENT, mapped.code);
         }
     }
     if let Some(shift_code) = mapped.shift_code {
-        emit!(KEY_RELEASE_EVENT, shift_code, None);
+        emit!(KEY_RELEASE_EVENT, shift_code);
     }
     Ok(SendResult {
         events_sent: sent,
@@ -1894,7 +1945,7 @@ fn send_keysym(
 
 fn keysym_to_keycode(
     session: &X11Session,
-    shared: &mut SessionShared,
+    shared: &mut DomainState,
     keysym: Keysym,
 ) -> Result<MappedKey, SendError> {
     let conn = &session.conn;
@@ -2100,8 +2151,14 @@ fn raw_watch_loop(
                                 locked.lease = None;
                                 locked.lease_epoch += 1;
                                 let held: Vec<HeldInput> = std::mem::take(&mut locked.held).into_iter().collect();
-                                drop(locked);
+                                let remapped = std::mem::take(&mut locked.remapped);
+                                // Handover fence: all old unpaired presses
+                                // and mappings are released/restored before
+                                // another lease can acquire this domain.
                                 release_held(&conn, root, &held);
+                                restore_keymap(&conn, &remapped);
+                                locked.keymap = None;
+                                locked.shift_code_cache = None;
                             }
                         }
                     }
@@ -2124,35 +2181,27 @@ fn connect_error_kind(error: &x11rb::errors::ConnectError) -> &'static str {
     }
 }
 
-/// Normalize a display string to a canonical authority+number so that
-/// ":N", "unix:N", "localhost:N" and "hostname:N" spellings of one server
-/// collapse; distinct servers stay distinct. Screen selection is excluded —
-/// the root id in the key distinguishes screens.
-fn normalize_display_authority(display: &str) -> String {
-    let trimmed = display.trim();
-    let (host, number) = match trimmed.rsplit_once(':') {
-        Some((host, number)) => (host, number.split('.').next().unwrap_or(number)),
-        None => ("", trimmed),
-    };
-    // Display NUMBER is canonical: ":90" and ":090" are the same server and
-    // socket; unparsed spellings stay literal so nothing merges wrongly.
-    let number = number
-        .parse::<u16>()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|_| number.to_string());
-    let canonical_host: String = if host.is_empty()
+/// Canonical authority+number from a real parsed display. Any local
+/// transport (unix socket, unix-path host, localhost, unix/…) maps to the
+/// `unix:` namespace so alias spellings for the same server collapse;
+/// remote hosts are keyed by protocol+lowercased host to avoid merging
+/// distinct servers.
+fn normalize_display_authority(host: &str, protocol: Option<&str>, display: u16) -> String {
+    let host = host.to_ascii_lowercase();
+    let local = host.is_empty()
         || host.eq_ignore_ascii_case("unix")
         || host.eq_ignore_ascii_case("localhost")
         || host == "127.0.0.1"
         || host == "::1"
         || host.starts_with('/') // unix path form "/tmp/launch-x:N"
         || host.contains("/local")
-    {
-        "unix".into()
+        || protocol == Some("unix");
+    if local {
+        format!("unix:{display}")
     } else {
-        host.to_ascii_lowercase()
-    };
-    format!("{canonical_host}:{number}")
+        let proto = protocol.unwrap_or("tcp");
+        format!("{proto}:{host}:{display}")
+    }
 }
 
 fn hex_digest(data: &[u8]) -> String {
