@@ -73,3 +73,43 @@ async fn partial_invalid_and_explicit_zero_usage_remain_distinct() {
         }
     }
 }
+
+#[tokio::test]
+async fn local_prefix_cache_hits_pass_through_or_stay_unknown() {
+    // Current OpenAI-compatible shape: prompt_tokens_details.cached_tokens.
+    let observed = provider_response(
+        json!({
+            "choices":[{"message":{"role":"assistant","content":"fixture"},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":120,"completion_tokens":5,
+                "prompt_tokens_details":{"cached_tokens":96}}
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(observed["cache_read_tokens"], json!(96));
+    assert_eq!(observed["input_tokens"], json!(120));
+
+    // Older vLLM-family flat field also maps, without double counting.
+    let observed = provider_response(
+        json!({
+            "choices":[{"message":{"role":"assistant","content":"fixture"},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":120,"completion_tokens":5,
+                "prompt_cache_hit_tokens":64}
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(observed["cache_read_tokens"], json!(64));
+
+    // A backend that reports no cache evidence stays unknown — never 0 and
+    // never a residency guarantee.
+    let observed = provider_response(
+        json!({
+            "choices":[{"message":{"role":"assistant","content":"fixture"},"finish_reason":"stop"}],
+            "usage":{"prompt_tokens":120,"completion_tokens":5}
+        }),
+        false,
+    )
+    .await;
+    assert_eq!(observed["cache_read_tokens"], Value::Null);
+}

@@ -63,6 +63,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     }
     conn.execute_batch(crate::intents::SCHEMA)?;
     conn.execute_batch(crate::child::SCHEMA)?;
+    conn.execute_batch(crate::runtime_boundary::SCHEMA)?;
     // Semantic waits (SPEC §5.1, R143): additive, own tables only. The wait
     // history and its per step receipts are never rewritten by a migration.
     conn.execute_batch(crate::semantic_wait::SEMANTIC_WAIT_SCHEMA)?;
@@ -76,6 +77,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "state",
         "TEXT NOT NULL DEFAULT 'present'",
     )?;
+    // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
+    // additive, own tables only; location history is never rewritten.
+    conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
     Ok(())
 }
 

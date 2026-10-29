@@ -1,6 +1,10 @@
 //! 本地 SQLite/CAS 恢复验证，不代表真实 provider 或部署验收。
 use super::{SubjectLoopState, execute_step};
 use crate::inbox::Inbox;
+use shenko_kernel::hooks::{
+    HOOK_SCHEMA_VERSION, HookEntry, HookFailurePolicy, HookHandler, HookPayload, HookPhase,
+    HookPointContract, HookRegistry, HookResult, HookSpec, STANDARD_HOOK_POINT_MAJOR,
+};
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
 use shenko_types::{commit::CommitRef, ids::*, subject::*};
@@ -90,6 +94,49 @@ fn state(
         )),
     ))).unwrap();
     SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store, ctx)
+}
+
+#[tokio::test]
+async fn real_loop_pauses_and_reopens_without_redispatch() {
+    use shenko_store::runtime_boundary::SubjectQuiesceState;
+
+    let (dir, store, agent) = fixture();
+    let request_id = EntityId::new();
+    store.request_subject_quiesce(agent, request_id).unwrap();
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let task = tokio::spawn(super::run_subject_loop(state(store.clone(), agent).unwrap(), cancel.clone()));
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if store.subject_quiesce(request_id).unwrap().unwrap().state == SubjectQuiesceState::Paused {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let (paused, step) = store.load_subject(agent).unwrap();
+    assert_eq!(paused.mode, SubjectMode::Paused);
+    assert_eq!(step.state, SubjectStepState::Planned);
+    cancel.cancel();
+    task.await.unwrap().unwrap();
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let recovered = state(reopened.clone(), agent).unwrap();
+    assert_eq!(recovered.head.mode, SubjectMode::Paused);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let task = tokio::spawn(super::run_subject_loop(recovered, cancel));
+    reopened.resume_subject_quiesce(agent, request_id).unwrap();
+    // There is intentionally no broker in this fixture. A real admission is
+    // impossible; the next S0 remains durable and reports that missing broker.
+    assert!(tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await.unwrap().unwrap().is_err());
+    let (active, next) = reopened.load_subject(agent).unwrap();
+    assert_eq!(active.mode, SubjectMode::Active);
+    assert_eq!(active.controller_epoch, paused.controller_epoch);
+    assert_eq!(next.state, SubjectStepState::Preparing);
+    assert!(next.active_request_id.is_none());
+    drop(reopened);
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -1761,4 +1808,146 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     assert_eq!(subject.head.committed_step_no, 8);
     assert_eq!(subject.step.step_no, 9);
     // Keep the fixture on container disk for independent inspection.
+}
+
+/// A hook contract whose failure policy stops the unit; the handler always
+/// fails so every dispatch is cut short.
+struct FailingHook;
+
+#[async_trait::async_trait]
+impl HookHandler for FailingHook {
+    async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
+        anyhow::bail!("hook stopped the unit")
+    }
+}
+
+fn stop_registry(phase: HookPhase) -> (HookRegistry, shenko_kernel::hooks::HookRegistration) {
+    let hooks = HookRegistry::new();
+    let mut contract = HookPointContract::standard(phase);
+    contract.failure = HookFailurePolicy::StopUnit;
+    hooks.declare_point(contract).unwrap();
+    let artifact = shenko_types::object::Digest::blake3(b"test:hook/stop".as_slice());
+    let registration = hooks
+        .register(HookEntry {
+            spec: HookSpec {
+                hook_id: EntityId::new(),
+                plugin_id: EntityId::new(),
+                phase,
+                name: "stop".into(),
+                schema_version: HOOK_SCHEMA_VERSION,
+                point_major: STANDARD_HOOK_POINT_MAJOR,
+                implementation: shenko_types::object::VersionedRef {
+                    artifact: shenko_types::object::ArtifactRef {
+                        digest: artifact.clone(),
+                        locator: "test:hook/stop".into(),
+                    },
+                    symbol: "hook.stop.handle".into(),
+                    schema: shenko_types::object::SchemaRef {
+                        name: "hook-payload-v1".into(),
+                        major: HOOK_SCHEMA_VERSION,
+                        digest: artifact,
+                    },
+                },
+                after: vec![],
+                before: vec![],
+                requires: vec![],
+            },
+            handler: Arc::new(FailingHook),
+        })
+        .unwrap();
+    (hooks, registration)
+}
+
+/// §41.8 stop_unit at the real production boundaries. A stopped
+/// BeforeInference dispatch submits nothing to the broker and the step stays
+/// Preparing; a stopped BeforeOperation dispatch leaves the head, ledger
+/// record and outbox untouched. In both cases the durable step keeps its
+/// frozen evidence, so withdrawing the failing handler lets the same step
+/// proceed rather than manufacturing a replacement.
+#[tokio::test]
+async fn stop_unit_boundaries_leave_recoverable_step_state() {
+    let (dir, store, agent) = fixture();
+
+    // Pre-dispatch boundary: S0 seals, the stop_unit hook runs, and the error
+    // is returned before the broker is even consulted (none is attached).
+    let (hooks, registration) = stop_registry(HookPhase::BeforeInference);
+    let mut subject = state(store.clone(), agent).unwrap().with_hooks(Arc::new(hooks));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let error = execute_step(1, &[message("stopped before dispatch")], &mut subject, &cancel)
+        .await
+        .err()
+        .expect("a stopped dispatch must not reach broker admission");
+    assert!(error.to_string().contains("stopped the unit"));
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    assert!(subject.step.active_request_id.is_none());
+    let (head, step) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 0);
+    assert_eq!(step.state, SubjectStepState::Preparing);
+    assert!(step.active_request_id.is_none());
+    // The frozen input is recoverable: once the failing handler is withdrawn,
+    // the same step reaches the real dispatch boundary (cancel observes it).
+    subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
+    cancel.cancel();
+    assert!(execute_step(1, &[], &mut subject, &cancel).await.unwrap().is_none());
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    drop(subject);
+    drop(store);
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // Pre-commit boundary: a recorded result is already durable; the stopped
+    // BeforeOperation dispatch prevents the decision seal, head advance and
+    // outbox publication, and the step remains ResultRecorded.
+    let (dir, store, agent) = fixture();
+    let (hooks, registration) = stop_registry(HookPhase::BeforeOperation);
+    let (outbox_tx, mut outbox_rx) = tokio::sync::broadcast::channel(4);
+    let mut subject = state(store.clone(), agent)
+        .unwrap()
+        .with_hooks(Arc::new(hooks))
+        .with_outbox(outbox_tx);
+    let cancel = tokio_util::sync::CancellationToken::new();
+    cancel.cancel(); // seal S0 without a broker; dispatch boundary is never reached
+    execute_step(
+        1,
+        &[message("stopped before commit")],
+        &mut subject,
+        &cancel,
+    )
+    .await
+    .unwrap();
+    let step_id = record_result(&store, &mut subject, "ledger-visible thought");
+    let error = execute_step(
+        1,
+        &[],
+        &mut subject,
+        &tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+    .err()
+    .expect("a stopped dispatch must not reach S1 commit");
+    assert!(error.to_string().contains("stopped the unit"));
+    let (head, step) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 0, "no head advance");
+    assert_eq!(step.state, SubjectStepState::ResultRecorded);
+    assert!(step.decision_ref.is_none() && step.commit_ref.is_none());
+    assert!(
+        matches!(outbox_rx.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)),
+        "nothing is published for a step that never committed"
+    );
+    // Recoverable: withdrawing the failing handler commits this same
+    // recorded result rather than re-invoking the model.
+    subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
+    assert!(
+        execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let (head, _) = store.load_subject(agent).unwrap();
+    assert_eq!(head.committed_step_no, 1);
+    let published = outbox_rx.try_recv().unwrap();
+    assert_eq!(published.step_id, step_id);
+    assert_eq!(published.text, "ledger-visible thought");
+    drop(subject);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
 }

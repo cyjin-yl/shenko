@@ -77,6 +77,16 @@ pub struct NativeChildService {
     instance_id: EntityId,
     registry: RwLock<RegistryState>,
     run_lock: tokio::sync::Mutex<()>,
+    /// In-memory dispatch scan over (created_at, task_id). `upper` bounds the
+    /// round so arriving later work cannot postpone wraparound; neither value
+    /// is a completion watermark and neither survives a restart.
+    scan: std::sync::Mutex<ScanState>,
+}
+
+#[derive(Default)]
+struct ScanState {
+    cursor: Option<(String, EntityId)>,
+    upper: Option<(String, EntityId)>,
 }
 
 impl Service for NativeChildService {
@@ -91,6 +101,7 @@ impl NativeChildService {
             instance_id: EntityId::new(),
             registry: RwLock::new(RegistryState::default()),
             run_lock: tokio::sync::Mutex::new(()),
+            scan: std::sync::Mutex::new(ScanState::default()),
         }
     }
 
@@ -178,9 +189,41 @@ impl NativeChildService {
     /// this state; CAS determines whether a handler/attempt may be created.
     pub async fn run_once(&self) -> Result<usize> {
         let _guard = self.run_lock.lock().await;
-        let candidates = self.store.native_task_candidates(32)?;
+        const PAGE: usize = 32;
+        let (after, upper, fresh_round) = {
+            let state = self.scan.lock()
+                .map_err(|_| anyhow::anyhow!("native dispatch scan state poisoned"))?;
+            (state.cursor.clone(), state.upper.clone(), state.cursor.is_none())
+        };
+        let upper = if fresh_round { self.store.native_task_scan_upper()? } else { upper };
+        let candidates = self.store.native_task_candidates_after(
+            after.as_ref().map(|(created, id)| (created.as_str(), *id)),
+            PAGE,
+        )?;
+        let last = candidates.last().map(|(created, task)| (created.clone(), task.task_id));
+        // A short page, or reaching this round's captured end, completes the
+        // round; the next pass restarts from the beginning. New work after the
+        // captured upper key is visited by that next round, never deferred
+        // forever by a permanently full page.
+        // An empty captured boundary must also complete: a producer may insert
+        // a full page between the two reads, and a nonempty cursor with no
+        // upper bound would never wrap.
+        let complete = (fresh_round && upper.is_none())
+            || candidates.len() < PAGE
+            || last.as_ref().is_some_and(|last| upper.as_ref().is_some_and(|upper| last >= upper));
+        {
+            let mut state = self.scan.lock()
+                .map_err(|_| anyhow::anyhow!("native dispatch scan state poisoned"))?;
+            if complete {
+                state.cursor = None;
+                state.upper = None;
+            } else {
+                state.cursor = last;
+                state.upper = upper;
+            }
+        }
         let mut progressed = 0;
-        for task in candidates {
+        for (_, task) in candidates {
             progressed += usize::from(self.process(task).await?);
         }
         Ok(progressed)

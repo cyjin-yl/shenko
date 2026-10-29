@@ -2735,12 +2735,14 @@ name = "shenko-node"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "chrono",
  "libc",
  "rusqlite",
  "serde",
  "serde_json",
  "shenko-types",
+ "tempfile",
 ]
 
 [[package]]
@@ -2854,6 +2856,8 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-broker",
+ "shenko-context-policy",
  "shenko-kernel",
  "shenko-store",
  "shenko-subject",

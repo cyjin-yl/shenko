@@ -60,6 +60,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
+use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
 use shenko_types::task::{DispatchEligibility, TaskRecord, TaskState};
 
 use crate::cas::ContentStore;
@@ -907,9 +908,7 @@ impl Store {
             fingerprint == manifest.fingerprint,
             "cognition manifest fingerprint does not match its received rows and verified payload descriptors"
         );
-        for row in &manifest.rows {
-            ensure!(spec_for(&row.table).is_some(), "unsupported cognition fact table {}", row.table);
-        }
+        validate_cognition_rows(&manifest)?;
 
         let mut gaps = manifest.gaps.clone();
         gaps.extend(memory_intent_binding_gaps(&manifest.rows));
@@ -926,6 +925,15 @@ impl Store {
             );
         }
         self.check_import_order(&manifest)?;
+        // Reject unresumable imported heads or a conflicting paused successor
+        // before publishing files or rows. Recheck under the mutation
+        // transaction as the local subject may reach a boundary meanwhile.
+        {
+            let mut conn = self.ledger.conn.lock();
+            let tx = conn.transaction().map_err(db)?;
+            validate_subject_boundaries(&tx, &manifest)?;
+            tx.commit().map_err(db)?;
+        }
 
         for descriptor in &manifest.files {
             ensure!(
@@ -1416,6 +1424,15 @@ impl Store {
             TransactionBehavior::Deferred
         };
         let tx = conn.transaction_with_behavior(behavior).map_err(db)?;
+        // The subject boundary request is local controller state, not part of
+        // this archive schema. A paused head without its request would strand
+        // the receiver and must never be acknowledged as a complete snapshot.
+        let paused: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM subject_branch_heads WHERE mode='paused')",
+            [],
+            |row| row.get(0),
+        ).map_err(db)?;
+        ensure!(!paused, "cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting");
         let snapshot_seq = if allocate_order {
             let current: Option<i64> = tx
                 .query_row(
@@ -1627,7 +1644,9 @@ impl Store {
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(db)?;
+                validate_cognition_rows(manifest)?;
                 check_import_order_conn(&tx, manifest)?;
+                validate_subject_boundaries(&tx, manifest)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let mut inserted = 0usize;
                 let mut updated = 0usize;
@@ -2453,6 +2472,81 @@ fn check_import_order_conn(
     Ok(())
 }
 
+/// The pause record is local controller state and is not in archive schema
+/// 2/3. A peer cannot manufacture that authority merely by importing a head.
+/// Likewise a divergent peer's step must not be applied independently of a
+/// retained paused head, even if the step still matches the peer baseline.
+fn validate_subject_boundaries(
+    conn: &rusqlite::Connection,
+    manifest: &CognitionManifest,
+) -> Result<()> {
+    let head_spec = spec_for("subject_branch_heads").expect("subject head table is registered");
+    let step_spec = spec_for("subject_steps").expect("subject step table is registered");
+
+    for incoming in manifest.rows.iter().filter(|row| row.table == head_spec.name) {
+        let data = incoming.value("data").context("imported subject head has no data")?;
+        let value: serde_json::Value = serde_json::from_str(data).context("invalid imported subject head")?;
+        let data_mode = value.get("mode").and_then(serde_json::Value::as_str)
+            .context("imported subject head has no serialized mode")?;
+        let column_mode = incoming.value("mode").context("imported subject head has no mode column")?;
+        if column_mode == "paused" || data_mode == "paused" {
+            ensure!(column_mode == "paused" && data_mode == "paused",
+                "imported paused subject head has inconsistent mode fields");
+            let local = read_existing(conn, head_spec, incoming)?
+                .context("imported paused subject head has no local boundary")?;
+            ensure!(rows_equivalent(head_spec, &local, &incoming.values),
+                "imported paused subject head differs from the locally retained boundary");
+            let head: SubjectBranchHead = serde_json::from_value(value)?;
+            validate_local_paused_successor(conn, &head)?;
+        }
+    }
+
+    // Check the actual local head, not merely the peer's head row. The peer
+    // can omit its head or submit an active one that conflicts with ours.
+    let mut query = conn.prepare(
+        "SELECT data,mode FROM subject_branch_heads WHERE mode='paused' OR json_extract(data,'$.mode')='paused'",
+    ).map_err(db)?;
+    let local_heads = query.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(db)?.collect::<rusqlite::Result<Vec<_>>>().map_err(db)?;
+    for (data, mode) in local_heads {
+        let head: SubjectBranchHead = serde_json::from_str(&data)?;
+        ensure!(mode == "paused" && head.mode == SubjectMode::Paused,
+            "local paused subject head has inconsistent mode fields");
+        let agent_id = head.agent_id.to_string();
+        for incoming in manifest.rows.iter().filter(|row|
+            row.table == head_spec.name && row.value("agent_id") == Some(agent_id.as_str()))
+        {
+            validate_local_paused_successor(conn, &head)?;
+            let local = read_existing(conn, head_spec, incoming)?
+                .context("local paused subject head is missing")?;
+            ensure!(rows_equivalent(head_spec, &local, &incoming.values),
+                "imported head conflicts with the locally retained paused subject boundary");
+        }
+        let next_id = head.next_step_id.to_string();
+        for incoming in manifest.rows.iter().filter(|row|
+            row.table == step_spec.name && row.value("step_id") == Some(next_id.as_str()))
+        {
+            validate_local_paused_successor(conn, &head)?;
+            let local = read_existing(conn, step_spec, incoming)?
+                .context("local paused subject successor is missing")?;
+            ensure!(rows_equivalent(step_spec, &local, &incoming.values),
+                "imported step conflicts with the locally retained paused subject successor");
+        }
+    }
+    Ok(())
+}
+
+fn validate_local_paused_successor(conn: &rusqlite::Connection, head: &SubjectBranchHead) -> Result<()> {
+    crate::runtime_boundary::validate_paused_head(conn, head)?;
+    let step = crate::store::read_step(conn, &head.branch_id, head.next_step_id)?
+        .context("local paused subject successor is missing")?;
+    crate::store::validate_step_binding(head, &step)?;
+    ensure!(step.state == SubjectStepState::Planned
+        && step.active_request_id.is_none() && step.active_attempt_id.is_none(),
+        "local paused subject successor is not a clean boundary");
+    Ok(())
+}
+
 fn record_import_order(
     tx: &Transaction<'_>,
     peer_id: EntityId,
@@ -2589,6 +2683,36 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
     TABLES.iter().find(|spec| spec.name == table)
 }
 
+/// `insert_row` uses positional values while admission and recovery use
+/// labels. Bind those two views, and the primary-key identity, before any
+/// publication. Both supported archive schemas use these same TableSpecs.
+fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
+    let mut identities = HashSet::with_capacity(manifest.rows.len());
+    for row in &manifest.rows {
+        let spec = spec_for(&row.table)
+            .ok_or_else(|| anyhow!("unsupported cognition fact table {}", row.table))?;
+        ensure!(row.values.len() == spec.columns.len()
+            && row.values.iter().zip(spec.columns).all(|((name, _), expected)| name.as_str() == *expected),
+            "invalid cognition column layout for {}", row.table);
+
+        // Use the same encoding as read_table, without allocating another
+        // joined key for every row. NULL has the exporter's empty encoding.
+        let mut remainder = row.key.as_str();
+        for (index, name) in spec.key.iter().enumerate() {
+            if index != 0 {
+                remainder = remainder.strip_prefix('\u{1f}')
+                    .ok_or_else(|| anyhow!("cognition primary key mismatch for {}", row.table))?;
+            }
+            remainder = remainder.strip_prefix(row.value(name).unwrap_or_default())
+                .ok_or_else(|| anyhow!("cognition primary key mismatch for {}", row.table))?;
+        }
+        ensure!(remainder.is_empty(), "cognition primary key mismatch for {}", row.table);
+        ensure!(identities.insert((row.table.as_str(), row.key.as_str())),
+            "duplicate cognition fact identity in {}", row.table);
+    }
+    Ok(())
+}
+
 fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     let mut intents = HashMap::new();
     let mut bindings = HashMap::new();
@@ -2634,7 +2758,12 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
         let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
         let entry_id = intent.value("entry_id");
-        let duplicate_entry = entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
+        // Only producing intents own their entry: a forget *references* the
+        // entry it retires, so a Save→Forget history legitimately binds the
+        // same entry_id twice without sharing a produced identity.
+        let produces_entry = intent.value("kind") != Some("forget");
+        let duplicate_entry = produces_entry
+            && entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
         let missing_committed_entry = intent.value("state") == Some("committed")
             && entry_id.is_none_or(|entry| !entries.contains(entry));
         let missing_pending_identity = library_pending
@@ -2688,9 +2817,51 @@ fn apply_memory_row(
     Ok(result)
 }
 
-/// A request, immutable reference and associated committed entry are reconciled
-/// together. A locator-only legacy request cannot acquire another source's
-/// digest merely because its intent ID or locator happens to match.
+/// One memory intent inside an archive conflict unit: the request, its
+/// durable binding, the local rows it would replace and the per-row apply
+/// results a committed unit reports.
+struct MemoryIntentMember {
+    key: String,
+    parent: CognitionRow,
+    binding: Option<CognitionRow>,
+    local: Option<Vec<(String, Option<String>)>>,
+    local_binding: Option<String>,
+    compatible: bool,
+    results: [Option<MemoryRowOutcome>; 2],
+}
+
+/// Did the unit refuse a peer fact that differs from what this store holds?
+/// An identical row kept by the rejection is not a conflict; a refused
+/// insertion, update or identity-mismatched request is.
+fn memory_member_differs(member: &MemoryIntentMember) -> bool {
+    let parent_differs = match member.results[0] {
+        Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+        Some(MemoryRowOutcome::Unchanged) => false,
+        None => match &member.local {
+            None => true,
+            Some(local) => local != &member.parent.values,
+        },
+    };
+    let binding_differs = match member.results[1] {
+        Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+        Some(MemoryRowOutcome::Unchanged) => false,
+        None => match (&member.local_binding, &member.binding) {
+            (None, None) => false,
+            (Some(_), None) => true,
+            (None, Some(incoming)) => incoming.value("data").is_some(),
+            (Some(local), Some(incoming)) => incoming.value("data") != Some(local.as_str()),
+        },
+    };
+    parent_differs || binding_differs
+}
+
+/// A request, its immutable reference, the produced or targeted entry and
+/// every other intent bound to that same entry are reconciled as one atomic
+/// conflict unit. A locator-only legacy request cannot acquire another
+/// source's digest merely because its intent ID or locator happens to match,
+/// and a refused intent can never publish its effect through a sibling: a
+/// divergent `forget` cannot hide the entry its `save` parent still
+/// protects, and a divergent entry refuses the intents that reference it.
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<CognitionApplyOutcome> {
@@ -2703,12 +2874,17 @@ fn apply_memory_pairs(
     let entries: HashMap<&str, &CognitionRow> = rows.iter()
         .filter(|row| row.table == entry_spec.name)
         .map(|row| (row.key.as_str(), *row)).collect();
-    let mut outcome = CognitionApplyOutcome::default();
+
+    // Group intents by the entry they reference: every intent bound to the
+    // same `entry_id` shares that entry's fate, so the whole group must
+    // reconcile together or not at all. Intents without an entry form their
+    // own unit. Grouping follows manifest order so application and conflict
+    // reporting stay deterministic.
+    let mut units: Vec<(String, Vec<MemoryIntentMember>)> = Vec::new();
+    let mut unit_index: HashMap<String, usize> = HashMap::new();
     for row in rows.iter().filter(|row| row.table == parents.name) {
         let mut parent = effective_row(row, parents)?;
         let mut binding = bindings.get(row.key.as_str()).map(|row| effective_row(row, sidecars)).transpose()?;
-        let entry = parent.value("entry_id").and_then(|id| entries.get(id))
-            .map(|row| effective_row(row, entry_spec)).transpose()?;
         let local = read_existing(tx, parents, &parent)?;
         let local_binding: Option<String> = tx.query_row(
             "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
@@ -2750,39 +2926,109 @@ fn apply_memory_pairs(
             compatible = false;
         }
 
-        let mut results = [None; 3];
-        if compatible {
-            tx.execute("SAVEPOINT memory_intent_pair", []).map_err(db)?;
-            results[0] = Some(apply_memory_row(tx, parents, &parent, peer_id, seq)?);
-            if !matches!(results[0], Some(MemoryRowOutcome::Conflict)) {
-                if let Some(binding) = &binding {
-                    results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+        let unit_key = parent.value("entry_id").unwrap_or(row.key.as_str()).to_string();
+        let index = *unit_index.entry(unit_key.clone()).or_insert_with(|| {
+            units.push((unit_key, Vec::new()));
+            units.len() - 1
+        });
+        units[index].1.push(MemoryIntentMember {
+            key: row.key.clone(),
+            parent,
+            binding,
+            local,
+            local_binding,
+            compatible,
+            results: [None; 2],
+        });
+    }
+
+    let mut outcome = CognitionApplyOutcome::default();
+    for (entry_key, members) in &mut units {
+        let entry = entries
+            .get(entry_key.as_str())
+            .map(|row| effective_row(row, entry_spec))
+            .transpose()?;
+        // One savepoint covers the entry and every referencing intent: any
+        // refused member, or an entry the peer changed past its delivered
+        // baseline, rolls the whole unit back so no partial row or baseline
+        // mirror survives.
+        let mut rejected = members.iter().any(|member| !member.compatible);
+        let mut entry_result = None;
+        if !rejected {
+            tx.execute("SAVEPOINT memory_intent_unit", []).map_err(db)?;
+            for member in members.iter_mut() {
+                member.results[0] = Some(apply_memory_row(tx, parents, &member.parent, peer_id, seq)?);
+                if !matches!(member.results[0], Some(MemoryRowOutcome::Conflict)) {
+                    if let Some(binding) = &member.binding {
+                        member.results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+                    }
                 }
             }
-            if !results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+            if members.iter().all(|member| {
+                member.results.iter().all(|result| !matches!(result, Some(MemoryRowOutcome::Conflict)))
+            }) {
                 if let Some(entry) = &entry {
-                    results[2] = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                    entry_result = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
                 }
             }
-            if results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
-                tx.execute("ROLLBACK TO memory_intent_pair", []).map_err(db)?;
-                compatible = false;
+            rejected = entry_result.is_some_and(|result| matches!(result, MemoryRowOutcome::Conflict))
+                || members.iter().any(|member| {
+                    member.results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict)))
+                });
+            if rejected {
+                tx.execute("ROLLBACK TO memory_intent_unit", []).map_err(db)?;
             }
-            tx.execute("RELEASE memory_intent_pair", []).map_err(db)?;
+            tx.execute("RELEASE memory_intent_unit", []).map_err(db)?;
         }
-        if compatible {
-            for result in results.into_iter().flatten() {
-                match result {
-                    MemoryRowOutcome::Inserted => outcome.inserted += 1,
-                    MemoryRowOutcome::Updated => outcome.updated += 1,
-                    MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
-                    MemoryRowOutcome::Conflict => unreachable!(),
+        if !rejected {
+            for member in members.iter() {
+                for result in member.results.into_iter().flatten() {
+                    match result {
+                        MemoryRowOutcome::Inserted => outcome.inserted += 1,
+                        MemoryRowOutcome::Updated => outcome.updated += 1,
+                        MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
+                        MemoryRowOutcome::Conflict => unreachable!(),
+                    }
                 }
+            }
+            match entry_result {
+                Some(MemoryRowOutcome::Inserted) => outcome.inserted += 1,
+                Some(MemoryRowOutcome::Updated) => outcome.updated += 1,
+                Some(MemoryRowOutcome::Unchanged) => outcome.unchanged += 1,
+                Some(MemoryRowOutcome::Conflict) | None => {}
             }
         } else {
-            let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
-            record_conflict(tx, peer_id, parents.name, &row.key, &detail)?;
-            outcome.conflicts.push(CognitionConflict { table: parents.name.into(), key: row.key.clone(), detail });
+            for member in members.iter() {
+                if !memory_member_differs(member) {
+                    continue;
+                }
+                let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
+                record_conflict(tx, peer_id, parents.name, &member.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict {
+                    table: parents.name.into(),
+                    key: member.key.clone(),
+                    detail,
+                });
+            }
+            if let Some(entry) = &entry {
+                let entry_differs = match entry_result {
+                    Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+                    Some(MemoryRowOutcome::Unchanged) => false,
+                    None => match read_existing(tx, entry_spec, entry)? {
+                        None => true,
+                        Some(local) => local != entry.values,
+                    },
+                };
+                if entry_differs {
+                    let detail = "the memory entry reconciles with its intents; the local value is kept".to_string();
+                    record_conflict(tx, peer_id, entry_spec.name, &entry.key, &detail)?;
+                    outcome.conflicts.push(CognitionConflict {
+                        table: entry_spec.name.into(),
+                        key: entry.key.clone(),
+                        detail,
+                    });
+                }
+            }
         }
     }
     Ok(outcome)
@@ -2991,7 +3237,7 @@ fn column_text(row: &rusqlite::Row<'_>, index: usize) -> Result<Option<String>> 
 
 /// The stored row with the same primary key, if it exists.
 fn read_existing(
-    tx: &Transaction<'_>,
+    conn: &rusqlite::Connection,
     spec: &TableSpec,
     row: &CognitionRow,
 ) -> Result<Option<Vec<(String, Option<String>)>>> {
@@ -3007,7 +3253,7 @@ fn read_existing(
         table = spec.name,
         conditions = conditions.join(" AND ")
     );
-    let mut stmt = tx.prepare(&sql).map_err(db)?;
+    let mut stmt = conn.prepare(&sql).map_err(db)?;
     let mut rows = stmt.query(rusqlite::params_from_iter(keys)).map_err(db)?;
     let mut found: Option<Vec<(String, Option<String>)>> = None;
     while let Some(row) = rows.next().map_err(db)? {
@@ -3646,6 +3892,82 @@ fn storage_failure(error: &anyhow::Error) -> bool {
 mod archive_admission_tests {
     use super::*;
     use crate::memory::MemoryEntry;
+
+    #[test]
+    fn reordered_labels_cannot_publish_a_paused_head_or_files() {
+        use shenko_types::commit::CommitRef;
+        use shenko_types::ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
+        use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep};
+
+        let root = std::env::temp_dir().join(format!("shenko-row-order-{}", EntityId::new()));
+        fs::create_dir(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        let object = source.cas.seal_object(b"seed", "text/plain", "test", "raw", 1).unwrap().object;
+        let agent = EntityId::new();
+        let genesis_id = EntityId::new();
+        let branch = BranchId::new();
+        let first = EntityId::new();
+        let commit = CommitRef::new(source.ledger.ledger_id(), LedgerSeq::ZERO);
+        let genesis = SubjectGenesis {
+            genesis_id, subject_id: agent, bootstrap_id: EntityId::new(), launch_id: EntityId::new(),
+            seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(),
+            home_manifest_ref: object.clone(), bootstrap_event_ref: object, created_commit: commit,
+        };
+        let head = SubjectBranchHead {
+            agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
+            controller_epoch: ControllerEpoch(1), software_generation: RuntimeGeneration::default(),
+            genesis_ref: GenesisRef { ledger_id: commit.ledger_id, genesis_id },
+            committed_step_no: 0, committed_step_id: None, committed_at: commit,
+            next_step_id: first, mode: SubjectMode::Active, mode_reason_ref: None,
+            record_revision: RecordRevision(0),
+        };
+        let step = SubjectStep {
+            step_id: first, branch_id: branch, step_no: 1, expected_parent_commit: commit,
+            controller_epoch: head.controller_epoch, software_generation: head.software_generation.clone(),
+            state: SubjectStepState::Planned, input_plan_ref: None, context_revision: None,
+            active_request_id: None, active_attempt_id: None, model_result_ref: None,
+            model_outcome_ref: None, decision_ref: None, commit_ref: None,
+            retry_reason_ref: None, record_revision: RecordRevision(0), created_by_step_id: None,
+        };
+        source.initialize_genesis(&genesis, &head, &step).unwrap();
+        let memory = root.join("source-memory");
+        fs::create_dir(&memory).unwrap();
+        fs::write(memory.join("remote.txt"), b"must not publish").unwrap();
+        let mut export = source.export_cognition(&CognitionSnapshotOptions {
+            memory_root: Some(memory), include_git_history: false, ..Default::default()
+        }).unwrap();
+        // Schema 2 takes the same admission path. The named fields look active
+        // to a label-based guard, while positional SQL would insert a paused
+        // column and paused serialized head without a local boundary record.
+        export.manifest.schema = 2;
+        let row = export.manifest.rows.iter_mut().find(|row| row.table == "subject_branch_heads").unwrap();
+        let active = row.value("data").unwrap().to_string();
+        let mut paused: serde_json::Value = serde_json::from_str(&active).unwrap();
+        paused["mode"] = "paused".into();
+        row.values[3] = ("mode".into(), Some("active".into()));
+        row.values[5] = ("committed_step_id".into(), Some("paused".into()));
+        row.values[7] = ("created_at".into(), Some(serde_json::to_string(&paused).unwrap()));
+        row.values[8] = ("data".into(), Some(active));
+        assert_eq!(row.value("mode"), Some("active"));
+        assert_eq!(serde_json::from_str::<serde_json::Value>(row.value("data").unwrap()).unwrap()["mode"], "active");
+        assert_eq!(row.values[5].1.as_deref(), Some("paused"));
+        assert_eq!(serde_json::from_str::<serde_json::Value>(row.values[7].1.as_deref().unwrap()).unwrap()["mode"], "paused");
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let receiver_memory = root.join("receiver-memory");
+        fs::create_dir(&receiver_memory).unwrap();
+        let before = receiver.current_commit_seq().unwrap();
+        let error = receiver.import_cognition_archive(&archive[..], &CognitionImportOptions {
+            memory_root: Some(receiver_memory.clone()), ..Default::default()
+        }).unwrap_err();
+        assert!(error.to_string().contains("invalid cognition column layout"));
+        assert_eq!(receiver.current_commit_seq().unwrap(), before);
+        assert!(receiver.get_existing_agent_id().unwrap().is_none());
+        assert!(!receiver_memory.join("remote.txt").exists());
+    }
 
     #[test]
     fn unknown_fact_does_not_produce_a_verified_partial_import() {

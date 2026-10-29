@@ -14,6 +14,8 @@ pub mod cognition;
 pub mod cognition_archive;
 pub mod recovery_sources;
 pub mod semantic_wait;
+pub mod seat;
+pub mod runtime_boundary;
 
 pub use store::*;
 pub use cas::*;
@@ -25,6 +27,7 @@ pub use raw_session::*;
 pub use cognition::*;
 pub use cognition_archive::*;
 pub use semantic_wait::*;
+pub use seat::*;
 
 pub mod external;
 pub use external::TaskInvocation;
