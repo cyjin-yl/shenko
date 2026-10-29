@@ -547,6 +547,7 @@ async fn quota_dispatch_gate(
     store: &shenko_store::store::Store,
     binding: &shenko_broker::request::ProviderBinding,
     request_id: EntityId,
+    resumed_awaiting: bool,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<QuotaGate, ShenkoError> {
     use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
@@ -581,18 +582,34 @@ async fn quota_dispatch_gate(
     // send_id with its own budget and pacing. Unclaimed sends are reused
     // across gate re-entries instead of minting ghost budgets.
     let pacer = store.quota_pacer()?;
-    let send_id = store
-        .quota_send_ids(request_id)?
-        .iter()
-        .rev()
-        .find(|(send_id, claimed)| {
-            !claimed
-                && pacer.reservation(send_id).is_some_and(|reservation| {
-                    reservation.admission.state != AdmissionState::Cancelled
-                })
-        })
-        .map(|(send_id, _)| *send_id)
-        .unwrap_or_else(EntityId::new);
+    let sends = store.quota_send_ids(request_id)?;
+    let send_id = if resumed_awaiting {
+        // A resumed AwaitingModel step already dispatched: its wire-bound
+        // send is the most recently CLAIMED one — durable CAS evidence,
+        // never an inferred "latest armed".
+        sends
+            .iter()
+            .rev()
+            .find(|(_, claim_seq)| *claim_seq > 0)
+            .map(|(send_id, _)| *send_id)
+            .ok_or_else(|| {
+                ShenkoError::conflict(
+                    "awaiting step has no claimed quota send; reconcile before resuming",
+                )
+            })?
+    } else {
+        sends
+            .iter()
+            .rev()
+            .find(|(send_id, claim_seq)| {
+                *claim_seq == 0
+                    && pacer.reservation(send_id).is_some_and(|reservation| {
+                        reservation.admission.state != AdmissionState::Cancelled
+                    })
+            })
+            .map(|(send_id, _)| *send_id)
+            .unwrap_or_else(EntityId::new)
+    };
     // Recomputations and re-eligible outcomes that make no progress are
     // bounded; a decision that still cannot settle is a reconciliation
     // fact, not a spin. The counter covers only CONSECUTIVE recompute
@@ -788,31 +805,30 @@ async fn quota_dispatch_gate(
     }
 }
 
-/// The armed reservation of this request's LATEST claimed wire send. A
-/// claim is the durable AwaitingModel binding: exactly the send whose CAS
-/// committed can be on the wire for this request (the subject runner is a
-/// single writer and claims are exclusive inside that CAS), so the most
-/// recent claimed send is the one this response terminates; unclaimed
-/// sends were never dispatched. Observation and settlement bind to THIS
-/// reservation's window scope — never to whichever policy is latest when
-/// the response arrives.
+/// The armed reservation of the exact wire send `send_id` this step
+/// dispatched, verified against durable lineage: the send must be bound to
+/// this request and durably claimed. A result for a request with no such
+/// binding keeps quota evidence Unknown rather than guessing.
 fn armed_quota_reservation(
     store: &shenko_store::store::Store,
     request_id: EntityId,
+    send_id: EntityId,
 ) -> Option<shenko_quota::Reservation> {
     let pacer = store.quota_pacer().ok()?;
-    store
+    let bound = store
         .quota_send_ids(request_id)
         .ok()?
         .iter()
-        .rev()
-        .find(|(_, claimed)| *claimed)
-        .map(|(send_id, _)| *send_id)
-        .and_then(|send_id| {
-            pacer.reservation(&send_id).filter(|reservation| {
-                reservation.dispatch == Some(shenko_quota::DispatchEvidence::ArmedOrUnknown)
-            }).cloned()
+        .any(|(known, claim_seq)| *known == send_id && *claim_seq > 0);
+    if !bound {
+        return None;
+    }
+    pacer
+        .reservation(&send_id)
+        .filter(|reservation| {
+            reservation.dispatch == Some(shenko_quota::DispatchEvidence::ArmedOrUnknown)
         })
+        .cloned()
 }
 
 /// Update durable quota observations from one real provider result. This is
@@ -823,10 +839,11 @@ fn observe_quota_response(
     binding: &shenko_broker::request::ProviderBinding,
     result: &shenko_broker::request::InferenceResult,
     request_id: EntityId,
+    send_id: EntityId,
 ) {
     use shenko_broker::request::InferenceStatus;
 
-    let Some(reservation) = armed_quota_reservation(store, request_id) else {
+    let Some(reservation) = armed_quota_reservation(store, request_id, send_id) else {
         return;
     };
     // The bound attempt rows carry the scope this reservation actually
@@ -884,8 +901,9 @@ fn settle_quota_terminal(
     store: &shenko_store::store::Store,
     result: &shenko_broker::request::InferenceResult,
     request_id: EntityId,
+    send_id: EntityId,
 ) {
-    let Some(reservation) = armed_quota_reservation(store, request_id) else {
+    let Some(reservation) = armed_quota_reservation(store, request_id, send_id) else {
         return;
     };
     let usage = result
@@ -1065,10 +1083,12 @@ async fn execute_step(
         // rejected send retries under a fresh send id with its own budget
         // and pacing; the prior send keeps its armed unknown charge.
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
+        let resumed_awaiting = step.state == SubjectStepState::AwaitingModel;
         let claimed_send = match quota_dispatch_gate(
             &store,
             broker.binding(),
             request_id,
+            resumed_awaiting,
             cancel,
         )
         .await
@@ -1120,7 +1140,11 @@ async fn execute_step(
                 "model result request identity mismatch",
             ));
         }
-        observe_quota_response(&store, broker.binding(), &result, request_id);
+        // Response evidence binds to the exact send this step dispatched —
+        // durable claim lineage, never a reversed "latest" guess.
+        if let Some(send_id) = claimed_send {
+            observe_quota_response(&store, broker.binding(), &result, request_id, send_id);
+        }
         use shenko_broker::request::InferenceStatus;
         match result.status {
             InferenceStatus::QueuedCapacityWait => {
@@ -1176,9 +1200,11 @@ async fn execute_step(
                 ));
             }
         }
-        // The response proved provider-terminal: settle this request's own
+        // The response proved provider-terminal: settle this send's own
         // bound attempt rows with what the provider actually reported.
-        settle_quota_terminal(&store, &result, request_id);
+        if let Some(send_id) = claimed_send {
+            settle_quota_terminal(&store, &result, request_id, send_id);
+        }
         if !result.effective.matches_seal(
             input
                 .provider_binding

@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS quota_sends (
     send_id TEXT PRIMARY KEY,
     request_id TEXT NOT NULL,
     send_seq INTEGER NOT NULL,
-    claimed INTEGER NOT NULL DEFAULT 0
+    claimed INTEGER NOT NULL DEFAULT 0,
+    claimed_seq INTEGER NOT NULL DEFAULT 0
 );
 "#;
 
@@ -123,27 +124,30 @@ pub(crate) fn quota_gate_open(conn: &Connection) -> Result<bool, ShenkoError> {
     Ok(count > 0)
 }
 
-/// The sends of one sealed request in arming-commit order with their claim
-/// state; a claimed send is the one an AwaitingModel CAS durably bound.
+/// The sends of one sealed request in arming-commit order with each send's
+/// claim commit seq (0 = unclaimed); a claimed send is the one an
+/// AwaitingModel CAS durably bound, and claimed_seq orders dispatch
+/// bindings across retries.
 pub(crate) fn quota_request_sends(
     conn: &Connection,
     request_id: EntityId,
-) -> Result<Vec<(EntityId, bool)>, ShenkoError> {
+) -> Result<Vec<(EntityId, u64)>, ShenkoError> {
     let mut stmt = conn
-        .prepare("SELECT send_id, claimed FROM quota_sends WHERE request_id=?1 ORDER BY send_seq")
+        .prepare("SELECT send_id, claimed_seq FROM quota_sends WHERE request_id=?1 ORDER BY send_seq")
         .map_err(storage_error)?;
     let rows = stmt
-        .query_map([request_id.to_string()], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-        })
+        .query_map(
+            [request_id.to_string()],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+        )
         .map_err(storage_error)?;
     let mut sends = Vec::new();
     for row in rows {
-        let (send, claimed) = row.map_err(storage_error)?;
+        let (send, claimed_seq) = row.map_err(storage_error)?;
         let send_id = send.parse::<EntityId>().map_err(|_| {
             conflict("quota_sends row has a malformed send id")
         })?;
-        sends.push((send_id, claimed != 0));
+        sends.push((send_id, claimed_seq.max(0) as u64));
     }
     Ok(sends)
 }
@@ -154,17 +158,19 @@ pub(crate) fn quota_request_sends(
 /// immutable request, its admitted+armed+unclaimed state, and claims it in
 /// the same transaction as the step CAS — never re-reading a mutable
 /// "latest" — so a send published by another writer can neither hijack the
-/// claim nor strand this send's budget.
+/// claim nor strand this send's budget. `claim_seq` stamps the durable
+/// dispatch order for later evidence binding.
 pub(crate) fn quota_claim_send(
     tx: &Transaction<'_>,
     request_id: EntityId,
     send_id: EntityId,
+    claim_seq: LedgerSeq,
 ) -> Result<bool, ShenkoError> {
     let sends = quota_request_sends(tx, request_id)?;
-    let Some((_, claimed)) = sends.iter().find(|(known, _)| *known == send_id) else {
+    let Some((_, claimed_seq)) = sends.iter().find(|(known, _)| *known == send_id) else {
         return Ok(false);
     };
-    if *claimed {
+    if *claimed_seq != 0 {
         return Ok(false);
     }
     let pacer = read_pacer(tx)?;
@@ -177,8 +183,8 @@ pub(crate) fn quota_claim_send(
     }
     Ok(tx
         .execute(
-            "UPDATE quota_sends SET claimed=1 WHERE send_id=?1 AND claimed=0",
-            [send_id.to_string()],
+            "UPDATE quota_sends SET claimed=1, claimed_seq=?2 WHERE send_id=?1 AND claimed=0",
+            params![send_id.to_string(), claim_seq.0 as i64],
         )
         .map_err(storage_error)?
         == 1)
@@ -565,12 +571,13 @@ impl Store {
     }
 
     /// Sends recorded for one sealed request in arming-commit order with
-    /// claim state. The last entry is the wire attempt whose dispatch is
-    /// pending; a claimed send has a committed AwaitingModel binding.
+    /// each send's claim commit seq (0 = unclaimed). A claimed send has a
+    /// committed AwaitingModel binding; the largest claim seq is the most
+    /// recently authorized dispatch.
     pub fn quota_send_ids(
         &self,
         request_id: EntityId,
-    ) -> Result<Vec<(EntityId, bool)>, ShenkoError> {
+    ) -> Result<Vec<(EntityId, u64)>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         quota_request_sends(&conn, request_id)
     }

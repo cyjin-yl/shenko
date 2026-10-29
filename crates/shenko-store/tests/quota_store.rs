@@ -205,7 +205,7 @@ fn armed_cancel_retains_unknown_charge() {
     assert_eq!(retained_costs[0].amount.lower, 0.0);
     assert_eq!(retained_costs[0].amount.upper, 1.0);
     let replay = store
-        .admit_quota_send(admission.request_id, &policy, &decision, admission.request_id, &availability(), now())
+        .admit_quota_send(sealed, &policy, &decision, admission.request_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &replay.outcome,
@@ -282,8 +282,9 @@ fn never_dispatched_releases_reservation() {
     let (_req1, first) = admitted(&store, &policy, &decision);
     let (_req2, _second) = admitted(&store, &policy, &decision);
     let third_id = EntityId::new();
+    let req3 = EntityId::new();
     let waiting = store
-        .admit_quota_send(third_id, &policy, &decision, third_id, &availability(), now())
+        .admit_quota_send(req3, &policy, &decision, third_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &waiting.outcome,
@@ -299,13 +300,12 @@ fn never_dispatched_releases_reservation() {
         .iter()
         .all(|attempt| attempt.request_id != first.request_id));
     let retried = store
-        .admit_quota_send(third_id, &policy, &decision, third_id, &availability(), now())
+        .admit_quota_send(req3, &policy, &decision, third_id, &availability(), now())
         .unwrap();
     assert!(matches!(
         &retried.outcome,
         AdmissionOutcome::Quota(a) if a.state == AdmissionState::Admitted
     ));
-    let _ = second;
     std::fs::remove_dir_all(dir).unwrap();
 }
 

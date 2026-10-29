@@ -182,7 +182,32 @@ impl Store {
         expected_revision: RecordRevision,
     ) -> Result<CommitReceipt, ShenkoError> {
         self.ledger.with_mutation(
-            || self.try_upsert_step(step, expected_head, expected_revision),
+            || self.try_upsert_step(step, expected_head, expected_revision, None),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    /// `upsert_step` for a step entering `AwaitingModel` under quota: the
+    /// exact send `claim_send` the admitting gate selected is verified and
+    /// claimed inside this same transaction — never re-resolved from a
+    /// mutable "latest". With no recorded quota policy the parameter is
+    /// ignored entirely.
+    pub fn upsert_step_claiming_send(
+        &self,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        expected_revision: RecordRevision,
+        claim_send: EntityId,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                self.try_upsert_step(
+                    step,
+                    expected_head,
+                    expected_revision,
+                    Some(claim_send),
+                )
+            },
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -192,6 +217,7 @@ impl Store {
         step: &SubjectStep,
         expected_head: &SubjectBranchHead,
         expected_revision: RecordRevision,
+        claim_send: Option<EntityId>,
     ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn
@@ -261,11 +287,15 @@ impl Store {
             && crate::quota::quota_gate_open(&tx)?
         {
             let claimed = match claim_send {
-                Some(send_id) => crate::quota::quota_claim_send(
-                    &tx,
-                    step.active_request_id.unwrap_or_else(EntityId::nil),
-                    send_id,
-                )?,
+                Some(send_id) => {
+                    let seq = self.ledger.allocate_seq(&tx)?;
+                    crate::quota::quota_claim_send(
+                        &tx,
+                        step.active_request_id.unwrap_or_else(EntityId::nil),
+                        send_id,
+                        seq,
+                    )?
+                }
                 None => false,
             };
             if !claimed {
