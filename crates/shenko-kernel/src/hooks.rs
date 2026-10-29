@@ -1343,7 +1343,7 @@ mod tests {
         assert!(dispatch.stopped_early);
         assert_eq!(dispatch.results.len(), 1);
         assert!(dispatch.results[0].error.is_some());
-        assert!(log.lock().is_empty(), "the queued handler never ran");
+        assert_eq!(log.lock().as_slice(), &["fragile"], "only the failing handler ran");
         assert!(
             !stopping.check_allowed(&operation).await,
             "a stopped dispatch must not read as allowed"
