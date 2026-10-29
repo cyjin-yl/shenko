@@ -251,21 +251,28 @@ impl Store {
             }
         }
         // Once any quota policy is recorded, dispatch into AwaitingModel is
-        // allowed only for a request whose reservation is admitted and armed
-        // on this ledger AND not yet claimed; the claim commits in this same
-        // transaction, so exactly one step binds each wire send. Recovery or
-        // another writer cannot bypass admission and replay an unaccounted
-        // call.
+        // allowed only through the exact send the admitting gate selected:
+        // its lineage to this immutable request plus its
+        // admitted+armed+unclaimed state are verified and the claim commits
+        // in this same transaction, so exactly one step binds each wire
+        // send. Recovery or another writer cannot bypass admission and
+        // replay an unaccounted call.
         if step.state == AwaitingModel
             && crate::quota::quota_gate_open(&tx)?
-            && !crate::quota::quota_claim_latest_send(
-                &tx,
-                step.active_request_id.unwrap_or_else(EntityId::nil),
-            )?
         {
-            return Err(ShenkoError::conflict(
-                "recovery_blocked: request has no armed quota reservation; reconcile before dispatch",
-            ));
+            let claimed = match claim_send {
+                Some(send_id) => crate::quota::quota_claim_send(
+                    &tx,
+                    step.active_request_id.unwrap_or_else(EntityId::nil),
+                    send_id,
+                )?,
+                None => false,
+            };
+            if !claimed {
+                return Err(ShenkoError::conflict(
+                    "recovery_blocked: request has no armed quota reservation; reconcile before dispatch",
+                ));
+            }
         }
         self.verify_step_objects(step)?;
         if previous.state == Planned {

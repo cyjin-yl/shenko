@@ -537,7 +537,9 @@ fn sealed_previous_projection(
 /// inference. Unknown quota stays unknown and no request is generated to
 /// probe a balance.
 enum QuotaGate {
-    Ready,
+    /// Dispatch may proceed under the armed send id the CAS must claim.
+    /// `None` only when no quota policy is configured at all.
+    Ready(Option<EntityId>),
     Cancelled,
 }
 
@@ -550,7 +552,7 @@ async fn quota_dispatch_gate(
     use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
 
     let Some(policy) = store.latest_quota_policy()? else {
-        return Ok(QuotaGate::Ready);
+        return Ok(QuotaGate::Ready(None));
     };
     // A profile is usable only if its declared model runs on the actual
     // sealed backend: the bound model name plus the local/cloud split.
@@ -717,11 +719,11 @@ async fn quota_dispatch_gate(
                 };
                 match reservation.dispatch {
                     Some(DispatchEvidence::ArmedOrUnknown) => {
-                        return Ok(QuotaGate::Ready);
+                        return Ok(QuotaGate::Ready(Some(send_id)));
                     }
                     Some(DispatchEvidence::NeverDispatched) | None => {
                         store.arm_quota_send(request_id, &reservation.admission)?;
-                        return Ok(QuotaGate::Ready);
+                        return Ok(QuotaGate::Ready(Some(send_id)));
                     }
                 }
             }
@@ -1063,7 +1065,7 @@ async fn execute_step(
         // rejected send retries under a fresh send id with its own budget
         // and pacing; the prior send keeps its armed unknown charge.
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
-        match quota_dispatch_gate(
+        let claimed_send = match quota_dispatch_gate(
             &store,
             broker.binding(),
             request_id,
@@ -1071,10 +1073,10 @@ async fn execute_step(
         )
         .await
         {
-            Ok(QuotaGate::Ready) => {}
+            Ok(QuotaGate::Ready(send_id)) => send_id,
             Ok(QuotaGate::Cancelled) => return Ok(None),
             Err(error) => return Err(error),
-        }
+        };
         let (tx, rx) = tokio::sync::oneshot::channel();
         let req = shenko_broker::request::InferenceRequest {
             request_id,
@@ -1090,7 +1092,17 @@ async fn execute_step(
         step.active_request_id = Some(request_id);
         let expected = step.record_revision;
         step.record_revision = RecordRevision(expected.0 + 1);
-        store.upsert_step(&step, &state.head, expected)?;
+        match claimed_send {
+            // Under quota the CAS itself claims the exact send the gate
+            // armed, in the same transaction — never a mutable "latest".
+            Some(send_id) => store.upsert_step_claiming_send(
+                &step,
+                &state.head,
+                expected,
+                send_id,
+            )?,
+            None => store.upsert_step(&step, &state.head, expected)?,
+        };
         state.step = step.clone();
         // A failed channel send proves this admission was never enqueued. A crash
         // between the write and send cannot prove that, and stays AwaitingModel.

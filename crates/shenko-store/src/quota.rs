@@ -149,32 +149,25 @@ pub(crate) fn quota_request_sends(
 }
 
 /// The dispatch claim inside every AwaitingModel step CAS: once quota is
-/// configured, a request may be dispatched only through the LATEST
-/// unclaimed send whose reservation is alive — exactly the send the gate
-/// is required to offer, so the gate's selection and this claim can never
-/// diverge. The claim is written in the same transaction as the step CAS,
-/// so exactly one step binds each send and a send's actual dispatch
-/// binding is durable evidence — not a mutable "latest armed" guess.
-pub(crate) fn quota_claim_latest_send(
+/// configured, a request may be dispatched only through the exact send the
+/// admitting gate selected. The claim verifies the send's lineage to this
+/// immutable request, its admitted+armed+unclaimed state, and claims it in
+/// the same transaction as the step CAS — never re-reading a mutable
+/// "latest" — so a send published by another writer can neither hijack the
+/// claim nor strand this send's budget.
+pub(crate) fn quota_claim_send(
     tx: &Transaction<'_>,
     request_id: EntityId,
+    send_id: EntityId,
 ) -> Result<bool, ShenkoError> {
-    let pacer = read_pacer(tx)?;
-    // The one claimable send mirrors the gate's reuse predicate verbatim:
-    // latest unclaimed send with a non-cancelled reservation.
-    let claimable = quota_request_sends(tx, request_id)?
-        .iter()
-        .rev()
-        .find(|(send_id, claimed)| {
-            !claimed
-                && pacer.reservation(send_id).is_some_and(|reservation| {
-                    reservation.admission.state != shenko_quota::AdmissionState::Cancelled
-                })
-        })
-        .map(|(send_id, _)| *send_id);
-    let Some(send_id) = claimable else {
+    let sends = quota_request_sends(tx, request_id)?;
+    let Some((_, claimed)) = sends.iter().find(|(known, _)| *known == send_id) else {
         return Ok(false);
     };
+    if *claimed {
+        return Ok(false);
+    }
+    let pacer = read_pacer(tx)?;
     let armed = pacer.reservation(&send_id).is_some_and(|reservation| {
         reservation.admission.state == shenko_quota::AdmissionState::Admitted
             && reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
@@ -697,6 +690,29 @@ impl Store {
                     let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
                     self.record_subject_commit(&tx, commit_ref, 1)?;
                     commit = Some(commit_ref);
+                } else if pacer.reservation(&send_id).is_some() {
+                    // Idempotent replays still prove the existing send's
+                    // lineage: a send bound to another request must never
+                    // report an existing admission for THIS request.
+                    let lineage: Option<String> = tx
+                        .query_row(
+                            "SELECT request_id FROM quota_sends WHERE send_id=?1",
+                            [&send_row],
+                            |r| r.get(0),
+                        )
+                        .optional()
+                        .map_err(storage_error)?;
+                    match lineage.as_deref() {
+                        Some(bound) if bound == request_row => {}
+                        Some(_) => {
+                            return Err(conflict("send id is bound to another request"))
+                        }
+                        None => {
+                            return Err(conflict(
+                                "charged send has no lineage; reconcile before admitting",
+                            ))
+                        }
+                    }
                 }
                 tx.commit().map_err(storage_error)?;
                 Ok(QuotaAdmissionReceipt { outcome, commit })
