@@ -234,6 +234,58 @@ fn message(content: &str) -> crate::inbox::InboxEvent {
     }
 }
 
+fn admit_web_event(store: &Store, agent: EntityId, id: &str, event: &crate::inbox::InboxEvent) {
+    let original = serde_json::to_string(event).unwrap();
+    let raw = shenko_types::store::RawInboxEvent {
+        event_id: event.event_id, agent_id: agent,
+        source: "web_ui".into(), kind: "message".into(),
+        payload_json: original.clone(), received_at_ms: event.created_at.timestamp_millis(),
+    };
+    store.admit_web_submission(agent, id, &original, &raw).unwrap();
+}
+
+#[tokio::test]
+async fn durable_web_selection_requires_actual_s0_seal() {
+    let (dir, store, agent) = fixture();
+    let event = message("需要保留原始用户输入");
+    admit_web_event(&store, agent, "sealed-selection", &event);
+    let mut subject = state(store.clone(), agent).unwrap();
+    crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap();
+    // Durable staging is recovery data while Planned, not sealed presentation.
+    assert!(store.web_input_selected_step(agent, event.event_id).unwrap().is_none());
+    // The real step path seals S0 before reporting the missing broker. There is
+    // no provider call in this fixture and no S1 disposition is fabricated.
+    assert!(execute_step(subject.step.step_no, &[], &mut subject,
+        &tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert_eq!(store.web_input_selected_step(agent, event.event_id).unwrap(), Some(subject.step.step_id));
+    drop((subject, store));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn pending_backlog_larger_than_inbox_reaches_bounded_s0() {
+    let (dir, store, agent) = fixture();
+    // Production has 1024 volatile slots. Admission is durable and has no such
+    // capacity bound; reopening this backlog must not feed an undrained channel.
+    for index in 0..1025 {
+        admit_web_event(&store, agent, &format!("backlog-{index}"), &message("待接续"));
+    }
+    let subject = state(store.clone(), agent).unwrap(); // Only 8 live slots.
+    let step_id = subject.step.step_id;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5),
+        super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()),
+    ).await.expect("recovery must not await its own full channel");
+    // No broker is installed: one real S0 seals and stops at that prerequisite.
+    assert!(result.is_err());
+    let (_, step) = store.load_subject(agent).unwrap();
+    assert_eq!(step.state, SubjectStepState::Preparing);
+    let sealed = super::frozen_input(&store, &step).unwrap();
+    assert_eq!(sealed.events.len(), 64);
+    assert_eq!(sealed.step_id, step_id);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[tokio::test]
 async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     use shenko_broker::{provider::AnthropicProvider, request::*};
