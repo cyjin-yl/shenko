@@ -75,8 +75,11 @@ function saveSubmission(submission: Submission): boolean {
 }
 
 function retireSubmission(submission: Submission): void {
-  // Terminal facts retire the persisted pending payload. UI history is not a
-  // durable outbox; committed and conflict rows keep their server-side truth.
+  // Only a committed disposition retires the persisted pending payload: it is
+  // the sole fact whose truth is already durable in the Store ledger. Every
+  // non-committed row keeps ID+payload until an explicit retry (same-key
+  // overwrite) or a real durable admission — an unrelated newer draft must
+  // never strand the only copy of a rejected/conflicting/absent input.
   try {
     localStorage.removeItem(submissionKey(submission.payload.submission_id));
   } catch {
@@ -112,9 +115,12 @@ function storedSubmissions(): Submission[] {
             ? { observed_step_id: payload.observed_step_id } : {}),
         },
         created_at: saved.created_at,
-        receipt: saved.receipt === 'conflict' ? 'conflict' : 'unknown',
+        receipt: saved.receipt === 'conflict' ? 'conflict'
+          : saved.receipt === 'rejected' ? 'rejected' : 'unknown',
         detail: saved.receipt === 'conflict'
           ? '原提交 ID 已关联不同内容；此冲突内容未改写原输入。'
+          : saved.receipt === 'rejected'
+          ? '服务端已确认未接纳此提交；可用同一 ID 重发。'
           : '已恢复原提交 ID 与内容；等待持久查询，不会生成新 ID 重发。',
         send_epoch: validRevision(saved.send_epoch) ? saved.send_epoch : 0,
       });
@@ -571,7 +577,6 @@ class LiveController implements ProjectionController {
     );
     if (!submission) return;
     const detail = typeof data.detail === 'string' ? data.detail : undefined;
-    let retired = false;
     if (data.stage === 'accepted' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
       // Durable acceptance, not selection or disposition. The same ID replayed
@@ -590,8 +595,6 @@ class LiveController implements ProjectionController {
     } else if (data.stage === 'conflict') {
       submission.receipt = 'conflict';
       submission.detail = detail ?? '同一 submission_id 已关联不同内容；原输入未改写。';
-      retireSubmission(submission);
-      retired = true;
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
@@ -599,15 +602,15 @@ class LiveController implements ProjectionController {
     } else if (data.stage === 'rejected') {
       submission.receipt = 'rejected';
       submission.detail = detail ?? '服务器拒绝接收。';
-      retireSubmission(submission);
-      retired = true;
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
       }
     }
-    // Retired terminal facts must not re-persist their payload.
-    if (!retired) saveSubmission(submission);
+    // Non-committed outcomes stay persisted: they are the only copy of this
+    // input's identity and payload until the user retries or the Store holds
+    // a committed disposition for the original event.
+    saveSubmission(submission);
     this.scheduleReceiptRefresh();
     this.emit();
   }
@@ -666,7 +669,6 @@ class LiveController implements ProjectionController {
     if (validRevision(data.send_epoch) && data.send_epoch < submission.send_epoch) {
       return;
     }
-    let retired = false;
     if (data.result === 'found' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
@@ -678,7 +680,9 @@ class LiveController implements ProjectionController {
           typeof data.committed_at === 'string' ? data.committed_at : submission.committed_at;
         submission.detail = undefined;
         retireSubmission(submission);
-        retired = true;
+        this.scheduleReceiptRefresh();
+        this.emit();
+        return;
       } else if (data.stage === 'selected' && typeof data.selected_step_id === 'string') {
         if (submission.receipt !== 'committed') submission.receipt = 'selected';
         submission.selected_step_id =
@@ -692,11 +696,10 @@ class LiveController implements ProjectionController {
       }
     } else if (data.result === 'not_admitted') {
       // A durable query proves the input was never admitted; the stable ID is
-      // free to retry with identical content.
+      // free to retry with identical content. The pending record is kept —
+      // it is the only copy of this attempt until the user acts.
       submission.receipt = 'rejected';
       submission.detail = '服务端无此提交记录；可以同一 ID 重发。';
-      retireSubmission(submission);
-      retired = true;
       if (!this.state.draft.trim()) {
         this.state.draft = submission.payload.content;
         storageSet(DRAFT_KEY, this.state.draft);
@@ -706,7 +709,7 @@ class LiveController implements ProjectionController {
       submission.detail = '持久查询暂不可用；原 ID 与此前回执仍保留。';
     }
     // Query failure is not not_admitted and never restores an accepted draft.
-    if (!retired) saveSubmission(submission);
+    saveSubmission(submission);
     this.scheduleReceiptRefresh();
     this.emit();
   }

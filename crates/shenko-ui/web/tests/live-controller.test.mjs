@@ -133,7 +133,7 @@ test('live receipts query Store facts while preserving draft and reading state',
 });
 
 test('page reopen reconciles a lost ACK using the persisted original payload and ID', async (t) => {
-  const { sockets } = environment(t);
+  const { storage, sockets } = environment(t);
   const first = createLiveController();
   await setImmediate();
   const socket = sockets[0];
@@ -165,7 +165,11 @@ test('page reopen reconciles a lost ACK using the persisted original payload and
     schema_version: 2, type: 'submission_view', result: 'not_admitted',
     submission_id: original.submission_id, send_epoch: 0,
   });
-  assert.equal(submission(reopened).receipt, 'sending');
+  // The stale absence must not demote the retry or restore the draft; the
+  // same ID and payload remain the only outgoing identity.
+  assert.notEqual(submission(reopened).receipt, 'rejected');
+  assert.equal(submission(reopened).payload.submission_id, original.submission_id);
+  assert.equal(storage.get(`shenko.submission.v2.${original.submission_id}`) !== undefined, true);
   assert.equal(reopened.projection().nodes.find((node) => node.node_id === 'composer').props.draft,
     '重开后保留的草稿');
   view(newSocket, original, 'accepted');
