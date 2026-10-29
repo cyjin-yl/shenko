@@ -5,3 +5,6 @@ pub use ssh_exec::*;
 
 pub mod task_runner;
 pub use task_runner::*;
+
+mod selected_task;
+pub use selected_task::*;

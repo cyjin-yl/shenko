@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 shenko-store = { path = "../shenko-store" }
+shenko-node = { path = "../shenko-node" }
 base64 = { workspace = true }
 shenko-types = { path = "../shenko-types" }
 serde = { workspace = true }

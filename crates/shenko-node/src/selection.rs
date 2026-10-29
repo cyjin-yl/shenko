@@ -133,6 +133,23 @@ fn knowledge(conn: &Connection, node_id: EntityId, local_id: EntityId) -> Result
 }
 
 impl Node {
+    /// Read one enrolled candidate without ranking or scanning every page.
+    /// Like the page API this reads cached observations, not current readiness.
+    pub fn node_choice_candidate(&mut self, node_id: EntityId) -> Result<Option<NodeChoiceCandidate>> {
+        ensure!(!self.failed, "node requires reopen after storage failure");
+        let tx = self.conn.transaction()?;
+        let local_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
+        let enrolled = node_id == local_id || tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM node_sync_peers WHERE node_id=?1)",
+            [node_id.to_string()], |r| r.get::<_, bool>(0),
+        )?;
+        let candidate = if enrolled {
+            Some(NodeChoiceCandidate { node_id, knowledge: knowledge(&tx, node_id, local_id)? })
+        } else { None };
+        tx.commit()?;
+        Ok(candidate)
+    }
+
     /// Recover an existing receipt without re-planning or re-validating current
     /// conditions. `None` means no such command; a different command kind or
     /// unsupported schema is an error, never interpreted as a selection.

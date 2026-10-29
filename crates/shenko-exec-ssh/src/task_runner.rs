@@ -142,9 +142,13 @@ impl SshBinding {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct FrozenInput {
-    binding: SshBinding,
-    action: SshAction,
+pub(super) struct FrozenInput {
+    pub(super) binding: SshBinding,
+    pub(super) action: SshAction,
+    // None serializes exactly like the original two-field input. Existing
+    // operations and their receipt readers keep their original input digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) selection: Option<crate::selected_task::TaskBoundNodeSelection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -206,12 +210,24 @@ impl SshTaskRunner<'_> {
         action: SshAction,
         timeout_secs: u64,
     ) -> Result<SshObservation> {
-        action.validate()?;
+        self.execute_frozen(ctx, operation_id, logical_key, authority,
+            FrozenInput { binding, action, selection: None }, timeout_secs).await
+    }
+
+    pub(super) async fn execute_frozen(
+        &self,
+        ctx: &TaskInvocation,
+        operation_id: EntityId,
+        logical_key: &str,
+        authority: AuthorityRef,
+        frozen: FrozenInput,
+        timeout_secs: u64,
+    ) -> Result<SshObservation> {
+        frozen.action.validate()?;
         ensure!(
             !logical_key.is_empty() && logical_key.len() <= 128,
             "invalid logical key"
         );
-        let frozen = FrozenInput { binding, action };
         let input = self.seal(&frozen, "ssh-frozen-input")?;
         let resource = self.seal(&frozen.binding, "ssh-binding")?;
         let contract_digest = Digest::blake3(HELPER.as_bytes());

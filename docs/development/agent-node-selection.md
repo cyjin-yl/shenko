@@ -117,3 +117,80 @@ No claim of CI success: repository snapshot has no GitHub workflow directory.
 `git diff --check` is a whitespace check only, not Rust compilation or runtime
 verification. A genuine subject-discovery/selection journey still requires
 model validation after the authenticated bridge exists.
+
+## Trusted SSH bridge source increment (2026-10-29, not yet executed)
+
+The next source increment adds `SshTaskRunner::execute_selected` in
+`shenko-exec-ssh/src/selected_task.rs`, reusing the real existing SSH runner:
+
+```text
+installed authenticated child adapter
+  → trusted TaskInvocation + AuthorityRef + registered node/SSH binding
+  → explicit recorded selection / current observation check
+  → existing Store::arm_external_operation (T1)
+  → existing SSH helper / sealed receipt / query-only recovery (E1)
+```
+
+This is not another preparation ledger. The complete selection receipt/reason,
+invocation, authority, chosen node and operation ID are in the **same frozen
+SSH input** whose digest T1 stores and the existing remote helper receipt seals.
+The task revision, active invocation/epoch, persisted worker assignment,
+delegation decision and reserved native operation ID are checked before fresh
+admission. T1 still conditionally checks the actual current task. Node locks
+are released before T1/network awaits; a changed advertisement is explained,
+never used to choose a substitute. Observations and T1 are not a cross-database
+transaction, so an advertisement is explicitly not a capacity/permission lease.
+
+An already-armed matching operation reads its original frozen binding/selection
+and queries the existing receipt; it does not refresh its choice from Node or
+send another action. A changed action, target, decision or authority is a
+structured refusal. This retry requires the exact original `TaskInvocation`;
+a newly claimed recovery worker uses the existing authorized
+`query(operation_id)`/reconcile API instead of pretending to be that original
+invocation. Optional `FrozenInput.selection` uses serde default
+and skip-None so old two-field frozen inputs keep their exact serialization.
+No model-facing admin RPC or unguarded target registry was added.
+
+The node-choice receipt's `not_dispatched` remains the historical result of
+recording a choice. If this trusted API is later actually run, the **SSH operation
+and attempt/effect receipts**, not that immutable choice record, describe dispatch.
+Source presence is not evidence that a remote task has run.
+
+### Exact ownership / installation dependency
+
+Snapshot 2026-10-29 20:17 UTC: #114 `47b26f98` remains the capability/transport
+owner; #112 `e4a2d186` owns installed self-knowledge discovery; #125 `421045dd`
+owns the active model-child/subject/Store cutover. The latter's published changed
+files include `shenko-store/src/external.rs`, `child.rs`, subject child/model-child
+and shared types, **not** `shenko-exec-ssh/src/task_runner.rs`, `lib.rs` or its
+Cargo manifest. This increment edits none of those active Store/subject/types
+files. The #125 native authority construction and assignment memo names were
+statically checked and still match this boundary; combined execution is untested.
+
+The remaining shortest integration is an installed narrow child handler:
+1. expose capability observations/explicit choice, not Node management RPC;
+2. obtain invocation, role/authority and resource limits from its authenticated
+   registry context, never from model JSON;
+3. resolve only the explicitly chosen node through the existing authorized
+   registered-target map; missing permission/resource capacity returns a reason;
+4. call `execute_selected`; settle the task through the current scheduler and
+   reconcile armed work using its original operation ID.
+
+That installed handler and actual registered-target authority/resource resolver
+are still dependencies. The trusted API cannot authenticate arbitrary callers
+or invent grants; it preserves existing SSH trust/permission boundaries and T1,
+not a new general permission system. Model discovery and real remote-node
+validation remain unperformed. No external owner/Agent was contacted for this
+increment; dependencies are recorded in this PR rather than presumed accepted.
+
+### New validation candidate — separate from the 18 passing tests above
+
+Six new source tests are prepared: actual local T1/E1 selection persistence and
+query-only recovery; forged worker refusal; unrelated authority refusal;
+registered-target mismatch; conflicting replay action; and byte-identical legacy
+input serialization. Their SSH fixture deliberately references a missing public
+host-trust CAS object, causing the existing runner to fail **before spawning
+OpenSSH**. It tests unknown-effect bookkeeping, not remote success. These tests
+are not yet compiled/run; a new fixed-candidate approval is required. The lock
+changes only by adding the already-existing local `shenko-node` package as a
+`shenko-exec-ssh` dependency; no external dependency version is changed.
