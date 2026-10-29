@@ -139,7 +139,21 @@ impl LocalModelProvider {
             output_tokens: u
                 .get("completion_tokens")
                 .and_then(|v| v.as_u64()),
-            cache_read_tokens: None,
+            // Passive prefix-cache evidence: OpenAI-compatible backends that
+            // support it report `prompt_tokens_details.cached_tokens` (current
+            // shape) or a flat `prompt_cache_hit_tokens` (older vLLM-family
+            // shape). Both become cache_read; absent/invalid fields stay
+            // unknown rather than 0, and a backend with no reporting keeps
+            // `None`. This is a hit observation only — never a residency
+            // guarantee (§13.6, §13.7).
+            cache_read_tokens: u
+                .get("prompt_tokens_details")
+                .and_then(|details| details.get("cached_tokens"))
+                .and_then(|v| v.as_u64())
+                .or_else(|| {
+                    u.get("prompt_cache_hit_tokens")
+                        .and_then(|v| v.as_u64())
+                }),
             cache_write_tokens: None,
         });
 
