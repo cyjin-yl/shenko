@@ -39,7 +39,7 @@ use std::{
     time::Duration,
 };
 use x11rb::{
-    connection::Connection,
+    connection::{Connection, RequestConnection},
     protocol::{
         Event,
         xinput::{self, XIEventMask},
@@ -354,13 +354,15 @@ struct DomainState {
 }
 
 struct DomainLease {
-    holder_task: EntityId,
+    /// The admitted controller instance holding the epoch.
+    holder_instance: EntityId,
     token: EntityId,
 }
 
 struct X11Session {
     session_id: EntityId,
-    owner_task: EntityId,
+    /// The admitted controller instance that opened this session.
+    owner_instance: EntityId,
     conn: RustConnection,
     info: SessionInfo,
     screen: xproto::Screen,
@@ -379,6 +381,27 @@ impl X11Session {
         self.domain
             .lock()
             .map_err(|_| anyhow::anyhow!("domain state poisoned"))
+    }
+
+    /// Acquire the domain lock ONLY for one abortable send boundary: the
+    /// lease token must still match and the epoch must still be the bound
+    /// one. Watcher/external takeover revokes between any two events, never
+    /// only between batches or actions.
+    fn lease_guard(
+        &self,
+        token: EntityId,
+        epoch: u64,
+    ) -> Result<MutexGuard<'_, DomainState>, SendError> {
+        let domain = self
+            .domain
+            .lock()
+            .map_err(|_| SendError::Rejected("backend_state_poisoned"))?;
+        match &domain.lease {
+            Some(lease) if lease.token == token && domain.lease_epoch == epoch => {
+                Ok(domain)
+            }
+            _ => Err(SendError::Rejected("lease_revoked")),
+        }
     }
 }
 
@@ -424,13 +447,18 @@ struct CapturedFrame {
     data: Vec<u8>,
     image: x11rb::image::Image<'static>,
     rect: [i32; 4],
+    image_width: u16,
+    image_height: u16,
     pixel_format: PixelFormatInfo,
     visual: xproto::Visualtype,
 }
 
 struct DriveCtx {
     operation_id: EntityId,
-    task_id: EntityId,
+    /// The admitted controller identity stable across this agent instance's
+    /// native tasks (CallContext.caller_instance_id); session ownership and
+    /// lease holding bind this, not a finite task id.
+    caller: EntityId,
 }
 
 struct SendResult {
@@ -628,7 +656,7 @@ impl ComputerUseBackend {
 
         let ctx = DriveCtx {
             operation_id: invocation.operation_id,
-            task_id: invocation.task_invocation.task_id,
+            caller: invocation.context.caller_instance_id,
         };
         let backend = Arc::clone(self);
         let outcome = tokio::task::spawn_blocking(move || work(&backend, &ctx))
@@ -669,7 +697,65 @@ impl ComputerUseBackend {
     // Session open/close (T1 already armed)
     // ------------------------------------------------------------------
 
-    fn open_session(&self, frozen: &SessionFrozen, owner_task: EntityId) -> DriveOutcome {
+    /// Connect a dedicated watcher client, negotiate XI on THAT connection
+    /// (a sibling session's negotiation does not transfer), select raw masks
+    /// gated on the watcher connection's negotiated version, and spawn the
+    /// loop bound to this domain's stop flag. Called WITH the domain lock
+    /// held: the caller supplies the already-cloned stop flag.
+    fn spawn_domain_watcher(
+        domain: &Arc<Mutex<DomainState>>,
+        display: &str,
+        root: u32,
+        xtest_ids: &[u16],
+        stop: Arc<AtomicBool>,
+    ) -> std::io::Result<JoinHandle<()>> {
+        let (watch_conn, _) = RustConnection::connect(Some(display))
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "watcher connect failed"))?;
+        let negotiated = match watch_conn.extension_information(xinput::X11_EXTENSION_NAME) {
+            Ok(Some(_)) => xinput::xi_query_version(&watch_conn, 2, 3)
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .map(|v| (v.major_version, v.minor_version)),
+            _ => None,
+        };
+        // sourceid is only defined for clients negotiating XI >= 2.1 — on
+        // older servers the watcher would misclassify, so refuse to run.
+        let (major, minor) = negotiated
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "xi negotiation failed"))?;
+        let raw_defined = major > 2 || (major == 2 && minor >= 1);
+        if !raw_defined {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "xi < 2.1: raw sourceid undefined",
+            ));
+        }
+        let touch = major > 2 || (major == 2 && minor >= 2);
+        let mut mask_bits = u32::from(XIEventMask::RAW_KEY_PRESS)
+            | u32::from(XIEventMask::RAW_KEY_RELEASE)
+            | u32::from(XIEventMask::RAW_BUTTON_PRESS)
+            | u32::from(XIEventMask::RAW_BUTTON_RELEASE)
+            | u32::from(XIEventMask::RAW_MOTION);
+        if touch {
+            mask_bits |= u32::from(XIEventMask::RAW_TOUCH_BEGIN)
+                | u32::from(XIEventMask::RAW_TOUCH_UPDATE)
+                | u32::from(XIEventMask::RAW_TOUCH_END);
+        }
+        let masks = [xinput::EventMask {
+            deviceid: XI_ALL_MASTER_DEVICES,
+            mask: vec![XIEventMask::from(mask_bits)],
+        }];
+        xinput::xi_select_events(&watch_conn, root, &masks)
+            .ok()
+            .and_then(|c| c.check().ok())
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::Other, "xi select failed"))?;
+        let weak = Arc::downgrade(domain);
+        let ids = xtest_ids.to_vec();
+        Ok(std::thread::spawn(move || {
+            raw_watch_loop(watch_conn, root, ids, weak, stop);
+        }))
+    }
+
+    fn open_session(&self, frozen: &SessionFrozen, owner_instance: EntityId) -> DriveOutcome {
         if !frozen.backend_x11 {
             return DriveOutcome::unavailable(
                 "backend_unavailable",
@@ -788,63 +874,48 @@ impl ComputerUseBackend {
             },
             Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         };
-        // XI2 raw watcher, spawned at most once per domain: a raw event whose
-        // source device is not a known XTEST slave is external input on this
-        // domain and revokes the machine epoch. Detection requires XI >= 2.1
-        // (sourceid defined) plus successful event selection. On Xvfb all
-        // sources are XTEST so this is a no-op; explicit takeover is
-        // unconditional either way.
+        // XI2 raw watcher, at most one LIVE thread per domain — creation,
+        // liveness check and publication all happen inside the domain lock so
+        // two concurrent opens cannot race a duplicate watcher, and a watcher
+        // whose thread already exited is rebuilt rather than counted as
+        // detection. Each watcher negotiates XI on its OWN connection: the
+        // session connection's version does not confer sourceid/touch
+        // semantics on another client. On Xvfb all sources are XTEST so this
+        // is a no-op; explicit takeover is unconditional either way.
         let mut detection = false;
         if xi_raw_defined {
-            let already = domain
-                .lock()
-                .map(|locked| locked.watch.is_some())
-                .unwrap_or(false);
-            if !already {
-                if let Ok((watch_conn, _)) = RustConnection::connect(Some(display.as_str())) {
-                    // Raw touch events exist only from XI 2.2; a mask naming
-                    // them fails the whole selection on an XI 2.1 server.
-                    let touch = negotiated_xi
-                        .map(|(major, minor)| major > 2 || (major == 2 && minor >= 2))
-                        .unwrap_or(false);
-                    let mut mask_bits = u32::from(XIEventMask::RAW_KEY_PRESS)
-                        | u32::from(XIEventMask::RAW_KEY_RELEASE)
-                        | u32::from(XIEventMask::RAW_BUTTON_PRESS)
-                        | u32::from(XIEventMask::RAW_BUTTON_RELEASE)
-                        | u32::from(XIEventMask::RAW_MOTION);
-                    if touch {
-                        mask_bits |= u32::from(XIEventMask::RAW_TOUCH_BEGIN)
-                            | u32::from(XIEventMask::RAW_TOUCH_UPDATE)
-                            | u32::from(XIEventMask::RAW_TOUCH_END);
-                    }
-                    let masks = [xinput::EventMask {
-                        deviceid: XI_ALL_MASTER_DEVICES,
-                        mask: vec![XIEventMask::from(mask_bits)],
-                    }];
-                    let selected =
-                        xinput::xi_select_events(&watch_conn, screen.root, &masks)
-                            .ok()
-                            .and_then(|c| c.check().ok())
-                            .is_some();
-                    if selected {
+            match domain.lock() {
+                Ok(mut locked) => {
+                    let live = locked
+                        .watch
+                        .as_ref()
+                        .is_some_and(|handle| !handle.is_finished());
+                    if live {
                         detection = true;
-                        let weak = Arc::downgrade(&domain);
-                        let ids = xtest_ids.clone();
-                        let root = screen.root;
-                        let stop = domain
-                            .lock()
-                            .map(|locked| Arc::clone(&locked.watch_stop))
-                            .unwrap_or_else(|_| Arc::new(AtomicBool::new(false)));
-                        let handle = std::thread::spawn(move || {
-                            raw_watch_loop(watch_conn, root, ids, weak, stop);
-                        });
-                        if let Ok(mut locked) = domain.lock() {
-                            locked.watch = Some(handle);
+                    } else {
+                        // A finished thread's join returns at once, so it is
+                        // safe to join under the domain lock — which also
+                        // closes the check/spawn/publish critical section.
+                        if let Some(old) = locked.watch.take() {
+                            let _ = old.join();
+                        }
+                        let stop = Arc::clone(&locked.watch_stop);
+                        match Self::spawn_domain_watcher(
+                            &domain,
+                            &display,
+                            screen.root,
+                            &xtest_ids,
+                            stop,
+                        ) {
+                            Ok(handle) => {
+                                locked.watch = Some(handle);
+                                detection = true;
+                            }
+                            Err(_) => detection = false,
                         }
                     }
                 }
-            } else {
-                detection = true;
+                Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
             }
         }
         let info = SessionInfo {
@@ -868,7 +939,7 @@ impl ComputerUseBackend {
         };
         let session = Arc::new(X11Session {
             session_id,
-            owner_task,
+            owner_instance,
             conn,
             info: info.clone(),
             screen,
@@ -901,12 +972,12 @@ impl ComputerUseBackend {
         )
     }
 
-    fn close_session(&self, session_id: EntityId, caller_task: EntityId) -> DriveOutcome {
+    fn close_session(&self, session_id: EntityId, caller_instance: EntityId) -> DriveOutcome {
         let session = match self.session(session_id) {
             Ok(s) => s,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
-        if session.owner_task != caller_task {
+        if session.owner_instance != caller_instance {
             return DriveOutcome::rejected(
                 "not_session_owner",
                 serde_json::json!({"session_id": session_id}),
@@ -929,7 +1000,7 @@ impl ComputerUseBackend {
                 let holder_gone = domain
                     .lease
                     .as_ref()
-                    .is_some_and(|l| l.holder_task == caller_task);
+                    .is_some_and(|l| l.holder_instance == caller_instance);
                 if domain.session_ids.is_empty() || holder_gone {
                     domain.lease = None;
                     domain.lease_epoch += 1;
@@ -1058,6 +1129,10 @@ impl ComputerUseBackend {
         )
         .map_err(|_| "image_decode_failed")?
         .into_owned();
+        // Read metadata BEFORE moving `image` into the frame.
+        let image_depth = image.depth();
+        let image_width = image.width();
+        let image_height = image.height();
         let Some(visual) = find_visual(&session.screen, visual_id) else {
             return Err("visual_not_truecolor");
         };
@@ -1066,7 +1141,7 @@ impl ComputerUseBackend {
             .setup()
             .pixmap_formats
             .iter()
-            .find(|f| f.depth == image.depth())
+            .find(|f| f.depth == image_depth)
             .cloned()
         else {
             return Err("pixmap_format_unknown");
@@ -1075,8 +1150,10 @@ impl ComputerUseBackend {
             data,
             image,
             rect: [x, y, w, h],
+            image_width,
+            image_height,
             pixel_format: PixelFormatInfo {
-                depth: image.depth(),
+                depth: image_depth,
                 bits_per_pixel: format.bits_per_pixel,
                 byte_order: format!("{:?}", session.conn.setup().image_byte_order),
                 visual_id,
@@ -1093,16 +1170,51 @@ impl ComputerUseBackend {
             Ok(s) => s,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
-        let region = frozen.region.unwrap_or([
-            0,
-            0,
-            i32::from(session.screen.width_in_pixels),
-            i32::from(session.screen.height_in_pixels),
-        ]);
+        // The bound epoch is taken BEFORE reading pixels; after capture the
+        // epoch is re-read and a change rejects the frame — otherwise a
+        // mid-capture takeover would stamp pre-takeover pixels with the new
+        // epoch and let the new holder skip re-observation.
+        let epoch_before = match session.domain_locked() {
+            Ok(domain) => domain.lease_epoch,
+            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+        };
+        // Default region means the whole CURRENT root, not the open-time
+        // snapshot: a RandR-grown root must be observed in full.
+        let region = match frozen.region {
+            Some(r) => r,
+            None => {
+                let live = xproto::get_geometry(&session.conn, session.screen.root)
+                    .ok()
+                    .and_then(|c| c.reply().ok());
+                match live {
+                    Some(g) => [
+                        0,
+                        0,
+                        i32::from(g.width),
+                        i32::from(g.height),
+                    ],
+                    None => {
+                        return DriveOutcome::unavailable(
+                            "root_geometry_failed",
+                            String::new(),
+                        )
+                    }
+                }
+            }
+        };
         let frame = match Self::capture_region(&session, region) {
             Ok(f) => f,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
+        match session.domain_locked() {
+            Ok(domain) if domain.lease_epoch == epoch_before => {}
+            _ => {
+                return DriveOutcome::unavailable(
+                    "epoch_changed_during_capture",
+                    format!("epoch changed mid-capture on {}", session.info.domain_id),
+                )
+            }
+        }
         let (fingerprint, shapes) = match Self::layout_fingerprint(&session.conn, session.screen.root) {
             Ok(pair) => pair,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
@@ -1113,8 +1225,8 @@ impl ComputerUseBackend {
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
         };
         let png = match encode_png(
-            u32::from(frame.image.width()),
-            u32::from(frame.image.height()),
+            u32::from(frame.image_width),
+            u32::from(frame.image_height),
             &rgb,
         ) {
             Ok(png) => png,
@@ -1140,10 +1252,6 @@ impl ComputerUseBackend {
             }
             Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
         };
-        let epoch = session
-            .domain_locked()
-            .map(|domain| domain.lease_epoch)
-            .unwrap_or(0);
         let observation = DesktopObservation {
             session_id: frozen.session_id,
             domain_id: session.info.domain_id.clone(),
@@ -1151,9 +1259,9 @@ impl ComputerUseBackend {
             screen_num: session.info.screen_num,
             frame_id,
             captured_at_ms: chrono::Utc::now().timestamp_millis(),
-            lease_epoch_at_capture: epoch,
+            lease_epoch_at_capture: epoch_before,
             region: frame.rect,
-            viewport: [frame.image.width(), frame.image.height()],
+            viewport: [frame.image_width, frame.image_height],
             dpi_x: session.info.dpi_x,
             dpi_y: session.info.dpi_y,
             scale_factor: 1.0,
@@ -1198,7 +1306,7 @@ impl ComputerUseBackend {
         (held.len(), epoch)
     }
 
-    fn lease_op(&self, frozen: &LeaseFrozen, caller_task: EntityId) -> DriveOutcome {
+    fn lease_op(&self, frozen: &LeaseFrozen, caller_instance: EntityId) -> DriveOutcome {
         let session = match self.session(frozen.session_id) {
             Ok(s) => s,
             Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
@@ -1210,7 +1318,7 @@ impl ComputerUseBackend {
         match frozen.op {
             LeaseOp::Acquire => {
                 if let Some(lease) = &domain.lease {
-                    if lease.holder_task == caller_task {
+                    if lease.holder_instance == caller_instance {
                         return DriveOutcome::done(
                             EffectStatus::None,
                             ObservationLevel::RemoteCompleted,
@@ -1237,7 +1345,7 @@ impl ComputerUseBackend {
                 }
                 let token = EntityId::new();
                 domain.lease = Some(DomainLease {
-                    holder_task: caller_task,
+                    holder_instance: caller_instance,
                     token,
                 });
                 DriveOutcome::done(
@@ -1291,7 +1399,7 @@ impl ComputerUseBackend {
                 let (released, _) = Self::revoke_locked(&session, &mut domain);
                 let token = EntityId::new();
                 domain.lease = Some(DomainLease {
-                    holder_task: caller_task,
+                    holder_instance: caller_instance,
                     token,
                 });
                 DriveOutcome::done(
@@ -1401,26 +1509,10 @@ impl ComputerUseBackend {
         let mut lost = false;
         let mut failure: Option<&'static str> = None;
         for (index, action) in frozen.actions.iter().enumerate() {
-            // Re-validate the lease under the domain lock before each event:
-            // external input or an explicit takeover bumps the epoch and
-            // invalidates the token mid-batch, not only between batches.
+            // Every event inside send_action re-validates the lease under the
+            // domain lock (per-event boundary, including inside Text), so a
+            // takeover or external input revokes between any two events.
             let result = {
-                let mut domain = match session.domain_locked() {
-                    Ok(d) => d,
-                    Err(_) => {
-                        failure = Some("backend_state_poisoned");
-                        break;
-                    }
-                };
-                match &domain.lease {
-                    Some(lease)
-                        if lease.token == frozen.lease_token
-                            && domain.lease_epoch == bound_epoch => {}
-                    _ => {
-                        failure = Some("lease_revoked");
-                        break;
-                    }
-                }
                 let mut shared = match session.locked() {
                     Ok(s) => s,
                     Err(_) => {
@@ -1428,7 +1520,13 @@ impl ComputerUseBackend {
                         break;
                     }
                 };
-                send_action(&session, &mut domain, &mut shared, action)
+                send_action(
+                    &session,
+                    &mut shared,
+                    frozen.lease_token,
+                    bound_epoch,
+                    action,
+                )
             };
             match result {
                 Ok(receipt) => {
@@ -1438,7 +1536,9 @@ impl ComputerUseBackend {
                     }
                     receipts.push(receipt.receipt(index));
                 }
-                Err(SendError::Rejected(reason)) => {
+                Err((SendError::Rejected(reason), partial)) => {
+                    // Events ACKed inside this action still count.
+                    sent += partial;
                     receipts.push(ActionReceipt {
                         index,
                         kind: action_kind(action).into(),
@@ -1448,7 +1548,8 @@ impl ComputerUseBackend {
                     failure = Some(reason);
                     break;
                 }
-                Err(SendError::Lost) => {
+                Err((SendError::Lost, partial)) => {
+                    sent += partial;
                     lost = true;
                     receipts.push(ActionReceipt {
                         index,
@@ -1585,37 +1686,89 @@ impl Drop for ComputerUseBackend {
 // Input send primitives (real XTEST wire)
 // ---------------------------------------------------------------------------
 
+/// A send failure carries the events that were already ACKed inside this
+/// action so partial effects are never under-counted.
+type SendFail = (SendError, usize);
+
+/// One abortable send boundary: re-check lease token + epoch under the
+/// domain lock, emit the XTEST event, apply the held-input mutation, then
+/// RELEASE the lock — an external-input watcher or explicit takeover can
+/// revoke between any two events, not only between actions.
+fn bounded_input(
+    session: &X11Session,
+    token: EntityId,
+    epoch: u64,
+    kind: u8,
+    detail: u8,
+    x: i16,
+    y: i16,
+    held_op: Option<(HeldInput, bool)>,
+) -> Result<(), SendError> {
+    let mut domain = session.lease_guard(token, epoch)?;
+    let sent_ok = xtest::fake_input(&session.conn, kind, detail, 0, session.screen.root, x, y, 0)
+        .ok()
+        .and_then(|c| c.check().ok())
+        .is_some();
+    if !sent_ok {
+        return Err(SendError::Lost);
+    }
+    if let Some((input, insert)) = held_op {
+        if insert {
+            domain.held.insert(input);
+        } else {
+            domain.held.remove(&input);
+        }
+    }
+    Ok(())
+}
+
 fn send_action(
     session: &X11Session,
-    domain: &mut DomainState,
     shared: &mut SessionShared,
+    token: EntityId,
+    epoch: u64,
     action: &ActionInput,
-) -> Result<SendResult, SendError> {
+) -> Result<SendResult, SendFail> {
     match action {
         ActionInput::PointerMove { x, y } => {
             let x = (*x).clamp(0, i32::from(i16::MAX)) as i16;
             let y = (*y).clamp(0, i32::from(i16::MAX)) as i16;
-            fake_input(&session.conn, MOTION_NOTIFY_EVENT, 0, session.screen.root, x, y)?;
-            // Provable postcondition: real pointer position after ACK.
-            let post = xproto::query_pointer(&session.conn, session.screen.root)
+            {
+                // Bound, send, and verify the postcondition under one guard
+                // so a takeover cannot interleave between move and query.
+                let _domain =
+                    session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
+                xtest::fake_input(
+                    &session.conn, MOTION_NOTIFY_EVENT, 0, session.screen.root, x, y, 0,
+                )
                 .ok()
-                .and_then(|c| c.reply().ok())
-                .ok_or(SendError::Lost)?;
-            Ok(SendResult {
-                events_sent: 1,
-                postcondition_verified: post.root_x == x && post.root_y == y,
-                kind: "pointer_move".into(),
-                detail: Some(format!("pointer={}x{}", post.root_x, post.root_y)),
-            })
+                .and_then(|c| c.check().ok())
+                .ok_or((SendError::Lost, 0))?;
+                // Provable postcondition: real pointer position after ACK.
+                let post = xproto::query_pointer(&session.conn, session.screen.root)
+                    .ok()
+                    .and_then(|c| c.reply().ok())
+                    .ok_or((SendError::Lost, 1))?;
+                Ok(SendResult {
+                    events_sent: 1,
+                    postcondition_verified: post.root_x == x && post.root_y == y,
+                    kind: "pointer_move".into(),
+                    detail: Some(format!("pointer={}x{}", post.root_x, post.root_y)),
+                })
+            }
         }
         ActionInput::Button { button, press } => {
             if !(1..=7).contains(button) {
-                return Err(SendError::Rejected("button_out_of_range"));
+                return Err((SendError::Rejected("button_out_of_range"), 0));
             }
             match press {
                 PressKind::Tap => {
-                    fake_input(&session.conn, BUTTON_PRESS_EVENT, *button, session.screen.root, 0, 0)?;
-                    fake_input(&session.conn, BUTTON_RELEASE_EVENT, *button, session.screen.root, 0, 0)?;
+                    bounded_input(session, token, epoch, BUTTON_PRESS_EVENT, *button, 0, 0, None)
+                        .map_err(|e| (e, 0))?;
+                    bounded_input(
+                        session, token, epoch, BUTTON_RELEASE_EVENT, *button, 0, 0, None,
+                    )
+                    .map_err(|e| (e, 1))?;
                     Ok(SendResult {
                         events_sent: 2,
                         postcondition_verified: false,
@@ -1624,8 +1777,17 @@ fn send_action(
                     })
                 }
                 PressKind::Down => {
-                    fake_input(&session.conn, BUTTON_PRESS_EVENT, *button, session.screen.root, 0, 0)?;
-                    domain.held.insert(HeldInput::Button(*button));
+                    bounded_input(
+                        session,
+                        token,
+                        epoch,
+                        BUTTON_PRESS_EVENT,
+                        *button,
+                        0,
+                        0,
+                        Some((HeldInput::Button(*button), true)),
+                    )
+                    .map_err(|e| (e, 0))?;
                     Ok(SendResult {
                         events_sent: 1,
                         postcondition_verified: false,
@@ -1634,8 +1796,17 @@ fn send_action(
                     })
                 }
                 PressKind::Up => {
-                    fake_input(&session.conn, BUTTON_RELEASE_EVENT, *button, session.screen.root, 0, 0)?;
-                    domain.held.remove(&HeldInput::Button(*button));
+                    bounded_input(
+                        session,
+                        token,
+                        epoch,
+                        BUTTON_RELEASE_EVENT,
+                        *button,
+                        0,
+                        0,
+                        Some((HeldInput::Button(*button), false)),
+                    )
+                    .map_err(|e| (e, 0))?;
                     Ok(SendResult {
                         events_sent: 1,
                         postcondition_verified: false,
@@ -1646,19 +1817,23 @@ fn send_action(
             }
         }
         ActionInput::Key { key, press } => {
-            let keysym = parse_key_name(key).ok_or(SendError::Rejected("key_name_unknown"))?;
+            let keysym =
+                parse_key_name(key).ok_or((SendError::Rejected("key_name_unknown"), 0))?;
             let press = press.unwrap_or(PressKind::Tap);
-            send_keysym(session, domain, shared, keysym, press, "key")
+            send_keysym(session, shared, token, epoch, keysym, press, "key")
         }
         ActionInput::Text { text } => {
+            // Per-CHARACTER boundary: a mid-text takeover stops the rest of
+            // the string, and a partial failure keeps the already-sent count.
             let mut sent = 0usize;
             for ch in text.chars() {
                 let Some(keysym) = char_to_keysym(ch) else {
-                    return Err(SendError::Rejected("text_char_unmappable"));
+                    return Err((SendError::Rejected("text_char_unmappable"), sent));
                 };
-                let result =
-                    send_keysym(session, domain, shared, keysym, PressKind::Tap, "text")?;
-                sent += result.events_sent;
+                match send_keysym(session, shared, token, epoch, keysym, PressKind::Tap, "text") {
+                    Ok(result) => sent += result.events_sent,
+                    Err((e, partial)) => return Err((e, sent + partial)),
+                }
             }
             Ok(SendResult {
                 events_sent: sent,
@@ -1671,43 +1846,43 @@ fn send_action(
 }
 
 /// Resolve a keysym to a real keycode (remapping a spare keycode when the
-/// symbol is unmapped, as xdotool does) then send through XTEST.
+/// symbol is unmapped, as xdotool does) then send through XTEST with a lease
+/// boundary before every event.
 fn send_keysym(
     session: &X11Session,
-    domain: &mut DomainState,
     shared: &mut SessionShared,
+    token: EntityId,
+    epoch: u64,
     keysym: Keysym,
     press: PressKind,
     kind: &str,
-) -> Result<SendResult, SendError> {
-    let mapped = keysym_to_keycode(session, shared, keysym)?;
-    let root = session.screen.root;
-    let conn = &session.conn;
+) -> Result<SendResult, SendFail> {
+    let mapped = keysym_to_keycode(session, shared, keysym).map_err(|e| (e, 0))?;
     let mut sent = 0usize;
+    macro_rules! emit {
+        ($kind:expr, $detail:expr, $held:expr) => {
+            bounded_input(session, token, epoch, $kind, $detail, 0, 0, $held)
+                .map_err(|e| (e, sent))?;
+            sent += 1;
+        };
+    }
     if let Some(shift_code) = mapped.shift_code {
-        fake_input(conn, KEY_PRESS_EVENT, shift_code, root, 0, 0)?;
-        sent += 1;
+        emit!(KEY_PRESS_EVENT, shift_code, None);
     }
     match press {
         PressKind::Tap => {
-            fake_input(conn, KEY_PRESS_EVENT, mapped.code, root, 0, 0)?;
-            fake_input(conn, KEY_RELEASE_EVENT, mapped.code, root, 0, 0)?;
-            sent += 2;
+            emit!(KEY_PRESS_EVENT, mapped.code, None);
+            emit!(KEY_RELEASE_EVENT, mapped.code, None);
         }
         PressKind::Down => {
-            fake_input(conn, KEY_PRESS_EVENT, mapped.code, root, 0, 0)?;
-            domain.held.insert(HeldInput::Key(mapped.code));
-            sent += 1;
+            emit!(KEY_PRESS_EVENT, mapped.code, Some((HeldInput::Key(mapped.code), true)));
         }
         PressKind::Up => {
-            fake_input(conn, KEY_RELEASE_EVENT, mapped.code, root, 0, 0)?;
-            domain.held.remove(&HeldInput::Key(mapped.code));
-            sent += 1;
+            emit!(KEY_RELEASE_EVENT, mapped.code, Some((HeldInput::Key(mapped.code), false)));
         }
     }
     if let Some(shift_code) = mapped.shift_code {
-        fake_input(conn, KEY_RELEASE_EVENT, shift_code, root, 0, 0)?;
-        sent += 1;
+        emit!(KEY_RELEASE_EVENT, shift_code, None);
     }
     Ok(SendResult {
         events_sent: sent,
@@ -1801,20 +1976,6 @@ fn keysym_to_keycode(
         }
     }
     Err(SendError::Rejected("key_unmappable"))
-}
-
-fn fake_input(
-    conn: &RustConnection,
-    kind: u8,
-    detail: u8,
-    root: u32,
-    x: i16,
-    y: i16,
-) -> Result<(), SendError> {
-    xtest::fake_input(conn, kind, detail, 0, root, x, y, 0)
-        .ok()
-        .and_then(|c| c.check().ok())
-        .ok_or(SendError::Lost)
 }
 
 fn release_held(conn: &RustConnection, root: u32, held: &[HeldInput]) {
@@ -1973,6 +2134,12 @@ fn normalize_display_authority(display: &str) -> String {
         Some((host, number)) => (host, number.split('.').next().unwrap_or(number)),
         None => ("", trimmed),
     };
+    // Display NUMBER is canonical: ":90" and ":090" are the same server and
+    // socket; unparsed spellings stay literal so nothing merges wrongly.
+    let number = number
+        .parse::<u16>()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| number.to_string());
     let canonical_host: String = if host.is_empty()
         || host.eq_ignore_ascii_case("unix")
         || host.eq_ignore_ascii_case("localhost")
@@ -2115,7 +2282,7 @@ impl ComputerUseSessionHandler {
                         "computer-use-session-input",
                         serde_json::json!({"backend": name, "mechanism": "x11rb RustConnection"}),
                         "a real X11 connection is established and capability versions are probed, or a typed-unavailable result names the exact missing capability",
-                        move |backend, ctx| backend.open_session(&frozen, ctx.task_id),
+                        move |backend, ctx| backend.open_session(&frozen, ctx.caller),
                     )
                     .await
             }
@@ -2132,7 +2299,7 @@ impl ComputerUseSessionHandler {
                         "computer-use-session-input",
                         serde_json::json!({"mechanism": "x11rb RustConnection close"}),
                         "the session's X11 connection is dropped and its lease epoch revoked",
-                        move |backend, ctx| backend.close_session(session_id, ctx.task_id),
+                        move |backend, ctx| backend.close_session(session_id, ctx.caller),
                     )
                     .await
             }
@@ -2231,7 +2398,7 @@ impl ComputerUseLeaseHandler {
                 "computer-use-lease-input",
                 serde_json::json!({"mechanism": "per-domain exclusive writer epoch"}),
                 "one display domain has at most one live writer epoch; takeover invalidates the previous epoch and releases held inputs",
-                move |backend, ctx| backend.lease_op(&frozen, ctx.task_id),
+                move |backend, ctx| backend.lease_op(&frozen, ctx.caller),
             )
             .await
     }
