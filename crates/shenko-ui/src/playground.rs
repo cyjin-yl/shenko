@@ -632,7 +632,7 @@ impl PlaygroundState {
         match self.claim_action(&admitted).map_err(host_reject)? {
             ClaimOutcome::Claimed => {}
             ClaimOutcome::Existing(existing) => {
-                Self::replay_check(&existing, &binding, action, &input_digest)?;
+                Self::replay_check(&existing, &binding, action, &admitted.input_digest)?;
                 return Ok(existing);
             }
             ClaimOutcome::InFlight => return Err(ActionReject::InFlight),
