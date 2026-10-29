@@ -1,12 +1,14 @@
 --- a/scripts/single.sh
 +++ b/scripts/single.sh
-@@ -12,5 +12,5 @@
+@@ -11,7 +11,7 @@
+ 
  # Harvest TOYBOX_* symbols from .config, or fresh defconfig if none
  export KCONFIG_CONFIG
 -if [ ! -e ${KCONFIG_CONFIG:=.config} ]
 +if [ ! -e "${KCONFIG_CONFIG:=.config}" ]
  then
    KCONFIG_CONFIG=.singleconfig make defconfig
+ else
 @@ -55,6 +55,6 @@
      "$KCONFIG_CONFIG" || exit 1
  
@@ -17,12 +19,13 @@
  done
 --- a/scripts/make.sh
 +++ b/scripts/make.sh
-@@ -52,12 +52,13 @@
+@@ -51,14 +51,15 @@
+ 
  # --as-needed removes libraries we don't use any symbols out of, but the
  # compiler has no way to ignore a library that doesn't exist, so detect
 -# and skip nonexistent libraries for it (probing in parallel).
-+# and skip nonexistent libraries for it. The port serializes probes: CPUS=1
-+# must bound real compile concurrency, and this loop bypassed ratelimit.
++# and skip nonexistent libraries for it. The port serializes probes:
++# CPUS=1 must bound real compile concurrency; this loop bypassed ratelimit.
  LIBRARIES=$(
    [ -z "$V" ] && X=/dev/null || X=/dev/stderr
    for i in util crypt m resolv selinux smack attr crypto z log iconv tls ssl
@@ -33,7 +36,8 @@
 +      echo -l$i
    done | sort | xargs
  )
-@@ -90,5 +90,5 @@
+ # Actually resolve dangling dependencies in extra libraries when static linking
+@@ -90,8 +91,8 @@
  # Force full rebuild if our compiler/linker options changed
  OBJDIR="$UNSTRIPPED/obj"
  cmp -s <(compflags | grep '#d') <(grep '#d' "$GENDIR"/build.sh 2>/dev/null) ||
@@ -41,28 +45,37 @@
 -mkdir -p "$OBJDIR" "$(dirname $OUTNAME)" || exit 1
 +  "$SHENKO_TOYBOX_RETAIN" -rf "$UNSTRIPPED" || exit 1
 +mkdir -p "$OBJDIR" "$(dirname "$OUTNAME")" || exit 1
-@@ -111,5 +111,5 @@
+ 
+ # Extract a list of toys/*/*.c files to compile from the data in $KCONFIG_CONFIG
+ # (First command names, then filenames with relevant {NEW,OLD}TOY() macro.)
+@@ -111,7 +112,7 @@
    echo $'#!/bin/sh\n'
    echo "$COMPFLAGS"
    echo FILES=$'"\n'"$(fold -s <<<"$TOYFILES")"$'\n"\n' &&
 -  echo -e "\$SKIP \$BUILD lib/*.c \$FILES \$LINK -o $OUTNAME"
 +  printf '%s\n' "\$SKIP \$BUILD lib/*.c \$FILES \$LINK -o \"$OUTNAME\""
  } > "$GENDIR"/build.sh && chmod +x "$GENDIR"/build.sh || exit 1
-@@ -123,5 +123,5 @@
-} > "$GENDIR"/newtoys.h || exit 1
-
-# Rebuild config.h from .config
+ 
+ # newtoys.h is a list of USE_XXX(NEWTOY(xxx...)) lines, one per command.
+@@ -123,7 +124,7 @@
+ } > "$GENDIR"/newtoys.h || exit 1
+ 
+ # Rebuild config.h from .config
 -$SED -En $KCONFIG_CONFIG > "$GENDIR"/config.h \
 +$SED -En "$KCONFIG_CONFIG" > "$GENDIR"/config.h \
    -e 's/^# CONFIG_(.*) is not set.*/#define CFG_\1 0\n#define USE_\1(...)\n#define SKIP_\1(...) __VA_ARGS__/p;t' \
-@@ -199,5 +199,5 @@
+   -e 's/^CONFIG_(.*)=y.*/#define CFG_\1 1\n#define USE_\1(...) __VA_ARGS__\n#define SKIP_\1(...)/p;t'\
+   -e 's/^CONFIG_(.*)=/#define CFG_\1 /p' || exit 1
+@@ -197,7 +198,7 @@
+     sed 's/ /,0x/g;1s/^,/static char zhelp_data[] = {\n /;$s/.*/&};/'
+   } > "$GENDIR"/zhelp.h || exit 1
  else
 -  rm -f "$GENDIR"/zhelp.h
 +  "$SHENKO_TOYBOX_RETAIN" -f "$GENDIR"/zhelp.h || exit 1
  fi
  
  [ -n "$NOBUILD" ] && exit 0
-@@ -211,8 +211,8 @@
+@@ -211,10 +212,10 @@
  X="$(ls -1t "$OBJDIR"/* 2>/dev/null | tail -n 1)"
  if [ ! -e "$X" ] || [ -n "$(find toys -name "*.h" -newer "$X")" ]
  then
@@ -73,7 +86,18 @@
 -  rm -f "$OBJDIR"/main.o || exit 1
 +  "$SHENKO_TOYBOX_RETAIN" -f "$OBJDIR"/main.o || exit 1
  fi
-@@ -251,7 +251,7 @@
+ 
+ # build each *.o file in parallel
+@@ -233,7 +234,7 @@
+   [ "$OUT" -nt "$i" ] && [ -z "$CLICK" -o "$OUT" -nt "$KCONFIG_CONFIG" ] &&
+     continue
+ 
+-  do_loudly $BUILD -c $i -o $OUT &
++  do_loudly "$BUILD" -c "$i" -o "$OUT" &
+ 
+   ratelimit || break
+ done
+@@ -251,8 +252,8 @@
    ! do_loudly ${CROSS_COMPILE}${STRIP} "$UNSTRIPPED" -o "$OUTNAME"
  then
    [ -z "$NOSTRIP" ] && echo "strip failed, using unstripped"
@@ -86,7 +110,8 @@
  # Remove write bit set so buggy installs (like bzip's) don't overwrite the
 --- a/scripts/genconfig.sh
 +++ b/scripts/genconfig.sh
-@@ -44,5 +44,5 @@
+@@ -43,7 +43,7 @@
+   done
  }
  
 -genconfig > "$GENDIR"/Config.in || { rm "$GENDIR"/Config.in; exit 1; }
@@ -99,11 +124,11 @@
      WORKING="$WORKING $NAME"
  done &&
 -echo -e "clean::\n\t@rm -f $WORKING $PENDING" &&
-+printf 'clean::\n\t@"$SHENKO_TOYBOX_RETAIN" -f %s\n' "$WORKING $PENDING" &&
++printf 'clean::\n\t@"$$SHENKO_TOYBOX_RETAIN" -f %s\n' "$WORKING $PENDING" &&
  echo -e "list:\n\t@echo $(echo $WORKING | tr ' ' '\n' | sort | xargs)" &&
  echo -e "list_example:\n\t@echo $(echo $EXAMPLE | tr ' ' '\n' | sort | xargs)"&&
  echo -e "list_pending:\n\t@echo $(echo $PENDING | tr ' ' '\n' | sort | xargs)"&&
-@@ -79,9 +79,9 @@
+@@ -79,10 +79,10 @@
    # when $KCONFIG_ALLCONFIG and $KCONFIG_CONFIG are the same, redirect would zap
    if [ "$KCONFIG_ALLCONFIG" -ef "$KCONFIG_CONFIG" ]
    then
@@ -118,9 +143,27 @@
    fi
    brun kconfig "$1" > "${KCONFIG_CONFIG:-.config}"
  fi
+--- a/scripts/portability.sh
++++ b/scripts/portability.sh
+@@ -55,9 +55,9 @@
+ 
+ # Run a C file from scripts/*.c using $HOSTCC as necessary
+ brun() {
+-  [ ! -e "$UNSTRIPPED"/$1 -o "$UNSTRIPPED"/$1 -ot scripts/$1.c ] &&
+-    { mkdir -p "$UNSTRIPPED" &&
+-      do_loudly $HOSTCC scripts/$1.c -o "$UNSTRIPPED"/$1 || exit 1; }
+-  do_loudly "$UNSTRIPPED"/$1 "${@:2}"
++  [ ! -e "$UNSTRIPPED/$1" -o "$UNSTRIPPED/$1" -ot "scripts/$1.c" ] &&
++    { mkdir -p -- "$UNSTRIPPED" &&
++      do_loudly "$HOSTCC" "scripts/$1.c" -o "$UNSTRIPPED/$1" || exit 1; }
++  do_loudly "$UNSTRIPPED/$1" "${@:2}"
+ }
+ 
 --- a/Makefile
 +++ b/Makefile
-@@ -88,13 +88,13 @@
+@@ -86,19 +86,19 @@
+ 	scripts/change.sh
+ 
  root_clean:
 -	@rm -rf root
 -	@echo root cleaned
@@ -142,16 +185,6 @@
 -	@echo removed .config
 +	@"$(SHENKO_TOYBOX_RETAIN)" -f toybox* .config* .singlemake
 +	@echo configs archived
---- a/scripts/portability.sh
-+++ b/scripts/portability.sh
-@@ -56,7 +56,7 @@
- # Run a C file from scripts/*.c using $HOSTCC as necessary
- brun() {
-   [ ! -e "$UNSTRIPPED"/$1 -o "$UNSTRIPPED"/$1 -ot scripts/$1.c ] &&
--    { mkdir -p "$UNSTRIPPED" &&
--      do_loudly $HOSTCC scripts/$1.c -o "$UNSTRIPPED"/$1 || exit 1; }
--  do_loudly "$UNSTRIPPED"/$1 "${@:2}"
-+    { mkdir -p -- "$UNSTRIPPED" &&
-+      do_loudly "$HOSTCC" "scripts/$1.c" -o "$UNSTRIPPED/$1" || exit 1; }
-+  do_loudly "$UNSTRIPPED/$1" "${@:2}"
- }
+ 
+ tests: ASAN=1
+ tests: toybox

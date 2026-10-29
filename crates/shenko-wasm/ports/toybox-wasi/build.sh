@@ -14,10 +14,21 @@
 # coreutils in addition to the selected WASI SDK.
 set -euo pipefail
 
-WASI_SDK="$(realpath -e -- "${1:?usage: build.sh <wasi-sdk-dir> <toybox-tarball> <new-run-dir>}")"
-SOURCE_ARCHIVE="$(realpath -e -- "${2:?pass the pinned toybox-0.8.15.tar.gz}")"
+# Command substitution strips every trailing newline; a path whose canonical
+# form ends in one would silently bind to the wrong directory. The appended
+# sentinel preserves raw bytes, then the "\nx" tail is removed exactly.
+canon() {
+  local out
+  out="$(realpath -e -- "$1" && printf x)" || exit 2
+  out="${out%$'\n'x}"
+  printf '%s' "$out"
+}
+
+WASI_SDK="$(canon "${1:?usage: build.sh <wasi-sdk-dir> <toybox-tarball> <new-run-dir>}")"
+SOURCE_ARCHIVE="$(canon "${2:?pass the pinned toybox-0.8.15.tar.gz}")"
 RUN_DIR="${3:?pass a new persistent run directory whose parent exists}"
-PORT_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+PORT_DIR="$(cd "$(dirname "$0")" && pwd -P; printf x)"
+PORT_DIR="${PORT_DIR%$'\n'x}"
 SOURCE_SHA256=52452b68a6cf50f9a9728b0f844b03c4dd1f70463675b202e6cf0475bda3934f
 
 actual_sha256="$(sha256sum -- "$SOURCE_ARCHIVE")"
@@ -33,7 +44,7 @@ mkdir -- "$RUN_DIR" || {
   echo "cannot claim $RUN_DIR; choose a fresh path, never reuse a prior run" >&2
   exit 2
 }
-RUN_DIR="$(cd "$RUN_DIR" && pwd -P)"
+RUN_DIR="$(canon "$RUN_DIR")"
 mkdir -- "$RUN_DIR/applets" "$RUN_DIR/vendor" "$RUN_DIR/scratch" "$RUN_DIR/logs" "$RUN_DIR/retired"
 cp -- "$PORT_DIR/miniconfig.wasi" "$RUN_DIR/miniconfig.wasi"
 printf 'action\toriginal_path\tretained_path\n' > "$RUN_DIR/retired/INDEX.tsv"

@@ -32,7 +32,9 @@ single.sh/make.sh/genconfig.sh, portability.sh and the Makefile to call
   run root fd, so a swapped symlink ancestor cannot redirect the archive;
 - existing targets move via `renameat2(RENAME_NOREPLACE)` into a freshly
   `mkdirat`'d `retired/item.*` slot — same-filesystem rename only, `EXDEV`
-  rejects instead of degrading into copy+unlink;
+  rejects instead of degrading into copy+unlink; there is no no-replace
+  `renameat` fallback in either direction, so a rollback can never overwrite
+  a concurrently recreated source;
 - `INDEX.tsv` records `pending` before the move and `moved`/`absent`/`failed`
   after; if the final receipt cannot be written, the payload is renamed back
   so a failed receipt never strands the source;
@@ -42,7 +44,8 @@ single.sh/make.sh/genconfig.sh, portability.sh and the Makefile to call
 - upstream's unquoted `dirname $OUTNAME`, generated `-o $OUTNAME`, `mktemp`
   alias handling and `brun` paths are quoted for run dirs containing spaces;
 - the `LIBRARIES` probe loop is serialized — upstream ran each compiler probe
-  in the background, bypassing `CPUS=1`.
+  in the background, bypassing `CPUS=1`; the generated `.singlemake` clean
+  target escapes `$$SHENKO_TOYBOX_RETAIN` so make passes the shell variable.
 
 `GENDIR`, `UNSTRIPPED`, config paths and `TMPDIR` are confined to the run;
 retirement rejects paths or ancestors outside its vendor/applets/scratch

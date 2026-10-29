@@ -69,7 +69,18 @@ static int open_dir_at(int fd, const char *name, size_t len, int *absent) {
     memcpy(buf, name, len);
     buf[len] = 0;
     int out = openat(fd, buf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (out < 0 && (errno == ENOENT || errno == ENOTDIR)) {
+    if (out < 0 && errno == ENOTDIR) {
+        // Linux reports ENOTDIR for both a non-directory ancestor and a
+        // symlink ancestor with O_NOFOLLOW. Only a plain absent/non-directory
+        // component may map to the caller's absent policy; a symlink ancestor
+        // can never prove confinement and is always fatal.
+        struct stat st;
+        if (fstatat(fd, buf, &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(st.st_mode))
+            die("ancestor is a symlink, cannot confine: %s", buf);
+        *absent = 1;
+        return -1;
+    }
+    if (out < 0 && errno == ENOENT) {
         *absent = 1;
         return -1;
     }
@@ -176,12 +187,11 @@ static void write_origin(int slot_fd, const char *rel) {
 }
 
 static int do_rename(int parent_fd, const char *last, int slot_fd) {
-    int rc = (int)syscall(SYS_renameat2, parent_fd, last, slot_fd, "payload", RENAME_NOREPLACE);
-    if (rc < 0 && errno == ENOSYS)
-        // No RENAME_NOREPLACE on this kernel: 'payload' was just created
-        // empty inside an exclusive slot, so plain renameat cannot clobber.
-        rc = renameat(parent_fd, last, slot_fd, "payload");
-    return rc;
+    // No renameat fallback: without RENAME_NOREPLACE the rollback story is
+    // weaker than the atomicity we promise. Linux has had renameat2 since
+    // 3.15; ENOSYS surfaces as an honest archive failure.
+    return (int)syscall(SYS_renameat2, parent_fd, last, slot_fd, "payload",
+                        RENAME_NOREPLACE);
 }
 
 static void slot_name(char *out, size_t size) {
@@ -232,10 +242,12 @@ int main(int argc, char **argv) {
         } else {
             // Relative paths are anchored at the build's cwd, which must
             // itself live inside the run (the build cd's into vendor/).
+            // Boundary is checked at run_len: "/x/run-evil" must not pass,
+            // while "/x/run" and "/x/run/vendor" both legitimately anchor.
             if (strncmp(cwd, run, run_len) ||
-                (cwd[cwd_len] && cwd[cwd_len] != '/'))
+                (cwd[run_len] && cwd[run_len] != '/'))
                 die("build cwd outside run: %s", cwd);
-            const char *base = cwd[cwd_len] ? cwd + run_len + 1 : "";
+            const char *base = cwd[run_len] ? cwd + run_len + 1 : "";
             if (snprintf(rel_buf, sizeof(rel_buf), "%s%s%s",
                          base, *base ? "/" : "", arg) >= (int)sizeof(rel_buf))
                 die("retirement path too long");
@@ -316,8 +328,8 @@ int main(int argc, char **argv) {
             || fsync(ifd) < 0) {
             // The bytes are safe inside the slot; restore the original name
             // so a failed receipt never strands the source under 'payload'.
-            int rb = (int)syscall(SYS_renameat2, slot_fd, "payload", parent_fd, last, RENAME_NOREPLACE);
-            if (rb < 0 && errno == ENOSYS) rb = renameat(slot_fd, "payload", parent_fd, last);
+            int rb = (int)syscall(SYS_renameat2, slot_fd, "payload", parent_fd,
+                                  last, RENAME_NOREPLACE);
             if (ifd >= 0) close(ifd);
             if (rb < 0)
                 die("INDEX append failed and restore failed; retained copy is at retired/%s/payload (original: %s)", slot, rel);
