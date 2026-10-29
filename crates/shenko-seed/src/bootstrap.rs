@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{EntityId, RuntimeGeneration};
 use shenko_types::object::ObjectRef;
-use shenko_wasm::{HOME_GUEST_PATH, MountMode, MountSpec, WasmRuntime};
+use shenko_wasm::{HOME_GUEST_PATH, MountMode, MountSpec, WasiCommand, WasmRuntime};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
@@ -471,7 +471,10 @@ impl Bootstrap {
                 });
             }
         }
-        let exit = runtime.run_wasi_module(HOME_PROBE_WAT.as_bytes())?;
+        // This fixed probe uses only its preopens and deliberately has no
+        // process input or output. Other commands must choose their streams.
+        let command = WasiCommand::new(std::io::empty(), std::io::empty(), std::io::empty());
+        let exit = runtime.run_wasi_module(HOME_PROBE_WAT.as_bytes(), command)?;
         if exit != 0 {
             bail!("SEED_CLOSURE_INCOMPLETE: home guest probe exited {exit}");
         }

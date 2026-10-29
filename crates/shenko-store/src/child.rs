@@ -276,7 +276,11 @@ impl Store {
                     }
                 }
                 let head = read_head(&tx, task.agent_id)?;
-                ensure!(head.mode == SubjectMode::Active, "subject_not_active");
+                // A subject-only pause closes new claims, not evidence from
+                // work that was admitted before the boundary.
+                if head.mode != SubjectMode::Active {
+                    return Ok(None);
+                }
                 ensure_owner_active(&tx, &task, &head)?;
                 if task.owner
                     != (TaskOwner::Conversation {

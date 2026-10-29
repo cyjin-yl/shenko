@@ -1,24 +1,15 @@
-//! Self-upgrade A/B handoff state machine — SPEC §35.7.
+//! Self-upgrade slot preparation and an in-memory phase proposal — SPEC §35.7.
 //!
-//! A keeps serving while B is prepared on a copy: `prepare` (copy artifact
-//! tree + consistent SQLite backup) → `catch_up` → `smoke` → `handoff` →
-//! `observe` → `retire`. A failed handoff can roll back to the old closure
-//! (`RolledBack`); the old slot is never modified here, so it remains
-//! launchable. Facts produced by B are not deleted by a software rollback —
-//! wiring code must import/reconcile them when it implements `RolledBack`
-//! (SPEC §35.7).
+//! This crate does not activate a candidate: `advance`, including `Observe`
+//! or `RolledBack`, changes only a process-local proposal. It is not an
+//! ActivationRecord, an epoch change, a data migration or a rollback receipt.
+//! Default smoke checks cover only local database integrity and artifact
+//! presence; they are not sufficient to decide that B is ready.
 //!
-//! Safety boundary: this crate only manages slots and records. It does NOT
-//! start a second subject loop, send real QQ messages, or operate real seats.
-//! Default smoke checks are local-only (db integrity + artifact presence).
-//! External probes, if ever needed, belong to a dedicated operation with its
-//! own authorization and §36 effect declaration.
-//!
-//! TODO(bin/shenko): wire `UpdateCoordinator` into the runtime — perform the
-//! round-boundary quiesce, catch-up of inbox/outbox/tasks/seats/operations,
-//! epoch switch after a successful handoff, and new-fact preservation on
-//! rollback. The record's `created_commit` / `updated_commit` are populated
-//! by that integration when each transition is committed to the ledger.
+//! The native runtime separately exposes a durable subject-only pause boundary
+//! and local starter ownership. Neither is a final handoff: independent data
+//! copies, ingress cursors, admitted effects, the selector, and B's new facts
+//! still require the durable activation/reconciliation protocol in §41.12.
 
 use std::fmt;
 use std::fs;
@@ -75,8 +66,7 @@ impl fmt::Display for UpdatePhase {
     }
 }
 
-/// Durable update record. Transitions advance `record_revision`; ledger
-/// commits are attached by runtime wiring.
+/// Process-local phase proposal. It is not persisted or tied to ledger commits.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateRecord {
     pub update_id: EntityId,
@@ -203,7 +193,7 @@ pub enum UpdateError {
 
 pub type Result<T> = std::result::Result<T, UpdateError>;
 
-/// Drives the §35.7 prepare/catch_up/smoke/handoff/observe/retire sequence.
+/// Prepares slots and tracks a proposed §35.7 phase sequence in memory.
 ///
 /// The coordinator owns the update record and the staging root where B slots
 /// are created. It never starts a subject loop and never mutates the active
@@ -368,7 +358,8 @@ impl UpdateCoordinator {
         })
     }
 
-    /// Advance the state machine with validity checks.
+    /// Advance the local proposal with validity checks; no runtime transition
+    /// or durable activation is performed.
     ///
     /// Valid sequence: Prepare → CatchUp → Smoke → Handoff → Observe → Retire.
     /// Any non-failed phase may move to Failed; Handoff may instead move to

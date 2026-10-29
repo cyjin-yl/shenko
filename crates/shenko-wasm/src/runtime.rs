@@ -1,16 +1,66 @@
 use crate::mount::{MountMode, MountSpec, validate_mounts};
-use anyhow::{Context, Result, anyhow};
-use std::fs;
+use anyhow::{Context, Result, anyhow, bail};
 use std::path::{Path, PathBuf};
 use tracing::info;
 use wasmtime::{Engine, Instance, Linker, Module, Store, Val};
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
+pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
 
 /// Guest path where the persistent WASM home is mounted for WASI commands
 /// (SPEC §8.3: every mount declares its source path and guest path; the home
 /// mount is the one preopen a WASI session always gets).
 pub const HOME_GUEST_PATH: &str = "/home";
+
+/// Per-invocation preview1 arguments, environment, and standard streams.
+/// Arguments include argv[0] only when the caller supplies it. Neither
+/// arguments, environment, nor stdio are inherited from the host implicitly.
+///
+/// The caller owns the policy and lifetime of each stream. For example,
+/// `InputFile` and `OutputFile` bind already-open files without buffering the
+/// whole output in the runtime. Keep another handle to an output destination
+/// if its bytes are needed after a nonzero exit or a trap.
+pub struct WasiCommand<I, O, E> {
+    pub arguments: Vec<String>,
+    pub environment: Vec<(String, String)>,
+    stdin: I,
+    stdout: O,
+    stderr: E,
+}
+
+impl<I, O, E> WasiCommand<I, O, E> {
+    /// Explicitly choose all three streams, including any intentional sinks.
+    pub fn new(
+        stdin: I,
+        stdout: O,
+        stderr: E,
+    ) -> Self {
+        Self {
+            arguments: Vec::new(),
+            environment: Vec::new(),
+            stdin,
+            stdout,
+            stderr,
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        for (index, argument) in self.arguments.iter().enumerate() {
+            if argument.contains('\0') {
+                bail!("WASI_COMMAND_INVALID: argument {index} contains NUL");
+            }
+        }
+        for (index, (key, value)) in self.environment.iter().enumerate() {
+            if key.is_empty() || key.contains('\0') || key.contains('=') {
+                bail!("WASI_COMMAND_INVALID: environment key {index} is empty or contains NUL or '='");
+            }
+            if value.contains('\0') {
+                bail!("WASI_COMMAND_INVALID: environment value {index} contains NUL");
+            }
+        }
+        Ok(())
+    }
+}
 
 /// Real WASM runtime backed by wasmtime-45.
 ///
@@ -83,53 +133,77 @@ impl WasmRuntime {
 
     /// Run a WASI preview1 command module and return its exit code.
     ///
-    /// `wasm_or_wat` may be either a binary module or WAT text. The persistent
-    /// Every preopen comes from `self.mounts`; source directories must already
-    /// exist and match their canonical managed binding. `/home` and additional
-    /// guest paths retain their declared RO/RW semantics. Guest writes survive
-    /// on the host only where direct RW is explicitly configured.
-    /// The module must export `_start`; a normal return is exit code 0 and a
-    /// `proc_exit(n)` trap becomes exit code `n` instead of an error.
-    pub fn run_wasi_module(&mut self, wasm_or_wat: &[u8]) -> Result<i32> {
+    /// `wasm_or_wat` may be either a binary module or WAT text. Every preopen
+    /// comes from `self.mounts` with its declared RO/RW permissions. Wasmtime
+    /// currently reopens the checked pathname, so an ancestor swap can still
+    /// redirect a preopen; do not treat validation as a capability binding.
+    /// The command supplies exact argv, environment and streams, without a
+    /// shell or inherited process state. A normal return is exit code 0 and a
+    /// `proc_exit(n)` trap is exit code `n`; other traps are errors, and any
+    /// writes already made to caller-supplied streams or mounts remain effects.
+    pub fn run_wasi_module<I, O, E>(
+        &mut self,
+        wasm_or_wat: &[u8],
+        command: WasiCommand<I, O, E>,
+    ) -> Result<i32>
+    where
+        I: StdinStream + 'static,
+        O: StdoutStream + 'static,
+        E: StdoutStream + 'static,
+    {
         if self.home_dir.as_os_str().is_empty() {
             return Err(anyhow!(
                 "WASM_PROFILE_UNAVAILABLE: call with_mounts before running WASI"
             ));
         }
-        validate_mounts(&self.mounts, &self.home_dir)?;
-        fs::create_dir_all(&self.home_dir).context("create wasm home dir")?;
+        command.validate()?;
 
-        let engine = self.engine.clone();
-        let home = self.home_dir.clone();
-        let mounts = self.mounts.clone();
-        let bytes = wasm_or_wat.to_vec();
+        let engine = &self.engine;
+        let home = &self.home_dir;
+        let mounts = &self.mounts;
         // wasmtime-wasi's synchronous shims call `Handle::block_on`, which
         // panics when the calling thread already drives a tokio runtime. Run
         // on a fresh thread with no ambient runtime so the shims fall back to
         // wasmtime-wasi's own runtime; this keeps the API sync-safe from async
-        // callers (the Shenko main loop) as well as from plain tests.
-        let joined = std::thread::Builder::new()
-            .name("shenko-wasi".into())
-            .spawn(move || run_wasi_blocking(&engine, &home, &mounts, &bytes))
-            .context("spawn wasi execution thread")?
-            .join()
-            .map_err(|_| anyhow!("wasi execution thread panicked"))?;
-        joined
+        // callers (the Shenko main loop) as well as from plain tests. Scoped
+        // borrowing avoids copying the module and mount list for each run.
+        std::thread::scope(|scope| {
+            std::thread::Builder::new()
+                .name("shenko-wasi".into())
+                .spawn_scoped(scope, move || {
+                    run_wasi_blocking(engine, home, mounts, wasm_or_wat, command)
+                })
+                .context("spawn wasi execution thread")?
+                .join()
+                .map_err(|_| anyhow!("wasi execution thread panicked"))?
+        })
     }
 }
 
 /// Instantiate a WASI preview1 command with the home preopen and run `_start`.
-fn run_wasi_blocking(
+fn run_wasi_blocking<I, O, E>(
     engine: &Engine,
     home: &Path,
     mounts: &[MountSpec],
     wasm_or_wat: &[u8],
-) -> Result<i32> {
+    command: WasiCommand<I, O, E>,
+) -> Result<i32>
+where
+    I: StdinStream + 'static,
+    O: StdoutStream + 'static,
+    E: StdoutStream + 'static,
+{
     let canonical_sources = validate_mounts(mounts, home)?;
     let module =
         Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
 
     let mut builder = WasiCtxBuilder::new();
+    builder
+        .args(&command.arguments)
+        .envs(&command.environment)
+        .stdin(command.stdin)
+        .stdout(command.stdout)
+        .stderr(command.stderr);
     for (mount, source) in mounts.iter().zip(canonical_sources.iter()) {
         let (dir_perms, file_perms) = match mount.mode {
             MountMode::ReadOnly => (DirPerms::READ, FilePerms::READ),
@@ -183,6 +257,12 @@ impl Default for WasmRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
+
+    fn no_stdio() -> WasiCommand<std::io::Empty, std::io::Empty, std::io::Empty> {
+        WasiCommand::new(std::io::empty(), std::io::empty(), std::io::empty())
+    }
 
     fn temp_home(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("shenko-wasm-{tag}-{}", uuid::Uuid::new_v4()));
@@ -225,7 +305,7 @@ mod tests {
 
         let plain = r#"(module (func (export "_start")))"#;
         assert_eq!(
-            rt.run_wasi_module(plain.as_bytes())?,
+            rt.run_wasi_module(plain.as_bytes(), no_stdio())?,
             0,
             "empty _start exits 0"
         );
@@ -240,7 +320,7 @@ mod tests {
             )
         "#;
         assert_eq!(
-            rt.run_wasi_module(exit7.as_bytes())?,
+            rt.run_wasi_module(exit7.as_bytes(), no_stdio())?,
             7,
             "proc_exit(7) surfaces as exit code 7"
         );
@@ -320,7 +400,7 @@ mod tests {
             )
         "#;
 
-        let code = rt.run_wasi_module(wat.as_bytes())?;
+        let code = rt.run_wasi_module(wat.as_bytes(), no_stdio())?;
         assert_eq!(code, 0, "guest check failed at stage {code}");
         assert_eq!(
             fs::read_to_string(home.join("guest-out.txt"))?,
@@ -374,7 +454,7 @@ mod tests {
               )
             )
         "#;
-        assert_eq!(rt.run_wasi_module(write_attempt.as_bytes())?, 0);
+        assert_eq!(rt.run_wasi_module(write_attempt.as_bytes(), no_stdio())?, 0);
         assert!(!read_only.join("blocked.txt").exists());
 
         let error = WasmRuntime::with_mounts(vec![MountSpec::new(
@@ -389,6 +469,195 @@ mod tests {
         .unwrap_or_default();
         assert!(error.contains("MOUNT_MODE_UNSUPPORTED"), "{error}");
         assert!(error.contains("no direct-RW fallback"), "{error}");
+        Ok(())
+    }
+
+    #[test]
+    fn command_passes_arguments_environment_and_file_streams_to_guest() -> Result<()> {
+        let home = temp_home("command-streams").canonicalize()?;
+        let input_path = home.join("stdin.bin");
+        let output_path = home.join("stdout.bin");
+        let error_path = home.join("stderr.bin");
+        fs::write(&input_path, b"in\0put")?;
+        let mut command = WasiCommand::new(
+            InputFile::new(fs::File::open(input_path)?),
+            OutputFile::new(fs::File::create(&output_path)?),
+            OutputFile::new(fs::File::create(&error_path)?),
+        );
+        command.arguments = vec!["tool".into(), "a b".into(), "".into(), "你好".into()];
+        command.environment = vec![("KEY".into(), "guest=one".into()), ("EMPTY".into(), "".into())];
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
+
+        // Write the exact WASI argv buffer and then the raw stdin bytes to
+        // stdout; write the exact environment buffer to stderr. Lengths come
+        // from WASI, not from the fixture, so unexpected inherited entries
+        // cannot go unnoticed.
+        let wat = r#"
+            (module
+              (import "wasi_snapshot_preview1" "args_sizes_get"
+                (func $args_sizes_get (param i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "args_get"
+                (func $args_get (param i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "environ_sizes_get"
+                (func $environ_sizes_get (param i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "environ_get"
+                (func $environ_get (param i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "fd_read"
+                (func $fd_read (param i32 i32 i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+              (memory (export "memory") 1)
+              (func (export "_start")
+                (if (call $args_sizes_get (i32.const 0) (i32.const 4))
+                  (then (call $exit (i32.const 20))))
+                (if (i32.ne (i32.load (i32.const 0)) (i32.const 4))
+                  (then (call $exit (i32.const 21))))
+                (if (call $args_get (i32.const 64) (i32.const 256))
+                  (then (call $exit (i32.const 22))))
+                (if (call $environ_sizes_get (i32.const 8) (i32.const 12))
+                  (then (call $exit (i32.const 23))))
+                (if (i32.ne (i32.load (i32.const 8)) (i32.const 2))
+                  (then (call $exit (i32.const 24))))
+                (if (call $environ_get (i32.const 96) (i32.const 512))
+                  (then (call $exit (i32.const 25))))
+                (i32.store (i32.const 128) (i32.const 256))
+                (i32.store (i32.const 132) (i32.load (i32.const 4)))
+                (if (call $fd_write (i32.const 1) (i32.const 128) (i32.const 1) (i32.const 140))
+                  (then (call $exit (i32.const 26))))
+                (i32.store (i32.const 128) (i32.const 1024))
+                (i32.store (i32.const 132) (i32.const 64))
+                (if (call $fd_read (i32.const 0) (i32.const 128) (i32.const 1) (i32.const 140))
+                  (then (call $exit (i32.const 27))))
+                (i32.store (i32.const 132) (i32.load (i32.const 140)))
+                (if (call $fd_write (i32.const 1) (i32.const 128) (i32.const 1) (i32.const 140))
+                  (then (call $exit (i32.const 28))))
+                (i32.store (i32.const 128) (i32.const 512))
+                (i32.store (i32.const 132) (i32.load (i32.const 12)))
+                (if (call $fd_write (i32.const 2) (i32.const 128) (i32.const 1) (i32.const 140))
+                  (then (call $exit (i32.const 29))))
+                (call $exit (i32.const 7))))
+        "#;
+        assert_eq!(rt.run_wasi_module(wat.as_bytes(), command)?, 7);
+        let mut expected_stdout = "tool\0a b\0\0你好\0".as_bytes().to_vec();
+        expected_stdout.extend_from_slice(b"in\0put");
+        assert_eq!(fs::read(output_path)?, expected_stdout);
+        assert_eq!(fs::read(error_path)?, b"KEY=guest=one\0EMPTY=\0");
+        Ok(())
+    }
+
+    #[test]
+    fn command_stream_effects_remain_visible_after_a_trap() -> Result<()> {
+        let home = temp_home("command-trap").canonicalize()?;
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
+        let stdout = MemoryOutputPipe::new(64);
+        let stderr = MemoryOutputPipe::new(64);
+        let command = WasiCommand::new(std::io::empty(), stdout.clone(), stderr.clone());
+        let wat = r#"
+            (module
+              (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+              (memory (export "memory") 1)
+              (data (i32.const 100) "prefix")
+              (data (i32.const 120) "diag")
+              (func (export "_start")
+                (i32.store (i32.const 0) (i32.const 100))
+                (i32.store (i32.const 4) (i32.const 6))
+                (if (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8))
+                  (then (call $exit (i32.const 90))))
+                (i32.store (i32.const 0) (i32.const 120))
+                (i32.store (i32.const 4) (i32.const 4))
+                (if (call $fd_write (i32.const 2) (i32.const 0) (i32.const 1) (i32.const 8))
+                  (then (call $exit (i32.const 91))))
+                unreachable))
+        "#;
+        let error = rt.run_wasi_module(wat.as_bytes(), command).unwrap_err();
+        assert!(error.to_string().contains("run WASI `_start`"), "{error}");
+        assert_eq!(stdout.contents().as_ref(), b"prefix");
+        assert_eq!(stderr.contents().as_ref(), b"diag");
+        Ok(())
+    }
+
+    #[test]
+    fn consecutive_commands_do_not_share_process_state() -> Result<()> {
+        let home = temp_home("command-isolation").canonicalize()?;
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
+        let wat = r#"
+            (module
+              (import "wasi_snapshot_preview1" "args_sizes_get"
+                (func $args (param i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "environ_sizes_get"
+                (func $env (param i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+              (memory (export "memory") 1)
+              (func (export "_start")
+                (if (call $args (i32.const 0) (i32.const 4))
+                  (then (call $exit (i32.const 90))))
+                (if (call $env (i32.const 8) (i32.const 12))
+                  (then (call $exit (i32.const 91))))
+                (call $exit (i32.add (i32.mul (i32.load (i32.const 0)) (i32.const 10))
+                                     (i32.load (i32.const 8))))))
+        "#;
+        let mut first = no_stdio();
+        first.arguments = vec!["one".into(), "two".into()];
+        first.environment = vec![("A".into(), "one".into())];
+        assert_eq!(rt.run_wasi_module(wat.as_bytes(), first)?, 21);
+        assert_eq!(rt.run_wasi_module(wat.as_bytes(), no_stdio())?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_command_strings_fail_before_guest_effects() -> Result<()> {
+        let home = temp_home("command-invalid").canonicalize()?;
+        let mut rt = WasmRuntime::with_mounts(vec![MountSpec::new(
+            home,
+            HOME_GUEST_PATH,
+            MountMode::ReadWrite,
+            true,
+            false,
+        )])?;
+        let wat = r#"
+            (module
+              (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+              (memory (export "memory") 1)
+              (data (i32.const 100) "started")
+              (func (export "_start")
+                (i32.store (i32.const 0) (i32.const 100))
+                (i32.store (i32.const 4) (i32.const 7))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8)))))
+        "#;
+        let mut reject = |arguments, environment| {
+            let stdout = MemoryOutputPipe::new(64);
+            let mut command = WasiCommand::new(std::io::empty(), stdout.clone(), std::io::empty());
+            command.arguments = arguments;
+            command.environment = environment;
+            let error = rt.run_wasi_module(wat.as_bytes(), command).unwrap_err();
+            assert!(error.to_string().contains("WASI_COMMAND_INVALID"), "{error}");
+            assert!(stdout.contents().is_empty());
+        };
+        reject(vec!["bad\0arg".into()], vec![]);
+        reject(vec![], vec![("BAD=KEY".into(), "value".into())]);
+        reject(vec![], vec![("KEY".into(), "bad\0value".into())]);
         Ok(())
     }
 }

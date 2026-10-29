@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-use crate::forecast::{AccountedAttempt, Planning, QuotaForecast, SourceValidity, WindowAssumptions};
+use crate::forecast::{AccountedAttempt, Planning, ProviderExhaustionEvidence, QuotaForecast, SourceValidity, WindowAssumptions};
 use crate::model::Range;
 
 /// One quota window of one account at one provider.
@@ -205,6 +205,11 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
         rate_per_hour,
         accounted_attempts: w.accounted_attempts.clone(),
     };
+    // A last-known reading may still be used for planning, but it cannot
+    // establish that the provider is currently exhausted.
+    let provider_at_limit = forecast.freshness == crate::model::Freshness::Fresh
+        && w.provider_exhaustion == ProviderExhaustionEvidence::ReportedEmpty
+        && w.remaining.is_some_and(|remaining| remaining.upper == 0.0);
     match &w.planning {
         Planning::Period { available, per_hour, resets_at }
             if available.is_finite() && *available >= 0.0 && per_hour.is_finite() && *per_hour >= 0.0
@@ -217,8 +222,7 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
                 return Bound::Unknown;
             }
             if *available < cost.amount.upper || *per_hour == 0.0 {
-                return Bound::Short { until: Some(*resets_at),
-                    provider_at_limit: *available == 0.0 && w.remaining.is_some_and(|r| r.upper == 0.0) };
+                return Bound::Short { until: Some(*resets_at), provider_at_limit };
             }
             let rate = per_hour / cost.amount.upper;
             if !rate.is_finite() || rate <= 0.0 { return Bound::Unknown; }
@@ -230,7 +234,12 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
             let Some(reported) = w.remaining else { return Bound::Unknown };
             if remaining.upper > reported.upper { return Bound::Unknown; }
             if remaining.lower < cost.amount.upper {
-                Bound::Short { until: *refill_by, provider_at_limit: false }
+                // The observed zero no longer proves the current provider
+                // limit after its known refill boundary. Do not assume a
+                // replenished balance either; await a new observation.
+                let refill_passed = refill_by.is_some_and(|at| at <= now);
+                Bound::Short { until: if refill_passed { None } else { *refill_by },
+                    provider_at_limit: provider_at_limit && !refill_passed }
             } else {
                 Bound::Bucket { constraint: constraint(remaining.lower, None, *refill_by) }
             }
@@ -355,16 +364,26 @@ pub fn decide(
 ) -> Result<PolicyDecision, PolicyError> {
     let mut valid_until = validate(policy, now)?;
     // Every available profile's evidence can affect the choice. Recompute
-    // before any consulted fresh source stops being fresh.
+    // before a consulted source expires or a window changes, including when
+    // a different window sets a later aggregate wait deadline.
     for profile in &policy.profiles {
         if availability.get(&profile.profile_id) != Some(&BackendState::Available) { continue; }
         for cost in &profile.cost_per_request {
             for forecast in forecasts.iter().filter(|f| f.provider_id == cost.window.provider_id
-                && f.account_scope_ref == cost.window.account_scope_ref
-                && f.windows.iter().any(|w| w.window_key == cost.window.window_key)) {
-                if let SourceValidity::FreshUntil { exclusive } = forecast.source_validity {
-                    if forecast.freshness == crate::model::Freshness::Fresh && exclusive > now {
-                        valid_until = valid_until.min(exclusive);
+                && f.account_scope_ref == cost.window.account_scope_ref) {
+                for window in forecast.windows.iter().filter(|w| w.window_key == cost.window.window_key) {
+                    if let SourceValidity::FreshUntil { exclusive } = forecast.source_validity {
+                        if forecast.freshness == crate::model::Freshness::Fresh && exclusive > now {
+                            valid_until = valid_until.min(exclusive);
+                        }
+                    }
+                    let boundary = match &window.planning {
+                        Planning::Period { resets_at, .. } => Some(*resets_at),
+                        Planning::Replenishing { refill_by, .. } => *refill_by,
+                        Planning::Unknown { .. } => None,
+                    };
+                    if let Some(at) = boundary.filter(|at| *at > now) {
+                        valid_until = valid_until.min(at);
                     }
                 }
             }
@@ -396,7 +415,7 @@ pub fn decide(
             BackendState::Available => {}
         }
         if profile.local {
-            if local.is_none() {
+            if local.is_none() || previous_profile == Some(profile.profile_id.as_str()) {
                 local = Some(profile.profile_id.clone());
             }
             continue;
@@ -449,7 +468,14 @@ pub fn decide(
     blocked.dedup();
     exhausted.sort();
     exhausted.dedup();
-    let selected = pick.or_else(|| if local.is_none() { slow.as_ref() } else { None });
+    // Local profiles are not in `feasible`. Retain the previous available local
+    // choice across marginal cloud recovery, using the same switching margin.
+    // An unavailable local never reaches `local`, so it cannot pin the choice.
+    let keep_local = previous_profile.is_some() && local.as_deref() == previous_profile
+        && first.is_some_and(|candidate| candidate.score()
+            < policy.min_progress_per_hour * (1.0 + policy.switching_hysteresis));
+    let selected = if keep_local { None }
+        else { pick.or_else(|| if local.is_none() { slow.as_ref() } else { None }) };
     let (choice, constraints) = if let Some(candidate) = selected {
         (Choice::Cloud { profile_id: candidate.profile_id.clone(), rate_per_hour: candidate.rate,
             unbounded_windows: candidate.unbounded.clone() }, candidate.constraints.clone())

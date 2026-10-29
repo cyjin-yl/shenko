@@ -2734,12 +2734,14 @@ name = "shenko-node"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "chrono",
  "libc",
  "rusqlite",
  "serde",
  "serde_json",
  "shenko-types",
+ "tempfile",
 ]
 
 [[package]]
