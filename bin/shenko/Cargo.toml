@@ -19,6 +19,7 @@ shenko-node = { path = "../../crates/shenko-node" }
 shenko-exec-host = { path = "../../crates/shenko-exec-host" }
 shenko-broker = { path = "../../crates/shenko-broker" }
 shenko-subject = { path = "../../crates/shenko-subject" }
+shenko-quota = { path = "../../crates/shenko-quota" }
 shenko-awareness-core = { path = "../../crates/shenko-awareness-core" }
 shenko-context-policy = { path = "../../crates/shenko-context-policy", features = ["store"] }
 shenko-compact-budget = { path = "../../crates/shenko-compact-budget" }

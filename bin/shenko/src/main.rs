@@ -429,6 +429,20 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .spawn(shenko_compact_snap::SnapCompactPlugin, shenko_compact_snap::SnapConfig::default())
                 .await?;
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            // Optional quota policy install (SPEC §42): the file holds one
+            // serialized QuotaPolicy; a recorded policy makes every inference
+            // request pass durable admission before dispatch. Unreadable or
+            // invalid content fails startup loudly rather than silently
+            // running unpriced.
+            if let Ok(path) = std::env::var("SHENKO_QUOTA_POLICY") {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|error| anyhow::anyhow!("SHENKO_QUOTA_POLICY unreadable: {error}"))?;
+                let policy: shenko_quota::QuotaPolicy = serde_json::from_str(&text)
+                    .map_err(|error| anyhow::anyhow!("SHENKO_QUOTA_POLICY invalid: {error}"))?;
+                let receipt = store.record_quota_policy(&policy, chrono::Utc::now())?;
+                info!(policy_id=%policy.policy_id, revision=policy.revision,
+                    commit=%receipt.commit_ref, "quota policy recorded");
+            }
             let capabilities = match broker.discover_capabilities().await {
                 Ok(capabilities) => Some(capabilities),
                 Err(error) => {
