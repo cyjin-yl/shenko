@@ -43,6 +43,9 @@ single.sh/make.sh/genconfig.sh, portability.sh and the Makefile to call
   trailing-newline loss of command substitution);
 - upstream's unquoted `dirname $OUTNAME`, generated `-o $OUTNAME`, `mktemp`
   alias handling and `brun` paths are quoted for run dirs containing spaces;
+  composite flag strings (`$BUILD`, `$CFLAGS`) keep intentional word splitting
+  — full space-in-path support of the whole toolchain is *not* claimed without
+  native evidence;
 - the `LIBRARIES` probe loop is serialized — upstream ran each compiler probe
   in the background, bypassing `CPUS=1`; the generated `.singlemake` clean
   target escapes `$$SHENKO_TOYBOX_RETAIN` so make passes the shell variable.

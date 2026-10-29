@@ -93,7 +93,7 @@
      continue
  
 -  do_loudly $BUILD -c $i -o $OUT &
-+  do_loudly "$BUILD" -c "$i" -o "$OUT" &
++  do_loudly $BUILD -c "$i" -o "$OUT" &
  
    ratelimit || break
  done

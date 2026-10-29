@@ -14,21 +14,27 @@
 # coreutils in addition to the selected WASI SDK.
 set -euo pipefail
 
-# Command substitution strips every trailing newline; a path whose canonical
-# form ends in one would silently bind to the wrong directory. The appended
-# sentinel preserves raw bytes, then the "\nx" tail is removed exactly.
+# Command substitution strips every trailing newline, and the sentinel only
+# protects bytes inside one — the caller's own $() would lose them again.
+# canon() therefore assigns the destination variable directly (printf -v)
+# from substitution output whose sentinel was stripped *inside* the same
+# capture, so the caller's variable never passes through $() at all.
+# Usage: canon <varname> <path>
 canon() {
-  local out
-  out="$(realpath -e -- "$1" && printf x)" || exit 2
-  out="${out%$'\n'x}"
-  printf '%s' "$out"
+  local __v="$1" __raw
+  __raw="$(realpath -e -- "$2" || exit 2; printf x)" || exit 2
+  __raw="${__raw%$'\n'x}"
+  printf -v "$__v" '%s' "$__raw"
 }
 
-WASI_SDK="$(canon "${1:?usage: build.sh <wasi-sdk-dir> <toybox-tarball> <new-run-dir>}")"
-SOURCE_ARCHIVE="$(canon "${2:?pass the pinned toybox-0.8.15.tar.gz}")"
+canon WASI_SDK "${1:?usage: build.sh <wasi-sdk-dir> <toybox-tarball> <new-run-dir>}"
+canon SOURCE_ARCHIVE "${2:?pass the pinned toybox-0.8.15.tar.gz}"
 RUN_DIR="${3:?pass a new persistent run directory whose parent exists}"
-PORT_DIR="$(cd "$(dirname "$0")" && pwd -P; printf x)"
-PORT_DIR="${PORT_DIR%$'\n'x}"
+# ${0%/*} splits on string length, not a subprocess: no nested substitution.
+__port_arg="${0%/*}"
+[ "$__port_arg" = "$0" ] && __port_arg=.
+canon PORT_DIR "$__port_arg"
+unset __port_arg
 SOURCE_SHA256=52452b68a6cf50f9a9728b0f844b03c4dd1f70463675b202e6cf0475bda3934f
 
 actual_sha256="$(sha256sum -- "$SOURCE_ARCHIVE")"
@@ -44,7 +50,7 @@ mkdir -- "$RUN_DIR" || {
   echo "cannot claim $RUN_DIR; choose a fresh path, never reuse a prior run" >&2
   exit 2
 }
-RUN_DIR="$(canon "$RUN_DIR")"
+canon RUN_DIR "$RUN_DIR"
 mkdir -- "$RUN_DIR/applets" "$RUN_DIR/vendor" "$RUN_DIR/scratch" "$RUN_DIR/logs" "$RUN_DIR/retired"
 cp -- "$PORT_DIR/miniconfig.wasi" "$RUN_DIR/miniconfig.wasi"
 printf 'action\toriginal_path\tretained_path\n' > "$RUN_DIR/retired/INDEX.tsv"
