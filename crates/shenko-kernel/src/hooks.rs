@@ -4,18 +4,40 @@
 //! schema-version admission, conflict/cycle rejection that leaves the running
 //! graph untouched, explicit handler diagnostics, and an atomic
 //! generation swap so an in-flight run keeps the graph it snapshot.
+//!
+//! Hook point contracts (mode, major version, per-handler timeout and failure
+//! policy) are admitted into the graph itself, so an in-flight dispatch keeps
+//! the contract it snapshot and a major-version bump fences incompatible
+//! handlers rather than reinterpreting them. Every admitted graph carries a
+//! deterministic `graph_digest` over its contracts and versioned handler
+//! artifacts, so a retained dispatch receipt stays interpretable after
+//! hot-updates and across restarts.
 use std::collections::{BTreeMap, BTreeSet};
+use std::panic::AssertUnwindSafe;
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::FutureExt;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
+use shenko_types::object::{Digest, VersionedRef};
 use thiserror::Error;
 
 /// Payload schema the registry currently admits. A hook compiled against a
 /// different schema is refused instead of being interpreted against new fields.
 pub const HOOK_SCHEMA_VERSION: u32 = 1;
+
+/// Major version of every built-in hook point in the standard install profile.
+/// Handlers declare the point major they were compiled against; a mismatch is
+/// refused at admission instead of being interpreted against a newer contract.
+pub const STANDARD_HOOK_POINT_MAJOR: u32 = 1;
+
+/// Per-handler budget of the standard install profile. SPEC §41.8 gives
+/// optional contributions a bounded local preparation budget; an observer
+/// hook that does not answer inside it is diagnosed, never awaited forever.
+pub const STANDARD_HOOK_TIMEOUT_MS: u64 = 250;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(rename_all = "snake_case")]
@@ -26,6 +48,18 @@ pub enum HookPhase {
     AfterOperation = 40,
     CapabilityChanged = 50,
     GenerationHandoff = 60,
+}
+
+impl HookPhase {
+    /// Every built-in hook point of the standard catalog.
+    pub const ALL: [HookPhase; 6] = [
+        HookPhase::BeforeInference,
+        HookPhase::AfterInference,
+        HookPhase::BeforeOperation,
+        HookPhase::AfterOperation,
+        HookPhase::CapabilityChanged,
+        HookPhase::GenerationHandoff,
+    ];
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,6 +107,66 @@ impl HookPayload {
     }
 }
 
+/// Synthesis contract of a hook point — SPEC §41.8.1 `mode`.
+///
+/// Only `Observe` is admitted today: dispatching modes that transform,
+/// collect or decide requires §41.8.2 output synthesis that this registry
+/// does not implement, so declaring one is refused rather than silently
+/// honored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookMode {
+    Observe,
+    Transform,
+    Collect,
+    Decide,
+    Around,
+}
+
+/// What dispatch does with a handler that fails, times out or panics —
+/// SPEC §41.8.1 `failure`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HookFailurePolicy {
+    /// Skip this handler's output, keep the diagnostic, run the rest of the
+    /// dispatch. The failure does not erase effects the handler already ran.
+    ReportAndContinue,
+    /// Stop the dispatch: keep the diagnostic and every result already
+    /// collected, and run no further handler in this phase.
+    StopUnit,
+}
+
+/// Declared contract of one hook point — SPEC §41.8.1 `HookPoint`.
+///
+/// The contract travels with the admitted graph: a snapshot keeps dispatching
+/// under the contract it leased, and publishing a changed contract republishes
+/// the whole graph through the same admission checks as a handler change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookPointContract {
+    pub phase: HookPhase,
+    /// Contract major version. Handlers bind one `point_major`; admission
+    /// refuses a handler compiled for a different major of this point.
+    pub major: u32,
+    pub mode: HookMode,
+    /// Finite per-handler budget. Zero is not a valid contract.
+    pub timeout_ms: u64,
+    pub failure: HookFailurePolicy,
+}
+
+impl HookPointContract {
+    /// Standard install profile for one built-in point: observer contract,
+    /// major 1, bounded 250ms per handler, report-and-continue.
+    pub fn standard(phase: HookPhase) -> Self {
+        Self {
+            phase,
+            major: STANDARD_HOOK_POINT_MAJOR,
+            mode: HookMode::Observe,
+            timeout_ms: STANDARD_HOOK_TIMEOUT_MS,
+            failure: HookFailurePolicy::ReportAndContinue,
+        }
+    }
+}
+
 /// Static description of one hook. It travels with the handler so the graph can
 /// be validated and ordered before any handler runs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,6 +176,15 @@ pub struct HookSpec {
     pub phase: HookPhase,
     pub name: String,
     pub schema_version: u32,
+    /// Point contract major this handler was compiled against. Admission
+    /// refuses a mismatch instead of reinterpreting the handler under a
+    /// different contract.
+    pub point_major: u32,
+    /// Versioned identity of the handler artifact — SPEC §41.8.1
+    /// `HookHandler.implementation`. It is part of the graph digest so a
+    /// dispatch receipt can tell two implementations of the same hook id
+    /// apart.
+    pub implementation: VersionedRef,
     /// Optional ordering edges. Missing targets do not prevent activation.
     #[serde(default)]
     pub after: Vec<EntityId>,
@@ -135,6 +238,12 @@ pub struct HookResult {
     /// new product-permission gate. Phase consumers keep their existing policy.
     #[serde(default)]
     pub error: Option<String>,
+    /// Artifact digest of the handler that produced this result. Stamped by
+    /// the dispatcher, not by the handler, so a retained receipt names the
+    /// exact implementation that ran. `None` only on handler-constructed
+    /// pre-dispatch values.
+    #[serde(default)]
+    pub implementation: Option<Digest>,
 }
 
 impl HookResult {
@@ -145,6 +254,7 @@ impl HookResult {
             modified: false,
             reason: None,
             error: None,
+            implementation: None,
         }
     }
     pub fn block(reason: impl Into<String>) -> Self {
@@ -154,8 +264,29 @@ impl HookResult {
             modified: false,
             reason: Some(reason.into()),
             error: None,
+            implementation: None,
         }
     }
+}
+
+/// Receipt of one phase dispatch — SPEC §41.8.1 `HookDispatch`.
+///
+/// It records the durable identity of what ran: the leased graph revision and
+/// its digest, plus every handler result stamped with the artifact that
+/// produced it. `stopped_early` means a `stop_unit` contract cut the dispatch
+/// short; the failing result carries the diagnostic.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookDispatch {
+    pub dispatch_id: EntityId,
+    pub phase: HookPhase,
+    /// Runtime-only revision of the leased graph.
+    pub generation: u64,
+    /// Content identity of the leased graph: contracts plus member specs and
+    /// implementations. Two graphs sharing a digest dispatch identically, even
+    /// across restarts.
+    pub graph_digest: Digest,
+    pub results: Vec<HookResult>,
+    pub stopped_early: bool,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -190,19 +321,68 @@ pub enum HookAdmissionError {
     RevisionExhausted,
     #[error("hook graph changed during candidate preparation: expected {expected}, found {actual}")]
     RevisionConflict { expected: u64, actual: u64 },
+    #[error("hook {hook_id} was compiled for {phase:?} major {handler_major}; the admitted contract is major {point_major}")]
+    PointMajorMismatch {
+        hook_id: EntityId,
+        phase: HookPhase,
+        point_major: u32,
+        handler_major: u32,
+    },
+    #[error("hook point mode {mode:?} is not admitted by this registry; only observe dispatch is implemented")]
+    UnsupportedMode { mode: HookMode },
+    #[error("hook point {phase:?} contract must give a finite timeout_ms > 0")]
+    InvalidPointContract { phase: HookPhase },
 }
 
 /// The admitted graph. Replaced only as a whole, so a rejected registration
 /// never leaves a half-applied graph behind.
-#[derive(Default)]
 struct Graph {
     generation: u64,
     /// Entries ordered by phase, dependency order and stable id.
     ordered: Vec<Arc<HookEntry>>,
+    /// Declared contract of each hook point. Contracts are admitted with the
+    /// graph, so a leased snapshot keeps dispatching under the contract it
+    /// was taken from even after a profile republication.
+    contracts: BTreeMap<HookPhase, HookPointContract>,
+    /// Content identity of this graph: digest over contracts plus every
+    /// member spec including its versioned implementation. Deterministic for
+    /// identical declarations, independent of registration order or uptime.
+    digest: Digest,
 }
 
 impl Graph {
-    fn build(generation: u64, entries: Vec<Arc<HookEntry>>) -> Result<Self, HookAdmissionError> {
+    fn standard_contracts() -> BTreeMap<HookPhase, HookPointContract> {
+        HookPhase::ALL
+            .into_iter()
+            .map(|phase| (phase, HookPointContract::standard(phase)))
+            .collect()
+    }
+
+    fn compute_digest(
+        contracts: &BTreeMap<HookPhase, HookPointContract>,
+        members: &[&HookSpec],
+    ) -> Digest {
+        #[derive(Serialize)]
+        struct GraphIdentity<'a> {
+            schema_version: u32,
+            contracts: &'a BTreeMap<HookPhase, HookPointContract>,
+            members: &'a [&'a HookSpec],
+        }
+        let identity = GraphIdentity {
+            schema_version: HOOK_SCHEMA_VERSION,
+            contracts,
+            members,
+        };
+        let bytes = serde_json::to_vec(&identity)
+            .expect("hook graph identity is serializable");
+        Digest::blake3(&bytes)
+    }
+
+    fn build(
+        generation: u64,
+        entries: Vec<Arc<HookEntry>>,
+        contracts: BTreeMap<HookPhase, HookPointContract>,
+    ) -> Result<Self, HookAdmissionError> {
         let mut by_id: BTreeMap<EntityId, usize> = BTreeMap::new();
         for (index, entry) in entries.iter().enumerate() {
             if entry.spec.schema_version != HOOK_SCHEMA_VERSION {
@@ -210,6 +390,17 @@ impl Graph {
                     hook_id: entry.spec.hook_id,
                     expected: HOOK_SCHEMA_VERSION,
                     found: entry.spec.schema_version,
+                });
+            }
+            let contract = contracts
+                .get(&entry.spec.phase)
+                .expect("every declared hook phase has an admitted contract");
+            if entry.spec.point_major != contract.major {
+                return Err(HookAdmissionError::PointMajorMismatch {
+                    hook_id: entry.spec.hook_id,
+                    phase: entry.spec.phase,
+                    point_major: contract.major,
+                    handler_major: entry.spec.point_major,
                 });
             }
             if by_id.insert(entry.spec.hook_id, index).is_some() {
@@ -304,10 +495,32 @@ impl Graph {
             .into_iter()
             .map(|index| entries[index].take().unwrap())
             .collect();
+        let digest = Self::compute_digest(
+            &contracts,
+            &ordered
+                .iter()
+                .map(|entry| &entry.spec)
+                .collect::<Vec<_>>(),
+        );
         Ok(Self {
             generation,
             ordered,
+            contracts,
+            digest,
         })
+    }
+}
+
+impl Default for Graph {
+    fn default() -> Self {
+        let contracts = Self::standard_contracts();
+        let digest = Self::compute_digest(&contracts, &[]);
+        Self {
+            generation: 0,
+            ordered: Vec::new(),
+            contracts,
+            digest,
+        }
     }
 }
 
@@ -342,7 +555,7 @@ impl HookRegistry {
             .generation
             .checked_add(1)
             .ok_or(HookAdmissionError::RevisionExhausted)?;
-        let rebuilt = Graph::build(revision, entries)?;
+        let rebuilt = Graph::build(revision, entries, graph.contracts.clone())?;
         self.publish(graph.generation, rebuilt)?;
         Ok(registration)
     }
@@ -372,9 +585,48 @@ impl HookRegistry {
             .generation
             .checked_add(1)
             .ok_or(HookAdmissionError::RevisionExhausted)?;
-        let rebuilt = Graph::build(revision, entries)?;
+        let rebuilt = Graph::build(revision, entries, graph.contracts.clone())?;
         self.publish(graph.generation, rebuilt)?;
         Ok(true)
+    }
+
+    /// Admit or replace the declared contract of one built-in hook point.
+    ///
+    /// The whole graph is re-validated and republished: a major-version bump
+    /// fences handlers still declaring the old major (their candidates are
+    /// refused with `PointMajorMismatch`), while in-flight snapshots keep
+    /// dispatching under the contract they leased. Publishing the identical
+    /// contract is a no-op that keeps the current revision. Only `Observe`
+    /// mode is admitted; declaring any other mode fails with
+    /// `UnsupportedMode` rather than being silently honored.
+    pub fn declare_point(
+        &self,
+        contract: HookPointContract,
+    ) -> Result<(), HookAdmissionError> {
+        if contract.mode != HookMode::Observe {
+            return Err(HookAdmissionError::UnsupportedMode { mode: contract.mode });
+        }
+        if contract.timeout_ms == 0 {
+            return Err(HookAdmissionError::InvalidPointContract {
+                phase: contract.phase,
+            });
+        }
+        let graph = Arc::clone(&self.graph.read());
+        if graph.contracts.get(&contract.phase) == Some(&contract) {
+            return Ok(());
+        }
+        let mut contracts = graph.contracts.clone();
+        contracts.insert(contract.phase, contract);
+        let generation = graph
+            .generation
+            .checked_add(1)
+            .ok_or(HookAdmissionError::RevisionExhausted)?;
+        let rebuilt = Graph::build(
+            generation,
+            graph.ordered.iter().cloned().collect(),
+            contracts,
+        )?;
+        self.publish(graph.generation, rebuilt)
     }
 
     /// Replace the whole graph for a new plugin generation. Validation happens
@@ -389,7 +641,11 @@ impl HookRegistry {
             .generation
             .checked_add(1)
             .ok_or(HookAdmissionError::RevisionExhausted)?;
-        let rebuilt = Graph::build(generation, entries.into_iter().map(Arc::new).collect())?;
+        let rebuilt = Graph::build(
+            generation,
+            entries.into_iter().map(Arc::new).collect(),
+            graph.contracts.clone(),
+        )?;
         let registrations = rebuilt
             .ordered
             .iter()
@@ -447,13 +703,21 @@ impl HookRegistry {
         }
     }
 
-    pub async fn run_phase(&self, payload: &HookPayload) -> Vec<HookResult> {
+    /// Durable content identity of the currently admitted graph.
+    pub fn graph_digest(&self) -> Digest {
+        self.graph.read().digest.clone()
+    }
+
+    pub async fn run_phase(&self, payload: &HookPayload) -> HookDispatch {
         self.snapshot().run_phase(payload).await
     }
 
-    /// Keep the existing observer policy: only an explicit block disallows.
+    /// Keep the existing observer policy: only an explicit adopted block
+    /// disallows. A dispatch cut short by a `stop_unit` contract does not
+    /// prove the unit may proceed, so it reads as not allowed.
     pub async fn check_allowed(&self, payload: &HookPayload) -> bool {
-        self.run_phase(payload).await.iter().all(|r| r.allowed)
+        let dispatch = self.run_phase(payload).await;
+        !dispatch.stopped_early && dispatch.results.iter().all(|r| r.allowed)
     }
 }
 
@@ -467,33 +731,110 @@ impl HookSnapshot {
         self.graph.generation
     }
 
-    pub async fn run_phase(&self, payload: &HookPayload) -> Vec<HookResult> {
+    /// Durable content identity of the leased graph, including its admitted
+    /// point contracts and member implementations.
+    pub fn graph_digest(&self) -> &Digest {
+        &self.graph.digest
+    }
+
+    /// Dispatch one phase under the leased contract set.
+    ///
+    /// Each handler gets the point's finite `timeout_ms`. A timeout, error or
+    /// panic becomes a diagnostic `HookResult` and is handled by the point's
+    /// failure policy: `report_and_continue` skips the output and runs the
+    /// rest of the dispatch; `stop_unit` stops the dispatch after recording
+    /// it. Illegal verdicts from an observe-mode point (a block or a claimed
+    /// modification) are never adopted — SPEC §41.8.2 — and are discarded
+    /// with a diagnostic regardless of the failure policy.
+    pub async fn run_phase(&self, payload: &HookPayload) -> HookDispatch {
         let phase = payload.phase();
+        let contract = self
+            .graph
+            .contracts
+            .get(&phase)
+            .expect("every declared hook phase has an admitted contract");
         let entries = self
             .graph
             .ordered
             .iter()
             .filter(|entry| entry.spec.phase == phase);
         let mut results = Vec::with_capacity(self.graph.ordered.len());
+        let mut stopped_early = false;
         for entry in entries {
-            match entry.handler.handle(payload).await {
-                Ok(mut result) => {
+            let handler = AssertUnwindSafe(entry.handler.handle(payload));
+            let outcome = tokio::time::timeout(
+                Duration::from_millis(contract.timeout_ms),
+                handler.catch_unwind(),
+            )
+            .await;
+            let failure: Option<String> = match outcome {
+                Err(_elapsed) => Some(format!(
+                    "handler exceeded the {}ms hook-point budget",
+                    contract.timeout_ms
+                )),
+                Ok(Err(panic)) => Some(format!("handler panicked: {}", panic_diagnostic(&panic))),
+                Ok(Ok(Err(error))) => Some(error.to_string()),
+                Ok(Ok(Ok(mut result))) => {
                     result.hook_id = entry.spec.hook_id;
-                    results.push(result);
+                    result.implementation = Some(entry.spec.implementation.artifact.digest.clone());
+                    if contract.mode == HookMode::Observe && (!result.allowed || result.modified) {
+                        // Illegal verdicts are never adopted, whatever the
+                        // failure policy says; the handler keeps running next
+                        // dispatch but this output is discarded.
+                        results.push(HookResult {
+                            hook_id: entry.spec.hook_id,
+                            allowed: true,
+                            modified: false,
+                            reason: result.reason,
+                            error: Some(
+                                "observe-mode hook attempted a verdict or modification; output discarded"
+                                    .into(),
+                            ),
+                            implementation: result.implementation,
+                        });
+                    } else {
+                        results.push(result);
+                    }
+                    continue;
                 }
-                Err(error) => {
-                    tracing::warn!(hook=%entry.spec.hook_id, err=%error, "hook observer failed; output skipped");
-                    results.push(HookResult {
-                        hook_id: entry.spec.hook_id,
-                        allowed: true,
-                        modified: false,
-                        reason: None,
-                        error: Some(error.to_string()),
-                    });
-                }
+            };
+            let diagnostic = failure.expect("failure branch always yields a diagnostic");
+            tracing::warn!(
+                hook = %entry.spec.hook_id,
+                err = %diagnostic,
+                "hook observer failed; output skipped"
+            );
+            results.push(HookResult {
+                hook_id: entry.spec.hook_id,
+                allowed: true,
+                modified: false,
+                reason: None,
+                error: Some(diagnostic),
+                implementation: Some(entry.spec.implementation.artifact.digest.clone()),
+            });
+            if contract.failure == HookFailurePolicy::StopUnit {
+                stopped_early = true;
+                break;
             }
         }
-        results
+        HookDispatch {
+            dispatch_id: EntityId::new(),
+            phase,
+            generation: self.graph.generation,
+            graph_digest: self.graph.digest.clone(),
+            results,
+            stopped_early,
+        }
+    }
+}
+
+fn panic_diagnostic(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = panic.downcast_ref::<&'static str>() {
+        (*message).to_string()
+    } else if let Some(message) = panic.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".into()
     }
 }
 
@@ -508,6 +849,8 @@ mod tests {
     use super::*;
     use parking_lot::Mutex;
     use tokio::sync::Notify;
+
+    use shenko_types::object::{ArtifactRef, SchemaRef};
 
     struct Recorder {
         name: &'static str,
@@ -538,9 +881,28 @@ mod tests {
             phase,
             name: name.into(),
             schema_version: HOOK_SCHEMA_VERSION,
+            point_major: STANDARD_HOOK_POINT_MAJOR,
+            implementation: implementation(name),
             after,
             before: Vec::new(),
             requires: Vec::new(),
+        }
+    }
+
+    /// Versioned handler identity bound to the declared label.
+    fn implementation(label: &str) -> VersionedRef {
+        let digest = Digest::blake3(format!("hook-impl/{label}").as_bytes());
+        VersionedRef {
+            artifact: ArtifactRef {
+                digest: digest.clone(),
+                locator: format!("test:hook/{label}"),
+            },
+            symbol: format!("hook.{label}.handle"),
+            schema: SchemaRef {
+                name: "hook-payload-v1".into(),
+                major: HOOK_SCHEMA_VERSION,
+                digest,
+            },
         }
     }
 
@@ -607,8 +969,14 @@ mod tests {
 
         let results = registry.run_phase(&payload()).await;
         assert_eq!(log.lock().clone(), vec!["c", "a", "b"]);
-        assert_eq!(results.len(), 3);
-        assert!(results.iter().all(|r| r.allowed && r.error.is_none()));
+        assert_eq!(results.results.len(), 3);
+        assert!(
+            results
+                .results
+                .iter()
+                .all(|r| r.allowed && r.error.is_none())
+        );
+        assert!(!results.stopped_early);
 
         // Schema mismatch, duplicates, cycles and dangling dependencies are all
         // rejected without disturbing the admitted graph.
@@ -703,9 +1071,9 @@ mod tests {
             operation_name: "send".into(),
         };
         let results = failing.run_phase(&operation).await;
-        assert_eq!(results.len(), 1);
-        assert!(results[0].allowed);
-        assert!(results[0].error.is_some());
+        assert_eq!(results.results.len(), 1);
+        assert!(results.results[0].allowed);
+        assert!(results.results[0].error.is_some());
         assert!(failing.check_allowed(&operation).await);
 
         // Generation swap: a run that already snapshotted the old graph keeps
@@ -757,9 +1125,9 @@ mod tests {
         );
         release.notify_one();
         let old_results = in_flight.await.unwrap();
-        assert_eq!(old_results.len(), 1);
+        assert_eq!(old_results.results.len(), 1);
         assert_eq!(
-            old_results[0].hook_id, old_id,
+            old_results.results[0].hook_id, old_id,
             "in-flight run keeps the old snapshot"
         );
         assert_eq!(log.lock().clone(), vec!["old"]);
@@ -827,7 +1195,7 @@ mod tests {
         assert_eq!(registry.generation(), revision);
         registry.run_phase(&payload()).await;
         release.notify_one();
-        assert_eq!(in_flight.await.unwrap()[0].hook_id, id);
+        assert_eq!(in_flight.await.unwrap().results[0].hook_id, id);
         assert!(
             original_lifetime.upgrade().is_none(),
             "an ownership token must not retain a retired handler"
@@ -835,5 +1203,231 @@ mod tests {
         assert_eq!(log.lock().clone(), vec!["replacement", "original"]);
         assert!(registry.unregister(&_replacement.registrations[0]).unwrap());
         assert!(registry.order(HookPhase::BeforeInference).is_empty());
+    }
+
+    #[tokio::test]
+    async fn point_contract_admission_is_versioned_and_fenced() {
+        let plugin = EntityId::new();
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let registry = HookRegistry::new();
+
+        // The standard profile admits a handler whose declared point major
+        // matches the contract; one compiled for another major is refused and
+        // the running graph is left untouched.
+        let mut old_major = spec(plugin, HookPhase::BeforeInference, "v0", vec![]);
+        old_major.point_major = 0;
+        assert!(matches!(
+            registry.register(entry(old_major, "v0", Arc::clone(&log))),
+            Err(HookAdmissionError::PointMajorMismatch { .. })
+        ));
+        let v1_spec = spec(plugin, HookPhase::BeforeInference, "v1", vec![]);
+        let publication = registry
+            .register(entry(
+                v1_spec.clone(),
+                "v1",
+                Arc::clone(&log),
+            ))
+            .unwrap();
+        let populated_digest = registry.graph_digest();
+        let leased = registry.snapshot();
+
+        // A contract publication re-validates every member. Bumping the point
+        // major while an incompatible handler is registered is refused; the
+        // leased snapshot keeps its own contract and dispatch identity.
+        let mut major_two = HookPointContract::standard(HookPhase::BeforeInference);
+        major_two.major = 2;
+        assert!(matches!(
+            registry.declare_point(major_two.clone()),
+            Err(HookAdmissionError::PointMajorMismatch { .. })
+        ));
+        assert_eq!(leased.graph_digest(), &registry.graph_digest());
+        assert_eq!(
+            leased.run_phase(&payload()).await.graph_digest,
+            populated_digest
+        );
+
+        // With the incompatible handler withdrawn the major bump is admitted;
+        // the leased graph keeps its durable identity.
+        assert!(registry.unregister(&publication).unwrap());
+        registry.declare_point(major_two).unwrap();
+        assert_ne!(registry.graph_digest(), populated_digest);
+        assert_eq!(*leased.graph_digest(), populated_digest);
+
+        // Only observe-mode points are admitted; declaring a transform point
+        // fails instead of dispatching under a contract without synthesis.
+        let mut transform = HookPointContract::standard(HookPhase::BeforeOperation);
+        transform.mode = HookMode::Transform;
+        assert!(matches!(
+            registry.declare_point(transform),
+            Err(HookAdmissionError::UnsupportedMode { .. })
+        ));
+        let mut zero = HookPointContract::standard(HookPhase::BeforeOperation);
+        zero.timeout_ms = 0;
+        assert!(matches!(
+            registry.declare_point(zero),
+            Err(HookAdmissionError::InvalidPointContract { .. })
+        ));
+
+        // A fresh registry admitting identical declarations reproduces the
+        // same graph digest: the digest is durable content identity, not a
+        // per-process or uptime-scoped id, and identical declarations across
+        // restarts dispatch identically.
+        let twin = HookRegistry::new();
+        twin.register(entry(v1_spec, "v1", Arc::clone(&log))).unwrap();
+        assert_eq!(twin.graph_digest(), populated_digest);
+    }
+
+    #[tokio::test]
+    async fn dispatch_honors_timeout_and_failure_policy() {
+        let plugin = EntityId::new();
+        let log = Arc::new(Mutex::new(Vec::new()));
+
+        // Never answers: the dispatcher's bounded point budget is the only
+        // thing that can end this handler's wait.
+        struct Pending;
+        #[async_trait]
+        impl HookHandler for Pending {
+            async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
+                std::future::pending::<()>().await;
+                unreachable!()
+            }
+        }
+
+        // report_and_continue: a handler past the point budget is diagnosed
+        // and the next handler still runs inside the same dispatch.
+        let registry = HookRegistry::new();
+        let mut quick = HookPointContract::standard(HookPhase::BeforeInference);
+        quick.timeout_ms = 5;
+        registry.declare_point(quick).unwrap();
+        let mut slow = spec(plugin, HookPhase::BeforeInference, "slow", vec![]);
+        slow.hook_id = "00000000-0000-0000-0000-000000000001".parse().unwrap();
+        let mut fast = spec(plugin, HookPhase::BeforeInference, "fast", vec![]);
+        fast.hook_id = "00000000-0000-0000-0000-000000000002".parse().unwrap();
+        registry
+            .swap_generation(vec![
+                HookEntry {
+                    spec: slow.clone(),
+                    handler: Arc::new(Pending),
+                },
+                entry(fast.clone(), "fast", Arc::clone(&log)),
+            ])
+            .unwrap();
+        let dispatch = registry.run_phase(&payload()).await;
+        assert_eq!(dispatch.results.len(), 2);
+        assert!(dispatch.results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("budget"));
+        assert_eq!(
+            dispatch.results[0].implementation,
+            Some(slow.implementation.artifact.digest.clone()),
+            "the receipt names the artifact that timed out"
+        );
+        assert!(dispatch.results[1].error.is_none());
+        assert!(!dispatch.stopped_early);
+        assert_eq!(log.lock().clone(), vec!["fast"]);
+        assert_eq!(dispatch.graph_digest, registry.graph_digest());
+
+        // stop_unit: a failing handler ends the dispatch; the remaining
+        // handler does not run, and the unit does not read as allowed.
+        let stopping = HookRegistry::new();
+        let mut stop_contract = HookPointContract::standard(HookPhase::BeforeOperation);
+        stop_contract.failure = HookFailurePolicy::StopUnit;
+        stopping.declare_point(stop_contract).unwrap();
+        let mut fragile = spec(plugin, HookPhase::BeforeOperation, "fragile", vec![]);
+        fragile.hook_id = "00000000-0000-0000-0000-000000000001".parse().unwrap();
+        let mut queued = spec(plugin, HookPhase::BeforeOperation, "queued", vec![]);
+        queued.hook_id = "00000000-0000-0000-0000-000000000002".parse().unwrap();
+        log.lock().clear();
+        stopping
+            .swap_generation(vec![
+                HookEntry {
+                    spec: fragile,
+                    handler: Arc::new(Recorder {
+                        name: "fragile",
+                        log: Arc::clone(&log),
+                        gate: None,
+                        fail: true,
+                    }),
+                },
+                entry(queued, "queued", Arc::clone(&log)),
+            ])
+            .unwrap();
+        let operation = HookPayload::BeforeOperation {
+            operation_id: EntityId::new(),
+            operation_name: "send".into(),
+        };
+        let dispatch = stopping.run_phase(&operation).await;
+        assert!(dispatch.stopped_early);
+        assert_eq!(dispatch.results.len(), 1);
+        assert!(dispatch.results[0].error.is_some());
+        assert!(log.lock().is_empty(), "the queued handler never ran");
+        assert!(
+            !stopping.check_allowed(&operation).await,
+            "a stopped dispatch must not read as allowed"
+        );
+
+        // A panicking observer is contained like an error: diagnostic recorded,
+        // report_and_continue runs the rest of the dispatch.
+        struct Panic;
+        #[async_trait]
+        impl HookHandler for Panic {
+            async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
+                panic!("observer exploded");
+            }
+        }
+        let panicking = HookRegistry::new();
+        let mut first = spec(plugin, HookPhase::AfterInference, "panic", vec![]);
+        first.hook_id = "00000000-0000-0000-0000-000000000001".parse().unwrap();
+        let mut second = spec(plugin, HookPhase::AfterInference, "calm", vec![]);
+        second.hook_id = "00000000-0000-0000-0000-000000000002".parse().unwrap();
+        log.lock().clear();
+        panicking
+            .swap_generation(vec![
+                HookEntry {
+                    spec: first,
+                    handler: Arc::new(Panic),
+                },
+                entry(second, "calm", Arc::clone(&log)),
+            ])
+            .unwrap();
+        let after = HookPayload::AfterInference {
+            request_id: EntityId::new(),
+            stop_reason: "end_turn".into(),
+            output_tokens: 1,
+        };
+        let dispatch = panicking.run_phase(&after).await;
+        assert_eq!(dispatch.results.len(), 2);
+        assert!(dispatch.results[0]
+            .error
+            .as_deref()
+            .unwrap()
+            .contains("panicked"));
+        assert!(dispatch.results[1].error.is_none());
+        assert!(!dispatch.stopped_early);
+        assert_eq!(log.lock().clone(), vec!["calm"]);
+
+        // An observe-mode verdict is never adopted: a block result is
+        // discarded with a diagnostic and does not disallow the unit.
+        struct Blocker;
+        #[async_trait]
+        impl HookHandler for Blocker {
+            async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
+                Ok(HookResult::block("not adopted"))
+            }
+        }
+        let observing = HookRegistry::new();
+        observing
+            .register(HookEntry {
+                spec: spec(plugin, HookPhase::BeforeInference, "blocker", vec![]),
+                handler: Arc::new(Blocker),
+            })
+            .unwrap();
+        let dispatch = observing.run_phase(&payload()).await;
+        assert_eq!(dispatch.results.len(), 1);
+        assert!(dispatch.results[0].allowed);
+        assert!(dispatch.results[0].error.is_some());
+        assert!(observing.check_allowed(&payload()).await);
     }
 }
