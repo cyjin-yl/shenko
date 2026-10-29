@@ -96,6 +96,10 @@ impl LocalModelProvider {
         if self.allow_invalid_certs {
             builder = builder.danger_accept_invalid_certs(true);
         }
+        // A sealed request is bound to this endpoint; an automatic redirect
+        // would replay the frozen payload on another host while the receipt is
+        // still attributed here. Any 3xx therefore reports terminal unknown.
+        builder = builder.redirect(reqwest::redirect::Policy::none());
 
         let body = local_body(payload, model)?;
         let client = builder.build()?;

@@ -5,6 +5,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_broker::{broker::{BrokerHandle, InferenceReceiptSink, InferenceRecoverySource}, request::*};
+use shenko_broker::broker::DispatchFence;
 use shenko_store::{Store, TaskInvocation};
 use shenko_store::external::InferenceSendBinding;
 use shenko_types::{
@@ -178,7 +179,13 @@ impl ModelChildHandler {
         let transport_ref = seal(&self.store, &send_binding, "model-child-selected-send")?;
         let resources = ResourceBindings {
             provider: frozen.provider_binding.profile_id().into(),
-            account_identity: String::new(), // Credentials/account identity are not introspected.
+            // The sealed binding's non-secret credential fingerprint: two
+            // accounts on the same endpoint/model are distinct identities.
+            account_identity: match &frozen.provider_binding {
+                ProviderBinding::Anthropic { credential_fingerprint, .. } => credential_fingerprint
+                    .as_ref().map(|fp| format!("credential:{fp}")).unwrap_or_default(),
+                _ => String::new(),
+            },
             runtime_node: invocation.task_invocation.node_id.to_string(), mount_generation: 0,
             capability_level: "finite_text_generation_no_tools".into(),
             extra: serde_json::json!({
@@ -266,8 +273,17 @@ struct ChildReceiptSink {
 }
 
 impl InferenceReceiptSink for ChildReceiptSink {
-    fn may_dispatch(&self) -> Result<bool> {
-        self.store.native_invocation_current(&self.invocation)
+    fn may_dispatch(&self) -> Result<DispatchFence> {
+        // The durable send-boundary transition: serialized with cancellation
+        // and authority changes inside one immediate transaction. A cancelled
+        // task is fenced before any send; a committed dispatch is reported as
+        // unknown so the original attempt stays recoverable and is never
+        // re-sent or marked never-dispatched.
+        Ok(match self.store.commit_native_dispatch(&self.invocation)? {
+            shenko_store::child::NativeDispatchTransition::Won => DispatchFence::Send,
+            shenko_store::child::NativeDispatchTransition::Fenced => DispatchFence::Fenced,
+            shenko_store::child::NativeDispatchTransition::AlreadyCommitted => DispatchFence::Unknown,
+        })
     }
 
     fn record(&self, result: &InferenceResult) -> Result<()> {

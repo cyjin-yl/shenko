@@ -24,6 +24,13 @@ pub enum ProviderBinding {
         base_url: String,
         model: String,
         api_version: String,
+        /// Non-secret blake3 hex of the exact credential that was configured
+        /// when the binding froze. Two unrelated accounts on the same
+        /// endpoint/model produce different fingerprints, so a recovered
+        /// pending request cannot silently resume under a different account.
+        /// The credential itself is never stored or logged.
+        #[serde(default)]
+        credential_fingerprint: Option<String>,
         serializer_revision: u32,
         default_max_tokens: u64,
     },

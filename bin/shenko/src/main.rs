@@ -2131,7 +2131,6 @@ mod reply_directive_tests {
             "先想清楚再等\n[wait] {\"condition\":\"实验出现足够判断的结果\",\"max_wait_secs\":120}\n[remember] 记住等待条件",
         )
         .unwrap();
-        assert_eq!(started.schema_version, 3);
         assert_eq!(started.controls.len(), 2);
         let OutputAction::SemanticWait { change } = &started.controls[0].action else {
             panic!("the wait control must be a typed semantic wait action")

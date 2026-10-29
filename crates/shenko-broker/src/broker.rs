@@ -91,13 +91,7 @@ impl ActiveProvider {
         match self {
             Self::Stub => ProviderBinding::Stub { codec: 2 },
             Self::Local(provider) => provider.binding(),
-            Self::Anthropic(provider) => ProviderBinding::Anthropic {
-                base_url: provider.base_url.clone(),
-                model: provider.model.clone(),
-                api_version: crate::provider::ANTHROPIC_API_VERSION.into(),
-                serializer_revision: crate::provider::SERIALIZER_REVISION,
-                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
-            },
+            Self::Anthropic(provider) => provider.binding(),
             #[cfg(test)]
             Self::Fixture(provider) => provider.binding(),
         }
@@ -264,8 +258,25 @@ fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceRes
 /// It admits no effects itself: T1 must already exist before submission. Late
 /// completion is still recorded when a managed child was stopped/cancelled.
 pub trait InferenceReceiptSink: InferenceRecoverySource {
-    fn may_dispatch(&self) -> Result<bool>;
+    /// One atomic decision at the actual send boundary, synchronized with
+    /// durable cancellation and authority changes. `Send` means the caller
+    /// irrevocably owns the single armed dispatch; `Fenced` means authority
+    /// was verifiably lost before any send; `Unknown` means a dispatch may
+    /// already have committed (e.g. an in-flight original or restart), so the
+    /// request must stay recoverable and must never be marked never-sent.
+    fn may_dispatch(&self) -> Result<DispatchFence>;
     fn record(&self, result: &InferenceResult) -> Result<()>;
+}
+
+/// Durable send-boundary verdict; distinct outcomes cannot silently swap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchFence {
+    /// This submission won the atomic transition and may send exactly once.
+    Send,
+    /// The authority check failed before any send committed.
+    Fenced,
+    /// A prior dispatch may already have committed; outcome is recoverable debt.
+    Unknown,
 }
 
 /// Trusted runtime adapter to the original durable ledger, not model input or
@@ -549,6 +560,7 @@ impl Broker {
                 if provider.allow_invalid_certs {
                     builder = builder.danger_accept_invalid_certs(true);
                 }
+                builder = builder.redirect(reqwest::redirect::Policy::none());
                 let client = builder.build()?;
                 let models = metadata_response(client.get(format!(
                     "{}/v1/models", provider.base_url.trim_end_matches('/'),
@@ -557,7 +569,11 @@ impl Broker {
             }
             ActiveProvider::Anthropic(provider) => {
                 let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(10)).build()?;
+                    .timeout(std::time::Duration::from_secs(10))
+                    // `x-api-key` survives reqwest redirects; never re-send to a
+                    // host the configured binding did not name.
+                    .redirect(reqwest::redirect::Policy::none())
+                    .build()?;
                 let models = metadata_response(client.get(format!(
                     "{}/v1/models", provider.base_url.trim_end_matches('/'),
                 ))
@@ -673,24 +689,34 @@ impl Broker {
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
                     let req = &submission.request;
-                    let admitted = submission.receipt_sink.as_ref().map_or(Ok(true), |sink| sink.may_dispatch());
+                    let admitted = submission.receipt_sink.as_ref().map_or(Ok(DispatchFence::Send), |sink| sink.may_dispatch());
                     let result = match admitted {
-                        Ok(true) => provider.complete(req).await,
+                        Ok(DispatchFence::Send) => provider.complete(req).await,
                         otherwise => {
                             let status = match otherwise {
-                                Ok(false) => InferenceStatus::Cancelled,
+                                Ok(DispatchFence::Fenced) => InferenceStatus::Cancelled,
                                 Err(error) => {
                                 warn!(request_id=%req.request_id, %error, "model dispatch fence could not be checked");
                                     InferenceStatus::Failed
                                 }
-                                Ok(true) => unreachable!("dispatched above"),
+                                Ok(DispatchFence::Unknown) => InferenceStatus::Failed,
+                                Ok(DispatchFence::Send) => unreachable!("dispatched above"),
+                            };
+                            // A fenced request provably never sent; an unknown
+                            // verdict means a dispatch may already exist, so
+                            // its terminal evidence stays recoverable instead
+                            // of a false never-sent claim.
+                            let termination = if status == InferenceStatus::Cancelled {
+                                TerminationEvidence::never_dispatched()
+                            } else {
+                                TerminationEvidence::unknown()
                             };
                             InferenceResult {
                                 request_id: req.request_id,
                                 status,
                                 response: None,
                                 effective: EffectiveInference::for_request(req),
-                                termination: TerminationEvidence::never_dispatched(),
+                                termination,
                                 quota_headers: Vec::new(),
                             }
                         }
