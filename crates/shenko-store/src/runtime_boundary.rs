@@ -216,13 +216,27 @@ fn read_head(conn: &Connection, agent_id: EntityId) -> Result<SubjectBranchHead,
 }
 
 fn read_request(conn: &Connection, request_id: EntityId) -> Result<Option<SubjectQuiesce>, ShenkoError> {
-    let data: Option<String> = conn.query_row("SELECT data FROM subject_quiesce_requests WHERE request_id=?1", [request_id.to_string()], |row| row.get(0)).optional().map_err(storage_error)?;
-    data.map(|value| serde_json::from_str(&value).map_err(ShenkoError::from)).transpose()
+    let row: Option<(String, String, String, String)> = conn.query_row(
+        "SELECT request_id,agent_id,state,data FROM subject_quiesce_requests WHERE request_id=?1",
+        [request_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).optional().map_err(storage_error)?;
+    row.map(decode_request).transpose()
 }
 
 fn open_request(conn: &Connection, agent_id: EntityId) -> Result<Option<SubjectQuiesce>, ShenkoError> {
-    let data: Option<String> = conn.query_row("SELECT data FROM subject_quiesce_requests WHERE agent_id=?1 AND state IN ('requested','paused')", [agent_id.to_string()], |row| row.get(0)).optional().map_err(storage_error)?;
-    data.map(|value| serde_json::from_str(&value).map_err(ShenkoError::from)).transpose()
+    let row: Option<(String, String, String, String)> = conn.query_row(
+        "SELECT request_id,agent_id,state,data FROM subject_quiesce_requests WHERE agent_id=?1 AND state IN ('requested','paused')",
+        [agent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).optional().map_err(storage_error)?;
+    row.map(decode_request).transpose()
+}
+
+fn decode_request((id, agent, state, data): (String, String, String, String)) -> Result<SubjectQuiesce, ShenkoError> {
+    let record: SubjectQuiesce = serde_json::from_str(&data)?;
+    if record.request_id.to_string() != id || record.agent_id.to_string() != agent || record.state.name() != state {
+        return Err(ShenkoError::conflict("quiesce request index/data mismatch"));
+    }
+    Ok(record)
 }
 
 /// A copied/imported paused head without its local control record is not a
@@ -230,9 +244,23 @@ fn open_request(conn: &Connection, agent_id: EntityId) -> Result<Option<SubjectQ
 pub(crate) fn validate_paused_head(conn: &Connection, head: &SubjectBranchHead) -> Result<(), ShenkoError> {
     let record = open_request(conn, head.agent_id)?
         .ok_or_else(|| ShenkoError::conflict("paused subject has no local boundary record; explicit recovery required"))?;
+    let boundary = record.boundary_at.ok_or_else(|| ShenkoError::conflict("paused subject has no boundary commit"))?;
+    let ledger: String = conn.query_row("SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |row| row.get(0)).map_err(storage_error)?;
+    let head_seq: i64 = conn.query_row(
+        "SELECT updated_commit_seq FROM subject_branch_heads WHERE agent_id=?1 AND branch_id=?2",
+        params![head.agent_id.to_string(), head.branch_id.0.to_string()], |row| row.get(0),
+    ).map_err(storage_error)?;
+    let boundary_seq = i64::try_from(boundary.seq.0).map_err(|_| ShenkoError::conflict("invalid boundary sequence"))?;
+    let request_seq = i64::try_from(record.requested_at.seq.0).map_err(|_| ShenkoError::conflict("invalid request sequence"))?;
+    let commits: i64 = conn.query_row(
+        "SELECT count(*) FROM commit_log WHERE ledger_id=?1 AND seq IN (?2,?3)",
+        params![ledger, request_seq, boundary_seq], |row| row.get(0),
+    ).map_err(storage_error)?;
     if record.agent_id != head.agent_id || record.state != SubjectQuiesceState::Paused
-        || record.boundary_at.is_none() || record.epoch != head.controller_epoch
-        || record.generation != head.software_generation
+        || record.closed_at.is_some() || record.epoch != head.controller_epoch
+        || record.generation != head.software_generation || request_seq >= boundary_seq
+        || head_seq != boundary_seq || record.requested_at.ledger_id != boundary.ledger_id
+        || boundary.ledger_id.to_string() != ledger || commits != 2
     {
         return Err(ShenkoError::conflict("paused subject boundary binding mismatch"));
     }
