@@ -2533,6 +2533,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "x11rb",
 ]
 
 [[package]]
@@ -2661,7 +2662,9 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "blake3",
  "chrono",
+ "png",
  "serde",
  "serde_json",
  "shenko-store",
@@ -2671,6 +2674,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "x11rb",
 ]
 
 [[package]]
