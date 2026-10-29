@@ -47,16 +47,14 @@ pub(crate) fn validate_original_event(
     {
         return Err(shenko_types::error::ShenkoError::conflict("inbox event identity mismatch").into());
     }
-    if kind == "task_result" && source != "native-child" {
-        return Err(shenko_types::error::ShenkoError::conflict(
-            "task_result delivery is reserved for the bare native-child T2 lane").into());
-    }
+    // The bare native T2 lane (kind=task_result, source=native-child, data =
+    // TaskResult) is written by finalize_task internally. A complete
+    // InboxEvent envelope can never be decoded by ready_native_results'
+    // bare-TaskResult reader, so the public admission API refuses the kind
+    // outright rather than publishing a row that breaks the dispatcher.
     if kind == "task_result" {
-        let result: shenko_types::task::TaskResult = serde_json::from_value(original.payload.into())
-            .map_err(|_| shenko_types::error::ShenkoError::conflict("native task_result payload is not the original TaskResult"))?;
-        if result.result_id != event_id {
-            return Err(shenko_types::error::ShenkoError::conflict("task_result payload/result identity mismatch").into());
-        }
+        return Err(shenko_types::error::ShenkoError::conflict(
+            "task_result is reserved for the internal bare native-child T2 lane, not envelope admission").into());
     }
     Ok(())
 }
