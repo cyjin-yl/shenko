@@ -465,7 +465,7 @@ async fn context_handler(
     let scope_id = shenko_types::ids::EntityId(head.branch_id.0);
     report["scope"] = json!({
         "agent_id": agent_id.to_string(),
-        "branch_id": head.branch_id.to_string(),
+        "branch_id": scope_id.to_string(),
     });
     let log = shenko_context_policy::StoreWindowLog::new(Arc::clone(store), scope_id);
     let scope_facts = (|| -> Result<Value, String> {
