@@ -1815,6 +1815,9 @@ struct GatedHandler {
     store: Arc<Store>,
     started: Arc<tokio::sync::Notify>,
     release: Arc<tokio::sync::Notify>,
+    /// When set, `reconcile` signals `started` and parks on `release` before
+    /// answering — a slow original-provider query, not a handler failure.
+    hold_reconcile: bool,
 }
 
 impl GatedHandler {
@@ -2011,6 +2014,10 @@ impl crate::NativeTaskHandler for GatedHandler {
         task: &TaskRecord,
         operation_id: EntityId,
     ) -> anyhow::Result<OperationRecord> {
+        if self.hold_reconcile {
+            self.started.notify_one();
+            self.release.notified().await;
+        }
         let operation = self.store.external_operation(operation_id)?;
         anyhow::ensure!(
             operation.task_id == task.task_id && operation.operation_name == "fixture.gated.v1",
@@ -2073,6 +2080,7 @@ async fn a_slow_child_never_blocks_a_finished_childs_result_projection() {
             store: store.clone(),
             started: started.clone(),
             release: release.clone(),
+            hold_reconcile: false,
         }))
         .unwrap();
 
@@ -2196,6 +2204,7 @@ async fn an_unresolved_reconciliation_wave_cannot_starve_a_later_ready_child() {
             store: store.clone(),
             started: Arc::new(tokio::sync::Notify::new()),
             release: Arc::new(tokio::sync::Notify::new()),
+            hold_reconcile: false,
         }))
         .unwrap();
 
@@ -2332,6 +2341,7 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
                 store: store.clone(),
                 started: started.clone(),
                 release: release.clone(),
+                hold_reconcile: false,
             }) as Arc<dyn crate::NativeTaskHandler>,
         )
         .await
@@ -2410,6 +2420,7 @@ async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
                 store: store.clone(),
                 started: started.clone(),
                 release: release.clone(),
+                hold_reconcile: false,
             }) as Arc<dyn crate::NativeTaskHandler>,
         )
         .await
@@ -2509,6 +2520,180 @@ async fn same_fiber_restart_recovers_aborted_claims_and_reopens_dispatch() {
     supervisor.stop().await.unwrap();
     drop(service);
     drop(reactivated);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 admission distinction: a task whose reconciliation worker is
+/// still in flight is a per-task skip, NOT global capacity exhaustion. With
+/// seven slots free, one gated reconcile must not stop the scan before a
+/// later ready child is visited — pre-fix `NoCapacity` made every pass halt
+/// at the earlier candidate.
+#[tokio::test]
+async fn a_single_gated_reconciliation_cannot_block_a_later_ready_child() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(
+        &store,
+        &mut subject,
+        1,
+        &[],
+        "[delegate:fixture.gated:1] {\"unresolved\":true}\n先派一个持续对账的 child。",
+    )
+    .await;
+    let reconciler = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task.task_id)
+        .next()
+        .expect("one unresolved child committed");
+
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: started.clone(),
+            release: release.clone(),
+            hold_reconcile: true,
+        }))
+        .unwrap();
+
+    // Pass 1 claims the unresolved child; its worker arms the operation and
+    // parks reconciling. The ready child trails it in scan order.
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !matches!(
+            shenko_store::child::park_reason(&store.external_task(reconciler).unwrap()),
+            Some("reconciling")
+        ) || store.external_task(reconciler).unwrap().is_running()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("unresolved child did not reach reconciling");
+
+    // Pass 2 (after the retry deadline): the child re-admits as a Settle
+    // worker whose reconcile is gated — still in flight when the pass ends.
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("gated reconcile did not start");
+
+    // Commit the ready child WHILE the reconciliation is still in flight, so
+    // it trails the earlier candidate and is not yet claimed.
+    commit_output(
+        &store,
+        &mut subject,
+        2,
+        &[],
+        "[delegate:fixture.gated:1] {\"hold\":false}\n再派一个立即可完成的 child。",
+    )
+    .await;
+    let ready = store
+        .native_task_candidates_after(None, 8)
+        .unwrap()
+        .into_iter()
+        .map(|(_, task)| task.task_id)
+        .find(|id| *id != reconciler)
+        .expect("one ready child committed");
+
+    // Pass 3 with the reconcile still gated: the earlier candidate is
+    // AlreadyManaged — a skip — and the scan must CONTINUE to the ready
+    // child and claim it. Pre-fix this pass stopped at the first candidate.
+    service.run_once().await.unwrap();
+    let ready_task = store.external_task(ready).unwrap();
+    assert!(
+        ready_task.is_running() || ready_task.is_terminal(),
+        "ready child must be claimed behind an in-flight reconciliation, got {:?}",
+        ready_task.state
+    );
+
+    release.notify_one();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while store.native_task_result(ready).unwrap().is_none() {
+            service.run_once().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("ready child did not settle");
+    drop(service);
+    drop(subject);
+    // Keep the fixture on container disk for independent inspection.
+}
+
+/// §5.6/C02 scan-boundary race: `native_task_scan_upper` reads before the
+/// candidate fetch. A producer can insert a full page in between — the
+/// recorded state is exactly fresh_round=true, upper=None, nonempty page.
+/// The pass must freeze a finite upper at this page's last key BEFORE the
+/// capacity-limited visit, so a partially visited page keeps a bounded
+/// cursor+upper pair and the round still wraps; pre-fix it stored a
+/// nonempty cursor with upper=None and never captured a bound again.
+/// `scan_once` is the real production transition helper; the call replays
+/// the race window deterministically.
+#[tokio::test]
+async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() {
+    let (_dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let wave = (0..8)
+        .map(|n| format!("[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":{n}}}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    commit_output(&store, &mut subject, 1, &[], &format!("{wave}\n[delegate:fixture.gated:1] {{\"unresolved\":true,\"n\":8}}\n插入期间到达的一页。"))
+        .await;
+
+    let service = Arc::new(crate::NativeChildService::new(
+        store.clone(),
+        subject.head.software_generation.clone(),
+    ));
+    service
+        .install(Arc::new(GatedHandler {
+            store: store.clone(),
+            started: Arc::new(tokio::sync::Notify::new()),
+            release: Arc::new(tokio::sync::Notify::new()),
+            hold_reconcile: false,
+        }))
+        .unwrap();
+
+    // Replay the recorded race state: fresh round, upper bound observed empty,
+    // but the fetch now returns a page larger than the worker budget: the
+    // ninth candidate cannot be visited, so the visit is partial.
+    service.scan_once(None, None, true, 32).unwrap();
+    let (cursor, upper) = service.scan_snapshot();
+    assert!(
+        upper.is_some(),
+        "a partially visited page after an empty upper read must freeze a finite boundary"
+    );
+    assert!(
+        cursor.is_some(),
+        "capacity-limited visit must keep the cursor at the last visited key"
+    );
+
+    // The preserved cursor resumes at the first unvisited candidate; the
+    // bound upper still lets the round wrap instead of extending forever.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while service
+            .scan_snapshot()
+            .0
+            .is_some()
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+            service.run_once().await.unwrap();
+        }
+    })
+    .await
+    .expect("scan round never wrapped within the frozen boundary");
+    drop(service);
     drop(subject);
     // Keep the fixture on container disk for independent inspection.
 }

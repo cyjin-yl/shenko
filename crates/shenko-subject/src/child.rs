@@ -93,6 +93,19 @@ enum Visit {
     NoCapacity,
 }
 
+/// Why a worker admission check may refuse a candidate.
+enum Admission {
+    /// A slot is free and no worker owns this task.
+    Open,
+    /// This task already has a live managed execution — a Skip, not a global
+    /// capacity failure: later candidates must still be visited.
+    AlreadyManaged,
+    /// Every worker slot is occupied; the scan must pause at this candidate.
+    Full,
+    /// Teardown closed admission; treated as capacity-blocked.
+    Closed,
+}
+
 #[derive(Debug, Clone)]
 pub struct NativeTaskDescriptor {
     pub kind: String,
@@ -288,10 +301,38 @@ impl NativeChildService {
             (state.cursor.clone(), state.upper.clone(), state.cursor.is_none())
         };
         let upper = if fresh_round { self.store.native_task_scan_upper()? } else { upper };
+        self.scan_once(after, upper, fresh_round, PAGE)
+    }
+
+    /// Fetch one page after `after`, visit candidates under the worker
+    /// budget, then advance the scan state. `pub(crate)` so in-crate tests
+    /// can replay the empty-upper-read → insertion race window
+    /// deterministically: passing (fresh_round=true, upper=None) with real
+    /// committed candidates is exactly the state the window leaves behind,
+    /// and the cursor/upper bookkeeping below is the code under test.
+    pub(crate) fn scan_once(
+        self: &Arc<Self>,
+        after: Option<(String, EntityId)>,
+        upper: Option<(String, EntityId)>,
+        fresh_round: bool,
+        page: usize,
+    ) -> Result<usize> {
+        let mut upper = upper;
         let candidates = self.store.native_task_candidates_after(
             after.as_ref().map(|(created, id)| (created.as_str(), *id)),
-            PAGE,
+            page,
         )?;
+        // Empty-upper race closure: the boundary read observed nothing, but a
+        // producer inserted candidates before this fetch. Freeze the round
+        // boundary at THIS page's last key before capacity-limited visitation,
+        // so a partially visited page keeps a finite upper bound and the
+        // round can still wrap; a fully visited or empty page behaves exactly
+        // as an upper=None round did.
+        if fresh_round && upper.is_none() {
+            upper = candidates
+                .last()
+                .map(|(created, task)| (created.clone(), task.task_id));
+        }
         // Advance the scan only over candidates this pass actually visited.
         // Worker capacity is finite, so a fetched-but-unvisited candidate
         // must keep the cursor at the last visited key — the next pass
@@ -310,14 +351,11 @@ impl NativeChildService {
         }
         let visited_last = candidates.last().map(|(c, t)| (c.clone(), t.task_id));
         // A fully visited page completes the round when it was short or it
-        // reached the captured upper bound. A partially visited page only
+        // reached the round's upper bound. A partially visited page only
         // completes when the visit already reached the upper bound.
-        // An empty captured boundary must also complete: a producer may
-        // insert a full page between the two reads, and a nonempty cursor
-        // with no upper bound would never wrap.
         let complete = if !exhausted {
             (fresh_round && upper.is_none())
-                || candidates.len() < PAGE
+                || candidates.len() < page
                 || visited_last.as_ref().is_some_and(|last| upper.as_ref().is_some_and(|upper| last >= upper))
         } else {
             last_visited.as_ref().is_some_and(|last| upper.as_ref().is_some_and(|upper| last >= upper))
@@ -372,15 +410,21 @@ impl NativeChildService {
         }
     }
 
-    /// Spawn a bounded managed execution for a task whose claim/settlement is
-    /// already durable. Returns false when the execution budget is full or a
-    /// worker already owns this task; the caller leaves the durable state
-    /// untouched and retries on a later pass.
-    fn worker_available(&self, task_id: EntityId) -> bool {
+    /// Whether this task may own a worker right now. `AlreadyManaged` is a
+    /// per-task skip (its execution is in flight); `Full`/`Closed` are global
+    /// conditions that must pause the whole scan.
+    fn admission(&self, task_id: EntityId) -> Admission {
         let executions = self.executions.lock();
-        !executions.closed
-            && executions.workers.len() < MAX_INFLIGHT_EXECUTIONS
-            && !executions.workers.contains_key(&task_id)
+        if executions.workers.contains_key(&task_id) {
+            return Admission::AlreadyManaged;
+        }
+        if executions.closed {
+            return Admission::Closed;
+        }
+        if executions.workers.len() >= MAX_INFLIGHT_EXECUTIONS {
+            return Admission::Full;
+        }
+        Admission::Open
     }
 
     /// Atomically install a spawned worker. Returns false when teardown closed
@@ -505,6 +549,18 @@ impl NativeChildService {
             .collect()
     }
 
+    /// Crate-visible view of the in-memory scan position for tests and
+    /// diagnostics. It is scheduling state only — never a completion
+    /// watermark and never consulted for durable truth.
+    pub(crate) fn scan_snapshot(
+        &self,
+    ) -> (Option<(String, EntityId)>, Option<(String, EntityId)>) {
+        match self.scan.lock() {
+            Ok(state) => (state.cursor.clone(), state.upper.clone()),
+            Err(_) => (None, None),
+        }
+    }
+
     /// Advance one durable candidate by at most one synchronous CAS step. Any
     /// handler wait (fresh `execute` or recovery `reconcile`) is delegated to a
     /// spawned managed execution; this pass itself never awaits a handler.
@@ -593,8 +649,12 @@ impl NativeChildService {
             if operation.state != OperationState::Resolved {
                 // The original provider query runs in a managed execution so a
                 // slow or unreachable handle cannot hold the dispatcher pass.
-                if !self.worker_available(task.task_id) {
-                    return Ok(Visit::NoCapacity);
+                match self.admission(task.task_id) {
+                    // An in-flight reconciliation already owns this task; the
+                    // candidate is visited and the scan must continue.
+                    Admission::AlreadyManaged => return Ok(Visit::Skipped),
+                    Admission::Full | Admission::Closed => return Ok(Visit::NoCapacity),
+                    Admission::Open => {}
                 }
                 let implementation = registered.descriptor.implementation_ref.clone();
                 if !self.spawn_execution(
@@ -631,8 +691,10 @@ impl NativeChildService {
         }
         // The claim must never be created without a spawned owner to settle
         // it; capacity is checked before the CAS transitions Pending→Running.
-        if !self.worker_available(task.task_id) {
-            return Ok(Visit::NoCapacity);
+        match self.admission(task.task_id) {
+            Admission::AlreadyManaged => return Ok(Visit::Skipped),
+            Admission::Full | Admission::Closed => return Ok(Visit::NoCapacity),
+            Admission::Open => {}
         }
         let Some(claim) = self.store.claim_native_task(
             task.task_id,
