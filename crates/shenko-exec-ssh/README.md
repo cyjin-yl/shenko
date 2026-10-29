@@ -59,13 +59,15 @@ Unix 为每次调用创建独立进程组，超时或 future drop 时向该组�
 ## tmux seat 发现与受守卫的写入（C07 / #12 切片）
 
 - `TmuxPane` 现在携带 `pane_pid` 与 `dead`（`pane_dead`）：seat 身份是 pane + 进程现场，不是永久不变的 pane 编号。
-- `discover_agent_seats` 返回 `AgentSeat { pane, kind, processes }`：对每条 pane 从 `pane_pid` 向下收集真实进程子树（`ps -axo pid=,ppid=,pgid=,tpgid=,args=`，根在前、同层按 pid 升序），再只保留其控制终端前台进程组成员（`pgid == tpgid`）归类——后台/停止任务共享子树但收不到 pane 输入，例如前台 bash 下被停止的 `claude` 不会把该 pane 变成 agent seat，也就不会授权向 shell 写入。跳过 shell/tmux/sudo 等 wrapper 后按第一个非 wrapper 前台程序归类 `claude`/`omp`/`codex` → 对应 `SeatKind`，其余 → `Other(comm)`；裸 shell 和 dead pane 不被当成 seat。`pane_pid` 为 0（旧 tmux 缺列）或不在 ps 表中时进程证据为空、走 `pane_current_command` fallback，绝不从 init/无关主机进程向下走；`ps` 不可得同样退化且 `processes` 为空——调用方应把该 seat 视为未核验。
+- `discover_agent_seats` 返回 `AgentSeat { pane, kind, processes }`：确定遍历真实进程子树，只按 **pane 根终端**的前台组归类（成员 `pgid` 和 `tpgid` 都匹配根的正 `tpgid`），不采纳后代独立 PTY 的前台程序。跳过 shell/wrapper 后识别 `claude`/`omp`/`codex` 或 `Other(comm)`；前台 shell、后台 agent 与 dead pane 不被当成 seat。只有进程证据不可得（PID=0、根缺失、ps 不可用）才退回未核验的 `pane_current_command`；真实 shell 证据不能被旧 tmux 命令覆盖。
 - `send_keys_verified`/`send_input_verified` 在同一条远端命令里先检查 pane 存在、非 `pane_dead`、`pane_current_command` 仍等于 `expected_command`，再 `send-keys`；三种拒绝映射为可下转的 `SeatRefusal`（`PaneMissing`/`PaneDead`/`ProgramChanged`），不再把为 seat 准备的输入盲发进 shell。检查与发送之间仍存在 tmux 无法消除的竞态窗口——这是拒绝盲输，不是送达证明。
 - `SeatObservation.screen_hash` 是纯文本画面的稳定 digest，供调用方在回答前比对问题/画面 revision 是否变化。
 
 ## 本轮验证范围
 
-仅新增两个针对性测试，串行运行：
+seat 增量保留 8 个独立永久场景：前台 agent、停止 agent 与旧命令、内层 PTY、PID=0 fallback、三类拒绝及普通失败；不保留生成命令源码断言。实际运行结果以父验证记录为准。
+
+既有 transport 的两个针对性测试继续复用，串行运行：
 
 ```sh
 CARGO_BUILD_JOBS=1 cargo test -p shenko-exec-ssh -- --test-threads=1
