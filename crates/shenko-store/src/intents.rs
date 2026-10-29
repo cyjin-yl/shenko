@@ -127,6 +127,9 @@ impl Store {
             }
         }
         for intent in &decision.delegated_task_intents {
+            if !historical && intent.definition.as_ref().is_some_and(|definition| definition.kind == "model.child") {
+                self.validate_model_child_intent(head, step, decision, intent)?;
+            }
             let contract = intent.definition.as_ref().map_or_else(
                 || "shenko.task/delegation-queue/1".to_string(),
                 |definition| {
@@ -267,6 +270,51 @@ impl Store {
         }
     }
 
+    fn validate_model_child_intent(
+        &self, head: &SubjectBranchHead, step: &SubjectStep,
+        decision: &StepDecision, intent: &DelegationIntent,
+    ) -> Result<(), shenko_types::error::ShenkoError> {
+        use shenko_types::{error::ShenkoError, output::OutputAction};
+        let invalid = || ShenkoError::conflict("model child is not bound to its authored control and exact S0 transport/budget");
+        let spec = decision.output.controls.iter().find_map(|control| {
+            if control.action_id != intent.intent_id { return None; }
+            match &control.action { OutputAction::DelegateModel { spec } => Some(spec), _ => None }
+        }).ok_or_else(invalid)?;
+        let plan: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
+        let mut binding = plan.get("provider_binding").cloned().ok_or_else(invalid)?;
+        if !matches!(binding.get("kind").and_then(|value| value.as_str()), Some("local" | "anthropic")) {
+            return Err(invalid());
+        }
+        binding["model"] = serde_json::json!(spec.model);
+        let cap = plan.pointer("/payload/max_tokens").and_then(|value| value.as_u64())
+            .or_else(|| binding.get("default_max_tokens").and_then(|value| value.as_u64()))
+            .ok_or_else(invalid)?;
+        let definition = intent.definition.as_ref().ok_or_else(invalid)?;
+        let input = &definition.input;
+        if plan.get("schema_version").and_then(|value| value.as_u64()) != Some(11)
+            || plan.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
+            || definition.definition_version != 1
+            || input.get("schema_version").and_then(|value| value.as_u64()) != Some(1)
+            || input.get("task_id") != Some(&serde_json::to_value(intent.intent_id)?)
+            || input.get("created_by_step_id") != Some(&serde_json::to_value(step.step_id)?)
+            || input.get("software_generation") != Some(&serde_json::to_value(&head.software_generation)?)
+            || input.get("provider_binding") != Some(&binding)
+            || input.get("spec") != Some(&serde_json::to_value(spec)?)
+            || input.get("parent_max_tokens").and_then(|value| value.as_u64()) != Some(cap)
+            || spec.max_tokens == 0 || spec.max_tokens > cap
+            || intent.goal != spec.goal || intent.system_prompt != spec.system_prompt
+            || intent.model.as_deref() != Some(spec.model.as_str())
+            || intent.budget_hint.as_ref().and_then(|budget| budget.max_tokens) != Some(spec.max_tokens)
+            || intent.budget_hint.as_ref().and_then(|budget| budget.max_duration_secs).is_some()
+            || !intent.capabilities.is_empty() || intent.reply_grant.is_some()
+        {
+            return Err(invalid());
+        }
+        let request: EntityId = serde_json::from_value(input.get("request_id").cloned().ok_or_else(invalid)?)?;
+        if request == EntityId::nil() { return Err(invalid()); }
+        Ok(())
+    }
+
     /// Called once before releasing the recovered subject. Invalidates only
     /// dispatch authority; old callbacks can still enter EvidenceIngress.
     pub fn start_subject_dispatcher(&self) -> Result<()> {
@@ -393,7 +441,7 @@ impl Store {
             tx.execute("UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE task_id=?1",params![id.to_string(),task.record_revision.0 as i64,serde_json::to_string(&task)?,seq.0 as i64])?;
             tx.execute("UPDATE subject_intents SET state='claimed',owner=?2,revision=revision+1,updated_seq=?3 WHERE intent_id=?1 AND state='ready'",params![id.to_string(),self.capabilities.incarnation.to_string(),seq.0 as i64])?;
             self.intent_log(&tx,commit)?;tx.commit()?;
-            Ok(Some(TaskInvocation{task_id:id,task_revision:task.task_revision,record_revision:task.record_revision,invocation_id,epoch:head.controller_epoch,worker_id:self.capabilities.incarnation,node_id:self.ledger.ledger_id()}))
+            Ok(Some(TaskInvocation{task_id:id,task_revision:task.task_revision,record_revision:task.record_revision,invocation_id,epoch:head.controller_epoch,software_generation:head.software_generation,worker_id:self.capabilities.incarnation,node_id:self.ledger.ledger_id()}))
         },storage_failure)
     }
 

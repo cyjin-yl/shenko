@@ -502,7 +502,7 @@ impl Store {
         let object = step.input_plan_ref.as_ref()
             .ok_or_else(|| ShenkoError::conflict("S0 input plan missing"))?;
         let input: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&object.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10)
+        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(11)
             || input.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || input.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
         {
