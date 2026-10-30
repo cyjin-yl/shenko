@@ -70,6 +70,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
     // a replicated fact, so it never enters a snapshot fingerprint.
     conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;
+    // Durable provider-quota state (SPEC §42.5): snapshots, forecasts,
+    // policies, decisions, the single-writer pacer and attempt ledger. All
+    // writes happen inside the shared IMMEDIATE mutation line.
+    conn.execute_batch(crate::quota::QUOTA_SCHEMA)?;
+    // Durable browser input submission bindings (SPEC §41.18). Additive,
+    // never rewrites the original event or its admission fact.
+    conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
@@ -77,6 +84,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         "state",
         "TEXT NOT NULL DEFAULT 'present'",
     )?;
+    // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
+    // additive, own tables only; location history is never rewritten.
+    conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
     Ok(())
 }
 

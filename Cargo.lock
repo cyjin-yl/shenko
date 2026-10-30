@@ -1124,6 +1124,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link",
+]
+
+[[package]]
 name = "gimli"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2495,6 +2505,7 @@ name = "shenko"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "cordis-core",
@@ -2513,16 +2524,19 @@ dependencies = [
  "shenko-kernel",
  "shenko-memory",
  "shenko-node",
+ "shenko-quota",
  "shenko-seed",
  "shenko-store",
  "shenko-subject",
  "shenko-types",
  "shenko-ui",
+ "shenko-wasm",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "x11rb",
 ]
 
 [[package]]
@@ -2651,16 +2665,25 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "blake3",
  "chrono",
+ "futures",
+ "png",
  "serde",
  "serde_json",
+ "shenko-channel-napcat",
+ "shenko-node",
  "shenko-store",
  "shenko-subject",
  "shenko-types",
+ "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tokio-util",
  "tracing",
  "uuid",
+ "x11rb",
 ]
 
 [[package]]
@@ -2756,6 +2779,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-repl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "cap-std",
+ "serde",
+ "serde_json",
+ "shenko-types",
+ "shenko-wasm",
+ "uuid",
+]
+
+[[package]]
 name = "shenko-seed"
 version = "0.1.0"
 dependencies = [
@@ -2765,6 +2802,7 @@ dependencies = [
  "dirs-next",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-types",
  "shenko-wasm",
  "thiserror 2.0.21",
@@ -2781,6 +2819,7 @@ dependencies = [
  "blake3",
  "bytes",
  "chrono",
+ "libc",
  "parking_lot",
  "rusqlite",
  "rusqlite_migration",
@@ -2789,6 +2828,7 @@ dependencies = [
  "shenko-channel-napcat",
  "shenko-context-policy",
  "shenko-identity",
+ "shenko-quota",
  "shenko-types",
  "tempfile",
  "thiserror 2.0.21",
@@ -2818,6 +2858,7 @@ dependencies = [
  "shenko-context-policy",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-quota",
  "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
@@ -2857,6 +2898,8 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-broker",
+ "shenko-context-policy",
  "shenko-kernel",
  "shenko-store",
  "shenko-subject",
@@ -2891,11 +2934,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
@@ -2903,6 +2948,7 @@ dependencies = [
  "uuid",
  "wasmtime",
  "wasmtime-wasi",
+ "wat",
 ]
 
 [[package]]
@@ -4330,6 +4376,23 @@ name = "writeable"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
+
+[[package]]
+name = "x11rb"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
+dependencies = [
+ "gethostname",
+ "rustix",
+ "x11rb-protocol",
+]
+
+[[package]]
+name = "x11rb-protocol"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
 
 [[package]]
 name = "yoke"

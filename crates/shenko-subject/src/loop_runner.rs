@@ -4,6 +4,7 @@
 use crate::inbox::{Inbox, InboxEvent};
 use crate::context_projection::{FrozenContextInput, estimate_payload_tokens, prepare_context};
 use crate::outbox::OutboxMessage;
+use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_types::commit::CommitRef;
@@ -63,7 +64,7 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 10 || input.step_id != step.step_id || input.step_no != step.step_no {
+    if input.schema_version != 11 || input.step_id != step.step_id || input.step_no != step.step_no {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -333,6 +334,46 @@ pub async fn run_subject_loop(
             // Never consume new input into a recovered, already frozen step.
             vec![]
         };
+        // Drain durable input without sending into this consumer's own bounded
+        // channel. A backlog larger than inbox capacity must not block recovery.
+        if state.step.state == SubjectStepState::Planned {
+            // §41.6: at most 64 events are selected into one step; the durable
+            // drain only fills the remainder after the live batch.
+            let drain_limit = 64usize.saturating_sub(events.len());
+            match if drain_limit == 0 {
+                Ok(vec![])
+            } else {
+                state
+                    .store
+                    .pending_inbox_events(state.agent_id, drain_limit)
+            } {
+                Ok(rows) => {
+                    if !rows.is_empty() {
+                        debug!(count = rows.len(), "draining durable web inputs");
+                    }
+                    let pending = rows.into_iter().map(|data| {
+                        serde_json::from_str::<InboxEvent>(&data).map_err(ShenkoError::from)
+                    }).collect::<Result<Vec<_>, _>>();
+                    let pending = match pending {
+                        Ok(pending) => pending,
+                        Err(error) => break Err(error),
+                    };
+                    for event in pending {
+                        // A live wake may carry the same event. The persisted
+                        // original owns its identity and payload, never the
+                        // duplicate copy delivered by the volatile channel.
+                        if let Some(existing) = events.iter_mut()
+                            .find(|existing| existing.event_id == event.event_id)
+                        {
+                            *existing = event;
+                        } else {
+                            events.push(event);
+                        }
+                    }
+                }
+                Err(error) => break Err(error),
+            }
+        }
         // An ingress replay may already be queued when ResultRecorded resumes S1.
         // Recheck L at consumption time so that stable IDs are never executed twice.
         let filtered = events
@@ -508,7 +549,7 @@ fn sealed_previous_projection(
 ) -> Result<(Option<shenko_broker::request::ProviderBinding>, Option<u32>), ShenkoError> {
     let Some(object) = &step.input_plan_ref else { return Ok((None, None)) };
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
-    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10) {
+    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(11) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
         return Ok((None, None));
@@ -526,6 +567,7 @@ fn sealed_previous_projection(
     };
     Ok((binding, estimated))
 }
+
 
 /// CAS 失败直接返回，绝不制造空 locator 后继续提交。§41.2.2
 fn seal_step_object(
@@ -582,7 +624,7 @@ async fn execute_step(
             Err(error) => return Err(error),
         };
         let input = FrozenStepInput {
-            schema_version: 10,
+            schema_version: 11,
             step_id,
             step_no: seq,
             events: prepared.events,
@@ -600,7 +642,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            10,
+            11,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -639,17 +681,28 @@ async fn execute_step(
     } else {
         if step.state == SubjectStepState::Preparing {
             if let Some(reg) = &hooks_ref {
-                reg.run_phase(&HookPayload::BeforeInference {
-                    request_id: step_id,
-                    agent_id: state.agent_id,
-                    model: input
-                        .provider_binding
-                        .as_ref()
-                        .map(|binding| binding.model())
-                        .unwrap_or("unbound")
-                        .into(),
-                })
-                .await;
+                let dispatch = reg
+                    .run_phase(&HookPayload::BeforeInference {
+                        request_id: step_id,
+                        agent_id: state.agent_id,
+                        model: input
+                            .provider_binding
+                            .as_ref()
+                            .map(|binding| binding.model())
+                            .unwrap_or("unbound")
+                            .into(),
+                    })
+                    .await;
+                debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PreModel hooks ran");
+                if dispatch.stopped_early {
+                    // A stop_unit contract cut the dispatch: the unit is not
+                    // allowed, so nothing is submitted to the broker. The
+                    // durable Preparing step stays resumable; reconciliation
+                    // of the failing handler decides whether it retries.
+                    return Err(ShenkoError::conflict(
+                        "pre-inference hook dispatch stopped the unit; frozen preparation remains resumable",
+                    ));
+                }
             }
         }
         // Close is not abort. Before dispatch, the frozen Preparing/RetryPending
@@ -667,7 +720,24 @@ async fn execute_step(
                 shenko_types::error::RetryStrategy::NewRevision,
             ).with_details(serde_json::json!({"reason":"explicit S0 migration/reconciliation required; request not dispatched"}))));
         }
+        // The sealed provider request id is immutable: every wire send gets
+        // its own durable admission identity (send) instead. A conclusively
+        // rejected send retries under a fresh send id with its own budget
+        // and pacing; the prior send keeps its armed unknown charge.
         let request_id = step.active_request_id.unwrap_or_else(EntityId::new);
+        let claimed_send = match quota_dispatch_gate(
+            &store,
+            broker.binding(),
+            request_id,
+            cancel,
+            None,
+        )
+        .await
+        {
+            Ok(QuotaGate::Ready(send_id)) => send_id,
+            Ok(QuotaGate::Cancelled) => return Ok(None),
+            Err(error) => return Err(error),
+        };
         let (tx, rx) = tokio::sync::oneshot::channel();
         let req = shenko_broker::request::InferenceRequest {
             request_id,
@@ -683,7 +753,17 @@ async fn execute_step(
         step.active_request_id = Some(request_id);
         let expected = step.record_revision;
         step.record_revision = RecordRevision(expected.0 + 1);
-        store.upsert_step(&step, &state.head, expected)?;
+        match claimed_send {
+            // Under quota the CAS itself claims the exact send the gate
+            // armed, in the same transaction — never a mutable "latest".
+            Some(send_id) => store.upsert_step_claiming_send(
+                &step,
+                &state.head,
+                expected,
+                send_id,
+            )?,
+            None => store.upsert_step(&step, &state.head, expected)?,
+        };
         state.step = step.clone();
         // A failed channel send proves this admission was never enqueued. A crash
         // between the write and send cannot prove that, and stays AwaitingModel.
@@ -700,6 +780,11 @@ async fn execute_step(
             return Err(ShenkoError::conflict(
                 "model result request identity mismatch",
             ));
+        }
+        // Response evidence binds to the exact send this step dispatched —
+        // durable claim lineage, never a reversed "latest" guess.
+        if let Some(send_id) = claimed_send {
+            observe_quota_response(&store, broker.binding(), &result, request_id, send_id);
         }
         use shenko_broker::request::InferenceStatus;
         match result.status {
@@ -755,6 +840,11 @@ async fn execute_step(
                     "model outcome not conclusive; preserve original awaiting_model for reconciliation",
                 ));
             }
+        }
+        // The response proved provider-terminal: settle this send's own
+        // bound attempt rows with what the provider actually reported.
+        if let Some(send_id) = claimed_send {
+            settle_quota_terminal(&store, &result, request_id, send_id);
         }
         if !result.effective.matches_seal(
             input
@@ -815,14 +905,22 @@ async fn execute_step(
 
     // Hook: PostModel — SPEC §37. Fires after inference completes, before S1 commit.
     if let Some(reg) = &hooks_ref {
-        let results = reg
+        let dispatch = reg
             .run_phase(&HookPayload::AfterInference {
                 request_id: step_id,
                 stop_reason: stop_reason.clone(),
                 output_tokens: model_output.as_ref().map(|o| o.len() as u64).unwrap_or(0),
             })
             .await;
-        debug!(seq, hooks=%results.len(), "PostModel hooks ran");
+        debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PostModel hooks ran");
+        if dispatch.stopped_early {
+            // A stop_unit dispatch before S1 means the unit is not allowed:
+            // no decision seal, commit or publication follows. The durable
+            // ResultRecorded step keeps its terminal evidence resumable.
+            return Err(ShenkoError::conflict(
+                "post-inference hook dispatch stopped the unit; recorded result remains resumable",
+            ));
+        }
     }
 
     // S1 decision — SPEC §41.5: commit decision + event disposition +
@@ -844,8 +942,41 @@ async fn execute_step(
             shenko_types::error::RetryStrategy::NewRevision,
         ).with_details(serde_json::json!({"stop_reason":stop_reason,"reason":"partial/refused/unknown result is not an action decision"}))))
     };
-    let output = match output {
-        Ok(output) => output,
+    // Bind authored model selections to THIS S0, before any S1 action can be
+    // accepted. Invalid budget/transport selections use the same sourced R0
+    // correction path as invalid controls, never an endless recorded-result loop.
+    let parsed = output.and_then(|output| {
+        let mut delegations = Vec::new();
+        for control in &output.controls {
+            let intent = match &control.action {
+                OutputAction::Delegate { text, definition } => Some(DelegationIntent {
+                    intent_id: control.action_id, goal: text.clone(), system_prompt: text.clone(),
+                    model: None, capabilities: vec![], budget_hint: None, reply_grant: None,
+                    definition: definition.clone(),
+                }),
+                OutputAction::DelegateModel { spec } => {
+                    let prepared = input.provider_binding.as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("model child requires a sealed provider transport"))
+                        .and_then(|binding| crate::model_child::prepare_model_delegation(
+                            control.action_id, step_id, spec, binding,
+                            input.payload.max_tokens.unwrap_or_else(|| binding.default_max_tokens()),
+                            &step.software_generation,
+                        ));
+                    Some(prepared.map_err(|error| ShenkoError::Protocol(
+                        shenko_types::error::ProtocolError::new(
+                            "CONTROL_PROTOCOL_INVALID", shenko_types::error::ErrorScope::Request,
+                            shenko_types::error::RetryStrategy::NewRevision,
+                        ).with_details(serde_json::json!({"line":control.spans.first().map(|span|span.line),"reason":error.to_string()}))
+                    ))?)
+                }
+                _ => None,
+            };
+            if let Some(intent) = intent { delegations.push(intent); }
+        }
+        Ok((output, delegations))
+    });
+    let (output, decision_delegation_intents) = match parsed {
+        Ok(parsed) => parsed,
         Err(ShenkoError::Protocol(error))
             if matches!(
                 error.code.as_str(),
@@ -863,16 +994,23 @@ async fn execute_step(
 
     // Hook: PreEffect — SPEC §37. Fires before S1 commit is written to the ledger.
     if let Some(reg) = &hooks_ref {
-        let results = reg
+        let dispatch = reg
             .run_phase(&HookPayload::BeforeOperation {
                 operation_id: step_id,
                 operation_name: format!("commit_step/{seq}"),
             })
             .await;
-        debug!(seq, hooks=%results.len(), "PreEffect hooks ran");
+        debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PreEffect hooks ran");
+        if dispatch.stopped_early {
+            // A stop_unit dispatch before the S1 commit means the unit is not
+            // allowed: no decision intents, head advance or outbox message.
+            // The durable ResultRecorded step stays resumable.
+            return Err(ShenkoError::conflict(
+                "pre-commit hook dispatch stopped the unit; recorded result remains resumable",
+            ));
+        }
     }
 
-    let mut decision_delegation_intents = vec![];
     let mut memory_candidates = vec![];
     let mut publication_intents = vec![];
     let mut policy_intents = vec![];
@@ -880,18 +1018,6 @@ async fn execute_step(
     let mut identity_action_ids = vec![];
     for control in &output.controls {
         match &control.action {
-            OutputAction::Delegate { text, definition } => {
-                decision_delegation_intents.push(DelegationIntent {
-                    intent_id: control.action_id,
-                    goal: text.clone(),
-                    system_prompt: text.clone(),
-                    model: None,
-                    capabilities: vec![],
-                    budget_hint: None,
-                    reply_grant: None,
-                    definition: definition.clone(),
-                })
-            }
             OutputAction::Remember { text } => {
                 let content_ref = seal_step_object(
                     &store,
@@ -970,7 +1096,7 @@ async fn execute_step(
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
     let decision = StepDecision {
-        schema_version: 6,
+        schema_version: 7,
         step_id,
         output: output.clone(),
         identity_intent,
@@ -998,7 +1124,7 @@ async fn execute_step(
         "application/json",
         "decisions",
         "StepDecision",
-        6,
+        7,
     )?);
 
     match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {
@@ -1053,14 +1179,14 @@ async fn execute_step(
 
             // Hook: PostEffect — SPEC §37. Fires after S1 is durably committed.
             if let Some(reg) = &hooks_ref {
-                let results = reg
+                let dispatch = reg
                     .run_phase(&HookPayload::AfterOperation {
                         operation_id: step_id,
                         outcome: "committed".to_string(),
                         effect_status: format!("commit/{seq}"),
                     })
                     .await;
-                debug!(seq, hooks=%results.len(), "PostEffect hooks ran");
+                debug!(seq, hooks=%dispatch.results.len(), graph=%dispatch.graph_digest, "PostEffect hooks ran");
             }
 
             Ok(Some(receipt.commit_ref))
@@ -1139,7 +1265,7 @@ fn replace_rejected_output(
         "application/json",
         "input_plans",
         "subject_step_input",
-        10,
+        11,
     )?);
     replacement.context_revision = Some(
         retired

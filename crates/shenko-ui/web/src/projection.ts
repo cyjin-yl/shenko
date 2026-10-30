@@ -11,7 +11,17 @@ export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
 export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config';
 export type ReadingState = 'following_latest' | 'reading_history' | 'selecting_or_interacting';
 export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
-export type ReceiptState = 'sending' | 'sent' | 'queued_volatile' | 'rejected' | 'unknown';
+// Durable admission stages — SPEC §41.18: accepted/selected/committed are
+// separate fact receipts, never a single progress bar.
+export type ReceiptState =
+  | 'sending'
+  | 'sent'
+  | 'accepted'
+  | 'selected'
+  | 'committed'
+  | 'conflict'
+  | 'rejected'
+  | 'unknown';
 
 export interface TimelinePart {
   role: 'subject';
@@ -47,7 +57,13 @@ export interface Submission {
   created_at: string;
   receipt: ReceiptState;
   detail?: string;
-  last_transport_receipt?: 'queued_volatile';
+  event_id?: string;
+  accepted_commit?: string;
+  selected_step_id?: string;
+  committed_at?: string;
+  // Correlation between this client's send attempts and the query_replies:
+  // a view for an older attempt must not undo a newer send's restored ACK.
+  send_epoch: number;
 }
 
 export interface IdentityView {
@@ -103,6 +119,9 @@ export interface UiState {
   connection: ConnectionState;
   reconnect_seconds: number;
   server_version?: string;
+  append_available: boolean;
+  durable_receipts: boolean;
+  committed_replay: boolean;
   subject_id: string | null;
   identity?: IdentityView;
   wanted_identity_revision: number | null;
@@ -254,7 +273,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
   });
   const submissionRows = state.submissions.map((submission) => {
     const refs: string[] = [];
-    if (submission.receipt === 'rejected') {
+    if (submission.receipt === 'rejected' || submission.receipt === 'unknown') {
       refs.push(
         addAction(
           actions,
@@ -320,6 +339,8 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   const canAppend =
     state.source === 'live' &&
     state.connection === 'online' &&
+    state.append_available &&
+    state.durable_receipts &&
     Boolean(state.subject_id) &&
     draft.trim().length > 0;
   const appendAction = addAction(
@@ -409,11 +430,11 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         manifest: state.manifest,
         step: state.step,
         capabilities: {
-          append: state.source === 'live',
+          append: state.append_available,
           steer: false,
           attachments: false,
-          durable_input_receipts: false,
-          committed_replay: true,
+          durable_input_receipts: state.durable_receipts,
+          committed_replay: state.committed_replay,
         },
       }, [], { layout: { hidden: state.display.view !== 'config' }, fallback: 'read_only_values' }),
       composer,
@@ -423,11 +444,11 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       }),
     ],
     capabilities: {
-      append: state.source === 'live',
+      append: state.append_available,
       steer: false,
       attachments: false,
-      durable_input_receipts: false,
-      committed_replay: true,
+      durable_input_receipts: state.durable_receipts,
+      committed_replay: state.committed_replay,
     },
     actions,
     assets: {

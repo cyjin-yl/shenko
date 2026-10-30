@@ -61,6 +61,10 @@
   - SPEC.md §35.6 (消息连续性)
   - docs/requirements/requirements.json (R014)
 
+- **NapCat contacts/identity read (napcat.contacts)** — shenko-channel-napcat `ContactQuery` 只读 allowlist + `QueryReceipt`（raw 帧与连接 provenance）；shenko-exec-host `NapCatContactsHandler` 走既有 durable task/evidence 路径，仅 connector 配置时安装:
+  - SPEC.md §15.2, §16, §35.6
+  - docs/requirements/requirements.json (R001, R059)
+
 - **SelfKnowledgeProvider**:
   - SPEC.md §38 (自解释插件)
   - docs/requirements/requirements.json (R092, R093)
