@@ -96,6 +96,10 @@ impl LocalModelProvider {
         if self.allow_invalid_certs {
             builder = builder.danger_accept_invalid_certs(true);
         }
+        // A sealed request is bound to this endpoint; an automatic redirect
+        // would replay the frozen payload on another host while the receipt is
+        // still attributed here. Any 3xx therefore reports terminal unknown.
+        builder = builder.redirect(reqwest::redirect::Policy::none());
 
         let body = local_body(payload, model)?;
         let client = builder.build()?;
@@ -109,9 +113,21 @@ impl LocalModelProvider {
             .send()
             .await?;
 
+        // Retained verbatim for later source contracts; only the observed
+        // quota header family is kept, never unrelated headers.
+        let ratelimit_headers: Vec<(String, String)> = resp
+            .headers()
+            .iter()
+            .filter(|(name, _)| {
+                name.as_str().starts_with(crate::QUOTA_HEADER_PREFIX)
+            })
+            .map(|(name, value)| {
+                (name.as_str().to_string(), value.to_str().unwrap_or_default().to_string())
+            })
+            .collect();
         if !resp.status().is_success() {
             let status = resp.status();
-            if let Some(rejection) = ProviderRejection::from_status(status) {
+            if let Some(rejection) = ProviderRejection::from_status(status, ratelimit_headers) {
                 return Err(rejection.into());
             }
             return Err(anyhow!(
@@ -170,6 +186,7 @@ impl LocalModelProvider {
             stop_reason: finish_reason,
             raw_response,
             usage,
+            ratelimit_headers,
         })
     }
 }

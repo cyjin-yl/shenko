@@ -22,6 +22,12 @@ pub enum InboxEventKind {
     SystemEvent,
     /// A Playground artifact changed (PUT or backend action). SPEC §43.2.
     ArtifactChanged,
+    /// A durable transcript revision of one continuous-media stream segment
+    /// (partial, final, superseded or final-correction). SPEC §15.2, §20.
+    MediaRevision,
+    /// A media stream opened or reached a terminal state (cancelled,
+    /// disconnected, ended). SPEC §20.
+    MediaStream,
 }
 
 /// Subject inbox — uses tokio::sync::Mutex so the guard is Send across .await.

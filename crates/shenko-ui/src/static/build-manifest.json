@@ -5,13 +5,8 @@
     "commit": "7181a93a5ec5cad43936a72e31d5477d5488733a",
     "previous_reviewed_commit": "2962d4ee877f5a3544a13d4deaa09b6a2b038fb7",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/workspace/c11-proto-ui-upstream-7181a93",
-    "build_receipt": {
-      "script": "scripts/build/public-packages.mjs",
-      "selected_package_count": 42,
-      "receipt_path": "/workspace/c11-build-audit-20261025/build-result.json",
-      "receipt_sha256": "17f15987a747cd454cc7309decfc9d09e2a0144299d86ae2a12e3445ff1b32d9"
-    }
+    "source_checkout": "/tank/shared/projects/shenko/build/c11-durable-input-native-20261029/pinned-inputs-7181a93-d947efcd/upstream",
+    "build_receipt": null
   },
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.1",
@@ -54,12 +49,12 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/workspace/shenko-c11-proto-first-20261025/crates/shenko-ui/web",
-  "built_at": "2026-10-25T04:38:17.564Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/c11-durable-input-20261029/crates/shenko-ui/web",
+  "built_at": "2026-10-29T21:01:18.389Z",
   "artifacts": {
     "app.js": {
-      "bytes": 852866,
-      "sha256": "533c57e3721a5516b76ad91467f259cb72db3f40d1f9b3ea73eab7c42c99bfd8"
+      "bytes": 859393,
+      "sha256": "68c063ee8039c22c7c577751d6579f14bb9ec1e94dd88982411d9e7ee6dd7350"
     },
     "app.css": {
       "bytes": 27627,

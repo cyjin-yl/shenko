@@ -46,6 +46,9 @@ function demoState(): UiState {
     connection: 'offline',
     reconnect_seconds: 0,
     server_version: 'demo-only',
+    append_available: false,
+    durable_receipts: false,
+    committed_replay: false,
     subject_id: 'demo-subject',
     identity: {
       agent_id: 'demo-agent',

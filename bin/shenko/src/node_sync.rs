@@ -86,20 +86,12 @@ struct Receipt {
 }
 
 pub fn open_node(data_dir: &Path, store: &Store) -> Result<Node> {
+    let identity = store.installation_binding()?.subject.map(|subject| shenko_node::Identity {
+        agent_id: subject.agent_id,
+        branch_id: subject.branch_id,
+        origin_proof: subject.origin_proof,
+    });
     let mut node = Node::open(&data_dir.join("node"))?;
-    let identity = if let Some(agent) = store.get_existing_agent_id()? {
-        let genesis = store
-            .get_subject_genesis(agent)?
-            .context("subject identity has no actual genesis")?;
-        let (head, _) = store.load_subject(agent)?;
-        Some(shenko_node::Identity {
-            agent_id: agent,
-            branch_id: EntityId(head.branch_id.0),
-            origin_proof: Digest::blake3(&serde_json::to_vec(&genesis)?),
-        })
-    } else {
-        None
-    };
     if node.local_node_id()?.is_none() {
         node.handle(shenko_node::Request::Initialize {
             node_id: EntityId::new(),

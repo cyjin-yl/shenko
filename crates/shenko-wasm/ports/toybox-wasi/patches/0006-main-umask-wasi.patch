@@ -1,0 +1,14 @@
+--- a/main.c
++++ b/main.c
+@@ -214,7 +214,11 @@
+     char *buf = 0;
+     int btype = _IOFBF;
+ 
++#ifdef __wasi__
++    toys.old_umask = 022;  // WASI ambient default; no umask syscall exists.
++#else
+     toys.old_umask = umask(0);
++#endif
+     if (!(which->flags & TOYFLAG_UMASK)) umask(toys.old_umask);
+ 
+     // Try user's locale, but if that isn't UTF-8 merge in a UTF-8 locale's

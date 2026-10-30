@@ -11,6 +11,9 @@ use shenko_types::{commit::CommitRef, ids::*, subject::*};
 use shenko_types::{operation::OperationRecord, task::*};
 use std::{path::PathBuf, sync::Arc};
 
+#[path = "model_child_tests.rs"]
+mod model_child_tests;
+
 fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
     let dir = std::env::temp_dir().join(format!("shenko-recovery-{}", EntityId::new()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -180,7 +183,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
+        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
         "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
@@ -197,7 +200,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap().object);
+        "subject_step_input", 11).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -234,6 +237,58 @@ fn message(content: &str) -> crate::inbox::InboxEvent {
     }
 }
 
+fn admit_web_event(store: &Store, agent: EntityId, id: &str, event: &crate::inbox::InboxEvent) {
+    let original = serde_json::to_string(event).unwrap();
+    let raw = shenko_types::store::RawInboxEvent {
+        event_id: event.event_id, agent_id: agent,
+        source: "web_ui".into(), kind: "message".into(),
+        payload_json: original.clone(), received_at_ms: event.created_at.timestamp_millis(),
+    };
+    store.admit_web_submission(agent, id, &original, &raw).unwrap();
+}
+
+#[tokio::test]
+async fn durable_web_selection_requires_actual_s0_seal() {
+    let (dir, store, agent) = fixture();
+    let event = message("需要保留原始用户输入");
+    admit_web_event(&store, agent, "sealed-selection", &event);
+    let mut subject = state(store.clone(), agent).unwrap();
+    crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap();
+    // Durable staging is recovery data while Planned, not sealed presentation.
+    assert!(store.web_input_selected_step(agent, event.event_id).unwrap().is_none());
+    // The real step path seals S0 before reporting the missing broker. There is
+    // no provider call in this fixture and no S1 disposition is fabricated.
+    assert!(execute_step(subject.step.step_no, &[], &mut subject,
+        &tokio_util::sync::CancellationToken::new()).await.is_err());
+    assert_eq!(store.web_input_selected_step(agent, event.event_id).unwrap(), Some(subject.step.step_id));
+    drop((subject, store));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn pending_backlog_larger_than_inbox_reaches_bounded_s0() {
+    let (dir, store, agent) = fixture();
+    // Production has 1024 volatile slots. Admission is durable and has no such
+    // capacity bound; reopening this backlog must not feed an undrained channel.
+    for index in 0..1025 {
+        admit_web_event(&store, agent, &format!("backlog-{index}"), &message("待接续"));
+    }
+    let subject = state(store.clone(), agent).unwrap(); // Only 8 live slots.
+    let step_id = subject.step.step_id;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5),
+        super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()),
+    ).await.expect("recovery must not await its own full channel");
+    // No broker is installed: one real S0 seals and stops at that prerequisite.
+    assert!(result.is_err());
+    let (_, step) = store.load_subject(agent).unwrap();
+    assert_eq!(step.state, SubjectStepState::Preparing);
+    let sealed = super::frozen_input(&store, &step).unwrap();
+    assert_eq!(sealed.events.len(), 64);
+    assert_eq!(sealed.step_id, step_id);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[tokio::test]
 async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     use shenko_broker::{provider::AnthropicProvider, request::*};
@@ -268,8 +323,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
         let (result_tx, _) = tokio::sync::oneshot::channel();
         provider.complete(&InferenceRequest {
             request_id: EntityId::new(), agent_id: EntityId::new(), conversation_id: EntityId::new(),
-            provider_binding: ProviderBinding::Anthropic { base_url, model: "fixture".into(),
-                api_version: "2026-10-21".into(), serializer_revision: 3, default_max_tokens: 8192 },
+            provider_binding: provider.binding(),
             priority: InferencePriority::Subject, epoch: ControllerEpoch(7), payload, result_tx,
         }).await.unwrap();
         server.await.unwrap()
@@ -315,7 +369,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 10, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 11, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
@@ -324,7 +378,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap());
+        "subject_step_input", 11).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -1209,7 +1263,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 6,
+        schema_version: 7,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1253,7 +1307,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                7,
             )
             .unwrap()
             .object,
@@ -1282,7 +1336,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                7,
             )
             .unwrap()
             .object,
@@ -1695,7 +1749,7 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     cancel.cancel();
     execute_step(2, &[], &mut subject, &cancel).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
-    assert_eq!(frozen.schema_version, 10);
+    assert_eq!(frozen.schema_version, 11);
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
     assert_eq!(sealed_wait.deadline_at, original_deadline);

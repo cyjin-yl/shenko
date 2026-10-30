@@ -16,6 +16,7 @@ pub mod recovery_sources;
 pub mod semantic_wait;
 pub mod seat;
 pub mod runtime_boundary;
+pub mod web_input;
 
 pub use store::*;
 pub use cas::*;
@@ -30,9 +31,12 @@ pub use semantic_wait::*;
 pub use seat::*;
 
 pub mod external;
-pub use external::TaskInvocation;
+pub use external::{InboxAdmission, TaskInvocation};
 
 pub mod child;
 pub use child::{NativeTaskClaim, TaskCancellation};
 
 pub mod intents;
+
+pub mod media;
+pub mod quota;

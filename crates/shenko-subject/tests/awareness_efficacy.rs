@@ -83,6 +83,7 @@ async fn judge(
         "reply_text": output.text,
         "controls": output.controls.iter().map(|control| match &control.action {
             OutputAction::Delegate { text, .. } => format!("delegate: {text}"),
+            OutputAction::DelegateModel { spec } => format!("delegate: {}", spec.goal),
             OutputAction::Remember { text } => format!("remember: {text}"),
             OutputAction::Reply { target, .. } => format!("reply to {target:?}"),
             OutputAction::Identity { .. } => "identity change".to_string(),

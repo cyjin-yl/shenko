@@ -594,14 +594,17 @@ function ReceiptView({ submission, emit, node }: { submission: Submission; emit:
   const labels: Record<string, string> = {
     sending: '发送中',
     sent: '已写入传输 · 等待服务端回执',
-    queued_volatile: '内存队列已接收 · 尚未持久化',
+    accepted: '已持久接纳 · 等待选入/处置回执',
+    selected: '已选入封口输入计划 · 等待处置回执',
+    committed: '主体已提交处置',
+    conflict: '提交 ID 冲突 · 原输入未改写',
     rejected: '未接收',
-    unknown: submission.last_transport_receipt === 'queued_volatile' ? '最后回执为内存队列 · 当前结果未知' : '传输回执未知',
+    unknown: '传输回执未知 · 可用同一 ID 查询或重试',
   };
   return <div className={`receipt is-${submission.receipt}`} data-receipt={submission.receipt}>
     <span className="receipt-mark" aria-hidden="true" />
     <span>{labels[submission.receipt]}{submission.detail ? ` · ${submission.detail}` : ''}</span>
-    {submission.receipt === 'rejected' && node.action_refs.length > 0 && (
+    {(submission.receipt === 'rejected' || submission.receipt === 'unknown') && node.action_refs.length > 0 && (
       <ProtoButton styleProfile="rhea" variant="outline" size="sm" onClick={() => emit(node.node_id, node.action_refs[0])}>以同一 ID 重试</ProtoButton>
     )}
   </div>;
