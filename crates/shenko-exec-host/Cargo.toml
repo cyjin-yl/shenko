@@ -10,6 +10,10 @@ shenko-types = { path = "../shenko-types" }
 shenko-store = { path = "../shenko-store" }
 shenko-subject = { path = "../shenko-subject" }
 shenko-awareness-core = { path = "../shenko-awareness-core" }
+shenko-node = { path = "../shenko-node" }
+shenko-wasm = { path = "../shenko-wasm" }
+shenko-channel-napcat = { path = "../shenko-channel-napcat" }
+blake3 = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -20,5 +24,11 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+png = { workspace = true }
+x11rb = { workspace = true }
+[dev-dependencies]
+futures = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-util = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

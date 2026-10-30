@@ -536,6 +536,28 @@ struct InstalledUnit {
     materialization: Option<Materialization>,
 }
 
+/// Public read-only projection of an installed unit that declares itself a
+/// named tool (`config.tool` manifest). Carries only durable unit facts; the
+/// artifact bytes are fetched separately through `Node::unit_object_bytes`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolUnitFact {
+    pub unit_id: String,
+    pub kind: UnitKind,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub enabled: bool,
+    pub current: bool,
+    /// The unit-authored `config.tool` object: `{name, abi, entrypoint,
+    /// source, imports}` — recorded claims whose executable part
+    /// (`abi`/`imports`) was verified at admission.
+    pub tool: Value,
+    /// Root this node's materialization was written to (e.g. `<data>/tools`).
+    pub materialization_root: Option<String>,
+    /// Exact materialized artifact path, when materialization completed.
+    pub materialization_path: Option<String>,
+}
+
 #[derive(Default)]
 struct RequiredClosure {
     unresolved: Vec<String>,
@@ -1192,6 +1214,70 @@ impl Node {
             exports.push(self.export_unit_closure(&unit)?);
         }
         Ok(exports)
+    }
+
+    /// Read-only facts of every installed unit carrying a `tool` manifest in
+    /// its declared configuration (`kind` is `Code`). Used by the named-WASM
+    /// tool surface (`shenko tool`, `wasi.exec`): installation authority,
+    /// versioning and replication stay here; the tool layer adds name/ABI
+    /// resolution on top of these facts. Pure query — no schema creation, no
+    /// trial reconciliation, no materialization.
+    pub fn tool_unit_facts(&self) -> Result<Vec<ToolUnitFact>> {
+        let mut facts = Vec::new();
+        let mut statement = self.conn.prepare(
+            "SELECT v.data,c.enabled,(c.revision=v.revision AND c.artifact_digest=v.artifact_digest),m.root,m.path \
+             FROM unit_versions v JOIN unit_current c ON c.unit_id=v.unit_id \
+             LEFT JOIN unit_materializations m ON m.unit_id=v.unit_id AND m.revision=v.revision AND m.artifact_digest=v.artifact_digest \
+             ORDER BY v.unit_id,v.revision,v.artifact_digest"
+        )?;
+        let rows = statement.query_map([], |r| Ok((
+            r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, bool>(2)?,
+            r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?,
+        )))?;
+        for row in rows {
+            let (data, enabled, current, root, path) = row?;
+            let stored: StoredVersion = serde_json::from_str(&data)?;
+            if stored.unit.kind != UnitKind::Code {
+                continue;
+            }
+            let Some(tool) = stored.unit.config.get("tool").cloned() else {
+                continue;
+            };
+            facts.push(ToolUnitFact {
+                unit_id: stored.unit.unit_id,
+                kind: stored.unit.kind,
+                revision: stored.unit.revision,
+                artifact_digest: stored.unit.artifact_digest,
+                enabled,
+                current,
+                tool,
+                materialization_root: root,
+                materialization_path: path,
+            });
+        }
+        Ok(facts)
+    }
+
+    /// Read-only access to a retained package's exact bytes, digest-verified.
+    /// This is the authoritative artifact read for code-unit execution; the
+    /// materialized file is a copy for transparency, not the trust root.
+    pub fn unit_object_bytes(&self, digest: &Digest) -> Result<Vec<u8>> {
+        self.object_bytes(digest)
+    }
+
+    /// Every distinct materialization root this installation ever wrote units
+    /// into. Bootstrap uses this to admit (or refuse to adopt) an existing
+    /// tool/package directory before any new installation state is written.
+    pub fn materialization_roots(&self) -> Result<Vec<String>> {
+        let mut roots: Vec<String> = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT root FROM unit_materializations WHERE root<>'' ORDER BY root",
+            )?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        roots.dedup();
+        Ok(roots)
     }
 
     /// Export a unit and the dependency closure this node can actually offer.

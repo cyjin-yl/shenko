@@ -616,6 +616,7 @@ mod tests {
             record_revision: RecordRevision(0),
             invocation_id,
             epoch,
+            software_generation: RuntimeGeneration::default(),
             worker_id: EntityId::new(),
             node_id: EntityId::new(),
         };

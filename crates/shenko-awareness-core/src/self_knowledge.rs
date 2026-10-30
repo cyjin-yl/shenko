@@ -170,7 +170,8 @@ impl SelfKnowledgeProvider {
                          shenko-kernel (插件注册+生命周期), shenko-broker (推理调度), \
                          shenko-subject (持续主体), shenko-memory, shenko-channel-napcat, \
                          shenko-exec-host (有限 native child：host.printf/history.query/self.knowledge.query), \
-                         shenko-exec-ssh (SSH+tmux seat), shenko-wasm (stub—未实现), \
+                         shenko-exec-ssh (SSH+tmux seat), shenko-wasm, \
+                         shenko-repl (WASI REPL sessions + R0 journal), \
                          shenko-compact-budget, shenko-compact-snap, \
                          shenko-awareness-core (觉察单元+自解释), shenko-node (安装单元/节点), \
                          shenko-quota, shenko-context-policy, shenko-ui, shenko-seed".into(),

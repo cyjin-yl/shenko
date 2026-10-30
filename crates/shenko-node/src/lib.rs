@@ -178,6 +178,43 @@ pub struct Node {
     failed: bool,
 }
 impl Node {
+    /// Read-only inspection of an existing installation: opens the node
+    /// database without creating it, without admitting foreign directories
+    /// (the caller scopes the directory) and — crucially for read paths like
+    /// `shenko tool list` — without running schema migrations or durable
+    /// writes. Returns `Ok(None)` when no node installation exists at `dir`.
+    pub fn open_inspect(dir: &Path) -> Result<Option<Self>> {
+        use std::os::unix::fs::MetadataExt;
+        let db = dir.join("node.sqlite3");
+        if !db.try_exists()? {
+            return Ok(None);
+        }
+        let directory = std::fs::symlink_metadata(dir)?;
+        let main = std::fs::symlink_metadata(&db)?;
+        ensure!(directory.is_dir() && !directory.file_type().is_symlink(), "node directory must not be a symlink");
+        ensure!(main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
+            "node main must be one private regular file with one link");
+        // Do not call validate_existing here: its interrupted-journal path
+        // performs recovery. A genuinely read-only opener reports that
+        // recovery is needed rather than mutating even a known installation.
+        let conn = Connection::open_with_flags(
+            &db,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Inspection still requires a validated, current installation: an
+        // older schema reports as such instead of silently reading past a
+        // needed migration.
+        ensure!(
+            validate_installation(&conn)? == STORAGE_SCHEMA,
+            "node installation predates the current storage schema; open it through Node::open"
+        );
+        Ok(Some(Self {
+            conn,
+            failed: false,
+        }))
+    }
+
     pub fn open(dir: &Path) -> Result<Self> {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         if !dir.exists() {

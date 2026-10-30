@@ -1,0 +1,303 @@
+--- a/lib/portability.c
++++ b/lib/portability.c
+@@ -176,7 +176,22 @@
+ #error
+ #endif
+ 
+-#if defined(__APPLE__) || defined(__IsBSD__)
++#if defined(__wasi__)
++// There is no file notification facility on preview1; the only consumer is
++// tail -f style loops, which callers must treat as unsupported.
++struct xnotify *xnotify_init(int max)
++{
++  error_exit("xnotify: no inotify/kqueue on WASI preview1");
++}
++int xnotify_add(struct xnotify *not, int fd, char *path)
++{
++  error_exit("xnotify: no inotify/kqueue on WASI preview1");
++}
++int xnotify_wait(struct xnotify *not, char **path)
++{
++  error_exit("xnotify: no inotify/kqueue on WASI preview1");
++}
++#elif defined(__APPLE__) || defined(__IsBSD__)
+ 
+ #include <sys/event.h>
+ 
+@@ -271,7 +286,31 @@
+ #error
+ #endif
+ 
+-#ifdef __APPLE__
++#if defined(__wasi__)
++// No extended attributes exist on wasip1; report ENOSYS honestly rather
++// than pretending an attribute is absent. Callers propagate the error.
++ssize_t xattr_get(const char *path, const char *name, void *value, size_t size)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_lget(const char *path, const char *name, void *value, size_t size)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_fget(int fd, const char *name, void *value, size_t size)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_list(const char *path, char *list, size_t size)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_llist(const char *path, char *list, size_t size)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_flist(int fd, char *list, size_t size)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_set(const char *path, const char *name, const void *value,
++                  size_t size, int flags)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_lset(const char *path, const char *name, const void *value,
++                   size_t size, int flags)
++{ return (errno = ENOSYS, -1); }
++ssize_t xattr_fset(int fd, const char *name, const void *value, size_t size,
++                   int flags)
++{ return (errno = ENOSYS, -1); }
++#elif defined(__APPLE__)
+ 
+ ssize_t xattr_get(const char *path, const char *name, void *value, size_t size)
+ {
+@@ -555,7 +594,9 @@
+ 
+ int dev_makedev(int major, int minor)
+ {
+-#if defined(__linux__)
++#if defined(__wasi__)
++  return (major<<8)|minor;
++#elif defined(__linux__)
+   return (minor&0xff)|((major&0xfff)<<8)|((minor&0xfff00)<<12);
+ #elif defined(__APPLE__)
+   return (minor&0xffffff)|((major&0xff)<<24);
+@@ -569,7 +610,12 @@
+ 
+ char *fs_type_name(struct statfs *statfs)
+ {
+-#if defined(__APPLE__) || defined(__IsBSD__)
++#if defined(__wasi__)
++  // stat -f is rejected at the call site, so the only way here is a numeric
++  // fallback that still reports the magic honestly.
++  sprintf(libbuf, "0x%x", (unsigned)statfs->f_type);
++  return libbuf;
++#elif defined(__APPLE__) || defined(__IsBSD__)
+   // macOS has an `f_type` field, but assigns values dynamically as filesystems
+   // are registered. They do give you the name directly though, so use that.
+   return statfs->f_fstypename;
+--- a/lib/portability.h
++++ b/lib/portability.h
+@@ -206,6 +206,10 @@
+ // Linux and macOS has both have getxattr and friends in <sys/xattr.h>, but
+ // they aren't compatible.
+ #include <sys/xattr.h>
++#endif
++#if defined(__APPLE__) || defined(__linux__) || defined(__wasi__)
++// On WASI the prototypes stand alone: sys/xattr.h does not exist and the
++// ENOSYS bodies live in lib/portability.c.
+ ssize_t xattr_get(const char *, const char *, void *, size_t);
+ ssize_t xattr_lget(const char *, const char *, void *, size_t);
+ ssize_t xattr_fget(int fd, const char *, void *, size_t);
+--- a/lib/xwrap.c
++++ b/lib/xwrap.c
+@@ -60,9 +60,13 @@
+ 
+ void *xmmap(void *addr, size_t length, int prot, int flags, int fd, off_t off)
+ {
++#ifdef __wasi__
++  error_exit("xmmap: no memory-mapped I/O on WASI");
++#else
+   void *ret = mmap(addr, length, prot, flags, fd, off);
+   if (ret == MAP_FAILED) perror_exit("mmap");
+   return ret;
++#endif // __wasi__
+ }
+ 
+ // Die unless we can allocate memory.
+@@ -351,11 +355,18 @@
+ // Wait for child process to exit, then return adjusted exit code.
+ int xwaitpid(pid_t pid)
+ {
++#ifdef __wasi__
++  // There is no child reaping on WASI: every caller reaches this only via
++  // xpopen*/xrun, which already error_exit() before returning a pid.
++  error_exit("xwaitpid: no waitpid on WASI");
++  return 0;
++#else
+   int status = 127<<8;
+ 
+   while (-1 == waitpid(pid, &status, 0) && errno == EINTR) errno = 0;
+ 
+   return WIFEXITED(status) ? WEXITSTATUS(status) : WTERMSIG(status)+128;
++#endif // __wasi__
+ }
+ 
+ int xpclose_both(pid_t pid, int *pipes)
+@@ -728,17 +739,25 @@
+ 
+ struct passwd *xgetpwuid(uid_t uid)
+ {
++#ifdef __wasi__
++  error_exit("getpwuid: no passwd database on WASI");
++#else
+   struct passwd *pwd = getpwuid(uid);
+   if (!pwd) error_exit("bad uid %ld", (long)uid);
+   return pwd;
++#endif // __wasi__
+ }
+ 
+ struct group *xgetgrgid(gid_t gid)
+ {
++#ifdef __wasi__
++  error_exit("getgrgid: no group database on WASI");
++#else
+   struct group *group = getgrgid(gid);
+ 
+   if (!group) perror_exit("gid %ld", (long)gid);
+   return group;
++#endif // __wasi__
+ }
+ 
+ unsigned xgetuid(char *name)
+@@ -780,18 +799,26 @@
+ 
+ struct passwd *xgetpwnam(char *name)
+ {
++#ifdef __wasi__
++  error_exit("getpwnam: no passwd database on WASI");
++#else
+   struct passwd *up = getpwnam(name);
+ 
+   if (!up) perror_exit("user '%s'", name);
+   return up;
++#endif // __wasi__
+ }
+ 
+ struct group *xgetgrnam(char *name)
+ {
++#ifdef __wasi__
++  error_exit("getgrnam: no group database on WASI");
++#else
+   struct group *gr = getgrnam(name);
+ 
+   if (!gr) perror_exit("group '%s'", name);
+   return gr;
++#endif // __wasi__
+ }
+ 
+ // setuid() can fail (for example, too many processes belonging to that user),
+--- a/lib/lib.c
++++ b/lib/lib.c
+@@ -893,11 +893,17 @@
+ // More or less SIG_DFL that runs our atexit list and can siglongjmp.
+ void exit_signal(int sig)
+ {
++#ifndef __wasi__
+   sigset_t sigset;
+ 
+   if (sig) toys.exitval = sig|128;
+   sigfillset(&sigset);
+   sigprocmask(SIG_BLOCK, &sigset, 0);
++#else
++  // wasi-libc has no sigprocmask()/sigfillset(); the emulated signal layer
++  // serializes handlers anyway, so exiting directly preserves semantics.
++  if (sig) toys.exitval = sig|128;
++#endif
+   xexit();
+ }
+ 
+--- a/lib/tty.c
++++ b/lib/tty.c
+@@ -78,6 +78,22 @@
+   2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000,
+   921600, 1000000, 1152000, 1500000, 2000000, 2500000, 3000000,3500000,4000000};
+ 
++#ifdef __wasi__
++// The B* constants live in <termios.h>, which does not exist on wasip1;
++// with no serial line the baud-rate table has no meaning.
++unsigned cfspeed2bps(unsigned speed)
++{
++  return 0;
++}
++unsigned bps2cfspeed(unsigned baud)
++{
++  return 0;
++}
++void xsetspeed(struct termios *tio, int bps)
++{
++  error_exit("xsetspeed: no terminal line discipline on WASI");
++}
++#else
+ // Show bits per second for cfspeed value. Assumes we have a valid speed
+ unsigned cfspeed2bps(unsigned speed)
+ {
+@@ -105,6 +121,7 @@
+   if (!i) error_exit("unknown speed: %d", bps);
+   cfsetspeed(tio, i);
+ }
++#endif // __wasi__
+ 
+ // Reset terminal to known state, saving copy of old state if old != NULL.
+ int set_terminal(int fd, int raw, int speed, struct termios *old)
+--- a/lib/net.c
++++ b/lib/net.c
+@@ -80,8 +80,18 @@
+ }
+ #endif // __wasi__
+ 
++#ifdef __wasi__
+ void xbind(int fd, const struct sockaddr *sa, socklen_t len)
+ {
++  error_exit("bind: no sockets on WASI preview1");
++}
++void xconnect(int fd, const struct sockaddr *sa, socklen_t len)
++{
++  error_exit("connect: no sockets on WASI preview1");
++}
++#else
++void xbind(int fd, const struct sockaddr *sa, socklen_t len)
++{
+   if (bind(fd, sa, len)) perror_exit("bind");
+ }
+ 
+@@ -89,6 +99,7 @@
+ {
+   if (connect(fd, sa, len)) perror_exit("connect");
+ }
++#endif // __wasi__
+ 
+ int xpoll(struct pollfd *fds, int nfds, int timeout)
+ {
+@@ -106,6 +117,7 @@
+   }
+ }
+ 
++#ifndef __wasi__
+ // Loop forwarding data from in1 to out1 and in2 to out2, handling
+ // half-connection shutdown. timeouts return if no data for X ms.
+ // Returns 0: both closed, 1 shutdown_timeout, 2 timeout
+@@ -189,6 +201,27 @@
+   return len;
+ }
+ 
++#else
++int pollinate(int in1, int in2, int out1, int out2,
++              void (*callback)(int fd, void *buf, size_t len),
++              int timeout, int shutdown_timeout)
++{
++  error_exit("pollinate: no socket forwarding on WASI preview1");
++}
++char *ntop(struct sockaddr *sa)
++{
++  error_exit("ntop: no address family support on WASI preview1");
++}
++void xsendto(int sockfd, void *buf, size_t len, struct sockaddr *dest)
++{
++  error_exit("sendto: no sockets on WASI preview1");
++}
++int xrecvwait(int fd, char *buf, int len, union socksaddr *sa, int timeout)
++{
++  error_exit("recvwait: no sockets on WASI preview1");
++}
++#endif // __wasi__
++
+ // Convert space/low ascii to %XX escapes, plus any chars in "and" string.
+ // Returns newly allocated copy of string (even if no changes)
+ char *escape_url(char *str, char *and)
