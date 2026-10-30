@@ -23,6 +23,9 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+blake3 = { workspace = true }
+png = { workspace = true }
+x11rb = { workspace = true }
 [dev-dependencies]
 futures = { workspace = true }
 tokio-tungstenite = { workspace = true }
