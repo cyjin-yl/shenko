@@ -43,11 +43,50 @@ pub enum SelectedSshOutcome {
 #[serde(deny_unknown_fields)]
 pub(super) struct TaskBoundNodeSelection {
     pub(super) schema: String,
-    pub(super) invocation: TaskInvocation,
+    pub(super) invocation: FrozenTaskInvocation,
     pub(super) authority: AuthorityRef,
     pub(super) operation_id: EntityId,
     pub(super) registered_node_id: EntityId,
     pub(super) receipt: NodeSelectionReceipt,
+}
+
+/// Preserve the original reader after TaskInvocation gained runtime generation.
+/// A legacy invocation has UNKNOWN generation, not the current/default one.
+/// It is readable only for the existing operation's query/reconcile path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(super) enum FrozenTaskInvocation {
+    GenerationBound(TaskInvocation),
+    Legacy(LegacyTaskInvocation),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct LegacyTaskInvocation {
+    task_id: EntityId,
+    task_revision: shenko_types::ids::TaskRevision,
+    record_revision: shenko_types::ids::RecordRevision,
+    invocation_id: EntityId,
+    epoch: shenko_types::ids::ControllerEpoch,
+    worker_id: EntityId,
+    node_id: EntityId,
+}
+
+impl TaskBoundNodeSelection {
+    pub(super) fn ensure_readable(&self) -> Result<()> {
+        ensure!(matches!((self.schema.as_str(), &self.invocation),
+            ("ssh-task-node-selection.v1", FrozenTaskInvocation::Legacy(_))
+            | ("ssh-task-node-selection.v2", FrozenTaskInvocation::GenerationBound(_))),
+            "unsupported selected SSH invocation schema");
+        Ok(())
+    }
+
+    pub(super) fn ensure_fresh(&self) -> Result<()> {
+        ensure!(self.schema == "ssh-task-node-selection.v2"
+            && matches!(&self.invocation, FrozenTaskInvocation::GenerationBound(_)),
+            "legacy selected SSH input is query-only");
+        Ok(())
+    }
 }
 
 fn check_task(
@@ -161,7 +200,8 @@ impl SshTaskRunner<'_> {
             receipt
         };
         let selection = TaskBoundNodeSelection {
-            schema: "ssh-task-node-selection.v1".into(), invocation: ctx.clone(), authority: authority.clone(),
+            schema: "ssh-task-node-selection.v2".into(),
+            invocation: FrozenTaskInvocation::GenerationBound(ctx.clone()), authority: authority.clone(),
             operation_id, registered_node_id, receipt,
         };
         // Existing T1 stores the complete frozen input, enforces task fencing,
@@ -184,10 +224,11 @@ fn matches_original(
     action: &SshAction,
 ) -> Result<bool> {
     let Some(selected) = &frozen.selection else { return Ok(false) };
+    let FrozenTaskInvocation::GenerationBound(invocation) = &selected.invocation else { return Ok(false) };
     Ok(op.operation_name == "ssh.native.v1" && op.task_id == ctx.task_id && op.logical_key == logical_key
-        && selected.schema == "ssh-task-node-selection.v1" && selected.operation_id == op.operation_id
-        && selected.invocation.task_id == ctx.task_id && selected.registered_node_id == registered_node_id
-        && serde_json::to_value(&selected.invocation)? == serde_json::to_value(ctx)?
+        && selected.schema == "ssh-task-node-selection.v2" && selected.operation_id == op.operation_id
+        && invocation.task_id == ctx.task_id && selected.registered_node_id == registered_node_id
+        && serde_json::to_value(invocation)? == serde_json::to_value(ctx)?
         && selected.receipt.selection.decision_id == decision_id
         && selected.receipt.selection.node_id == registered_node_id
         && serde_json::to_value(&op.authority_ref)? == serde_json::to_value(authority)?
@@ -201,7 +242,7 @@ mod tests {
     use super::*;
     use shenko_node::{NodeSelection, Request};
     use shenko_store::Store;
-    use shenko_types::{commit::CommitRef, ids::*, object::*, store::WriteBatch, task::*};
+    use shenko_types::{commit::CommitRef, ids::*, store::WriteBatch, task::*};
     use std::path::PathBuf;
 
     struct Fixture {
@@ -233,6 +274,7 @@ mod tests {
         let ctx = TaskInvocation {
             task_id: EntityId::new(), task_revision: TaskRevision(1), record_revision: RecordRevision(1),
             invocation_id: EntityId::new(), epoch: ControllerEpoch(1),
+            software_generation: RuntimeGeneration::new("selected-ssh-fixture"),
             worker_id: store.capabilities.incarnation, node_id: store.ledger.ledger_id(),
         };
         let authority = AuthorityRef { delegation_id: ctx.task_id, delegation_revision: RecordRevision(1), decision_ref: EntityId::new() };
@@ -278,7 +320,7 @@ mod tests {
         let bytes = f.store.cas.read_object(&op.final_input_ref.digest).unwrap();
         let frozen: FrozenInput = serde_json::from_slice(&bytes).unwrap();
         let bound = frozen.selection.as_ref().unwrap();
-        assert_eq!(bound.invocation.task_id, f.ctx.task_id);
+        assert_eq!(serde_json::to_value(&bound.invocation).unwrap(), serde_json::to_value(&f.ctx).unwrap());
         assert_eq!(bound.receipt.selection.decision_id, f.decision_id);
         assert_eq!(bound.receipt.selection.reason, "explicit fixture choice, not a permission grant");
         // A changed Node database cannot rewrite the already-armed operation.
@@ -324,6 +366,68 @@ mod tests {
         let result = runner.execute_selected(&mut f.node, &f.ctx, f.operation_id, "fixture", f.authority, f.decision_id, f.target_node, f.binding, SshAction::exec(vec!["changed".into()], b""), 1).await.unwrap();
         assert!(matches!(result, SelectedSshOutcome::Unavailable(SelectedSshUnavailable::FrozenSelectionConflict)));
         assert_eq!(f.store.external_operation_attempts(f.operation_id).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn changed_runtime_generation_cannot_reuse_selected_invocation() {
+        let f = fixture();
+        let runner = SshTaskRunner { store: &f.store };
+        let action = SshAction::exec(vec!["original".into()], b"");
+        runner.execute_selected(&f.node, &f.ctx, f.operation_id, "fixture", f.authority.clone(), f.decision_id, f.target_node, f.binding.clone(), action.clone(), 1).await.unwrap();
+        let original = f.store.external_operation(f.operation_id).unwrap();
+        let mut changed = f.ctx.clone();
+        changed.software_generation = RuntimeGeneration::new("replacement-generation");
+        let result = runner.execute_selected(&f.node, &changed, f.operation_id, "fixture", f.authority, f.decision_id, f.target_node, f.binding, action, 1).await.unwrap();
+        assert!(matches!(result, SelectedSshOutcome::Unavailable(SelectedSshUnavailable::FrozenSelectionConflict)));
+        let retained = f.store.external_operation(f.operation_id).unwrap();
+        assert_eq!(retained.input_digest, original.input_digest);
+        assert_eq!(retained.evidence_through, original.evidence_through);
+        assert_eq!(f.store.external_operation_attempts(f.operation_id).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn legacy_selected_input_remains_query_only_without_inventing_generation() {
+        let f = fixture();
+        let runner = SshTaskRunner { store: &f.store };
+        let action = SshAction::exec(vec!["legacy".into()], b"");
+        let receipt = f.node.lock().unwrap().node_selection_receipt(f.decision_id).unwrap().unwrap();
+        let mut old_invocation = serde_json::to_value(&f.ctx).unwrap();
+        old_invocation.as_object_mut().unwrap().remove("software_generation");
+        // Exact v1 shape, synthetically projected from this fixture. This is
+        // not an old executable or real remote migration success claim.
+        let old = serde_json::json!({
+            "binding": &f.binding, "action": &action,
+            "selection": {
+                "schema": "ssh-task-node-selection.v1", "invocation": old_invocation,
+                "authority": &f.authority, "operation_id": f.operation_id,
+                "registered_node_id": f.target_node, "receipt": receipt,
+            },
+        });
+        let frozen: FrozenInput = serde_json::from_value(old.clone()).unwrap();
+        frozen.selection.as_ref().unwrap().ensure_readable().unwrap();
+        assert_eq!(serde_json::to_value(&frozen).unwrap(), old);
+        // Even the crate-private admission helper refuses a fresh legacy input.
+        // Only the reader above and the existing operation query may accept it.
+        let error = runner.execute_frozen(&f.ctx, f.operation_id, "fixture", f.authority, frozen, 1).await.unwrap_err();
+        assert!(error.to_string().contains("query-only"));
+        assert!(f.store.external_operation(f.operation_id).is_err());
+        // A v2 record may not erase its generation and fall through to v1.
+        let mut invalid = old.clone();
+        invalid["selection"]["schema"] = "ssh-task-node-selection.v2".into();
+        let invalid: FrozenInput = serde_json::from_value(invalid).unwrap();
+        assert!(invalid.selection.unwrap().ensure_readable().is_err());
+        // Nor may v1 carry a generation, even one matching the current caller.
+        let mut invalid = old.clone();
+        invalid["selection"]["invocation"]["software_generation"] = serde_json::to_value(&f.ctx.software_generation).unwrap();
+        let invalid: FrozenInput = serde_json::from_value(invalid).unwrap();
+        assert!(invalid.selection.unwrap().ensure_readable().is_err());
+        // Unknown legacy fields and wrongly typed generations cannot downgrade.
+        let mut invalid = old.clone();
+        invalid["selection"]["invocation"]["unrecognized_authority"] = true.into();
+        assert!(serde_json::from_value::<FrozenInput>(invalid).is_err());
+        let mut invalid = old;
+        invalid["selection"]["invocation"]["software_generation"] = 7.into();
+        assert!(serde_json::from_value::<FrozenInput>(invalid).is_err());
     }
 
     #[test]

@@ -1,5 +1,41 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Current integration checkpoint — 2026-10-30, source only
+
+This continuation normally integrates main
+`bc33b654bcb78012c671827e1968f652aa69056b` with the existing #127 head
+`be4c9ad85b70bfe392b09539ec82ec3d1875574f`, preserving both histories and
+the unmerged #114 dependency. Main now carries the #125 model-child/quota
+work and adds `TaskInvocation.software_generation` plus native T1 generation
+validation. The historical test results below do **not** validate this combined
+source or its changed dependency closure.
+
+Fresh selected SSH inputs use `ssh-task-node-selection.v2` and bind the actual
+invocation's runtime generation. A matching retry must retain that generation;
+another generation cannot reuse the selected API to query or dispatch under
+the old invocation. A newly claimed recovery worker uses the separately
+authorized existing operation query/reconcile path, not a forged invocation.
+
+The frozen v1 reader is retained explicitly because already-armed operations
+must remain recoverable. Its generation is unknown: it is never defaulted to
+`seed` or inferred from the current runtime. Existing `query(operation_id)` can
+read that v1 closure without rewriting its CAS bytes; `execute_selected` refuses
+to treat it as a generation-bound fresh/repeated invocation. The query reader
+also rejects a v2 schema paired with a generation-less v1 invocation.
+
+Two focused test journeys are prepared: changed-generation rejection without
+another observation/attempt, and synthetic v1 reader/serialization coverage plus
+fresh-admission rejection before T1. V1-with-generation, v2-without-generation,
+unknown legacy fields and wrongly typed generation are negative checks. The
+v1 fixture is not an old-executable migration or a remote/query integration test.
+Even the crate-private fresh-admission helper rejects legacy selected inputs;
+production legacy recovery remains exclusively the existing query/reconcile
+path, whose `query` mode supplies no action payload. Existing fixture generation
+and the previously reported unused import are corrected. Tests/build have
+**not run for this integration**; `git diff --check` only checks whitespace.
+No installed authenticated handler, registered-target permission/resource
+resolver, real model/remote execution or full distributed completion is claimed.
+
 ## Why and source
 
 The owner's 2026-10-29 clarification: expose distributed capabilities to the

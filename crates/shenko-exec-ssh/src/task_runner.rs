@@ -223,6 +223,9 @@ impl SshTaskRunner<'_> {
         frozen: FrozenInput,
         timeout_secs: u64,
     ) -> Result<SshObservation> {
+        if let Some(selected) = &frozen.selection {
+            selected.ensure_fresh()?;
+        }
         frozen.action.validate()?;
         ensure!(
             !logical_key.is_empty() && logical_key.len() <= 128,
@@ -326,7 +329,10 @@ impl SshTaskRunner<'_> {
             Digest::blake3(&bytes) == op.input_digest,
             "frozen input corrupted"
         );
-        let frozen = serde_json::from_slice(&bytes)?;
+        let frozen: FrozenInput = serde_json::from_slice(&bytes)?;
+        if let Some(selected) = &frozen.selection {
+            selected.ensure_readable()?;
+        }
         self.observe(op, att, frozen, "query", timeout_secs).await
     }
 

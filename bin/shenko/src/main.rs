@@ -72,10 +72,82 @@ enum Command {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
+    /// Manage named WASM tools in the seed's managed tool store — SPEC §8.2.
+    /// Artifacts are real upstream WASI binaries; declared targets with no
+    /// verified artifact are reported unresolved, never faked.
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+enum ToolCommand {
+    /// List installed tool records and the honest status of every declared
+    /// named target (toybox, gcc-wasm, git, gh, tea, ssh).
+    List,
+    /// Install a real WASI artifact under a name. `--abi wasi_preview1`
+    /// requires the module to actually import only wasi_snapshot_preview1 and
+    /// export `_start`+`memory`; any other declared ABI is catalogued but not
+    /// executable in this runtime.
+    Install {
+        /// Host path of the artifact (.wasm binary module).
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        /// wasi_preview1 | wasi_component | wasix | host_imports | other
+        #[arg(long)]
+        abi: String,
+        /// Free-form entrypoint label (e.g. /tools/toybox); defaults to /tools/<name>.
+        #[arg(long)]
+        entrypoint: Option<String>,
+        /// Upstream origin URI (informational provenance).
+        #[arg(long)]
+        source_uri: Option<String>,
+        /// Upstream release tag (e.g. v76.0.0).
+        #[arg(long)]
+        source_release: Option<String>,
+        /// e.g. "upstream_release" or "source_build:wasi-sdk-34.0".
+        #[arg(long)]
+        provenance: Option<String>,
+        /// Expected blake3:<hex> digest; install aborts on mismatch.
+        #[arg(long)]
+        expected_digest: Option<String>,
+    },
+    /// Execute an installed tool with real argv/env/stdio under the managed
+    /// mounts. Exit code is reported exactly; tool names resolve against the
+    /// installed registry only — host binaries are never substituted.
+    Exec {
+        /// name or name@version
+        #[arg(long)]
+        tool: String,
+        /// Grant only read permissions on the admitted home/memory mounts.
+        /// This is an actual guest capability restriction, not an effect label.
+        #[arg(long)]
+        read_only: bool,
+        /// Guest argv after argv[0].
+        #[arg(last = true)]
+        args: Vec<String>,
+        /// KEY=VALUE guest environment entries (repeatable).
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Host file whose bytes become guest stdin (default: empty).
+        #[arg(long)]
+        stdin_file: Option<PathBuf>,
+        /// Host file receiving guest stdout (default: this process's stdout).
+        #[arg(long)]
+        stdout_file: Option<PathBuf>,
+        /// Host file receiving guest stderr (default: this process's stderr).
+        #[arg(long)]
+        stderr_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -152,6 +224,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let result: Result<()> = async {
     match command {
         Command::Node => node_sync::node_command(&data_dir)?,
+        Command::Tool { command } => tool_command(&data_dir, command)?,
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
             let db_path = data_dir.join("shenko.db");
@@ -317,6 +390,10 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &prepared_home.manifest,
                 &model_profile,
             )?;
+            // The wasi.exec handler keeps the mount closure and the data dir;
+            // per-execution it reopens this installation's unit inventory so
+            // installs made after startup are visible.
+            let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
             let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
@@ -336,8 +413,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             store.settle_subject_memory()?;
             store.reconcile_subject_publications()?;
             // Native finite children use the same Cordis root and persistent
-            // ledger. The handler is deliberately narrow; generic model goals
-            // remain parked instead of becoming a fictitious completed LLM run.
+            // ledger. Fixed native definitions retain their original handlers;
+            // the finite model handler is installed with the shared broker below.
             let _native_child_plugin = supervisor
                 .spawn(
                     shenko_subject::NativeChildPlugin,
@@ -356,6 +433,42 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(&store)));
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
+                .await?;
+            // Real X11 Computer Use: four kinds share one live backend state
+            // so lease authority and session identity agree across tasks.
+            let computer_use_backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(
+                Arc::clone(&store),
+            ));
+            let computer_use_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
+                Arc::new(shenko_exec_host::ComputerUseSessionHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+                Arc::new(shenko_exec_host::ComputerUseObserveHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+                Arc::new(shenko_exec_host::ComputerUseLeaseHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+                Arc::new(shenko_exec_host::ComputerUseInputHandler::new(
+                    Arc::clone(&computer_use_backend),
+                )),
+            ];
+            for handler in computer_use_handlers {
+                let _computer_use_plugin = supervisor
+                    .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+                    .await?;
+            }
+            // Real named-WASM-tool execution: wasi.exec resolves this
+            // installation's own unit inventory and runs their verified
+            // artifact bytes in the real WasmRuntime under the home mounts.
+            let wasi_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::WasiExecHandler::new(
+                    Arc::clone(&store),
+                    wasi_mounts.clone(),
+                    data_dir.clone(),
+                ));
+            let _native_wasi_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
                 .await?;
             let native_child = supervisor
                 .context()
@@ -429,6 +542,20 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .spawn(shenko_compact_snap::SnapCompactPlugin, shenko_compact_snap::SnapConfig::default())
                 .await?;
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            // Optional quota policy install (SPEC §42): the file holds one
+            // serialized QuotaPolicy; a recorded policy makes every inference
+            // request pass durable admission before dispatch. Unreadable or
+            // invalid content fails startup loudly rather than silently
+            // running unpriced.
+            if let Ok(path) = std::env::var("SHENKO_QUOTA_POLICY") {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|error| anyhow::anyhow!("SHENKO_QUOTA_POLICY unreadable: {error}"))?;
+                let policy: shenko_quota::QuotaPolicy = serde_json::from_str(&text)
+                    .map_err(|error| anyhow::anyhow!("SHENKO_QUOTA_POLICY invalid: {error}"))?;
+                let receipt = store.record_quota_policy(&policy, chrono::Utc::now())?;
+                info!(policy_id=%policy.policy_id, revision=policy.revision,
+                    commit=%receipt.commit_ref, "quota policy recorded");
+            }
             let capabilities = match broker.discover_capabilities().await {
                 Ok(capabilities) => Some(capabilities),
                 Err(error) => {
@@ -436,6 +563,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     None
                 }
             };
+            let model_child_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+                shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone())?,
+            );
+            let _model_child_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, model_child_handler)
+                .await?;
+            // ModelChildHandler reconstructed all outstanding original charges
+            // before any subject/child inference can enter this broker.
             tokio::spawn(broker.run());
             // Awareness is installed capability, not kernel business logic: the
             // shipped seeds plus any packages under data_dir/awareness become
@@ -452,18 +587,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
                 tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
-            let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
-                agent_id,
-                Arc::clone(&subject_inbox),
-                Arc::clone(&store),
-                identity_context.clone(),
-            )?
-            .with_broker(broker_handle)
-            .with_model_capabilities(capabilities.clone())
-            .with_native_capabilities(native_child.installed_prompt_sections())
-            .with_awareness(awareness)
-            .with_hooks(Arc::clone(&hook_registry))
-            .with_outbox(outbox_tx.clone());
+            // The contacts query handler is only real while its connector is
+            // configured; the plugin handle must outlive the napcat block.
+            let mut _native_contacts_plugin = None;
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
@@ -487,6 +613,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 let event_tx = client.event_sender();
                 let pending_actions = client.pending_actions.clone();
                 let cancel_napcat = consumer_cancel.clone();
+
+                // Read-only contact/identity queries ride the same echo
+                // protocol and durable task/evidence path as every native
+                // child. Installing only while the connector exists keeps the
+                // advertised capability honest: no NapCat, no definition.
+                let contacts_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                    Arc::new(shenko_exec_host::NapCatContactsHandler::new(
+                        Arc::clone(&store),
+                        Arc::clone(&client),
+                    ));
+                _native_contacts_plugin = Some(
+                    supervisor
+                        .spawn(shenko_subject::NativeTaskHandlerPlugin, contacts_handler)
+                        .await?,
+                );
 
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
@@ -670,6 +811,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 info!("NapCat connector started");
             }
 
+            // Built after any connector-scoped handler install so the sealed
+            // tool contract advertises exactly the installed definitions.
+            let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
+                agent_id,
+                Arc::clone(&subject_inbox),
+                Arc::clone(&store),
+                identity_context.clone(),
+            )?
+            .with_broker(broker_handle)
+            .with_model_capabilities(capabilities.clone())
+            .with_native_capabilities(native_child.installed_prompt_sections())
+            .with_awareness(awareness)
+            .with_hooks(Arc::clone(&hook_registry))
+            .with_outbox(outbox_tx.clone());
+
             // Connector/ACK storage failures also stop admission in the subject.
             let connector_failure = cancel.clone();
             let connector_stop = consumer_cancel.clone();
@@ -759,6 +915,299 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     }.await;
     supervisor.stop().await?;
     result
+}
+
+/// `shenko tool …` — inspect and manage the seed's named WASM tool store.
+/// Install and exec go through the node's installation-unit inventory — the
+/// same authority node_sync replicates — while list is a pure read of that
+/// inventory. `<data>/tools` is only where the unit authority materializes
+/// bytes; no separate tool registry exists to diverge or adopt foreign data.
+fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
+    use shenko_node::{
+        Node, UnitDescriptor, UnitExport, UnitKind, UnitPackage, UnitRequest, UNIT_SCHEMA,
+    };
+    use shenko_wasm::{
+        InputFile, OutputFile, ToolAbi, ToolDescriptor, ToolSource, WasiRunOutcome,
+        inspect_module, installed_tools, named_target_report, resolve_tool,
+    };
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64_STD};
+    use std::io::Write as _;
+
+    let tools_root = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
+    match command {
+        ToolCommand::List => {
+            // Pure read: never creates or migrates storage, never writes a
+            // registry file. An installation that has no node DB simply has
+            // no installed tools.
+            let records = match Node::open_inspect(&data_dir.join("node"))? {
+                Some(node) => installed_tools(&node)?,
+                None => Vec::new(),
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "tools": records,
+                    "named_targets": named_target_report(&records),
+                }))?
+            );
+        }
+        ToolCommand::Install {
+            file,
+            name,
+            version,
+            abi,
+            entrypoint,
+            source_uri,
+            source_release,
+            provenance,
+            expected_digest,
+        } => {
+            let abi = ToolAbi::parse(&abi)
+                .ok_or_else(|| anyhow::anyhow!("unknown --abi {abi:?}"))?;
+            shenko_wasm::validate_tool_name(&name)?;
+            let artifact = std::fs::read(&file)
+                .with_context(|| format!("read artifact {}", file.display()))?;
+            anyhow::ensure!(
+                artifact.len() as u64 <= shenko_wasm::TOOL_ARTIFACT_MAX_BYTES,
+                "TOOL_ARTIFACT_TOO_LARGE:{name}: {} bytes exceeds {}",
+                artifact.len(),
+                shenko_wasm::TOOL_ARTIFACT_MAX_BYTES
+            );
+            // Real ABI from the real bytes: the executable claim
+            // `wasi_preview1` requires the module to actually link under the
+            // preview1 linker (typed imports, () -> () _start, memory).
+            let inspected = inspect_module(&artifact)
+                .with_context(|| format!("TOOL_ABI_UNSUPPORTED:{name}"))?;
+            anyhow::ensure!(
+                inspected.runnable == (abi == ToolAbi::WasiPreview1),
+                "TOOL_ABI_UNSUPPORTED:{name}: declared {} but {:?}",
+                abi.name(),
+                inspected.detail
+            );
+            let actual = shenko_types::object::Digest::blake3(&artifact);
+            if let Some(expected) = &expected_digest {
+                let expected = shenko_types::object::Digest(expected.clone());
+                anyhow::ensure!(
+                    expected.algorithm() == "blake3",
+                    "TOOL_DIGEST_UNSUPPORTED:{name}: only blake3 digests are admitted"
+                );
+                anyhow::ensure!(
+                    expected == actual,
+                    "TOOL_DIGEST_MISMATCH:{name}: expected {expected}, artifact is {actual}"
+                );
+            }
+
+            // Install requires an existing managed installation: the record
+            // is this installation's own unit inventory entry.
+            anyhow::ensure!(
+                data_dir.join("shenko.db").is_file(),
+                "no managed installation at {}; run `shenko start` once",
+                data_dir.display()
+            );
+            // Admit any existing tools tree BEFORE mutating state: the same
+            // foreign-content check Bootstrap::validate_target enforces. An
+            // unowned nonempty tools/ directory must fail here rather than be
+            // overwritten by write_package after the import is recorded.
+            let tools_dir = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
+            if tools_dir.exists() && std::fs::read_dir(&tools_dir)?.next().is_some() {
+                let node_check = Node::open_inspect(&data_dir.join("node"))?
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "DATA_PATH_CONFLICT: {} exists but no node installation owns it",
+                        tools_dir.display()
+                    ))?;
+                let roots = node_check.materialization_roots()?;
+                let canonical = tools_dir.canonicalize()?;
+                anyhow::ensure!(
+                    roots.iter().any(|r| std::path::Path::new(r).canonicalize().ok() == Some(canonical.clone())),
+                    "DATA_PATH_CONFLICT: {} is not this installation's tool materialization root",
+                    tools_dir.display()
+                );
+            }
+            let store = shenko_store::store::Store::open(
+                data_dir.join("shenko.db"),
+                data_dir.join("cas"),
+            )?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let unit_id = format!("tool.{name}");
+            // Same name@version is idempotent only when the artifact is
+            // identical; new content under an existing version is a loud
+            // conflict, never an in-place overwrite.
+            for fact in node.tool_unit_facts()? {
+                if fact.unit_id == unit_id {
+                    let record_name = fact
+                        .tool
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    if record_name == version {
+                        anyhow::ensure!(
+                            fact.artifact_digest == actual,
+                            "TOOL_INSTALL_CONFLICT:{name}@{version}: a different artifact \
+                             is already installed under this version"
+                        );
+                        println!("already installed: {unit_id}@{version} {actual}");
+                        return Ok(());
+                    }
+                }
+            }
+            let descriptor = ToolDescriptor {
+                name: name.clone(),
+                version: version.clone(),
+                abi,
+                entrypoint: entrypoint.unwrap_or_else(|| format!("/tools/{name}")),
+                source: ToolSource {
+                    uri: source_uri.unwrap_or_default(),
+                    release: source_release.unwrap_or_default(),
+                    provenance: provenance.unwrap_or_else(|| "manual".into()),
+                },
+                imports: inspected.imports.clone(),
+            };
+            let export = UnitExport {
+                schema: UNIT_SCHEMA,
+                root_unit_id: unit_id.clone(),
+                root_revision: Some(version.clone()),
+                root_artifact_digest: Some(actual.clone()),
+                origin_node: None,
+                enabled: true,
+                packages: vec![UnitPackage {
+                    unit: UnitDescriptor {
+                        unit_id: unit_id.clone(),
+                        kind: UnitKind::Code,
+                        revision: version.clone(),
+                        artifact_digest: actual.clone(),
+                        provides: vec![format!("tool:{name}")],
+                        dependencies: vec![],
+                        config: serde_json::json!({"tool": descriptor}),
+                        applicability: None,
+                    },
+                    artifact_base64: B64_STD.encode(&artifact),
+                    evidence: vec![],
+                    resolved_dependencies: None,
+                }],
+            };
+            let outcome = node.handle_unit_request(UnitRequest::Import {
+                export,
+                package_root: tools_root.to_string_lossy().into_owned(),
+                enable: Some(true),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&outcome)?);
+        }
+        ToolCommand::Exec {
+            tool,
+            read_only,
+            args,
+            env,
+            stdin_file,
+            stdout_file,
+            stderr_file,
+        } => {
+            let manifest_path = data_dir.join(shenko_seed::HOME_MANIFEST_FILE);
+            anyhow::ensure!(
+                manifest_path.is_file(),
+                "WASM_PROFILE_UNAVAILABLE: no managed home at {}; run `shenko start` once",
+                manifest_path.display()
+            );
+            // Same managed-home admission as normal startup: installation
+            // binding, mount-source confinement to this data dir, runtime
+            // generation and readiness — a copied home manifest can never
+            // alias a sibling installation's mounts.
+            let manifest = shenko_seed::bootstrap::validate_home_for_exec(data_dir)?;
+            // Installation binding part 1: the home manifest's declared
+            // installation must be this store's ledger identity — a copied
+            // home/ manifest cannot alias a sibling installation's ledger.
+            let binding = shenko_store::Store::inspect_installation_binding(
+                &data_dir.join("shenko.db"),
+            )?;
+            anyhow::ensure!(
+                manifest.installation_id == binding.ledger_id,
+                "INSTALLATION_IDENTITY_MISMATCH: home manifest installation_id \
+                 does not match this store's ledger; reconcile before exec"
+            );
+            let node = Node::open_inspect(&data_dir.join("node"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no node installation at {}/node; run `shenko start` once",
+                        data_dir.display()
+                    )
+                })?;
+            // Installation binding part 2: the node must belong to this
+            // subject — the same identity check node_sync::open_node enforces
+            // on the writable path. A transplanted node's tool records cannot
+            // execute against this home.
+            let expected = binding.subject.map(|subject| shenko_node::Identity {
+                agent_id: subject.agent_id,
+                branch_id: subject.branch_id,
+                origin_proof: subject.origin_proof,
+            });
+            anyhow::ensure!(
+                node.local_identity()? == expected,
+                "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
+                 this installation's subject binding; reconcile before exec"
+            );
+            let facts = node.tool_unit_facts()?;
+            let (record, _) = resolve_tool(&facts, &tool)?;
+            // Every execution re-verifies the sealed bytes and the real ABI;
+            // the materialized copy is never trusted.
+            let (module, _inspection) = shenko_wasm::tool_module(&node, &record)?;
+            let stdin_bytes = match &stdin_file {
+                Some(path) => std::fs::read(path)
+                    .with_context(|| format!("read stdin file {}", path.display()))?,
+                None => Vec::new(),
+            };
+            // Streams always ride real files: an explicit destination file, a
+            // temp file copied to the inherited terminal stream afterwards.
+            let io_dir = std::env::temp_dir().join(format!(
+                "shenko-tool-exec-{}",
+                shenko_types::ids::EntityId::new()
+            ));
+            std::fs::create_dir_all(&io_dir)?;
+            let stdin_path = io_dir.join("stdin.bin");
+            let stdout_path = stdout_file.clone().unwrap_or_else(|| io_dir.join("stdout.bin"));
+            let stderr_path = stderr_file.clone().unwrap_or_else(|| io_dir.join("stderr.bin"));
+            std::fs::write(&stdin_path, &stdin_bytes)?;
+            let mut command = shenko_wasm::WasiCommand::new(
+                InputFile::new(std::fs::File::open(&stdin_path)?),
+                OutputFile::new(std::fs::File::create(&stdout_path)?),
+                OutputFile::new(std::fs::File::create(&stderr_path)?),
+            );
+            let mut arguments = Vec::with_capacity(args.len() + 1);
+            arguments.push(record.name.clone());
+            arguments.extend(args);
+            command.arguments = arguments;
+            for entry in env {
+                let (key, value) = entry
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
+                command.environment.push((key.into(), value.into()));
+            }
+            let profile = if read_only {
+                shenko_wasm::ToolMountProfile::ReadOnly
+            } else {
+                shenko_wasm::ToolMountProfile::ManagedHome
+            };
+            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(profile.resolve(&manifest.mounts))?;
+            let code = runtime.run_wasi_module(&module, command);
+            if stdout_file.is_none() {
+                std::io::stdout().write_all(&std::fs::read(&stdout_path).unwrap_or_default())?;
+            }
+            if stderr_file.is_none() {
+                std::io::stderr().write_all(&std::fs::read(&stderr_path).unwrap_or_default())?;
+            }
+            let _ = std::fs::remove_dir_all(&io_dir);
+            match code {
+                Ok(WasiRunOutcome::Exited(code)) => std::process::exit(code),
+                Ok(outcome) => {
+                    eprintln!("wasi exec stopped: {outcome:?}");
+                    std::process::exit(124);
+                }
+                Err(error) => {
+                    eprintln!("wasi exec transport error: {error:#}");
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Deterministic no-model service: keep the existing UI, configuration and
@@ -1161,7 +1610,7 @@ mod recovery_integration_tests {
             )),
         ))).unwrap();
         let decision = StepDecision {
-            schema_version: 6,
+            schema_version: 7,
             output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, None)
             .unwrap(),
             identity_intent: None,
@@ -1190,7 +1639,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    6,
+                    7,
                 )
                 .unwrap()
                 .object,
@@ -1265,7 +1714,7 @@ mod recovery_integration_tests {
         let leaf_seq = store.session_leaf_seq(scope).unwrap()
             .map(|seq| u64::try_from(seq).unwrap());
         let input = serde_json::json!({
-            "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
+            "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
             "events":events, "provider_binding":null,
             "payload":shenko_broker::request::InferencePayload {
                 system_prompt:"native recovery fixture".into(), messages,
@@ -1290,7 +1739,7 @@ mod recovery_integration_tests {
             },
         });
         store.cas.seal_object(&serde_json::to_vec(&input).unwrap(), "application/json",
-            "input_plans", "subject_step_input", 10).unwrap().object
+            "input_plans", "subject_step_input", 11).unwrap().object
     }
 
     /// Deterministic model-output fixture admitted through the real parser and S1
@@ -1366,7 +1815,7 @@ mod recovery_integration_tests {
         assert_eq!(delegated_task_intents.len(), task_ids.len());
         let next = EntityId::new();
         let decision = StepDecision {
-            schema_version: 6,
+            schema_version: 7,
             output,
             identity_intent: None,
             step_id: step.step_id,
@@ -1391,7 +1840,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    6,
+                    7,
                 )
                 .unwrap()
                 .object,
@@ -1487,16 +1936,15 @@ mod recovery_integration_tests {
         store.start_subject_dispatcher().unwrap();
         let printf_task = EntityId::new();
         let missing_task = EntityId::new();
-        let natural_task = EntityId::new();
         let expected = "native child 真实结果\nwith spaces";
         let model_text = format!(
-            "[delegate:host.printf:1] {}\n[delegate:example.missing:1] {{\"text\":\"missing\"}}\n[delegate] 保留自然语言目标而不伪造执行",
+            "[delegate:host.printf:1] {}\n[delegate:example.missing:1] {{\"text\":\"missing\"}}",
             serde_json::json!({"text":expected,"timeout_secs":5})
         );
         commit_native_fixture_step(
             &store,
             &model_text,
-            &[printf_task, missing_task, natural_task],
+            &[printf_task, missing_task],
             vec![],
         );
         let pending = store.external_task(printf_task).unwrap();
@@ -1574,12 +2022,7 @@ mod recovery_integration_tests {
             shenko_store::child::park_reason(&store.external_task(missing_task).unwrap()),
             Some("handler_unavailable")
         );
-        assert_eq!(
-            shenko_store::child::park_reason(&store.external_task(natural_task).unwrap()),
-            Some("definition_unavailable")
-        );
         assert!(store.native_task_result(missing_task).unwrap().is_none());
-        assert!(store.native_task_result(natural_task).unwrap().is_none());
         assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 1);
 
         let inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
@@ -1644,6 +2087,7 @@ mod recovery_integration_tests {
         store: &shenko_store::store::Store,
         claim: &shenko_store::NativeTaskClaim,
         implementation: shenko_types::task::ImplementationRef,
+        operation_name: &str,
     ) -> Result<(
         shenko_types::operation::OperationRecord,
         shenko_types::operation::AttemptRecord,
@@ -1682,7 +2126,7 @@ mod recovery_integration_tests {
                 digest: implementation.artifact_digest.clone(),
                 locator: "simulation:host-printf-v1".into(),
             },
-            symbol: "host.printf.execute".into(),
+            symbol: format!("{operation_name}.execute"),
             schema: SchemaRef {
                 name: "host-printf-observation-v1".into(),
                 major: 1,
@@ -1696,7 +2140,7 @@ mod recovery_integration_tests {
             record_revision: RecordRevision(0),
             task_id: claim.task.task_id,
             logical_key: "native-handler".into(),
-            operation_name: "host.printf.v1".into(),
+            operation_name: operation_name.into(),
             input_schema_version: 1,
             output_schema_version: 1,
             final_input_ref: input_ref.clone(),
@@ -1779,7 +2223,7 @@ mod recovery_integration_tests {
         let claim = store.claim_native_task(admitted, descriptor.implementation_ref.clone(), false).unwrap().unwrap();
         // This exercises the real T1/E1 ledger, not a completed handoff or a
         // claim that an external process ran.
-        let (operation, attempt) = arm_simulated_native_operation(&store, &claim, descriptor.implementation_ref.clone()).unwrap();
+        let (operation, attempt) = arm_simulated_native_operation(&store, &claim, descriptor.implementation_ref.clone(), "host.printf.v1").unwrap();
         let request_id = EntityId::new();
         store.request_subject_quiesce(agent, request_id).unwrap();
         let (head, _) = store.load_subject(agent).unwrap();
@@ -1849,12 +2293,14 @@ mod recovery_integration_tests {
             &old_store,
             &cancelled_claim,
             descriptor.implementation_ref.clone(),
+            "host.printf.v1",
         )
         .unwrap();
         let (_unknown_operation, _unknown_attempt) = arm_simulated_native_operation(
             &old_store,
             &unknown_claim,
             descriptor.implementation_ref.clone(),
+            "host.printf.v1",
         )
         .unwrap();
         let old_native = shenko_subject::NativeChildService::new(
@@ -2026,6 +2472,632 @@ mod recovery_integration_tests {
         supervisor.stop().await.unwrap();
         // Simulated fault artifacts and all original receipts remain on disk.
     }
+
+    // ---------------------------------------------------------------
+    // C15 Computer Use: real X11 (x11rb wire) observation/input/lease.
+    // Xvfb is spawned only by these tests; DISPLAY is never assumed and
+    // no human desktop is touched. x11rb is a dev-dependency of this bin.
+    // ---------------------------------------------------------------
+
+    /// Owning teardown for a spawned Xvfb: `Child::drop` does NOT kill, so a
+    /// raw Child would leak the server on success or on assert-panic.
+    struct XvfbGuard(std::process::Child);
+
+    impl XvfbGuard {
+        fn kill_and_wait(mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    impl Drop for XvfbGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    /// The display + the process that owns it. `owned: None` means the
+    /// display came from SHENKO_TEST_X11_DISPLAY and must never be killed.
+    struct X11Display {
+        display: String,
+        owned: Option<XvfbGuard>,
+    }
+
+    /// A usable X11 display: a live server (owned by us or injected) whose
+    /// connect actually succeeds — never a dead child sharing the number.
+    fn x11_display_or_skip() -> Option<X11Display> {
+        use x11rb::rust_connection::RustConnection;
+        if let Ok(display) = std::env::var("SHENKO_TEST_X11_DISPLAY") {
+            // The port bound only applies when the resolver constructs a
+            // TCP address; Unix-only `unix/:60000` is valid.
+            let safe = x11rb::reexports::x11rb_protocol::parse_display::parse_display(
+                Some(display.as_str()),
+            )
+            .is_ok_and(|p| {
+                let wants_tcp = ((p.protocol.is_none()
+                    || p.protocol.as_deref() != Some("unix"))
+                    && !p.host.is_empty()
+                    && p.host != "unix")
+                    || (p.protocol.is_none() && p.host.is_empty());
+                !wants_tcp || p.display <= 59535
+            });
+            if safe && RustConnection::connect(Some(display.as_str())).is_ok() {
+                return Some(X11Display { display, owned: None });
+            }
+        }
+        // Parallel test processes must not reserve the same display: spread
+        // candidates seeded by this pid, skip numbers with a live server
+        // lock or answering socket BEFORE spawn, then admit only when the
+        // answering server is provably THIS child — the X lock file is
+        // created atomically by Xvfb and carries its PID. The upper bound
+        // is 59535, not 65535: the x11rb resolver computes `6000 + display`
+        // in u16 for its TCP fallback, so larger numbers panic under
+        // overflow checks even when only the unix socket is usable.
+        // Residual hazard: two children may still race into spawn; the
+        // loser exits or fails to claim the lock and is killed below, so an
+        // external server is never killed nor silently adopted.
+        let pid = std::process::id() as usize;
+        let range = 59535usize - 90;
+        for attempt in 0..48usize {
+            let n = 90usize + (pid.wrapping_mul(2654435761).wrapping_add(attempt * 7919)) % range;
+            let display = format!(":{n}");
+            let lock_path = format!("/tmp/.X{n}-lock");
+            // Never spawn on a number already reserved or serving.
+            if std::path::Path::new(&lock_path).exists()
+                || RustConnection::connect(Some(display.as_str())).is_ok()
+            {
+                continue;
+            }
+            let mut child = match std::process::Command::new("Xvfb")
+                .args([&display, "-screen", "0", "800x600x24"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+                Err(_) => continue,
+            };
+            // Admit only if THIS child is alive, the endpoint answers, AND
+            // the server's lock names our child's PID — socket-connect alone
+            // cannot prove ownership under parallel startup.
+            for _ in 0..100 {
+                match child.try_wait() {
+                    Ok(Some(_)) | Err(_) => break, // child exited: not ours
+                    Ok(None) => {
+                        if RustConnection::connect(Some(display.as_str())).is_ok() {
+                            let owned_lock = std::fs::read_to_string(&lock_path)
+                                .ok()
+                                .and_then(|s| s.trim().parse::<u32>().ok())
+                                == Some(child.id());
+                            if owned_lock {
+                                return Some(X11Display {
+                                    display,
+                                    owned: Some(XvfbGuard(child)),
+                                });
+                            }
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        None
+    }
+
+    struct ComputerUseFixture {
+        store: Arc<shenko_store::store::Store>,
+        backend: Arc<shenko_exec_host::ComputerUseBackend>,
+        handlers: ComputerUseHandlers,
+        dir: std::path::PathBuf,
+        /// The one admitted controller instance all fixture tasks delegate
+        /// from (session owner / lease holder identity).
+        instance_id: EntityId,
+    }
+
+    struct ComputerUseHandlers {
+        session: shenko_exec_host::ComputerUseSessionHandler,
+        observe: shenko_exec_host::ComputerUseObserveHandler,
+        lease: shenko_exec_host::ComputerUseLeaseHandler,
+        input: shenko_exec_host::ComputerUseInputHandler,
+    }
+
+    /// Real Store + committed Pending native tasks through the actual S1
+    /// transaction; claims and invocations mirror NativeChildService::process.
+    fn computer_use_fixture(
+        task_count: usize,
+        model_text: &str,
+    ) -> (ComputerUseFixture, Vec<EntityId>) {
+        let dir = std::env::temp_dir().join(format!("shenko-cu-{}", EntityId::new()));
+        std::fs::create_dir(&dir).unwrap();
+        let store = Arc::new(open_native_fixture(&dir));
+        let prepared_home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(),
+            ..Default::default()
+        })
+        .prepare(store.ledger.ledger_id())
+        .unwrap();
+        let model_profile = shenko_seed::ModelProfile::from_env();
+        bootstrap_genesis(&store, None, &prepared_home.manifest, &model_profile).unwrap();
+        store.start_subject_dispatcher().unwrap();
+        let task_ids: Vec<EntityId> = (0..task_count).map(|_| EntityId::new()).collect();
+        commit_native_fixture_step(&store, model_text, &task_ids, vec![]);
+        let backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(store.clone()));
+        (
+            ComputerUseFixture {
+                store,
+                backend: backend.clone(),
+                handlers: ComputerUseHandlers {
+                    session: shenko_exec_host::ComputerUseSessionHandler::new(backend.clone()),
+                    observe: shenko_exec_host::ComputerUseObserveHandler::new(backend.clone()),
+                    lease: shenko_exec_host::ComputerUseLeaseHandler::new(backend.clone()),
+                    input: shenko_exec_host::ComputerUseInputHandler::new(backend.clone()),
+                },
+                dir,
+                instance_id: EntityId::new(),
+            },
+            task_ids,
+        )
+    }
+
+    /// Claim a Pending task and run the real handler boundary. `input` is the
+    /// exact frozen op input (the committed delegate JSON is only the
+    /// admission marker; real dispatch resolves it from the frozen decision).
+    async fn drive_native_as(
+        fixture: &ComputerUseFixture,
+        caller_instance_id: EntityId,
+        handler: &dyn shenko_subject::NativeTaskHandler,
+        task_id: EntityId,
+        input: serde_json::Value,
+    ) -> shenko_types::operation::OperationRecord {
+        let claim = fixture
+            .store
+            .claim_native_task(task_id, handler.descriptor().implementation_ref, false)
+            .unwrap()
+            .expect("pending task claimable");
+        let invocation = shenko_subject::NativeTaskInvocation {
+            context: shenko_types::agent::CallContext {
+                caller_instance_id,
+                role_revision: handler.descriptor().role_revision,
+                task_id: Some(task_id),
+                expected_task_revision: Some(claim.invocation.task_revision.0),
+                invocation_id: Some(claim.invocation.invocation_id),
+                controller_epoch: claim.invocation.epoch,
+                software_generation: claim.software_generation.clone(),
+                authority_refs: handler.descriptor().authority_refs,
+                trace_id: EntityId::new(),
+            },
+            task_invocation: claim.invocation.clone(),
+            task: claim.task.clone(),
+            operation_id: claim.operation_id,
+            authority: shenko_types::operation::AuthorityRef {
+                delegation_id: task_id,
+                delegation_revision: RecordRevision(claim.invocation.task_revision.0),
+                decision_ref: claim
+                    .task
+                    .created_by_step_id
+                    .unwrap_or(claim.invocation.invocation_id),
+            },
+            input,
+        };
+        handler.execute(invocation).await.unwrap()
+    }
+
+    /// Drive as the fixture's single admitted controller instance.
+    async fn drive_native(
+        fixture: &ComputerUseFixture,
+        handler: &dyn shenko_subject::NativeTaskHandler,
+        task_id: EntityId,
+        input: serde_json::Value,
+    ) -> shenko_types::operation::OperationRecord {
+        drive_native_as(fixture, fixture.instance_id, handler, task_id, input).await
+    }
+
+    /// The sealed normalized result of an operation's evidence (T2 output).
+    fn op_normalized(
+        fixture: &ComputerUseFixture,
+        operation_id: EntityId,
+    ) -> serde_json::Value {
+        let evidence = fixture
+            .store
+            .external_operation_evidence(operation_id)
+            .unwrap();
+        let last = evidence.last().expect("at least one receipt");
+        let normalized = last
+            .normalized_ref
+            .clone()
+            .or_else(|| Some(last.raw_ref.clone()))
+            .unwrap();
+        let bytes = fixture.store.cas.read_object(&normalized.digest).unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn computer_use_delegates(specs: &[(u32, &str)]) -> (String, usize) {
+        let mut lines = String::new();
+        for (version, kind) in specs {
+            lines.push_str(&format!(
+                "[delegate:{kind}:{version}] {{\"admission\":true}}\n"
+            ));
+        }
+        (lines, specs.len())
+    }
+
+    // Permanent suite: 4 test fns, 9 independent behavior cases.
+    // Deferred to the ephemeral native probes (C15X11NativePrep fixture):
+    // typed-unavailable backend/display, unreachable display, unknown-session
+    // inject, cross-display independent leases, bogus observation id,
+    // sibling-session non-revoke, session close fencing, store-reopen
+    // persistence, dead-display follow-ups, lost-transport partial
+    // accounting, dispatch run_once wiring.
+    //
+    // Cases 1-3: real Xvfb — framebuffer/CAS observation; pointer-move
+    // postcondition; raw XTEST button delivery to a real client window with
+    // honest ACK-only Partial accounting.
+    #[tokio::test]
+    async fn computer_use_xvfb_observe_and_real_input() {
+        let Some(x11) = x11_display_or_skip() else {
+            eprintln!("SKIP computer_use_xvfb_observe_and_real_input: no usable X11 display");
+            return;
+        };
+        use x11rb::{connection::Connection, protocol::xproto, wrapper::ConnectionExt as _};
+        let (delegate, _) = computer_use_delegates(&[
+            (1, "computer.use.session"),
+            (1, "computer.use.observe"),
+            (1, "computer.use.lease"),
+            (1, "computer.use.input"),
+            (1, "computer.use.input"),
+        ]);
+        let (fixture, ids) = computer_use_fixture(5, &delegate);
+
+        let opened = drive_native(
+            &fixture,
+            &fixture.handlers.session,
+            ids[0],
+            serde_json::json!({"backend":"x11","display":x11.display.as_str()}),
+        )
+        .await;
+        assert_eq!(opened.state, OperationState::Resolved);
+        let opened_n = op_normalized(&fixture, opened.operation_id);
+        assert_eq!(opened_n["result"], "opened");
+        let session_id: EntityId = opened_n["session"]["session_id"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert!(opened_n["session"]["xtest_version"].is_string());
+
+        // The delivery target window must exist BEFORE the observation is
+        // bound — creating it after observe would stale the fingerprint.
+        let (client, screen_num) =
+            x11rb::rust_connection::RustConnection::connect(Some(x11.display.as_str())).unwrap();
+        let screen = &client.setup().roots[screen_num];
+        let window = client.generate_id().unwrap();
+        client
+            .create_window(
+                screen.root_depth,
+                window,
+                screen.root,
+                10,
+                10,
+                120,
+                80,
+                0,
+                xproto::WindowClass::INPUT_OUTPUT,
+                screen.root_visual,
+                &xproto::CreateWindowAux::new()
+                    .event_mask(xproto::EventMask::BUTTON_PRESS | xproto::EventMask::EXPOSURE),
+            )
+            .unwrap()
+            .check()
+            .unwrap();
+        client.map_window(window).unwrap().check().unwrap();
+        client.flush().unwrap();
+
+        let observed = drive_native(
+            &fixture,
+            &fixture.handlers.observe,
+            ids[1],
+            serde_json::json!({"session_id":session_id}),
+        )
+        .await;
+        assert_eq!(observed.state, OperationState::Resolved);
+        let observed_n = op_normalized(&fixture, observed.operation_id);
+        assert_eq!(observed_n["result"], "observed");
+        let observation_id = observed_n["observation_id"].as_str().unwrap().to_string();
+        // The raw pixels are real CAS evidence: exact ZPixmap size bound.
+        let raw_ref = &observed_n["observation"]["raw_pixels_ref"];
+        let raw_digest = shenko_types::object::Digest(
+            raw_ref["digest"].as_str().unwrap().to_string(),
+        );
+        let raw = fixture.store.cas.read_object(&raw_digest).unwrap();
+        assert_eq!(
+            raw.len() as u64,
+            raw_ref["bytes"].as_u64().unwrap()
+        );
+        assert!(raw.len() > 800 * 600);
+
+        let lease = drive_native(
+            &fixture,
+            &fixture.handlers.lease,
+            ids[2],
+            serde_json::json!({"session_id":session_id,"op":"acquire"}),
+        )
+        .await;
+        let lease_n = op_normalized(&fixture, lease.operation_id);
+        assert_eq!(lease_n["result"], "acquired");
+        let token: EntityId = lease_n["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
+
+        let moved = drive_native(
+            &fixture,
+            &fixture.handlers.input,
+            ids[3],
+            serde_json::json!({
+                "session_id":session_id,"lease_token":token,
+                "observation_id":observation_id,
+                "actions":[{"kind":"pointer_move","x":40,"y":40}],
+            }),
+        )
+        .await;
+        assert_eq!(moved.state, OperationState::Resolved);
+        assert_eq!(moved.effect_status, EffectStatus::Complete);
+        let moved_n = op_normalized(&fixture, moved.operation_id);
+        assert_eq!(moved_n["pointer_post"], serde_json::json!([40, 40]));
+
+        let clicked = drive_native(
+            &fixture,
+            &fixture.handlers.input,
+            ids[4],
+            serde_json::json!({
+                "session_id":session_id,"lease_token":token,
+                "observation_id":observation_id,
+                "actions":[{"kind":"button","button":1,"press":"tap"}],
+            }),
+        )
+        .await;
+        assert_eq!(clicked.state, OperationState::Resolved);
+        // Button ACK alone cannot claim an app effect: Partial, not Complete.
+        assert_eq!(clicked.effect_status, EffectStatus::Partial);
+        // The real client window actually received the press at 40x40.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let press = loop {
+            match client.poll_for_event().unwrap() {
+                Some(x11rb::protocol::Event::ButtonPress(e)) => break e,
+                _ => {
+                    assert!(std::time::Instant::now() < deadline, "no real ButtonPress reached client");
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+            }
+        };
+        assert_eq!(press.detail, 1);
+        assert_eq!((press.event_x, press.event_y), (30, 30));
+    }
+
+    // Cases 4-6: one display domain = one writer across ALL sessions; two
+    // sessions on the same Xvfb share the lease (a DIFFERENT controller
+    // instance cannot acquire), and explicit takeover bumps the epoch so a
+    // pre-takeover observation is fenced; the new holder must re-observe
+    // before injecting. The old-token rejection is the same revocation code
+    // path and is covered by the stale-observation case plus external prep.
+    #[tokio::test]
+    async fn computer_use_lease_exclusion_and_takeover() {
+        let Some(x11) = x11_display_or_skip() else {
+            eprintln!("SKIP computer_use_lease_exclusion_and_takeover: no usable X11 display");
+            return;
+        };
+        let (delegate, _) = computer_use_delegates(&[
+            (1, "computer.use.session"),
+            (1, "computer.use.session"),
+            (1, "computer.use.lease"),
+            (1, "computer.use.lease"),
+            (1, "computer.use.lease"),
+            (1, "computer.use.observe"),
+            (1, "computer.use.input"),
+            (1, "computer.use.observe"),
+            (1, "computer.use.input"),
+        ]);
+        let (fixture, ids) = computer_use_fixture(9, &delegate);
+        let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
+            serde_json::json!({"backend":"x11","display":x11.display.as_str()})).await;
+        let opened_n = op_normalized(&fixture, opened.operation_id);
+        let session_id: EntityId = opened_n["session"]["session_id"].as_str().unwrap().parse().unwrap();
+        let domain_id = opened_n["session"]["domain_id"].as_str().unwrap().to_string();
+
+        // A second session on the SAME display binds the same domain.
+        let opened_b = drive_native(&fixture, &fixture.handlers.session, ids[1],
+            serde_json::json!({"backend":"x11","display":x11.display.as_str()})).await;
+        let opened_b_n = op_normalized(&fixture, opened_b.operation_id);
+        let session_b: EntityId = opened_b_n["session"]["session_id"].as_str().unwrap().parse().unwrap();
+        assert_eq!(opened_b_n["session"]["domain_id"].as_str().unwrap(), domain_id.as_str(),
+            "sessions on one display share the lease domain");
+
+        let a = drive_native(&fixture, &fixture.handlers.lease, ids[2],
+            serde_json::json!({"session_id":session_id,"op":"acquire"})).await;
+        let a_n = op_normalized(&fixture, a.operation_id);
+
+        // A DIFFERENT controller instance cannot become a writer on the same
+        // domain, even through a separate admitted session.
+        let conflict = drive_native_as(&fixture, EntityId::new(), &fixture.handlers.lease, ids[3],
+            serde_json::json!({"session_id":session_b,"op":"acquire"})).await;
+        let conflict_n = op_normalized(&fixture, conflict.operation_id);
+        assert_eq!(conflict_n["result"], "rejected");
+        assert_eq!(conflict_n["reason"], "lease_conflict");
+
+        let observed = drive_native(&fixture, &fixture.handlers.observe, ids[5],
+            serde_json::json!({"session_id":session_id})).await;
+        let observation_id = op_normalized(&fixture, observed.operation_id)
+            ["observation_id"].as_str().unwrap().to_string();
+
+        // Human takeover: A's token becomes stale; late input is fenced out.
+        let human = drive_native(&fixture, &fixture.handlers.lease, ids[4],
+            serde_json::json!({"session_id":session_id,"op":"takeover"})).await;
+        let human_n = op_normalized(&fixture, human.operation_id);
+        assert_eq!(human_n["result"], "taken_over");
+        let token_h: EntityId = human_n["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
+        assert!(human_n["lease"]["epoch"].as_u64().unwrap() > a_n["lease"]["epoch"].as_u64().unwrap());
+
+        // An observation bound to the PRE-takeover epoch is stale too: the
+        // holder must re-observe under the new epoch before injecting.
+        let pre_epoch = drive_native(&fixture, &fixture.handlers.input, ids[6],
+            serde_json::json!({"session_id":session_id,"lease_token":token_h,
+                "observation_id":observation_id,
+                "actions":[{"kind":"pointer_move","x":7,"y":7}]})).await;
+        assert_eq!(
+            op_normalized(&fixture, pre_epoch.operation_id)["reason"],
+            "observation_stale_epoch"
+        );
+        let observed2 = drive_native(&fixture, &fixture.handlers.observe, ids[7],
+            serde_json::json!({"session_id":session_id})).await;
+        let observation_id2 = op_normalized(&fixture, observed2.operation_id)
+            ["observation_id"].as_str().unwrap().to_string();
+        let fresh = drive_native(&fixture, &fixture.handlers.input, ids[8],
+            serde_json::json!({"session_id":session_id,"lease_token":token_h,
+                "observation_id":observation_id2,
+                "actions":[{"kind":"pointer_move","x":7,"y":7}]})).await;
+        assert_eq!(fresh.state, OperationState::Resolved);
+    }
+
+    // Case 7: stale observation is rejected before any event; a changed
+    // window layout invalidates the bound coordinates.
+    #[tokio::test]
+    async fn computer_use_stale_observation_rejected() {
+        let Some(x11) = x11_display_or_skip() else {
+            eprintln!("SKIP computer_use_stale_observation_rejected: no usable X11 display");
+            return;
+        };
+        use x11rb::{connection::Connection, protocol::xproto, wrapper::ConnectionExt as _};
+        let (delegate, _) = computer_use_delegates(&[
+            (1, "computer.use.session"),
+            (1, "computer.use.observe"),
+            (1, "computer.use.lease"),
+            (1, "computer.use.input"),
+        ]);
+        let (fixture, ids) = computer_use_fixture(4, &delegate);
+        let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
+            serde_json::json!({"backend":"x11","display":x11.display.as_str()})).await;
+        let session_id: EntityId = op_normalized(&fixture, opened.operation_id)
+            ["session"]["session_id"].as_str().unwrap().parse().unwrap();
+        let observed = drive_native(&fixture, &fixture.handlers.observe, ids[1],
+            serde_json::json!({"session_id":session_id})).await;
+        let observation_id = op_normalized(&fixture, observed.operation_id)
+            ["observation_id"].as_str().unwrap().to_string();
+        let lease = drive_native(&fixture, &fixture.handlers.lease, ids[2],
+            serde_json::json!({"session_id":session_id,"op":"acquire"})).await;
+        let token: EntityId = op_normalized(&fixture, lease.operation_id)
+            ["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
+
+        // Change the real window layout after the observation was bound.
+        let (client, screen_num) =
+            x11rb::rust_connection::RustConnection::connect(Some(x11.display.as_str())).unwrap();
+        let screen = &client.setup().roots[screen_num];
+        let window = client.generate_id().unwrap();
+        client
+            .create_window(
+                screen.root_depth, window, screen.root, 0, 0, 100, 100, 0,
+                xproto::WindowClass::INPUT_OUTPUT, screen.root_visual,
+                &xproto::CreateWindowAux::new(),
+            )
+            .unwrap().check().unwrap();
+        client.map_window(window).unwrap().check().unwrap();
+        client.flush().unwrap();
+
+        let stale = drive_native(&fixture, &fixture.handlers.input, ids[3],
+            serde_json::json!({"session_id":session_id,"lease_token":token,
+                "observation_id":observation_id,
+                "actions":[{"kind":"pointer_move","x":5,"y":5}]})).await;
+        let stale_n = op_normalized(&fixture, stale.operation_id);
+        assert_eq!(stale_n["result"], "rejected");
+        assert_eq!(stale_n["reason"], "observation_stale_layout");
+        assert_eq!(stale.effect_status, EffectStatus::None);
+    }
+
+    // Cases 8-9: (a) an armed input op whose controller produced no
+    // conclusive evidence reconciles to honest Unknown with no retry;
+    // (b) after REAL display loss (our own spawned server killed and reaped)
+    // follow-up input is rejected by re-verification, never sent blind.
+    // Skipped when the display is borrowed — we only kill servers we own.
+    #[tokio::test]
+    async fn computer_use_armed_reconcile_and_dead_display_fencing() {
+        let Some(mut x11) = x11_display_or_skip() else {
+            eprintln!("SKIP computer_use_armed_reconcile_and_dead_display_fencing: no usable X11");
+            return;
+        };
+        let (delegate, _) = computer_use_delegates(&[
+            (1, "computer.use.session"),
+            (1, "computer.use.observe"),
+            (1, "computer.use.lease"),
+            (1, "computer.use.input"),
+            (1, "computer.use.input"),
+        ]);
+        let (fixture, ids) = computer_use_fixture(5, &delegate);
+        let opened = drive_native(&fixture, &fixture.handlers.session, ids[0],
+            serde_json::json!({"backend":"x11","display":x11.display.as_str()})).await;
+        let session_id: EntityId = op_normalized(&fixture, opened.operation_id)
+            ["session"]["session_id"].as_str().unwrap().parse().unwrap();
+        let observed = drive_native(&fixture, &fixture.handlers.observe, ids[1],
+            serde_json::json!({"session_id":session_id})).await;
+        let observation_id = op_normalized(&fixture, observed.operation_id)
+            ["observation_id"].as_str().unwrap().to_string();
+        let lease = drive_native(&fixture, &fixture.handlers.lease, ids[2],
+            serde_json::json!({"session_id":session_id,"op":"acquire"})).await;
+        let token: EntityId = op_normalized(&fixture, lease.operation_id)
+            ["lease"]["lease_token"].as_str().unwrap().parse().unwrap();
+
+        // An armed input attempt whose controller never produced a result:
+        // reconcile reports Unknown with honest progress, arms no retry.
+        let input_desc = shenko_subject::NativeTaskHandler::descriptor(
+            &fixture.handlers.input,
+        );
+        let claim = fixture
+            .store
+            .claim_native_task(ids[3], input_desc.implementation_ref.clone(), false)
+            .unwrap()
+            .unwrap();
+        let (armed_op, _armed_attempt) = arm_simulated_native_operation(
+            &fixture.store,
+            &claim,
+            input_desc.implementation_ref.clone(),
+            "computer.use.input",
+        )
+        .unwrap();
+        let task = fixture.store.external_task(ids[3]).unwrap();
+        let reconciled = shenko_subject::NativeTaskHandler::reconcile(
+            &fixture.handlers.input,
+            &task,
+            armed_op.operation_id,
+        )
+        .await
+        .unwrap();
+        assert_eq!(reconciled.effect_status, EffectStatus::Unknown);
+        assert_eq!(reconciled.state, OperationState::Reconciling);
+        assert_eq!(
+            fixture
+                .store
+                .external_operation_attempts(armed_op.operation_id)
+                .unwrap()
+                .len(),
+            1
+        );
+        // Display lost mid-work: only a server WE spawned is terminated —
+        // a borrowed SHENKO_TEST_X11_DISPLAY is never killed, and the
+        // dead-display case is then reported as skipped rather than faked.
+        let Some(xvfb) = x11.owned.take() else {
+            eprintln!("SKIP dead-display fencing: display not owned by this test");
+            return;
+        };
+        xvfb.kill_and_wait();
+        let late = drive_native(&fixture, &fixture.handlers.input, ids[4],
+            serde_json::json!({"session_id":session_id,"lease_token":token,
+                "observation_id":observation_id,
+                "actions":[{"kind":"pointer_move","x":9,"y":9},
+                           {"kind":"button","button":1,"press":"tap"}]})).await;
+        let late_n = op_normalized(&fixture, late.operation_id);
+        assert_eq!(late_n["result"], "rejected");
+        assert_eq!(late_n["sent_events"].as_u64().unwrap_or(0), 0);
+        assert_eq!(late.effect_status, EffectStatus::None);
+    }
 }
 
 #[cfg(test)]
@@ -2033,7 +3105,7 @@ mod reply_directive_tests {
     use shenko_types::{ids::EntityId, output::*};
     #[test]
     fn identity_lines_are_actions_not_reply_text() {
-        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
+        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] {\"goal\":\"完整有限目标\",\"system_prompt\":\"独立子角色\",\"model\":\"fixture-child\",\"max_tokens\":32}\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
         let dir = std::env::temp_dir().join(format!("shenko-controls-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = shenko_store::store::Store::open(dir.join("s.db"), dir.join("cas")).unwrap();
@@ -2115,7 +3187,6 @@ mod reply_directive_tests {
             "先想清楚再等\n[wait] {\"condition\":\"实验出现足够判断的结果\",\"max_wait_secs\":120}\n[remember] 记住等待条件",
         )
         .unwrap();
-        assert_eq!(started.schema_version, 3);
         assert_eq!(started.controls.len(), 2);
         let OutputAction::SemanticWait { change } = &started.controls[0].action else {
             panic!("the wait control must be a typed semantic wait action")

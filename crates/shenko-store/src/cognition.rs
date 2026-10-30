@@ -45,7 +45,7 @@
 //!   that already holds other content keeps it: the divergence is reported
 //!   instead of being overwritten.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -1460,28 +1460,16 @@ impl Store {
             rows.extend(read_table(&tx, spec)?);
         }
         let derivatives = read_derivatives(&tx)?;
-        let agent_id: Option<String> = tx
-            .query_row(
-                "SELECT subject_id FROM subject_genesis LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db)?;
+        // Replicated genesis rows stay history; the export is labeled by the
+        // subject this installation actually owns, never an arbitrary row.
+        let agent_id: Option<EntityId> =
+            crate::store::read_local_subject_id(&tx, self.ledger.ledger_id())?;
         let high_water: i64 = tx
             .query_row("SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| {
                 row.get(0)
             })
             .map_err(db)?;
         tx.commit().map_err(db)?;
-        let agent_id = match agent_id {
-            Some(value) => Some(
-                value
-                    .parse::<EntityId>()
-                    .map_err(|_| anyhow!("invalid stored agent id {value}"))?,
-            ),
-            None => None,
-        };
         Ok((
             rows,
             derivatives,
@@ -1496,13 +1484,25 @@ impl Store {
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
-        let mut seen: BTreeSet<String> = BTreeSet::new();
+        // Content membership and JSON expansion are different facts. One
+        // digest can have both opaque and JSON-typed references; encountering
+        // the opaque alias first must not hide a later typed child closure.
+        let mut collected: BTreeMap<String, usize> = BTreeMap::new();
+        let mut expanded: BTreeSet<String> = BTreeSet::new();
         let mut missing: Vec<Digest> = Vec::new();
         let mut out: Vec<CognitionObjectDescriptor> = Vec::new();
         let mut queue: std::collections::VecDeque<ObjectRef> = roots.iter().cloned().collect();
         while let Some(object) = queue.pop_front() {
-            if !seen.insert(object.digest.to_string()) {
-                continue;
+            let key = object.digest.to_string();
+            let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
+            if let Some(&index) = collected.get(&key) {
+                if out[index].bytes != object.bytes {
+                    missing.push(object.digest.clone());
+                    continue;
+                }
+                if !expand {
+                    continue;
+                }
             }
             let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
@@ -1515,24 +1515,35 @@ impl Store {
                 missing.push(object.digest.clone());
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let mut nested: Vec<ObjectRef> = Vec::new();
-                let mut external: Vec<Digest> = Vec::new();
-                collect_references(&json, &mut nested, &mut external);
-                queue.extend(nested);
-                for digest in external {
-                    if let Some(bare) = self.bare_object(&digest) {
-                        queue.push_back(bare);
-                    }
-                }
-            }
-            out.push(CognitionObjectDescriptor {
+            let descriptor = CognitionObjectDescriptor {
                 digest: object.digest.clone(),
                 bytes: object.bytes,
                 media_type: object.media_type.clone(),
                 store_namespace: object.store_namespace.clone(),
                 codec: object.codec.clone(),
-            });
+            };
+            if let Some(&index) = collected.get(&key) {
+                // Preserve the later typed declaration in the manifest too,
+                // so the receiver sees the same expansion authority.
+                out[index] = descriptor;
+            } else {
+                collected.insert(key.clone(), out.len());
+                out.push(descriptor);
+            }
+            if expand {
+                expanded.insert(key);
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut nested: Vec<ObjectRef> = Vec::new();
+                    let mut external: Vec<Digest> = Vec::new();
+                    collect_references(&json, &mut nested, &mut external);
+                    queue.extend(nested);
+                    for digest in external {
+                        if let Some(bare) = self.bare_object(&digest) {
+                            queue.push_back(bare);
+                        }
+                    }
+                }
+            }
         }
         Ok((out, missing))
     }
@@ -1573,41 +1584,70 @@ impl Store {
                 }
             }
         }
-        for descriptor in &manifest.objects {
-            let bytes = match self.cas.read_object(&descriptor.digest) {
+        let mut queue: std::collections::VecDeque<ObjectRef> = roots.into();
+        queue.extend(manifest.objects.iter().map(|descriptor| ObjectRef {
+            digest: descriptor.digest.clone(),
+            bytes: descriptor.bytes,
+            media_type: descriptor.media_type.clone(),
+            store_namespace: descriptor.store_namespace.clone(),
+            locator: String::new(),
+            codec: descriptor.codec.clone(),
+        }));
+        let mut verified: BTreeMap<String, u64> = BTreeMap::new();
+        let mut expanded: BTreeSet<String> = BTreeSet::new();
+        while let Some(object) = queue.pop_front() {
+            let key = object.digest.to_string();
+            if !listed.contains(&key) {
+                gaps.push(CognitionGap {
+                    kind: "missing_object".into(),
+                    detail: key,
+                    blocking: true,
+                });
+                continue;
+            }
+            let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
+            if let Some(&size) = verified.get(&key) {
+                if size != object.bytes {
+                    gaps.push(CognitionGap {
+                        kind: "corrupt_retained_object".into(),
+                        detail: key,
+                        blocking: true,
+                    });
+                    continue;
+                }
+                if !expand {
+                    continue;
+                }
+            }
+            let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     gaps.push(CognitionGap {
                         kind: "unreadable_retained_object".into(),
-                        detail: format!("{}: {error}", descriptor.digest),
+                        detail: format!("{}: {error}", object.digest),
                         blocking: true,
                     });
                     continue;
                 }
             };
-            if bytes.len() as u64 != descriptor.bytes || Digest::blake3(&bytes) != descriptor.digest
+            if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest
             {
                 gaps.push(CognitionGap {
                     kind: "corrupt_retained_object".into(),
-                    detail: descriptor.digest.to_string(),
+                    detail: key,
                     blocking: true,
                 });
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let mut nested: Vec<ObjectRef> = Vec::new();
-                let mut _nested_external: Vec<Digest> = Vec::new();
-                collect_references(&json, &mut nested, &mut _nested_external);
-                roots.extend(nested);
-            }
-        }
-        for object in &roots {
-            if !listed.contains(&object.digest.to_string()) {
-                gaps.push(CognitionGap {
-                    kind: "missing_object".into(),
-                    detail: object.digest.to_string(),
-                    blocking: true,
-                });
+            verified.insert(key.clone(), object.bytes);
+            if expand {
+                expanded.insert(key);
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut nested: Vec<ObjectRef> = Vec::new();
+                    let mut external: Vec<Digest> = Vec::new();
+                    collect_references(&json, &mut nested, &mut external);
+                    queue.extend(nested);
+                }
             }
         }
         gaps
@@ -3563,6 +3603,13 @@ fn intent_source_state(values: &[(String, Option<String>)]) -> Option<String> {
     Some(state)
 }
 
+/// Opaque bytes never acquire reference-graph authority by parsing as JSON.
+/// Both export and import use this rule, including later typed aliases of a
+/// digest already visited under an opaque reference.
+fn is_json_reference(media_type: &str) -> bool {
+    media_type == "application/json" || media_type.ends_with("+json")
+}
+
 /// Collect every CAS reference of a JSON value.
 fn collect_references(
     value: &serde_json::Value,
@@ -3892,6 +3939,74 @@ fn storage_failure(error: &anyhow::Error) -> bool {
 mod archive_admission_tests {
     use super::*;
     use crate::memory::MemoryEntry;
+
+    #[test]
+    fn captured_json_stream_does_not_extend_the_recovery_graph() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-opaque-stream-{}", EntityId::new()));
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        let missing = ObjectRef {
+            digest: Digest::blake3(b"guest claims an object that does not exist"),
+            bytes: 48,
+            media_type: "application/json".into(),
+            store_namespace: "guest-claim".into(),
+            locator: String::new(),
+            codec: raw_codec(),
+        };
+        let stream_bytes = serde_json::to_vec(&missing)?;
+        let stream = source.cas.seal_object(
+            &stream_bytes, "application/octet-stream", "wasi-exec-streams", "wasi-stream", 1,
+        )?.object;
+        let (objects, missing) = source.collect_closure(&[stream.clone()])?;
+        assert!(missing.is_empty());
+        assert_eq!(objects.len(), 1);
+        let mut export = source.export_cognition(&Default::default())?;
+        export.manifest.objects = objects;
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+        let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(imported.ack(EntityId::new()).verified);
+        assert_eq!(receiver.cas.read_object(&stream.digest)?, stream_bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn later_typed_alias_expands_its_real_child_on_both_sides() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-typed-alias-{}", EntityId::new()));
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        let child = source.cas.seal_object(b"retained child", "text/plain", "test", "raw", 1)?.object;
+        let json = serde_json::to_vec(&child)?;
+        let opaque = source.cas.seal_object(&json, "application/octet-stream", "test", "raw", 1)?.object;
+        let typed = source.cas.seal_object(&json, "application/json", "test", "json", 1)?.object;
+        let parent = source.cas.seal_object(
+            &serde_json::to_vec(&typed)?, "application/json", "test", "json", 1,
+        )?.object;
+        // J is collected opaque before the parent's typed reference to J is
+        // expanded. Its child C must still enter the actual export closure.
+        let (mut objects, missing) = source.collect_closure(&[opaque.clone(), parent])?;
+        assert!(missing.is_empty());
+        assert_eq!(objects.len(), 3);
+        assert!(objects.iter().any(|object| object.digest == child.digest));
+        let alias = objects.iter_mut().find(|object| object.digest == opaque.digest).unwrap();
+        assert_eq!(alias.media_type, "application/json");
+        // A valid archive may describe J with its opaque alias while the
+        // retained parent still references its JSON type. Import must follow
+        // that later typed reference, independently of descriptor order.
+        alias.media_type = "application/octet-stream".into();
+        let mut export = source.export_cognition(&Default::default())?;
+        export.manifest.objects = objects;
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+        let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(imported.ack(EntityId::new()).verified);
+        assert_eq!(receiver.cas.read_object(&child.digest)?.as_slice(), b"retained child");
+        Ok(())
+    }
 
     #[test]
     fn reordered_labels_cannot_publish_a_paused_head_or_files() {

@@ -13,6 +13,7 @@ shenko-types = { path = "../shenko-types" }
 shenko-kernel = { path = "../shenko-kernel" }
 shenko-store = { path = "../shenko-store" }
 shenko-broker = { path = "../shenko-broker" }
+shenko-quota = { path = "../shenko-quota" }
 shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
 shenko-awareness-core = { path = "../shenko-awareness-core" }
 blake3 = { workspace = true }
