@@ -815,7 +815,7 @@ impl ComputerUseBackend {
         if display.trim().is_empty() {
             return DriveOutcome::unavailable(
                 "no_display_address",
-                "no explicit display and $DISPLAY unset",
+                "no explicit display and $DISPLAY unset".to_string(),
             );
         };
         // Parse the display BEFORE connecting. The u16 `6000 + display`
@@ -1902,7 +1902,7 @@ fn send_action(
                 let _domain =
                     session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
                 xtest::fake_input(
-                    &session.conn, MOTION_NOTIFY_EVENT, 0, session.screen.root, x, y, 0,
+                    &session.conn, MOTION_NOTIFY_EVENT, 0, 0, session.screen.root, x, y, 0,
                 )
                 .ok()
                 .and_then(|c| c.check().ok())
