@@ -177,7 +177,14 @@ impl WasmRuntime {
     /// Create a runtime with a default-config engine and a fresh empty store.
     pub fn new() -> Result<Self> {
         info!("WASM runtime init (wasmtime-45)");
-        let engine = Engine::default();
+        // Compile serially on the calling thread: wasmtime's parallel
+        // compilation pool is a process-global rayon pool whose workers inherit
+        // the comm of whichever thread first compiles. Built from an invocation
+        // worker named "shenko-wasi", that pool would outlive the run and
+        // masquerade as leaked invocation threads.
+        let mut config = Config::new();
+        config.parallel_compilation(false);
+        let engine = Engine::new(&config)?;
         let store = Store::new(&engine, ());
         Ok(Self {
             engine,
@@ -301,6 +308,7 @@ impl WasmRuntime {
             if self.control_engine.is_none() {
                 let mut config = Config::new();
                 config.epoch_interruption(true);
+                config.parallel_compilation(false);
                 self.control_engine = Some(
                     Engine::new(&config)
                         .map_err(|e| anyhow!("create epoch-enabled engine: {e}"))?,
