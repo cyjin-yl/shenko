@@ -16,6 +16,17 @@ pub enum PublicationTarget {
     QqPrivate(u64),
 }
 
+/// Authored semantic task, not an endpoint, authority grant or tool schema.
+/// The runtime binds the exact transport and enforces the sealed parent cap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelChildSpec {
+    pub goal: String,
+    pub system_prompt: String,
+    pub model: String,
+    pub max_tokens: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OutputAction {
@@ -31,6 +42,9 @@ pub enum OutputAction {
         /// Explicit child definition; no shell/SSH authority is exposed to the subject.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         definition: Option<crate::task::NativeTaskDefinition>,
+    },
+    DelegateModel {
+        spec: ModelChildSpec,
     },
     Identity {
         change: IdentityChange,

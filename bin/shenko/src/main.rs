@@ -336,8 +336,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             store.settle_subject_memory()?;
             store.reconcile_subject_publications()?;
             // Native finite children use the same Cordis root and persistent
-            // ledger. The handler is deliberately narrow; generic model goals
-            // remain parked instead of becoming a fictitious completed LLM run.
+            // ledger. Fixed native definitions retain their original handlers;
+            // the finite model handler is installed with the shared broker below.
             let _native_child_plugin = supervisor
                 .spawn(
                     shenko_subject::NativeChildPlugin,
@@ -453,6 +453,20 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .spawn(shenko_compact_snap::SnapCompactPlugin, shenko_compact_snap::SnapConfig::default())
                 .await?;
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            // Optional quota policy install (SPEC §42): the file holds one
+            // serialized QuotaPolicy; a recorded policy makes every inference
+            // request pass durable admission before dispatch. Unreadable or
+            // invalid content fails startup loudly rather than silently
+            // running unpriced.
+            if let Ok(path) = std::env::var("SHENKO_QUOTA_POLICY") {
+                let text = std::fs::read_to_string(&path)
+                    .map_err(|error| anyhow::anyhow!("SHENKO_QUOTA_POLICY unreadable: {error}"))?;
+                let policy: shenko_quota::QuotaPolicy = serde_json::from_str(&text)
+                    .map_err(|error| anyhow::anyhow!("SHENKO_QUOTA_POLICY invalid: {error}"))?;
+                let receipt = store.record_quota_policy(&policy, chrono::Utc::now())?;
+                info!(policy_id=%policy.policy_id, revision=policy.revision,
+                    commit=%receipt.commit_ref, "quota policy recorded");
+            }
             let capabilities = match broker.discover_capabilities().await {
                 Ok(capabilities) => Some(capabilities),
                 Err(error) => {
@@ -460,6 +474,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     None
                 }
             };
+            let model_child_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+                shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone())?,
+            );
+            let _model_child_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, model_child_handler)
+                .await?;
+            // ModelChildHandler reconstructed all outstanding original charges
+            // before any subject/child inference can enter this broker.
             tokio::spawn(broker.run());
             // Awareness is installed capability, not kernel business logic: the
             // shipped seeds plus any packages under data_dir/awareness become
@@ -476,18 +498,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
                 tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
-            let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
-                agent_id,
-                Arc::clone(&subject_inbox),
-                Arc::clone(&store),
-                identity_context.clone(),
-            )?
-            .with_broker(broker_handle)
-            .with_model_capabilities(capabilities)
-            .with_native_capabilities(native_child.installed_prompt_sections())
-            .with_awareness(awareness)
-            .with_hooks(Arc::clone(&hook_registry))
-            .with_outbox(outbox_tx.clone());
+            // The contacts query handler is only real while its connector is
+            // configured; the plugin handle must outlive the napcat block.
+            let mut _native_contacts_plugin = None;
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
@@ -511,6 +524,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 let event_tx = client.event_sender();
                 let pending_actions = client.pending_actions.clone();
                 let cancel_napcat = consumer_cancel.clone();
+
+                // Read-only contact/identity queries ride the same echo
+                // protocol and durable task/evidence path as every native
+                // child. Installing only while the connector exists keeps the
+                // advertised capability honest: no NapCat, no definition.
+                let contacts_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                    Arc::new(shenko_exec_host::NapCatContactsHandler::new(
+                        Arc::clone(&store),
+                        Arc::clone(&client),
+                    ));
+                _native_contacts_plugin = Some(
+                    supervisor
+                        .spawn(shenko_subject::NativeTaskHandlerPlugin, contacts_handler)
+                        .await?,
+                );
 
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
@@ -694,6 +722,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 info!("NapCat connector started");
             }
 
+            // Built after any connector-scoped handler install so the sealed
+            // tool contract advertises exactly the installed definitions.
+            let loop_state = shenko_subject::loop_runner::SubjectLoopState::new(
+                agent_id,
+                Arc::clone(&subject_inbox),
+                Arc::clone(&store),
+                identity_context.clone(),
+            )?
+            .with_broker(broker_handle)
+            .with_model_capabilities(capabilities.clone())
+            .with_native_capabilities(native_child.installed_prompt_sections())
+            .with_awareness(awareness)
+            .with_hooks(Arc::clone(&hook_registry))
+            .with_outbox(outbox_tx.clone());
+
             // Connector/ACK storage failures also stop admission in the subject.
             let connector_failure = cancel.clone();
             let connector_stop = consumer_cancel.clone();
@@ -712,6 +755,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
+                .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");
@@ -1184,7 +1228,7 @@ mod recovery_integration_tests {
             )),
         ))).unwrap();
         let decision = StepDecision {
-            schema_version: 6,
+            schema_version: 7,
             output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, None)
             .unwrap(),
             identity_intent: None,
@@ -1213,7 +1257,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    6,
+                    7,
                 )
                 .unwrap()
                 .object,
@@ -1288,7 +1332,7 @@ mod recovery_integration_tests {
         let leaf_seq = store.session_leaf_seq(scope).unwrap()
             .map(|seq| u64::try_from(seq).unwrap());
         let input = serde_json::json!({
-            "schema_version":10, "step_id":step.step_id, "step_no":step.step_no,
+            "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
             "events":events, "provider_binding":null,
             "payload":shenko_broker::request::InferencePayload {
                 system_prompt:"native recovery fixture".into(), messages,
@@ -1313,7 +1357,7 @@ mod recovery_integration_tests {
             },
         });
         store.cas.seal_object(&serde_json::to_vec(&input).unwrap(), "application/json",
-            "input_plans", "subject_step_input", 10).unwrap().object
+            "input_plans", "subject_step_input", 11).unwrap().object
     }
 
     /// Deterministic model-output fixture admitted through the real parser and S1
@@ -1389,7 +1433,7 @@ mod recovery_integration_tests {
         assert_eq!(delegated_task_intents.len(), task_ids.len());
         let next = EntityId::new();
         let decision = StepDecision {
-            schema_version: 6,
+            schema_version: 7,
             output,
             identity_intent: None,
             step_id: step.step_id,
@@ -1414,7 +1458,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    6,
+                    7,
                 )
                 .unwrap()
                 .object,
@@ -1465,6 +1509,25 @@ mod recovery_integration_tests {
         Ok(())
     }
 
+    /// Drive bounded dispatcher passes until a durable condition is met. The
+    /// dispatcher manages executions asynchronously; asserting "two passes
+    /// finish a task" would re-serialize them in the test's favour.
+    async fn drive_native_until(
+        native: &Arc<shenko_subject::NativeChildService>,
+        mut met: impl FnMut() -> Result<bool>,
+    ) -> Result<()> {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                native.run_once().await?;
+                if met()? {
+                    return Ok(());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await?
+    }
+
     // Real local process boundary: one process executes the committed Pending
     // task and exits; its parent reopens the ledger and must not execute it again.
     // The model output is a deterministic fixture, not production-model evidence.
@@ -1491,16 +1554,15 @@ mod recovery_integration_tests {
         store.start_subject_dispatcher().unwrap();
         let printf_task = EntityId::new();
         let missing_task = EntityId::new();
-        let natural_task = EntityId::new();
         let expected = "native child 真实结果\nwith spaces";
         let model_text = format!(
-            "[delegate:host.printf:1] {}\n[delegate:example.missing:1] {{\"text\":\"missing\"}}\n[delegate] 保留自然语言目标而不伪造执行",
+            "[delegate:host.printf:1] {}\n[delegate:example.missing:1] {{\"text\":\"missing\"}}",
             serde_json::json!({"text":expected,"timeout_secs":5})
         );
         commit_native_fixture_step(
             &store,
             &model_text,
-            &[printf_task, missing_task, natural_task],
+            &[printf_task, missing_task],
             vec![],
         );
         let pending = store.external_task(printf_task).unwrap();
@@ -1544,8 +1606,11 @@ mod recovery_integration_tests {
             .try_service::<shenko_subject::NativeChildService>()
             .unwrap();
         native.recover().unwrap();
-        native.run_once().await.unwrap();
-        native.run_once().await.unwrap();
+        drive_native_until(&native, || {
+            Ok(store.native_task_result(printf_task)?.is_some())
+        })
+        .await
+        .unwrap();
 
         let result = store.native_task_result(printf_task).unwrap().unwrap();
         assert!(matches!(&result.outcome, TaskOutcome::Succeeded));
@@ -1575,12 +1640,7 @@ mod recovery_integration_tests {
             shenko_store::child::park_reason(&store.external_task(missing_task).unwrap()),
             Some("handler_unavailable")
         );
-        assert_eq!(
-            shenko_store::child::park_reason(&store.external_task(natural_task).unwrap()),
-            Some("definition_unavailable")
-        );
         assert!(store.native_task_result(missing_task).unwrap().is_none());
-        assert!(store.native_task_result(natural_task).unwrap().is_none());
         assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 1);
 
         let inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
@@ -1962,8 +2022,13 @@ mod recovery_integration_tests {
             .try_service::<shenko_subject::NativeChildService>()
             .unwrap();
         native.recover().unwrap();
-        native.run_once().await.unwrap();
-        native.run_once().await.unwrap();
+        drive_native_until(&native, || {
+            let task = reopened.external_task(unknown_task)?;
+            Ok(matches!(task.state, TaskState::Pending { .. })
+                && shenko_store::child::park_reason(&task) == Some("reconciling"))
+        })
+        .await
+        .unwrap();
 
         let unknown = reopened
             .external_operation(unknown_claim.operation_id)
@@ -2658,7 +2723,7 @@ mod reply_directive_tests {
     use shenko_types::{ids::EntityId, output::*};
     #[test]
     fn identity_lines_are_actions_not_reply_text() {
-        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] 完整有限目标\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
+        let out = "先想一下\n[reply:group:7]  你好\n[identity:name] 岚\n继续说\n[identity:soul] 记住关系；不要把 delegate 和委派当指令\n[remember] 一整段记忆\n[delegate] {\"goal\":\"完整有限目标\",\"system_prompt\":\"独立子角色\",\"model\":\"fixture-child\",\"max_tokens\":32}\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n[reply:private:9] 第二条";
         let dir = std::env::temp_dir().join(format!("shenko-controls-{}", EntityId::new()));
         std::fs::create_dir_all(&dir).unwrap();
         let store = shenko_store::store::Store::open(dir.join("s.db"), dir.join("cas")).unwrap();
@@ -2740,7 +2805,6 @@ mod reply_directive_tests {
             "先想清楚再等\n[wait] {\"condition\":\"实验出现足够判断的结果\",\"max_wait_secs\":120}\n[remember] 记住等待条件",
         )
         .unwrap();
-        assert_eq!(started.schema_version, 3);
         assert_eq!(started.controls.len(), 2);
         let OutputAction::SemanticWait { change } = &started.controls[0].action else {
             panic!("the wait control must be a typed semantic wait action")

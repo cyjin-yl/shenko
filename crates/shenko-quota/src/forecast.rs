@@ -84,7 +84,16 @@ pub enum StaleUse {
     LastKnown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Legacy forecasts serialized without an options field default to the most
+/// conservative pair: zero lifetime and stale readings refused, so an old
+/// record can never masquerade as having been made from live evidence.
+impl Default for ForecastOptions {
+    fn default() -> Self {
+        Self { ttl: chrono::Duration::zero(), stale: StaleUse::Refuse }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForecastOptions {
     /// How long a reading from this source stays current.
     pub ttl: chrono::Duration,
@@ -167,6 +176,10 @@ pub struct QuotaForecast {
     /// Legacy forecasts have no source lifetime proof and remain unknown.
     #[serde(default)]
     pub source_validity: SourceValidity,
+    /// The exact lifetime/stale-use inputs this forecast was computed under.
+    /// Legacy rows without it deserialize to the conservative default.
+    #[serde(default)]
+    pub options: ForecastOptions,
     pub windows: Vec<WindowForecast>,
     /// Expected windows with no usable reading: unknown, never full or exhausted.
     pub unobserved: Vec<AbsentWindow>,
@@ -292,6 +305,7 @@ pub fn forecast(
         computed_at: now,
         freshness,
         source_validity,
+        options,
         windows,
         unobserved: snapshot.absent_windows.clone(),
     }

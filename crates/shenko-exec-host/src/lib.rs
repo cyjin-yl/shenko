@@ -11,3 +11,6 @@ pub use computer_use::*;
 
 pub mod history_task;
 pub use history_task::*;
+
+pub mod contact_task;
+pub use contact_task::*;

@@ -377,6 +377,19 @@ fn stage_input(
         ],
     )
     .map_err(storage_error)?;
+    // Staging is durable here: the recovery flag moves inside the same
+    // transaction as the staging link, so a crash can never leave an input
+    // staged but still queued for recovery delivery. This does not claim a
+    // sealed presentation; selected receipts require sealed InputPlan membership.
+    // Web/Playground/media sources persist complete InboxEvent originals.
+    // Native child T2 keeps its own task_result consumption bookkeeping.
+    tx.execute(
+        "UPDATE inbox_events SET consumed=1
+         WHERE event_id=?1 AND consumed=0
+           AND (source IN (?2, 'playground') OR source LIKE 'media/%')",
+        params![input.event_id.to_string(), crate::web_input::WEB_INPUT_SOURCE],
+    )
+    .map_err(storage_error)?;
     Ok(true)
 }
 
@@ -489,7 +502,7 @@ impl Store {
         let object = step.input_plan_ref.as_ref()
             .ok_or_else(|| ShenkoError::conflict("S0 input plan missing"))?;
         let input: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&object.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10)
+        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(11)
             || input.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || input.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
         {
@@ -576,6 +589,33 @@ impl Store {
             return Err(ShenkoError::conflict("S0 history/window/model generation changed"));
         }
         Ok(())
+    }
+
+    /// Bounded recovery of complete subject-input originals, read directly by
+    /// the normal Planned loop when a volatile wake was lost or backpressured.
+    /// Web, Playground and media ingress share this lane and its staging
+    /// transaction; native-child task_result rows retain their existing T2
+    /// delivery path.
+    pub fn pending_inbox_events(
+        &self,
+        agent_id: EntityId,
+        limit: usize,
+    ) -> Result<Vec<String>, ShenkoError> {
+        let limit = i64::try_from(limit)
+            .map_err(|_| ShenkoError::conflict("pending input limit is too large"))?;
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn.prepare_cached(
+            "SELECT data FROM inbox_events
+             WHERE agent_id=?1 AND consumed=0
+               AND (source IN (?2, 'playground') OR source LIKE 'media/%')
+             ORDER BY rowid LIMIT ?3",
+        ).map_err(storage_error)?;
+        let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE, limit],
+            |row| row.get::<_, String>(0))
+            .map_err(storage_error)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(storage_error)?;
+        Ok(rows)
     }
 
     /// Stage the real input facts of one planned subject step.

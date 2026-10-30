@@ -450,7 +450,7 @@ impl Store {
     ) -> Result<(Option<SemanticWait>, shenko_types::object::Digest), ShenkoError> {
         let input: serde_json::Value =
             serde_json::from_slice(&self.cas.read_object(&decision.input_plan_ref.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(10) {
+        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(11) {
             return Err(ShenkoError::conflict(
                 "semantic wait change is not bound to its S0 snapshot",
             ));

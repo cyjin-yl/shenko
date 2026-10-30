@@ -35,7 +35,23 @@ pub const NATIVE_PARK: &str = "native_park";
 pub const NATIVE_COMPLETION: &str = "native_completion";
 pub const NATIVE_ASSIGNMENT: &str = "native_execution_assignment";
 pub const NATIVE_SETTLEMENT_ONLY: &str = "native_settlement_only";
+pub const NATIVE_DISPATCH: &str = "native_dispatch_committed";
 pub const COGNITION_IMPORTED: &str = "cognition_imported";
+
+/// Atomic send-boundary transition recorded in the task ledger itself.
+/// Serialization with `request_native_cancellation` and authority changes is
+/// the immediate write transaction, so exactly one side wins the race.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeDispatchTransition {
+    /// The caller now durably owns the single armed send for this invocation.
+    Won,
+    /// A dispatch commit already exists for this task; the caller must not
+    /// send again and must keep the original attempt recoverable.
+    AlreadyCommitted,
+    /// The invocation lost authority (cancellation, stale revision/generation,
+    /// inactive owner) before any dispatch committed.
+    Fenced,
+}
 
 #[derive(Debug, Clone)]
 pub struct NativeTaskClaim {
@@ -319,6 +335,7 @@ impl Store {
                     record_revision: old_revision.next(),
                     invocation_id,
                     epoch: head.controller_epoch,
+                    software_generation: head.software_generation.clone(),
                     worker_id: self.capabilities.incarnation,
                     node_id: self.ledger.ledger_id(),
                 };
@@ -444,6 +461,80 @@ impl Store {
         )
     }
 
+    /// Recheck an armed, possibly queued inference at its actual send boundary.
+    /// Record revision may have advanced at T1; invocation/task revision,
+    /// controller generation and ownership are the authority, not the callback.
+    pub fn native_invocation_current(&self, ctx: &crate::external::TaskInvocation) -> Result<bool> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction()?;
+        let Some(task) = read_task(&tx, ctx.task_id)? else { return Ok(false) };
+        self.native_invocation_current_tx(&tx, &task, ctx)
+    }
+
+    /// One atomic dispatch commit, serialized with `request_native_cancellation`
+    /// and owner/authority changes by the immediate write transaction. Exactly
+    /// one caller can win `Won`; any later caller sees `AlreadyCommitted` (the
+    /// original send may be in flight and stays recoverable, never re-sent and
+    /// never marked never-dispatched) and a cancelled/stale invocation is
+    /// `Fenced` before any send exists.
+    pub fn commit_native_dispatch(
+        &self,
+        ctx: &crate::external::TaskInvocation,
+    ) -> Result<NativeDispatchTransition> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                self.check_dispatch_owner(&tx)?;
+                let mut task = match read_task(&tx, ctx.task_id)? {
+                    Some(task) => task,
+                    None => return Ok(NativeDispatchTransition::Fenced),
+                };
+                if task.memos.contains_key(NATIVE_DISPATCH) {
+                    return Ok(NativeDispatchTransition::AlreadyCommitted);
+                }
+                if !self.native_invocation_current_tx(&tx, &task, ctx)? {
+                    return Ok(NativeDispatchTransition::Fenced);
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                task.memos.insert(
+                    NATIVE_DISPATCH.into(),
+                    serde_json::json!({
+                        "task_revision": task.task_revision,
+                        "invocation_id": ctx.invocation_id,
+                        "commit": commit,
+                    }),
+                );
+                task.record_revision = task.record_revision.next();
+                task.updated_commit = commit;
+                write_task(&tx, &task)?;
+                child_log(&tx, self, commit, 1)?;
+                tx.commit()?;
+                Ok(NativeDispatchTransition::Won)
+            },
+            storage_failure,
+        )
+    }
+
+    pub(crate) fn native_invocation_current_tx(
+        &self, tx: &Transaction<'_>, task: &TaskRecord, ctx: &crate::external::TaskInvocation,
+    ) -> Result<bool> {
+        self.check_dispatch_owner(tx)?;
+        let head = read_head(tx, task.agent_id)?;
+        if task.abort_request.is_some() || task.task_revision != ctx.task_revision
+            || head.controller_epoch != ctx.epoch
+            || head.software_generation != ctx.software_generation
+            || !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused)
+            || !matches!(task.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
+                if invocation_id == ctx.invocation_id && epoch == ctx.epoch)
+        {
+            return Ok(false);
+        }
+        ensure_owner_active(tx, task, &head)?;
+        Ok(true)
+    }
+
     /// T2 binds an actually resolved operation and its sealed E1 to a durable
     /// result entry and subject-ready inbox projection in one SQL transaction.
     pub fn complete_native_task(
@@ -469,6 +560,9 @@ impl Store {
                         if invocation_id == claim.invocation.invocation_id
                             && epoch == claim.invocation.epoch)
                 {
+                    return Ok(None);
+                }
+                if !self.native_invocation_current_tx(&tx, &task, &claim.invocation)? {
                     return Ok(None);
                 }
                 ensure_current_operation(&tx, &completion)?;

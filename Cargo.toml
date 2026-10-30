@@ -15,6 +15,7 @@ members = [
     "crates/shenko-exec-ssh",
     "crates/shenko-node",
     "crates/shenko-wasm",
+    "crates/shenko-repl",
     "crates/shenko-context-policy",
     "crates/shenko-quota",
     "crates/shenko-compact-budget",
