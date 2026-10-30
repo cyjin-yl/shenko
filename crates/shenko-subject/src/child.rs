@@ -280,6 +280,13 @@ impl NativeChildService {
             .cloned()
     }
 
+    /// Admission can report an unavailable implementation before creating new
+    /// work. Dispatch still rechecks the Cordis generation when claiming it.
+    pub fn has_handler(&self, kind: &str, version: u32) -> bool {
+        self.registry.read().handlers.keys()
+            .any(|(registered_kind, registered_version)| registered_kind == kind && *registered_version == version)
+    }
+
     /// One bounded pass over durable candidates. Duplicate wakeups only reread
     /// this state; CAS determines whether a handler/attempt may be created.
     /// Finished managed executions are reclaimed first, so a completed short

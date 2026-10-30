@@ -928,6 +928,7 @@ mod tests {
                 record_revision: RecordRevision(1),
                 invocation_id: EntityId::new(),
                 epoch: ControllerEpoch(1),
+                software_generation: RuntimeGeneration::default(),
                 worker_id: EntityId::new(),
                 node_id: EntityId::new(),
             },

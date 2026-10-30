@@ -434,6 +434,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
                 .await?;
+            let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+                shenko_ui::PlaygroundBackendHandler::new(Arc::clone(&store), data_dir.join("playground")),
+            );
+            let _native_playground_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
+                .await?;
             // Real X11 Computer Use: four kinds share one live backend state
             // so lease authority and session identity agree across tasks.
             let computer_use_backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(
@@ -510,7 +516,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 );
                 println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
                 let runtime_result =
-                    run_deterministic_ui(port, store, data_dir, model_profile, cancel).await;
+                    run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child).await;
                 consumer_cancel.cancel();
                 match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
                     Ok(result) => result??,
@@ -841,6 +847,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
             // 6. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
+                .with_native(Arc::clone(&native_child))
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
@@ -1219,8 +1226,10 @@ async fn run_deterministic_ui(
     data_dir: PathBuf,
     model_profile: shenko_seed::ModelProfile,
     failure: tokio_util::sync::CancellationToken,
+    native: Arc<shenko_subject::NativeChildService>,
 ) -> Result<()> {
     let ui = shenko_ui::server::UiServer::new(port)
+        .with_native(native)
         .with_store(store)
         .with_data_dir(data_dir)
         .with_inference_status(model_profile.model, model_profile.configured);
@@ -2742,7 +2751,7 @@ mod recovery_integration_tests {
             eprintln!("SKIP computer_use_xvfb_observe_and_real_input: no usable X11 display");
             return;
         };
-        use x11rb::{connection::Connection, protocol::xproto, wrapper::ConnectionExt as _};
+        use x11rb::{connection::Connection, protocol::xproto, protocol::xproto::ConnectionExt as _};
         let (delegate, _) = computer_use_delegates(&[
             (1, "computer.use.session"),
             (1, "computer.use.observe"),
@@ -2967,7 +2976,7 @@ mod recovery_integration_tests {
             eprintln!("SKIP computer_use_stale_observation_rejected: no usable X11 display");
             return;
         };
-        use x11rb::{connection::Connection, protocol::xproto, wrapper::ConnectionExt as _};
+        use x11rb::{connection::Connection, protocol::xproto, protocol::xproto::ConnectionExt as _};
         let (delegate, _) = computer_use_delegates(&[
             (1, "computer.use.session"),
             (1, "computer.use.observe"),
