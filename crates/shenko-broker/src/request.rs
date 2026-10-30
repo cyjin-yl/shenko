@@ -24,12 +24,37 @@ pub enum ProviderBinding {
         base_url: String,
         model: String,
         api_version: String,
+        /// Non-secret blake3 hex of the exact credential that was configured
+        /// when the binding froze. Two unrelated accounts on the same
+        /// endpoint/model produce different fingerprints, so a recovered
+        /// pending request cannot silently resume under a different account.
+        /// The credential itself is never stored or logged.
+        #[serde(default)]
+        credential_fingerprint: Option<String>,
         serializer_revision: u32,
         default_max_tokens: u64,
     },
 }
 
 impl ProviderBinding {
+    /// Select another model on the same configured transport. This creates a
+    /// new binding; it never edits an existing request seal or its endpoint.
+    pub fn with_model(&self, selected: &str) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            !selected.trim().is_empty() && selected.len() <= 512
+                && !selected.chars().any(char::is_control),
+            "invalid selected model"
+        );
+        let mut binding = self.clone();
+        match &mut binding {
+            Self::Stub { .. } => anyhow::bail!("unavailable provider has no selectable model"),
+            Self::Local { model, .. } | Self::Anthropic { model, .. } => {
+                selected.clone_into(model);
+            }
+        }
+        Ok(binding)
+    }
+
     pub fn model(&self) -> &str {
         match self {
             Self::Stub { .. } => "stub",
@@ -133,7 +158,7 @@ pub enum InferencePriority {
     Urgent = 3,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InferencePayload {
     pub system_prompt: String,
     pub messages: Vec<InferenceMessage>,
@@ -268,6 +293,11 @@ pub struct InferenceResult {
     pub response: Option<InferenceResponse>,
     pub effective: EffectiveInference,
     pub termination: TerminationEvidence,
+    /// Provider rate-limit headers observed alongside this result, including
+    /// on rejections. They update quota observations from ordinary traffic;
+    /// no paid probe is generated for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub quota_headers: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,12 +370,19 @@ impl ProviderWireError {
 #[error("provider rejected request with HTTP {http_status}")]
 pub struct ProviderRejection {
     pub http_status: u16,
+    /// Rate-limit headers that arrived on the rejection response itself.
+    /// A 429 carries real bucket evidence; it is never discarded just
+    /// because the request failed.
+    pub ratelimit_headers: Vec<(String, String)>,
 }
 
 impl ProviderRejection {
     /// Only statuses that are an explicit request rejection become terminal
     /// evidence. Timeouts, conflicts and server/transport failures stay unknown.
-    pub(crate) fn from_status(status: reqwest::StatusCode) -> Option<Self> {
+    pub(crate) fn from_status(
+        status: reqwest::StatusCode,
+        ratelimit_headers: Vec<(String, String)>,
+    ) -> Option<Self> {
         use reqwest::StatusCode;
         matches!(
             status,
@@ -362,6 +399,7 @@ impl ProviderRejection {
         )
         .then_some(Self {
             http_status: status.as_u16(),
+            ratelimit_headers,
         })
     }
 }
@@ -413,6 +451,9 @@ pub struct InferenceResponse {
     pub stop_reason: String,
     pub raw_response: String,
     pub usage: Option<TokenUsage>,
+    /// Rate-limit headers the provider attached to this response.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ratelimit_headers: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

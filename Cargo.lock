@@ -2514,6 +2514,7 @@ dependencies = [
  "shenko-kernel",
  "shenko-memory",
  "shenko-node",
+ "shenko-quota",
  "shenko-seed",
  "shenko-store",
  "shenko-subject",
@@ -2655,8 +2656,10 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "chrono",
+ "futures",
  "serde",
  "serde_json",
+ "shenko-channel-napcat",
  "shenko-node",
  "shenko-store",
  "shenko-subject",
@@ -2664,6 +2667,8 @@ dependencies = [
  "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tokio-util",
  "tracing",
  "uuid",
 ]
@@ -2761,6 +2766,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-repl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "cap-std",
+ "serde",
+ "serde_json",
+ "shenko-types",
+ "shenko-wasm",
+ "uuid",
+]
+
+[[package]]
 name = "shenko-seed"
 version = "0.1.0"
 dependencies = [
@@ -2796,6 +2815,7 @@ dependencies = [
  "shenko-channel-napcat",
  "shenko-context-policy",
  "shenko-identity",
+ "shenko-quota",
  "shenko-types",
  "tempfile",
  "thiserror 2.0.21",
@@ -2825,6 +2845,7 @@ dependencies = [
  "shenko-context-policy",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-quota",
  "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
@@ -2862,6 +2883,8 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-broker",
+ "shenko-context-policy",
  "shenko-kernel",
  "shenko-store",
  "shenko-subject",

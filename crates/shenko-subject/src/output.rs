@@ -16,7 +16,9 @@ pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引
 历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n\
 [reply:group:群号] 正文 或 [reply:private:QQ号] 正文；你决定对用户说的话必须放在对应回复控制行，单独写普通正文不会送达；后续普通行续接该回复。\n\
 用户消息开头会标出发送者与可回复的 QQ 号或群号，回复就用那个号码；\n\
-[remember] 要保存的内容；[delegate] 有限自然语言委派（保持未绑定）；\n\
+[remember] 要保存的内容。有限模型 child 用 [delegate] 后接一行 JSON：{\"goal\":\"任务目标、所需上下文和完成条件\",\"system_prompt\":\"你为这个 child 独立撰写的完整语义 system prompt\",\"model\":\"所选模型名称\",\"max_tokens\":1024}。\n\
+每个 child 可选择不同 system_prompt/model；模型名称在本轮冻结的已配置 provider 通路上请求，不改变你的主模型、不允许指定 endpoint 或自授工具。provider 是否提供该模型以真实回执为准。\n\
+当前模型 child 只执行一次有界文本推理并把结果交回同一 task/inbox，没有文件、shell、网络或外发工具；任务资料与成功条件要写在 goal 中。max_tokens 为正整数且不得超过本轮输出预算；plain text 的旧委派不执行。\n\
 [delegate:已注册kind:版本] 仅用于显式 deterministic native definition 的 JSON 输入，由 child handler 执行。\n\
 语义等待用 [wait] {\"condition\":\"语义退出条件\",\"max_wait_secs\":120} 开始，等待时长为 1..600 的整数秒；\n\
 等待操作自动绑定本轮冻结的当前等待，不需要输出或复制任何 ID；一次结果最多一个等待控制。\n\
@@ -147,7 +149,7 @@ pub fn parse_output(
     }
 
     let mut result = ParsedOutput {
-        schema_version: 3,
+        schema_version: 4,
         step_id,
         raw_ref,
         text: String::new(),
@@ -296,17 +298,25 @@ pub fn parse_output(
                     "[remember" => OutputAction::Remember {
                         text: value.to_owned(),
                     },
-                    "[delegate" => OutputAction::Delegate {
-                        text: value.to_owned(),
-                        definition: None,
-                    },
+                    "[delegate" => {
+                        let spec: shenko_types::output::ModelChildSpec = serde_json::from_str(value)
+                            .map_err(|_| invalid(line_no, "model delegation requires goal, system_prompt, model and max_tokens JSON"))?;
+                        if spec.goal.trim().is_empty() || spec.system_prompt.trim().is_empty()
+                            || spec.goal.len() > 64 * 1024 || spec.system_prompt.len() > 64 * 1024
+                            || spec.model.trim().is_empty() || spec.model.len() > 512
+                            || spec.model.chars().any(char::is_control) || spec.max_tokens == 0
+                        {
+                            return Err(invalid(line_no, "invalid model child goal/prompt/model/budget"));
+                        }
+                        OutputAction::DelegateModel { spec }
+                    }
                     _ if header.starts_with("[delegate:") => {
                         let spec = header.trim_start_matches("[delegate:");
                         let (kind, version) = spec.rsplit_once(':').ok_or_else(|| {
                             invalid(line_no, "native delegation requires kind and version")
                         })?;
                         let valid_kind = !kind.is_empty()
-                            && kind != "delegation"
+                            && kind != "delegation" && kind != "model.child"
                             && kind.bytes().all(|c| {
                                 c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')
                             });
