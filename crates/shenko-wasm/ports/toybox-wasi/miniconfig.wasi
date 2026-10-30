@@ -86,7 +86,9 @@ CONFIG_CAL=y
 CONFIG_SLEEP=y
 CONFIG_TS=y
 CONFIG_USLEEP=y
-CONFIG_UPTIME=y
+# uptime is impossible on WASI preview1: neither sysinfo() nor a utmp
+# database exists, so there is no honest way to report boot time, load
+# average, or logged-in users. Excluded rather than stubbed.
 
 # ---- posix: ids/hashes ----
 CONFIG_MD5SUM=y

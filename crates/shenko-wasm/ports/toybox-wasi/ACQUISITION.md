@@ -50,6 +50,52 @@ single.sh/make.sh/genconfig.sh, portability.sh and the Makefile to call
   in the background, bypassing `CPUS=1`; the generated `.singlemake` clean
   target escapes `$$SHENKO_TOYBOX_RETAIN` so make passes the shell variable.
 
+### WASI preview1 header/type gaps closed by later patches
+
+`0009-toys-h-wasi-includes.patch` guards every unconditional `toys.h`
+include that does not exist in the wasi-sdk-34 wasm32-wasip1 sysroot:
+`grp.h`, `pwd.h`, `paths.h`, `syslog.h`, `termios.h`, `sys/wait.h`,
+`netdb.h`, `net/if.h`, `sys/mman.h`, `sys/resource.h`, `sys/times.h`.
+`sys/mman.h`/`sys/resource.h`/`sys/times.h` physically exist but `#error`
+unless `-D_WASI_EMULATED_MMAN`/`-D_WASI_EMULATED_PROCESS_CLOCKS` are passed;
+no enabled applet calls mmap/getrlimit/times, so the headers stay out rather
+than linking an emulation nobody uses.
+
+`0010-lib-wasi-guards.patch` guards the remaining lib call sites the missing
+headers imply: `xgetpwuid/xgetgrgid/xgetpwnam/xgetgrnam` (no passwd/group
+database), `xwaitpid`/`xmmap`/`xvfork`/`xpopen`/`xrun`/`xexec`/`xchroot`/
+`xsetuser` (no processes or privilege boundaries), the `cf*`/`tc*` baud-rate
+table in `lib/tty.c` (no termios), `sigprocmask`/`sigfillset` in
+`exit_signal` (no POSIX signal mask), `xnotify_*` (no inotify/kqueue),
+`xattr_*` (no extended attributes — honest ENOSYS returns, not fake
+success), `xbind`/`xconnect`/`pollinate`/`ntop`/`xsendto`/`xrecvwait` (no
+sockets), `dev_makedev`/`fs_type_name`, and `_PATH_DEFPATH`/addrinfo/wait
+W*/syslog LOG_* constants now live in `wasi-compat.h`.
+
+`wasi-compat.h` additionally supplies: `struct passwd`/`struct group` when
+the headers are absent, an opaque `struct termios`, `struct statfs` (shape
+only — `stat()`/`fstatfs` are ENOSYS), `struct addrinfo`, the `W*` status
+decoders using the Linux encoding `xwaitpid()` parses, `sigsetjmp/
+siglongjmp` mapped onto the real `setjmp`/`longjmp` pair in `libsetjmp.a`,
+`syscall()` as ENOSYS, `getpid()`/`getppid()` as the honest single-process
+constant, `_PATH_DEFPATH`, the `LOG_*` syslog constants, `AI_*`/`NI_*`/`EAI_*`
+and `SIG_BLOCK`/`SA_*` for guarded code that still must parse.
+
+`build.sh` adds `-mllvm -wasm-enable-sjlj` (required by `<setjmp.h>` on
+wasip1), `-lsetjmp` (the only setjmp implementation the sysroot ships), and
+`LDOPTIMIZE=-Wl,--gc-sections` because wasm-ld rejects upstream's
+`-Wl,--as-needed` fallback.
+
+### Applet exclusions (impossible, not stubbed)
+
+- `uptime` — neither `sysinfo()` nor a utmp database exists; there is no
+  honest boot time, load average, or user count to report. Removed from
+  `miniconfig.wasi`, not faked.
+- Any applet needing `fork`/`exec`/`waitpid`, sockets, a terminal line
+  discipline, `chown`/privilege changes, `/proc`, device nodes, or xattrs
+  that must succeed. The code paths remain but `error_exit`/`ENOSYS`, so
+  the binary can never claim the operation happened.
+
 `GENDIR`, `UNSTRIPPED`, config paths and `TMPDIR` are confined to the run;
 retirement rejects paths or ancestors outside its vendor/applets/scratch
 trees. The product miniconfig is copied, never moved or offered as the

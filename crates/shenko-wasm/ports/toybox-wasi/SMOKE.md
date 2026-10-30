@@ -60,8 +60,20 @@ invented guest exit code — the worker is always joined, never abandoned.
 - `shenko tool exec --tool toybox-find -- -exec` → `find -exec: no subprocess on WASI`.
 - `shenko tool exec --tool toybox-date -- -s @0` → `cannot set date on WASI`.
 - `shenko tool exec --tool toybox-stat -- -f` → `stat -f: no statfs on WASI`.
+- `shenko tool exec --tool toybox-tar -- -I gzip -cf x.tgz dir` →
+  `subprocess: no fork/exec on WASI` (compression helpers need a child).
+- `shenko tool exec --tool toybox-tar -- --to-command` → `tar --to-command:
+  no subprocess on WASI`.
+- `shenko tool exec --tool toybox-cp -- -s` → `cp -s: no strip subprocess on WASI`.
+- `shenko tool exec --tool toybox-chroot --` → `chroot: no privilege boundary
+  on WASI`.
 - Installing a renamed random `.wasm` under `toybox-cat` fails inspection
   unless it is a real `_start`+`memory`+p1-import module.
+
+`uptime` is deliberately not built: `sysinfo()` and the utmp database do
+not exist on preview1, so there is no honest uptime/load/user count. It is
+omitted from `miniconfig.wasi`, not stubbed to a fake success. `date`/`sleep`
+are real; `uname`/`arch` report the fixed wasm32-wasip1 ambient values.
 
 ## 5. Effect-status check
 

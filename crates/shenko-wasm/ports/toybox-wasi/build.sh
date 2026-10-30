@@ -75,9 +75,17 @@ export KCONFIG_CONFIG="$RUN_DIR/vendor/.config"
 unset KCONFIG_ALLCONFIG
 export CFLAGS="--target=wasm32-wasip1 --sysroot=$WASI_SDK/share/wasi-sysroot \
   -D_WASI_EMULATED_SIGNAL \
+  -mllvm -wasm-enable-sjlj \
   -O2 -fno-builtin -Wall -Wno-unused-function \
   -include $PORT_DIR/wasi-compat.h"
 export LDFLAGS="-lwasi-emulated-signal"
+# wasi-libc only implements plain setjmp/longjmp (libsetjmp.a); sigsetjmp/
+# siglongjmp are absent and wasi-compat.h maps them onto the plain pair.
+export LDFLAGS="$LDFLAGS -lsetjmp"
+# scripts/portability.sh falls back to "-Wl,--gc-sections -Wl,--as-needed";
+# wasm-ld accepts --gc-sections but has no --as-needed, so pin the supported
+# half. (LDOPTIMIZE is a ${VAR:=fallback} knob upstream already exposes.)
+export LDOPTIMIZE="-Wl,--gc-sections"
 
 # Both source and binary probe are retained. There is no /tmp path and no
 # cleanup trap that could erase a previous run or its evidence.
