@@ -556,6 +556,18 @@ impl NativeChildService {
             .collect()
     }
 
+    /// The registered `(kind, definition_version)` pairs, ordered. This is the
+    /// same registry the prompt sections come from, surfaced so self-knowledge
+    /// can report what this instance can actually execute — SPEC §38.
+    pub fn installed_definitions(&self) -> Vec<(String, u32)> {
+        self.registry
+            .read()
+            .handlers
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     /// Crate-visible view of the in-memory scan position for tests and
     /// diagnostics. It is scheduling state only — never a completion
     /// watermark and never consulted for durable truth.

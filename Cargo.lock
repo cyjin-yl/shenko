@@ -2671,6 +2671,7 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
+ "shenko-awareness-core",
  "shenko-channel-napcat",
  "shenko-node",
  "shenko-store",

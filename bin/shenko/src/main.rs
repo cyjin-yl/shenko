@@ -434,6 +434,25 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
                 .await?;
+            // Built-in, replaceable self-explanation — SPEC §38, R124. The
+            // provider is seeded from compiled-in material now; the real
+            // `self://runtime/capabilities` snapshot is installed below once
+            // the native and awareness registries are populated.
+            let self_knowledge = Arc::new(shenko_awareness_core::SelfKnowledgeProvider::new(
+                option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound"),
+                "0.6.2",
+            ));
+            let self_knowledge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::SelfKnowledgeHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&self_knowledge),
+                ));
+            let _native_self_knowledge_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    self_knowledge_handler,
+                )
+                .await?;
             let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
                 shenko_ui::PlaygroundBackendHandler::new(Arc::clone(&store), data_dir.join("playground")),
             );
@@ -480,6 +499,24 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;
             native_child.recover()?;
+            // Awareness is installed capability, not kernel business logic:
+            // the shipped seeds plus any packages under data_dir/awareness
+            // become advisory perspectives for the model. Nothing here
+            // dispatches on keywords; every enabled unit travels as bounded
+            // advisory text.
+            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
+            let awareness_packages = data_dir.join("awareness");
+            if awareness_packages.is_dir() {
+                for unit in awareness.install_from_dir(&awareness_packages)? {
+                    info!(unit = %unit, "awareness unit installed");
+                }
+            }
+            // Record what actually registered so self-knowledge answers from
+            // the real registries instead of a stale product feature list.
+            self_knowledge.install_runtime_capabilities(
+                &native_child.installed_definitions(),
+                &awareness.list(),
+            );
             let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
             let dispatch_native = Arc::clone(&native_child);
@@ -578,17 +615,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // ModelChildHandler reconstructed all outstanding original charges
             // before any subject/child inference can enter this broker.
             tokio::spawn(broker.run());
-            // Awareness is installed capability, not kernel business logic: the
-            // shipped seeds plus any packages under data_dir/awareness become
-            // advisory perspectives for the model. Nothing here dispatches on
-            // keywords; every enabled unit travels as bounded advisory text.
-            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
-            let awareness_packages = data_dir.join("awareness");
-            if awareness_packages.is_dir() {
-                for unit in awareness.install_from_dir(&awareness_packages)? {
-                    info!(unit = %unit, "awareness unit installed");
-                }
-            }
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
