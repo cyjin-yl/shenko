@@ -72,10 +72,82 @@ enum Command {
         #[command(subcommand)]
         command: RuntimeCommand,
     },
+    /// Manage named WASM tools in the seed's managed tool store — SPEC §8.2.
+    /// Artifacts are real upstream WASI binaries; declared targets with no
+    /// verified artifact are reported unresolved, never faked.
+    Tool {
+        #[command(subcommand)]
+        command: ToolCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+enum ToolCommand {
+    /// List installed tool records and the honest status of every declared
+    /// named target (toybox, gcc-wasm, git, gh, tea, ssh).
+    List,
+    /// Install a real WASI artifact under a name. `--abi wasi_preview1`
+    /// requires the module to actually import only wasi_snapshot_preview1 and
+    /// export `_start`+`memory`; any other declared ABI is catalogued but not
+    /// executable in this runtime.
+    Install {
+        /// Host path of the artifact (.wasm binary module).
+        #[arg(long)]
+        file: PathBuf,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        version: String,
+        /// wasi_preview1 | wasi_component | wasix | host_imports | other
+        #[arg(long)]
+        abi: String,
+        /// Free-form entrypoint label (e.g. /tools/toybox); defaults to /tools/<name>.
+        #[arg(long)]
+        entrypoint: Option<String>,
+        /// Upstream origin URI (informational provenance).
+        #[arg(long)]
+        source_uri: Option<String>,
+        /// Upstream release tag (e.g. v76.0.0).
+        #[arg(long)]
+        source_release: Option<String>,
+        /// e.g. "upstream_release" or "source_build:wasi-sdk-34.0".
+        #[arg(long)]
+        provenance: Option<String>,
+        /// Expected blake3:<hex> digest; install aborts on mismatch.
+        #[arg(long)]
+        expected_digest: Option<String>,
+    },
+    /// Execute an installed tool with real argv/env/stdio under the managed
+    /// mounts. Exit code is reported exactly; tool names resolve against the
+    /// installed registry only — host binaries are never substituted.
+    Exec {
+        /// name or name@version
+        #[arg(long)]
+        tool: String,
+        /// Grant only read permissions on the admitted home/memory mounts.
+        /// This is an actual guest capability restriction, not an effect label.
+        #[arg(long)]
+        read_only: bool,
+        /// Guest argv after argv[0].
+        #[arg(last = true)]
+        args: Vec<String>,
+        /// KEY=VALUE guest environment entries (repeatable).
+        #[arg(long = "env")]
+        env: Vec<String>,
+        /// Host file whose bytes become guest stdin (default: empty).
+        #[arg(long)]
+        stdin_file: Option<PathBuf>,
+        /// Host file receiving guest stdout (default: this process's stdout).
+        #[arg(long)]
+        stdout_file: Option<PathBuf>,
+        /// Host file receiving guest stderr (default: this process's stderr).
+        #[arg(long)]
+        stderr_file: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -152,6 +224,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let result: Result<()> = async {
     match command {
         Command::Node => node_sync::node_command(&data_dir)?,
+        Command::Tool { command } => tool_command(&data_dir, command)?,
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
             let db_path = data_dir.join("shenko.db");
@@ -317,6 +390,10 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &prepared_home.manifest,
                 &model_profile,
             )?;
+            // The wasi.exec handler keeps the mount closure and the data dir;
+            // per-execution it reopens this installation's unit inventory so
+            // installs made after startup are visible.
+            let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
             let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
@@ -381,6 +458,18 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
                     .await?;
             }
+            // Real named-WASM-tool execution: wasi.exec resolves this
+            // installation's own unit inventory and runs their verified
+            // artifact bytes in the real WasmRuntime under the home mounts.
+            let wasi_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::WasiExecHandler::new(
+                    Arc::clone(&store),
+                    wasi_mounts.clone(),
+                    data_dir.clone(),
+                ));
+            let _native_wasi_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
+                .await?;
             let native_child = supervisor
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;
@@ -826,6 +915,299 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     }.await;
     supervisor.stop().await?;
     result
+}
+
+/// `shenko tool …` — inspect and manage the seed's named WASM tool store.
+/// Install and exec go through the node's installation-unit inventory — the
+/// same authority node_sync replicates — while list is a pure read of that
+/// inventory. `<data>/tools` is only where the unit authority materializes
+/// bytes; no separate tool registry exists to diverge or adopt foreign data.
+fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
+    use shenko_node::{
+        Node, UnitDescriptor, UnitExport, UnitKind, UnitPackage, UnitRequest, UNIT_SCHEMA,
+    };
+    use shenko_wasm::{
+        InputFile, OutputFile, ToolAbi, ToolDescriptor, ToolSource, WasiRunOutcome,
+        inspect_module, installed_tools, named_target_report, resolve_tool,
+    };
+    use base64::{Engine as _, engine::general_purpose::STANDARD as B64_STD};
+    use std::io::Write as _;
+
+    let tools_root = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
+    match command {
+        ToolCommand::List => {
+            // Pure read: never creates or migrates storage, never writes a
+            // registry file. An installation that has no node DB simply has
+            // no installed tools.
+            let records = match Node::open_inspect(&data_dir.join("node"))? {
+                Some(node) => installed_tools(&node)?,
+                None => Vec::new(),
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "tools": records,
+                    "named_targets": named_target_report(&records),
+                }))?
+            );
+        }
+        ToolCommand::Install {
+            file,
+            name,
+            version,
+            abi,
+            entrypoint,
+            source_uri,
+            source_release,
+            provenance,
+            expected_digest,
+        } => {
+            let abi = ToolAbi::parse(&abi)
+                .ok_or_else(|| anyhow::anyhow!("unknown --abi {abi:?}"))?;
+            shenko_wasm::validate_tool_name(&name)?;
+            let artifact = std::fs::read(&file)
+                .with_context(|| format!("read artifact {}", file.display()))?;
+            anyhow::ensure!(
+                artifact.len() as u64 <= shenko_wasm::TOOL_ARTIFACT_MAX_BYTES,
+                "TOOL_ARTIFACT_TOO_LARGE:{name}: {} bytes exceeds {}",
+                artifact.len(),
+                shenko_wasm::TOOL_ARTIFACT_MAX_BYTES
+            );
+            // Real ABI from the real bytes: the executable claim
+            // `wasi_preview1` requires the module to actually link under the
+            // preview1 linker (typed imports, () -> () _start, memory).
+            let inspected = inspect_module(&artifact)
+                .with_context(|| format!("TOOL_ABI_UNSUPPORTED:{name}"))?;
+            anyhow::ensure!(
+                inspected.runnable == (abi == ToolAbi::WasiPreview1),
+                "TOOL_ABI_UNSUPPORTED:{name}: declared {} but {:?}",
+                abi.name(),
+                inspected.detail
+            );
+            let actual = shenko_types::object::Digest::blake3(&artifact);
+            if let Some(expected) = &expected_digest {
+                let expected = shenko_types::object::Digest(expected.clone());
+                anyhow::ensure!(
+                    expected.algorithm() == "blake3",
+                    "TOOL_DIGEST_UNSUPPORTED:{name}: only blake3 digests are admitted"
+                );
+                anyhow::ensure!(
+                    expected == actual,
+                    "TOOL_DIGEST_MISMATCH:{name}: expected {expected}, artifact is {actual}"
+                );
+            }
+
+            // Install requires an existing managed installation: the record
+            // is this installation's own unit inventory entry.
+            anyhow::ensure!(
+                data_dir.join("shenko.db").is_file(),
+                "no managed installation at {}; run `shenko start` once",
+                data_dir.display()
+            );
+            // Admit any existing tools tree BEFORE mutating state: the same
+            // foreign-content check Bootstrap::validate_target enforces. An
+            // unowned nonempty tools/ directory must fail here rather than be
+            // overwritten by write_package after the import is recorded.
+            let tools_dir = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
+            if tools_dir.exists() && std::fs::read_dir(&tools_dir)?.next().is_some() {
+                let node_check = Node::open_inspect(&data_dir.join("node"))?
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "DATA_PATH_CONFLICT: {} exists but no node installation owns it",
+                        tools_dir.display()
+                    ))?;
+                let roots = node_check.materialization_roots()?;
+                let canonical = tools_dir.canonicalize()?;
+                anyhow::ensure!(
+                    roots.iter().any(|r| std::path::Path::new(r).canonicalize().ok() == Some(canonical.clone())),
+                    "DATA_PATH_CONFLICT: {} is not this installation's tool materialization root",
+                    tools_dir.display()
+                );
+            }
+            let store = shenko_store::store::Store::open(
+                data_dir.join("shenko.db"),
+                data_dir.join("cas"),
+            )?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let unit_id = format!("tool.{name}");
+            // Same name@version is idempotent only when the artifact is
+            // identical; new content under an existing version is a loud
+            // conflict, never an in-place overwrite.
+            for fact in node.tool_unit_facts()? {
+                if fact.unit_id == unit_id {
+                    let record_name = fact
+                        .tool
+                        .get("version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default();
+                    if record_name == version {
+                        anyhow::ensure!(
+                            fact.artifact_digest == actual,
+                            "TOOL_INSTALL_CONFLICT:{name}@{version}: a different artifact \
+                             is already installed under this version"
+                        );
+                        println!("already installed: {unit_id}@{version} {actual}");
+                        return Ok(());
+                    }
+                }
+            }
+            let descriptor = ToolDescriptor {
+                name: name.clone(),
+                version: version.clone(),
+                abi,
+                entrypoint: entrypoint.unwrap_or_else(|| format!("/tools/{name}")),
+                source: ToolSource {
+                    uri: source_uri.unwrap_or_default(),
+                    release: source_release.unwrap_or_default(),
+                    provenance: provenance.unwrap_or_else(|| "manual".into()),
+                },
+                imports: inspected.imports.clone(),
+            };
+            let export = UnitExport {
+                schema: UNIT_SCHEMA,
+                root_unit_id: unit_id.clone(),
+                root_revision: Some(version.clone()),
+                root_artifact_digest: Some(actual.clone()),
+                origin_node: None,
+                enabled: true,
+                packages: vec![UnitPackage {
+                    unit: UnitDescriptor {
+                        unit_id: unit_id.clone(),
+                        kind: UnitKind::Code,
+                        revision: version.clone(),
+                        artifact_digest: actual.clone(),
+                        provides: vec![format!("tool:{name}")],
+                        dependencies: vec![],
+                        config: serde_json::json!({"tool": descriptor}),
+                        applicability: None,
+                    },
+                    artifact_base64: B64_STD.encode(&artifact),
+                    evidence: vec![],
+                    resolved_dependencies: None,
+                }],
+            };
+            let outcome = node.handle_unit_request(UnitRequest::Import {
+                export,
+                package_root: tools_root.to_string_lossy().into_owned(),
+                enable: Some(true),
+            })?;
+            println!("{}", serde_json::to_string_pretty(&outcome)?);
+        }
+        ToolCommand::Exec {
+            tool,
+            read_only,
+            args,
+            env,
+            stdin_file,
+            stdout_file,
+            stderr_file,
+        } => {
+            let manifest_path = data_dir.join(shenko_seed::HOME_MANIFEST_FILE);
+            anyhow::ensure!(
+                manifest_path.is_file(),
+                "WASM_PROFILE_UNAVAILABLE: no managed home at {}; run `shenko start` once",
+                manifest_path.display()
+            );
+            // Same managed-home admission as normal startup: installation
+            // binding, mount-source confinement to this data dir, runtime
+            // generation and readiness — a copied home manifest can never
+            // alias a sibling installation's mounts.
+            let manifest = shenko_seed::bootstrap::validate_home_for_exec(data_dir)?;
+            // Installation binding part 1: the home manifest's declared
+            // installation must be this store's ledger identity — a copied
+            // home/ manifest cannot alias a sibling installation's ledger.
+            let binding = shenko_store::Store::inspect_installation_binding(
+                &data_dir.join("shenko.db"),
+            )?;
+            anyhow::ensure!(
+                manifest.installation_id == binding.ledger_id,
+                "INSTALLATION_IDENTITY_MISMATCH: home manifest installation_id \
+                 does not match this store's ledger; reconcile before exec"
+            );
+            let node = Node::open_inspect(&data_dir.join("node"))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no node installation at {}/node; run `shenko start` once",
+                        data_dir.display()
+                    )
+                })?;
+            // Installation binding part 2: the node must belong to this
+            // subject — the same identity check node_sync::open_node enforces
+            // on the writable path. A transplanted node's tool records cannot
+            // execute against this home.
+            let expected = binding.subject.map(|subject| shenko_node::Identity {
+                agent_id: subject.agent_id,
+                branch_id: subject.branch_id,
+                origin_proof: subject.origin_proof,
+            });
+            anyhow::ensure!(
+                node.local_identity()? == expected,
+                "INSTALLATION_IDENTITY_MISMATCH: node identity does not match \
+                 this installation's subject binding; reconcile before exec"
+            );
+            let facts = node.tool_unit_facts()?;
+            let (record, _) = resolve_tool(&facts, &tool)?;
+            // Every execution re-verifies the sealed bytes and the real ABI;
+            // the materialized copy is never trusted.
+            let (module, _inspection) = shenko_wasm::tool_module(&node, &record)?;
+            let stdin_bytes = match &stdin_file {
+                Some(path) => std::fs::read(path)
+                    .with_context(|| format!("read stdin file {}", path.display()))?,
+                None => Vec::new(),
+            };
+            // Streams always ride real files: an explicit destination file, a
+            // temp file copied to the inherited terminal stream afterwards.
+            let io_dir = std::env::temp_dir().join(format!(
+                "shenko-tool-exec-{}",
+                shenko_types::ids::EntityId::new()
+            ));
+            std::fs::create_dir_all(&io_dir)?;
+            let stdin_path = io_dir.join("stdin.bin");
+            let stdout_path = stdout_file.clone().unwrap_or_else(|| io_dir.join("stdout.bin"));
+            let stderr_path = stderr_file.clone().unwrap_or_else(|| io_dir.join("stderr.bin"));
+            std::fs::write(&stdin_path, &stdin_bytes)?;
+            let mut command = shenko_wasm::WasiCommand::new(
+                InputFile::new(std::fs::File::open(&stdin_path)?),
+                OutputFile::new(std::fs::File::create(&stdout_path)?),
+                OutputFile::new(std::fs::File::create(&stderr_path)?),
+            );
+            let mut arguments = Vec::with_capacity(args.len() + 1);
+            arguments.push(record.name.clone());
+            arguments.extend(args);
+            command.arguments = arguments;
+            for entry in env {
+                let (key, value) = entry
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
+                command.environment.push((key.into(), value.into()));
+            }
+            let profile = if read_only {
+                shenko_wasm::ToolMountProfile::ReadOnly
+            } else {
+                shenko_wasm::ToolMountProfile::ManagedHome
+            };
+            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(profile.resolve(&manifest.mounts))?;
+            let code = runtime.run_wasi_module(&module, command);
+            if stdout_file.is_none() {
+                std::io::stdout().write_all(&std::fs::read(&stdout_path).unwrap_or_default())?;
+            }
+            if stderr_file.is_none() {
+                std::io::stderr().write_all(&std::fs::read(&stderr_path).unwrap_or_default())?;
+            }
+            let _ = std::fs::remove_dir_all(&io_dir);
+            match code {
+                Ok(WasiRunOutcome::Exited(code)) => std::process::exit(code),
+                Ok(outcome) => {
+                    eprintln!("wasi exec stopped: {outcome:?}");
+                    std::process::exit(124);
+                }
+                Err(error) => {
+                    eprintln!("wasi exec transport error: {error:#}");
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Deterministic no-model service: keep the existing UI, configuration and

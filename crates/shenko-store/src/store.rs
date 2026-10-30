@@ -1,8 +1,8 @@
 //! Main store — SPEC §41.2.1
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
 use parking_lot::Mutex;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
-use std::path::PathBuf;
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
 
@@ -10,7 +10,7 @@ use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedE
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::ids::{BranchId, RecordRevision};
-use shenko_types::object::ObjectRef;
+use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::store::{StoreCapabilities, WriteBatch};
 use shenko_types::subject::{
     SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
@@ -19,6 +19,21 @@ use shenko_types::subject::{
 use crate::cas::ContentStore;
 use crate::ledger::Ledger;
 use crate::semantic_wait::WaitClock;
+
+/// Existing ledger/subject authority, projected without initialization,
+/// migrations, CAS setup, or recovery writes.
+#[derive(Debug, PartialEq, Eq)]
+pub struct InstallationBinding {
+    pub ledger_id: EntityId,
+    pub subject: Option<SubjectBinding>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct SubjectBinding {
+    pub agent_id: EntityId,
+    pub branch_id: EntityId,
+    pub origin_proof: Digest,
+}
 
 pub struct Store {
     pub ledger: Arc<Ledger>,
@@ -34,6 +49,49 @@ pub struct Store {
 }
 
 impl Store {
+    /// Inspect an existing database only. Failure (including a missing or old
+    /// database) leaves its original bytes and installation state untouched.
+    pub fn inspect_installation_binding(db_path: &Path) -> Result<InstallationBinding> {
+        let metadata = std::fs::symlink_metadata(db_path)?;
+        ensure!(metadata.is_file(), "installation database must be a regular file");
+        // A read-only open on the live tuple is not side-effect free: when a
+        // WAL database has a live -wal but no -shm, SQLite creates/initializes
+        // the shared-memory file on the original path. `immutable=1` is no
+        // answer either — it silently ignores uncheckpointed WAL content, so
+        // the binding could be read from stale bytes. The only zero-touch
+        // view is a private copy: copy the main db plus its journal/WAL
+        // sidecars into a temp dir and let the staged copy recover.
+        //
+        // Per-member signatures captured before and after each copy keep the
+        // snapshot consistent against a live writer: if main and WAL are
+        // unchanged across the whole window, no checkpoint could have torn
+        // the staged main between reads. A database that keeps changing under
+        // inspection is reported unstable instead of silently admitting an
+        // inconsistent snapshot.
+        const ATTEMPTS: usize = 4;
+        let mut last_error: Option<anyhow::Error> = None;
+        for _ in 0..ATTEMPTS {
+            match inspect_installation_binding_once(db_path) {
+                Ok(binding) => return Ok(binding),
+                Err(error) => last_error = Some(error),
+            }
+        }
+        Err(last_error.unwrap_or_else(|| {
+            anyhow::anyhow!("installation database kept changing during inspection")
+        }))
+    }
+
+    /// Use exactly the same identity projection for a live Store and a
+    /// read-only CLI admission; neither path infers an identity from paths.
+    pub fn installation_binding(&self) -> Result<InstallationBinding> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction()?;
+        let binding = read_installation_binding(&tx)?;
+        ensure!(binding.ledger_id == self.ledger.ledger_id(), "ledger identity changed");
+        tx.commit()?;
+        Ok(binding)
+    }
+
     pub fn open(db_path: PathBuf, cas_dir: PathBuf) -> Result<Self> {
         let conn = Connection::open(&db_path)?;
         configure_sqlite(&conn)?;
@@ -768,25 +826,7 @@ impl Store {
     ) -> Result<(SubjectBranchHead, SubjectStep), ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn.transaction().map_err(storage_error)?;
-        let json: String = tx
-            .query_row(
-                "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
-                [agent_id.to_string()],
-                |r| r.get(0),
-            )
-            .map_err(storage_error)?;
-        let head: SubjectBranchHead = serde_json::from_str(&json)?;
-        if head.agent_id != agent_id {
-            return Err(ShenkoError::conflict("stored head identity mismatch"));
-        }
-        let head = checked_head_mode(&tx, &head, false)?;
-        if head.mode == SubjectMode::Paused {
-            crate::runtime_boundary::validate_paused_head(&tx, &head)?;
-        }
-        let step = read_step(&tx, &head.branch_id, head.next_step_id)?.ok_or_else(|| {
-            ShenkoError::not_found("head.next_step_id has no stored successor; recovery required")
-        })?;
-        validate_step_binding(&head, &step)?;
+        let (head, step) = read_subject(&tx, agent_id)?;
         tx.commit().map_err(storage_error)?;
         Ok((head, step))
     }
@@ -911,18 +951,9 @@ impl Store {
     /// 数据库错误不能冒充首次运行，否则会重复出生。
     pub fn get_existing_agent_id(&self) -> Result<Option<EntityId>, ShenkoError> {
         let conn = self.ledger.conn.lock();
-        let result: Option<String> = conn
-            .query_row("SELECT subject_id FROM subject_genesis LIMIT 1", [], |r| {
-                r.get(0)
-            })
-            .optional()
-            .map_err(storage_error)?;
-        result
-            .map(|id| {
-                id.parse()
-                    .map_err(|_| ShenkoError::storage("invalid stored agent_id"))
-            })
-            .transpose()
+        // Replicated genesis rows are copied history, not this installation's
+        // subject. Only the locally owned subject may answer "do we have one".
+        read_local_subject_id(&conn, self.ledger.ledger_id())
     }
 
     /// Read the latest committed OperationRecord by id. SPEC §41.4 X03.
@@ -1023,6 +1054,457 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
 
 pub(crate) fn storage_error(error: rusqlite::Error) -> ShenkoError {
     ShenkoError::storage(error.to_string())
+}
+
+fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
+    let ledger_id: String = conn.query_row(
+        "SELECT ledger_id FROM ledger_identity WHERE singleton=1", [], |r| r.get(0),
+    )?;
+    let ledger_id: EntityId = ledger_id.parse()?;
+    // subject_genesis is replicated history: a receiving installation can
+    // retain its peer's genesis alongside its own. Only the subject this
+    // installation actually owns binds the node's identity; foreign rows are
+    // provenance, not candidates, and are never removed to satisfy this check.
+    let subject = if let Some(agent_id) = read_local_subject_id(conn, ledger_id)? {
+        let json: String = conn.query_row(
+            "SELECT data FROM subject_genesis WHERE subject_id=?1",
+            [agent_id.to_string()],
+            |r| r.get(0),
+        )?;
+        let genesis: SubjectGenesis = serde_json::from_str(&json)?;
+        ensure!(genesis.subject_id == agent_id, "subject genesis identity mismatch");
+        let (head, _) = read_subject(conn, agent_id)?;
+        Some(SubjectBinding {
+            agent_id,
+            branch_id: EntityId(head.branch_id.0),
+            origin_proof: Digest::blake3(&serde_json::to_vec(&genesis)?),
+        })
+    } else {
+        None
+    };
+    Ok(InstallationBinding { ledger_id, subject })
+}
+
+/// One staging attempt for `inspect_installation_binding`: copy the tuple,
+/// validate the staged copy, read the binding, then confirm the live tuple
+/// did not move during the read.
+fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBinding> {
+    let staging = tempfile::Builder::new()
+        .prefix("shenko-inspect-")
+        .tempdir()?;
+    let staged = staging.path().join("inspect.db");
+    let recorded = copy_stable_tuple(db_path, &staged)?;
+    let mut conn = Connection::open_with_flags(
+        &staged,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    {
+        let check: String = conn.query_row("PRAGMA quick_check(1)", [], |row| row.get(0))?;
+        ensure!(check == "ok", "installation database failed integrity check: {check}");
+    }
+    let binding = {
+        let tx = conn.transaction()?;
+        let binding = read_installation_binding(&tx)?;
+        tx.commit()?;
+        binding
+    };
+    conn.close().map_err(|(_, error)| error)?;
+    ensure!(
+        unchanged_tuple(db_path, &recorded)?,
+        "installation database changed during inspection"
+    );
+    Ok(binding)
+}
+
+/// The subject this installation actually owns, if exactly one exists.
+///
+/// A replicated genesis keeps the ledger that created it, so a subject counts
+/// as local when its genesis was committed here or its head has committed
+/// local work (a takeover writes this installation's commits onto the adopted
+/// branch head). Imported replicas satisfy neither and stay parked history.
+/// More than one qualifying subject is an integrity error, never a coin flip.
+pub(crate) fn read_local_subject_id(
+    conn: &Connection,
+    ledger_id: EntityId,
+) -> Result<Option<EntityId>, ShenkoError> {
+    let mut genesis_rows = conn.prepare(
+        "SELECT subject_id, data FROM subject_genesis",
+    )
+    .map_err(storage_error)?;
+    let rows = genesis_rows
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(storage_error)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(storage_error)?;
+    let mut local: Vec<EntityId> = Vec::new();
+    for (id, json) in rows {
+        let agent_id: EntityId = id
+            .parse()
+            .map_err(|_| ShenkoError::storage("invalid stored agent_id"))?;
+        let genesis: SubjectGenesis = serde_json::from_str(&json)?;
+        if genesis.subject_id != agent_id {
+            return Err(ShenkoError::conflict("subject genesis identity mismatch"));
+        }
+        let head_ledger: Option<String> = conn
+            .query_row(
+                "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                [agent_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let committed_here = match head_ledger {
+            Some(head_json) => {
+                let head: SubjectBranchHead = serde_json::from_str(&head_json)?;
+                head.committed_at.ledger_id == ledger_id
+            }
+            None => false,
+        };
+        if genesis.created_commit.ledger_id == ledger_id || committed_here {
+            local.push(agent_id);
+        }
+    }
+    match local.len() {
+        0 => Ok(None),
+        1 => Ok(local.pop()),
+        _ => Err(ShenkoError::conflict(
+            "installation has more than one local subject",
+        )),
+    }
+}
+
+fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
+    let mut name = db_path.as_os_str().to_os_string();
+    name.push(suffix);
+    name.into()
+}
+
+/// Inode-bound signature of one live SQLite tuple member. Path-level checks
+/// return None when the member is absent; anything that is not a plain
+/// regular file is rejected rather than followed. Nanosecond timestamps and
+/// ctime keep a same-second checkpoint/WAL-reset or a rename swap-back from
+/// looking identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
+struct MemberSig {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    mtime: i64,
+    mtime_ns: i64,
+    ctime: i64,
+    ctime_ns: i64,
+}
+
+fn member_sig(meta: &std::fs::Metadata) -> MemberSig {
+    use std::os::unix::fs::MetadataExt;
+    MemberSig {
+        dev: meta.dev(),
+        ino: meta.ino(),
+        len: meta.len(),
+        mtime: meta.mtime(),
+        mtime_ns: meta.mtime_nsec(),
+        ctime: meta.ctime(),
+        ctime_ns: meta.ctime_nsec(),
+    }
+}
+
+fn tuple_signature(path: &Path) -> Result<Option<MemberSig>> {
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            ensure!(
+                meta.is_file() && !meta.file_type().is_symlink(),
+                "installation database member is not a regular file: {}",
+                path.display()
+            );
+            Ok(Some(member_sig(&meta)))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Report the copy child writes back over the pipe.
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+struct CopyReport {
+    /// 0 = copied successfully; anything else is the child's errno.
+    status: i32,
+    errno: i32,
+    /// fstat of the fd actually opened (inode-bound, before copy).
+    before: MemberSig,
+    /// fstat of the same fd after the copy.
+    after: MemberSig,
+    /// Bytes copied through that fd.
+    copied: u64,
+}
+
+// Runs in the forked child only. Async-signal-safe by construction: every
+// call is a libc syscall on preallocated stack data and inherited fds — no
+// allocator, lock, formatting, panic or destructor path may run here.
+#[inline]
+unsafe fn copy_child_errno(report: &mut CopyReport) {
+    unsafe {
+        report.status = 1;
+        report.errno = *libc::__errno_location();
+    }
+}
+
+unsafe fn copy_child_body(
+    path_ptr: *const libc::c_char,
+    out_fd: libc::c_int,
+    report_fd: libc::c_int,
+) -> ! {
+    unsafe {
+        let mut report: CopyReport = std::mem::zeroed();
+        let fd = libc::open(path_ptr, libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+        if fd < 0 {
+            copy_child_errno(&mut report);
+        } else {
+            let mut st: libc::stat = std::mem::zeroed();
+            if libc::fstat(fd, &mut st) < 0 {
+                copy_child_errno(&mut report);
+            } else if st.st_mode & libc::S_IFMT != libc::S_IFREG {
+                report.status = 1;
+                report.errno = libc::EINVAL;
+            } else {
+                report.before = MemberSig {
+                    dev: st.st_dev as u64,
+                    ino: st.st_ino as u64,
+                    len: st.st_size as u64,
+                    mtime: st.st_mtime as i64,
+                    mtime_ns: st.st_mtime_nsec as i64,
+                    ctime: st.st_ctime as i64,
+                    ctime_ns: st.st_ctime_nsec as i64,
+                };
+                let mut buf = [0u8; 65536];
+                loop {
+                    let n = libc::read(fd, buf.as_mut_ptr().cast(), buf.len());
+                    if n == 0 {
+                        break;
+                    }
+                    if n < 0 {
+                        if *libc::__errno_location() == libc::EINTR {
+                            continue;
+                        }
+                        copy_child_errno(&mut report);
+                        break;
+                    }
+                    let mut off = 0usize;
+                    let mut done = true;
+                    while off < n as usize {
+                        let w = libc::write(out_fd, buf[off..].as_ptr().cast(), n as usize - off);
+                        if w < 0 {
+                            if *libc::__errno_location() == libc::EINTR {
+                                continue;
+                            }
+                            copy_child_errno(&mut report);
+                            done = false;
+                            break;
+                        }
+                        off += w as usize;
+                        report.copied += w as u64;
+                    }
+                    if !done || report.status != 0 {
+                        break;
+                    }
+                }
+                let mut st2: libc::stat = std::mem::zeroed();
+                if report.status == 0 {
+                    if libc::fstat(fd, &mut st2) < 0 {
+                        copy_child_errno(&mut report);
+                    } else {
+                        report.after = MemberSig {
+                            dev: st2.st_dev as u64,
+                            ino: st2.st_ino as u64,
+                            len: st2.st_size as u64,
+                            mtime: st2.st_mtime as i64,
+                            mtime_ns: st2.st_mtime_nsec as i64,
+                            ctime: st2.st_ctime as i64,
+                            ctime_ns: st2.st_ctime_nsec as i64,
+                        };
+                    }
+                }
+            }
+            libc::close(fd);
+        }
+        // Best-effort report delivery; the parent reaps regardless.
+        let bytes = std::slice::from_raw_parts(
+            (&report as *const CopyReport).cast::<u8>(),
+            std::mem::size_of::<CopyReport>(),
+        );
+        let mut off = 0usize;
+        while off < bytes.len() {
+            let w = libc::write(report_fd, bytes[off..].as_ptr().cast(), bytes.len() - off);
+            if w < 0 {
+                if *libc::__errno_location() == libc::EINTR {
+                    continue;
+                }
+                break;
+            }
+            off += w as usize;
+        }
+        libc::_exit(0);
+    }
+}
+
+/// Copy `src` into `dst` and return the inode-bound signature of the member
+/// actually read. This process never opens or closes the live db inode: a
+/// close here would release every POSIX lock held on that inode by any fd of
+/// this process (SQLite's documented independent-close hazard). A forked
+/// child does open(O_NOFOLLOW), fstat, read-through-the-same-fd, fstat-again
+/// and reports the real fd signatures over a pipe; the parent only reaps,
+/// reads the report and compares. Failure or unverifiable input is an honest
+/// error, never a fabricated signature.
+fn copy_member(src: &Path, dst: &Path, admitted: MemberSig) -> Result<MemberSig> {
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+    let src_c = std::ffi::CString::new(src.as_os_str().as_bytes())
+        .context("database path contains NUL")?;
+    let output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(dst)?;
+    let mut pipe = [0 as libc::c_int; 2];
+    if unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error()).context("create copy report pipe");
+    }
+    // Parent owns both pipe fds as Files for RAII close; the child inherits
+    // raw descriptors by number.
+    let (read_end, write_end) = unsafe {
+        (
+            std::fs::File::from_raw_fd(pipe[0]),
+            std::fs::File::from_raw_fd(pipe[1]),
+        )
+    };
+    let out_fd = output.as_raw_fd();
+    let report_fd = write_end.as_raw_fd();
+    let src_ptr = src_c.into_raw();
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        unsafe { drop(std::ffi::CString::from_raw(src_ptr)) };
+        return Err(std::io::Error::last_os_error()).context("fork snapshot copy child");
+    }
+    if pid == 0 {
+        // Child: only async-signal-safe libc work below.
+        unsafe { copy_child_body(src_ptr, out_fd, report_fd) }
+    }
+    unsafe { drop(std::ffi::CString::from_raw(src_ptr)) };
+    drop(write_end); // parent no longer holds the report write end
+    // Reap deterministically; report read comes after so a killed/errored
+    // child can never wedge this call on a missing report.
+    let mut status: libc::c_int = 0;
+    loop {
+        let r = unsafe { libc::waitpid(pid, &mut status, 0) };
+        if r == pid {
+            break;
+        }
+        if r < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
+            continue;
+        }
+        return Err(std::io::Error::last_os_error()).context("reap snapshot copy child");
+    }
+    ensure!(
+        libc::WIFEXITED(status),
+        "snapshot copy child did not exit cleanly"
+    );
+    let mut buf = std::mem::MaybeUninit::<CopyReport>::uninit();
+    let mut read_end = read_end;
+    read_end
+        .read_exact(unsafe {
+            std::slice::from_raw_parts_mut(
+                buf.as_mut_ptr().cast::<u8>(),
+                std::mem::size_of::<CopyReport>(),
+            )
+        })
+        .context("snapshot copy child report is incomplete")?;
+    let report = unsafe { buf.assume_init() };
+    ensure!(
+        report.status == 0,
+        "snapshot copy child failed (errno {})",
+        report.errno
+    );
+    ensure!(
+        report.before == report.after,
+        "live database member changed while its fd was being copied"
+    );
+    ensure!(
+        report.before == admitted,
+        "live database member no longer matches the admitted identity \
+         (the path was swapped between inspection and open)"
+    );
+    ensure!(
+        report.copied == admitted.len,
+        "snapshot copied {} bytes, expected {}",
+        report.copied,
+        admitted.len
+    );
+    ensure!(
+        output.metadata()?.len() == admitted.len,
+        "staged database copy length mismatch"
+    );
+    Ok(report.before)
+}
+
+/// Stage a consistent copy of the db tuple (main, -journal, -wal) under
+/// `staged` and return the live signatures captured during the copy. -shm is
+/// derived and never copied; the staged reader rebuilds it.
+fn copy_stable_tuple(
+    db_path: &Path,
+    staged: &Path,
+) -> Result<Vec<Option<MemberSig>>> {
+    let mut signatures = Vec::with_capacity(3);
+    for suffix in ["", "-journal", "-wal"] {
+        let live = sidecar_path(db_path, suffix);
+        let Some(before) = tuple_signature(&live)? else {
+            signatures.push(None);
+            continue;
+        };
+        let dst = sidecar_path(staged, suffix);
+        let copied = copy_member(&live, &dst, before)?;
+        ensure!(
+            copied == before,
+            "installation database member changed during inspection copy"
+        );
+        signatures.push(Some(before));
+    }
+    Ok(signatures)
+}
+
+/// True when the live tuple still matches the signatures captured at copy.
+fn unchanged_tuple(db_path: &Path, recorded: &[Option<MemberSig>]) -> Result<bool> {
+    for (suffix, recorded_sig) in ["", "-journal", "-wal"].iter().zip(recorded.iter()) {
+        if &tuple_signature(&sidecar_path(db_path, suffix))? != recorded_sig {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn read_subject(
+    conn: &Connection,
+    agent_id: EntityId,
+) -> Result<(SubjectBranchHead, SubjectStep), ShenkoError> {
+    let json: String = conn.query_row(
+        "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+        [agent_id.to_string()], |r| r.get(0),
+    ).map_err(storage_error)?;
+    let head: SubjectBranchHead = serde_json::from_str(&json)?;
+    if head.agent_id != agent_id {
+        return Err(ShenkoError::conflict("stored head identity mismatch"));
+    }
+    let head = checked_head_mode(conn, &head, false)?;
+    if head.mode == SubjectMode::Paused {
+        crate::runtime_boundary::validate_paused_head(conn, &head)?;
+    }
+    let step = read_step(conn, &head.branch_id, head.next_step_id)?.ok_or_else(|| {
+        ShenkoError::not_found("head.next_step_id has no stored successor; recovery required")
+    })?;
+    validate_step_binding(&head, &step)?;
+    Ok((head, step))
 }
 
 pub(crate) fn read_step(
@@ -1132,4 +1614,131 @@ fn update_step(
         return Err(ShenkoError::conflict("stale subject step"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod staged_inspection_tests {
+    //! Native copy/inspection behavior against real SQLite file tuples. No
+    //! wrappers: these call the private helpers directly so a copied snapshot
+    //! can never be mistaken for a live binding.
+    use super::*;
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::io::AsRawFd;
+    use anyhow::{Context, Result, ensure};
+    use rusqlite::Connection;
+
+    fn reap(pid: libc::pid_t) -> std::io::Result<libc::c_int> {
+        let mut status: libc::c_int = 0;
+        loop {
+            let r = unsafe { libc::waitpid(pid, &mut status, 0) };
+            if r == pid {
+                return Ok(status);
+            }
+            if r < 0 && unsafe { *libc::__errno_location() } == libc::EINTR {
+                continue;
+            }
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+
+    /// Exit 0 when an exclusive whole-file POSIX lock on `path` can be taken
+    /// right now in a *different* process, 3 when a held lock blocks it.
+    /// Called only in the forked probe child; libc syscalls on stack data.
+    unsafe fn probe_lock(path_ptr: *const libc::c_char) -> ! {
+        unsafe {
+            let fd = libc::open(path_ptr, libc::O_RDWR | libc::O_CLOEXEC);
+            if fd < 0 {
+                libc::_exit(4);
+            }
+            let mut fl: libc::flock = std::mem::zeroed();
+            fl.l_type = libc::F_WRLCK as _;
+            fl.l_whence = libc::SEEK_SET as _;
+            let rc = libc::fcntl(fd, libc::F_SETLK, &fl);
+            if rc == 0 {
+            libc::_exit(0);
+            }
+            let err = *libc::__errno_location();
+            libc::_exit(if err == libc::EACCES || err == libc::EAGAIN { 3 } else { 5 });
+        }
+    }
+
+    fn lock_blocked(path: &std::ffi::CString) -> Result<bool> {
+        let pid = unsafe { libc::fork() };
+        if pid < 0 {
+            return Err(std::io::Error::last_os_error()).context("fork lock probe");
+        }
+        if pid == 0 {
+            unsafe { probe_lock(path.as_ptr()) }
+        }
+        let status = reap(pid)?;
+        ensure!(libc::WIFEXITED(status), "lock probe died");
+        match libc::WEXITSTATUS(status) {
+            0 => Ok(false),
+            3 => Ok(true),
+            other => anyhow::bail!("lock probe failed to open ({other})"),
+        }
+    }
+
+    #[test]
+    fn staged_inspection_preserves_locks_and_rejects_swapped_members() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let db = dir.path().join("shenko.db");
+        let store = Store::open(db.clone(), dir.path().join("cas"))?;
+
+        // POSIX (fcntl) locks — the kind the independent-close hazard drops —
+        // held by this process on the live db inode.
+        let live = std::fs::File::options().read(true).write(true).open(&db)?;
+        let mut fl: libc::flock = unsafe { std::mem::zeroed() };
+        fl.l_type = libc::F_WRLCK as _;
+        fl.l_whence = libc::SEEK_SET as _;
+        if unsafe { libc::fcntl(live.as_raw_fd(), libc::F_SETLK, &fl) } < 0 {
+            return Err(std::io::Error::last_os_error()).context("take live db lock");
+        }
+        let live_c = std::ffi::CString::new(db.as_os_str().as_bytes())?;
+        assert!(lock_blocked(&live_c)?, "held lock must contend");
+        let binding = Store::inspect_installation_binding(&db)?;
+        assert_eq!(binding.ledger_id, store.ledger.ledger_id());
+        // The forked copy must not have released this process's lock.
+        assert!(lock_blocked(&live_c)?, "inspection dropped a live POSIX lock");
+        drop(live);
+
+        // An independent WAL tuple: sidecars are copied through the same
+        // child-owned inode-bound path, not inferred from the main file.
+        let extra = dir.path().join("extra.db");
+        let conn = Connection::open(&extra)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL;
+             CREATE TABLE t(v);
+             INSERT INTO t VALUES(1),(2),(3);",
+        )?;
+        let wal = sidecar_path(&extra, "-wal");
+        assert!(wal.exists(), "live WAL sidecar must exist for tuple staging");
+        let staged = dir.path().join("staged.db");
+        let sigs = copy_stable_tuple(&extra, &staged)?;
+        assert_eq!(sigs.len(), 3);
+        assert!(sigs[0].is_some() && sigs[2].is_some(), "main+WAL must be staged");
+        let mut copied = Vec::new();
+        std::fs::File::open(&wal)?.read_to_end(&mut copied)?;
+        drop(conn);
+
+        // A symlink member is rejected, never followed.
+        let link = dir.path().join("link.db");
+        std::os::unix::fs::symlink(&extra, &link)?;
+        assert!(tuple_signature(&link).is_err(), "symlink member must reject");
+
+        // A same-length file with a different inode is not the admitted
+        // member: the child reports what it actually opened and the parent
+        // refuses to fabricate the admitted signature for it.
+        let imposter = dir.path().join("imposter.db");
+        std::fs::write(&imposter, &copied)?;
+        let admitted = tuple_signature(&extra)?.unwrap();
+        std::fs::rename(&imposter, &extra)?;
+        let staged2 = dir.path().join("staged2.db");
+        assert!(
+            copy_member(&extra, &staged2, admitted).is_err(),
+            "swapped inode must not pass as the admitted member"
+        );
+        Ok(())
+    }
 }
