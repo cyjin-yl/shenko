@@ -1,5 +1,25 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Fixed-version verification update — 2026-10-30
+
+Owner-approved `7c2c7a98` execution was attempted under exact Rust/Cargo 1.98.1,
+empty HOME, independent Cargo/target/temp, original lock, offline plus inherited
+socket denial. Both the selected-SSH and node commands exited **101 before
+compilation: zero tests ran**. The inherited main `bc33b654` host-executor
+manifest declared the identical `blake3 = { workspace = true }` twice (lines
+15/26); both source versions have the same manifest blob `2c0b7300`.
+
+The source repair removes only the second identical declaration. It does not
+change dependency versions/features, lock bytes or workspace members. All 24
+tracked Cargo manifests now parse in a static TOML check. Static offline Cargo
+metadata progresses to a missing cached `x11rb` index entry; no repaired-source
+compilation or test has run. Of 401 locked registry archives, 398 existing
+archives were checksum-verified; three newly inherited X11-related packages
+remain absent. A prefetch was denied as outside the offline test scope and was
+not retried; separate preparation authorization is required, and actual tests
+remain offline. Full failed-command evidence and limitations are retained in
+[the fixed-source record](../evidence/agent-selected-ssh-7c2c7a98-20261030.json).
+
 ## Current integration checkpoint — 2026-10-30, source only
 
 This continuation normally integrates main

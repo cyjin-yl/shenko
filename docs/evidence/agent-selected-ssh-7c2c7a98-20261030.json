@@ -1,0 +1,127 @@
+{
+  "candidate": "7c2c7a9892281433252d5333a31bc4d3865c1ef6",
+  "tree": "f70f761bd63b4d8f47115b3810ebb4000a3f1ca4",
+  "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87",
+  "observationUTCWindow": {
+    "from": "2026-10-30T10:15:27Z",
+    "through": "2026-10-30T10:15:34Z",
+    "source": "authoritative clock tool before/after both command attempts"
+  },
+  "clockLimit": "Executor raw system UTC was approximately seven hours behind authoritative clock; raw timestamps retained in local results, not represented as authoritative UTC.",
+  "toolchain": {
+    "rustc": "1.98.1 (48a229cea 2026-09-01)",
+    "cargo": "1.98.1 (797e8a9bc 2026-08-05)",
+    "source": "Existing exact official archive/toolchain from earlier approved run; no new download succeeded",
+    "archiveSha256": "24ba1338a2d35c5a3247936546429e163fa674d726102af18bdf624582c57aea"
+  },
+  "isolation": {
+    "emptyHome": true,
+    "independentCargoHomeTargetTemp": true,
+    "explicitEnvironmentNoAmbientCredentials": true,
+    "cargoOffline": true,
+    "inheritedSocketDenial": true,
+    "socketProbe": "EPERM, exit 0",
+    "wrapperSha256": "810937a6e1564762ad73d3c0b90e4b12de0dbcb17c86c404aa6ecd02a63b3176",
+    "mountNamespace": false
+  },
+  "dependencyPreparation": {
+    "verifiedCachedArchives": 398,
+    "lockRegistryPackages": 401,
+    "missing": [
+      {
+        "name": "gethostname",
+        "version": "1.1.0",
+        "checksum": "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+      },
+      {
+        "name": "x11rb",
+        "version": "0.13.2",
+        "checksum": "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
+      },
+      {
+        "name": "x11rb-protocol",
+        "version": "0.13.2",
+        "checksum": "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+      }
+    ],
+    "noneDownloaded": true
+  },
+  "runs": [
+    {
+      "label": "selected-ssh",
+      "cargoArguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-ssh",
+        "selected_task::tests",
+        "--message-format=json"
+      ],
+      "exitCode": 101,
+      "wallSeconds": 0.08132603199919686,
+      "sourceUnchanged": true,
+      "logHashes": {
+        "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr": "43d77b44b5b133beb4530c58836e05e0b788fb978c52d8666f1a049322076e10"
+      },
+      "testsExecuted": 0,
+      "rustCompilationStarted": false,
+      "failure": "Cargo workspace manifest parse rejected duplicate blake3 dependency at crates/shenko-exec-host/Cargo.toml:26 before compilation/tests."
+    },
+    {
+      "label": "node",
+      "cargoArguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-node",
+        "--message-format=json"
+      ],
+      "exitCode": 101,
+      "wallSeconds": 0.06280339404474944,
+      "sourceUnchanged": true,
+      "logHashes": {
+        "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr": "43d77b44b5b133beb4530c58836e05e0b788fb978c52d8666f1a049322076e10"
+      },
+      "testsExecuted": 0,
+      "rustCompilationStarted": false,
+      "failure": "Cargo workspace manifest parse rejected duplicate blake3 dependency at crates/shenko-exec-host/Cargo.toml:26 before compilation/tests."
+    }
+  ],
+  "diagnosis": {
+    "manifestBlobOnMainAndCandidate": "2c0b7300941e532483eb34eb4a734a098eadc09a",
+    "main": "bc33b654bcb78012c671827e1968f652aa69056b",
+    "duplicateLines": [
+      15,
+      26
+    ],
+    "bothDeclarations": "blake3 = { workspace = true }",
+    "staticRepair": "Remove only second identical declaration; preserve first, dependency version/features, Cargo.lock and workspace membership.",
+    "repairedStaticTomlManifestsParsed": 24,
+    "repairedOfflineMetadataExit": 101,
+    "repairedOfflineMetadataFailure": "No matching package named x11rb found in cached crates.io index; static manifest/dependency resolution, not new source compilation/execution."
+  },
+  "preparationFailures": [
+    {
+      "action": "Exact Rust archive download with empty environment",
+      "result": "DNS unavailable; no bytes downloaded."
+    },
+    {
+      "action": "Escalated exact Rust archive download",
+      "result": "Tool sandbox setup failed before the downloader executed; no permission change or retry through forbidden paths."
+    },
+    {
+      "action": "Public crate/index static prefetch",
+      "result": "Auto-review denied network use as outside approved offline test scope. Command not executed; no workaround or retry. Separate preparation authorization required."
+    }
+  ],
+  "limits": [
+    "These are failed command admissions, not eight failing SSH tests or a failing Node test suite. Zero tests ran.",
+    "One-line repaired manifest candidate is source-only and has not been compiled or tested.",
+    "No real remote, model, account credentials, production data or deployment.",
+    "Installed handler/registered-target authority/resource resolver and full C17 remain unvalidated."
+  ]
+}
