@@ -1085,6 +1085,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix",
+ "windows-link",
+]
+
+[[package]]
 name = "getrandom"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1121,16 +1131,6 @@ dependencies = [
  "r-efi 6.0.0",
  "rand_core 0.10.1",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "gethostname"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
-dependencies = [
- "rustix",
- "windows-link",
 ]
 
 [[package]]
@@ -2522,6 +2522,7 @@ dependencies = [
  "shenko-exec-host",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-media",
  "shenko-memory",
  "shenko-node",
  "shenko-quota",
@@ -2738,6 +2739,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cordis-core",
+ "serde",
+ "serde_json",
+ "shenko-store",
+ "shenko-subject",
+ "shenko-types",
+ "tokio",
+]
+
+[[package]]
 name = "shenko-memory"
 version = "0.1.0"
 dependencies = [
@@ -2819,6 +2834,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "bytes",
+ "cap-std",
  "chrono",
  "libc",
  "parking_lot",
@@ -2902,6 +2918,7 @@ dependencies = [
  "shenko-broker",
  "shenko-context-policy",
  "shenko-kernel",
+ "shenko-media",
  "shenko-store",
  "shenko-subject",
  "shenko-types",

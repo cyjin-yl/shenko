@@ -499,6 +499,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;
             native_child.recover()?;
+            // Typed continuous-media ingress: one durable revision admission +
+            // the bound subject inbox event, published on the same Cordis root
+            // so real providers inject it (and the /api/media routes share it).
+            // SPEC §15.2, §20. Transcript text still comes only from providers.
+            let _media_ingress_plugin = supervisor
+                .spawn(
+                    shenko_media::MediaIngressPlugin,
+                    (Arc::clone(&store), agent_id, subject_inbox.sender()),
+                )
+                .await?;
+            let media_ingress = supervisor
+                .context()
+                .try_service::<shenko_media::MediaIngress>()?;
             // Awareness is installed capability, not kernel business logic:
             // the shipped seeds plus any packages under data_dir/awareness
             // become advisory perspectives for the model. Nothing here
@@ -877,6 +890,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
+                .with_media_ingress(media_ingress)
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);

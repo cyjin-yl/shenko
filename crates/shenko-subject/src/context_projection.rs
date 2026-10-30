@@ -122,34 +122,185 @@ pub fn staged_message_text(payload: &serde_json::Value, source: &str) -> String 
 
 fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHistoryInput, ShenkoError> {
     let mut data = serde_json::json!({"v":1, "inbox_event":event});
-    let event_type = if matches!(&event.kind, InboxEventKind::TaskResult) && event.source == "native-child" {
-        // An inbox claim is not execution evidence. Bind it to the actual T2
-        // entry before giving it a tool-result role or an operation link.
-        let claimed = TaskResult::deserialize(&event.payload)?;
-        let result = state.store.native_task_result(claimed.task_id).map_err(storage)?
-            .ok_or_else(|| ShenkoError::conflict("native inbox result has no T2 entry"))?;
-        let task = state.store.external_task(result.task_id).map_err(storage)?;
-        if task.agent_id != state.agent_id || result.result_id != event.event_id
-            || result != claimed
-        {
-            return Err(ShenkoError::conflict("native inbox result/T2 identity mismatch"));
-        }
-        data["text"] = serde_json::Value::String(serde_json::to_string(&result)?);
-        data["call_id"] = serde_json::json!(result.task_id);
-        data["operation_id"] = serde_json::json!(result.operation_id);
-        if let Some(facts) = state.store.subject_call_evidence(EntityId(state.head.branch_id.0), result.task_id)? {
-            if facts.dispatch_state != "settled" {
-                return Err(ShenkoError::conflict("native task result before intent settlement"));
+    let event_type = match (&event.kind, event.source.as_str()) {
+        (InboxEventKind::TaskResult, "native-child") => {
+            // An inbox claim is not execution evidence. Bind it to the actual T2
+            // entry before giving it a tool-result role or an operation link.
+            let claimed = TaskResult::deserialize(&event.payload)?;
+            let result = state.store.native_task_result(claimed.task_id).map_err(storage)?
+                .ok_or_else(|| ShenkoError::conflict("native inbox result has no T2 entry"))?;
+            let task = state.store.external_task(result.task_id).map_err(storage)?;
+            if task.agent_id != state.agent_id || result.result_id != event.event_id
+                || result != claimed
+            {
+                return Err(ShenkoError::conflict("native inbox result/T2 identity mismatch"));
             }
-            data["intent_id"] = serde_json::json!(result.task_id);
+            data["text"] = serde_json::Value::String(serde_json::to_string(&result)?);
+            data["call_id"] = serde_json::json!(result.task_id);
+            data["operation_id"] = serde_json::json!(result.operation_id);
+            if let Some(facts) = state.store.subject_call_evidence(EntityId(state.head.branch_id.0), result.task_id)? {
+                if facts.dispatch_state != "settled" {
+                    return Err(ShenkoError::conflict("native task result before intent settlement"));
+                }
+                data["intent_id"] = serde_json::json!(result.task_id);
+            }
+            "tool_result"
         }
-        "tool_result"
-    } else {
-        data["text"] = serde_json::Value::String(staged_message_text(&event.payload, &event.source));
-        // Untrusted ingress kinds never acquire system/assistant authority.
-        "user"
+        (InboxEventKind::MediaRevision | InboxEventKind::MediaStream, _) => {
+            // Typed media facts render through their own honest contract: the
+            // stored effective observation and disposition, never the generic
+            // message fallback that would paste raw JSON as chat text.
+            data["text"] = serde_json::Value::String(staged_media_text(&event.payload)?);
+            "user"
+        }
+        _ => {
+            data["text"] = serde_json::Value::String(staged_message_text(&event.payload, &event.source));
+            // Untrusted ingress kinds never acquire system/assistant authority.
+            "user"
+        }
     };
     Ok(SubjectHistoryInput { event_id: event.event_id, event_type: event_type.into(), data })
+}
+
+/// The visible text one durable media ingress event contributes to the model
+/// history. Revisions replace the segment's effective text explicitly:
+/// superseded/correcting revisions say what they replaced or what stayed
+/// effective instead of reading as a second contradictory utterance.
+/// Speaker claims keep their confidence and stay provider claims — they never
+/// acquire user or admin authority. No text is fabricated: every quoted line
+/// is the provider's own committed revision.
+fn staged_media_text(payload: &serde_json::Value) -> Result<String, ShenkoError> {
+    let event: shenko_types::media::MediaIngressEvent =
+        serde_json::from_value(payload.clone()).map_err(ShenkoError::Serde)?;
+    Ok(match event {
+        shenko_types::media::MediaIngressEvent::StreamOpened {
+            stream, descriptor, ..
+        } => {
+            let label = stream_label(&stream);
+            if descriptor.is_empty() {
+                format!("[媒体流 {label} 开始]")
+            } else {
+                format!(
+                    "[媒体流 {label} 开始] {}",
+                    serde_json::to_string(&descriptor).map_err(ShenkoError::Serde)?
+                )
+            }
+        }
+        shenko_types::media::MediaIngressEvent::StreamState {
+            stream, state, reason, segments, ..
+        } => {
+            let label = stream_label(&stream);
+            let state_text = match state {
+                shenko_types::media::MediaStreamState::Cancelled => "已取消",
+                shenko_types::media::MediaStreamState::Disconnected => "连接已断开",
+                shenko_types::media::MediaStreamState::Ended => "已结束",
+                shenko_types::media::MediaStreamState::Open => "已重新打开",
+            };
+            let reason = reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .map(|reason| format!("：{reason}"))
+                .unwrap_or_default();
+            format!(
+                "[媒体流 {label} {state_text}{reason}；已提交 {segments} 个片段，未到达的片段保持空缺]"
+            )
+        }
+        shenko_types::media::MediaIngressEvent::Revision {
+            stream, record, prior_effective, ..
+        } => {
+            let label = stream_label(&stream);
+            let timing = record
+                .captured_at_ms
+                .and_then(|ms| chrono::DateTime::from_timestamp_millis(ms))
+                .map(|time| format!(" 采样于{}", time.to_rfc3339()))
+                .unwrap_or_default();
+            let speaker = record
+                .speaker
+                .as_ref()
+                .map(|claim| speaker_claim_text(claim))
+                .unwrap_or_default();
+            match record.disposition {
+                shenko_types::media::MediaRevisionDisposition::Superseded => {
+                    let current = prior_effective
+                        .as_ref()
+                        .map(|prior| {
+                            format!(
+                                "当前有效文本仍为第{}版：{}",
+                                prior.revision, prior.text
+                            )
+                        })
+                        .unwrap_or_else(|| "当前有效文本未返回".to_string());
+                    format!(
+                        "[媒体 {label} 片段{} 第{}版·迟到修订（不生效）{timing}{speaker}] {}（{current}；本条保留为原始记录）",
+                        record.segment, record.revision, record.text
+                    )
+                }
+                shenko_types::media::MediaRevisionDisposition::FinalCorrection => {
+                    let prior_text = prior_effective
+                        .as_ref()
+                        .map(|prior| prior.text.clone())
+                        .unwrap_or_default();
+                    format!(
+                        "[媒体 {label} 片段{} 第{}版·对已终稿文本的更正{timing}{speaker}] {}（原终稿第{}版：{}）",
+                        record.segment,
+                        record.revision,
+                        record.text,
+                        prior_effective.as_ref().map(|prior| prior.revision).unwrap_or(0),
+                        prior_text
+                    )
+                }
+                shenko_types::media::MediaRevisionDisposition::Applied
+                | shenko_types::media::MediaRevisionDisposition::AppliedSupersedes => {
+                    let state = if record.partial { "未定稿" } else { "定稿" };
+                    let note = match (
+                        record.disposition,
+                        prior_effective.as_ref().map(|prior| prior.revision),
+                    ) {
+                        (
+                            shenko_types::media::MediaRevisionDisposition::AppliedSupersedes,
+                            Some(prior_revision),
+                        ) => format!("，替换第{prior_revision}版"),
+                        _ => String::new(),
+                    };
+                    format!(
+                        "[媒体 {label} 片段{} 第{}版·{state}{note}{timing}{speaker}] {}",
+                        record.segment, record.revision, record.text
+                    )
+                }
+            }
+        }
+    })
+}
+
+fn stream_label(stream: &shenko_types::media::MediaStreamDescriptor) -> String {
+    format!("{}:{}/{}", stream.provider, stream.account, stream.stream_id)
+}
+
+/// One provider speaker claim rendered honestly: tag, confidence, correction
+/// and unknown markers, always marked as the provider's claim.
+fn speaker_claim_text(claim: &shenko_types::media::MediaSpeakerClaim) -> String {
+    let tag = claim
+        .speaker
+        .as_deref()
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .unwrap_or("未知说话人");
+    let confidence = claim
+        .confidence
+        .map(|value| format!(" 置信{:.2}", value))
+        .unwrap_or_default();
+    let corrected = if claim.corrected { "·更正" } else { "" };
+    let person = claim
+        .person_id
+        .map(|id| format!(" 声称联系人{id}"))
+        .unwrap_or_default();
+    let source = claim
+        .source
+        .as_deref()
+        .map(|source| format!(" 由{source}声称"))
+        .unwrap_or_else(|| " 由提供者声称".to_string());
+    format!("〔{tag}{confidence}{corrected}{person}{source}，非身份授权〕")
 }
 
 fn staged_original(data: &str) -> Result<InboxEvent, ShenkoError> {

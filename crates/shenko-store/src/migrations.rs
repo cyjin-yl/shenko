@@ -70,6 +70,15 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Cognition replication bookkeeping (SPEC §5.4). It is local state, not
     // a replicated fact, so it never enters a snapshot fingerprint.
     conn.execute_batch(crate::cognition::COGNITION_SCHEMA)?;
+    // Continuous-media transcript ingress (SPEC §15.2, §20): additive raw
+    // revision facts plus effective-observation links; rows are never
+    // rewritten or backfilled by this step.
+    conn.execute_batch(crate::media::MEDIA_SCHEMA)?;
+    // Never invent an old receipt from a stream's latest-state commit. Older
+    // incomplete media facts stay retained, and recovery admission rejects
+    // missing original receipt/delivery bindings instead of acknowledging them.
+    ensure_column(conn, "media_streams", "open_commit_ref", "TEXT")?;
+    ensure_column(conn, "media_segment_revisions", "admitted_commit_ref", "TEXT")?;
     // Durable provider-quota state (SPEC §42.5): snapshots, forecasts,
     // policies, decisions, the single-writer pacer and attempt ledger. All
     // writes happen inside the shared IMMEDIATE mutation line.

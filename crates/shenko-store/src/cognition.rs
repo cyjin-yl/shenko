@@ -722,6 +722,76 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
+    // Durable media truth: stream identity and latest state first, then the
+    // immutable terminal notices and raw revision facts bound to it. Origin
+    // CommitRefs travel verbatim: local import sequencing never changes an
+    // already-issued event/receipt binding.
+    TableSpec {
+        name: "media_streams",
+        key: &["stream_key"],
+        columns: &[
+            "stream_key",
+            "agent_id",
+            "provider",
+            "account",
+            "stream_id",
+            "open_id",
+            "open_event_id",
+            "end_id",
+            "end_event_id",
+            "state",
+            "opened_at_ms",
+            "ended_at_ms",
+            "end_reason",
+            "implicit",
+            "descriptor",
+            "open_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_stream_ends",
+        key: &["stream_key", "end_id"],
+        columns: &[
+            "stream_key",
+            "end_id",
+            "state",
+            "ended_at_ms",
+            "reason",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_segment_revisions",
+        key: &["stream_key", "revision_id"],
+        columns: &[
+            "stream_key",
+            "segment_key",
+            "segment",
+            "revision",
+            "revision_id",
+            "partial",
+            "text",
+            "captured_at_ms",
+            "speaker_json",
+            "audio_json",
+            "provider_facts_json",
+            "data",
+            "disposition",
+            "supersedes_revision",
+            "superseded_by_revision",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
     TableSpec {
         name: "task_results",
         key: &["result_id"],
@@ -912,6 +982,7 @@ impl Store {
 
         let mut gaps = manifest.gaps.clone();
         gaps.extend(memory_intent_binding_gaps(&manifest.rows));
+        gaps.extend(crate::media::media_recovery_gaps(&manifest.rows));
         gaps.extend(self.verify_manifest_closure(&manifest));
         let blocking: Vec<String> = gaps
             .iter()
@@ -1334,6 +1405,7 @@ impl Store {
         };
         let mut file_origins = Vec::new();
         let mut gaps = memory_intent_binding_gaps(&rows);
+        gaps.extend(crate::media::media_recovery_gaps(&rows));
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
             collect_files(
@@ -1692,6 +1764,11 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
+                let (media, media_events) = apply_media_streams(&tx, &ordered, peer_id, seq, manifest)?;
+                inserted += media.inserted;
+                updated += media.updated;
+                unchanged += media.unchanged;
+                conflicts.extend(media.conflicts);
                 let referenced_memory_entries: HashSet<&str> = ordered.iter()
                     .filter(|row| row.table == "memory_intents")
                     .filter_map(|row| row.value("entry_id"))
@@ -1700,6 +1777,11 @@ impl Store {
                 let mut task_closure_applied = false;
                 let mut task_owned_rows = HashSet::new();
                 for row in &ordered {
+                    if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions")
+                        || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
+                    {
+                        continue;
+                    }
                     if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
                         let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
                         inserted += outcome.inserted;
@@ -1897,6 +1979,25 @@ impl Store {
                         inserted += 1;
                     } else {
                         unchanged += 1;
+                    }
+                }
+                // Staged inputs can reach prepare_context without traversing
+                // inbox_events again. Recheck the ACTUAL reconciled store,
+                // not only the incoming manifest: if a media conflict rolled
+                // back admission but ordinary history imported its staged
+                // delivery, reject before commit and roll back every SQL row.
+                if ordered.iter().any(|row| matches!(row.table.as_str(),
+                    "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+                {
+                    let mut media_rows = Vec::new();
+                    for spec in TABLES.iter().filter(|spec| matches!(spec.name,
+                        "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                            | "inbox_events" | "session_events" | "subject_raw_inputs"))
+                    {
+                        media_rows.extend(read_table(&tx, spec)?);
+                    }
+                    if let Some(gap) = crate::media::media_recovery_gaps(&media_rows).first() {
+                        bail!("media import would publish a partial recovery binding; SQLite publication rolled back: {}", gap.detail);
                     }
                 }
                 if inserted > 0 || updated > 0 {
@@ -2900,10 +3001,36 @@ fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> O
     values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
 }
 
+fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &CognitionRow) -> bool {
+    let value = |name: &str| local.iter().find(|(column, _)| column == name)
+        .and_then(|(_, value)| value.as_deref());
+    local.iter().all(|(column, local)| {
+        let immutable = match incoming.table.as_str() {
+            "inbox_events" => column != "consumed",
+            "media_stream_ends" => true,
+            "media_segment_revisions" => column != "superseded_by_revision" || local.is_some(),
+            "media_streams" => matches!(column.as_str(),
+                "stream_key" | "agent_id" | "provider" | "account" | "stream_id" | "opened_at_ms")
+                || (value("open_id").is_some() && matches!(column.as_str(),
+                    "open_id" | "open_event_id" | "open_commit_ref" | "descriptor"))
+                || (matches!(value("state"), Some("ended" | "cancelled"))
+                    && matches!(column.as_str(), "state" | "end_id" | "end_event_id" | "ended_at_ms" | "end_reason")),
+            _ => false,
+        };
+        !immutable || local.as_deref() == incoming.value(column)
+    }) && !(incoming.table == "media_streams" && value("state") == Some("disconnected")
+        && incoming.value("state") == Some("open"))
+}
+
 fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
+    if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions" | "inbox_events")
+        && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))
+    {
+        return Ok(RecoveryFactOutcome::Conflict);
+    }
     let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
     let result = match local {
         None => match insert_row(tx, spec, row, seq) {
@@ -4495,4 +4622,60 @@ mod archive_admission_tests {
         assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
         assert!(receiver.list_memory(10).unwrap().is_empty());
     }
+}
+
+fn apply_media_streams<'a>(
+    tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
+    seq: LedgerSeq, manifest: &CognitionManifest,
+) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
+    let inbox: HashMap<&'a str, &'a CognitionRow> = rows.iter().copied()
+        .filter(|row| row.table == "inbox_events")
+        .map(|row| (row.key.as_str(), row)).collect();
+    let mut groups: HashMap<&'a str, Vec<&'a CognitionRow>> = HashMap::new();
+    let mut media_events: HashSet<&'a str> = HashSet::new();
+    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(),
+        "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+    {
+        let key = row.value("stream_key").context("media stream identity missing")?;
+        let group = groups.entry(key).or_default();
+        group.push(row);
+        if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
+            ensure!(media_events.insert(id), "media facts share a delivery identity");
+            group.push(*inbox.get(id).context("media delivery original missing")?);
+        }
+    }
+    let mut outcome = CognitionApplyOutcome::default();
+    for stream in rows.iter().copied().filter(|row| row.table == "media_streams") {
+        let mut group = groups.remove(stream.key.as_str()).context("media closure group missing")?;
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        tx.execute("SAVEPOINT media_stream_closure", []).map_err(db)?;
+        let mut part = CognitionApplyOutcome::default();
+        let mut conflict = false;
+        for row in group {
+            let spec = spec_for(&row.table).context("unregistered media recovery table")?;
+            match apply_recovery_fact(tx, spec, row, peer_id, seq)? {
+                RecoveryFactOutcome::Conflict => { conflict = true; break; }
+                RecoveryFactOutcome::Inserted => part.inserted += 1,
+                RecoveryFactOutcome::Updated => part.updated += 1,
+                RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
+            }
+            record_origin(tx, spec, row, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+        }
+        if conflict {
+            tx.execute("ROLLBACK TO media_stream_closure", []).map_err(db)?;
+        }
+        tx.execute("RELEASE media_stream_closure", []).map_err(db)?;
+        if conflict {
+            let detail = "media stream facts and pending deliveries conflict; the complete local binding is kept".to_owned();
+            record_conflict(tx, peer_id, "media_streams", &stream.key, &detail)?;
+            outcome.conflicts.push(CognitionConflict {
+                table: "media_streams".into(), key: stream.key.clone(), detail,
+            });
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, media_events))
 }

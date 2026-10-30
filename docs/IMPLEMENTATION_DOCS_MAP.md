@@ -105,6 +105,13 @@
   - docs/development/playground-backend-smoke.md (finite native HTTP + reopen recipe; not an execution receipt)
   - docs/requirements/requirements.json (R096, R097)
 
+- **Transcript revision ingress (continuous media)** — 部分实现：durable
+  admission/类型合同/effective 观察与同一主体投影已具备；无真实音频采集、
+  ASR/声纹处理器或通话 provider 接线:
+  - SPEC.md §15.2, §20 (联系人与声纹、实时通话与课堂旁听)
+  - docs/development/media-transcript-ingress.md
+  - docs/requirements/requirements.json (R084, R085)
+
 - **Computer Use (full scope)**:
   - SPEC.md §24 (Computer Use 与完整操作系统节点)
   - docs/requirements/requirements.json (R032, R033, R034)

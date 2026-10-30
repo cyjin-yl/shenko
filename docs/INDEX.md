@@ -150,6 +150,8 @@ v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审�
 能力编写原则：[内核零业务，能力优先写成 perception + awareness](development/awareness-first-plugins.md)。
 内核只做机制，判断交给可安装的觉察与视角；不用关键词表强制动作。
 
+持续媒体转写修订 ingress：[transcript revision ingress 合同、HTTP/原生接入与验收 recipe](development/media-transcript-ingress.md)。
+同一主体、原始修订事实与有效观察原子提交；不含真实 ASR/音频设备实现。
 Playground 后端冒烟配方：[WASI 后端原生 HTTP + 重开核验](development/playground-backend-smoke.md)。
 
 ## 社区任务栈
