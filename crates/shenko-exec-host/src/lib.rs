@@ -9,5 +9,8 @@ pub use native_task::*;
 pub mod history_task;
 pub use history_task::*;
 
+pub mod wasi_task;
+pub use wasi_task::*;
+
 pub mod contact_task;
 pub use contact_task::*;
