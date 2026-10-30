@@ -115,7 +115,8 @@ impl ContentStore {
             output.sync_all()?;
             drop(output);
             let digest = Digest(format!("blake3:{}", hash.finalize().to_hex()));
-            let destination = self.object_path(&digest);
+            let destination = self.object_path(&digest)
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
             let parent = destination.parent().expect("CAS object has a parent");
             fs::create_dir_all(parent)?;
             match fs::hard_link(&temporary, &destination) {
@@ -146,7 +147,7 @@ impl ContentStore {
         let (digest, bytes) = result.map_err(|error| ShenkoError::storage(format!("CAS stream sealing: {error}")))?;
         Ok(SealedObjectRef {
             object: ObjectRef {
-                locator: format!("file://{}", self.object_path(&digest).display()),
+                locator: format!("file://{}", self.object_path(&digest)?.display()),
                 digest,
                 bytes,
                 media_type: media_type.into(),

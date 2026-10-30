@@ -3347,7 +3347,7 @@ fn verify_no_rejected_task_consumers(
     // The seq of every rejected staged raw event, for from/to range tests.
     let rejected_raw_seqs: Vec<(String, i64)> = {
         let mut out = Vec::new();
-        for (table, key) in rejected.iter().filter(|(table, _)| *table == "session_events") {
+        for (_table, key) in rejected.iter().filter(|(table, _)| *table == "session_events") {
             let row: Option<(String, i64)> = rows.iter().copied()
                 .find(|r| r.table == "session_events" && r.key == *key)
                 .and_then(|r| {

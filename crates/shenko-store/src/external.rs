@@ -143,7 +143,7 @@ impl Store {
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
             || self.try_arm_external_operation(ctx, op, att, None),
-            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
     }
 
@@ -383,7 +383,7 @@ impl Store {
                 tx.commit()?;
                 Ok(InboxAdmission::Inserted)
             },
-            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
     }
 
@@ -399,7 +399,7 @@ impl Store {
     ) -> Result<OperationRecord> {
         self.ledger.with_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect),
-            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
     }
 
