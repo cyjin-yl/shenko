@@ -1,6 +1,29 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
-## Fixed-version verification update — 2026-10-30
+## Fixed 0b27a109 follow-up — 2026-10-30 11:28 UTC
+
+Separate owner authorization now covers static download of the three exact
+locked public packages/index records and the fixed repaired candidate's original
+8 selected-SSH tests plus node regression. The single preparation attempt failed
+resolving `static.crates.io` before downloading any bytes. This is now a network
+availability blocker, **not missing user permission**; no other download route,
+package version or dependency change was attempted.
+
+Both approved `0b27a109` commands were actually attempted once with Rust/Cargo
+1.98.1, original lock, empty HOME, independent Cargo/target/temp and inherited
+socket denial. Each exited **101 at offline dependency resolution** (missing
+`x11rb` index): **zero compilation and zero tests executed**. All 398 available
+archives reverified; the same three of 401 locked packages remain missing.
+The socket probe returned EPERM and source/tree/lock stayed unchanged. This
+supersedes the repaired candidate's "not attempted" status, not its unverified
+build/test status. Historical passing results are not extrapolated.
+
+See [candidate-bound result and logs](../evidence/agent-selected-ssh-0b27a109-20261030.json).
+No executable/dependency/test changes accompany this evidence checkpoint.
+Installed handler/permission-resource resolver and real remote/model validation
+remain absent. The earlier failures below are preserved.
+
+## Historical 7c2c7a98 verification and repair — 2026-10-30
 
 Owner-approved `7c2c7a98` execution was attempted under exact Rust/Cargo 1.98.1,
 empty HOME, independent Cargo/target/temp, original lock, offline plus inherited
