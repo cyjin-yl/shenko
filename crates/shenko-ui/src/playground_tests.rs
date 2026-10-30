@@ -63,6 +63,23 @@ async fn runtime(store: Arc<Store>, root: PathBuf) -> Runtime {
     Runtime { supervisor, _child: child, _handler: handler, native }
 }
 
+/// `run_once` claims candidates and returns after spawning their managed
+/// workers; it does not await the guest. Drive bounded passes until the
+/// durable receipt reaches the state this test is about.
+async fn drive_until(native: &Arc<NativeChildService>, done: impl Fn() -> bool) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            native.run_once().await.unwrap();
+            if done() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("playground action did not converge");
+}
+
 fn request(record: &ArtifactRecord, key: &str) -> BackendActionRequest {
     BackendActionRequest { request_id: key.into(), backend_digest: record.backend.as_ref().unwrap().module_digest.clone(),
         action: "increment".into(), input: json!({"amount":1}) }
@@ -128,7 +145,10 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     let (status, accepted) = http(&app, "POST", &uri, serde_json::to_vec(&action).unwrap()).await;
     assert_eq!(status, StatusCode::ACCEPTED);
     let task_id: EntityId = serde_json::from_value(accepted["receipt"]["task_id"].clone()).unwrap();
-    host.native.run_once().await.unwrap();
+    drive_until(&host.native, || {
+        matches!(pg.action_status(id, "lost-response"), Ok(receipt) if receipt.state == "executed")
+    })
+    .await;
     let (_, result) = http(&app, "GET", &format!("{uri}?request_id=lost-response"), Vec::new()).await;
     assert_eq!(result["receipt"]["state"], "executed");
     assert_eq!(result["receipt"]["result"]["result"]["output"], json!({"ok":true}));
@@ -177,7 +197,10 @@ async fn unknown_guest_attempt_survives_reopen_without_rearm() {
     let binding = pg.bind_backend(id, trapped.as_bytes()).unwrap();
     let action = request(&binding, "unknown-original");
     pg.invoke_action(id, action.clone()).unwrap();
-    host.native.run_once().await.unwrap();
+    drive_until(&host.native, || {
+        matches!(pg.action_status(id, "unknown-original"), Ok(receipt) if receipt.state == "unknown")
+    })
+    .await;
     let receipt = pg.action_status(id, "unknown-original").unwrap();
     assert_eq!(receipt.state, "unknown");
     assert_eq!(receipt.operation.as_ref().unwrap().state, OperationState::Reconciling);

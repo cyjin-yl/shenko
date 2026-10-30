@@ -2,7 +2,7 @@
 //! Task/Operation/T1/E1/T2 path. Files are business state, never dispatch truth.
 
 use std::{collections::BTreeMap, fs, io::Read, path::{Path, PathBuf}, sync::Arc};
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, anyhow, ensure};
 use async_trait::async_trait;
 use axum::{http::StatusCode, response::{IntoResponse, Response, Json}};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use shenko_types::{
     commit::CommitRef, evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*, object::*, operation::*, task::*,
 };
-use shenko_wasm::{BoundedOutputPipe, MemoryInputPipe, MountMode, MountSpec, WasiCommand, WasmRuntime, HOME_GUEST_PATH};
+use shenko_wasm::{BoundedOutputPipe, MemoryInputPipe, MountMode, MountSpec, WasiCommand, WasmRuntime, WasiRunOutcome, HOME_GUEST_PATH};
 use crate::playground::{ARTIFACT_SCHEMA, ArtifactRecord, PlaygroundState, stable_id, write_immutable};
 
 pub const PLAYGROUND_BACKEND_KIND: &str = "playground.backend";
@@ -494,7 +494,11 @@ impl PlaygroundBackendHandler {
                 let mut command = WasiCommand::new(MemoryInputPipe::new(input_bytes), stdout.clone(), stderr.clone());
                 command.arguments = vec!["playground-backend".into(), action];
                 command.environment = vec![("SHENKO_ARTIFACT_ID".into(), artifact_id), ("SHENKO_REQUEST_ID".into(), request_id)];
-                runtime.run_wasi_module(&module, command)
+                match runtime.run_wasi_module(&module, command)? {
+                    WasiRunOutcome::Exited(code) => Ok(code),
+                    WasiRunOutcome::Cancelled => Err(anyhow!("playground guest run cancelled")),
+                    WasiRunOutcome::DeadlineExceeded => Err(anyhow!("playground guest run deadline exceeded")),
+                }
             })();
             (execution.map_err(|e| format!("{e:#}")), stdout.contents(), stderr.contents(),
                 stdout.did_overflow(), stderr.did_overflow(), stdout.did_fail() || stderr.did_fail())

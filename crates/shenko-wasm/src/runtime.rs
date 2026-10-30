@@ -15,8 +15,6 @@ use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
 use std::io;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context as TaskContext, Poll};
 /// Bounded in-memory streams for callers that must cap guest output
 /// (Playground backend receipts) without binding the whole crate to a

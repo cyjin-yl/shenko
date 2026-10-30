@@ -899,15 +899,22 @@ fn divergence_is_kept_and_the_workspace_is_not_recovery_data() {
     let outcome = b
         .import_cognition_archive(&archive[..], &CognitionImportOptions::default())
         .unwrap();
-    assert_eq!(outcome.conflicts.len(), 1, "the divergence must be explicit");
-    assert_eq!(outcome.conflicts[0].table, "tasks");
+    // A task and its execution facts form ONE conflict unit: the local edit to
+    // the task rejects the complete closure rather than grafting the remote
+    // operations/attempts/evidence onto a diverged local task.
+    let conflict_tables: Vec<&str> = outcome.conflicts.iter().map(|c| c.table.as_str()).collect();
+    assert_eq!(
+        conflict_tables,
+        vec!["tasks", "operations", "attempts", "evidence_receipts"],
+        "the divergence must reject the complete task closure"
+    );
     let kept = b.external_task(a.task_id).unwrap();
     assert!(
         kept.memos.contains_key("local_edit"),
         "the local value must be kept"
     );
     let conflicts = b.cognition_conflicts(10).unwrap();
-    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts.len(), 4);
 
     // The memory history travels with the content, and the repository's own
     // configuration never leaves the node.

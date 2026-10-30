@@ -2751,7 +2751,7 @@ mod recovery_integration_tests {
             eprintln!("SKIP computer_use_xvfb_observe_and_real_input: no usable X11 display");
             return;
         };
-        use x11rb::{connection::Connection, protocol::xproto, wrapper::ConnectionExt as _};
+        use x11rb::{connection::Connection, protocol::xproto, protocol::xproto::ConnectionExt as _};
         let (delegate, _) = computer_use_delegates(&[
             (1, "computer.use.session"),
             (1, "computer.use.observe"),
@@ -2976,7 +2976,7 @@ mod recovery_integration_tests {
             eprintln!("SKIP computer_use_stale_observation_rejected: no usable X11 display");
             return;
         };
-        use x11rb::{connection::Connection, protocol::xproto, wrapper::ConnectionExt as _};
+        use x11rb::{connection::Connection, protocol::xproto, protocol::xproto::ConnectionExt as _};
         let (delegate, _) = computer_use_delegates(&[
             (1, "computer.use.session"),
             (1, "computer.use.observe"),

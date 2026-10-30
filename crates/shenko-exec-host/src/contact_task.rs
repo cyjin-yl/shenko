@@ -718,6 +718,9 @@ mod tests {
     use shenko_types::agent::CallContext;
     use shenko_types::store::WriteBatch;
     use shenko_types::task::{DispatchEligibility, RunMode, TaskOwner, TaskState};
+    use shenko_types::subject::{
+        GenesisRef, SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
+    };
     use std::time::Duration;
     use tokio_tungstenite::tungstenite::Message;
 
@@ -777,6 +780,7 @@ mod tests {
             record_revision: RecordRevision(0),
             invocation_id,
             epoch,
+            software_generation: RuntimeGeneration::default(),
             worker_id: EntityId::new(),
             node_id: EntityId::new(),
         };
@@ -805,6 +809,69 @@ mod tests {
             },
             input,
         }
+    }
+
+    /// Production native children always run under a live subject head, and
+    /// T2 completion re-validates that head (epoch, generation, mode, owner).
+    /// Install a minimal genesis for this task's agent so the durable result
+    /// binds to a real, current subject rather than an ownerless id.
+    fn install_subject_head(store: &Store, agent: EntityId, root_task: EntityId) {
+        let object = store
+            .cas
+            .seal_object(b"seed", "text/plain", "test", "raw", 1)
+            .unwrap()
+            .object;
+        let genesis_id = EntityId::new();
+        let first_id = EntityId::new();
+        let ledger_id = store.ledger.ledger_id();
+        let precommit = CommitRef::new(ledger_id, LedgerSeq::ZERO);
+        let genesis = SubjectGenesis {
+            genesis_id,
+            subject_id: agent,
+            bootstrap_id: EntityId::new(),
+            launch_id: EntityId::new(),
+            seed_manifest_ref: object.clone(),
+            initial_profile_ref: object.clone(),
+            home_manifest_ref: object.clone(),
+            bootstrap_event_ref: object,
+            created_commit: precommit,
+        };
+        let head = SubjectBranchHead {
+            agent_id: agent,
+            branch_id: BranchId::new(),
+            subject_root_task_id: root_task,
+            controller_epoch: ControllerEpoch(1),
+            software_generation: RuntimeGeneration::default(),
+            genesis_ref: GenesisRef { ledger_id, genesis_id },
+            committed_step_no: 0,
+            committed_step_id: None,
+            committed_at: precommit,
+            next_step_id: first_id,
+            mode: SubjectMode::Active,
+            mode_reason_ref: None,
+            record_revision: RecordRevision(0),
+        };
+        let first = SubjectStep {
+            step_id: first_id,
+            branch_id: head.branch_id.clone(),
+            step_no: 1,
+            expected_parent_commit: precommit,
+            controller_epoch: head.controller_epoch,
+            software_generation: head.software_generation.clone(),
+            state: SubjectStepState::Planned,
+            input_plan_ref: None,
+            context_revision: None,
+            active_request_id: None,
+            active_attempt_id: None,
+            model_result_ref: None,
+            model_outcome_ref: None,
+            decision_ref: None,
+            commit_ref: None,
+            retry_reason_ref: None,
+            record_revision: RecordRevision(0),
+            created_by_step_id: None,
+        };
+        store.initialize_genesis(&genesis, &head, &first).unwrap();
     }
 
     /// A real loopback exchange through the armed durable operation: the echoed
@@ -872,6 +939,11 @@ mod tests {
         // 1. Paginated friend list: durable task → operation → evidence → result.
         let input = json!({"op":"friends","offset":1,"limit":1});
         let (task, task_invocation, operation_id) = make_task(&handler);
+        let root_task = match &task.owner {
+            TaskOwner::Task { id } => *id,
+            _ => unreachable!("contacts task owner is always a task"),
+        };
+        install_subject_head(&store, task.agent_id, root_task);
         let mut batch = WriteBatch::new();
         batch.task_upserts.push(task.clone());
         store.commit(batch).unwrap();
