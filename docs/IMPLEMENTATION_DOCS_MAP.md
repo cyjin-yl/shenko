@@ -61,6 +61,10 @@
   - SPEC.md §35.6 (消息连续性)
   - docs/requirements/requirements.json (R014)
 
+- **NapCat contacts/identity read (napcat.contacts)** — shenko-channel-napcat `ContactQuery` 只读 allowlist + `QueryReceipt`（raw 帧与连接 provenance）；shenko-exec-host `NapCatContactsHandler` 走既有 durable task/evidence 路径，仅 connector 配置时安装:
+  - SPEC.md §15.2, §16, §35.6
+  - docs/requirements/requirements.json (R001, R059)
+
 - **SelfKnowledgeProvider**:
   - SPEC.md §38 (自解释插件)
   - docs/requirements/requirements.json (R092, R093)
@@ -95,9 +99,10 @@
   - docs/requirements/requirements.json (R071)
   - docs/requirements/acceptance-cases.json (V1-05, V1-06, V1-13)
 
-- **Playground UI (shadcn + config)** — 部分实现：CRUD + 原子写 + artifact_changed 事件已具备，后端为回显:
+- **Playground UI (shadcn + config)** — 局部候选源码：不可变版本/精确回滚、同 Store durable Inbox、现有 native Task/Operation/E1/T2 承载 WASI 后端（无第二 action DB）；二进制业务状态与输出保留 CAS 引用。此次尚未执行构建/原生验证，完整 manifest、认证和多 runtime 仍开放:
   - SPEC.md §43 (Conversation config + Playground)
   - docs/research/archive/shenko_u42_u43_ui_config_playground.md
+  - docs/development/playground-backend-smoke.md (finite native HTTP + reopen recipe; not an execution receipt)
   - docs/requirements/requirements.json (R096, R097)
 
 - **Transcript revision ingress (continuous media)** — 部分实现：durable

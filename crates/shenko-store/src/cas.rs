@@ -17,13 +17,14 @@ impl ContentStore {
         Self { base }
     }
 
-    fn object_path(&self, digest: &Digest) -> PathBuf {
-        let hex = digest.hex();
-        if hex.len() >= 4 {
-            self.base.join(&hex[..2]).join(&hex[2..4]).join(hex)
-        } else {
-            self.base.join(hex)
-        }
+    fn object_path(&self, digest: &Digest) -> Result<PathBuf, ShenkoError> {
+        // Validate BEFORE slicing or resolving paths. A Digest is deserialized
+        // from untrusted nested objects too; its wrapper alone proves nothing.
+        let hex = digest.0.strip_prefix("blake3:").filter(|hex| {
+            hex.len() == 64 && hex.bytes().all(|byte|
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        }).ok_or_else(|| ShenkoError::conflict("CAS digest must be canonical blake3 lowercase hex"))?;
+        Ok(self.base.join(&hex[..2]).join(&hex[2..4]).join(hex))
     }
 
     pub fn seal_object(
@@ -35,15 +36,18 @@ impl ContentStore {
         codec_major: u32,
     ) -> Result<SealedObjectRef, ShenkoError> {
         let digest = Digest::blake3(data);
-        let path = self.object_path(&digest);
+        let path = self.object_path(&digest)?;
 
         if !path.exists() {
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent)
                     .map_err(|e| ShenkoError::storage(format!("cas mkdir: {e}")))?;
             }
-            let tmp = path.with_extension(".tmp");
-            let mut f = fs::File::create(&tmp)
+            // Equal content may be sealed concurrently by unrelated actions.
+            // Each writer owns a distinct temporary inode; both renames of
+            // the same verified bytes are safe, unlike a shared digest.tmp.
+            let tmp = path.with_extension(format!("{}.tmp", shenko_types::ids::EntityId::new()));
+            let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)
                 .map_err(|e| ShenkoError::storage(format!("cas write tmp: {e}")))?;
             f.write_all(data)
                 .map_err(|e| ShenkoError::storage(format!("cas write: {e}")))?;
@@ -80,67 +84,90 @@ impl ContentStore {
         })
     }
 
+    /// Seal a full stream with fixed-size memory, for execution output that
+    /// must not be loaded into an inline normalized result. A unique staging
+    /// file is published without replacing any existing content-addressed
+    /// object; interrupted attempts do not reserve a deterministic filename.
+    pub fn seal_reader(
+        &self,
+        reader: &mut impl Read,
+        media_type: &str,
+        namespace: &str,
+        codec_name: &str,
+        codec_major: u32,
+    ) -> Result<SealedObjectRef, ShenkoError> {
+        let temporary = self.base.join(format!(".stream-{}", shenko_types::ids::EntityId::new()));
+        let result = (|| -> std::io::Result<(Digest, u64)> {
+            let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+            let mut buffer = [0u8; 64 * 1024];
+            let mut hash = blake3::Hasher::new();
+            let mut bytes = 0u64;
+            loop {
+                let count = match reader.read(&mut buffer) {
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    other => other?,
+                };
+                if count == 0 { break; }
+                output.write_all(&buffer[..count])?;
+                hash.update(&buffer[..count]);
+                bytes += count as u64;
+            }
+            output.sync_all()?;
+            drop(output);
+            let digest = Digest(format!("blake3:{}", hash.finalize().to_hex()));
+            let destination = self.object_path(&digest)
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+            let parent = destination.parent().expect("CAS object has a parent");
+            fs::create_dir_all(parent)?;
+            match fs::hard_link(&temporary, &destination) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // Existing objects are immutable, but never attest a
+                    // replaced/corrupted object merely because its name fits.
+                    let mut existing = fs::File::open(&destination)?;
+                    let mut existing_hash = blake3::Hasher::new();
+                    let mut existing_bytes = 0u64;
+                    loop {
+                        let count = existing.read(&mut buffer)?;
+                        if count == 0 { break; }
+                        existing_hash.update(&buffer[..count]);
+                        existing_bytes += count as u64;
+                    }
+                    if existing_bytes != bytes || existing_hash.finalize() != hash.finalize() {
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "CAS object digest/size mismatch"));
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+            fs::File::open(parent)?.sync_all()?;
+            Ok((digest, bytes))
+        })();
+        // Only this invocation's unpredictable staging name is removed.
+        let _ = fs::remove_file(&temporary);
+        let (digest, bytes) = result.map_err(|error| ShenkoError::storage(format!("CAS stream sealing: {error}")))?;
+        Ok(SealedObjectRef {
+            object: ObjectRef {
+                locator: format!("file://{}", self.object_path(&digest)?.display()),
+                digest,
+                bytes,
+                media_type: media_type.into(),
+                store_namespace: namespace.into(),
+                codec: SchemaRef {
+                    name: codec_name.into(),
+                    major: codec_major,
+                    digest: Digest::blake3(codec_name.as_bytes()),
+                },
+            },
+            sealed_at: chrono::Utc::now(),
+            sealed_commit: shenko_types::commit::CommitRef::new(
+                shenko_types::ids::EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO,
+            ),
+        })
+    }
+
     pub fn read_object(&self, digest: &Digest) -> Result<Vec<u8>, ShenkoError> {
-        let mut file = self.open_object(digest)?;
-        let metadata = file.metadata()
-            .map_err(|error| ShenkoError::storage(format!("cas object metadata: {error}")))?;
-        if !metadata.is_file() {
-            return Err(ShenkoError::conflict("CAS object is not a regular file"));
-        }
-        let capacity = usize::try_from(metadata.len())
-            .map_err(|_| ShenkoError::storage("CAS object exceeds the addressable memory range"))?;
-        let mut bytes = Vec::with_capacity(capacity);
-        file.read_to_end(&mut bytes)
-            .map_err(|error| ShenkoError::storage(format!("cas object read: {error}")))?;
-        Ok(bytes)
-    }
-
-    fn open_object(&self, digest: &Digest) -> Result<cap_std::fs::File, ShenkoError> {
-        let hex = digest.canonical_blake3_hex()
-            .ok_or_else(|| ShenkoError::conflict("noncanonical or unsupported CAS digest"))?;
-        let root = cap_std::fs::Dir::open_ambient_dir(&self.base, cap_std::ambient_authority())
-            .map_err(|error| ShenkoError::storage(format!("cas open root: {error}")))?;
-        let relative = PathBuf::from(&hex[..2]).join(&hex[2..4]).join(hex);
-        root.open(relative)
-            .map_err(|error| ShenkoError::not_found(format!("cas confined open: {error}")))
-    }
-
-    /// Verify untrusted object metadata without trusting its locator or a
-    /// resolve-then-open path. Digest validation precedes every filesystem
-    /// access; capability-relative resolution cannot follow an ancestor or
-    /// final symlink outside this CAS. Hash the opened file with bounded memory.
-    pub fn verify_object(&self, object: &ObjectRef) -> Result<(), ShenkoError> {
-        let mut file = self.open_object(&object.digest)?;
-        let metadata = file.metadata()
-            .map_err(|error| ShenkoError::storage(format!("cas object metadata: {error}")))?;
-        if !metadata.is_file() || metadata.len() != object.bytes {
-            return Err(ShenkoError::conflict("CAS object type/length mismatch"));
-        }
-        let mut hasher = blake3::Hasher::new();
-        let mut count = 0u64;
-        let mut buffer = [0u8; 64 * 1024];
-        loop {
-            let read = match file.read(&mut buffer) {
-                Ok(read) => read,
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(ShenkoError::storage(format!("cas object read: {error}"))),
-            };
-            if read == 0 {
-                break;
-            }
-            count = count.checked_add(read as u64)
-                .ok_or_else(|| ShenkoError::conflict("CAS object length overflow"))?;
-            if count > object.bytes {
-                return Err(ShenkoError::conflict("CAS object grew during verification"));
-            }
-            hasher.update(&buffer[..read]);
-        }
-        if count != object.bytes
-            || hasher.finalize().to_hex().as_str() != object.digest.hex()
-        {
-            return Err(ShenkoError::conflict("CAS object length/digest mismatch"));
-        }
-        Ok(())
+        let path = self.object_path(digest)?;
+        fs::read(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))
     }
 
     /// Resolve immutable content in THIS store, never a historical locator.
@@ -149,14 +176,14 @@ impl ContentStore {
         if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
             return Err(ShenkoError::storage("CAS object length/digest mismatch"));
         }
-        Ok(self.object_path(&object.digest))
+        self.object_path(&object.digest)
     }
 
     pub fn object_exists(&self, digest: &Digest) -> bool {
-        self.object_path(digest).exists()
+        self.object_path(digest).is_ok_and(|path| path.exists())
     }
 
     pub fn object_size(&self, digest: &Digest) -> Option<u64> {
-        fs::metadata(self.object_path(digest)).ok().map(|m| m.len())
+        fs::metadata(self.object_path(digest).ok()?).ok().map(|m| m.len())
     }
 }

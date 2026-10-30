@@ -3793,6 +3793,16 @@ StepDecision {
 
 delegated_task_intents 可包含完整 system prompt、所选模型、任务目标、成功/结束条件、工具 scope、已有授权引用、预算和 ReplyGrant；字段通过 capability discovery 提供给主体。实际创建 worker、写文件、SSH、安装、版本提交及发消息仍由执行服务/child 完成。主体 schema 不得包含任意文件/网络执行通道。
 
+有限的单次模型 generation 也走相同 task/operation/attempt 账本，不将保存了 prompt/model
+字段当成已经运行 child。完整语义 prompt 由委派者独立撰写；运行器另绑定真实 role、
+工具 schema 与预算，固定最终 payload/prompt/toolset fingerprint。选择模型形成新的
+确切 binding，不能改写主体的 RequestSeal；同一 transport/资源域的不同 model 继续
+共用 broker 和已配置额度合同。模型名称可为供应商 alias，记录该名称与通路不等于
+证明背后的 checkpoint 不可变。worker 的成功只证明本定义的 generation 终结条件，
+不自动证明自然语言目标已达成；截断、拒绝、Unknown 分开。T1 armed、broker 接纳与
+真实发送不是同一事实。受管 waiter 退出不能丢掉晚到 E1，也不授予晚回调 T2 权限；
+恢复只读原 attempt 的持久证据，未知资源债务从账本重建，不凭 task 取消或本地超时释放。
+
 “主体可读写语义记忆”表现为 memory_intents 与 memory worker 结果，不把 SQL、路径读取或 shell 隐藏在通用插件调用中。运行器保存 SubjectStep 属于基础设施持久化，不是主体的文件工具。
 
 ### 转移、前置条件与提交点

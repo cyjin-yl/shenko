@@ -45,7 +45,7 @@
 //!   that already holds other content keeps it: the divergence is reported
 //!   instead of being overwritten.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -694,6 +694,34 @@ const TABLES: &[TableSpec] = &[
         local_seq: None,
         kind: RowKind::InboxEvent,
     },
+    TableSpec {
+        name: "tasks",
+        key: &["task_id"],
+        columns: &["task_id", "record_revision", "data", "created_at"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Task,
+    },
+    TableSpec {
+        name: "operations",
+        key: &["operation_id"],
+        columns: &["operation_id", "record_revision", "data", "created_at"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "attempts",
+        key: &["attempt_id"],
+        columns: &["attempt_id", "operation_id", "data", "created_at"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "evidence_receipts",
+        key: &["receipt_id"],
+        columns: &["receipt_id", "operation_id", "data", "created_at"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
     // Durable media truth: stream identity and latest state first, then the
     // immutable terminal notices and raw revision facts bound to it. Origin
     // CommitRefs travel verbatim: local import sequencing never changes an
@@ -762,34 +790,6 @@ const TABLES: &[TableSpec] = &[
             "admitted_commit_ref",
         ],
         local_seq: Some("commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "tasks",
-        key: &["task_id"],
-        columns: &["task_id", "record_revision", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Task,
-    },
-    TableSpec {
-        name: "operations",
-        key: &["operation_id"],
-        columns: &["operation_id", "record_revision", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "attempts",
-        key: &["attempt_id"],
-        columns: &["attempt_id", "operation_id", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Verbatim,
-    },
-    TableSpec {
-        name: "evidence_receipts",
-        key: &["receipt_id"],
-        columns: &["receipt_id", "operation_id", "data", "created_at"],
-        local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
     TableSpec {
@@ -1532,28 +1532,16 @@ impl Store {
             rows.extend(read_table(&tx, spec)?);
         }
         let derivatives = read_derivatives(&tx)?;
-        let agent_id: Option<String> = tx
-            .query_row(
-                "SELECT subject_id FROM subject_genesis LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db)?;
+        // Replicated genesis rows stay history; the export is labeled by the
+        // subject this installation actually owns, never an arbitrary row.
+        let agent_id: Option<EntityId> =
+            crate::store::read_local_subject_id(&tx, self.ledger.ledger_id())?;
         let high_water: i64 = tx
             .query_row("SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| {
                 row.get(0)
             })
             .map_err(db)?;
         tx.commit().map_err(db)?;
-        let agent_id = match agent_id {
-            Some(value) => Some(
-                value
-                    .parse::<EntityId>()
-                    .map_err(|_| anyhow!("invalid stored agent id {value}"))?,
-            ),
-            None => None,
-        };
         Ok((
             rows,
             derivatives,
@@ -1568,18 +1556,26 @@ impl Store {
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
-        let mut seen: HashMap<String, u64> = HashMap::new();
+        // Content membership and JSON expansion are different facts. One
+        // digest can have both opaque and JSON-typed references; encountering
+        // the opaque alias first must not hide a later typed child closure.
+        let mut collected: BTreeMap<String, usize> = BTreeMap::new();
+        let mut expanded: BTreeSet<String> = BTreeSet::new();
         let mut missing: Vec<Digest> = Vec::new();
         let mut out: Vec<CognitionObjectDescriptor> = Vec::new();
         let mut queue: std::collections::VecDeque<ObjectRef> = roots.iter().cloned().collect();
         while let Some(object) = queue.pop_front() {
-            if let Some(bytes) = seen.get(object.digest.0.as_str()) {
-                if *bytes != object.bytes {
+            let key = object.digest.to_string();
+            let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
+            if let Some(&index) = collected.get(&key) {
+                if out[index].bytes != object.bytes {
                     missing.push(object.digest.clone());
+                    continue;
                 }
-                continue;
+                if !expand {
+                    continue;
+                }
             }
-            seen.insert(object.digest.to_string(), object.bytes);
             let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
                 Err(_) => {
@@ -1591,24 +1587,35 @@ impl Store {
                 missing.push(object.digest.clone());
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let mut nested: Vec<ObjectRef> = Vec::new();
-                let mut external: Vec<Digest> = Vec::new();
-                collect_references(&json, &mut nested, &mut external);
-                queue.extend(nested);
-                for digest in external {
-                    if let Some(bare) = self.bare_object(&digest) {
-                        queue.push_back(bare);
-                    }
-                }
-            }
-            out.push(CognitionObjectDescriptor {
+            let descriptor = CognitionObjectDescriptor {
                 digest: object.digest.clone(),
                 bytes: object.bytes,
                 media_type: object.media_type.clone(),
                 store_namespace: object.store_namespace.clone(),
                 codec: object.codec.clone(),
-            });
+            };
+            if let Some(&index) = collected.get(&key) {
+                // Preserve the later typed declaration in the manifest too,
+                // so the receiver sees the same expansion authority.
+                out[index] = descriptor;
+            } else {
+                collected.insert(key.clone(), out.len());
+                out.push(descriptor);
+            }
+            if expand {
+                expanded.insert(key);
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut nested: Vec<ObjectRef> = Vec::new();
+                    let mut external: Vec<Digest> = Vec::new();
+                    collect_references(&json, &mut nested, &mut external);
+                    queue.extend(nested);
+                    for digest in external {
+                        if let Some(bare) = self.bare_object(&digest) {
+                            queue.push_back(bare);
+                        }
+                    }
+                }
+            }
         }
         Ok((out, missing))
     }
@@ -1632,10 +1639,10 @@ impl Store {
     /// Check on the receiving side that every referenced object really is in
     /// the archive, including the objects referenced by other objects.
     fn verify_manifest_closure(&self, manifest: &CognitionManifest) -> Vec<CognitionGap> {
-        let listed: HashMap<&str, u64> = manifest
+        let listed: BTreeSet<String> = manifest
             .objects
             .iter()
-            .map(|descriptor| (descriptor.digest.0.as_str(), descriptor.bytes))
+            .map(|descriptor| descriptor.digest.to_string())
             .collect();
         let mut gaps: Vec<CognitionGap> = Vec::new();
         let mut roots: Vec<ObjectRef> = Vec::new();
@@ -1649,41 +1656,70 @@ impl Store {
                 }
             }
         }
-        for descriptor in &manifest.objects {
-            let bytes = match self.cas.read_object(&descriptor.digest) {
+        let mut queue: std::collections::VecDeque<ObjectRef> = roots.into();
+        queue.extend(manifest.objects.iter().map(|descriptor| ObjectRef {
+            digest: descriptor.digest.clone(),
+            bytes: descriptor.bytes,
+            media_type: descriptor.media_type.clone(),
+            store_namespace: descriptor.store_namespace.clone(),
+            locator: String::new(),
+            codec: descriptor.codec.clone(),
+        }));
+        let mut verified: BTreeMap<String, u64> = BTreeMap::new();
+        let mut expanded: BTreeSet<String> = BTreeSet::new();
+        while let Some(object) = queue.pop_front() {
+            let key = object.digest.to_string();
+            if !listed.contains(&key) {
+                gaps.push(CognitionGap {
+                    kind: "missing_object".into(),
+                    detail: key,
+                    blocking: true,
+                });
+                continue;
+            }
+            let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
+            if let Some(&size) = verified.get(&key) {
+                if size != object.bytes {
+                    gaps.push(CognitionGap {
+                        kind: "corrupt_retained_object".into(),
+                        detail: key,
+                        blocking: true,
+                    });
+                    continue;
+                }
+                if !expand {
+                    continue;
+                }
+            }
+            let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     gaps.push(CognitionGap {
                         kind: "unreadable_retained_object".into(),
-                        detail: format!("{}: {error}", descriptor.digest),
+                        detail: format!("{}: {error}", object.digest),
                         blocking: true,
                     });
                     continue;
                 }
             };
-            if bytes.len() as u64 != descriptor.bytes || Digest::blake3(&bytes) != descriptor.digest
+            if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest
             {
                 gaps.push(CognitionGap {
                     kind: "corrupt_retained_object".into(),
-                    detail: descriptor.digest.to_string(),
+                    detail: key,
                     blocking: true,
                 });
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let mut nested: Vec<ObjectRef> = Vec::new();
-                let mut _nested_external: Vec<Digest> = Vec::new();
-                collect_references(&json, &mut nested, &mut _nested_external);
-                roots.extend(nested);
-            }
-        }
-        for object in &roots {
-            if listed.get(object.digest.0.as_str()).copied() != Some(object.bytes) {
-                gaps.push(CognitionGap {
-                    kind: "missing_or_mismatched_object".into(),
-                    detail: object.digest.to_string(),
-                    blocking: true,
-                });
+            verified.insert(key.clone(), object.bytes);
+            if expand {
+                expanded.insert(key);
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut nested: Vec<ObjectRef> = Vec::new();
+                    let mut external: Vec<Digest> = Vec::new();
+                    collect_references(&json, &mut nested, &mut external);
+                    queue.extend(nested);
+                }
             }
         }
         gaps
@@ -1738,6 +1774,8 @@ impl Store {
                     .filter_map(|row| row.value("entry_id"))
                     .collect();
                 let mut memory_applied = false;
+                let mut task_closure_applied = false;
+                let mut task_owned_rows = HashSet::new();
                 for row in &ordered {
                     if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions")
                         || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
@@ -1752,9 +1790,42 @@ impl Store {
                         conflicts.extend(outcome.conflicts);
                         memory_applied = true;
                     }
+                    // A task and every dependent execution/result fact is ONE
+                    // conflict unit. Importing remote operations, evidence or
+                    // results under a task_id whose local input differs would
+                    // stitch unrelated execution history onto the local task.
+                    if !task_closure_applied
+                        && matches!(row.table.as_str(), "session_events" | "subject_raw_inputs" | "inbox_events"
+                            | "tasks" | "operations" | "attempts" | "evidence_receipts" | "task_results")
+                    {
+                        // raw_sessions and subject_steps have already applied,
+                        // but NO pending/raw/staged delivery has been published.
+                        let (outcome, owned, rejected, rejected_ids) =
+                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest)?;
+                        inserted += outcome.inserted;
+                        updated += outcome.updated;
+                        unchanged += outcome.unchanged;
+                        conflicts.extend(outcome.conflicts);
+                        task_owned_rows = owned;
+                        // Whole-publication boundary: if any consumer
+                        // committed earlier in this transaction (subject
+                        // step's frozen S0, context window chain, manifest
+                        // derivatives) depends on a rejected delivery and the
+                        // dependency cannot be proven removable without
+                        // mutating sealed identities, reject the whole
+                        // import instead of publishing a partial falsehood.
+                        verify_no_rejected_task_consumers(
+                            self, &tx, &ordered, &manifest.derivatives,
+                            &rejected, &rejected_ids,
+                        )?;
+                        task_closure_applied = true;
+                    }
                     if row.table == "memory_intents" || row.table == "memory_intent_bindings"
                         || (row.table == "memory_entries" && referenced_memory_entries.contains(row.key.as_str()))
                     {
+                        continue;
+                    }
+                    if task_owned_rows.contains(&(row.table.as_str(), row.key.as_str())) {
                         continue;
                     }
                     let Some(spec) = spec_for(&row.table) else {
@@ -2790,7 +2861,7 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
 
 /// `insert_row` uses positional values while admission and recovery use
 /// labels. Bind those two views, and the primary-key identity, before any
-/// publication. All supported archive schemas use these same TableSpecs.
+/// publication. Both supported archive schemas use these same TableSpecs.
 fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
     let mut identities = HashSet::with_capacity(manifest.rows.len());
     for row in &manifest.rows {
@@ -2896,8 +2967,59 @@ enum RecoveryFactOutcome {
     Conflict,
 }
 
+#[derive(Clone, Copy)]
+enum MemoryRowOutcome {
+    Inserted,
+    Updated,
+    Unchanged,
+    Conflict,
+}
+
+fn apply_memory_row(
+    tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
+) -> Result<MemoryRowOutcome> {
+    let local = read_existing(tx, spec, row)?;
+    let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
+    let result = match local {
+        None => match insert_row(tx, spec, row, seq) {
+            Ok(()) => MemoryRowOutcome::Inserted,
+            Err(error) if is_constraint_violation(&error) => return Ok(MemoryRowOutcome::Conflict),
+            Err(error) => return Err(error),
+        },
+        Some(local) if rows_equivalent(spec, &local, &row.values) => MemoryRowOutcome::Unchanged,
+        Some(local) if baseline.as_ref().is_some_and(|baseline| rows_equivalent(spec, &local, baseline)) => {
+            update_row(tx, spec, row, seq)?;
+            MemoryRowOutcome::Updated
+        }
+        Some(_) => return Ok(MemoryRowOutcome::Conflict),
+    };
+    write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
+    Ok(result)
+}
+
 fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> Option<&'a str> {
     values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
+}
+
+fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &CognitionRow) -> bool {
+    let value = |name: &str| local.iter().find(|(column, _)| column == name)
+        .and_then(|(_, value)| value.as_deref());
+    local.iter().all(|(column, local)| {
+        let immutable = match incoming.table.as_str() {
+            "inbox_events" => column != "consumed",
+            "media_stream_ends" => true,
+            "media_segment_revisions" => column != "superseded_by_revision" || local.is_some(),
+            "media_streams" => matches!(column.as_str(),
+                "stream_key" | "agent_id" | "provider" | "account" | "stream_id" | "opened_at_ms")
+                || (value("open_id").is_some() && matches!(column.as_str(),
+                    "open_id" | "open_event_id" | "open_commit_ref" | "descriptor"))
+                || (matches!(value("state"), Some("ended" | "cancelled"))
+                    && matches!(column.as_str(), "state" | "end_id" | "end_event_id" | "ended_at_ms" | "end_reason")),
+            _ => false,
+        };
+        !immutable || local.as_deref() == incoming.value(column)
+    }) && !(incoming.table == "media_streams" && value("state") == Some("disconnected")
+        && incoming.value("state") == Some("open"))
 }
 
 fn apply_recovery_fact(
@@ -2931,86 +3053,6 @@ fn apply_recovery_fact(
     Ok(result)
 }
 
-fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &CognitionRow) -> bool {
-    let value = |name: &str| local.iter().find(|(column, _)| column == name)
-        .and_then(|(_, value)| value.as_deref());
-    local.iter().all(|(column, local)| {
-        let immutable = match incoming.table.as_str() {
-            "inbox_events" => column != "consumed",
-            "media_stream_ends" => true,
-            "media_segment_revisions" => column != "superseded_by_revision" || local.is_some(),
-            "media_streams" => matches!(column.as_str(),
-                "stream_key" | "agent_id" | "provider" | "account" | "stream_id" | "opened_at_ms")
-                || (value("open_id").is_some() && matches!(column.as_str(),
-                    "open_id" | "open_event_id" | "open_commit_ref" | "descriptor"))
-                || (matches!(value("state"), Some("ended" | "cancelled"))
-                    && matches!(column.as_str(), "state" | "end_id" | "end_event_id" | "ended_at_ms" | "end_reason")),
-            _ => false,
-        };
-        !immutable || local.as_deref() == incoming.value(column)
-    }) && !(incoming.table == "media_streams" && value("state") == Some("disconnected")
-        && incoming.value("state") == Some("open"))
-}
-
-/// Stream facts and their original pending deliveries form one conflict
-/// unit. A rejected stream must not leak an otherwise-new ready inbox event
-/// or advance that event's peer baseline independently of its admission.
-fn apply_media_streams<'a>(
-    tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
-    seq: LedgerSeq, manifest: &CognitionManifest,
-) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
-    let inbox: HashMap<&'a str, &'a CognitionRow> = rows.iter().copied()
-        .filter(|row| row.table == "inbox_events")
-        .map(|row| (row.key.as_str(), row)).collect();
-    let mut groups: HashMap<&'a str, Vec<&'a CognitionRow>> = HashMap::new();
-    let mut media_events: HashSet<&'a str> = HashSet::new();
-    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(),
-        "media_streams" | "media_stream_ends" | "media_segment_revisions"))
-    {
-        let key = row.value("stream_key").context("media stream identity missing")?;
-        let group = groups.entry(key).or_default();
-        group.push(row);
-        if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
-            ensure!(media_events.insert(id), "media facts share a delivery identity");
-            group.push(*inbox.get(id).context("media delivery original missing")?);
-        }
-    }
-    let mut outcome = CognitionApplyOutcome::default();
-    for stream in rows.iter().copied().filter(|row| row.table == "media_streams") {
-        let mut group = groups.remove(stream.key.as_str()).context("media closure group missing")?;
-        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
-        tx.execute("SAVEPOINT media_stream_closure", []).map_err(db)?;
-        let mut part = CognitionApplyOutcome::default();
-        let mut conflict = false;
-        for row in group {
-            let spec = spec_for(&row.table).context("unregistered media recovery table")?;
-            match apply_recovery_fact(tx, spec, row, peer_id, seq)? {
-                RecoveryFactOutcome::Conflict => { conflict = true; break; }
-                RecoveryFactOutcome::Inserted => part.inserted += 1,
-                RecoveryFactOutcome::Updated => part.updated += 1,
-                RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
-            }
-            record_origin(tx, spec, row, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
-        }
-        if conflict {
-            tx.execute("ROLLBACK TO media_stream_closure", []).map_err(db)?;
-        }
-        tx.execute("RELEASE media_stream_closure", []).map_err(db)?;
-        if conflict {
-            let detail = "media stream facts and pending deliveries conflict; the complete local binding is kept".to_owned();
-            record_conflict(tx, peer_id, "media_streams", &stream.key, &detail)?;
-            outcome.conflicts.push(CognitionConflict {
-                table: "media_streams".into(), key: stream.key.clone(), detail,
-            });
-        } else {
-            outcome.inserted += part.inserted;
-            outcome.updated += part.updated;
-            outcome.unchanged += part.unchanged;
-        }
-    }
-    Ok((outcome, media_events))
-}
-
 /// One memory intent inside an archive conflict unit: the request, its
 /// durable binding, the local rows it would replace and the per-row apply
 /// results a committed unit reports.
@@ -3021,7 +3063,7 @@ struct MemoryIntentMember {
     local: Option<Vec<(String, Option<String>)>>,
     local_binding: Option<String>,
     compatible: bool,
-    results: [Option<RecoveryFactOutcome>; 2],
+    results: [Option<MemoryRowOutcome>; 2],
 }
 
 /// Did the unit refuse a peer fact that differs from what this store holds?
@@ -3029,16 +3071,16 @@ struct MemoryIntentMember {
 /// insertion, update or identity-mismatched request is.
 fn memory_member_differs(member: &MemoryIntentMember) -> bool {
     let parent_differs = match member.results[0] {
-        Some(RecoveryFactOutcome::Conflict | RecoveryFactOutcome::Inserted | RecoveryFactOutcome::Updated) => true,
-        Some(RecoveryFactOutcome::Unchanged) => false,
+        Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+        Some(MemoryRowOutcome::Unchanged) => false,
         None => match &member.local {
             None => true,
             Some(local) => local != &member.parent.values,
         },
     };
     let binding_differs = match member.results[1] {
-        Some(RecoveryFactOutcome::Conflict | RecoveryFactOutcome::Inserted | RecoveryFactOutcome::Updated) => true,
-        Some(RecoveryFactOutcome::Unchanged) => false,
+        Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+        Some(MemoryRowOutcome::Unchanged) => false,
         None => match (&member.local_binding, &member.binding) {
             (None, None) => false,
             (Some(_), None) => true,
@@ -3151,23 +3193,23 @@ fn apply_memory_pairs(
         if !rejected {
             tx.execute("SAVEPOINT memory_intent_unit", []).map_err(db)?;
             for member in members.iter_mut() {
-                member.results[0] = Some(apply_recovery_fact(tx, parents, &member.parent, peer_id, seq)?);
-                if !matches!(member.results[0], Some(RecoveryFactOutcome::Conflict)) {
+                member.results[0] = Some(apply_memory_row(tx, parents, &member.parent, peer_id, seq)?);
+                if !matches!(member.results[0], Some(MemoryRowOutcome::Conflict)) {
                     if let Some(binding) = &member.binding {
-                        member.results[1] = Some(apply_recovery_fact(tx, sidecars, binding, peer_id, seq)?);
+                        member.results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
                     }
                 }
             }
             if members.iter().all(|member| {
-                member.results.iter().all(|result| !matches!(result, Some(RecoveryFactOutcome::Conflict)))
+                member.results.iter().all(|result| !matches!(result, Some(MemoryRowOutcome::Conflict)))
             }) {
                 if let Some(entry) = &entry {
-                    entry_result = Some(apply_recovery_fact(tx, entry_spec, entry, peer_id, seq)?);
+                    entry_result = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
                 }
             }
-            rejected = entry_result.is_some_and(|result| matches!(result, RecoveryFactOutcome::Conflict))
+            rejected = entry_result.is_some_and(|result| matches!(result, MemoryRowOutcome::Conflict))
                 || members.iter().any(|member| {
-                    member.results.iter().any(|result| matches!(result, Some(RecoveryFactOutcome::Conflict)))
+                    member.results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict)))
                 });
             if rejected {
                 tx.execute("ROLLBACK TO memory_intent_unit", []).map_err(db)?;
@@ -3178,18 +3220,18 @@ fn apply_memory_pairs(
             for member in members.iter() {
                 for result in member.results.into_iter().flatten() {
                     match result {
-                        RecoveryFactOutcome::Inserted => outcome.inserted += 1,
-                        RecoveryFactOutcome::Updated => outcome.updated += 1,
-                        RecoveryFactOutcome::Unchanged => outcome.unchanged += 1,
-                        RecoveryFactOutcome::Conflict => unreachable!(),
+                        MemoryRowOutcome::Inserted => outcome.inserted += 1,
+                        MemoryRowOutcome::Updated => outcome.updated += 1,
+                        MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
+                        MemoryRowOutcome::Conflict => unreachable!(),
                     }
                 }
             }
             match entry_result {
-                Some(RecoveryFactOutcome::Inserted) => outcome.inserted += 1,
-                Some(RecoveryFactOutcome::Updated) => outcome.updated += 1,
-                Some(RecoveryFactOutcome::Unchanged) => outcome.unchanged += 1,
-                Some(RecoveryFactOutcome::Conflict) | None => {}
+                Some(MemoryRowOutcome::Inserted) => outcome.inserted += 1,
+                Some(MemoryRowOutcome::Updated) => outcome.updated += 1,
+                Some(MemoryRowOutcome::Unchanged) => outcome.unchanged += 1,
+                Some(MemoryRowOutcome::Conflict) | None => {}
             }
         } else {
             for member in members.iter() {
@@ -3206,8 +3248,8 @@ fn apply_memory_pairs(
             }
             if let Some(entry) = &entry {
                 let entry_differs = match entry_result {
-                    Some(RecoveryFactOutcome::Conflict | RecoveryFactOutcome::Inserted | RecoveryFactOutcome::Updated) => true,
-                    Some(RecoveryFactOutcome::Unchanged) => false,
+                    Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+                    Some(MemoryRowOutcome::Unchanged) => false,
                     None => match read_existing(tx, entry_spec, entry)? {
                         None => true,
                         Some(local) => local != entry.values,
@@ -3226,6 +3268,329 @@ fn apply_memory_pairs(
         }
     }
     Ok(outcome)
+}
+
+fn task_row_json(row: &CognitionRow) -> Option<serde_json::Value> {
+    row.value("data").and_then(|data| serde_json::from_str(data).ok())
+}
+
+/// The exact task-owned event shapes produced by native T2 / Playground.
+/// No recursive keyword search: an arbitrary message mentioning a task id
+/// must remain an independent observation.
+fn task_delivery_owner(event: &serde_json::Value) -> Option<String> {
+    let source = event.get("source")?.as_str()?;
+    let payload = event.get("payload")?;
+    if (source == "native-child" && event.get("kind")?.as_str()? == "task_result")
+        || source == "playground"
+    {
+        payload.get("task_id")?.as_str().map(str::to_owned)
+    } else { None }
+}
+
+/// Complete task execution AND delivery facts form one conflict unit.
+/// Parentless executions are rejected, never grafted onto a local task merely
+/// because its deterministic id happens to match. Pending and already-staged
+/// T2 text is applied inside the same savepoint as the original sealed input.
+fn apply_task_closures<'a>(
+    tx: &Transaction<'_>,
+    rows: &[&'a CognitionRow],
+    peer_id: EntityId,
+    seq: LedgerSeq,
+    manifest: &CognitionManifest,
+) -> Result<(
+    CognitionApplyOutcome,
+    HashSet<(&'a str, &'a str)>,
+    HashSet<(&'a str, &'a str)>,
+    HashSet<String>,
+)> {
+    fn add<'a>(
+        groups: &mut HashMap<String, Vec<&'a CognitionRow>>,
+        owned: &mut HashSet<(&'a str, &'a str)>, row: &'a CognitionRow, task: Option<String>,
+    ) -> String {
+        let task = task.unwrap_or_else(|| format!("unbound/{}/{}", row.table, row.key));
+        groups.entry(task.clone()).or_default().push(row);
+        owned.insert((row.table.as_str(), row.key.as_str()));
+        task
+    }
+    let task_spec = spec_for("tasks").expect("task table is registered");
+    let tasks: HashMap<&str, &CognitionRow> = rows.iter().copied().filter(|r| r.table == "tasks")
+        .map(|row| (row.key.as_str(), row)).collect();
+    let mut groups = HashMap::new();
+    let mut owned = HashSet::new();
+    for row in tasks.values().copied() {
+        add(&mut groups, &mut owned, row, Some(row.key.clone()));
+    }
+    let mut operation_owners = HashMap::new();
+    for row in rows.iter().copied().filter(|row| row.table == "operations") {
+        let owner = task_row_json(row).and_then(|data| data.get("task_id")?.as_str().map(str::to_owned));
+        let task = add(&mut groups, &mut owned, row, owner);
+        operation_owners.insert(row.key.as_str(), task);
+    }
+    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(), "attempts" | "evidence_receipts" | "task_results")) {
+        let task = if row.table == "task_results" {
+            row.value("task_id").map(str::to_owned)
+        } else {
+            row.value("operation_id").and_then(|id| operation_owners.get(id)).cloned()
+        };
+        add(&mut groups, &mut owned, row, task);
+    }
+    let mut event_owners = HashMap::new();
+    for row in rows.iter().copied().filter(|row| row.table == "inbox_events") {
+        let data = task_row_json(row);
+        let native = row.value("kind") == Some("task_result") && row.value("source") == Some("native-child");
+        let task = if native {
+            data.as_ref().and_then(|value| value.get("task_id")?.as_str().map(str::to_owned))
+        } else { data.as_ref().and_then(task_delivery_owner) };
+        if native || task.is_some() {
+            let task = add(&mut groups, &mut owned, row, task);
+            event_owners.insert(row.key.as_str(), task);
+        }
+    }
+    let mut raw_owners = HashMap::new();
+    let mut invalid_groups = HashSet::new();
+    for row in rows.iter().copied().filter(|row| row.table == "session_events") {
+        let data = task_row_json(row);
+        let original = data.as_ref().and_then(|data| data.get("inbox_event"));
+        let task = original.and_then(task_delivery_owner);
+        let native = original.is_some_and(|event| event.get("source").and_then(serde_json::Value::as_str) == Some("native-child")
+            && event.get("kind").and_then(serde_json::Value::as_str) == Some("task_result"));
+        if native || task.is_some() {
+            let task = add(&mut groups, &mut owned, row, task);
+            let source = original.and_then(|event| event.get("event_id")).and_then(serde_json::Value::as_str).map(str::to_owned);
+            raw_owners.insert(row.key.as_str(), (task, source));
+        }
+    }
+    for row in rows.iter().copied().filter(|row| row.table == "subject_raw_inputs") {
+        let raw = row.value("raw_event_id").and_then(|id| raw_owners.get(id));
+        let event = row.value("source_event_id").and_then(|id| event_owners.get(id));
+        if raw.is_some() || event.is_some() {
+            let task = raw.map(|(task, _)| task.clone()).or_else(|| event.cloned());
+            let task = add(&mut groups, &mut owned, row, task);
+            if raw.is_none_or(|(_, source)| source.as_deref() != row.value("source_event_id"))
+                || event.is_some_and(|owner| owner != &task)
+            {
+                invalid_groups.insert(task);
+                if let Some(owner) = event { invalid_groups.insert(owner.clone()); }
+            }
+        }
+    }
+    let mut outcome = CognitionApplyOutcome::default();
+    let mut rejected = HashSet::new();
+    let mut rejected_ids = HashSet::new();
+    for (task_id, mut group) in groups {
+        let parent = tasks.get(task_id.as_str()).copied();
+        let mut conflict = parent.is_none() || invalid_groups.contains(&task_id);
+        if let Some(parent) = parent {
+            // An immutable action input cannot change, even if the nil-peer
+            // baseline happens to match the local record from another source.
+            if let Some(local) = read_existing(tx, task_spec, parent)? {
+                let local = memory_row_value(&local, "data").and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok());
+                let incoming = task_row_json(parent);
+                if local.as_ref().is_some_and(|data| data["kind"] == "playground.backend")
+                    || incoming.as_ref().is_some_and(|data| data["kind"] == "playground.backend")
+                {
+                    conflict |= match (&local, &incoming) {
+                        (Some(local), Some(incoming)) => ["task_id", "agent_id", "kind", "definition_version"].iter()
+                            .any(|key| local.get(*key) != incoming.get(*key))
+                            || ["digest", "bytes"].iter().any(|key|
+                                local.get("input_ref").and_then(|input| input.get(*key))
+                                    != incoming.get("input_ref").and_then(|input| input.get(*key))),
+                        _ => true,
+                    };
+                }
+            }
+        }
+        // The same fixed SQL identifier is reused only after RELEASE. UUIDs
+        // are data, never interpolated into SQLite identifiers.
+        tx.execute("SAVEPOINT task_closure", []).map_err(db)?;
+        let mut part = CognitionApplyOutcome::default();
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        if !conflict {
+            for row in &group {
+                let spec = spec_for(&row.table).context("unregistered task recovery table")?;
+                let effective = effective_row(row, spec)?;
+                match apply_recovery_fact(tx, spec, &effective, peer_id, seq)? {
+                    RecoveryFactOutcome::Conflict => { conflict = true; break; }
+                    RecoveryFactOutcome::Inserted => part.inserted += 1,
+                    RecoveryFactOutcome::Updated => part.updated += 1,
+                    RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
+                }
+                record_origin(tx, spec, &effective, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+            }
+        }
+        if conflict { tx.execute("ROLLBACK TO task_closure", []).map_err(db)?; }
+        tx.execute("RELEASE task_closure", []).map_err(db)?;
+        if conflict {
+            rejected_ids.insert(task_id.clone());
+            for row in group {
+                rejected.insert((row.table.as_str(), row.key.as_str()));
+                rejected_ids.insert(row.key.clone());
+                let detail = format!("task {task_id} input/execution/delivery closure conflicts or lacks its incoming parent; the complete local unit is kept");
+                record_conflict(tx, peer_id, &row.table, &row.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict { table: row.table.clone(), key: row.key.clone(), detail });
+            }
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, owned, rejected, rejected_ids))
+}
+
+/// Every string value and every object key, recursively: window call_states
+/// hold task ids as MAP KEYS, and sealed S0 refs can appear nested anywhere.
+fn json_holds_any_id(value: &serde_json::Value, ids: &HashSet<String>) -> bool {
+    match value {
+        serde_json::Value::Object(map) => map.iter().any(|(key, v)| {
+            ids.contains(key.as_str()) || json_holds_any_id(v, ids)
+        }),
+        serde_json::Value::Array(items) => items.iter().any(|v| json_holds_any_id(v, ids)),
+        serde_json::Value::String(text) => ids.contains(text),
+        _ => false,
+    }
+}
+
+/// A rejected task delivery must not survive through consumers committed in
+/// an earlier table phase. Rather than mutating sealed step/window records
+/// (which would falsify their identity), the ENTIRE import transaction is
+/// rejected when a dependency cannot be established as safe: the peer gets an
+/// honest "publication refused", never a half-applied snapshot or fake ACK.
+fn verify_no_rejected_task_consumers(
+    store: &Store,
+    tx: &Transaction<'_>,
+    rows: &[&CognitionRow],
+    derivatives: &[CognitionDerivative],
+    rejected: &HashSet<(&str, &str)>,
+    rejected_ids: &HashSet<String>,
+) -> Result<()> {
+    if rejected.is_empty() {
+        return Ok(());
+    }
+    let refuse = |what: String| -> Result<()> {
+        bail!("cognition import refused: task closure rejection cannot publish dependent {what}; the complete import is rolled back, nothing was applied")
+    };
+
+    // The seq of every rejected staged raw event, for from/to range tests.
+    let rejected_raw_seqs: Vec<(String, i64)> = {
+        let mut out = Vec::new();
+        for (_table, key) in rejected.iter().filter(|(table, _)| *table == "session_events") {
+            let row: Option<(String, i64)> = rows.iter().copied()
+                .find(|r| r.table == "session_events" && r.key == *key)
+                .and_then(|r| {
+                    Some((r.value("session_id")?.to_owned(), r.value("seq")?.parse::<i64>().ok()?))
+                });
+            if let Some(pair) = row { out.push(pair); }
+        }
+        out
+    };
+
+    // Union of session_ids so a range can only match its own branch.
+    let rejected_sessions: HashSet<&str> =
+        rejected_raw_seqs.iter().map(|(session, _)| session.as_str()).collect();
+
+    // Window bodies by window_id (manifest + existing chain head reads).
+    let window_body = |id: &str| -> Result<Option<serde_json::Value>> {
+        if let Some(body) = rows.iter().copied()
+            .find(|r| r.table == "context_windows" && r.key == id)
+            .and_then(|r| r.value("body"))
+        {
+            return Ok(serde_json::from_str(body).ok());
+        }
+        let body: Option<String> = tx.query_row(
+            "SELECT body FROM context_windows WHERE window_id=?1", [id], |r| r.get(0),
+        ).optional().map_err(db)?;
+        Ok(body.and_then(|body| serde_json::from_str(&body).ok()))
+    };
+
+    // Transitive dirty-window closure: direct id hits, from/to ranges that
+    // cover a rejected raw seq, and base.source_window predecessors.
+    let mut dirty_windows: HashSet<String> = HashSet::new();
+    let mut work: Vec<String> = rows.iter().copied()
+        .filter(|r| r.table == "context_windows")
+        .map(|r| r.key.clone())
+        .collect();
+    // Seed with windows any rejected step's frozen context points at.
+    for row in rows.iter().copied().filter(|r| r.table == "subject_steps") {
+        if let Some(data) = row.value("data").and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok()) {
+            if let Some(id) = data.get("input_plan_ref")
+                .and_then(|o| o.get("digest")).and_then(serde_json::Value::as_str)
+                .and_then(|d| store.cas.read_object(&Digest(d.to_owned())).ok())
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|plan| plan.pointer("/context/source/window_id").and_then(serde_json::Value::as_str).map(str::to_owned))
+            {
+                if json_holds_any_id(&data, rejected_ids) { dirty_windows.insert(id); }
+            }
+        }
+    }
+    while let Some(id) = work.pop() {
+        let Some(body) = window_body(&id)? else { continue };
+        if dirty_windows.contains(&id) {
+            // Propagate to predecessor and to windows naming this as source.
+            if let Some(pred) = body.pointer("/base/source_window").and_then(serde_json::Value::as_str) {
+                if dirty_windows.insert(pred.to_owned()) { work.push(pred.to_owned()); }
+            }
+            continue;
+        }
+        let hit_ids = json_holds_any_id(&body, rejected_ids);
+        let hit_range = rejected_sessions.contains(
+            body.get("scope_id").or_else(|| body.pointer("/base/scope_id")).and_then(serde_json::Value::as_str).unwrap_or(""),
+        ) && {
+            let from = body.pointer("/base/from").or_else(|| body.get("from")).and_then(serde_json::Value::as_i64);
+            let to = body.pointer("/base/to").or_else(|| body.get("to")).and_then(serde_json::Value::as_i64);
+            matches!((from, to), (Some(f), Some(t))
+                if rejected_raw_seqs.iter().any(|(s, seq)| *seq >= f && *seq <= t
+                    && (body.get("scope_id").or_else(|| body.pointer("/base/scope_id"))
+                        .and_then(serde_json::Value::as_str) == Some(s.as_str()))))
+        };
+        if hit_ids || hit_range {
+            dirty_windows.insert(id.clone());
+            if let Some(pred) = body.pointer("/base/source_window").and_then(serde_json::Value::as_str) {
+                work.push(pred.to_owned());
+            }
+            // Successor windows in the same manifest that name this window
+            // as their source inherit the contamination.
+            for candidate in rows.iter().copied().filter(|r| r.table == "context_windows") {
+                if !dirty_windows.contains(candidate.key.as_str()) { work.push(candidate.key.clone()); }
+            }
+        }
+    }
+    // Steps whose frozen S0 selects rejected deliveries or a dirty window.
+    for row in rows.iter().copied().filter(|r| r.table == "subject_steps") {
+        let Some(data) = row.value("data").and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok()) else { continue };
+        let plan: Option<serde_json::Value> = data.get("input_plan_ref")
+            .and_then(|o| o.get("digest")).and_then(serde_json::Value::as_str)
+            .and_then(|d| store.cas.read_object(&Digest(d.to_owned())).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        let Some(plan) = plan else {
+            // Cannot verify this step's dependency closure while its own
+            // data mentions rejected facts: refuse rather than guess.
+            if json_holds_any_id(&data, rejected_ids) {
+                return refuse(format!("subject step {} with unresolved input plan", row.key));
+            }
+            continue;
+        };
+        let window = plan.pointer("/context/source/window_id").and_then(serde_json::Value::as_str);
+        if json_holds_any_id(&plan, rejected_ids)
+            || window.is_some_and(|id| dirty_windows.contains(id) || rejected_ids.contains(id))
+        {
+            return refuse(format!("subject step {} frozen input", row.key));
+        }
+    }
+    // Dirty imported windows or any derivative of one fail publication.
+    if !dirty_windows.is_empty() {
+        let mut dirty: Vec<_> = dirty_windows.iter().cloned().collect();
+        dirty.sort();
+        return refuse(format!("context window generations {dirty:?}"));
+    }
+    for derivative in derivatives {
+        if dirty_windows.contains(derivative.window_id.to_string().as_str()) {
+            return refuse(format!("derivative {}:{}", derivative.window_id, derivative.idx));
+        }
+    }
+    // An imported context_window_scopes row naming a rejected window's scope
+    // is safe only when no window became dirty — already covered above.
+    Ok(())
 }
 
 /// The row as it will be stored here.
@@ -3757,6 +4122,13 @@ fn intent_source_state(values: &[(String, Option<String>)]) -> Option<String> {
     Some(state)
 }
 
+/// Opaque bytes never acquire reference-graph authority by parsing as JSON.
+/// Both export and import use this rule, including later typed aliases of a
+/// digest already visited under an opaque reference.
+fn is_json_reference(media_type: &str) -> bool {
+    media_type == "application/json" || media_type.ends_with("+json")
+}
+
 /// Collect every CAS reference of a JSON value.
 fn collect_references(
     value: &serde_json::Value,
@@ -4088,6 +4460,74 @@ mod archive_admission_tests {
     use crate::memory::MemoryEntry;
 
     #[test]
+    fn captured_json_stream_does_not_extend_the_recovery_graph() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-opaque-stream-{}", EntityId::new()));
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        let missing = ObjectRef {
+            digest: Digest::blake3(b"guest claims an object that does not exist"),
+            bytes: 48,
+            media_type: "application/json".into(),
+            store_namespace: "guest-claim".into(),
+            locator: String::new(),
+            codec: raw_codec(),
+        };
+        let stream_bytes = serde_json::to_vec(&missing)?;
+        let stream = source.cas.seal_object(
+            &stream_bytes, "application/octet-stream", "wasi-exec-streams", "wasi-stream", 1,
+        )?.object;
+        let (objects, missing) = source.collect_closure(&[stream.clone()])?;
+        assert!(missing.is_empty());
+        assert_eq!(objects.len(), 1);
+        let mut export = source.export_cognition(&Default::default())?;
+        export.manifest.objects = objects;
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+        let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(imported.ack(EntityId::new()).verified);
+        assert_eq!(receiver.cas.read_object(&stream.digest)?, stream_bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn later_typed_alias_expands_its_real_child_on_both_sides() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-typed-alias-{}", EntityId::new()));
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        let child = source.cas.seal_object(b"retained child", "text/plain", "test", "raw", 1)?.object;
+        let json = serde_json::to_vec(&child)?;
+        let opaque = source.cas.seal_object(&json, "application/octet-stream", "test", "raw", 1)?.object;
+        let typed = source.cas.seal_object(&json, "application/json", "test", "json", 1)?.object;
+        let parent = source.cas.seal_object(
+            &serde_json::to_vec(&typed)?, "application/json", "test", "json", 1,
+        )?.object;
+        // J is collected opaque before the parent's typed reference to J is
+        // expanded. Its child C must still enter the actual export closure.
+        let (mut objects, missing) = source.collect_closure(&[opaque.clone(), parent])?;
+        assert!(missing.is_empty());
+        assert_eq!(objects.len(), 3);
+        assert!(objects.iter().any(|object| object.digest == child.digest));
+        let alias = objects.iter_mut().find(|object| object.digest == opaque.digest).unwrap();
+        assert_eq!(alias.media_type, "application/json");
+        // A valid archive may describe J with its opaque alias while the
+        // retained parent still references its JSON type. Import must follow
+        // that later typed reference, independently of descriptor order.
+        alias.media_type = "application/octet-stream".into();
+        let mut export = source.export_cognition(&Default::default())?;
+        export.manifest.objects = objects;
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+        let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(imported.ack(EntityId::new()).verified);
+        assert_eq!(receiver.cas.read_object(&child.digest)?.as_slice(), b"retained child");
+        Ok(())
+    }
+
+    #[test]
     fn reordered_labels_cannot_publish_a_paused_head_or_files() {
         use shenko_types::commit::CommitRef;
         use shenko_types::ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
@@ -4182,4 +4622,60 @@ mod archive_admission_tests {
         assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
         assert!(receiver.list_memory(10).unwrap().is_empty());
     }
+}
+
+fn apply_media_streams<'a>(
+    tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
+    seq: LedgerSeq, manifest: &CognitionManifest,
+) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
+    let inbox: HashMap<&'a str, &'a CognitionRow> = rows.iter().copied()
+        .filter(|row| row.table == "inbox_events")
+        .map(|row| (row.key.as_str(), row)).collect();
+    let mut groups: HashMap<&'a str, Vec<&'a CognitionRow>> = HashMap::new();
+    let mut media_events: HashSet<&'a str> = HashSet::new();
+    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(),
+        "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+    {
+        let key = row.value("stream_key").context("media stream identity missing")?;
+        let group = groups.entry(key).or_default();
+        group.push(row);
+        if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
+            ensure!(media_events.insert(id), "media facts share a delivery identity");
+            group.push(*inbox.get(id).context("media delivery original missing")?);
+        }
+    }
+    let mut outcome = CognitionApplyOutcome::default();
+    for stream in rows.iter().copied().filter(|row| row.table == "media_streams") {
+        let mut group = groups.remove(stream.key.as_str()).context("media closure group missing")?;
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        tx.execute("SAVEPOINT media_stream_closure", []).map_err(db)?;
+        let mut part = CognitionApplyOutcome::default();
+        let mut conflict = false;
+        for row in group {
+            let spec = spec_for(&row.table).context("unregistered media recovery table")?;
+            match apply_recovery_fact(tx, spec, row, peer_id, seq)? {
+                RecoveryFactOutcome::Conflict => { conflict = true; break; }
+                RecoveryFactOutcome::Inserted => part.inserted += 1,
+                RecoveryFactOutcome::Updated => part.updated += 1,
+                RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
+            }
+            record_origin(tx, spec, row, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+        }
+        if conflict {
+            tx.execute("ROLLBACK TO media_stream_closure", []).map_err(db)?;
+        }
+        tx.execute("RELEASE media_stream_closure", []).map_err(db)?;
+        if conflict {
+            let detail = "media stream facts and pending deliveries conflict; the complete local binding is kept".to_owned();
+            record_conflict(tx, peer_id, "media_streams", &stream.key, &detail)?;
+            outcome.conflicts.push(CognitionConflict {
+                table: "media_streams".into(), key: stream.key.clone(), detail,
+            });
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, media_events))
 }

@@ -20,6 +20,7 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use shenko_types::commit::CommitRef;
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::ids::{EntityId, LedgerSeq};
+use shenko_types::object::Digest;
 use shenko_types::media::*;
 use shenko_types::object::ObjectRef;
 
@@ -193,13 +194,18 @@ fn verify_sealed_audio(store: &Store, object: &ObjectRef) -> Result<(), ShenkoEr
             "sealed audio digest is not a canonical supported blake3 digest",
         ));
     }
-    store.cas.verify_object(object).map_err(|_| {
-        media_error(
+    // The integrated CAS exposes read-back instead of a dedicated
+    // verify_object: read the bytes and re-check the declared length and
+    // digest, so same-length corruption is still rejected before commit.
+    match store.cas.read_object(&object.digest) {
+        Ok(bytes) if bytes.len() as u64 == object.bytes
+            && Digest::blake3(&bytes) == object.digest => Ok(()),
+        _ => Err(media_error(
             "media_audio_object_missing",
             RetryStrategy::AfterReconcile,
             "sealed audio object cannot be verified in this ledger's CAS",
-        )
-    })
+        )),
+}
 }
 
 /// The durable `inbox_events` envelope of one bound media event, in the same

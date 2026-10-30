@@ -79,6 +79,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // missing original receipt/delivery bindings instead of acknowledging them.
     ensure_column(conn, "media_streams", "open_commit_ref", "TEXT")?;
     ensure_column(conn, "media_segment_revisions", "admitted_commit_ref", "TEXT")?;
+    // Durable provider-quota state (SPEC §42.5): snapshots, forecasts,
+    // policies, decisions, the single-writer pacer and attempt ledger. All
+    // writes happen inside the shared IMMEDIATE mutation line.
+    conn.execute_batch(crate::quota::QUOTA_SCHEMA)?;
     // Durable browser input submission bindings (SPEC §41.18). Additive,
     // never rewrites the original event or its admission fact.
     conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;

@@ -280,6 +280,13 @@ impl NativeChildService {
             .cloned()
     }
 
+    /// Admission can report an unavailable implementation before creating new
+    /// work. Dispatch still rechecks the Cordis generation when claiming it.
+    pub fn has_handler(&self, kind: &str, version: u32) -> bool {
+        self.registry.read().handlers.keys()
+            .any(|(registered_kind, registered_version)| registered_kind == kind && *registered_version == version)
+    }
+
     /// One bounded pass over durable candidates. Duplicate wakeups only reread
     /// this state; CAS determines whether a handler/attempt may be created.
     /// Finished managed executions are reclaimed first, so a completed short
@@ -549,6 +556,18 @@ impl NativeChildService {
             .collect()
     }
 
+    /// The registered `(kind, definition_version)` pairs, ordered. This is the
+    /// same registry the prompt sections come from, surfaced so self-knowledge
+    /// can report what this instance can actually execute — SPEC §38.
+    pub fn installed_definitions(&self) -> Vec<(String, u32)> {
+        self.registry
+            .read()
+            .handlers
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     /// Crate-visible view of the in-memory scan position for tests and
     /// diagnostics. It is scheduling state only — never a completion
     /// watermark and never consulted for durable truth.
@@ -801,9 +820,10 @@ impl NativeChildService {
             Some("subject_decision") => {
                 let decision: StepDecision = serde_json::from_slice(&bytes)?;
                 // Existing finite children can still hold an immutable schema-4
-                // S1 decision. New waits use schema 6; both bind the same native
+                // S1 decision. Waits use schema 6 and model children schema 7;
+                // all bind the same native
                 // delegation field without rewriting the historical CAS object.
-                ensure!(matches!(decision.schema_version, 4 | 6), "unsupported_decision_schema");
+                ensure!(matches!(decision.schema_version, 4 | 6 | 7), "unsupported_decision_schema");
                 let intent = decision
                     .delegated_task_intents
                     .iter()

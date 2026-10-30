@@ -35,7 +35,8 @@ pub struct DelegationIntent {
     pub capabilities: Vec<String>,
     pub budget_hint: Option<BudgetHint>,
     pub reply_grant: Option<ReplyGrant>,
-    /// None is an unresolved natural-language delegation, never a fake native run.
+    /// Frozen execution input. Historical unbound goals remain unresolved;
+    /// current model delegation freezes its own model.child definition here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<NativeTaskDefinition>,
 }

@@ -15,8 +15,59 @@ pub struct TaskInvocation {
     pub record_revision: RecordRevision,
     pub invocation_id: EntityId,
     pub epoch: ControllerEpoch,
+    pub software_generation: RuntimeGeneration,
     pub worker_id: EntityId,
     pub node_id: EntityId,
+}
+
+/// Result of a durable inbox admission: the caller learns whether its row
+/// was new or already admitted identically.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboxAdmission {
+    Inserted,
+    Replay,
+}
+
+pub(crate) fn validate_original_event(
+    event_id: EntityId, kind: &str, source: &str, data: &serde_json::Value,
+) -> Result<()> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Original {
+        event_id: EntityId,
+        kind: String,
+        source: String,
+        payload: serde_json::Map<String, serde_json::Value>,
+        created_at: chrono::DateTime<chrono::Utc>,
+    }
+    let original: Original = serde_json::from_value(data.clone())
+        .map_err(|_| shenko_types::error::ShenkoError::conflict("invalid complete inbox event"))?;
+    let _ = (&original.payload, original.created_at);
+    if original.event_id != event_id || original.kind != kind || original.source != source
+        || kind.is_empty() || source.is_empty()
+    {
+        return Err(shenko_types::error::ShenkoError::conflict("inbox event identity mismatch").into());
+    }
+    // The bare native T2 lane (kind=task_result, source=native-child, data =
+    // TaskResult) is written by finalize_task internally. A complete
+    // InboxEvent envelope can never be decoded by ready_native_results'
+    // bare-TaskResult reader, so the public admission API refuses the kind
+    // outright rather than publishing a row that breaks the dispatcher.
+    if kind == "task_result" {
+        return Err(shenko_types::error::ShenkoError::conflict(
+            "task_result is reserved for the internal bare native-child T2 lane, not envelope admission").into());
+    }
+    Ok(())
+}
+
+/// Exact quota send selected before T1; persisted on the original attempt.
+/// None is legal only when this ledger has no configured quota policy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InferenceSendBinding {
+    pub schema_version: u32,
+    pub request_id: EntityId,
+    pub send_id: Option<EntityId>,
 }
 
 impl Store {
@@ -64,6 +115,24 @@ impl Store {
         Ok(serde_json::from_str(&data)?)
     }
 
+    /// Startup resource reconstruction uses the original operation identities,
+    /// including cancelled tasks. It never schedules another attempt.
+    pub fn external_operations_after(
+        &self, name: &str, after: Option<EntityId>, limit: usize,
+    ) -> Result<Vec<OperationRecord>> {
+        let conn = self.ledger.conn.lock();
+        let mut query = conn.prepare(
+            "SELECT data FROM operations WHERE json_extract(data,'$.operation_name')=?1
+             AND operation_id>?2
+             ORDER BY operation_id LIMIT ?3",
+        )?;
+        let rows = query.query_map(
+            params![name, after.map(|id| id.to_string()).unwrap_or_default(), limit.min(256) as i64],
+            |row| row.get::<_, String>(0),
+        )?.collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter().map(|data| serde_json::from_str(&data).map_err(Into::into)).collect()
+    }
+
     /// Returns None for a new armed admission, or the original operation for a
     /// matching repeated logical key. A hit NEVER authorizes another dispatch.
     pub fn arm_external_operation(
@@ -73,8 +142,22 @@ impl Store {
         att: &mut AttemptRecord,
     ) -> Result<Option<OperationRecord>> {
         self.ledger.with_mutation(
-            || self.try_arm_external_operation(ctx, op, att),
-            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            || self.try_arm_external_operation(ctx, op, att, None),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// Child model T1 atomically claims the gate's exact R→S reservation with
+    /// the native operation/attempt. Native tools keep the non-inference path.
+    pub fn arm_external_inference_operation(
+        &self, ctx: &TaskInvocation, op: &mut OperationRecord, att: &mut AttemptRecord,
+        binding: &InferenceSendBinding,
+    ) -> Result<Option<OperationRecord>> {
+        self.ledger.with_mutation(
+            || self.try_arm_external_operation(ctx, op, att, Some(binding)),
+            |error| error.is::<rusqlite::Error>() || error.is::<serde_json::Error>()
+                || error.downcast_ref::<shenko_types::error::ShenkoError>()
+                    .is_some_and(|error| matches!(error, shenko_types::error::ShenkoError::Storage(_))),
         )
     }
 
@@ -83,6 +166,7 @@ impl Store {
         ctx: &TaskInvocation,
         op: &mut OperationRecord,
         att: &mut AttemptRecord,
+        inference: Option<&InferenceSendBinding>,
     ) -> Result<Option<OperationRecord>> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -142,6 +226,9 @@ impl Store {
             !task.memos.contains_key("native_settlement_only"),
             "settlement_invocation_cannot_arm"
         );
+        if crate::child::memo_flag(&task, crate::child::NATIVE_CHILD) {
+            ensure!(self.native_invocation_current_tx(&tx, &task, ctx)?, "stale_native_generation_or_owner");
+        }
         ensure!(
             op.task_id == ctx.task_id
                 && op.state == OperationState::InFlight
@@ -152,6 +239,37 @@ impl Store {
             "invalid_armed_operation"
         );
         let seq = self.ledger.allocate_seq(&tx)?;
+        if task.kind == "model.child" {
+            let binding = inference.ok_or_else(|| anyhow::anyhow!("model inference must use quota-bound T1 admission"))?;
+            ensure!(binding.schema_version == 1, "unsupported inference send binding");
+            let read = |object: &shenko_types::object::ObjectRef| -> Result<serde_json::Value> {
+                let bytes = self.cas.read_object(&object.digest)?;
+                ensure!(bytes.len() as u64 == object.bytes
+                    && shenko_types::object::Digest::blake3(&bytes) == object.digest,
+                    "inference T1 input/binding closure mismatch");
+                Ok(serde_json::from_slice(&bytes)?)
+            };
+            let frozen = read(&op.final_input_ref)?;
+            let decision = read(&task.input_ref)?;
+            let intent = decision.get("delegated_task_intents").and_then(|value| value.as_array())
+                .and_then(|intents| intents.iter().find(|intent| intent.get("intent_id") == Some(&serde_json::json!(task.task_id))))
+                .ok_or_else(|| anyhow::anyhow!("model inference has no frozen S1 delegation"))?;
+            ensure!(intent.pointer("/definition/input") == Some(&frozen)
+                && frozen.get("request_id") == Some(&serde_json::to_value(binding.request_id)?)
+                && op.input_digest == op.final_input_ref.digest
+                && read(att.transport_ref.as_ref().ok_or_else(|| anyhow::anyhow!("inference attempt lacks selected send binding"))?)?
+                    == serde_json::to_value(binding)?,
+                "inference T1 request/payload/selected-send mismatch");
+            if crate::quota::quota_gate_open(&tx)? {
+                let send_id = binding.send_id.ok_or_else(|| anyhow::anyhow!("configured quota requires exact selected send"))?;
+                ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq)?,
+                    "inference selected send is not admitted, armed and unclaimed for this request");
+            } else {
+                ensure!(binding.send_id.is_none(), "unexpected quota send without a recorded policy");
+            }
+        } else {
+            ensure!(inference.is_none(), "inference T1 requires the registered model-child task contract");
+        }
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         op.prepared_commit = commit;
         att.armed_commit = commit;
@@ -186,6 +304,89 @@ impl Store {
         Ok(None)
     }
 
+    /// Durably admit one subject inbox event from an external producer.
+    ///
+    /// This is the pending durable row the subject drains each step; the
+    /// caller's separate volatile wake (try_send) is not the admission. A
+    /// replay of the same event_id with the same facts returns
+    /// [`InboxAdmission::Replay`]; a different fact under the same event_id
+    /// is a conflict, matching raw-session rules. The subject head must
+    /// exist so the event has a real drain owner.
+    pub fn admit_inbox_event(
+        &self,
+        event_id: EntityId,
+        agent_id: EntityId,
+        kind: &str,
+        source: &str,
+        data: &serde_json::Value,
+    ) -> Result<InboxAdmission> {
+        // Typed validation BEFORE the mutation gate: an invalid admission must
+        // fail before the writer incarnation is claimed, never poison it.
+        validate_original_event(event_id, kind, source, data)?;
+        let serialized = serde_json::to_string(data)?;
+        // Target agent head must exist for the event to have a drain owner;
+        // a missing head is a typed rejection, not a row failure inside the
+        // writer transaction.
+        {
+            let conn = self.ledger.conn.lock();
+            let head_exists: Option<String> = conn
+                .query_row(
+                    "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+                    [agent_id.to_string()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            ensure!(head_exists.is_some(), "subject head missing for inbox event agent");
+        }
+        self.ledger.with_mutation(
+            || {
+                let mut c = self.ledger.conn.lock();
+                let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let existing: Option<(String, String, String, String)> = tx
+                    .query_row(
+                        "SELECT agent_id, kind, source, data FROM inbox_events WHERE event_id=?1",
+                        [event_id.to_string()],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    )
+                    .optional()?;
+                if let Some((stored_agent, stored_kind, stored_source, stored_data)) = existing {
+                    if stored_agent != agent_id.to_string() || stored_kind != kind
+                        || stored_source != source || stored_data != serialized
+                    {
+                        return Err(shenko_types::error::ShenkoError::conflict(
+                            "inbox_event_conflict: same event_id with different facts").into());
+                    }
+                    tx.commit()?;
+                    return Ok(InboxAdmission::Replay);
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                tx.execute(
+                    "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data)
+                     VALUES(?1,?2,?3,?4,0,?5)",
+                    params![
+                        event_id.to_string(),
+                        agent_id.to_string(),
+                        kind,
+                        source,
+                        serialized,
+                    ],
+                )?;
+                tx.execute(
+                    "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,1)",
+                    params![
+                        commit.ledger_id.to_string(),
+                        commit.seq.0 as i64,
+                        self.capabilities.incarnation.to_string()
+                    ],
+                )?;
+                tx.commit()?;
+                Ok(InboxAdmission::Inserted)
+            },
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
     /// Evidence may arrive after cancellation/epoch change. This method does
     /// not advance a task, create children, or grant the old callback authority.
     pub fn record_external_evidence(
@@ -198,7 +399,7 @@ impl Store {
     ) -> Result<OperationRecord> {
         self.ledger.with_mutation(
             || self.try_record_external_evidence(operation_id, attempt_id, ev, outcome, effect),
-            |e| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
         )
     }
 
