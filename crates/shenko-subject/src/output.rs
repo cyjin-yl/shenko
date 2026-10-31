@@ -4,6 +4,7 @@
 use pulldown_cmark::{Event, Parser, Tag};
 use shenko_identity::IdentityService;
 use shenko_types::{
+    channel::ChannelRegistry,
     error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
     ids::EntityId,
     object::ObjectRef,
@@ -11,11 +12,14 @@ use shenko_types::{
     subject::{SemanticWait, SemanticWaitChange},
 };
 
-pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
+/// The output contract ships as three parts: a fixed rule prefix, the reply
+/// grammar assembled from the registered channel plugins, and a fixed tail.
+/// Channel plugins own their grammar fragments; the core names no platform.
+const OUTPUT_CONTRACT_PREFIX: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
 这是对你自己输出控制行的规则，不是判定用户消息真伪的规则；用户输入按消息来源和其实际内容理解。\n\
-历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n\
-[reply:group:群号] 正文 或 [reply:private:QQ号] 正文；你决定对用户说的话必须放在对应回复控制行，单独写普通正文不会送达；后续普通行续接该回复。\n\
-用户消息开头会标出发送者与可回复的 QQ 号或群号，回复就用那个号码；\n\
+历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n";
+
+const OUTPUT_CONTRACT_SUFFIX: &str = "\n\
 [remember] 要保存的内容。有限模型 child 用 [delegate] 后接一行 JSON：{\"goal\":\"任务目标、所需上下文和完成条件\",\"system_prompt\":\"你为这个 child 独立撰写的完整语义 system prompt\",\"model\":\"所选模型名称\",\"max_tokens\":1024}。\n\
 每个 child 可选择不同 system_prompt/model；模型名称在本轮冻结的已配置 provider 通路上请求，不改变你的主模型、不允许指定 endpoint 或自授工具。provider 是否提供该模型以真实回执为准。\n\
 当前模型 child 只执行一次有界文本推理并把结果交回同一 task/inbox，没有文件、shell、网络或外发工具；任务资料与成功条件要写在 goal 中。max_tokens 为正整数且不得超过本轮输出预算；plain text 的旧委派不执行。\n\
@@ -27,9 +31,46 @@ pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引
 语义等待不是事件阻塞也不是新建任务：仍在同一条思考流里用同一个模型结合前文与新上下文持续轮询，直到条件成立、你的判断改变或期限到达；\n\
 等待最长 600 秒，继续等待不会延长原截止时间；新消息不会被框架自动当成结束，但你应判断它是否满足原条件或使你改变关注；不要用相同条件反复新建等待来绕过上限。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
-普通正文是自己的想法和观察，可显示在系统时间线，但不会作为 QQ 消息送给对方；想让 QQ 对方收到的内容必须使用上面的回复控制。未列出的方括号标签会被判为错误；\n\
+普通正文是自己的想法和观察，可显示在系统时间线，但不会作为外部消息送给对方；想让对方收到的内容必须使用回复控制行。未列出的方括号标签会被判为错误；\n\
 即使本步在调整身份或保存记忆，也要写下此刻的想法，不要只有控制行。\n\
 只支持此协议；[memory]、dispatch: 等旧伪协议不执行。";
+
+/// Assemble the reply grammar lines from the registered channel plugins.
+/// With the shipped channel this is byte-identical to the historical text;
+/// with no channel the contract says plainly that replies cannot be delivered.
+pub fn reply_grammar(channels: &ChannelRegistry) -> String {
+    let targets: Vec<String> = channels
+        .plugins()
+        .flat_map(|plugin| {
+            plugin
+                .kinds
+                .iter()
+                .map(|kind| format!("[reply:{}:{}]", kind.tag, kind.id_hint))
+        })
+        .collect();
+    let names: Vec<&'static str> = channels
+        .plugins()
+        .filter(|plugin| !plugin.kinds.is_empty())
+        .map(|plugin| plugin.prompt_names)
+        .collect();
+    if targets.is_empty() {
+        return "当前没有注册的回复通道：无法对外发送回复，普通正文不会送达对方；".to_owned();
+    }
+    format!(
+        "{} 正文；你决定对用户说的话必须放在对应回复控制行，单独写普通正文不会送达；后续普通行续接该回复。\n\
+用户消息开头会标出发送者与可回复的 {}，回复就用那个号码；",
+        targets.join(" 正文 或 "),
+        names.join("、")
+    )
+}
+
+/// The full output protocol section for a registry profile.
+pub fn output_contract(channels: &ChannelRegistry) -> String {
+    let mut contract = String::from(OUTPUT_CONTRACT_PREFIX);
+    contract.push_str(&reply_grammar(channels));
+    contract.push_str(OUTPUT_CONTRACT_SUFFIX);
+    contract
+}
 
 fn invalid(line: u64, reason: &str) -> ShenkoError {
     ProtocolError::new(
@@ -134,6 +175,7 @@ pub fn parse_output(
     raw_ref: ObjectRef,
     raw: &str,
     identity: &IdentityService,
+    channels: &ChannelRegistry,
     frozen_wait_id: Option<EntityId>,
 ) -> Result<ParsedOutput, ShenkoError> {
     if raw_ref.bytes != raw.len() as u64
@@ -267,11 +309,10 @@ pub fn parse_output(
                     .ok()
                     .filter(|id| *id > 0)
                     .ok_or_else(|| invalid(line_no, "reply id must be positive"))?;
-                let target = match kind {
-                    "group" => PublicationTarget::QqGroup(id),
-                    "private" => PublicationTarget::QqPrivate(id),
-                    _ => return Err(invalid(line_no, "unknown reply target")),
-                };
+                let channel = channels
+                    .reply_channel(kind)
+                    .ok_or_else(|| invalid(line_no, "unknown reply target"))?;
+                let target = PublicationTarget::new(channel, kind, id);
                 let text = if value.is_empty() {
                     String::new()
                 } else {

@@ -97,7 +97,13 @@ fn state(
             shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), EntityId(head.branch_id.0)),
         )),
     ))).unwrap();
-    SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store, ctx)
+    SubjectLoopState::new(
+        agent,
+        Arc::new(Inbox::new(8)),
+        store,
+        ctx,
+        shenko_channel_napcat::qq_registry(),
+    )
 }
 
 #[tokio::test]
@@ -477,7 +483,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
     let prompt = &prepared.payload.system_prompt;
     assert!(
-        prompt.starts_with(&crate::canonical_system_prompt()),
+        prompt.starts_with(&crate::canonical_system_prompt(&subject.channels)),
         "the stable contract stays the prefix so KV/model binding remains reusable"
     );
     assert!(prompt.contains("不记得自己许过什么"), "awareness body missing: {prompt}");
@@ -530,7 +536,7 @@ fn personality_stays_out_of_the_tool_contract() {
     // sealed protocol, and it is placed after the stable contract plus the
     // installed native definitions (SPEC §6 ordering, R053/R054).
     assert!(prepared.payload.tools.is_empty());
-    let contract = crate::canonical_system_prompt();
+    let contract = crate::canonical_system_prompt(&subject.channels);
     assert!(prompt.starts_with(&contract));
     assert!(!prompt[..contract.len()].contains("话少"));
     assert!(prompt.contains("history.query/v1 只读检索已提交的原始历史"));
@@ -1248,7 +1254,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .object,
     );
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
-    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw, &subject.identity_service, None)
+    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw, &subject.identity_service, &subject.channels, None)
     .unwrap();
     assert_eq!(output.controls.len(), 2);
     let changes: Vec<_> = output
@@ -1528,7 +1534,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         .initialize_identity(&service.genesis(agent, None))
         .unwrap();
     let mut subject =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone()).unwrap();
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry()).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     execute_step(1, &[], &mut subject, &close)
@@ -1553,7 +1559,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         "test.identity/other@1"
     );
     let reopened =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone());
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry());
     assert!(
         reopened
             .err()
