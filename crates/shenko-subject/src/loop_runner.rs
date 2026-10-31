@@ -401,6 +401,22 @@ pub async fn run_subject_loop(
         tokio::task::yield_now().await;
     };
 
+    // Every error that stops the loop is a durable runtime fact the subject
+    // can later read through errors.read — SPEC §45.14. The journal write is
+    // fail-soft: it never masks or replaces the original error.
+    if let Err(error) = &result {
+        state.store.journal_runtime_error(
+            state.agent_id,
+            shenko_store::RuntimeErrorContext {
+                kind: "subject_loop".into(),
+                source_module: module_path!().into(),
+                message: format!("subject loop stopped on error: {error}"),
+                step_no: Some(state.step.step_no),
+                task_id: None,
+                extra: serde_json::json!({}),
+            },
+        );
+    }
     // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
     state.inbox.close().await;
     info!("subject loop terminated");

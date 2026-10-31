@@ -12,6 +12,9 @@ pub use computer_use::*;
 pub mod history_task;
 pub use history_task::*;
 
+pub mod runtime_error;
+pub use runtime_error::*;
+
 pub mod self_knowledge_task;
 pub use self_knowledge_task::*;
 

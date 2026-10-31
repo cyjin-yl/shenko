@@ -4,6 +4,7 @@ use parking_lot::Mutex;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::info;
 
 use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
@@ -46,6 +47,11 @@ pub struct Store {
     /// mark of a wait lives here for the lifetime of this handle; the durable
     /// part is the observation mark stored with the wait record itself.
     pub(crate) semantic_wait_clock: Mutex<WaitClock>,
+    /// Process-local count of runtime-error journal writes that failed before
+    /// commit. A journal write must never take down the failing path, so a
+    /// dropped entry survives only as this count; later committed entries
+    /// carry the cumulative value (SPEC §45.14).
+    pub(crate) error_journal_dropped: AtomicU64,
 }
 
 impl Store {
@@ -147,7 +153,13 @@ impl Store {
             capabilities,
             cognition_import_gate: Mutex::new(cognition_import_gate),
             semantic_wait_clock: Mutex::new(WaitClock::new()),
+            error_journal_dropped: AtomicU64::new(0),
         })
+    }
+
+    /// Journal writes dropped before commit in this process.
+    pub fn error_journal_dropped(&self) -> u64 {
+        self.error_journal_dropped.load(Ordering::Relaxed)
     }
 
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
