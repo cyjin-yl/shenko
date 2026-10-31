@@ -403,7 +403,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 "identity ready"
             );
 
-            drop(node_sync::open_node(&data_dir, &store)?);
+            let node = node_sync::open_node(&data_dir, &store)?;
             let runtime_instance = shenko_types::ids::EntityId::new();
             // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
@@ -434,6 +434,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
                 .await?;
+            install_node_capability_reader(&supervisor, Arc::clone(&store), node).await?;
             // Real X11 Computer Use: four kinds share one live backend state
             // so lease authority and session identity agree across tasks.
             let computer_use_backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(
@@ -1477,6 +1478,19 @@ fn bootstrap_genesis(
     Ok(agent_id)
 }
 
+// Share the actual startup registration path with the lifecycle test. The
+// native registry owns discovery and withdraws it with the Cordis generation.
+async fn install_node_capability_reader(
+    supervisor: &shenko_kernel::Supervisor,
+    store: Arc<shenko_store::Store>,
+    node: shenko_node::Node,
+) -> Result<()> {
+    let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::NodeCapabilitiesHandler::new(store, node));
+    supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod recovery_integration_tests {
     use super::*;
@@ -1487,6 +1501,48 @@ mod recovery_integration_tests {
         subject::*,
         task::{AbortScope, TaskOutcome, TaskState},
     };
+
+    #[tokio::test]
+    async fn node_capability_reader_is_discoverable_only_while_installed() {
+        let dir = std::env::temp_dir().join(format!("shenko-node-reader-install-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(open_native_fixture(&dir));
+        let home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(), ..Default::default()
+        }).prepare(store.ledger.ledger_id()).unwrap();
+        let agent = bootstrap_genesis(&store, None, &home.manifest, &shenko_seed::ModelProfile::from_env()).unwrap();
+        drop(home);
+        store.start_subject_dispatcher().unwrap();
+        let node = node_sync::open_node(&dir, &store).unwrap();
+        let supervisor = shenko_kernel::Supervisor::new(RuntimeGeneration::default());
+        supervisor.spawn(shenko_subject::NativeChildPlugin, (store.clone(), RuntimeGeneration::default())).await.unwrap();
+        let service = supervisor.context().try_service::<shenko_subject::NativeChildService>().unwrap();
+        assert!(service.installed_prompt_sections().is_empty());
+        install_node_capability_reader(&supervisor, store.clone(), node).await.unwrap();
+        let sections = service.installed_prompt_sections();
+        assert_eq!(sections.len(), 1);
+        assert!(sections[0].contains("[delegate:node.capabilities.query:1]"));
+        // Real parser/S1/registry/handler/T1/E1/T2, with deterministic output
+        // supplied as a fixture. This is not model-behavior validation.
+        let task_id = EntityId::new();
+        commit_native_fixture_step(&store, "[delegate:node.capabilities.query:1] {\"limit\":1}", &[task_id], vec![]);
+        drive_native_until(&service, || Ok(store.native_task_result(task_id)?.is_some())).await.unwrap();
+        let result = store.native_task_result(task_id).unwrap().unwrap();
+        assert_eq!(result.outcome, TaskOutcome::Succeeded);
+        assert!(store.ready_native_results(agent, 8).unwrap().iter().any(|ready| ready.result_id == result.result_id));
+        let evidence = store.external_operation_evidence(result.operation_id).unwrap();
+        assert_eq!(evidence.len(), 1);
+        let observation: serde_json::Value = serde_json::from_slice(&store.cas.read_object(
+            &evidence[0].normalized_ref.as_ref().unwrap().digest,
+        ).unwrap()).unwrap();
+        assert_eq!(observation["snapshot"]["candidates"].as_array().unwrap().len(), 1);
+        assert_eq!(observation["dispatch"], "not_dispatched");
+        assert_eq!(observation["execution_authority"], "not_granted");
+        supervisor.stop().await.unwrap();
+        assert!(service.installed_prompt_sections().is_empty());
+        drop(service); drop(supervisor); drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     // Local I/L/CAS simulation: crash after S1, before I mirrors its ACK.
     // No provider, external account, model inference or production data is used.

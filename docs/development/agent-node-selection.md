@@ -1,5 +1,69 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Installed observation bridge candidate — 2026-10-31, static only
+
+The next #127 increment wires `node.capabilities.query/v1` into the actual
+startup `NativeTaskHandlerPlugin` registry. Its prompt is discoverable only
+while installed. This is source implementation, **not a tested or deployed
+capability**; the fixed `0b27a109` results below do not cover this new candidate.
+No new dependency, lockfile, administrative RPC or dispatch ledger is added.
+
+Why this slice: the retained-advertisement library was inaccessible to the
+subject. The existing Node `Register` metadata contains only target ID/digest,
+not a usable SSH binding or permission/resource grant. Inventing those grants
+would be unsafe. A bounded read-only child is independently useful, remains
+within #127 ownership, and leaves #114, shared child/store machinery and the
+SSH authorization resolver untouched.
+
+Minimal path / 最小路径:
+
+```text
+[delegate:node.capabilities.query:1] {"limit":8}
+```
+
+The real task result contains one retained-observation page. To continue, pass
+its `snapshot.next_after` as `after`; omit `after` for the first page. Only these
+two model fields are accepted. `limit` is 1–32, default 8. The existing native
+registry supplies the trusted task/invocation; the handler requires an actual
+originating step on the current subject branch and matches the installation's
+Node identity. A model cannot supply an identity, grant, path or SSH command.
+
+主体通过有限 child 查询本机与已登记同步节点的缓存能力声明；node-ID 顺序仅用于
+分页，不表示推荐。`unknown` / `oversized` 不表示已就绪，也不证明不能使用。
+`provides` 是未验证的外部描述，不是指令或权限。每页有实际 `observed_at`，
+但不保证声明新鲜、节点可达或跨页一致；不隐式刷新、探测、选择或执行。
+
+The new `node_choice_snapshot_for_subject` checks the frozen Node/subject
+identity **inside the same SQLite snapshot** as its observations. A process-local
+Mutex alone would not stop another administrative connection adopting a new
+identity between the check and the read; static review found and fixed that
+race. Observation output never includes SSH routes, paths or provenance text.
+
+T1 freezes page, Node ID and subject identity using the existing operation/attempt
+ledger. With T1 but no E1, read-only recovery may read that same page later from
+the same identity; the timestamp describes the actual later observation, not
+T1-time state. It never arms another attempt. Once E1 resolves the operation,
+recovery returns that evidence unchanged. A changed identity or unreadable observation yields a finite, sanitized
+Failed/EffectNone receipt rather than silently rebinding or looping forever;
+CAS/evidence-write failures remain recoverable errors. Results over the existing normalized-result budget fail
+explicitly, retain exact raw evidence, and request a smaller new task.
+
+Four focused tests are authored but **not executed**: strict page input and
+projection; original-attempt crash recovery without duplicate evidence;
+wrong-installation recovery failure; actual startup registration/withdrawal
+and deterministic parser/S1 → handler/T1/E1 → T2/task_result delivery through
+Cordis. The latter uses fixture output, not a model. Static diff checks do not establish compilation, task execution,
+model behavior, real SSH, remote permissions, resource admission or full C17.
+An isolated fixed-candidate run must separately cover the host handler, binary
+registration test and existing node regression before calling this verified.
+The model-facing prompt still needs real model sampling under its own scope.
+
+The remaining execution bridge is deliberately not claimed: recording an
+agent-selected node, installed authenticated SSH dispatch, authoritative
+registered-target permission/resource resolution, and real remote/model
+validation still require their own completion evidence. #127 stays Draft and
+retains #114's dependency.
+
 ## Fixed 0b27a109 verified — 2026-10-31
 
 The previously authorized source `0b27a109c819f365e4fb7422499deabaf997bc83`
@@ -24,8 +88,9 @@ or real SSH/model execution is claimed.
 [Exact source-bound evidence](../evidence/agent-selected-ssh-0b27a109-20261031.json)
 records commands, test names, preparation, failures, toolchain and log hashes.
 This evidence-only update changes no executable/dependency/test source.
-The installed authenticated handler, registered-target permission/resource
-resolver, model-driven discovery and real remote validation are still absent.
+The installed authenticated SSH handler, registered-target permission/resource
+resolver and real remote validation are still absent; the newer read-only
+observation bridge above remains unexecuted and model-unvalidated.
 PR #127 remains Draft and retains its #114 dependency. Earlier failures below
 are historical observations, not the latest fixed-candidate test status.
 
@@ -129,8 +194,9 @@ main `d1cf8d64`; it preserves both histories. No new dependency/schema migration
   `record_node_selection(NodeSelection)`, `node_selection_receipt(decision_id)`.
 - Effect: snapshot/recovery are local reads; recording writes one idempotent
   command receipt. No network, execution, lease or resource reservation.
-- Audience: trusted adapter code. This is **not** a new administrative RPC and
-  is **not yet installed as a subject/child tool**.
+- Audience: trusted adapter code. This is **not** a new administrative RPC.
+  The newer candidate above installs only bounded observation reads; recording
+  choices and SSH dispatch are **not installed as subject/child tools**.
 - Unknowns: advertisement age, liveness, model availability, resource capacity
   and task authorization are not inferred. `provides` strings are untrusted
   descriptions, not instructions or grants.

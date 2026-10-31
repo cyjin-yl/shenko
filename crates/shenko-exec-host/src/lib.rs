@@ -17,3 +17,6 @@ pub use wasi_task::*;
 
 pub mod contact_task;
 pub use contact_task::*;
+
+pub mod node_capabilities_task;
+pub use node_capabilities_task::*;

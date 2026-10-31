@@ -7,7 +7,7 @@
 //! executors, or dispatch work. An execution bridge must independently enforce
 //! task authority, current permissions, resource admission and effect recovery.
 
-use super::{Node, NodeCapabilityProfile, digest, text};
+use super::{Identity, Node, NodeCapabilityProfile, digest, text};
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -171,10 +171,38 @@ impl Node {
     /// refresh, network probe or fallback. Call `capability_profile` separately
     /// to publish fresh local facts. Advertisements can be arbitrarily old.
     pub fn node_choice_snapshot(&mut self, after: Option<EntityId>, limit: usize) -> Result<NodeChoiceSnapshot> {
+        self.node_choice_snapshot_bound(after, limit, None)
+    }
+
+    /// Read for an already authenticated subject adapter. Identity and facts
+    /// are checked in the SAME SQLite snapshot; another connection may adopt
+    /// an identity concurrently. This check does not grant execution rights.
+    pub fn node_choice_snapshot_for_subject(
+        &mut self,
+        after: Option<EntityId>,
+        limit: usize,
+        expected_node: EntityId,
+        expected_subject: &Identity,
+    ) -> Result<NodeChoiceSnapshot> {
+        self.node_choice_snapshot_bound(after, limit, Some((expected_node, expected_subject)))
+    }
+
+    fn node_choice_snapshot_bound(
+        &mut self,
+        after: Option<EntityId>,
+        limit: usize,
+        binding: Option<(EntityId, &Identity)>,
+    ) -> Result<NodeChoiceSnapshot> {
         ensure!(!self.failed, "node requires reopen after storage failure");
         ensure!((1..=MAX_PAGE).contains(&limit), "page limit must be 1..=32");
         let tx = self.conn.transaction()?;
         let local_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
+        if let Some((expected_node, expected_subject)) = binding {
+            ensure!(
+                local_id == expected_node && Self::stored_identity(&tx)?.as_ref() == Some(expected_subject),
+                "node_subject_binding_stale"
+            );
+        }
         let ids = {
             let mut statement = tx.prepare(
                 "SELECT node_id FROM (SELECT node_id FROM node_sync_peers UNION SELECT ?1 AS node_id) WHERE node_id>?2 ORDER BY node_id LIMIT ?3"
