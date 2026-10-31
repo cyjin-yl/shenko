@@ -1,6 +1,35 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
-## Fixed 0b27a109 follow-up — 2026-10-30 11:28 UTC
+## Fixed 0b27a109 verified — 2026-10-31
+
+The previously authorized source `0b27a109c819f365e4fb7422499deabaf997bc83`
+now freshly compiles and passes **8 selected SSH tests and 18 node tests**,
+both exit 0, in the dot online execution environment. Six other SSH tests were
+filtered out; node binary/doc suites each had zero tests. Source, tree and the
+original lock remained unchanged. These results do not cover newer main.
+
+The three missing packages and their official index records were recovered;
+all **401/401** locked registry archive checksums and the exact Git dependency
+were verified. Restored Rust/Cargo/rustdoc 1.98.1 binary hashes match the prior
+approved toolchain. Tests used empty HOME, separate Cargo/target/temp, one build
+job, `--locked --offline`, and inherited network-socket denial.
+
+An initial wrapper also denied anonymous `socketpair` IPC, preventing the first
+compiler process from starting (both commands exit 101, zero tests). That failure
+is retained. One corrected-wrapper retry permits only anonymous process-local IPC
+while still denying every new socket/connect/bind/listen/accept and io_uring.
+IPv4, IPv6 and Unix socket probes returned EPERM. No mount-namespace isolation
+or real SSH/model execution is claimed.
+
+[Exact source-bound evidence](../evidence/agent-selected-ssh-0b27a109-20261031.json)
+records commands, test names, preparation, failures, toolchain and log hashes.
+This evidence-only update changes no executable/dependency/test source.
+The installed authenticated handler, registered-target permission/resource
+resolver, model-driven discovery and real remote validation are still absent.
+PR #127 remains Draft and retains its #114 dependency. Earlier failures below
+are historical observations, not the latest fixed-candidate test status.
+
+## Historical fixed 0b27a109 follow-up — 2026-10-30 11:28 UTC
 
 Separate owner authorization now covers static download of the three exact
 locked public packages/index records and the fixed repaired candidate's original
@@ -43,7 +72,7 @@ not retried; separate preparation authorization is required, and actual tests
 remain offline. Full failed-command evidence and limitations are retained in
 [the fixed-source record](../evidence/agent-selected-ssh-7c2c7a98-20261030.json).
 
-## Current integration checkpoint — 2026-10-30, source only
+## Historical integration checkpoint — 2026-10-30, initially source only
 
 This continuation normally integrates main
 `bc33b654bcb78012c671827e1968f652aa69056b` with the existing #127 head
