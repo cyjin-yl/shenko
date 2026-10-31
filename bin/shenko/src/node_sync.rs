@@ -3,7 +3,9 @@ use anyhow::{Context, Result, bail, ensure};
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use shenko_node::{Node, NodeRole, SyncConfirmation, SyncPeer, UnitExport, UnitRequest};
+use shenko_node::{
+    Node, NodeCapabilityProfile, NodeRole, SyncConfirmation, SyncPeer, UnitExport, UnitRequest,
+};
 use shenko_store::{
     cognition::{
         CognitionAck, CognitionExport, CognitionImportOptions, CognitionReceipt,
@@ -21,7 +23,7 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-const MAGIC: &[u8] = b"shenko-node-sync/1\n";
+const MAGIC: &[u8] = b"shenko-node-sync/2\n";
 const MAX_HEADER: u64 = 64 * 1024 * 1024;
 
 #[derive(Debug, Subcommand)]
@@ -74,6 +76,9 @@ struct Header {
     schema: u32,
     source_node_id: EntityId,
     units: Vec<UnitExport>,
+    /// Self-declared capability facts of the sending Node. Facts, not
+    /// liveness, election authority or model reachability.
+    capabilities: NodeCapabilityProfile,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,6 +88,8 @@ struct Receipt {
     units_fingerprint: Digest,
     cognition_ack: CognitionAck,
     unit_statuses: Vec<Value>,
+    /// Receiver's self-declared capability facts at receipt time.
+    capabilities: NodeCapabilityProfile,
 }
 
 pub fn open_node(data_dir: &Path, store: &Store) -> Result<Node> {
@@ -143,11 +150,12 @@ fn stage_declared_recovery_sources(data_dir: &Path, store: &Store, node: &Node) 
     Ok(())
 }
 
-fn header(node: &Node) -> Result<(Vec<u8>, Digest)> {
+fn header(node: &mut Node) -> Result<(Vec<u8>, Digest)> {
     let bytes = serde_json::to_vec(&Header {
-        schema: 1,
+        schema: 2,
         source_node_id: node.local_node_id()?.context("node not initialized")?,
         units: node.export_installation_units()?,
+        capabilities: node.capability_profile()?,
     })?;
     ensure!(
         bytes.len() as u64 <= MAX_HEADER,
@@ -191,7 +199,22 @@ fn receive<R: Read>(
     bytes.pop();
     let fingerprint = Digest::blake3(&bytes);
     let metadata: Header = serde_json::from_slice(&bytes)?;
-    ensure!(metadata.schema == 1, "unsupported node replication schema");
+    ensure!(
+        metadata.schema == 2,
+        "unsupported node replication schema"
+    );
+    // Bind the advertised capability facts to the authenticated source Node
+    // before importing; the durable advertisement is fact even when the
+    // recovery closure itself is later rejected.
+    let mut node = open_node(data_dir, store)?;
+    ensure!(
+        metadata.capabilities.node_id == metadata.source_node_id,
+        "capability advertisement does not name the transfer source"
+    );
+    node.record_peer_capability(
+        &metadata.capabilities,
+        "received node-sync transfer header over authenticated channel",
+    )?;
     // Prepare this installation's own native/WASI home before any imported
     // memory appears; never pretend the source's mount paths are local ones.
     let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
@@ -209,7 +232,6 @@ fn receive<R: Read>(
             peer_id: Some(metadata.source_node_id),
         },
     )?;
-    let mut node = open_node(data_dir, store)?;
     let mut unit_statuses = Vec::with_capacity(metadata.units.len());
     for export in metadata.units {
         let enabled = export.enabled;
@@ -231,6 +253,7 @@ fn receive<R: Read>(
         units_fingerprint: fingerprint,
         cognition_ack: outcome.ack(receiver),
         unit_statuses,
+        capabilities: node.capability_profile()?,
     })
 }
 
@@ -408,7 +431,15 @@ fn confirm(
         sent.complete && receipt.cognition_ack.verified && receipt.cognition_ack.missing.is_empty(),
         "receiver retained an incomplete or conflicting recovery candidate; not acknowledged"
     );
+    ensure!(
+        receipt.capabilities.node_id == peer.node_id,
+        "receipt capability advertisement names a different Node"
+    );
     store.record_cognition_ack(&receipt.cognition_ack)?;
+    node.record_peer_capability(
+        &receipt.capabilities,
+        "verified node-sync receipt bound to this recovery closure",
+    )?;
     node.confirm_sync_peer(
         peer,
         &SyncConfirmation {
@@ -429,7 +460,7 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
         );
     }
     stage_declared_recovery_sources(data_dir, store, &node)?;
-    let (header, units) = header(&node)?;
+    let (header, units) = header(&mut node)?;
     let mut results = Vec::with_capacity(peers.len());
     for state in peers {
         if cancel.is_cancelled() {
@@ -479,14 +510,14 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
     match command {
         SyncCommand::Identity => println!(
             "{}",
-            json!({"node_id":node.local_node_id()?,"subject_identity":node.local_identity()?,"roles":node.role_status()?})
+            json!({"node_id":node.local_node_id()?,"subject_identity":node.local_identity()?,"roles":node.role_status()?,"capabilities":node.capability_profile()?,"coordination":node.coordination_candidates()?})
         ),
         SyncCommand::Status => {
             let states = node.sync_peers()?;
             if !states.is_empty() {
                 stage_declared_recovery_sources(&data_dir, &store, &node)?;
             }
-            let (_, units) = header(&node)?;
+            let (_, units) = header(&mut node)?;
             let mut peers = Vec::new();
             for state in states {
                 let cognition = store.cognition_peer_status(
@@ -497,11 +528,11 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
                     .confirmation
                     .as_ref()
                     .is_some_and(|c| c.units_fingerprint == units);
-                peers.push(json!({"route":state,"cognition":cognition,"installation_packages_confirmed":units_confirmed,"current_peer_liveness":"not_proven_by_historical_ack"}));
+                peers.push(json!({"route":state,"cognition":cognition,"installation_packages_confirmed":units_confirmed,"capability_fact":node.capability_facts()?.into_iter().find(|f| f.node_id == state.peer.node_id),"current_peer_liveness":"not_proven_by_historical_ack"}));
             }
             println!(
                 "{}",
-                json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"workspace_default":"not_replicated","local_credential_stores_and_grants":"not_discovered_or_copied","global_strong_consistency":false,"zero_loss":false})
+                json!({"node_id":node.local_node_id()?,"local_durable":true,"no_peers_unprotected":peers.is_empty(),"peers":peers,"capabilities":node.capability_profile()?,"coordination":node.coordination_candidates()?,"workspace_default":"not_replicated","local_credential_stores_and_grants":"not_discovered_or_copied","global_strong_consistency":false,"zero_loss":false})
             );
         }
         SyncCommand::Enroll {
@@ -531,6 +562,20 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
                 Some(peer.node_id) != node.local_node_id()?,
                 "peer is this same Node installation"
             );
+            // A peer built before capability advertisements exists: accept the
+            // missing fact rather than pretend capabilities were observed.
+            if let Some(capabilities) = value.get("capabilities") {
+                let capabilities: NodeCapabilityProfile =
+                    serde_json::from_value(capabilities.clone())?;
+                ensure!(
+                    capabilities.node_id == peer.node_id,
+                    "identity reply capability advertisement names a different Node"
+                );
+                node.record_peer_capability(
+                    &capabilities,
+                    "enrollment identity reply over authenticated SSH",
+                )?;
+            }
             node.register_sync_peer(&peer)?;
             println!(
                 "{}",
@@ -539,7 +584,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
         }
         SyncCommand::Export { peer_id, workspace } => {
             stage_declared_recovery_sources(&data_dir, &store, &node)?;
-            let (header, _) = header(&node)?;
+            let (header, _) = header(&mut node)?;
             let export = store.export_cognition(&options(&data_dir, workspace))?;
             let receipt = write_transfer(std::io::stdout().lock(), &header, &export)?;
             if let Some(peer) = peer_id {
@@ -570,13 +615,21 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
                     && status.acked_high_water == Some(receipt.cognition_ack.high_water),
                 "ACK did not match a previously exported closure; debt retained"
             );
-            let (_, units) = header(&node)?;
+            let (_, units) = header(&mut node)?;
             if units == receipt.units_fingerprint {
                 if let Some(state) = node
                     .sync_peers()?
                     .into_iter()
                     .find(|p| p.peer.node_id == receipt.receiver_node_id)
                 {
+                    ensure!(
+                        receipt.capabilities.node_id == state.peer.node_id,
+                        "ACK capability advertisement names a different Node"
+                    );
+                    node.record_peer_capability(
+                        &receipt.capabilities,
+                        "sync ack receipt over authenticated channel",
+                    )?;
                     node.confirm_sync_peer(
                         &state.peer,
                         &SyncConfirmation {

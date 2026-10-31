@@ -2698,6 +2698,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
