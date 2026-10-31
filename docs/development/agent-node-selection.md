@@ -1,11 +1,90 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
-## Installed observation bridge candidate — 2026-10-31, static only
+## Installed explicit-choice recorder candidate — 2026-10-31, not executed
 
-The next #127 increment wires `node.capabilities.query/v1` into the actual
+The next #127 slice starts from `5e8c463fa9becf867180b9e1df0be627533874c7`
+and adds a separate `node.selection.record/v1` installed handler. The existing
+read-only `node.capabilities.query/v1` contract stays read-only. This new source
+and its five authored tests are **not yet compiled or executed**. The previous
+22 passing tests belong only to the exact base, not this changed candidate.
+
+```text
+[delegate:node.selection.record:1] {"node_id":"<observed node UUID>","observed_profile_digest":"<exact observed blake3 digest>","reason":"why I choose this node"}
+```
+
+Only these three model fields are accepted. The registry-owned operation ID
+supplies `decision_id`; neither task/subject identity, authority, filesystem
+paths nor SSH actions may be supplied by model JSON. The reason is nonempty
+and at most 4096 UTF-8 bytes; the opaque digest must have its full canonical
+format. The installed native task's originating subject step and registry
+claim/authority are checked before T1. Cordis owns discovery and withdrawal.
+
+T1 freezes the exact node choice/reason, observer Node ID and subject identity
+in the **existing Store operation/attempt**, not a second preparation ledger.
+Only fresh admission may record a receipt in the **existing Node commands**.
+The Node checks installation/subject identity inside the same transaction as
+reading or inserting a receipt, including repeated IDs. No admin RPC, new
+schema/table, dependency or lockfile change is introduced. A changed profile
+returns `unavailable` with current observation, never a substituted node.
+`recorded` means only the local choice is retained, not readiness or permission.
+
+Store and Node are separate databases: T1 and the local journal commit are
+not atomic. Recovery therefore **only queries the original decision receipt**
+under its frozen binding, validates its original command seal and full choice,
+and never records again or rechecks newer advertisements. A receipt that later
+becomes visible can resolve the original attempt. Missing/unreadable receipts
+or an identity mismatch remain `Reconciling`/`Unknown`; absence is not proof
+that a delayed original writer cannot commit. Repeated unchanged absence does
+not append identical unknown evidence. Once resolved, E1 is returned unchanged.
+No replay, substitute decision, new attempt or synthetic no-effect success is
+allowed. Cancellation/subject ownership and T2 remain the existing scheduler's
+responsibility; late receipt evidence is not authority to dispatch or resume.
+
+An available local receipt produces `EffectComplete` for
+`effect_scope: local_selection_journal_only`: `recorded` is Succeeded and
+`unavailable` is Failed, but **both only describe that local journal entry**.
+Every result preserves `dispatch: not_dispatched` and
+`execution_authority: not_granted`. Raw provider/database error text and paths
+are not projected. A decision receipt does not confer a target/resource grant.
+
+Five focused tests are authored: strict choice fields/changed observation;
+crash after Node commit before E1 with original-only recovery; absent receipt
+staying unknown until a delayed original write; another connection adopting
+identity causing old-bound reads/writes to refuse; and the real startup helpers
+plus deterministic parser/S1 → read observation → explicit choice → T1/Node
+journal/E1/T2/task_result and install/withdraw lifecycle. The integration fixture
+uses no served model or SSH and cannot establish model judgment. Real model
+sampling, installed SSH dispatch, authoritative target/resource resolution,
+real remote execution, and full C17 remain unverified/unimplemented boundaries.
+
+Why this next slice: the now-installed reader exposes observations, but a real
+subject task could not yet retain its explicit node choice. Node `Register`
+still has only ID/digest metadata, not authoritative SSH grants/resources; this
+change records intent without inventing a resolver or taking #114/#91 work.
+
+### Previous installed-reader evidence, fixed 5e8c463 only
+
+On 2026-10-31 16:30–16:31 UTC, fixed `5e8c463` passed three query-handler tests,
+one actual registration/parser integration fixture, and eighteen Node tests:
+**22 passed** under the already pinned Rust/Cargo 1.98.1, unchanged lock,
+401 checksum-verified registry archives, empty credential-free environment,
+Cargo offline and socket-denied isolation allowing anonymous IPC. Six other
+host tests and eleven binary tests were filtered, not executed. This was not
+real SSH/model execution, a full `shenko start`, CI or merge readiness.
+[Exact result and evidence hashes](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6546126668).
+The earlier `09b304e` host/binary compile failures (four new tests not executed)
+and its eighteen passing Node tests remain preserved separately, as do the
+original eight selected SSH library tests at `0b27a109`. Neither older source's
+results are relabelled as validation of this explicit-choice candidate.
+
+
+## Historical observation bridge implementation — 09b304e, initially static only
+
+The earlier #127 increment wired `node.capabilities.query/v1` into the actual
 startup `NativeTaskHandlerPlugin` registry. Its prompt is discoverable only
-while installed. This is source implementation, **not a tested or deployed
-capability**; the fixed `0b27a109` results below do not cover this new candidate.
+while installed. This section preserves its initial source-only checkpoint;
+the later fixed `5e8c463` execution evidence is recorded above. The fixed
+`0b27a109` results below do not cover this installed handler.
 No new dependency, lockfile, administrative RPC or dispatch ledger is added.
 
 Why this slice: the retained-advertisement library was inaccessible to the
@@ -48,7 +127,7 @@ Failed/EffectNone receipt rather than silently rebinding or looping forever;
 CAS/evidence-write failures remain recoverable errors. Results over the existing normalized-result budget fail
 explicitly, retain exact raw evidence, and request a smaller new task.
 
-Four focused tests are authored but **not executed**: strict page input and
+At that initial checkpoint, four focused tests were authored but **not executed**: strict page input and
 projection; original-attempt crash recovery without duplicate evidence;
 wrong-installation recovery failure; actual startup registration/withdrawal
 and deterministic parser/S1 → handler/T1/E1 → T2/task_result delivery through
@@ -59,7 +138,8 @@ registration test and existing node regression before calling this verified.
 The model-facing prompt still needs real model sampling under its own scope.
 
 The remaining execution bridge is deliberately not claimed: recording an
-agent-selected node, installed authenticated SSH dispatch, authoritative
+agent-selected node (addressed only as unexecuted source in the next candidate above),
+installed authenticated SSH dispatch, authoritative
 registered-target permission/resource resolution, and real remote/model
 validation still require their own completion evidence. #127 stays Draft and
 retains #114's dependency.
@@ -195,8 +275,8 @@ main `d1cf8d64`; it preserves both histories. No new dependency/schema migration
 - Effect: snapshot/recovery are local reads; recording writes one idempotent
   command receipt. No network, execution, lease or resource reservation.
 - Audience: trusted adapter code. This is **not** a new administrative RPC.
-  The newer candidate above installs only bounded observation reads; recording
-  choices and SSH dispatch are **not installed as subject/child tools**.
+  The newer candidate above also installs a separate explicit-choice recorder;
+  its execution is not yet verified. SSH dispatch is **not installed as a subject/child tool**.
 - Unknowns: advertisement age, liveness, model availability, resource capacity
   and task authorization are not inferred. `provides` strings are untrusted
   descriptions, not instructions or grants.
@@ -214,9 +294,10 @@ main `d1cf8d64`; it preserves both histories. No new dependency/schema migration
    投影候选。稳定 node-ID 顺序仅用于分页，**不是优先级或自动推荐**。
    未知/过大事实仍有候选条目，不机械删除节点。每页是同一 SQLite snapshot，
    多页不是冻结全集；记录时重新核对目标和观测。
-3. Agent 明确提供 `node_id`、观测 `profile_digest`、新的 `decision_id` 和
-   `reason`。Adapter 必须从可信调用上下文核对身份/委派关系，不能采信模型
-   自报的身份或权限，再调用 `record_node_selection`。
+3. Agent 明确提供 `node_id`、观测 `profile_digest` 和 `reason`。可信库调用方
+   提供新的 `decision_id`；上方已安装 handler 候选将它绑定到可信 operation ID，
+   不接受模型传入。Adapter 必须从可信调用上下文核对身份/委派关系，不能采信
+   模型自报的身份或权限，再调用对应的受绑定记录 API。
 4. 相同 decision ID 和完全相同请求返回原回执；改理由或节点必须用新 ID。
    `unavailable` 给出 `not_enrolled`、`observation_unknown`、
    `observation_oversized` 或 `observation_changed`；后者附当前观测。
@@ -252,10 +333,10 @@ The versioned receipt keeps its original reason, observation and timestamp.
 Future lifecycle changes must retain readers for this schema, or explicitly
 migrate with history preserved; an unknown schema fails rather than re-plans.
 
-## Integration dependencies — not implemented here
+## Original library integration dependencies — see installed candidates above
 
-- Authenticated subject/delegated-agent bridge and discoverable capability
-  registration; coordinate with #112 self-knowledge and #125 model-child owners.
+- The candidates above address authenticated observation/choice handlers and
+  discoverable capability registration; SSH dispatch remains separate. Coordinate with #112 self-knowledge and #125 model-child owners.
   Never give a model the Node `Initialize`, `Join`, `Create` or other admin RPC.
   These receipts do not contain an authenticated caller or durable task binding;
   those bindings must be supplied by that bridge, not guessed from the reason.
@@ -350,8 +431,8 @@ The remaining shortest integration is an installed narrow child handler:
 4. call `execute_selected`; settle the task through the current scheduler and
    reconcile armed work using its original operation ID.
 
-That installed handler and actual registered-target authority/resource resolver
-are still dependencies. The trusted API cannot authenticate arbitrary callers
+The installed SSH handler and actual registered-target authority/resource resolver
+are still dependencies; the observation and choice handlers above do not supply them. The trusted API cannot authenticate arbitrary callers
 or invent grants; it preserves existing SSH trust/permission boundaries and T1,
 not a new general permission system. Model discovery and real remote-node
 validation remain unperformed. No external owner/Agent was contacted for this

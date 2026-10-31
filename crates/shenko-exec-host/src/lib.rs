@@ -20,3 +20,6 @@ pub use contact_task::*;
 
 pub mod node_capabilities_task;
 pub use node_capabilities_task::*;
+
+pub mod node_selection_task;
+pub use node_selection_task::*;

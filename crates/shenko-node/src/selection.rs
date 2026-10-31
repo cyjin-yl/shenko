@@ -65,6 +65,16 @@ pub struct NodeSelection {
     pub reason: String,
 }
 
+impl NodeSelection {
+    /// Structural validation only; this neither ranks nor authorizes a node.
+    pub fn validate(&self) -> Result<()> {
+        ensure!(!self.reason.trim().is_empty() && self.reason.len() <= MAX_REASON_BYTES, "selection reason must be 1..=4096 bytes");
+        let hex = self.observed_profile_digest.0.strip_prefix("blake3:").context("invalid profile digest algorithm")?;
+        ensure!(hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)), "invalid profile digest");
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NodeSelectionOutcome {
@@ -166,6 +176,41 @@ impl Node {
         }).transpose()
     }
 
+    /// Query the original command under one frozen installation/subject read
+    /// snapshot. Never records a missing decision or inspects newer profiles.
+    pub fn node_selection_receipt_for_subject(
+        &mut self,
+        decision_id: EntityId,
+        expected_node: EntityId,
+        expected_subject: &Identity,
+    ) -> Result<Option<NodeSelectionReceipt>> {
+        ensure!(!self.failed, "node requires reopen after storage failure");
+        let tx = self.conn.transaction()?;
+        Self::check_selection_subject(&tx, expected_node, expected_subject)?;
+        let row: Option<(String, String)> = tx.query_row(
+            "SELECT seal,result FROM commands WHERE id=?1", [decision_id.to_string()],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+        let receipt = row.map(|(seal, result)| {
+            let receipt: NodeSelectionReceipt = serde_json::from_str(&result)?;
+            ensure!(receipt.schema == RECEIPT_SCHEMA, "unsupported selection receipt schema");
+            ensure!(receipt.selection.decision_id == decision_id, "selection receipt ID mismatch");
+            receipt.selection.validate()?;
+            ensure!(digest(&(RECEIPT_SCHEMA, &receipt.selection))?.0 == seal, "selection command seal mismatch");
+            Ok::<_, anyhow::Error>(receipt)
+        }).transpose()?;
+        tx.commit()?;
+        Ok(receipt)
+    }
+
+    fn check_selection_subject(conn: &Connection, node: EntityId, subject: &Identity) -> Result<()> {
+        ensure!(
+            Self::stored_node_id(conn)? == Some(node) && Self::stored_identity(conn)?.as_ref() == Some(subject),
+            "node_subject_binding_stale"
+        );
+        Ok(())
+    }
+
     /// Read cached advertisements for self and enrolled sync peers, including
     /// peers with unknown facts. No ranking, filtering by inferred suitability,
     /// refresh, network probe or fallback. Call `capability_profile` separately
@@ -227,12 +272,33 @@ impl Node {
     /// NEVER selects a different node. The existing command journal supplies
     /// restart-safe idempotency without introducing a second dispatch ledger.
     pub fn record_node_selection(&mut self, selection: NodeSelection) -> Result<NodeSelectionReceipt> {
+        self.record_node_selection_bound(selection, None)
+    }
+
+    /// The installed subject adapter must freeze its authenticated identity.
+    /// Check that binding in the SAME transaction as receipt lookup/insertion,
+    /// before even returning an older command. This is not execution authority.
+    pub fn record_node_selection_for_subject(
+        &mut self,
+        selection: NodeSelection,
+        expected_node: EntityId,
+        expected_subject: &Identity,
+    ) -> Result<NodeSelectionReceipt> {
+        self.record_node_selection_bound(selection, Some((expected_node, expected_subject)))
+    }
+
+    fn record_node_selection_bound(
+        &mut self,
+        selection: NodeSelection,
+        binding: Option<(EntityId, &Identity)>,
+    ) -> Result<NodeSelectionReceipt> {
         ensure!(!self.failed, "node requires reopen after storage failure");
-        ensure!(!selection.reason.trim().is_empty() && selection.reason.len() <= MAX_REASON_BYTES, "selection reason must be 1..=4096 bytes");
-        let hex = selection.observed_profile_digest.0.strip_prefix("blake3:").context("invalid profile digest algorithm")?;
-        ensure!(hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)), "invalid profile digest");
+        selection.validate()?;
         let seal = digest(&(RECEIPT_SCHEMA, &selection))?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some((node, subject)) = binding {
+            Self::check_selection_subject(&tx, node, subject)?;
+        }
         let prior: Option<(String, String)> = tx.query_row(
             "SELECT seal,result FROM commands WHERE id=?1", [selection.decision_id.to_string()], |r| Ok((r.get(0)?, r.get(1)?)),
         ).optional()?;
@@ -240,6 +306,7 @@ impl Node {
             ensure!(old_seal == seal.0, "decision ID already sealed to a different command");
             let receipt: NodeSelectionReceipt = serde_json::from_str(&result)?;
             ensure!(receipt.schema == RECEIPT_SCHEMA, "unsupported selection receipt schema");
+            ensure!(digest(&(RECEIPT_SCHEMA, &receipt.selection))? == seal, "selection receipt seal mismatch");
             tx.commit()?;
             return Ok(receipt);
         }
@@ -299,6 +366,36 @@ mod tests {
             observed_profile_digest: digest(profile).unwrap(),
             reason: "I choose this node for the task; this is not a permission grant.".into(),
         }
+    }
+
+    #[test]
+    fn subject_bound_selection_refuses_identity_adoption_on_another_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("node");
+        let mut node = Node::open(&path).unwrap();
+        let node_id = EntityId::new();
+        let subject = Identity { agent_id: EntityId::new(), branch_id: EntityId::new(), origin_proof: Digest::blake3(b"original") };
+        node.handle(Request::Initialize { node_id, identity: Some(subject.clone()) }).unwrap();
+        let choice = selection(&node.capability_profile().unwrap());
+        node.record_node_selection_for_subject(choice.clone(), node_id, &subject).unwrap();
+        assert!(node.node_selection_receipt_for_subject(choice.decision_id, node_id, &subject).unwrap().is_some());
+        let mut other = Node::open(&path).unwrap();
+        let adopted = Identity { agent_id: EntityId::new(), branch_id: EntityId::new(), origin_proof: Digest::blake3(b"verified earlier fixture identity") };
+        // Simulate the identity commit of an administrative adoption on another
+        // connection. This is a storage interleaving fixture, not a full Join
+        // test or a claim that this test artifact is a bound deployed build.
+        let tx = other.conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
+        tx.execute("UPDATE meta SET v=?1 WHERE k='identity'", [text(&Some(adopted)).unwrap()]).unwrap();
+        tx.commit().unwrap();
+        // Old in-memory adapter is no authority after identity changes.
+        assert!(node.node_selection_receipt_for_subject(choice.decision_id, node_id, &subject).is_err());
+        assert!(node.record_node_selection_for_subject(choice.clone(), node_id, &subject).is_err());
+        let mut new_choice = choice.clone();
+        new_choice.decision_id = EntityId::new();
+        assert!(node.record_node_selection_for_subject(new_choice.clone(), node_id, &subject).is_err());
+        assert!(node.node_selection_receipt(new_choice.decision_id).unwrap().is_none());
+        // Refusal does not delete the original record or historical identity.
+        assert!(node.node_selection_receipt(choice.decision_id).unwrap().is_some());
     }
 
     #[test]
