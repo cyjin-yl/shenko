@@ -70,7 +70,7 @@ fn reply_uses_the_account_in_the_header(raw: &str, parsed: &ParsedOutput) -> Res
         ));
     }
     let (target, text) = &replies[0];
-    if *target != PublicationTarget::QqPrivate(REPLY_ACCOUNT) {
+    if *target != PublicationTarget::new(shenko_channel_napcat::QQ_CHANNEL_ID, "private", REPLY_ACCOUNT) {
         return Err(format!(
             "reply target {target:?} is not the account given in the message header: {raw}"
         ));
@@ -153,7 +153,7 @@ fn messages_for(scenario: &Scenario) -> Vec<InferenceMessage> {
     scenario
         .events
         .iter()
-        .map(|event| InferenceMessage::text("user", staged_message_text(event, "napcat")))
+        .map(|event| InferenceMessage::text("user", staged_message_text(event, "napcat", &shenko_channel_napcat::qq_registry())))
         .collect()
 }
 
@@ -199,7 +199,7 @@ async fn local_model_follows_the_shipped_control_protocol() {
     let binding = provider.binding();
     let identity = IdentityService::new(Arc::new(DefaultIdentityPolicy));
     let profile = DefaultIdentityPolicy::genesis(EntityId::new(), Some("小满"));
-    let mut system_prompt = canonical_system_prompt();
+    let mut system_prompt = canonical_system_prompt(&shenko_channel_napcat::qq_registry());
     system_prompt.push_str("\n\n");
     system_prompt.push_str(&identity.persona_section(&profile));
     let prompt_digest = Digest::blake3(system_prompt.as_bytes());
@@ -235,7 +235,7 @@ async fn local_model_follows_the_shipped_control_protocol() {
             .await
             {
                 Ok(Ok(response)) => {
-                    let parsed = parse_output(request.request_id, raw_object(&response.content), &response.content, &identity, None);
+                    let parsed = parse_output(request.request_id, raw_object(&response.content), &response.content, &identity, &shenko_channel_napcat::qq_registry(), None);
                     match parsed {
                         Ok(parsed) => (scenario.check)(&response.content, &parsed),
                         Err(error) => {

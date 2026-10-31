@@ -636,6 +636,16 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // configured; the plugin handle must outlive the napcat block.
             let mut _native_contacts_plugin = None;
 
+            // The IM reply boundary ships as channel plugins: the live prompt
+            // and parser advertise exactly the channels whose transport is
+            // configured. With no NapCat endpoint no reply channel exists, so
+            // the contract cannot promise an undeliverable reply.
+            let channel_registry = if napcat.is_some() {
+                shenko_channel_napcat::qq_registry()
+            } else {
+                shenko_types::channel::ChannelRegistry::new()
+            };
+
             // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
                 use shenko_channel_napcat::outbound::{
@@ -791,13 +801,13 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         for work in reply_store.committed_intents(Some("publication"), Some("ready"), 32)? {
                             let publication: shenko_types::subject::PublicationIntent = serde_json::from_value(work.payload)?;
 
-                            let (kind, target) = match publication.target {
-                                shenko_types::output::PublicationTarget::QqGroup(id) => {
-                                    (OutboundKind::SendGroup, id)
-                                }
-                                shenko_types::output::PublicationTarget::QqPrivate(id) => {
-                                    (OutboundKind::SendPrivate, id)
-                                }
+                            let Some((kind, target)) =
+                                shenko_channel_napcat::qq_outbound(&publication.target)
+                            else {
+                                anyhow::bail!(
+                                    "publication {} targets a channel/kind the napcat plugin does not serve",
+                                    publication.intent_id
+                                );
                             };
                             let mut op =
                                 OutboundOperation::new(kind, target, publication.content.clone());
@@ -863,6 +873,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&subject_inbox),
                 Arc::clone(&store),
                 identity_context.clone(),
+                channel_registry,
             )?
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities.clone())
@@ -1660,7 +1671,7 @@ mod recovery_integration_tests {
         ))).unwrap();
         let decision = StepDecision {
             schema_version: 7,
-            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, None)
+            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, &shenko_channel_napcat::qq_registry(), None)
             .unwrap(),
             identity_intent: None,
             step_id: step.step_id,
@@ -1715,6 +1726,7 @@ mod recovery_integration_tests {
             Arc::new(shenko_subject::inbox::Inbox::new(8)),
             store.clone(),
             identity_context,
+            shenko_channel_napcat::qq_registry(),
         )
         .unwrap();
         assert_eq!(restored.head.branch_id, head.branch_id);
@@ -1842,7 +1854,7 @@ mod recovery_integration_tests {
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
 
         let identity = IdentityService::new(Arc::new(shenko_identity::DefaultIdentityPolicy));
-        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, None)
+        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, &shenko_channel_napcat::qq_registry(), None)
         .unwrap();
         let mut delegated_task_intents = vec![];
         for control in &output.controls {
@@ -3167,14 +3179,14 @@ mod reply_directive_tests {
             shenko_identity::DefaultIdentityPolicy,
         ));
         let parsed =
-            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, None)
+            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, &shenko_channel_napcat::qq_registry(), None)
                 .unwrap();
         assert_eq!(parsed.controls.len(), 6); // two replies, two identity, one memory, one task
         let first = &parsed.controls[0];
         let OutputAction::Reply { target, text } = &first.action else {
             panic!("reply")
         };
-        assert_eq!(*target, PublicationTarget::QqGroup(7));
+        assert_eq!(*target, PublicationTarget::new(shenko_channel_napcat::QQ_CHANNEL_ID, "group", 7));
         assert_eq!(
             text,
             " 你好\n继续说\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
@@ -3200,6 +3212,7 @@ mod reply_directive_tests {
                 obsolete,
                 "[memory] obsolete",
                 &identity,
+                &shenko_channel_napcat::qq_registry(),
                 None,
             )
             .unwrap_err()
@@ -3228,7 +3241,7 @@ mod reply_directive_tests {
                 .seal_object(raw.as_bytes(), "text/plain", "test", "text", 1)
                 .unwrap()
                 .object;
-            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, None)
+            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, &shenko_channel_napcat::qq_registry(), None)
         };
 
         // A start names the condition and its cap, next to an ordinary action.

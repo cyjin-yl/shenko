@@ -81,12 +81,18 @@ impl HistorySource for BoundedHistory<'_> {
 /// history.
 ///
 /// The header carries the speaker and the reply target the platform actually
-/// reported. A local model can only emit `[reply:private:QQ号]` /
-/// `[reply:group:群号]` with a number it has seen, so omitting it would make a
-/// control that parses correctly yet can never be executed. This is a
-/// projection only: `inbox_event` keeps the untrusted payload verbatim, and an
-/// event that declares no account keeps the plain `[speaker]` header.
-pub fn staged_message_text(payload: &serde_json::Value, source: &str) -> String {
+/// reported. A local model can only emit a registered `[reply:<kind>:<id>]`
+/// control with an account it has seen, so omitting it would make a control
+/// that parses correctly yet can never be executed. The channel plugin that
+/// owns `source` decides which payload fields name a replyable audience;
+/// unknown sources keep the plain `[speaker]` header. This is a projection
+/// only: `inbox_event` keeps the untrusted payload verbatim, and an event
+/// that declares no account keeps the plain `[speaker]` header.
+pub fn staged_message_text(
+    payload: &serde_json::Value,
+    source: &str,
+    channels: &shenko_types::channel::ChannelRegistry,
+) -> String {
     let sender = payload.get("sender");
     let who = sender
         .and_then(|sender| sender.get("nickname"))
@@ -102,18 +108,9 @@ pub fn staged_message_text(payload: &serde_json::Value, source: &str) -> String 
         .filter(|text| !text.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| payload.to_string());
-    let account = |key: &str| {
-        payload
-            .get(key)
-            .or_else(|| sender.and_then(|sender| sender.get(key)))
-            .and_then(serde_json::Value::as_u64)
-            .filter(|id| *id > 0)
-    };
-    let target = match payload.get("message_type").and_then(serde_json::Value::as_str) {
-        Some("group") => account("group_id").map(|id| format!("群 {id}")),
-        Some("private") => account("user_id").map(|id| format!("私聊 QQ {id}")),
-        _ => None,
-    };
+    let target = channels
+        .channel_for_source(source)
+        .and_then(|plugin| (plugin.staged_target)(payload));
     match target {
         Some(target) => format!("[{who} · {target}] {body}"),
         None => format!("[{who}] {body}"),
@@ -154,7 +151,11 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
             "user"
         }
         _ => {
-            data["text"] = serde_json::Value::String(staged_message_text(&event.payload, &event.source));
+            data["text"] = serde_json::Value::String(staged_message_text(
+                &event.payload,
+                &event.source,
+                &state.channels,
+            ));
             // Untrusted ingress kinds never acquire system/assistant authority.
             "user"
         }

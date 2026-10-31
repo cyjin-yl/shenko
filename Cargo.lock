@@ -2871,6 +2871,7 @@ dependencies = [
  "serde_json",
  "shenko-awareness-core",
  "shenko-broker",
+ "shenko-channel-napcat",
  "shenko-compact-budget",
  "shenko-context-policy",
  "shenko-identity",
