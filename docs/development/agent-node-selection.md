@@ -1,5 +1,75 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Injected permission-policy inspection — 2026-10-31, source only
+
+Base `426ebf06550e5b86935d996c854ee83631c550c1` was separately verified with
+[39 passing tests](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6548886214).
+The five new permission-bridge tests below have **not been compiled or run**.
+This increment does not extend the old result to the new source.
+
+`SshTaskRunner::inspect_selected_permission` now actually calls an injected
+`SshPermissionProvider`, rather than stopping at the descriptor's unresolved
+permission reference. This is a library integration seam, **not a shipped
+production policy resolver, installed SSH child or dispatch admission**.
+There is no default-allow implementation and no provider loaded from a model
+string. The trusted installer supplies code and verifies its implementation
+digest; a self-reported digest alone is not authentication.
+
+The bridge reads the existing task/subject-bound target reference, matches the
+exact provider ID before disclosing action bytes, and constructs a request
+covering task invocation/generation/assignment, delegation, subject, observer,
+explicit decision/node, operation, logical key, timeout, descriptor digest and
+all provider references, implementation digest and exact serialized action
+digest. A fresh observation ID and schema domain are included in every request
+digest. The provider can inspect the complete borrowed action/stdin/upload
+payload in process. Raw action bytes are neither placed in this result nor
+automatically logged/sealed by this bridge; remote policy forwarding needs its
+own existing authorization and data-access contract.
+
+Missing provider, wrong provider, denial, unknown policy, fault, timeout,
+response mismatch and changed references remain typed `Unavailable` outcomes.
+No raw provider error string is projected. A 5-second cooperative async deadline
+does not preempt blocking native code; the trusted adapter must not block the
+executor. Node locks are released before the callback. After the callback, the
+bridge rechecks provider identity/version and the persisted task/Node reference
+snapshot. Repeated calls have fresh identities and query policy again: there is
+no cached allow, automatic retry or durable permission lease.
+
+Even a matching `Allows` reply yields only `PolicyObserved`, with explicit
+`execution_authority: not_granted` and `dispatch: not_dispatched`. No execution
+API accepts this output as a permit. A nonce/digest proves correlation, not the
+truth of a provider's answer. `selected_target_requirements` still does not
+prove current software generation or that an old selection belongs to the
+current delegation; the actual user policy resolver must check delegation,
+privacy, generation, current policy and revocation, or report unavailable.
+Real target/account binding and resource admission are still unresolved. Before
+actual dispatch a real child must obtain live authority and use Store T1
+fencing; an earlier inspection can never replace those checks. Armed work is
+refused by the existing helper and remains on its original recovery path.
+
+Why: wire the missing policy call without putting user policy in the kernel or
+manufacturing authority from metadata. No credential is created/read, no new
+ledger/cache/schema/dependency is added, and the existing trusted SSH execution
+API is unchanged. Provider inspection is read-only; reservations or other
+effects must use the real operation/attempt contract, not this callback.
+
+Five test functions (seven independent new scenarios, below the increment's
+ten-test limit) use an explicitly synthetic in-process policy adapter: absent
+and wrong provider before payload disclosure; full-scope observation without
+T1 and subsequent denial; replayed old response for identical input; task
+change during the callback; and sanitized provider failure. They are **UNRUN**.
+No real user policy, credential, SSH transport or model behavior is tested.
+
+Fresh ownership snapshot 22:04 UTC: main `9aac97c`, #127 base `426ebf0`, #114
+`47b26f98`, #91 `c61913d0`, #130 `4fc8a5c`; no new competing claims. Only
+exec-ssh and this scope document change. Keep #114 dependency, Draft status,
+all historical failures and evidence, and the other owners' files. Current-main
+API compatibility is inspected statically, not integrated or executed.
+
+Remaining: install a real policy provider; resolve actual target binding and
+resource admission/fencing; install the SSH child with original-only recovery;
+validate current-main integration and real model/remote behavior separately.
+
 ## Registered target-reference inspection candidate — 2026-10-31, not executed
 
 Base is fixed `6f877d90fd64e87acf8d214a556332d978c06c98`. That base's **35 passing

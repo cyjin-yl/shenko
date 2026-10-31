@@ -335,6 +335,147 @@ mod tests {
         ).unwrap()
     }
 
+    // Synthetic read-only policy adapter. This does not stand in for a
+    // production user policy resolver or establish real target permission.
+    enum PolicyMode { Allow, Deny, Fault, Replay, ChangeTask }
+
+    struct TestPolicy<'a> {
+        fixture: &'a Fixture,
+        id: &'static str,
+        mode: std::sync::Mutex<PolicyMode>,
+        prior: std::sync::Mutex<Option<Digest>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl<'a> TestPolicy<'a> {
+        fn new(fixture: &'a Fixture) -> Self {
+            Self {
+                fixture, id: "fixture.permission", mode: std::sync::Mutex::new(PolicyMode::Allow),
+                prior: std::sync::Mutex::new(None), calls: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::SshPermissionProvider for TestPolicy<'_> {
+        fn provider_id(&self) -> &str { self.id }
+        fn implementation_digest(&self) -> Digest { Digest::blake3(b"synthetic-read-only-policy") }
+        async fn inspect(&self, request: &crate::SshPermissionRequest<'_>) -> Result<crate::SshPermissionReply> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            // No Node lock crosses provider await. Full action is available to
+            // policy, but absent from the bridge's Debug/output projection.
+            assert!(self.fixture.node.try_lock().is_ok());
+            assert!(!format!("{request:?}").contains("synthetic-payload"));
+            let scope = request.scope();
+            assert_eq!(scope.operation_id, self.fixture.operation_id);
+            assert_eq!(scope.decision_id, self.fixture.decision_id);
+            assert_eq!(scope.subject, self.fixture.subject);
+            assert_eq!(scope.observer_node_id, self.fixture.target_node);
+            assert_eq!(scope.descriptor.node_id, self.fixture.target_node);
+            assert_eq!(scope.descriptor.permission_ref.revision, "1");
+            assert_eq!(scope.logical_key, "fixture-policy");
+            assert_eq!(scope.timeout_secs, 1);
+            assert_eq!(serde_json::to_value(&scope.invocation)?, serde_json::to_value(&self.fixture.ctx)?);
+            assert_eq!(serde_json::to_value(&scope.authority)?, serde_json::to_value(&self.fixture.authority)?);
+            assert_eq!(scope.action_digest, Digest::blake3(&serde_json::to_vec(request.action())?));
+            assert_eq!(*request.request_digest(), Digest::blake3(&serde_json::to_vec(scope)?));
+            assert_eq!(serde_json::to_value(request.action())?["argv"][0], "synthetic-payload");
+            let mut digest = request.request_digest().clone();
+            let verdict = match *self.mode.lock().unwrap() {
+                PolicyMode::Allow => crate::SshPolicyVerdict::Allows,
+                PolicyMode::Deny => crate::SshPolicyVerdict::Denied,
+                PolicyMode::Fault => anyhow::bail!("private provider diagnostic must not escape"),
+                PolicyMode::Replay => {
+                    digest = self.prior.lock().unwrap().clone().unwrap();
+                    crate::SshPolicyVerdict::Allows
+                }
+                PolicyMode::ChangeTask => {
+                    let mut task = self.fixture.store.external_task(self.fixture.ctx.task_id)?;
+                    task.record_revision.0 += 1;
+                    let mut batch = WriteBatch::new(); batch.task_upserts.push(task);
+                    self.fixture.store.commit(batch)?;
+                    crate::SshPolicyVerdict::Allows
+                }
+            };
+            *self.prior.lock().unwrap() = Some(request.request_digest().clone());
+            Ok(crate::SshPermissionReply { request_digest: digest, policy_revision: "policy-7".into(), verdict })
+        }
+    }
+
+    async fn inspect_policy(f: &Fixture, provider: Option<&dyn crate::SshPermissionProvider>) -> crate::SelectedPermissionInspection {
+        let bytes = serde_json::to_vec(&target_descriptor(f)).unwrap();
+        let action = SshAction::exec(vec!["synthetic-payload".into()], b"synthetic stdin");
+        SshTaskRunner { store: &f.store }.inspect_selected_permission(
+            &f.node, &f.ctx, f.operation_id, &f.authority, f.decision_id,
+            f.target_node, &f.subject, Some(&bytes), "fixture-policy", &action, 1, provider,
+        ).await.unwrap()
+    }
+
+    fn registered_policy_fixture() -> Fixture {
+        let f = fixture();
+        register_descriptor(&f, &serde_json::to_vec(&target_descriptor(&f)).unwrap());
+        f
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_requires_exact_installed_provider_before_disclosing_action() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture();
+        assert!(matches!(inspect_policy(&f, None).await, I::Unavailable { reason: U::ProviderNotInstalled }));
+        let mut provider = TestPolicy::new(&f); provider.id = "unrelated.policy";
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await, I::Unavailable { reason: U::ProviderIdentityMismatch }));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_observes_exact_scope_without_grant_and_rechecks_revocation() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture(); let provider = TestPolicy::new(&f);
+        let observed = inspect_policy(&f, Some(&provider)).await;
+        let json = serde_json::to_value(&observed).unwrap();
+        assert_eq!(json["status"], "policy_observed");
+        assert_eq!(json["execution_authority"], "not_granted");
+        assert_eq!(json["dispatch"], "not_dispatched");
+        assert!(!json.to_string().contains("synthetic-payload"));
+        assert!(f.store.external_operation(f.operation_id).is_err());
+        assert!(f.store.external_operation_evidence(f.operation_id).unwrap().is_empty());
+        *provider.mode.lock().unwrap() = PolicyMode::Deny;
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await, I::Unavailable { reason: U::PolicyDenied }));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_rejects_prior_reply_for_identical_request() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture(); let provider = TestPolicy::new(&f);
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await, I::PolicyObserved { .. }));
+        *provider.mode.lock().unwrap() = PolicyMode::Replay;
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await, I::Unavailable { reason: U::ProviderReplyMismatch }));
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_rechecks_task_after_provider_await() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture(); let provider = TestPolicy::new(&f);
+        *provider.mode.lock().unwrap() = PolicyMode::ChangeTask;
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await, I::Unavailable { reason: U::ReferencesChanged }));
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_sanitizes_provider_failure() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture(); let provider = TestPolicy::new(&f);
+        *provider.mode.lock().unwrap() = PolicyMode::Fault;
+        let result = inspect_policy(&f, Some(&provider)).await;
+        assert!(matches!(&result, I::Unavailable { reason: U::ProviderFailed }));
+        assert!(!serde_json::to_string(&result).unwrap().contains("private provider"));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
     #[test]
     fn registered_references_remain_unresolved_not_authority_or_admission() {
         let f = fixture();

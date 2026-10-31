@@ -42,7 +42,7 @@ impl SshAction {
             data_b64: B64.encode(data),
         }
     }
-    fn validate(&self) -> Result<()> {
+    pub(super) fn validate(&self) -> Result<()> {
         match self {
             Self::Exec { argv, stdin_b64 } => {
                 ensure!(
