@@ -110,6 +110,38 @@ pub enum SelectionDispatch {
     NotDispatched,
 }
 
+/// Existing `members` metadata, not an SSH binding or permission grant.
+/// The digest remains opaque to Node; a provider must recognize its schema.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegisteredNodeTarget {
+    pub node_id: EntityId,
+    pub target_id: String,
+    pub binding_digest: Digest,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionTargetReference {
+    pub receipt: NodeSelectionReceipt,
+    pub registered_target: Option<RegisteredNodeTarget>,
+}
+
+fn read_selection_receipt(conn: &Connection, decision_id: EntityId) -> Result<Option<NodeSelectionReceipt>> {
+    let row: Option<(String, String)> = conn.query_row(
+        "SELECT seal,result FROM commands WHERE id=?1", [decision_id.to_string()],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).optional()?;
+    row.map(|(seal, result)| {
+        let receipt: NodeSelectionReceipt = serde_json::from_str(&result)?;
+        ensure!(receipt.schema == RECEIPT_SCHEMA, "unsupported selection receipt schema");
+        ensure!(receipt.selection.decision_id == decision_id, "selection receipt ID mismatch");
+        receipt.selection.validate()?;
+        ensure!(digest(&(RECEIPT_SCHEMA, &receipt.selection))?.0 == seal, "selection command seal mismatch");
+        Ok::<_, anyhow::Error>(receipt)
+    }).transpose()
+}
+
 fn knowledge(conn: &Connection, node_id: EntityId, local_id: EntityId) -> Result<CapabilityKnowledge> {
     // Bound bytes in SQL before allocating/decoding untrusted advertisements.
     // No SSH routes, filesystem paths, provenance text or administrative
@@ -187,20 +219,38 @@ impl Node {
         ensure!(!self.failed, "node requires reopen after storage failure");
         let tx = self.conn.transaction()?;
         Self::check_selection_subject(&tx, expected_node, expected_subject)?;
-        let row: Option<(String, String)> = tx.query_row(
-            "SELECT seal,result FROM commands WHERE id=?1", [decision_id.to_string()],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        ).optional()?;
-        let receipt = row.map(|(seal, result)| {
-            let receipt: NodeSelectionReceipt = serde_json::from_str(&result)?;
-            ensure!(receipt.schema == RECEIPT_SCHEMA, "unsupported selection receipt schema");
-            ensure!(receipt.selection.decision_id == decision_id, "selection receipt ID mismatch");
-            receipt.selection.validate()?;
-            ensure!(digest(&(RECEIPT_SCHEMA, &receipt.selection))?.0 == seal, "selection command seal mismatch");
-            Ok::<_, anyhow::Error>(receipt)
-        }).transpose()?;
+        let receipt = read_selection_receipt(&tx, decision_id)?;
         tx.commit()?;
         Ok(receipt)
+    }
+
+    /// Resolve the original choice and its registered target reference in one
+    /// identity-bound snapshot. Does not resolve credentials, permissions or
+    /// resources; enrollment/selection/registration never imply authority.
+    pub fn selection_target_reference_for_subject(
+        &mut self,
+        decision_id: EntityId,
+        expected_node: EntityId,
+        expected_subject: &Identity,
+    ) -> Result<Option<SelectionTargetReference>> {
+        ensure!(!self.failed, "node requires reopen after storage failure");
+        let tx = self.conn.transaction()?;
+        Self::check_selection_subject(&tx, expected_node, expected_subject)?;
+        let Some(receipt) = read_selection_receipt(&tx, decision_id)? else { return Ok(None) };
+        // Bound untrusted metadata in SQLite before allocating its JSON text.
+        let row: Option<Option<String>> = tx.query_row(
+            "SELECT CASE WHEN length(CAST(data AS BLOB))<=4096 THEN data END FROM members WHERE node=?1",
+            [receipt.selection.node_id.to_string()], |r| r.get(0),
+        ).optional()?;
+        let registered_target = row.map(|data| {
+            let data = data.context("registered target metadata exceeds 4096 bytes")?;
+            let target: RegisteredNodeTarget = serde_json::from_str(&data)?;
+            ensure!(target.node_id == receipt.selection.node_id, "registered target node mismatch");
+            ensure!(!target.target_id.is_empty() && target.target_id.len() <= 128, "invalid registered target ID");
+            Ok::<_, anyhow::Error>(target)
+        }).transpose()?;
+        tx.commit()?;
+        Ok(Some(SelectionTargetReference { receipt, registered_target }))
     }
 
     fn check_selection_subject(conn: &Connection, node: EntityId, subject: &Identity) -> Result<()> {

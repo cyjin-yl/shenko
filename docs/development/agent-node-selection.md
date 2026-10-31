@@ -1,5 +1,95 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Registered target-reference inspection candidate — 2026-10-31, not executed
+
+Base is fixed `6f877d90fd64e87acf8d214a556332d978c06c98`. That base's **35 passing
+tests** cover the installed observation/choice journey and selected SSH library
+fixtures ([exact result](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6547339982)).
+They do **not** cover this new reference-inspection code or its four new tests.
+This candidate is static source only, not compiled, installed or executed.
+
+The real missing boundary is now explicit: Node `Register`/`members` retains
+only `node_id`, `target_id` and an opaque `binding_digest`. Native `AuthorityRef`
+binds a task/revision/originating decision, **not target permissions or resource
+admission**. No production SSH target/permission/resource provider was found in
+current main `9aac97c` or the inspected open PR scopes. A key path, SSH agent,
+capability advertisement or registered descriptor cannot fill that gap.
+
+### Actual source boundary
+
+- `Node::selection_target_reference_for_subject` reads the original sealed
+  selection receipt and existing registered-target metadata in the **same Node
+  identity-bound SQLite snapshot**. Metadata is capped at 4096 bytes in SQL.
+  It adds no table, schema migration, credential store or administrative RPC.
+- `SshTaskRunner::selected_target_requirements` checks the supplied persisted
+  task/revision/assignment/authority/operation bindings and same-agent Node
+  identity, then recognizes only an exact registered descriptor digest. The
+  descriptor is at most 8 KiB, strict JSON, version `ssh.target-references.v1`.
+  Caller-supplied bytes cannot replace the registered node/target/digest.
+- The descriptor has `node_id`, `target_id` and three logical references:
+  `binding_ref`, `permission_ref`, `resource_ref`. Each is
+  `{provider, object_id, revision}` with bounded logical identifiers, not a
+  URI/path, credential value, token, lease or grant. Unknown fields, including
+  credential fields, are rejected. Legacy/unknown digest schemes and unknown
+  descriptor schemas are refused, never silently promoted or rewritten.
+- The result type has **no Authorized, Ready or Admitted variant**. Even a fully
+  valid descriptor returns `RequiresProviders` with `not_granted` and
+  `not_dispatched`. It does not inspect provider objects, discover credentials,
+  probe a host, arm T1 or execute any SSH action.
+- Already-armed work refuses current-registry resolution. Original frozen
+  selection/binding and query-only SSH recovery remain unchanged, including
+  legacy v1/v2 receipt compatibility. A new descriptor cannot redirect an old
+  effect or create a replacement attempt.
+
+Why this slice: it makes a real, bounded bridge from existing Node registration
+and choice evidence to named **unresolved** provider dependencies, instead of
+inventing an allow policy. It is a trusted library inspection API, **not an
+installed SSH child and not a new enforcement gate on `execute_selected`**.
+That existing API still requires an already-authenticated, independently
+authorized caller; this inspection cannot be used as an admission token.
+Descriptor retrieval from an installation's actual content/provider service
+is still a caller responsibility; this method accepts verified bytes and never
+follows model-supplied locators or filesystem paths.
+
+### Smallest remaining data/interfaces, not permission inferred from metadata
+
+1. A real installed target-binding provider resolving the exact logical ID and
+   revision into the existing `SshBinding`: actual target identity, immutable
+   host trust and node-local existing credential **handle**, not copied secrets.
+2. A real permission authority answering for the current subject/delegation,
+   selected node, exact action/data scope and operation, including revocation
+   and privacy restrictions. A matching descriptor/hash is not that answer.
+3. A real resource/admission authority with current limits/reservation identity,
+   executor fencing and unknown-effect retention/reconciliation rules. Do not
+   release a resource merely because a local process timed out.
+4. An installed SSH child connecting those providers to existing Store T1 and
+   original-only recovery. Fresh T1 must recheck current runtime generation and
+   owner. Historical Node receipts alone do not prove current delegation.
+   Query/reconciliation authority must not depend on inventing a fresh grant.
+
+Existing `Register` rows are immutable; this candidate does not overwrite old
+registrations to make the new descriptor fit. Real revision/adoption changes
+must preserve old references/effects through an explicit supported migration.
+No production provider objects or credentials are created in this increment.
+
+Four tests are authored, not run: registration/descriptor absence through
+valid-but-still-unresolved references with no T1/E1; unknown credential fields
+and descriptor substitution refusal; foreign subject/stale worker refusal;
+and armed-operation rejection using the existing missing-trust fixture before
+OpenSSH spawn. The shared SSH fixture now has an explicit synthetic Node/Task
+identity so the reference checks have real persisted bindings; no actual
+account, key, network or model is involved. Existing 35-test coverage must be
+re-run at the fixed new candidate before extending its evidence to this source.
+
+Ownership rechecked 2026-10-31 20:24 UTC: #114 `47b26f98`, #91 `c61913d0`, #127
+`6f877d9`; new #130 `4fc8a5c` owns channel/parser integration. This slice changes
+none of their active core/parser/bin files. Main is still `9aac97c`; public
+NativeTaskInvocation/TaskInvocation/SSH runner interfaces used here were
+statically compared, but combined current-main execution is not claimed.
+#127 remains Draft with #114 dependency. Real model/remote validation and full
+C07/C17 completion remain open.
+
+
 ## Installed explicit-choice recorder candidate — 2026-10-31, not executed
 
 The next #127 slice starts from `5e8c463fa9becf867180b9e1df0be627533874c7`

@@ -89,7 +89,7 @@ impl TaskBoundNodeSelection {
     }
 }
 
-fn check_task(
+pub(super) fn check_task(
     task: &TaskRecord,
     ctx: &TaskInvocation,
     authority: &AuthorityRef,
@@ -240,7 +240,8 @@ fn matches_original(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shenko_node::{NodeSelection, Request};
+    use shenko_node::{Identity, NodeSelection, Request};
+    use crate::{SelectedTargetRequirements, SshProviderObjectRef, SshTargetReferenceDescriptor, TargetReferenceUnavailable};
     use shenko_store::Store;
     use shenko_types::{commit::CommitRef, ids::*, store::WriteBatch, task::*};
     use std::path::PathBuf;
@@ -254,6 +255,7 @@ mod tests {
         operation_id: EntityId,
         decision_id: EntityId,
         target_node: EntityId,
+        subject: Identity,
         binding: SshBinding,
     }
 
@@ -263,7 +265,8 @@ mod tests {
         let store = Store::open(root.join("store.sqlite3"), root.join("cas")).unwrap();
         let mut node = Node::open(&root.join("node")).unwrap();
         let target_node = EntityId::new();
-        node.handle(Request::Initialize { node_id: target_node, identity: None }).unwrap();
+        let subject = Identity { agent_id: EntityId::new(), branch_id: EntityId::new(), origin_proof: Digest::blake3(b"selected-ssh-fixture-origin") };
+        node.handle(Request::Initialize { node_id: target_node, identity: Some(subject.clone()) }).unwrap();
         let profile = node.capability_profile().unwrap();
         let decision_id = EntityId::new();
         node.record_node_selection(NodeSelection {
@@ -289,7 +292,7 @@ mod tests {
         let conversation_id = EntityId::new();
         let task = TaskRecord {
             record_schema_version: 1, task_id: ctx.task_id, task_revision: ctx.task_revision,
-            record_revision: ctx.record_revision, agent_id: EntityId::new(), conversation_id,
+            record_revision: ctx.record_revision, agent_id: subject.agent_id, conversation_id,
             owner: TaskOwner::Conversation { id: conversation_id }, background: false,
             kind: "fixture.selected-ssh".into(), definition_version: 1, implementation_ref: implementation,
             input_ref: input.clone(), state: TaskState::Running { checkpoint_ref: None, invocation_id: ctx.invocation_id, mode: RunMode::Run, epoch: ctx.epoch },
@@ -304,7 +307,117 @@ mod tests {
         missing_trust.digest = Digest::blake3(b"not sealed: intentionally absent public host trust");
         assert!(!store.cas.object_exists(&missing_trust.digest));
         let binding = SshBinding { target_id: "fixture-node".into(), target: crate::SshTarget::default(), receipt_root: "/unused-fixture".into(), known_hosts: missing_trust };
-        Fixture { _root: root, store, node: std::sync::Mutex::new(node), ctx, authority, operation_id, decision_id, target_node, binding }
+        Fixture { _root: root, store, node: std::sync::Mutex::new(node), ctx, authority, operation_id, decision_id, target_node, subject, binding }
+    }
+
+    fn target_descriptor(f: &Fixture) -> SshTargetReferenceDescriptor {
+        let reference = |provider: &str| SshProviderObjectRef {
+            provider: provider.into(), object_id: "fixture-only-object".into(), revision: "1".into(),
+        };
+        SshTargetReferenceDescriptor {
+            schema: "ssh.target-references.v1".into(), node_id: f.target_node,
+            target_id: "fixture-reference".into(), binding_ref: reference("fixture.binding"),
+            permission_ref: reference("fixture.permission"), resource_ref: reference("fixture.resource"),
+        }
+    }
+
+    fn register_descriptor(f: &Fixture, bytes: &[u8]) {
+        f.node.lock().unwrap().handle(Request::Register {
+            node_id: f.target_node, target_id: "fixture-reference".into(),
+            binding_digest: Digest::blake3(bytes),
+        }).unwrap();
+    }
+
+    fn requirements(f: &Fixture, bytes: Option<&[u8]>) -> SelectedTargetRequirements {
+        SshTaskRunner { store: &f.store }.selected_target_requirements(
+            &f.node, &f.ctx, f.operation_id, &f.authority, f.decision_id,
+            f.target_node, &f.subject, bytes,
+        ).unwrap()
+    }
+
+    #[test]
+    fn registered_references_remain_unresolved_not_authority_or_admission() {
+        let f = fixture();
+        assert!(matches!(requirements(&f, None), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::TargetNotRegistered,
+        }));
+        let descriptor = target_descriptor(&f);
+        let bytes = serde_json::to_vec(&descriptor).unwrap();
+        register_descriptor(&f, &bytes);
+        assert!(matches!(requirements(&f, None), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::DescriptorUnavailable,
+        }));
+        let result = requirements(&f, Some(&bytes));
+        let json = serde_json::to_value(&result).unwrap();
+        assert_eq!(json["status"], "requires_providers");
+        assert_eq!(json["task_id"], serde_json::json!(f.ctx.task_id));
+        assert_eq!(json["operation_id"], serde_json::json!(f.operation_id));
+        assert_eq!(json["decision_id"], serde_json::json!(f.decision_id));
+        assert_eq!(json["descriptor"]["permission_ref"]["provider"], "fixture.permission");
+        assert_eq!(json["descriptor"]["resource_ref"]["provider"], "fixture.resource");
+        assert_eq!(json["execution_authority"], "not_granted");
+        assert_eq!(json["dispatch"], "not_dispatched");
+        assert!(f.store.external_operation(f.operation_id).is_err());
+        assert!(f.store.external_operation_evidence(f.operation_id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn descriptor_cannot_substitute_target_or_smuggle_credential_fields() {
+        let f = fixture();
+        let descriptor = target_descriptor(&f);
+        let mut value = serde_json::to_value(descriptor).unwrap();
+        value["key_path"] = serde_json::json!("/not-a-real-key");
+        let bytes = serde_json::to_vec(&value).unwrap();
+        register_descriptor(&f, &bytes);
+        assert!(matches!(requirements(&f, Some(&bytes)), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::DescriptorInvalid,
+        }));
+        value.as_object_mut().unwrap().remove("key_path");
+        value["node_id"] = serde_json::json!(EntityId::new());
+        let altered = serde_json::to_vec(&value).unwrap();
+        assert!(matches!(requirements(&f, Some(&altered)), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::DescriptorDigestMismatch,
+        }));
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[test]
+    fn reference_inspection_rejects_stale_invocation_and_foreign_subject() {
+        let f = fixture();
+        let runner = SshTaskRunner { store: &f.store };
+        let mut wrong = f.subject.clone(); wrong.branch_id = EntityId::new();
+        assert!(matches!(runner.selected_target_requirements(
+            &f.node, &f.ctx, f.operation_id, &f.authority, f.decision_id, f.target_node, &wrong, None,
+        ).unwrap(), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::SelectionReferenceUnavailable,
+        }));
+        let mut stale = f.ctx.clone(); stale.worker_id = EntityId::new();
+        assert!(matches!(runner.selected_target_requirements(
+            &f.node, &stale, f.operation_id, &f.authority, f.decision_id, f.target_node, &f.subject, None,
+        ).unwrap(), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::NativeInvocation(SelectedSshUnavailable::AssignmentChanged),
+        }));
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn armed_ssh_target_never_reresolves_current_registry_references() {
+        let f = fixture();
+        let first = SshTaskRunner { store: &f.store }.execute_selected(
+            &f.node, &f.ctx, f.operation_id, "fixture", f.authority.clone(),
+            f.decision_id, f.target_node, f.binding.clone(),
+            SshAction::exec(vec!["must-not-spawn".into()], b""), 1,
+        ).await.unwrap();
+        assert!(matches!(first, SelectedSshOutcome::Observed(_)));
+        let before = f.store.external_operation_attempts(f.operation_id).unwrap();
+        // No registration/descriptor exists. Already-armed identity wins over
+        // current resolution; only the original SSH query reader may recover.
+        assert!(matches!(requirements(&f, None), SelectedTargetRequirements::Unavailable {
+            reason: TargetReferenceUnavailable::OperationAlreadyArmed,
+        }));
+        let after = f.store.external_operation_attempts(f.operation_id).unwrap();
+        assert_eq!(before.len(), 1); assert_eq!(after.len(), 1);
+        assert_eq!(before[0].attempt_id, after[0].attempt_id);
     }
 
     #[tokio::test]

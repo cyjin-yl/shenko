@@ -8,3 +8,6 @@ pub use task_runner::*;
 
 mod selected_task;
 pub use selected_task::*;
+
+mod target_resolution;
+pub use target_resolution::*;
