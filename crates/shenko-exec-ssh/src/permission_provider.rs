@@ -19,7 +19,8 @@ use std::{fmt, sync::Mutex};
 
 /// Exact requested scope, not proof that the target is bound or currently
 /// authorized. The provider owns policy interpretation, privacy, delegation
-/// lineage, current-generation checks and revocation. No keyword policy here.
+/// lineage and policy revocation. The bridge separately checks the current
+/// local Store invocation; that mechanism is not action permission.
 #[derive(Clone, Serialize)]
 pub struct SshPermissionScope {
     pub schema: &'static str,
@@ -111,6 +112,8 @@ pub enum PermissionInspectionUnavailable {
     InvalidPolicyRevision,
     PolicyDenied,
     ReferencesChanged,
+    InvocationNotCurrent,
+    InvocationCheckUnavailable,
 }
 
 /// Safe diagnostic projection. No command, stdin, upload bytes, paths,
@@ -137,16 +140,30 @@ fn unavailable(reason: PermissionInspectionUnavailable) -> SelectedPermissionIns
 }
 
 impl SshTaskRunner<'_> {
+    // Reuse the Store's dispatcher/generation/ancestor transaction rather
+    // than reconstructing its rules from metadata. Inactive ownership and
+    // unreadable/missing state both fail closed; raw Store errors stay private.
+    fn permission_invocation_unavailable(
+        &self, ctx: &TaskInvocation,
+    ) -> Option<PermissionInspectionUnavailable> {
+        match self.store.native_invocation_current(ctx) {
+            Ok(true) => None,
+            Ok(false) => Some(PermissionInspectionUnavailable::InvocationNotCurrent),
+            Err(_) => Some(PermissionInspectionUnavailable::InvocationCheckUnavailable),
+        }
+    }
+
     /// Read the chosen target's references, ask the exact installed policy
     /// provider, then re-read the task/Node references after the await. Nothing
     /// is armed or sent. Repeated calls ask policy again with fresh identities;
     /// no allow cache, fallback provider or automatic retry is used.
     ///
-    /// The metadata helper does NOT prove current software generation or that
-    /// the historical choice belongs to the current delegation. The trusted
-    /// provider must establish those facts, or return Unavailable. Even Allows
-    /// is only a policy observation: binding/resource providers, a fresh live
-    /// permission check and Store T1 fencing remain dispatch prerequisites.
+    /// Store invocation fencing is checked before disclosing the action and
+    /// after the callback/reference re-read. No Store/Node lock crosses await.
+    /// These are snapshots, NOT a lease or an atomic dispatch admission. The
+    /// trusted provider still owns actual policy, privacy, selection lineage
+    /// and revocation. Even Allows is only an observation: binding/resource
+    /// providers, fresh live permission and Store T1 fencing remain necessary.
     pub async fn inspect_selected_permission(
         &self,
         node: &Mutex<Node>,
@@ -203,6 +220,9 @@ impl SshTaskRunner<'_> {
         // correlates the response; it is not authentication of plugin code.
         let request_digest = Digest::blake3(&serde_json::to_vec(&scope)?);
         let request = SshPermissionRequest { scope, request_digest, action };
+        if let Some(reason) = self.permission_invocation_unavailable(ctx) {
+            return Ok(unavailable(reason));
+        }
         // Cooperative async deadline only: trusted provider code must not
         // block the executor thread. Timeout never retries or fabricates deny.
         let reply = match tokio::time::timeout(
@@ -238,6 +258,9 @@ impl SshTaskRunner<'_> {
         )?;
         if serde_json::to_value(&before)? != serde_json::to_value(&after)? {
             return Ok(unavailable(U::ReferencesChanged));
+        }
+        if let Some(reason) = self.permission_invocation_unavailable(ctx) {
+            return Ok(unavailable(reason));
         }
         Ok(SelectedPermissionInspection::PolicyObserved {
             observation_id: request.scope.observation_id, operation_id,

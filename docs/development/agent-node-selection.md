@@ -1,5 +1,57 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Store-fenced permission callback — 2026-10-31, source only
+
+Base `9720bcd3d8abd62efb317d424c0c34f6b6e5847b` has separately recorded
+[44 passing tests](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6550009239).
+The older source-only sections below are historical checkpoints; their later
+execution does not validate this new increment. This candidate and its six
+new tests are **not compiled or run**.
+
+The bridge now calls the existing `Store::native_invocation_current` before
+handing the action to policy code and again after the callback and reference
+re-read. Its transaction checks the current dispatcher, subject controller
+epoch/software generation/mode, task invocation/revision/cancellation and
+active ancestor ownership. The existing metadata/assignment checks remain.
+False returns `InvocationNotCurrent`; missing/unreadable state or a failed
+ownership check returns `InvocationCheckUnavailable`, without raw Store errors.
+There is no missing-head fallback and no new Store API or policy table.
+
+Why: a valid provider reply must not survive a local invocation that was
+superseded while policy awaited. The checks are snapshots, **not a reservation
+or an atomic dispatch gate**. No Store/Node transaction is held across await.
+The true policy provider still owns action scope, privacy, historical choice
+lineage and policy revocation. Even a current invocation and `Allows` reply
+produce only `PolicyObserved / not_granted / not_dispatched`; no execution API
+consumes that as authority. Real binding, resource admission and installed SSH
+child integration remain open, as do live dispatch permission and T1 fencing.
+
+The five existing policy tests now use real `initialize_genesis`,
+`start_subject_dispatcher` and `claim_native_task` calls in a synthetic fixture.
+Six new negative controls cover missing runtime state, stale generation before
+payload disclosure, and generation change / ancestor-only cancellation / task
+revocation / dispatcher takeover during a genuinely suspended policy callback.
+Cancellation and takeover use public Store APIs. Only generation replacement
+uses explicit SQLite fault injection because this base has no public setter;
+this does **not** test a production migration path. All refuse observation and
+leave no SSH operation/T1/evidence. Existing valid observation still grants
+nothing; existing later policy denial and original-only recovery stay covered.
+
+The only dependency change is a test-only edge to the already locked
+`rusqlite` workspace package. Cargo.lock gains that one edge; the complete
+package/version/source/checksum set, 401 registry archives, cordis revision and
+features requested from the workspace remain unchanged. No dependency was
+downloaded or executed for this candidate. No Store/Subject/Node/bin source,
+schema, real credential, SSH, model, production account or deployment changes.
+Fresh ownership at 22:35 UTC: main `9aac97c`, #114 `47b26f98`, #91 `c61913d0`,
+#130 `4fc8a5c`; their product source stays untouched. The shared Cargo.lock
+overlap with #130 is separate package edges (SSH test rusqlite vs Subject
+channel dependency), inspected statically, not a combined integration claim.
+#127 stays Draft with #114 dependency.
+Planned fixed-source regression is **50 tests, not passed**: selected SSH 23,
+selection handler 3, query handler 3, startup 2 and Node 19. Current-main
+compatibility was inspected statically, not integrated/executed.
+
 ## Injected permission-policy inspection — 2026-10-31, source only
 
 Base `426ebf06550e5b86935d996c854ee83631c550c1` was separately verified with

@@ -412,9 +412,202 @@ mod tests {
     }
 
     fn registered_policy_fixture() -> Fixture {
-        let f = fixture();
+        claimed_policy_fixture(false)
+    }
+
+    // Permission inspection requires a real registered subject head, current
+    // dispatcher and Store claim. Keep the older missing-trust SSH fixture
+    // unchanged; do not make production fencing tolerate its absent head.
+    fn claimed_policy_fixture(with_parent: bool) -> Fixture {
+        use shenko_types::subject::*;
+        let mut f = fixture();
+        let mut task = f.store.external_task(f.ctx.task_id).unwrap();
+        let zero = CommitRef::new(f.store.ledger.ledger_id(), LedgerSeq::ZERO);
+        let genesis_id = EntityId::new();
+        let branch_id = BranchId(f.subject.branch_id.0);
+        let head = SubjectBranchHead {
+            agent_id: f.subject.agent_id, branch_id: branch_id.clone(),
+            subject_root_task_id: EntityId::new(), controller_epoch: f.ctx.epoch,
+            software_generation: f.ctx.software_generation.clone(),
+            genesis_ref: GenesisRef { ledger_id: f.store.ledger.ledger_id(), genesis_id },
+            committed_step_no: 0, committed_step_id: None, committed_at: zero,
+            next_step_id: EntityId::new(), mode: SubjectMode::Active,
+            mode_reason_ref: None, record_revision: RecordRevision(0),
+        };
+        let genesis = SubjectGenesis {
+            genesis_id, subject_id: f.subject.agent_id,
+            bootstrap_id: EntityId::new(), launch_id: EntityId::new(),
+            seed_manifest_ref: task.input_ref.clone(), initial_profile_ref: task.input_ref.clone(),
+            home_manifest_ref: task.input_ref.clone(), bootstrap_event_ref: task.input_ref.clone(),
+            created_commit: zero,
+        };
+        let step = SubjectStep {
+            step_id: head.next_step_id, branch_id, step_no: 1,
+            expected_parent_commit: zero, controller_epoch: head.controller_epoch,
+            software_generation: head.software_generation.clone(), state: SubjectStepState::Planned,
+            input_plan_ref: None, context_revision: None, active_request_id: None,
+            active_attempt_id: None, model_result_ref: None, model_outcome_ref: None,
+            decision_ref: None, commit_ref: None, retry_reason_ref: None,
+            record_revision: RecordRevision(0), created_by_step_id: None,
+        };
+        f.store.initialize_genesis(&genesis, &head, &step).unwrap();
+        f.store.start_subject_dispatcher().unwrap();
+        task.state = TaskState::Pending { checkpoint_ref: None };
+        task.memos.remove(NATIVE_ASSIGNMENT);
+        task.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!({"fixture": true}));
+        let implementation = task.implementation_ref.clone();
+        let mut batch = WriteBatch::new();
+        if with_parent {
+            let mut parent = task.clone();
+            parent.task_id = EntityId::new(); parent.memos.clear();
+            task.owner = TaskOwner::Task { id: parent.task_id };
+            batch.task_upserts.push(parent);
+        }
+        batch.task_upserts.push(task);
+        f.store.commit(batch).unwrap();
+        let claim = f.store.claim_native_task(f.ctx.task_id, implementation, false).unwrap().unwrap();
+        f.ctx = claim.invocation;
+        assert_eq!(claim.operation_id, f.operation_id);
+        assert!(f.store.native_invocation_current(&f.ctx).unwrap());
         register_descriptor(&f, &serde_json::to_vec(&target_descriptor(&f)).unwrap());
         f
+    }
+
+    // A real suspension point lets a concurrent test task change durable
+    // state before the synthetic provider returns its otherwise valid reply.
+    struct WaitingPolicy<'a> {
+        inner: TestPolicy<'a>,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::SshPermissionProvider for WaitingPolicy<'_> {
+        fn provider_id(&self) -> &str { self.inner.id }
+        fn implementation_digest(&self) -> Digest {
+            crate::SshPermissionProvider::implementation_digest(&self.inner)
+        }
+        async fn inspect(&self, request: &crate::SshPermissionRequest<'_>) -> Result<crate::SshPermissionReply> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            crate::SshPermissionProvider::inspect(&self.inner, request).await
+        }
+    }
+
+    async fn inspect_while(f: &Fixture, change: impl FnOnce()) -> crate::SelectedPermissionInspection {
+        let provider = WaitingPolicy {
+            inner: TestPolicy::new(f), entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+        };
+        let mutation = async {
+            provider.entered.notified().await;
+            change();
+            provider.release.notify_one();
+        };
+        // If the provider was never entered, this fails rather than hanging.
+        let (result, ()) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(inspect_policy(f, Some(&provider)), mutation)
+        }).await.expect("policy callback did not reach its test suspension");
+        assert_eq!(provider.inner.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(f.store.external_operation(f.operation_id).is_err());
+        assert!(f.store.external_operation_evidence(f.operation_id).unwrap().is_empty());
+        result
+    }
+
+    fn inject_generation_change(f: &Fixture) {
+        // Only generation has no public mutation API in this source. This
+        // explicit SQLite fault injection is NOT a production upgrade path.
+        let (mut head, mut step) = f.store.load_subject(f.subject.agent_id).unwrap();
+        head.software_generation = RuntimeGeneration::new("replaced-during-policy");
+        step.software_generation = head.software_generation.clone();
+        let mut conn = rusqlite::Connection::open(f._root.join("store.sqlite3")).unwrap();
+        let tx = conn.transaction().unwrap();
+        assert_eq!(tx.execute(
+            "UPDATE subject_branch_heads SET data=?1 WHERE agent_id=?2",
+            [serde_json::to_string(&head).unwrap(), f.subject.agent_id.to_string()],
+        ).unwrap(), 1);
+        assert_eq!(tx.execute(
+            "UPDATE subject_steps SET data=?1 WHERE step_id=?2",
+            [serde_json::to_string(&step).unwrap(), step.step_id.to_string()],
+        ).unwrap(), 1);
+        tx.commit().unwrap();
+        assert_eq!(f.store.load_subject(f.subject.agent_id).unwrap().0.software_generation,
+            RuntimeGeneration::new("replaced-during-policy"));
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_rejects_missing_runtime_state_before_callback() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = fixture();
+        f.store.start_subject_dispatcher().unwrap(); // Head is deliberately absent.
+        register_descriptor(&f, &serde_json::to_vec(&target_descriptor(&f)).unwrap());
+        let provider = TestPolicy::new(&f);
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await,
+            I::Unavailable { reason: U::InvocationCheckUnavailable }));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_fences_stale_generation_before_callback() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture(); let provider = TestPolicy::new(&f);
+        inject_generation_change(&f);
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await,
+            I::Unavailable { reason: U::InvocationNotCurrent }));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_fences_generation_changed_while_awaiting() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture();
+        assert!(matches!(inspect_while(&f, || inject_generation_change(&f)).await,
+            I::Unavailable { reason: U::InvocationNotCurrent }));
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_fences_cancelled_ancestor_while_awaiting() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = claimed_policy_fixture(true);
+        let before = f.store.external_task(f.ctx.task_id).unwrap();
+        let TaskOwner::Task { id } = before.owner else { panic!("fixture parent missing") };
+        let result = inspect_while(&f, || {
+            let cancelled = f.store.request_native_cancellation(
+                id, EntityId::new(), EntityId::new(), "fixture ancestor revoked", AbortScope::Task,
+            ).unwrap();
+            assert_eq!(cancelled.cancelled, vec![id]);
+            // Ancestor-only cancellation: child metadata alone cannot detect it.
+            let after = f.store.external_task(f.ctx.task_id).unwrap();
+            assert_eq!(after.record_revision, before.record_revision);
+            assert!(after.abort_request.is_none());
+        }).await;
+        assert!(matches!(result, I::Unavailable { reason: U::InvocationCheckUnavailable }));
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_fences_task_revoked_while_awaiting() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture();
+        let result = inspect_while(&f, || {
+            let cancelled = f.store.request_native_cancellation(
+                f.ctx.task_id, EntityId::new(), EntityId::new(), "fixture task revoked", AbortScope::Task,
+            ).unwrap();
+            assert_eq!(cancelled.cancelled, vec![f.ctx.task_id]);
+        }).await;
+        assert!(matches!(result, I::Unavailable { reason: U::ReferencesChanged }));
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_fences_dispatcher_takeover_while_awaiting() {
+        use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture();
+        let result = inspect_while(&f, || {
+            let successor = Store::open(f._root.join("store.sqlite3"), f._root.join("cas")).unwrap();
+            successor.start_subject_dispatcher().unwrap();
+        }).await;
+        assert!(matches!(result, I::Unavailable { reason: U::InvocationCheckUnavailable }));
     }
 
     #[tokio::test]

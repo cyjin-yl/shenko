@@ -2694,6 +2694,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "rusqlite",
  "serde",
  "serde_json",
  "shenko-node",

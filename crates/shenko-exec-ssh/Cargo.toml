@@ -19,5 +19,10 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+
+[dev-dependencies]
+# Already locked transitively; used only for explicit persisted-generation fault injection.
+rusqlite = { workspace = true }
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"
