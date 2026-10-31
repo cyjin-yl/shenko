@@ -28,7 +28,7 @@ pub struct SshProviderObjectRef {
 }
 
 impl SshProviderObjectRef {
-    fn valid(&self) -> bool {
+    pub(super) fn valid(&self) -> bool {
         fn logical(value: &str, max: usize) -> bool {
             !value.is_empty() && value.len() <= max && value.bytes().all(|byte|
                 byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))

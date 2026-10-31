@@ -1,5 +1,69 @@
 # Agent-owned node choice / Agent 自主选择执行节点
 
+## Actual installed binding → policy input — 2026-10-31, source only
+
+Base `1dc81377b33ad651420d495fbb705d6c77385074` has
+[50 passing tests](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6550185169).
+This new source and its three test functions/four new scenarios are **UNRUN**;
+old evidence below stays attached to its original source.
+
+The permission call no longer sees only a logical binding reference.
+`InstalledSshBinding` consumes an existing explicit `SshBinding`, normally
+created by the real `SshBinding::register` API. Its private, non-deserializable
+fields bind one installation, node, provider/object/revision, endpoint, account,
+sealed public-trust object and local authentication selection. The trusted
+installer supplies this value directly; there is no new registry, environment
+discovery, model JSON loader, default localhost/root binding or default allow.
+
+`inspect_selected_permission` requires that exact installed input, checks it
+against the original Node-registered descriptor, verifies the sealed trust in
+the current CAS, and passes actual host/port/account plus public-trust digest
+and a non-secret local auth-selection name to the injected policy code. Schema
+`ssh.permission-inspection.v2` binds those facts and the complete local binding
+digest into the same nonce/action/task request. The old internal call site is
+migrated directly, not kept as a permissive legacy path. The bridge rechecks
+the binding/CAS after await and keeps the preceding Store/Node fences.
+
+Key bytes, private-key paths, agent sockets, known_hosts contents, CAS locators
+and receipt directories are not in the policy projection or public result.
+No key/agent/environment is read or probed. The auth label is installer-owned
+non-secret metadata, not a token or proof of possession; credential availability
+is explicitly `not_checked`. The full binding digest is correlation, not a
+grant. Endpoint/host-trust data is installation-supplied, not a remote handshake
+or policy assertion. Existing CAS/path TOCTOU limits are not fixed by this read.
+
+Why: real policy must know the actual destination and trust/configuration it
+is judging, rather than infer them from an opaque reference. This is a concrete
+library integration with existing registration/CAS, not another always-allow
+provider. Matching installation metadata still grants nothing: the result
+remains `PolicyObserved / not_granted / not_dispatched`. No execution API takes
+it as permission; original SSH execution and armed-operation recovery are unchanged.
+
+Positive acceptance uses real registration → sealed CAS → exact installed
+reference → actual synthetic policy callback with resolved destination facts.
+Changing the original public known_hosts source file does not replace sealed
+trust. Negative controls cover missing/wrong-revision installation before the
+callback and corruption of this test's public CAS object during callback await.
+Three new test functions/four new scenarios; existing policy tests also assert
+the minimal projection. Fixtures contain only synthetic public trust and an
+explicitly absent private-key path; no credential file is created/read and no
+SSH process is started. Planned same-filter regression is **53 tests, not passed**.
+
+Remaining real interfaces are explicit: Bootstrap's opaque owner-grant ref is
+not an SSH policy interpreter; `NativeTaskDescriptor.authority_refs` is not a
+target grant; SyncPeer is a replication route, not this registered action
+binding. A production user-policy/privacy/revocation resolver, resource
+admission/fencing and installed SSH child with fresh live dispatch authority
+are still needed. The trusted installer must supply its actual registered
+binding/ref and a non-secret authentication-selection name; this slice neither
+creates credentials nor reads a user's machine to find them. Missing inputs
+fail closed, rather than inventing authority or declaring the final product done.
+
+Only exec-ssh and this scope document change. Cargo.lock stays `7dabe683…`;
+no new dependency/version/download/execution. Fresh main `9aac97c`, #114
+`47b26f98`, #91 `c61913d0`, #130 `4fc8a5c` remain untouched; #127 stays Draft.
+No bin/parser/Store/Node ownership changes or combined latest-main validation.
+
 ## Store-fenced permission callback — 2026-10-31, source only
 
 Base `9720bcd3d8abd62efb317d424c0c34f6b6e5847b` has separately recorded

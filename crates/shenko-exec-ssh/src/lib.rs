@@ -14,3 +14,6 @@ pub use target_resolution::*;
 
 mod permission_provider;
 pub use permission_provider::*;
+
+mod installed_binding;
+pub use installed_binding::*;

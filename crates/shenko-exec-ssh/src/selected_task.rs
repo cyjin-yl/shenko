@@ -257,6 +257,7 @@ mod tests {
         target_node: EntityId,
         subject: Identity,
         binding: SshBinding,
+        policy_binding: Option<crate::InstalledSshBinding>,
     }
 
     fn fixture() -> Fixture {
@@ -307,7 +308,7 @@ mod tests {
         missing_trust.digest = Digest::blake3(b"not sealed: intentionally absent public host trust");
         assert!(!store.cas.object_exists(&missing_trust.digest));
         let binding = SshBinding { target_id: "fixture-node".into(), target: crate::SshTarget::default(), receipt_root: "/unused-fixture".into(), known_hosts: missing_trust };
-        Fixture { _root: root, store, node: std::sync::Mutex::new(node), ctx, authority, operation_id, decision_id, target_node, subject, binding }
+        Fixture { _root: root, store, node: std::sync::Mutex::new(node), ctx, authority, operation_id, decision_id, target_node, subject, binding, policy_binding: None }
     }
 
     fn target_descriptor(f: &Fixture) -> SshTargetReferenceDescriptor {
@@ -373,6 +374,23 @@ mod tests {
             assert_eq!(scope.observer_node_id, self.fixture.target_node);
             assert_eq!(scope.descriptor.node_id, self.fixture.target_node);
             assert_eq!(scope.descriptor.permission_ref.revision, "1");
+            assert_eq!(scope.schema, "ssh.permission-inspection.v2");
+            let target = &scope.resolved_target;
+            assert_eq!(target.installation_id, self.fixture.store.ledger.ledger_id());
+            assert_eq!(target.node_id, self.fixture.target_node);
+            assert_eq!(target.target_id, "fixture-reference");
+            assert_eq!(target.host, "fixture.invalid");
+            assert_eq!(target.port, 2222);
+            assert_eq!(target.account, "fixture-operator");
+            assert_eq!(target.public_trust_digest, Digest::blake3(POLICY_PUBLIC_TRUST));
+            assert_eq!(target.authentication_selection, "fixture-key-slot-7");
+            assert!(target.explicit_key_selected && !target.agent_selected);
+            assert!(matches!(target.credential_availability, crate::CredentialAvailability::NotChecked));
+            let scope_json = serde_json::to_string(scope)?;
+            assert!(!scope_json.contains("private-key-not-provisioned"));
+            assert!(!scope_json.contains("fixture-public-known-hosts"));
+            assert!(!scope_json.contains("AAAAC3Nza"));
+            assert!(!scope_json.contains("file://"));
             assert_eq!(scope.logical_key, "fixture-policy");
             assert_eq!(scope.timeout_secs, 1);
             assert_eq!(serde_json::to_value(&scope.invocation)?, serde_json::to_value(&self.fixture.ctx)?);
@@ -407,12 +425,30 @@ mod tests {
         let action = SshAction::exec(vec!["synthetic-payload".into()], b"synthetic stdin");
         SshTaskRunner { store: &f.store }.inspect_selected_permission(
             &f.node, &f.ctx, f.operation_id, &f.authority, f.decision_id,
-            f.target_node, &f.subject, Some(&bytes), "fixture-policy", &action, 1, provider,
+            f.target_node, &f.subject, Some(&bytes), "fixture-policy", &action, 1,
+            f.policy_binding.as_ref(), provider,
         ).await.unwrap()
     }
 
     fn registered_policy_fixture() -> Fixture {
         claimed_policy_fixture(false)
+    }
+
+    // Public, synthetic trust fixture only. No private key is created/read;
+    // no SSH parse/handshake or credential usability is claimed.
+    const POLICY_PUBLIC_TRUST: &[u8] = b"fixture.invalid ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n";
+
+    fn installed_policy_binding(f: &Fixture, reference: SshProviderObjectRef) -> crate::InstalledSshBinding {
+        let trust = f._root.join("fixture-public-known-hosts");
+        std::fs::write(&trust, POLICY_PUBLIC_TRUST).unwrap();
+        let key = f._root.join("private-key-not-provisioned");
+        assert!(!key.exists());
+        let binding = SshBinding::register(&f.store, "fixture-reference".into(), crate::SshTarget {
+            host: "fixture.invalid".into(), port: 2222, user: "fixture-operator".into(),
+            key_path: Some(key), password: None, known_hosts_path: Some(trust), use_agent: false,
+        }, "/fixture-receipts".into()).unwrap();
+        crate::InstalledSshBinding::new(&f.store, f.target_node, reference,
+            "fixture-key-slot-7".into(), binding).unwrap()
     }
 
     // Permission inspection requires a real registered subject head, current
@@ -470,6 +506,7 @@ mod tests {
         assert_eq!(claim.operation_id, f.operation_id);
         assert!(f.store.native_invocation_current(&f.ctx).unwrap());
         register_descriptor(&f, &serde_json::to_vec(&target_descriptor(&f)).unwrap());
+        f.policy_binding = Some(installed_policy_binding(&f, target_descriptor(&f).binding_ref));
         f
     }
 
@@ -538,9 +575,10 @@ mod tests {
     #[tokio::test]
     async fn permission_bridge_rejects_missing_runtime_state_before_callback() {
         use crate::{PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
-        let f = fixture();
+        let mut f = fixture();
         f.store.start_subject_dispatcher().unwrap(); // Head is deliberately absent.
         register_descriptor(&f, &serde_json::to_vec(&target_descriptor(&f)).unwrap());
+        f.policy_binding = Some(installed_policy_binding(&f, target_descriptor(&f).binding_ref));
         let provider = TestPolicy::new(&f);
         assert!(matches!(inspect_policy(&f, Some(&provider)).await,
             I::Unavailable { reason: U::InvocationCheckUnavailable }));
@@ -667,6 +705,57 @@ mod tests {
         assert!(!serde_json::to_string(&result).unwrap().contains("private provider"));
         assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_uses_registered_binding_not_mutable_trust_locator() {
+        use crate::SelectedPermissionInspection as I;
+        let f = registered_policy_fixture(); let provider = TestPolicy::new(&f);
+        // The actual register call sealed original public trust in CAS. A
+        // changed source file is neither reread nor sent to the policy code.
+        std::fs::write(f._root.join("fixture-public-known-hosts"), b"replacement public trust").unwrap();
+        let result = inspect_policy(&f, Some(&provider)).await;
+        assert!(matches!(&result, I::PolicyObserved { .. }));
+        let json = serde_json::to_value(result).unwrap();
+        assert_eq!(json["execution_authority"], "not_granted");
+        assert_eq!(json["dispatch"], "not_dispatched");
+        assert!(!json.to_string().contains("fixture.invalid"));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!f._root.join("private-key-not-provisioned").exists());
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_requires_exact_installed_binding_before_callback() {
+        use crate::{InstalledBindingUnavailable as B, PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let mut f = registered_policy_fixture(); f.policy_binding = None;
+        let provider = TestPolicy::new(&f);
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await,
+            I::Unavailable { reason: U::BindingNotInstalled }));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        drop(provider);
+        let mut wrong = target_descriptor(&f).binding_ref; wrong.revision = "different-installed-revision".into();
+        f.policy_binding = Some(installed_policy_binding(&f, wrong));
+        let provider = TestPolicy::new(&f);
+        assert!(matches!(inspect_policy(&f, Some(&provider)).await,
+            I::Unavailable { reason: U::BindingUnavailable(B::ReferenceMismatch) }));
+        assert_eq!(provider.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(f.store.external_operation(f.operation_id).is_err());
+    }
+
+    #[tokio::test]
+    async fn permission_bridge_rechecks_sealed_public_trust_after_callback() {
+        use crate::{InstalledBindingUnavailable as B, PermissionInspectionUnavailable as U, SelectedPermissionInspection as I};
+        let f = registered_policy_fixture();
+        let result = inspect_while(&f, || {
+            let object = f.store.cas.seal_object(POLICY_PUBLIC_TRUST, "text/plain",
+                "ssh-public-trust", "openssh-known-hosts", 1).unwrap().object;
+            let path = f.store.cas.verified_object_path(&object).unwrap();
+            // Only this test's public CAS fixture is corrupted.
+            std::fs::write(path, b"corrupted synthetic public trust").unwrap();
+        }).await;
+        assert!(matches!(result,
+            I::Unavailable { reason: U::BindingUnavailable(B::PublicTrustUnavailable) }));
     }
 
     #[test]

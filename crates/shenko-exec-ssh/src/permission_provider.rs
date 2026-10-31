@@ -2,12 +2,14 @@
 //!
 //! This invokes real injected code, but is NOT dispatch admission. Target
 //! metadata, a provider's policy observation and an execution permit are three
-//! different things. Binding/resource resolution and live dispatch checks are
-//! still required; this module never constructs a grant, lease or SSH action.
+//! different things. An explicit installed binding now supplies destination
+//! facts; live credential/peer checks, resources and dispatch authority remain
+//! required. This module never constructs a grant, lease or SSH action.
 use crate::{
     ReferenceAuthority, ReferenceDispatch, SelectedTargetRequirements, SshAction,
     SshProviderObjectRef, SshTargetReferenceDescriptor, SshTaskRunner,
     TargetReferenceUnavailable,
+    InstalledSshBinding, InstalledBindingUnavailable, SshResolvedTargetScope,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -17,8 +19,8 @@ use shenko_store::TaskInvocation;
 use shenko_types::{ids::EntityId, object::Digest, operation::AuthorityRef};
 use std::{fmt, sync::Mutex};
 
-/// Exact requested scope, not proof that the target is bound or currently
-/// authorized. The provider owns policy interpretation, privacy, delegation
+/// Exact requested scope and installed destination facts, not proof of remote
+/// peer identity or current authority. The provider owns privacy, delegation
 /// lineage and policy revocation. The bridge separately checks the current
 /// local Store invocation; that mechanism is not action permission.
 #[derive(Clone, Serialize)]
@@ -35,6 +37,7 @@ pub struct SshPermissionScope {
     pub timeout_secs: u64,
     pub descriptor_digest: Digest,
     pub descriptor: SshTargetReferenceDescriptor,
+    pub resolved_target: SshResolvedTargetScope,
     pub provider_implementation: Digest,
     pub action_digest: Digest,
 }
@@ -114,6 +117,8 @@ pub enum PermissionInspectionUnavailable {
     ReferencesChanged,
     InvocationNotCurrent,
     InvocationCheckUnavailable,
+    BindingNotInstalled,
+    BindingUnavailable(InstalledBindingUnavailable),
 }
 
 /// Safe diagnostic projection. No command, stdin, upload bytes, paths,
@@ -162,8 +167,13 @@ impl SshTaskRunner<'_> {
     /// after the callback/reference re-read. No Store/Node lock crosses await.
     /// These are snapshots, NOT a lease or an atomic dispatch admission. The
     /// trusted provider still owns actual policy, privacy, selection lineage
-    /// and revocation. Even Allows is only an observation: binding/resource
-    /// providers, fresh live permission and Store T1 fencing remain necessary.
+    /// and revocation. Even Allows is only an observation: live credential/peer
+    /// checks, resource admission, fresh live permission and Store T1 fencing
+    /// remain necessary.
+    /// The binding is supplied by trusted installation, never model arguments;
+    /// policy gets endpoint/public-trust digest and a non-secret auth selection
+    /// label, not key paths, agent sockets or known_hosts contents. Resolving
+    /// those facts does not establish that a credential is usable or authorized.
     pub async fn inspect_selected_permission(
         &self,
         node: &Mutex<Node>,
@@ -177,6 +187,7 @@ impl SshTaskRunner<'_> {
         logical_key: &str,
         action: &SshAction,
         timeout_secs: u64,
+        installed_binding: Option<&InstalledSshBinding>,
         provider: Option<&dyn SshPermissionProvider>,
     ) -> Result<SelectedPermissionInspection> {
         use PermissionInspectionUnavailable as U;
@@ -208,12 +219,19 @@ impl SshTaskRunner<'_> {
         {
             return Ok(unavailable(U::InvalidProviderImplementation));
         }
+        let Some(installed_binding) = installed_binding else {
+            return Ok(unavailable(U::BindingNotInstalled));
+        };
+        let resolved_target = match installed_binding.resolve(self.store, &descriptor) {
+            Ok(target) => target,
+            Err(reason) => return Ok(unavailable(U::BindingUnavailable(reason))),
+        };
         let scope = SshPermissionScope {
-            schema: "ssh.permission-inspection.v1",
+            schema: "ssh.permission-inspection.v2",
             observation_id: EntityId::new(),
             invocation: ctx.clone(), authority: authority.clone(), subject: subject.clone(),
             observer_node_id, operation_id, decision_id, logical_key: logical_key.into(),
-            timeout_secs, descriptor_digest, descriptor, provider_implementation,
+            timeout_secs, descriptor_digest, descriptor, resolved_target, provider_implementation,
             action_digest: Digest::blake3(&serde_json::to_vec(action)?),
         };
         // Schema domain + all scope fields + fresh nonce are covered. A hash
@@ -258,6 +276,11 @@ impl SshTaskRunner<'_> {
         )?;
         if serde_json::to_value(&before)? != serde_json::to_value(&after)? {
             return Ok(unavailable(U::ReferencesChanged));
+        }
+        // Installed fields are immutable for this borrowed value; the public
+        // trust object lives outside it and must be reverified after await.
+        if let Err(reason) = installed_binding.resolve(self.store, &request.scope.descriptor) {
+            return Ok(unavailable(U::BindingUnavailable(reason)));
         }
         if let Some(reason) = self.permission_invocation_unavailable(ctx) {
             return Ok(unavailable(reason));
