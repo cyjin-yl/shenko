@@ -62,9 +62,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         tracing::warn!(error = %e, "FTS5 unavailable; memory search will use LIKE fallback");
     }
     conn.execute_batch(crate::intents::SCHEMA)?;
-    // Memory-v3 knowledge envelope (ArchMemory): entry supersession /
-    // confidence / Git refs and the intent's knowledge kind, applicability,
-    // base revision, idempotency identity, sources and supersession target.
+    // Step 4 (memory v3): open knowledge kinds separate from the operation
+    // kind, provenance/applicability/confidence, supersession, Git knowledge
+    // refs and the full request envelope (SPEC §12.2, §45.12, §10.3/10.5).
+    // This runs after the subject intent schema because the subject memory
+    // migration reads subject_intents.
     ensure_memory_knowledge_columns(conn)?;
     ensure_memory_intent_envelope(conn)?;
     conn.execute_batch(crate::child::SCHEMA)?;
@@ -637,11 +639,51 @@ fn ensure_memory_columns(conn: &Connection) -> Result<()> {
     )?;
     ensure_column(conn, "memory_entries", "updated_commit_seq", "INTEGER")?;
 
-    // Backfill millisecond timestamps for rows written by the legacy schema.
+/// Backfill millisecond timestamps for rows written by the legacy schema.
     conn.execute_batch(
         "UPDATE memory_entries
             SET created_at_ms = CAST(strftime('%s', created_at) AS INTEGER) * 1000
           WHERE created_at_ms = 0 AND created_at IS NOT NULL;",
+    )?;
+    Ok(())
+}
+
+/// Memory-v3 entry columns: supersession, confidence and Git knowledge refs
+/// (ArchMemory). Additive; the operation kind moves to the intent row.
+fn ensure_memory_knowledge_columns(conn: &Connection) -> Result<()> {
+    ensure_column(conn, "memory_entries", "confidence", "REAL")?;
+    ensure_column(conn, "memory_entries", "superseded_by", "TEXT")?;
+    ensure_column(conn, "memory_entries", "supersedes", "TEXT")?;
+    ensure_column(conn, "memory_entries", "git_commit", "TEXT")?;
+    ensure_column(conn, "memory_entries", "git_path", "TEXT")?;
+    // Unify operation kind and knowledge kind without losing facts: the
+    // operation stays on the memory_intents row that produced the entry, and
+    // the entry's knowledge kind becomes the open "note" vocabulary.
+    conn.execute_batch(
+        "UPDATE memory_entries SET kind='note' WHERE kind IN ('save','correct','recall','forget');",
+    )?;
+    Ok(())
+}
+
+/// Memory-v3 intent envelope: the request's knowledge kind, applicability,
+/// confidence, base revision, idempotency identity, provenance and the
+/// supersession target (ArchMemory). Additive.
+fn ensure_memory_intent_envelope(conn: &Connection) -> Result<()> {
+    ensure_column(conn, "memory_intents", "knowledge_kind", "TEXT NOT NULL DEFAULT 'note'")?;
+    ensure_column(conn, "memory_intents", "applicability", "TEXT")?;
+    ensure_column(conn, "memory_intents", "confidence", "REAL")?;
+    ensure_column(conn, "memory_intents", "base_revision", "INTEGER")?;
+    ensure_column(conn, "memory_intents", "idempotency_key", "TEXT")?;
+    ensure_column(conn, "memory_intents", "sources", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(conn, "memory_intents", "supersedes_entry_id", "TEXT")?;
+    // Subject-owned memory facts recorded the knowledge kind 'note' in the
+    // operation column; the operation is 'save' and the knowledge kind stays
+    // 'note'. A missing binding sidecar is that representation's intentional
+    // shape, never a corruption signal.
+    conn.execute_batch(
+        "UPDATE memory_intents SET kind='save', knowledge_kind='note'
+          WHERE kind='note' AND intent_id IN
+                (SELECT intent_id FROM subject_intents WHERE kind='memory');",
     )?;
     Ok(())
 }

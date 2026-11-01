@@ -245,6 +245,11 @@ async fn install_native_definitions(
     let _native_history_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
         .await?;
+    let memory_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::MemoryHandler::new(Arc::clone(store)));
+    let _native_memory_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, memory_handler)
+        .await?;
     // Runtime-error awareness — SPEC §45.14: errors.read exposes the
     // subject's own committed runtime_error facts; issue.submit writes
     // subject-authored drafts into the local issues outbox only.
@@ -742,6 +747,24 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .spawn(
                     shenko_media::MediaIngressPlugin,
                     (Arc::clone(&store), agent_id, subject_inbox.sender()),
+                )
+                .await?;
+            // Resident memory worker — SPEC §12.2: accepted ≠ remembered.
+            // It drains the durable memory intent queue and keeps the Git
+            // text knowledge repository (data_dir/memory) in sync. The
+            // repository is initialized here when the seed bootstrap has
+            // not run yet (a copied data dir recovers the same way).
+            let memory_knowledge = Arc::new(
+                shenko_memory::GitKnowledgeStore::open(data_dir.join("memory"))?,
+            );
+            let _memory_worker_plugin = supervisor
+                .spawn(
+                    shenko_memory::MemoryWorkerPlugin,
+                    (
+                        Arc::clone(&store),
+                        agent_id,
+                        Some(memory_knowledge),
+                    ),
                 )
                 .await?;
             let media_ingress = supervisor

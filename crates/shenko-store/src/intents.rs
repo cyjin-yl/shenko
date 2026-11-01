@@ -128,7 +128,12 @@ impl Store {
                 }
                 let content =
                     String::from_utf8(bytes).map_err(|e| ShenkoError::conflict(e.to_string()))?;
-                tx.execute("INSERT INTO memory_intents(intent_id,agent_id,kind,scope,content,content_ref,entry_id,state,created_at_ms,updated_at_ms) VALUES(?1,?2,'note',?3,?4,?5,?1,'accepted',?6,?6)",
+                // The subject's dedicated memory fact: the operation is
+                // 'save', the knowledge kind is the open 'note' vocabulary,
+                // and there is intentionally no library binding sidecar —
+                // the subject settles its own memory in one ledger
+                // transaction (SPEC §12.2 dedicated representation).
+                tx.execute("INSERT INTO memory_intents(intent_id,agent_id,kind,knowledge_kind,scope,content,content_ref,entry_id,state,created_at_ms,updated_at_ms) VALUES(?1,?2,'save','note',?3,?4,?5,?1,'accepted',?6,?6)",
                     params![intent.intent_id.to_string(),head.agent_id.to_string(),intent.scope,content,object.locator,chrono::Utc::now().timestamp_millis()]).map_err(|e|ShenkoError::storage(e.to_string()))?;
             }
         }
@@ -665,8 +670,14 @@ impl Store {
             let seq=self.ledger.allocate_seq(&tx)?;let count=rows.len();
             for (id,payload,rev,agent,content,scope,time) in rows {
                 let intent:MemoryIntent=serde_json::from_str(&payload)?;ensure!(matches!(intent.kind,MemoryIntentKind::Save),"unbound_memory_contract");
-                let entry=MemoryEntry{entry_id:id.parse()?,agent_id:agent.parse()?,kind:"note".into(),content,scope,source_ref:Some(format!("subject-intent:{id}")),record_revision:0,created_at_ms:time,updated_commit_seq:None,deleted:false};
-                Store::write_memory_entry(&tx,&entry,Some(intent.intent_id),seq)?;
+                let entry=MemoryEntry{
+                    entry_id:id.parse()?,agent_id:agent.parse()?,kind:"note".into(),content,scope,
+                    source:Some(format!("subject-intent:{id}")),
+                    source_ref:None,applicability:None,confidence:None,
+                    record_revision:0,created_at_ms:time,updated_commit_seq:None,deleted:false,
+                    superseded_by:None,supersedes:None,git_commit:None,git_path:None,
+                };
+                let _superseded=Store::write_memory_entry(&tx,&entry,Some(intent.intent_id),seq)?;
                 ensure!(tx.execute("UPDATE subject_intents SET state='settled',owner=?2,revision=revision+1,updated_seq=?3,result_ref=?4 WHERE intent_id=?1 AND state='ready' AND revision=?5",
                     params![id,self.capabilities.incarnation.to_string(),seq.0 as i64,format!("memory:{}",entry.entry_id),rev])?==1,"stale_intent");
                 self.append_intent_result_fact(&tx, intent.intent_id, entry.entry_id, &serde_json::json!({

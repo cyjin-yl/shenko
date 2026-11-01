@@ -12,6 +12,9 @@ pub use computer_use::*;
 pub mod history_task;
 pub use history_task::*;
 
+pub mod memory_task;
+pub use memory_task::*;
+
 pub mod runtime_error;
 pub use runtime_error::*;
 

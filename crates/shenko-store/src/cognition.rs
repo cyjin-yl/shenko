@@ -3690,6 +3690,15 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     let mut bindings = HashMap::new();
     let mut entries = HashSet::new();
     let mut gaps = Vec::new();
+    // The subject settles its own memory in one ledger transaction and
+    // intentionally carries no library binding sidecar. That dedicated
+    // representation is valid, not corrupt: it only needs its own facts.
+    let subject_memory_intents: HashSet<&str> = rows
+        .iter()
+        .filter(|row| row.table == "subject_intents")
+        .filter(|row| row.value("kind") == Some("memory"))
+        .filter_map(|row| row.value("intent_id"))
+        .collect();
     for row in rows.iter().filter(|row| row.table == "memory_entries") {
         if row.value("entry_id") != Some(row.key.as_str()) || !entries.insert(row.key.as_str()) {
             gaps.push(CognitionGap {
@@ -3726,7 +3735,9 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     }
     let mut entry_owners = HashMap::new();
     for (id, intent) in &intents {
-        let library_pending = intent.value("state") == Some("accepted")
+        let subject_owned = subject_memory_intents.contains(id.as_ref());
+        let library_pending = !subject_owned
+            && intent.value("state") == Some("accepted")
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
         let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
         let entry_id = intent.value("entry_id");
@@ -4105,7 +4116,20 @@ fn apply_memory_pairs(
             };
             let local_locator = memory_row_value(local, "content_ref");
             match (local_binding.as_deref(), binding.as_mut()) {
-                (None, None) => compatible &= local_locator == parent.value("content_ref"),
+                (None, None) => {
+                    // The dedicated subject representation keeps no binding
+                    // sidecar; compare the content-addressed locator tail,
+                    // never the node-local path (SPEC §12.2: a locator may
+                    // change while the content identity stays).
+                    compatible &= match (local_locator, parent.value("content_ref")) {
+                        (None, None) => true,
+                        (Some(left), Some(right)) => {
+                            crate::memory::portable_locator(left)
+                                == crate::memory::portable_locator(right)
+                        }
+                        _ => false,
+                    };
+                }
                 (Some(local_data), Some(incoming)) => {
                     let incoming_data = incoming.value("data");
                     compatible &= crate::memory::memory_binding_matches_locator(local_data, local_locator)
