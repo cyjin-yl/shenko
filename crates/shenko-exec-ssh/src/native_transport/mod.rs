@@ -9,6 +9,10 @@ mod stream;
 mod trust;
 pub use trust::NativeSshTarget;
 
+/// Interactive PTY channel for seat observation (SPEC §17.5).
+mod pty;
+pub use pty::*;
+
 use russh::{Channel, ChannelId, ChannelMsg, ChannelOpenFailure, client, keys::{
     HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate,
 }};

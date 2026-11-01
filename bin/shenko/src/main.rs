@@ -516,6 +516,31 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_wasi_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
                 .await?;
+            // Real SSH exec/PTY + seat observe/respond (SPEC §17, §35.5,
+            // §41.11): one shared SeatRuntime over the durable store; the
+            // ssh.pty handler attaches live PTY seats to it, and
+            // seat.observe/seat.respond are the only question/answer path.
+            let seat_runtime = Arc::new(shenko_exec_ssh::SeatRuntime::new(Arc::clone(&store)));
+            let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
+                Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(&store))),
+                Arc::new(shenko_exec_ssh::SshPtyHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&seat_runtime),
+                )),
+                Arc::new(shenko_exec_ssh::SeatObserveHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&seat_runtime),
+                )),
+                Arc::new(shenko_exec_ssh::SeatRespondHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&seat_runtime),
+                )),
+            ];
+            for handler in seat_ssh_handlers {
+                let _seat_ssh_plugin = supervisor
+                    .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+                    .await?;
+            }
             let native_child = supervisor
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;

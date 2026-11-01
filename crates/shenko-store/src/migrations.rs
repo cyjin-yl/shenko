@@ -96,6 +96,89 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
     // additive, own tables only; location history is never rewritten.
     conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
+    // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
+    //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
+    //     forbids a second decision for the same question even when the
+    //     earlier one ended `not_sent` — a refusal the remote provably
+    //     never applied. v2 keeps the uniqueness rule in the admitting
+    //     transaction and drops the table constraint; the rows are kept.
+    //   * A stored v1 lease carries no writer epoch and no verified fence
+    //     capability, so it was never a writer fence under the v2 contract.
+    //     The cutover marks those leases explicitly as legacy non-writers in
+    //     their stored document, so the fact is visible in the ledger
+    //     instead of being re-derived from a serde default at every read.
+    //     The lease is not *ended* here: ending it is a lease transition
+    //     that belongs to a ledger commit (the first v2 acquisition
+    //     displaces it), and a migration must not fabricate one.
+    migrate_seat_v2(conn)?;
+    Ok(())
+}
+
+/// The one explicit seat v1 → v2 cutover.
+///
+/// Both steps are format migrations of *local* seat bookkeeping: no seat
+/// location history, no question fact and no decision fact is dropped. The
+/// old decision rows are copied into the rebuilt table, and the legacy
+/// leases keep their identity, their holder and their history — only their
+/// writability ends, with the reason recorded.
+fn migrate_seat_v2(conn: &Connection) -> Result<()> {
+    // 1. Rebuild `seat_answer_decisions` without the v1 UNIQUE(question_id).
+    let has_unique: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+          WHERE type='table' AND name='seat_answer_decisions' AND sql LIKE '%UNIQUE%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_unique {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE seat_answer_decisions_v2(
+                 decision_id TEXT PRIMARY KEY,
+                 question_id TEXT NOT NULL,
+                 seat_id TEXT NOT NULL,
+                 data TEXT NOT NULL,
+                 updated_commit_seq INTEGER NOT NULL
+             );
+             INSERT INTO seat_answer_decisions_v2(decision_id,question_id,seat_id,data,updated_commit_seq)
+                 SELECT decision_id,question_id,seat_id,data,updated_commit_seq FROM seat_answer_decisions;
+             DROP TABLE seat_answer_decisions;
+             ALTER TABLE seat_answer_decisions_v2 RENAME TO seat_answer_decisions;
+             CREATE INDEX IF NOT EXISTS idx_seat_decisions_question
+                 ON seat_answer_decisions(question_id, updated_commit_seq);
+             COMMIT;",
+        )?;
+    }
+    // 1b. Bring the stored decision documents to the v2 shape. A v1
+    //     decision recorded the confirmation as a plain string; the v2
+    //     document keeps that string and derives the state from it, so the
+    //     original fact survives the migration unchanged.
+    conn.execute_batch(
+        "UPDATE seat_answer_decisions
+            SET data = json_set(
+                    data,
+                    '$.schema_version', 2,
+                    '$.state', CASE json_extract(data,'$.confirmation')
+                        WHEN 'confirmed' THEN 'answered'
+                        WHEN 'unconfirmed' THEN 'answer_unknown'
+                        WHEN 'rejected' THEN 'rejected'
+                        WHEN 'not_sent' THEN 'not_sent'
+                        ELSE 'committed' END,
+                    '$.transport', json_extract(data,'$.transport'),
+                    '$.question_revision', COALESCE(json_extract(data,'$.question_revision'),0),
+                    '$.expected_question_revision', COALESCE(json_extract(data,'$.expected_question_revision'),0),
+                    '$.lease_epoch', COALESCE(json_extract(data,'$.lease_epoch'),0),
+                    '$.fence_capability', COALESCE(json_extract(data,'$.fence_capability'),'')
+                )
+          WHERE json_extract(data,'$.schema_version') IS NULL OR json_extract(data,'$.schema_version') < 2;",
+    )?;
+    // 2. Mark the current v1 leases as legacy non-writers: they never
+    //    carried a writer epoch or a verified fence capability.
+    conn.execute_batch(
+        "UPDATE seat_leases
+            SET data=json_set(data,'$.schema_version',1,'$.legacy_writer',json('true'))
+          WHERE state='current'
+            AND COALESCE(json_extract(data,'$.lease_epoch'),0)=0;",
+    )?;
     Ok(())
 }
 
