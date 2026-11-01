@@ -569,7 +569,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&store), data_dir.clone(), consumer_cancel.clone(),
             );
             if !model_profile.configured {
-                node_sync::observe(&data_dir, &store, runtime_instance, false)?;
+                node_sync::observe(&data_dir, &store, runtime_instance, None)?;
                 if napcat.is_some() {
                     tracing::warn!("NapCat not started without a subject model; durable bootstrap remains available");
                 }
@@ -904,11 +904,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let connector_stop = consumer_cancel.clone();
             tokio::spawn(async move { connector_stop.cancelled().await; connector_failure.cancel(); });
             let cancel_subject = cancel.clone();
+            // Verified consensus before the subject loop claims any domain
+            // authority: only a committed election claim fences the Primary
+            // observation. Without a reachable quorum the node opens an
+            // availability branch and starts without a primary claim.
+            let primary_fence = tokio::task::spawn_blocking({
+                let data_dir = data_dir.clone();
+                let store = Arc::clone(&store);
+                let cancel = cancel.clone();
+                move || node_sync::establish_primary(&data_dir, &store, &cancel)
+            })
+            .await??;
             let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(
                 loop_state,
                 cancel_subject,
             ));
-            node_sync::observe(&data_dir, &store, runtime_instance, true)?;
+            node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
             info!("subject loop started");
 
 
