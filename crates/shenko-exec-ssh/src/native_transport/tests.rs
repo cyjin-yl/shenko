@@ -71,17 +71,24 @@ impl server::Handler for Peer {
             let (mut read, write) = channel.split();
             // More than the 64 KiB SSH window and 1 KiB duplex buffer. A client
             // that waits for all stdin to finish before draining stdout stalls.
-            write.data(&vec![b'o'; 128 * 1024][..]).await.unwrap();
-            let mut input = Vec::new();
-            while let Some(msg) = read.wait().await {
-                match msg {
-                    ChannelMsg::Data { data } => input.extend_from_slice(&data),
-                    ChannelMsg::Eof => break,
-                    ChannelMsg::Close => panic!("client closed before fixture input EOF"),
-                    _ => {}
+            // Drain stdin concurrently: a full server-side inbound queue must
+            // not stall the protocol loop needed by this stdout writer.
+            let send = async {
+                write.data(&vec![b'o'; 128 * 1024][..]).await.unwrap();
+            };
+            let receive = async {
+                let mut input = Vec::new();
+                while let Some(msg) = read.wait().await {
+                    match msg {
+                        ChannelMsg::Data { data } => input.extend_from_slice(&data),
+                        ChannelMsg::Eof => break,
+                        ChannelMsg::Close => panic!("client closed before fixture input EOF"),
+                        _ => {}
+                    }
                 }
-            }
-            assert_eq!(input, vec![b'i'; 128 * 1024]);
+                assert_eq!(input, vec![b'i'; 128 * 1024]);
+            };
+            tokio::join!(send, receive);
             write.extended_data(1, &b"stderr-after-input"[..]).await.unwrap();
             write.exit_status(255).await.unwrap();
             write.eof().await.unwrap();
