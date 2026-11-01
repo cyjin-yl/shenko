@@ -115,11 +115,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // source-bound stream, journaled with their delivery identity.
     conn.execute_batch(crate::content_stream::CONTENT_STREAM_SCHEMA)?;
     // Aggregate domain schemas (research, seats v2, contacts, config and
-    // playground artifacts, channels, activation, output parts, media v2).
+    // playground artifacts, channels, output parts, media v2).
     // Every statement is CREATE TABLE/INDEX IF NOT EXISTS: the archive
     // schema is the sum of all domains, so the tables exist on every store
     // regardless of which module first asked for them.
     conn.execute_batch(AGGREGATE_DOMAIN_SCHEMA)?;
+    conn.execute_batch(crate::activation::SCHEMA)?;
     // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
     //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
     //     forbids a second decision for the same question even when the
@@ -543,26 +544,6 @@ CREATE TABLE IF NOT EXISTS channel_record_migrations(
  target_digest TEXT NOT NULL,
  migrated_seq INTEGER NOT NULL,
  PRIMARY KEY(record_kind,record_id));
--- Activation records and live selectors (activation.rs).
-CREATE TABLE IF NOT EXISTS activation_records (
-    activation_id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
-    phase TEXT NOT NULL,
-    record_revision INTEGER NOT NULL DEFAULT 0,
-    data TEXT NOT NULL,
-    updated_commit_seq INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_activation_records_agent
-    ON activation_records(agent_id, phase);
-CREATE TABLE IF NOT EXISTS activation_selectors (
-    agent_id TEXT PRIMARY KEY,
-    selector_revision INTEGER NOT NULL,
-    active_epoch INTEGER NOT NULL,
-    data TEXT NOT NULL,
-    updated_commit_seq INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 -- Durable subject output parts (output_parts.rs).
 CREATE TABLE IF NOT EXISTS subject_output_parts (
     agent_id TEXT NOT NULL,

@@ -55,6 +55,18 @@ pub struct Store {
     pub(crate) error_journal_dropped: AtomicU64,
 }
 
+/// Write domain facts in the genesis transaction. Failure rolls back the
+/// genesis, root task, head and first step together. Return the additional
+/// entity count; extensions must not rewrite those four store-owned facts.
+pub trait GenesisExtension {
+    fn extend_genesis(
+        &self,
+        store: &Store,
+        tx: &rusqlite::Transaction<'_>,
+        root_commit: CommitRef,
+    ) -> Result<u32, ShenkoError>;
+}
+
 impl Store {
     /// Inspect an existing database only. Failure (including a missing or old
     /// database) leaves its original bytes and installation state untouched.
@@ -216,20 +228,6 @@ impl Store {
         &self.capabilities
     }
 
-    /// Tx-scoped extension seam for genesis (activation/handoff cutovers).
-    /// The extension writes its typed rows inside the same genesis
-    /// transaction; a failure rolls back genesis, the root task, the head
-    /// and the first step together. The store owns the root task, head and
-    /// first step identities — an extension MUST NOT insert those.
-    pub trait GenesisExtension {
-        fn extend_genesis(
-            &self,
-            store: &Store,
-            tx: &rusqlite::Transaction<'_>,
-            root_commit: CommitRef,
-        ) -> Result<(), ShenkoError>;
-    }
-
     /// 同笔创建出生记录、head、root task 与第一步；提交引用由真实事务赋值。§44.6
     /// The root task is the subject's own root task identity: the head binds
     /// to it and the row is inserted in the same transaction, so the launch
@@ -279,7 +277,7 @@ impl Store {
             || head.mode != SubjectMode::Active
             || head.subject_root_task_id != root_task.task_id
             || root_task.agent_id != genesis.subject_id
-            || root_task.owner != TaskOwner::Task { id: root_task.task_id }
+            || root_task.owner != (TaskOwner::Task { id: root_task.task_id })
             || root_task.record_revision != RecordRevision(0)
             || first_step.state != SubjectStepState::Planned
             || first_step.record_revision != RecordRevision(0)
@@ -312,10 +310,11 @@ impl Store {
             params![root_task.task_id.to_string(), root_task.record_revision.0 as i64, serde_json::to_string(root_task)?, seq.0 as i64],
         ).map_err(storage_error)?;
         insert_step(&tx, &first_step, seq.0)?;
-        if let Some(extension) = extension {
-            extension.extend_genesis(self, &tx, commit_ref)?;
-        }
-        self.record_subject_commit(&tx, commit_ref, 3)?;
+        let extension_entities = match extension {
+            Some(extension) => extension.extend_genesis(self, &tx, commit_ref)?,
+            None => 0,
+        };
+        self.record_subject_commit(&tx, commit_ref, 4 + i64::from(extension_entities))?;
         tx.commit().map_err(storage_error)?;
         Ok(self.subject_receipt(
             commit_ref,
@@ -331,6 +330,10 @@ impl Store {
                 UpdatedEntity {
                     entity_id: first_step.step_id,
                     record_revision: first_step.record_revision,
+                },
+                UpdatedEntity {
+                    entity_id: root_task.task_id,
+                    record_revision: root_task.record_revision,
                 },
             ],
         ))

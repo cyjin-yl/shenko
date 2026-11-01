@@ -1158,6 +1158,13 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Revisioned,
     },
+    TableSpec {
+        name: "activation_launch_receipts",
+        key: &["launch_id"],
+        columns: &["launch_id", "agent_id", "selector_revision", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
     // Recording control and priority inputs (media.rs v2): the recording
     // projection and its immutable control notices. A control notice is the
     // armed effect behind a recording; the media stream is its anchor.
@@ -4560,7 +4567,7 @@ fn unit_key_for<'a>(
                 row.value("subject_key").unwrap_or_default()
             )
         }),
-        "activation_records" | "activation_selectors" => row
+        "activation_records" | "activation_selectors" | "activation_launch_receipts" => row
             .value("agent_id")
             .map(|agent| format!("activation/{agent}")),
         "subject_output_parts" => Some(format!(
@@ -4619,6 +4626,7 @@ fn is_unit_table(table: &str) -> bool {
             | "admin_facts"
             | "activation_records"
             | "activation_selectors"
+            | "activation_launch_receipts"
             | "subject_output_parts"
             | "content_streams"
             | "content_stream_units"

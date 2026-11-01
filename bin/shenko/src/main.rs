@@ -14,6 +14,8 @@ mod runtime_owner;
 mod context_policy;
 mod inference_runtime;
 mod tool_install;
+mod update_runtime;
+mod update_control;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -32,6 +34,9 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Resume an immutable, installation-owned process handoff request.
+    #[command(hide = true)]
+    CompleteUpdate { request: PathBuf, digest: String },
     /// Start Shenko agent with UI and continuous thought loop
     Start {
         #[arg(long, default_value = "7860")]
@@ -137,6 +142,95 @@ enum Command {
     Check,
     /// Print version info
     Version,
+    /// Software-generation activation — SPEC §9/§10/§44. Build a candidate
+    /// on a separate copy, smoke-launch it, swap through the durable
+    /// selector, roll back while retaining new facts. Every step is
+    /// deterministic and recoverable without a model.
+    Update {
+        #[command(subcommand)]
+        command: UpdateCli,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum UpdateCli {
+    /// Show the selector, the activation records and the slot inventory.
+    Status,
+    /// Build, copy, migrate and smoke a candidate generation.
+    Prepare {
+        /// The generation name the candidate becomes.
+        #[arg(long)]
+        generation: String,
+        /// Build the candidate from this source directory.
+        #[arg(long)]
+        source_dir: Option<PathBuf>,
+        /// Or accept an artifact that was built elsewhere.
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        #[arg(long, default_value = "release")]
+        profile: String,
+        #[arg(long)]
+        target: Option<String>,
+        #[arg(long)]
+        extra_args: Option<String>,
+    },
+    /// Swap the selector to a prepared activation. The one linearization
+    /// point of a hand-over; the old generation's writers are fenced.
+    Activate {
+        #[arg(long)]
+        activation: shenko_types::ids::EntityId,
+        #[arg(long)]
+        expected_selector_revision: u64,
+    },
+    /// Roll the control authority back; new facts of the rolled-back
+    /// generation are imported into the old copy, never discarded.
+    Rollback {
+        #[arg(long)]
+        activation: shenko_types::ids::EntityId,
+        #[arg(long)]
+        expected_selector_revision: u64,
+    },
+    /// Deterministic recovery read. No model is required.
+    Recover,
+}
+
+impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
+    fn from(command: UpdateCli) -> Self {
+        use shenko_update::cli::UpdateCommand as UpdateCommand;
+        match command {
+            UpdateCli::Status => UpdateCommand::Status,
+            UpdateCli::Prepare {
+                generation,
+                source_dir,
+                artifact,
+                profile,
+                target,
+                extra_args,
+            } => UpdateCommand::Prepare {
+                generation,
+                source_dir,
+                artifact,
+                profile,
+                target,
+                extra_args,
+            },
+            UpdateCli::Activate {
+                activation,
+                expected_selector_revision,
+            } => UpdateCommand::Activate {
+                activation,
+                expected_selector_revision,
+            },
+            UpdateCli::Rollback {
+                activation,
+                expected_selector_revision,
+            } => UpdateCommand::Rollback {
+                activation,
+                expected_selector_revision,
+            },
+            UpdateCli::Recover => UpdateCommand::Recover,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -415,6 +509,8 @@ enum RuntimeCommand {
 struct InstalledDefinitions {
     native_child: Arc<shenko_subject::NativeChildService>,
     self_knowledge: Arc<shenko_awareness_core::SelfKnowledgeProvider>,
+    handoff_participants: Arc<shenko_update::handoff::HandoffParticipantRegistry>,
+    artifact_services: Arc<shenko_ui::playground_backend::ArtifactServiceController>,
 }
 
 /// Install the native task definitions of this runtime.
@@ -431,6 +527,10 @@ async fn install_native_definitions(
     data_dir: &std::path::Path,
     wasi_mounts: Vec<shenko_wasm::MountSpec>,
 ) -> Result<InstalledDefinitions> {
+    let handoff_participants = Arc::new(
+        shenko_update::handoff::HandoffParticipantRegistry::new(),
+    );
+    handoff_participants.bind_subject_driver(false);
     // Native finite children use the same Cordis root and persistent
     // ledger. Fixed native definitions retain their original handlers;
     // the finite model handler is installed with the shared broker below.
@@ -506,8 +606,18 @@ async fn install_native_definitions(
             self_knowledge_handler,
         )
         .await?;
+    let artifact_services = Arc::new(
+        shenko_ui::playground_backend::ArtifactServiceController::new(
+            Arc::clone(store),
+            data_dir.join("playground"),
+        ),
+    );
+    handoff_participants.register(Arc::new(update_runtime::PlaygroundServices(
+        Arc::clone(&artifact_services),
+    )));
     let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
-        shenko_ui::PlaygroundBackendHandler::new(Arc::clone(store), data_dir.join("playground")),
+        shenko_ui::PlaygroundBackendHandler::new(Arc::clone(store), data_dir.join("playground"))
+            .with_services(Arc::clone(&artifact_services)),
     );
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
@@ -553,9 +663,13 @@ async fn install_native_definitions(
         Arc::clone(store),
         data_dir.join("repl"),
     )?;
+    let repl_sessions = repl_session_handler.sessions();
+    handoff_participants.register(Arc::new(update_runtime::ReplSessions(
+        Arc::clone(&repl_sessions),
+    )));
     let repl_cell_handler = shenko_repl::task::ReplCellHandler::new(
         Arc::clone(store),
-        repl_session_handler.sessions(),
+        repl_sessions,
     );
     let repl_session_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
         Arc::new(repl_session_handler);
@@ -604,10 +718,31 @@ async fn install_native_definitions(
     let native_child = supervisor
         .context()
         .try_service::<shenko_subject::NativeChildService>()?;
-    native_child.recover()?;
+    handoff_participants.register_admission_barrier(Arc::new(update_runtime::NativeWorkers(
+        Arc::clone(&native_child),
+    )));
+    let agent_id = store.get_existing_agent_id()?.context("no initialized subject")?;
+    let update_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+        shenko_update::native::UpdateControlHandler::new(
+            Arc::clone(store),
+            data_dir.to_path_buf(),
+            Arc::clone(&handoff_participants),
+            Some(Arc::new(update_runtime::NodeAuthority {
+                data_dir: data_dir.to_path_buf(),
+                store: Arc::clone(store),
+                agent_id,
+            })),
+            Arc::new(update_control::LiveControl(data_dir.to_path_buf())),
+        ),
+    );
+    let _native_update_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, update_handler)
+        .await?;
     Ok(InstalledDefinitions {
         native_child,
         self_knowledge,
+        handoff_participants,
+        artifact_services,
     })
 }
 
@@ -674,8 +809,7 @@ fn main() -> Result<()> {
         bootstrap.validate_target()?;
         std::fs::create_dir_all(&data_dir)?;
         let data_dir = data_dir.canonicalize()?;
-        let owner = runtime_owner::RuntimeOwner::try_acquire(&data_dir)
-            .context("cannot establish exclusive ownership of this data directory")?;
+        let owner = update_control::acquire_launch_owner(&data_dir)?;
         // Recheck after obtaining the guard: another starter may have finished
         // bootstrap between the initial read and lock acquisition.
         let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
@@ -712,6 +846,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let identity_service = identity_context.try_service::<IdentityService>()?;
     let result: Result<()> = async {
     match command {
+        Command::CompleteUpdate { request, digest } => {
+            update_control::complete_handoff(request, digest, data_dir.clone()).await?;
+        }
         Command::Node => node_sync::node_command(&data_dir)?,
         Command::Tool { command } => tool_command(&data_dir, command)?,
         Command::Capabilities => {
@@ -909,9 +1046,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         }
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
-            let db_path = data_dir.join("shenko.db");
+            let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
+                .unwrap_or_else(|| data_dir.clone());
+            let db_path = live_slot.join(shenko_update::SLOT_DB_FILENAME);
             anyhow::ensure!(db_path.is_file(), "no existing subject store in data directory");
-            let store = shenko_store::store::Store::open(db_path, data_dir.join("cas"))?;
+            let store = open_installation_store(&data_dir)?;
             let agent_id = store.get_existing_agent_id()?
                 .ok_or_else(|| anyhow::anyhow!("no initialized subject"))?;
             let record = match command {
@@ -928,6 +1067,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             };
             println!("{}", serde_json::to_string_pretty(&record)?);
         }
+        Command::Update { command } => {
+            update_control::run_cli(command.into(), data_dir.clone()).await?;
+        }
         Command::Version => {
             let model = shenko_seed::ModelProfile::from_env();
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
@@ -943,10 +1085,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             });
             bootstrap.validate_target()?;
             tokio::fs::create_dir_all(&data_dir).await?;
-            let store = shenko_store::store::Store::open(
-                data_dir.join("shenko.db"),
-                data_dir.join("cas"),
-            )?;
+            let store = open_installation_store(&data_dir)?;
             println!(
                 "Store: OK (SQLite {}, WAL={}, FTS5={})",
                 store.capabilities.sqlite_version,
@@ -981,8 +1120,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             history,
         } => {
             tokio::fs::create_dir_all(&data_dir).await?;
-            let store =
-                shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let store = open_installation_store(&data_dir)?;
             let agent_id = store
                 .get_existing_agent_id()?
                 .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
@@ -1062,8 +1200,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let model_profile = shenko_seed::ModelProfile::from_env();
 
             // 1. Open persistent store and prepare the actual WASI home.
+            //    The store lives in the live slot the durable pointer names
+            //    (`versions/<gen>/`); a data dir without any slot published
+            //    yet is itself the live slot (first run).
             tokio::fs::create_dir_all(&data_dir).await?;
-            let db_path = data_dir.join("shenko.db");
+            let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
+                .unwrap_or_else(|| data_dir.clone());
+            let db_path = live_slot.join(shenko_update::SLOT_DB_FILENAME);
+            // The content store is shared by all generations.
             let cas_dir = data_dir.join("cas");
             let store = Arc::new(shenko_store::store::Store::open(db_path, cas_dir)?);
             info!(
@@ -1097,6 +1241,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // per-execution it reopens this installation's unit inventory so
             // installs made after startup are visible.
             let wasi_mounts = prepared_home.manifest.mounts.clone();
+            let installation_id = prepared_home.manifest.installation_id;
             drop(prepared_home);
             let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
@@ -1107,6 +1252,25 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             );
 
             let runtime_instance = shenko_types::ids::EntityId::new();
+            // The launch binds this process to the durable control
+            // authority (the activation selector) before any subject step.
+            let launch_receipt =
+                shenko_seed::LaunchService::new(Arc::clone(&store), agent_id).resolve(
+                    &shenko_seed::LaunchRequest {
+                        launch_id: runtime_instance,
+                        installation_id,
+                        agent_id,
+                        slot_dir: live_slot.clone(),
+                        reason: "start".to_string(),
+                        read_only: false,
+                    },
+                )?;
+            info!(
+                generation = %launch_receipt.generation.0,
+                selector_revision = launch_receipt.selector_revision,
+                selector_epoch = launch_receipt.selector_epoch,
+                "launch bound to control authority"
+            );
             // Deterministic recovery services remain available without an LLM.
             let cancel = tokio_util::sync::CancellationToken::new();
             let subject_inbox = Arc::new(shenko_subject::inbox::Inbox::new(1024));
@@ -1130,6 +1294,17 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _runtime_hook_pump = spawn_runtime_hook_pump(&supervisor, &cancel);
             let native_child = installed.native_child.clone();
             let self_knowledge = installed.self_knowledge.clone();
+            let handoff_participants = Arc::clone(&installed.handoff_participants);
+            // Recovery belongs to the live runtime, never to capability discovery.
+            native_child.recover()?;
+            installed.artifact_services.recover_on_boot()?;
+            let _update_control = update_control::spawn_control(
+                data_dir.clone(),
+                Arc::clone(&store),
+                Arc::clone(&handoff_participants),
+                cancel.clone(),
+            )
+            .await?;
             // Typed continuous-media ingress: one durable revision admission +
             // the bound subject inbox event, published on the same Cordis root
             // so real providers inject it (and the /api/media routes share it).
@@ -1394,6 +1569,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     }
                 }
             }
+            let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(&store));
+            handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
             // Optional quota policy install (SPEC §42): the file holds one
             // serialized QuotaPolicy; a recorded policy makes every inference
             // request pass durable admission before dispatch. Unreadable or
@@ -1912,10 +2090,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 move || node_sync::establish_primary(&data_dir, &store, &cancel)
             })
             .await??;
-            let mut subject_task = tokio::spawn(shenko_subject::loop_runner::run_subject_loop(
-                loop_state,
-                cancel_subject,
-            ));
+            let subject_driver = update_runtime::SubjectDriver::new(Arc::clone(&handoff_participants));
+            let mut subject_task = tokio::spawn(async move {
+                let _subject_driver = subject_driver;
+                shenko_subject::loop_runner::run_subject_loop(loop_state, cancel_subject).await
+            });
             node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
             info!("subject loop started");
 
@@ -2079,8 +2258,10 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
 
             // Install requires an existing managed installation: the record
             // is this installation's own unit inventory entry.
+            let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
+                .unwrap_or_else(|| data_dir.clone());
             anyhow::ensure!(
-                data_dir.join("shenko.db").is_file(),
+                live_slot.join(shenko_update::SLOT_DB_FILENAME).is_file(),
                 "no managed installation at {}; run `shenko start` once",
                 data_dir.display()
             );
@@ -2103,10 +2284,7 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                     tools_dir.display()
                 );
             }
-            let store = shenko_store::store::Store::open(
-                data_dir.join("shenko.db"),
-                data_dir.join("cas"),
-            )?;
+            let store = open_installation_store(&data_dir)?;
             let mut node = node_sync::open_node(data_dir, &store)?;
             let request = tool_install::InstallRequest {
                 name: name.clone(),
@@ -2552,6 +2730,19 @@ impl shenko_kernel::ErrorSink for StoreErrorSink {
     }
 }
 
+/// Open the store of the live slot the durable pointer names. A data dir
+/// that has never published a slot is itself the live slot (first run).
+fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store> {
+    let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
+        .unwrap_or_else(|| data_dir.to_path_buf());
+    Ok(shenko_store::store::Store::open(
+        live_slot.join(shenko_update::SLOT_DB_FILENAME),
+        // The content store is shared by every generation of an
+        // installation and always lives at <data_dir>/cas.
+        data_dir.join("cas"),
+    )?)
+}
+
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6.
 /// New geneses bind the real prepared home. Existing geneses are immutable and
 /// are never replaced merely to upgrade their manifest representation.
@@ -2750,13 +2941,56 @@ fn bootstrap_genesis(
         created_by_step_id: None,
     };
 
+    // The initial control authority — SPEC §41.12 X05. The first selector
+    // is created with the genesis inside the same transaction; a launch
+    // never invents one, and a generation swap is the only other writer.
+    use shenko_types::activation::{ActivationOrigin, ActivationSelector, RouteAuthority};
+    let genesis_ref = GenesisRef {
+        ledger_id,
+        genesis_id,
+    };
+    let state_ref = seal_json(&serde_json::json!({
+        "schema_version": 1,
+        "kind": "activation_state_ref",
+        "slot": "data-dir",
+        "db": "shenko.db",
+        "controller_epoch": 1,
+        "generation": head.software_generation,
+    }))?;
+    let executable = std::env::current_exe()?;
+    let data_dir = home.home_dir().parent().context("seed home has no installation directory")?;
+    anyhow::ensure!(home.memory_dir().parent() == Some(data_dir), "seed managed roots disagree on installation directory");
+    let route_ref = seal_json(&serde_json::to_value(RouteAuthority {
+        schema_version: RouteAuthority::SCHEMA_VERSION,
+        agent_id, generation: head.software_generation.clone(), active_epoch: 1, selector_revision: 0,
+        data_dir: data_dir.to_string_lossy().into_owned(),
+        slot_dir: data_dir.to_string_lossy().into_owned(),
+        artifact_path: executable.to_string_lossy().into_owned(),
+        artifact_digest: shenko_types::object::Digest::blake3(&std::fs::read(&executable)?),
+        launch_command: vec![executable.to_string_lossy().into_owned(), "--data-dir".into(),
+            data_dir.to_string_lossy().into_owned(), "start".into()],
+        primary_claim: None, activation_id: None,
+    })?)?;
+    let selector = ActivationSelector {
+        agent_id,
+        selector_revision: 0,
+        active_epoch: 1,
+        generation: head.software_generation.clone(),
+        state_ref,
+        origin: ActivationOrigin::Genesis {
+            genesis_ref: genesis_ref.clone(),
+        },
+        route_authority_ref: route_ref,
+    };
     let root_task = shenko_types::task::TaskRecord::subject_root(
         head.subject_root_task_id,
         agent_id,
         seed_manifest,
         genesis.created_commit,
     );
-    let receipt = store.initialize_genesis(&genesis, &head, &first_step, &root_task)?;
+    let receipt = store.initialize_genesis_with(
+        &genesis, &head, &first_step, &root_task, Some(&selector),
+    )?;
     info!(agent_id=%agent_id, name=name.unwrap_or("(unnamed)"), commit=%receipt.commit_ref, "genesis created");
 
     Ok(agent_id)

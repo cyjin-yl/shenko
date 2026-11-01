@@ -7,11 +7,19 @@ license.workspace = true
 
 [dependencies]
 shenko-types = { path = "../shenko-types" }
+shenko-store = { path = "../shenko-store" }
+shenko-subject = { path = "../shenko-subject" }
 rusqlite = { workspace = true, features = ["backup"] }
 serde = { workspace = true }
+serde_json = { workspace = true }
 chrono = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
 rustix = { version = "=1.1.5", features = ["fs"] }
