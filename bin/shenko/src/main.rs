@@ -890,6 +890,27 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 info!(policy_id=%policy.policy_id, revision=policy.revision,
                     commit=%receipt.commit_ref, "quota policy recorded");
             }
+            // Provider quota observers (SPEC §42.2/§42.6): the local
+            // account configuration names the providers this node observes,
+            // the real scope of each account and where its sources are read.
+            // Each named provider installs its own observers; the runtime
+            // reads the real payloads, records the observations and turns
+            // significant changes into a bounded view the subject can read.
+            // Without a configuration there is no observer and nothing is
+            // collected — observation from ordinary traffic stays available
+            // either way.
+            let quota_runtime = shenko_subject::quota_runtime::QuotaRuntime::from_env(
+                Arc::clone(&store),
+                agent_id,
+                Some(subject_inbox.sender()),
+            )?;
+            if let Some(quota_runtime) = quota_runtime {
+                info!(providers = ?quota_runtime.providers(), "quota observers registered");
+                let quota_stop = consumer_cancel.clone();
+                tokio::spawn(async move {
+                    Arc::new(quota_runtime).run(quota_stop).await;
+                });
+            }
             let capabilities = match broker.discover_capabilities().await {
                 Ok(capabilities) => Some(capabilities),
                 Err(error) => {

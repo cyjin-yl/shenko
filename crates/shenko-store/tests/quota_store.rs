@@ -55,6 +55,9 @@ fn policy() -> QuotaPolicy {
         decision_ttl: chrono::Duration::minutes(20),
         observation_sources: vec![SourceObservationPolicy {
             source_kind: SourceKind::ApiHeaders,
+            // This policy admits every contract of the API-header source
+            // kind: the reading it plans from is the header reading.
+            contract: None,
             ttl: chrono::Duration::minutes(5),
             stale: StaleUse::Refuse,
         }],

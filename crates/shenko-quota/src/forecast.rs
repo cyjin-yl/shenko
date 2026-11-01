@@ -185,6 +185,40 @@ pub struct QuotaForecast {
     pub unobserved: Vec<AbsentWindow>,
 }
 
+/// The material content of a forecast: what a reader would notice.
+///
+/// It is the comparison point for merging repeated notifications. A
+/// recomputation that produces the same planning view stays quiet; a
+/// forecast whose plan moved is a fact the subject may act on.
+pub fn forecast_material(forecast: &QuotaForecast) -> String {
+    let windows = forecast
+        .windows
+        .iter()
+        .map(|window| {
+            format!(
+                "{}|{}|{:?}|{:?}|{}|{}",
+                window.window_key,
+                window.unit,
+                window.basis,
+                window.planning,
+                window.remaining.map(|range| format!("{}..{}", range.lower, range.upper)).unwrap_or_default(),
+                window
+                    .unreflected_own_cost
+                    .map(|range| format!("{}..{}", range.lower, range.upper))
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!(
+ "{:?}|{:?}|{}|{:?}",
+        forecast.freshness,
+        forecast.source_validity,
+        windows,
+        forecast.unobserved,
+    )
+}
+
 /// Own usage of this account's window that the snapshot does not reflect.
 /// A coverage proof only settles attempts committed in the same ledger;
 /// for any other attempt the overlap stays open (from nothing to its upper

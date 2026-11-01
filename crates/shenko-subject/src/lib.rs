@@ -10,6 +10,7 @@ pub mod outbox;
 pub mod model_child;
 mod quota_gate;
 mod subject_receipt;
+pub mod quota_runtime;
 
 pub use child::*;
 pub use dispatch::*;

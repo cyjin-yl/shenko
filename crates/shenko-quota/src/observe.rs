@@ -6,9 +6,38 @@ use shenko_types::ids::EntityId;
 
 use crate::model::*;
 
+use crate::scope::ScopeIdentity;
+
 /// Windows the Claude Code statusline may report. Each can be absent
 /// independently; absence is never 0% or 100%.
 pub const STATUSLINE_WINDOWS: [&str; 2] = ["five_hour", "seven_day"];
+
+/// The source contract of the Claude Code statusline document.
+pub const STATUSLINE_CONTRACT: &str = "anthropic:claude-code-statusline:v1";
+
+/// The source contract of the Anthropic API rate-limit response headers.
+pub const API_HEADERS_CONTRACT: &str = "anthropic:api-rate-limit-headers:v1";
+
+/// The source contract a reading of this source kind carries. The
+/// management and local-meter contracts are set by their own observers,
+/// which parse documents this module does not know.
+pub fn contract_for(source_kind: SourceKind) -> &'static str {
+    match source_kind {
+        SourceKind::CliStatusline => STATUSLINE_CONTRACT,
+        SourceKind::ApiHeaders => API_HEADERS_CONTRACT,
+        _ => "",
+    }
+}
+
+/// The windows a source is expected to report when it works. A window that
+/// is missing from a working reading keeps its own reason; a source that
+/// reports no windows at all has no absent windows to record.
+pub fn expected_windows(source_kind: SourceKind) -> &'static [&'static str] {
+    match source_kind {
+        SourceKind::CliStatusline => &STATUSLINE_WINDOWS,
+        _ => &[],
+    }
+}
 
 /// What the caller knows about the account behind a reading.
 #[derive(Debug, Clone)]
@@ -20,12 +49,20 @@ pub struct ObservationContext {
     pub observed_at: DateTime<Utc>,
 }
 
-fn snapshot(ctx: &ObservationContext, source_kind: SourceKind, raw_evidence: String) -> QuotaSnapshot {
+fn snapshot(
+    ctx: &ObservationContext,
+    source_kind: SourceKind,
+    source_contract_ref: &str,
+    scope: ScopeIdentity,
+    raw_evidence: String,
+) -> QuotaSnapshot {
     QuotaSnapshot {
         snapshot_id: EntityId::new(),
         provider_id: ctx.provider_id.clone(),
         account_scope_ref: ctx.account_scope_ref.clone(),
         source_kind,
+        source_contract_ref: source_contract_ref.to_string(),
+        scope,
         source_version: ctx.source_version.clone(),
         raw_evidence,
         observed_at: ctx.observed_at,
@@ -51,10 +88,39 @@ pub fn observation_failed(
     expected_windows: &[&str],
     error: ObservationError,
 ) -> QuotaSnapshot {
-    let mut s = snapshot(ctx, source_kind, String::new());
+    observation_unavailable(
+        ctx,
+        source_kind,
+        contract_for(source_kind),
+        expected_windows,
+        error,
+        AbsentReason::Unknown,
+    )
+}
+
+/// A read that failed, with the reason its expected windows keep.
+///
+/// The reason is the difference between "this source has not produced
+/// anything yet" and "this source was read and did not report this
+/// window"; neither is a statement about the remaining quota.
+pub fn observation_unavailable(
+    ctx: &ObservationContext,
+    source_kind: SourceKind,
+    source_contract_ref: &str,
+    expected_windows: &[&str],
+    error: ObservationError,
+    reason: AbsentReason,
+) -> QuotaSnapshot {
+    let mut s = snapshot(
+        ctx,
+        source_kind,
+        source_contract_ref,
+        ScopeIdentity::Unknown,
+        String::new(),
+    );
     s.observation_status = ObservationStatus::Unavailable;
     s.observation_error = Some(error);
-    s.absent_windows = expected_windows.iter().map(|key| absent(*key, AbsentReason::Unknown)).collect();
+    s.absent_windows = expected_windows.iter().map(|key| absent(*key, reason)).collect();
     s
 }
 
@@ -71,7 +137,16 @@ pub fn from_statusline(ctx: &ObservationContext, json: &str, first_response_seen
         return observation_failed(ctx, SourceKind::CliStatusline, &STATUSLINE_WINDOWS, ObservationError::InvalidData);
     };
     let rate_limits = root.get("rate_limits").filter(|v| v.is_object());
-    let mut s = snapshot(ctx, SourceKind::CliStatusline, String::new());
+    // The statusline reports the consumer subscription windows that claude.ai,
+    // Claude Code and Desktop share. They belong to the subscription scope,
+    // not to one API key and not to one workspace.
+    let mut s = snapshot(
+        ctx,
+        SourceKind::CliStatusline,
+        STATUSLINE_CONTRACT,
+        ScopeIdentity::Subscription,
+        String::new(),
+    );
     let missing = if first_response_seen { AbsentReason::Unknown } else { AbsentReason::NotYetObserved };
     let mut evidence = Vec::new();
     for key in STATUSLINE_WINDOWS {
@@ -101,7 +176,9 @@ pub fn from_statusline(ctx: &ObservationContext, json: &str, first_response_seen
         ));
         s.windows.push(QuotaWindow {
             window_key: key.into(),
-            scope_ref: "subscription".into(),
+            scope_ref: ctx.account_scope_ref.clone(),
+            scope: ScopeIdentity::Subscription,
+            inherits_from: None,
             kind: WindowKind::Fixed,
             metric: Metric::UsagePercent,
             unit: "percent".into(),
@@ -192,7 +269,16 @@ pub fn from_api_headers<'a>(
         .map(|(k, v)| (k.to_ascii_lowercase(), v.trim().to_string()))
         .filter(|(k, _)| allowed.contains(k))
         .collect();
-    let mut s = snapshot(ctx, SourceKind::ApiHeaders, String::new());
+    // Rate-limit headers describe the scope of the key that made the
+    // request. They are not the subscription's windows and not an
+    // organization's configured limits.
+    let mut s = snapshot(
+        ctx,
+        SourceKind::ApiHeaders,
+        API_HEADERS_CONTRACT,
+        ScopeIdentity::ApiKey { key_scope: ctx.account_scope_ref.clone() },
+        String::new(),
+    );
     let mut evidence = Vec::new();
     for (resource, metric, unit) in HEADER_RESOURCES {
         let key = format!("api:{resource}");
@@ -240,7 +326,9 @@ pub fn from_api_headers<'a>(
         ));
         s.windows.push(QuotaWindow {
             window_key: key,
-            scope_ref: "api_key".into(),
+            scope_ref: ctx.account_scope_ref.clone(),
+            scope: ScopeIdentity::ApiKey { key_scope: ctx.account_scope_ref.clone() },
+            inherits_from: None,
             kind: WindowKind::TokenBucket,
             metric,
             unit: unit.into(),

@@ -17,8 +17,8 @@ use crate::store::{storage_error, Store};
 use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use shenko_quota::{
     admit, cancel, mark_armed, AdmissionOutcome, AttemptBilling, BackendState, DispatchEvidence,
-    LocalAttempt, Pacer, PolicyDecision, QuotaAdmission, QuotaForecast, QuotaPolicy, QuotaSnapshot,
-    Range, SourceKind, WindowCost, WindowRef,
+    Choice, LocalAttempt, Pacer, PolicyDecision, QuotaAdmission, QuotaEvent, QuotaEventKind,
+    QuotaForecast, QuotaPolicy, QuotaSnapshot, Range, SourceKind, WindowCost, WindowRef,
 };
 use shenko_types::commit::{CommitRef, CommitReceipt, UpdatedEntity};
 use shenko_types::error::ShenkoError;
@@ -75,6 +75,15 @@ CREATE TABLE IF NOT EXISTS quota_sends (
     claimed INTEGER NOT NULL DEFAULT 0,
     claimed_seq INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS quota_events (
+    event_id TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    account_scope_ref TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quota_events_scope ON quota_events(account_scope_ref, commit_seq);
 "#;
 
 /// The pacer write produced by `admit_quota_send`: the typed admission
@@ -113,6 +122,90 @@ fn write_pacer(
     )
     .map_err(storage_error)?;
     Ok(())
+}
+
+/// Write one durable quota event inside the transaction that wrote the fact
+/// it describes. The event and its cause therefore commit together: a
+/// recorded observation always has its notification, and a notification
+/// never exists without the fact.
+fn insert_quota_event(
+    tx: &Transaction<'_>,
+    event: &QuotaEvent,
+    seq: LedgerSeq,
+) -> Result<(), ShenkoError> {
+    let data = serde_json::to_string(event)?;
+    tx.execute(
+        "INSERT INTO quota_events(event_id,provider_id,account_scope_ref,kind,data,commit_seq)
+         VALUES(?1,?2,?3,?4,?5,?6)",
+        params![
+            event.event_id.to_string(),
+            event.provider_id,
+            event.account_scope_ref,
+            event.kind.as_str(),
+            data,
+            seq.0 as i64
+        ],
+    )
+    .map_err(storage_error)?;
+    Ok(())
+}
+
+/// The window keys of a snapshot whose period end moved forward since the
+/// previous reading of the same source. A new period is an observed reset,
+/// not a silently replaced balance.
+fn reset_window_keys(previous: &QuotaSnapshot, current: &QuotaSnapshot) -> Vec<String> {
+    let mut keys = Vec::new();
+    for window in &current.windows {
+        let Some(before) = previous.windows.iter().find(|old| old.window_key == window.window_key)
+        else {
+            continue;
+        };
+        let (Some(before_reset), Some(after_reset)) = (before.resets_at, window.resets_at) else {
+            continue;
+        };
+        if after_reset > before_reset {
+            keys.push(window.window_key.clone());
+        }
+    }
+    keys
+}
+
+/// The profile a decision selects, if it selects one. A wait, an exhausted
+/// provider or a blocked observation selects no model.
+fn chosen_profile(choice: &Choice) -> Option<String> {
+    match choice {
+        Choice::Cloud { profile_id, .. } | Choice::Local { profile_id } => Some(profile_id.clone()),
+        _ => None,
+    }
+}
+
+/// The previous forecast of one account scope, ignoring one forecast id.
+///
+/// The forecast table stores the whole record, so the scope is resolved
+/// from the record itself. The scan is bounded: only the newest rows can
+/// be the previous forecast of the scope.
+fn previous_scope_forecast(
+    tx: &Transaction<'_>,
+    provider_id: &str,
+    account_scope_ref: &str,
+    exclude: EntityId,
+) -> Result<Option<QuotaForecast>, ShenkoError> {
+    let mut stmt = tx
+        .prepare(
+            "SELECT data FROM quota_forecasts WHERE forecast_id<>?1 ORDER BY commit_seq DESC LIMIT 16",
+        )
+        .map_err(storage_error)?;
+    let rows = stmt
+        .query_map([exclude.to_string()], |r| r.get::<_, String>(0))
+        .map_err(storage_error)?;
+    for row in rows {
+        let data = row.map_err(storage_error)?;
+        let forecast: QuotaForecast = serde_json::from_str(&data)?;
+        if forecast.provider_id == provider_id && forecast.account_scope_ref == account_scope_ref {
+            return Ok(Some(forecast));
+        }
+    }
+    Ok(None)
 }
 
 /// Whether any quota policy is recorded. With none, inference dispatch has no
@@ -233,6 +326,71 @@ impl Store {
                         snapshot.account_scope_ref, data, seq.0 as i64],
                 )
                 .map_err(storage_error)?;
+                // The previous reading of the same source, used only to see
+                // whether a window started a new period.
+                let previous: Option<String> = tx
+                    .query_row(
+                        "SELECT data FROM quota_snapshots
+                         WHERE provider_id=?1 AND account_scope_ref=?2 AND snapshot_id<>?3
+                         ORDER BY commit_seq DESC LIMIT 1",
+                        params![snapshot.provider_id, snapshot.account_scope_ref,
+                            snapshot.snapshot_id.to_string()],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                let observed = QuotaEvent::new(
+                    snapshot.provider_id.clone(),
+                    snapshot.account_scope_ref.clone(),
+                    QuotaEventKind::Observed,
+                    serde_json::json!({
+                        "snapshot_id": snapshot.snapshot_id,
+                        "source_kind": snapshot.source_kind,
+                        "source_contract_ref": snapshot.source_contract_ref,
+                        "source_version": snapshot.source_version,
+                        "scope": snapshot.scope,
+                        "attribution": snapshot.attribution,
+                        "observation_status": snapshot.observation_status,
+                        "observation_error": snapshot.observation_error,
+                        "windows": snapshot.windows.iter().map(|window| serde_json::json!({
+                            "window_key": window.window_key,
+                            "scope": window.scope,
+                            "metric": window.metric,
+                            "unit": window.unit,
+                            "kind": window.kind,
+                            "enforcement": window.enforcement,
+                            "remaining": window.remaining,
+                            "used": window.used,
+                            "capacity": window.capacity,
+                            "resets_at": window.resets_at,
+                            "replenishes_by": window.replenishes_by,
+                            "inherits_from": window.inherits_from,
+                        })).collect::<Vec<_>>(),
+                        "absent_windows": snapshot.absent_windows,
+                        "observed_at": snapshot.observed_at,
+                    }),
+                    snapshot.observed_at,
+                );
+                insert_quota_event(&tx, &observed, seq)?;
+                if let Some(previous) = previous {
+                    if let Ok(previous) = serde_json::from_str::<QuotaSnapshot>(&previous) {
+                        let reset = reset_window_keys(&previous, snapshot);
+                        if !reset.is_empty() {
+                            let event = QuotaEvent::new(
+                                snapshot.provider_id.clone(),
+                                snapshot.account_scope_ref.clone(),
+                                QuotaEventKind::ResetObserved,
+                                serde_json::json!({
+                                    "snapshot_id": snapshot.snapshot_id,
+                                    "previous_snapshot_id": previous.snapshot_id,
+                                    "windows": reset,
+                                }),
+                                snapshot.observed_at,
+                            );
+                            insert_quota_event(&tx, &event, seq)?;
+                        }
+                    }
+                }
                 self.record_subject_commit(&tx, commit, 1)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(self.subject_receipt(
@@ -307,6 +465,43 @@ impl Store {
                         data, seq.0 as i64],
                 )
                 .map_err(storage_error)?;
+                // A forecast whose planning view moved is a fact the subject
+                // may act on. The comparison is against the previous
+                // forecast of the same scope, so a recomputation of the same
+                // numbers stays quiet.
+                if let Some(previous) = previous_scope_forecast(
+                    &tx,
+                    &forecast.provider_id,
+                    &forecast.account_scope_ref,
+                    forecast.forecast_id,
+                )? {
+                    if shenko_quota::forecast_material(&previous)
+                        != shenko_quota::forecast_material(forecast)
+                    {
+                        let event = QuotaEvent::new(
+                            forecast.provider_id.clone(),
+                            forecast.account_scope_ref.clone(),
+                            QuotaEventKind::ForecastChanged,
+                            serde_json::json!({
+                                "forecast_id": forecast.forecast_id,
+                                "previous_forecast_id": previous.forecast_id,
+                                "based_on_snapshot": forecast.based_on_snapshot,
+                                "freshness": forecast.freshness,
+                                "source_validity": forecast.source_validity,
+                                "windows": forecast.windows.iter().map(|window| serde_json::json!({
+                                    "window_key": window.window_key,
+                                    "unit": window.unit,
+                                    "basis": window.basis,
+                                    "planning": window.planning,
+                                    "remaining": window.remaining,
+                                    "unreflected_own_cost": window.unreflected_own_cost,
+                                })).collect::<Vec<_>>(),
+                            }),
+                            forecast.computed_at,
+                        );
+                        insert_quota_event(&tx, &event, seq)?;
+                    }
+                }
                 self.record_subject_commit(&tx, commit, 1)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(self.subject_receipt(
@@ -365,6 +560,29 @@ impl Store {
                     params![policy.policy_id.to_string(), policy.revision as i64, data, seq.0 as i64],
                 )
                 .map_err(storage_error)?;
+                // The policy belongs to the accounts its profiles charge, so
+                // the event names the first scope it binds. A policy with
+                // no cloud profile binds no account and names none.
+                let (provider_id, account_scope_ref) = policy
+                    .profiles
+                    .iter()
+                    .flat_map(|profile| profile.cost_per_request.iter())
+                    .map(|cost| (cost.window.provider_id.clone(), cost.window.account_scope_ref.clone()))
+                    .next()
+                    .unwrap_or_default();
+                let event = QuotaEvent::new(
+                    provider_id,
+                    account_scope_ref,
+                    QuotaEventKind::PolicyChanged,
+                    serde_json::json!({
+                        "policy_id": policy.policy_id,
+                        "revision": policy.revision,
+                        "profiles": policy.profiles.iter()
+                            .map(|profile| profile.profile_id.clone()).collect::<Vec<_>>(),
+                    }),
+                    now,
+                );
+                insert_quota_event(&tx, &event, seq)?;
                 self.record_subject_commit(&tx, commit, 1)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(self.subject_receipt(
@@ -444,18 +662,17 @@ impl Store {
                         return Err(conflict("cited forecast has no recorded snapshot"));
                     };
                     let snapshot: QuotaSnapshot = serde_json::from_str(&snapshot_data)?;
-                    let Some(source_policy) = policy
-                        .observation_sources
-                        .iter()
-                        .find(|entry| entry.source_kind == snapshot.source_kind)
-                    else {
+                    // The cited forecast may only rest on a source this
+                    // policy admits, under that source's own contract and
+                    // with that source's exact lifetime options.
+                    let admitted = policy.observation_sources.iter().any(|entry| {
+                        entry.source_kind == snapshot.source_kind
+                            && entry.admits_contract(&snapshot.source_contract_ref)
+                            && entry.options() == cited.options
+                    });
+                    if !admitted {
                         return Err(conflict(
-                            "decision relies on a source the policy does not admit",
-                        ));
-                    };
-                    if cited.options != source_policy.options() {
-                        return Err(conflict(
-                            "cited forecast was not computed under the policy's source options",
+                            "decision relies on a source the policy does not admit under its own options",
                         ));
                     }
                 }
@@ -485,6 +702,61 @@ impl Store {
                         decision.policy_revision as i64, data, seq.0 as i64],
                 )
                 .map_err(storage_error)?;
+                // A change of the selected model is a fact the subject may
+                // act on, but only when the route really changed: repeating
+                // the same decision is not a new routing event.
+                let previous: Option<String> = tx
+                    .query_row(
+                        "SELECT data FROM quota_decisions WHERE decision_id<>?1 ORDER BY commit_seq DESC LIMIT 1",
+                        [decision.decision_id.to_string()],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                let previous_profile = previous
+                    .and_then(|data| serde_json::from_str::<PolicyDecision>(&data).ok())
+                    .and_then(|previous| chosen_profile(&previous.choice));
+                let current_profile = chosen_profile(&decision.choice);
+                if previous.is_some() && previous_profile != current_profile {
+                    let (provider_id, account_scope_ref) = decision
+                        .constraints
+                        .first()
+                        .map(|constraint| {
+                            (
+                                constraint.window.provider_id.clone(),
+                                constraint.window.account_scope_ref.clone(),
+                            )
+                        })
+                        .or_else(|| {
+                            current_profile.as_ref().and_then(|profile_id| {
+                                policy.profiles.iter().find(|profile| &profile.profile_id == profile_id)
+                            })
+                            .and_then(|profile| profile.cost_per_request.first())
+                            .map(|cost| {
+                                (
+                                    cost.window.provider_id.clone(),
+                                    cost.window.account_scope_ref.clone(),
+                                )
+                            })
+                        })
+                        .unwrap_or_default();
+                    let event = QuotaEvent::new(
+                        provider_id,
+                        account_scope_ref,
+                        QuotaEventKind::RoutingChanged,
+                        serde_json::json!({
+                            "decision_id": decision.decision_id,
+                            "policy_id": decision.policy_id,
+                            "policy_revision": decision.policy_revision,
+                            "profile_id": current_profile,
+                            "previous_profile_id": previous_profile,
+                            "choice": decision.choice,
+                            "decided_at": decision.decided_at,
+                        }),
+                        decision.decided_at,
+                    );
+                    insert_quota_event(&tx, &event, seq)?;
+                }
                 self.record_subject_commit(&tx, commit, 1)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(self.subject_receipt(
@@ -568,6 +840,190 @@ impl Store {
             }
         }
         Ok(None)
+    }
+
+    /// The most recently recorded snapshot of one exact source contract.
+    ///
+    /// One source kind can carry several contracts — a configured limit
+    /// document and a usage report are both management API facts but not
+    /// the same fact. A policy admits a contract, so the forecast chain
+    /// must be able to pick exactly the reading that contract produced.
+    pub fn latest_quota_snapshot_for_contract(
+        &self,
+        provider_id: &str,
+        account_scope_ref: &str,
+        source: SourceKind,
+        contract: &str,
+    ) -> Result<Option<QuotaSnapshot>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT data FROM quota_snapshots WHERE provider_id=?1 AND account_scope_ref=?2 ORDER BY commit_seq DESC",
+            )
+            .map_err(storage_error)?;
+        let rows = stmt
+            .query_map(params![provider_id, account_scope_ref], |r| r.get::<_, String>(0))
+            .map_err(storage_error)?;
+        for row in rows {
+            let data = row.map_err(storage_error)?;
+            let snapshot: QuotaSnapshot = serde_json::from_str(&data)?;
+            if snapshot.source_kind == source && snapshot.source_contract_ref == contract {
+                return Ok(Some(snapshot));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The most recently recorded snapshot of one provider/account scope,
+    /// whatever source contract produced it.
+    ///
+    /// The subject-readable view needs the newest reading of an account,
+    /// not a reading of one contract: the contracts are different facts
+    /// about the same account and the view names the one it shows.
+    pub fn latest_quota_snapshot(
+        &self,
+        provider_id: &str,
+        account_scope_ref: &str,
+    ) -> Result<Option<QuotaSnapshot>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT data FROM quota_snapshots WHERE provider_id=?1 AND account_scope_ref=?2 ORDER BY commit_seq DESC LIMIT 1",
+            )
+            .map_err(storage_error)?;
+        let rows = stmt
+            .query_map(params![provider_id, account_scope_ref], |r| r.get::<_, String>(0))
+            .map_err(storage_error)?;
+        for row in rows {
+            let data = row.map_err(storage_error)?;
+            let snapshot: QuotaSnapshot = serde_json::from_str(&data)?;
+            return Ok(Some(snapshot));
+        }
+        Ok(None)
+    }
+
+    /// Record one durable quota event (SPEC §42.6). Re-recording the
+    /// identical event is idempotent; the same id with different bytes is a
+    /// conflict.
+    pub fn record_quota_event(&self, event: &QuotaEvent) -> Result<CommitReceipt, ShenkoError> {
+        if event.event_id == EntityId::nil() {
+            return Err(conflict("quota event has no identity"));
+        }
+        self.ledger.with_mutation(
+            || {
+                let data = serde_json::to_string(event)?;
+                let event_id = event.event_id.to_string();
+                let provider_id = event.provider_id.clone();
+                let account_scope_ref = event.account_scope_ref.clone();
+                let kind = event.kind.as_str();
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(storage_error)?;
+                let existing: Option<(String, i64)> = tx
+                    .query_row(
+                        "SELECT data, commit_seq FROM quota_events WHERE event_id=?1",
+                        [&event_id],
+                        |r| Ok((r.get(0)?, r.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                if let Some((old, seq)) = existing {
+                    if old == data {
+                        tx.commit().map_err(storage_error)?;
+                        return Ok(self.subject_receipt(
+                            CommitRef::new(self.ledger.ledger_id(), LedgerSeq(seq as u64)),
+                            vec![],
+                        ));
+                    }
+                    return Err(conflict("quota event id exists with different content"));
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                tx.execute(
+                    "INSERT INTO quota_events(event_id,provider_id,account_scope_ref,kind,data,commit_seq)
+                     VALUES(?1,?2,?3,?4,?5,?6)",
+                    params![
+                        event_id,
+                        provider_id,
+                        account_scope_ref,
+                        kind,
+                        data,
+                        seq.0 as i64
+                    ],
+                )
+                .map_err(storage_error)?;
+                self.record_subject_commit(&tx, commit, 1)?;
+                tx.commit().map_err(storage_error)?;
+                Ok(self.subject_receipt(
+                    commit,
+                    vec![UpdatedEntity {
+                        entity_id: event.event_id,
+                        record_revision: RecordRevision(0),
+                    }],
+                ))
+            },
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    /// Durable quota events after a commit position, oldest first, each with
+    /// the commit position it was written at. This is the subject-readable
+    /// stream of quota facts (SPEC §42.6).
+    pub fn quota_events_since(
+        &self,
+        after_commit_seq: u64,
+        limit: usize,
+    ) -> Result<Vec<(u64, QuotaEvent)>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn
+            .prepare(
+                "SELECT commit_seq, data FROM quota_events WHERE commit_seq > ?1 ORDER BY commit_seq LIMIT ?2",
+            )
+            .map_err(storage_error)?;
+        let rows = stmt
+            .query_map(params![after_commit_seq as i64, limit as i64], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })
+            .map_err(storage_error)?;
+        let mut events = Vec::new();
+        for row in rows {
+            let (seq, data) = row.map_err(storage_error)?;
+            events.push((seq.max(0) as u64, serde_json::from_str(&data)?));
+        }
+        Ok(events)
+    }
+
+    /// The commit position of the newest quota event, or zero when there is
+    /// none. A reader that starts here sees the facts that happen next, not
+    /// a replay of the whole history.
+    pub fn latest_quota_event_seq(&self) -> Result<u64, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let seq: Option<i64> = conn
+            .query_row("SELECT max(commit_seq) FROM quota_events", [], |r| r.get(0))
+            .map_err(storage_error)?;
+        Ok(seq.unwrap_or(0).max(0) as u64)
+    }
+
+    /// The most recent event of one kind for one provider/account scope.
+    /// It is the comparison point for merging repeated notifications.
+    pub fn latest_quota_event(
+        &self,
+        provider_id: &str,
+        account_scope_ref: &str,
+        kind: QuotaEventKind,
+    ) -> Result<Option<QuotaEvent>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let data: Option<String> = conn
+            .query_row(
+                "SELECT data FROM quota_events WHERE provider_id=?1 AND account_scope_ref=?2 AND kind=?3
+                 ORDER BY commit_seq DESC LIMIT 1",
+                params![provider_id, account_scope_ref, kind.as_str()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        data.map(|data| serde_json::from_str(&data).map_err(ShenkoError::from)).transpose()
     }
 
     /// Sends recorded for one sealed request in arming-commit order with
@@ -694,6 +1150,68 @@ impl Store {
                         }
                     }
                     write_pacer(&tx, &pacer, seq)?;
+                    // A constraint that stops a request is a fact the
+                    // subject may act on. The same constraint repeated for
+                    // the same scope is not a new event.
+                    let constraint_state = match &outcome {
+                        AdmissionOutcome::Quota(admission)
+                        | AdmissionOutcome::Existing { admission } => match admission.state {
+                            shenko_quota::AdmissionState::QuotaPolicyWait => Some("quota_policy_wait"),
+                            shenko_quota::AdmissionState::ProviderExhausted => Some("provider_exhausted"),
+                            shenko_quota::AdmissionState::ObservationBlocked => Some("observation_blocked"),
+                            _ => None,
+                        },
+                        _ => None,
+                    };
+                    if let Some(state) = constraint_state {
+                        let (provider_id, account_scope_ref) = decision
+                            .constraints
+                            .first()
+                            .map(|constraint| {
+                                (
+                                    constraint.window.provider_id.clone(),
+                                    constraint.window.account_scope_ref.clone(),
+                                )
+                            })
+                            .unwrap_or_default();
+                        let previous: Option<String> = tx
+                            .query_row(
+                                "SELECT data FROM quota_events
+                                 WHERE provider_id=?1 AND account_scope_ref=?2 AND kind=?3
+                                 ORDER BY commit_seq DESC LIMIT 1",
+                                params![provider_id, account_scope_ref,
+                                    QuotaEventKind::ConstraintReached.as_str()],
+                                |r| r.get(0),
+                            )
+                            .optional()
+                            .map_err(storage_error)?;
+                        let repeated = previous
+                            .and_then(|data| serde_json::from_str::<QuotaEvent>(&data).ok())
+                            .and_then(|event| {
+                                event.payload.get("state").and_then(|value| value.as_str()).map(str::to_owned)
+                            })
+                            .is_some_and(|last| last == state);
+                        if !repeated {
+                            let reason = match &outcome {
+                                AdmissionOutcome::Quota(admission)
+                                | AdmissionOutcome::Existing { admission } => admission.reason.clone(),
+                                _ => String::new(),
+                            };
+                            let event = QuotaEvent::new(
+                                provider_id,
+                                account_scope_ref,
+                                QuotaEventKind::ConstraintReached,
+                                serde_json::json!({
+                                    "state": state,
+                                    "request_id": request_id,
+                                    "decision_id": decision.decision_id,
+                                    "reason": reason,
+                                }),
+                                now,
+                            );
+                            insert_quota_event(&tx, &event, seq)?;
+                        }
+                    }
                     let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
                     self.record_subject_commit(&tx, commit_ref, 1)?;
                     commit = Some(commit_ref);
