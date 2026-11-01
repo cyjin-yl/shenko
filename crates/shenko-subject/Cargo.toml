@@ -16,6 +16,8 @@ shenko-broker = { path = "../shenko-broker" }
 shenko-quota = { path = "../shenko-quota" }
 shenko-context-policy = { path = "../shenko-context-policy", features = ["store"] }
 shenko-awareness-core = { path = "../shenko-awareness-core" }
+# The pluggable memory-intervention policy and its contribution producer.
+shenko-memory = { path = "../shenko-memory" }
 blake3 = { workspace = true }
 # The frozen step input carries inference parts with shared image bytes.
 serde = { workspace = true, features = ["rc"] }

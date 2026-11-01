@@ -12,6 +12,7 @@ pub mod backend;
 pub mod excerpt;
 pub mod knowledge;
 pub mod memory_store;
+pub mod intervention;
 pub mod worker;
 
 pub use backend::{
@@ -22,3 +23,4 @@ pub use excerpt::{excerpt_for, MatchExcerpt};
 pub use knowledge::GitKnowledgeStore;
 pub use memory_store::{AcceptedRef, MemoryStore, ProcessOutcome, QueuedIntent};
 pub use worker::{MemoryWorker, MemoryWorkerPlugin};
+pub use intervention::*;

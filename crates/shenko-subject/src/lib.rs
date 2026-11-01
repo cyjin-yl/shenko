@@ -8,6 +8,7 @@ mod context_projection;
 pub mod loop_runner;
 pub mod outbox;
 pub mod model_child;
+pub mod intervention;
 mod quota_gate;
 mod subject_receipt;
 pub mod quota_runtime;
@@ -18,6 +19,7 @@ pub use inbox::*;
 pub use loop_runner::*;
 pub use outbox::*;
 pub use model_child::ModelChildHandler;
+pub use intervention::PmaEvaluateHandler;
 
 pub mod output;
 

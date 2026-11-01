@@ -26,3 +26,12 @@ pub use wasi_task::*;
 
 pub mod contact_task;
 pub use contact_task::*;
+
+pub mod research_task;
+pub use research_task::*;
+
+pub mod retention_task;
+pub use retention_task::*;
+
+pub mod builtin;
+pub use builtin::*;
