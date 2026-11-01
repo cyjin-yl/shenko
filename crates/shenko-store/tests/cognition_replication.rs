@@ -85,7 +85,7 @@ fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
     source.admit_memory_intent(&record, Some(&object)).unwrap();
     let mut source_entry = MemoryEntry::new(agent, body);
     source_entry.entry_id = entry_id;
-    source_entry.kind = "save".into();
+    source_entry.kind = "note".into();
     source.commit_memory_intent(&source_entry, intent).unwrap();
     let mut archive = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
@@ -95,7 +95,7 @@ fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
     assert!(local.content_ref.is_none(), "conflicting source binding must not attach to a legacy local intent");
     let mut wrong = MemoryEntry::new(agent, body);
     wrong.entry_id = local.record.entry_id.unwrap();
-    wrong.kind = "save".into();
+    wrong.kind = "note".into();
     assert!(target.commit_memory_intent(&wrong, intent).is_err());
     assert!(target.list_memory(10).unwrap().is_empty());
 }
@@ -136,7 +136,7 @@ fn assert_binding_conflict_does_not_advance_a_partial_baseline() {
     replace_binding(&original);
     let mut entry = MemoryEntry::new(agent, "original body");
     entry.entry_id = entry_id;
-    entry.kind = "save".into();
+    entry.kind = "note".into();
     source.commit_memory_intent(&entry, intent).unwrap();
     let continued = target.import_cognition_archive(&export()[..], &options).unwrap();
     assert!(continued.ack(EntityId::new()).verified);
@@ -163,7 +163,7 @@ fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
     let entry = |content| {
         let mut entry = MemoryEntry::new(agent, content);
         entry.entry_id = entry_id;
-        entry.kind = "save".into();
+        entry.kind = "note".into();
         entry
     };
     source.commit_memory_intent(&entry("remote B"), intent).unwrap();
@@ -197,7 +197,7 @@ fn saved_then_forgotten_entry_survives_archive_roundtrip() {
     source.admit_memory_intent(&record, None).unwrap();
     let mut entry = MemoryEntry::new(agent, "被遗忘的正文");
     entry.entry_id = entry_id;
-    entry.kind = "save".into();
+    entry.kind = "note".into();
     source.commit_memory_intent(&entry, save).unwrap();
 
     let forget_record =
@@ -252,7 +252,7 @@ fn a_rejected_forget_cannot_tombstone_its_shared_entry() {
     source.admit_memory_intent(&record, None).unwrap();
     let mut entry = MemoryEntry::new(agent, "将被裁决的正文");
     entry.entry_id = entry_id;
-    entry.kind = "save".into();
+    entry.kind = "note".into();
     source.commit_memory_intent(&entry, save).unwrap();
     let forget_record = MemoryIntentRecord::accepted(
         forget, agent, "forget", "personal", "", None, Some(entry_id),
