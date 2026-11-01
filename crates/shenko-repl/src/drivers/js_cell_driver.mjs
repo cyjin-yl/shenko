@@ -13,16 +13,38 @@
 // "state_verified"}. The state file holds only JSON-serializable own globals;
 // functions and non-serializable values are dropped and reported by name.
 //
-// The cell executes as an ESM file inside the env directory so packages
-// installed by install_dependencies resolve through the env's node_modules
-// by normal upward lookup. console.log / process.stdout.write are re-bound
-// per cell to the per-cell out file.
+// The actual interpreter REPL evaluator owns the persistent lexical context.
+// require is resolved from the active environment's package.json. Native
+// REPL syntax/async-import support is the bound interpreter's actual API,
+// not a fresh ESM module pretending that its lexical bindings persist.
+// console.log / process.stdout.write route to per-cell owned output files.
 //
 // EOF on stdin exits cleanly (dispose).
 
 import { appendFileSync, createWriteStream, mkdirSync, readFileSync, readSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { start as startRepl } from "node:repl";
+import { PassThrough } from "node:stream";
+import { createRequire } from "node:module";
+
+// The interpreter's real REPL context retains lexical bindings and functions
+// across cells. Importing a fresh ESM file per cell does not do that.
+const controlInput = new PassThrough();
+const controlOutput = new PassThrough();
+controlOutput.resume(); // REPL prompts/control, not authored cell output.
+const replServer = startRepl({ input: controlInput, output: controlOutput,
+    terminal: false, useGlobal: false, ignoreUndefined: true });
+let hydrated = false;
+
+function completionNames() {
+    return new Promise((resolve, reject) => replServer.completer("", (error, result) =>
+        error ? reject(error) : resolve(result[0])));
+}
+function evaluate(source, filename) {
+    return new Promise((resolve, reject) => replServer.eval(source,
+        replServer.context, filename, (error, value) => error ? reject(error) : resolve(value)));
+}
+const initialBindings = new Set(await completionNames());
 
 function readExact(fd, count) {
     const buffer = Buffer.alloc(count);
@@ -59,15 +81,21 @@ const RESERVED = new Set([
 
 function loadState(statePath) {
     try { return JSON.parse(readFileSync(statePath, "utf8")); }
-    catch { return {}; }
+    catch (error) { if (error.code === "ENOENT") return {}; throw error; }
 }
 
-function persistState(statePath, report) {
+async function persistState(statePath, report) {
     const persisted = {};
     const dropped = [];
-    for (const key of Object.getOwnPropertyNames(globalThis)) {
-        if (key.startsWith("__") || RESERVED.has(key)) continue;
-        const value = globalThis[key];
+    // Use the actual interpreter's completion/lexical scope view, not source
+    // keyword rewriting or an ESM module's unrelated global object.
+    const names = new Set([...await completionNames(), ...Object.getOwnPropertyNames(replServer.context)]);
+    for (const key of names) {
+        if (initialBindings.has(key) || key.startsWith("__") || RESERVED.has(key)
+            || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) continue;
+        let value;
+        try { value = await evaluate(key, "<shenko-checkpoint>"); }
+        catch { dropped.push(key); continue; }
         if (typeof value === "undefined" || typeof value === "function" || typeof value === "symbol") {
             dropped.push(key);
             continue;
@@ -101,9 +129,6 @@ async function runCell(header, source) {
     mkdirSync(cellDir, { recursive: true });
     mkdirSync(envDir, { recursive: true });
 
-    for (const [key, value] of Object.entries(loadState(statePath))) {
-        try { globalThis[key] = value; } catch {}
-    }
 
     const outPath = join(cellDir, seq + ".out");
     const errPath = join(cellDir, seq + ".err");
@@ -124,9 +149,16 @@ async function runCell(header, source) {
     const report = { ok: false, error: null, dropped: [],
                      state_bytes: 0, state_verified: false };
     try {
-        const cellFile = join(envDir, ".shenko-cell.mjs");
-        writeFileSync(cellFile, source);
-        await import(pathToFileURL(cellFile).href + "?seq=" + seq);
+        if (!hydrated) {
+            for (const [key, value] of Object.entries(loadState(statePath))) {
+                replServer.context[key] = value;
+            }
+            hydrated = true;
+        }
+        replServer.context.require = createRequire(join(envDir, "package.json"));
+        replServer.context.console = console;
+        const cellFile = join(envDir, ".shenko-cell-" + seq + ".js");
+        await evaluate(source, cellFile);
         report.ok = true;
     } catch (e) {
         errWrite((e && e.stack ? e.stack : String(e)) + "\n");
@@ -141,7 +173,7 @@ async function runCell(header, source) {
     }
 
     try {
-        persistState(statePath, report);
+        await persistState(statePath, report);
     } catch (e) {
         report.ok = false;
         report.error = (report.error || "") + "\nstate-persist-failed: " + String(e);

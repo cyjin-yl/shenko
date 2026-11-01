@@ -246,6 +246,15 @@ struct KernelTargetView {
 pub struct SessionStore {
     data_dir: PathBuf,
     sessions: parking_lot::Mutex<BTreeMap<EntityId, Arc<std::sync::Mutex<crate::session::WasiReplSession>>>>,
+    quiesced: parking_lot::Mutex<Vec<(EntityId, bool)>>,
+    upgrading: std::sync::atomic::AtomicBool,
+    cancellations: parking_lot::Mutex<BTreeMap<EntityId, Arc<parking_lot::Mutex<Option<shenko_wasm::WasiCancellation>>>>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QuiesceReport {
+    pub stopped_sessions: Vec<EntityId>,
+    pub idle_sessions: Vec<EntityId>,
 }
 
 impl SessionStore {
@@ -253,10 +262,62 @@ impl SessionStore {
         for sub in ["sessions", "kernels", "wheels"] {
             fs::create_dir_all(data_dir.join(sub))?;
         }
-        Ok(Self { data_dir, sessions: parking_lot::Mutex::new(BTreeMap::new()) })
+        Ok(Self { data_dir, sessions: parking_lot::Mutex::new(BTreeMap::new()),
+            quiesced: parking_lot::Mutex::new(Vec::new()), upgrading: std::sync::atomic::AtomicBool::new(false),
+            cancellations: Default::default() })
+    }
+
+    pub fn quiesce_for_upgrade(&self) -> Result<QuiesceReport> {
+        let sessions = self.sessions.lock();
+        self.upgrading.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut quiesced = self.quiesced.lock();
+        let mut report = QuiesceReport { stopped_sessions: Vec::new(), idle_sessions: Vec::new() };
+        for (id, session) in sessions.iter() {
+            let mut session = session.try_lock()
+                .map_err(|_| anyhow::anyhow!("REPL_SESSION_BUSY: session {id} still owns execution"))?;
+            let known = quiesced.iter().any(|(known, _)| known == id);
+            if !known { quiesced.push((*id, true)); }
+            let stopped = session.quiesce_for_upgrade()?;
+            if let Some((_, restore)) = quiesced.iter_mut().find(|(known, _)| known == id) {
+                *restore = if known { *restore || stopped } else { stopped };
+            }
+            if stopped {
+                report.stopped_sessions.push(*id);
+            } else {
+                report.idle_sessions.push(*id);
+            }
+        }
+        Ok(report)
+    }
+
+    pub fn resume_after_upgrade_abort(&self) -> Result<()> {
+        let sessions = self.sessions.lock();
+        let mut quiesced = self.quiesced.lock();
+        while let Some((id, stopped)) = quiesced.last().copied() {
+            let session = sessions.get(&id).context("quiesced session missing from ownership map")?;
+            let mut session = session.lock()
+                .map_err(|_| anyhow::anyhow!("REPL_SESSION_POISONED: {id}"))?;
+            session.resume_after_upgrade_abort(stopped)?;
+            quiesced.pop();
+        }
+        self.upgrading.store(false, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
     }
 
     fn sessions_root(&self) -> PathBuf { self.data_dir.join("sessions") }
+    fn request_cancel(&self, id: EntityId) -> Result<bool> {
+        let slot = self.cancellations.lock().get(&id).cloned();
+        let slot = match slot {
+            Some(slot) => slot,
+            None => {
+                self.open(id)?;
+                self.cancellations.lock().get(&id).cloned()
+                    .context("REPL_SESSION_UNAVAILABLE: session has no cancellation owner")?
+            },
+        };
+        let token = slot.lock();
+        if let Some(token) = token.as_ref() { token.cancel(); Ok(true) } else { Ok(false) }
+    }
     fn kernels_root(&self) -> PathBuf { self.data_dir.join("kernels") }
     fn wheels_root(&self) -> PathBuf { self.data_dir.join("wheels") }
 
@@ -288,7 +349,11 @@ impl SessionStore {
     /// Cached live session, or reopen the durable directory. Reopen never
     /// replays cells; an interrupted restore is fenced by the journal.
     pub fn open(&self, session_id: EntityId) -> Result<Arc<std::sync::Mutex<crate::session::WasiReplSession>>> {
-        if let Some(session) = self.sessions.lock().get(&session_id) {
+        let mut sessions = self.sessions.lock();
+        if self.upgrading.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("REPL_QUIESCED: upgrade owns admission");
+        }
+        if let Some(session) = sessions.get(&session_id) {
             return Ok(Arc::clone(session));
         }
         let dir = self.session_dir(session_id);
@@ -297,22 +362,29 @@ impl SessionStore {
         }
         let provider = crate::session::WasiReplProvider::new(self.sessions_root());
         let session = provider.reopen(&dir)?;
+        self.cancellations.lock().insert(session_id, session.cancellation_handle());
         let session = Arc::new(std::sync::Mutex::new(session));
-        self.sessions.lock().insert(session_id, Arc::clone(&session));
+        sessions.insert(session_id, Arc::clone(&session));
         Ok(session)
     }
 
     /// Cache a freshly created session; its id is its directory name.
     pub fn insert(&self, session: crate::session::WasiReplSession) -> Result<EntityId> {
+        let mut sessions = self.sessions.lock();
+        if self.upgrading.load(std::sync::atomic::Ordering::SeqCst) {
+            anyhow::bail!("REPL_QUIESCED: upgrade owns admission");
+        }
         let id = session.session_dir().file_name().and_then(|name| name.to_str())
             .and_then(|name| name.parse().ok())
             .context("REPL_SESSION_INVALID: session directory has no id")?;
-        self.sessions.lock().insert(id, Arc::new(std::sync::Mutex::new(session)));
+        self.cancellations.lock().insert(id, session.cancellation_handle());
+        sessions.insert(id, Arc::new(std::sync::Mutex::new(session)));
         Ok(id)
     }
 
     pub fn remove(&self, session_id: EntityId) {
         self.sessions.lock().remove(&session_id);
+        self.cancellations.lock().remove(&session_id);
     }
 
     pub fn sessions_root_cloned(&self) -> PathBuf { self.sessions_root() }
@@ -792,17 +864,33 @@ fn run_session_op(
                 limits: Some(create.limits) }, value, true, Some(OperationOutcome::Succeeded),
                 EffectStatus::Unknown, None))
         }
+        SessionOp::Cancel => {
+            let reference: SessionRef = serde_json::from_value(payload.clone())
+                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+            let session_id = reference.session_id;
+            let requested = sessions.request_cancel(session_id)?;
+            let frozen = SessionFrozenInput { op: "cancel".into(), kernel_id: None,
+                module: None, module_digest: None, session_id: Some(session_id), limits: None };
+            let value = serde_json::to_value(SessionResult {
+                session_id: Some(session_id),
+                outcome: Some(if requested { "interrupt_requested" } else { "nothing_running" }.into()),
+                kernel_id: None, runtime: None, backend: None, session_model: None,
+                recovery_level: None, cells_executed: None, environment_generation: None,
+                detail: None, error: None,
+            })?;
+            Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+        }
         SessionOp::Inspect | SessionOp::Checkpoint | SessionOp::Restore | SessionOp::Fork
-        | SessionOp::Reset | SessionOp::Cancel | SessionOp::Dispose | SessionOp::InstallDependencies => {
+        | SessionOp::Reset | SessionOp::Dispose | SessionOp::InstallDependencies => {
             let reference: SessionRef = serde_json::from_value(payload.clone())
                 .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
             let session_id = reference.session_id;
             let handle = sessions.open(session_id)?;
-            let mut session = handle.lock()
-                .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
             let frozen = SessionFrozenInput { op: format!("{:?}", input.op).to_lowercase(),
                 kernel_id: None, module: None, module_digest: None, session_id: Some(session_id),
                 limits: None };
+            let mut session = handle.lock()
+                .map_err(|_| anyhow::anyhow!("REPL_SESSION_INVALID: session lock poisoned"))?;
             match input.op {
                 SessionOp::Inspect => {
                     let info = session.inspect()?;
@@ -840,20 +928,21 @@ fn run_session_op(
                 }
                 SessionOp::Restore => {
                     let report = session.restore()?;
+                    let ready = !matches!(session.inspect()?.state, crate::contract::SessionState::RecoveryRequired);
                     let replayed = report.entries.iter()
                         .filter(|entry| matches!(entry.recovery,
                             crate::contract::CellRecovery::Replayed { .. })).count();
                     let value = serde_json::to_value(SessionResult {
                         session_id: Some(session_id),
-                        outcome: Some("restored".into()),
+                        outcome: Some(if ready { "restored" } else { "recovery_required" }.into()),
                         kernel_id: None, runtime: None, backend: None, session_model: None,
                         recovery_level: None,
                         cells_executed: Some(replayed as u64),
                         environment_generation: None,
-                        detail: Some(format!("entries={} torn_tail_at={:?}", report.entries.len(), report.torn_tail_at)),
-                        error: None,
+                        detail: Some(serde_json::to_string(&report)?),
+                        error: (!ready).then(|| "REPL_RECOVERY_REQUIRED: final live state has no verified R1 checkpoint".into()),
                     })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+                    Ok((frozen, value, true, Some(if ready { OperationOutcome::Succeeded } else { OperationOutcome::Failed }), EffectStatus::Unknown, None))
                 }
                 SessionOp::Fork => {
                     let forked = session.fork(&sessions.sessions_root_cloned())?;
@@ -884,17 +973,6 @@ fn run_session_op(
                     let value = serde_json::to_value(SessionResult {
                         session_id: Some(session_id),
                         outcome: Some("reset".into()),
-                        kernel_id: None, runtime: None, backend: None, session_model: None,
-                        recovery_level: None, cells_executed: None, environment_generation: None,
-                        detail: None, error: None,
-                    })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
-                }
-                SessionOp::Cancel => {
-                    let outcome = session.cancel()?;
-                    let value = serde_json::to_value(SessionResult {
-                        session_id: Some(session_id),
-                        outcome: Some(format!("{:?}", outcome)),
                         kernel_id: None, runtime: None, backend: None, session_model: None,
                         recovery_level: None, cells_executed: None, environment_generation: None,
                         detail: None, error: None,
@@ -946,7 +1024,7 @@ fn run_session_op(
                     };
                     Ok((frozen, value, true, Some(operation_outcome), EffectStatus::Unknown, None))
                 }
-                SessionOp::ListKernels | SessionOp::Create => unreachable!("routed above"),
+                SessionOp::ListKernels | SessionOp::Create | SessionOp::Cancel => unreachable!("routed above"),
             }
         }
     }

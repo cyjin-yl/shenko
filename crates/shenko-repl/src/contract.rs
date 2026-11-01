@@ -124,19 +124,19 @@ pub struct ResourceLimits {
     pub max_wall_clock_ms: Option<u64>,
     pub max_fuel: Option<u64>,
     pub max_memory_bytes: Option<u64>,
-    /// True only when every limit above is enforced. Never set today: fuel
-    /// and memory remain unenforced declarations.
+    /// Legacy persisted aggregate flag; inspect reports individual mechanisms.
     #[serde(default)]
     pub enforced: bool,
 }
 
 impl ResourceLimits {
     /// Honest per-field enforcement report for `inspect`.
-    pub fn enforcement(&self) -> LimitEnforcement {
+    pub fn enforcement(&self, backend: BackendKind) -> LimitEnforcement {
         LimitEnforcement {
             wall_clock: self.max_wall_clock_ms.is_some(),
-            fuel: false,
-            memory: false,
+            fuel: self.max_fuel.is_some() && backend == BackendKind::WasiPreview1,
+            memory: self.max_memory_bytes.is_some()
+                && matches!(backend, BackendKind::WasiPreview1 | BackendKind::NativeHost),
         }
     }
 }
@@ -195,6 +195,9 @@ pub enum CellOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DriverReport {
+    /// Observed inside the executing interpreter, never guessed by host OS.
+    #[serde(default)]
+    pub compatible_wheel_tags: Vec<String>,
     pub ok: bool,
     pub error: Option<String>,
     /// Names the driver could not serialize into the state file.
@@ -210,6 +213,12 @@ pub struct DriverReport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CellRecord {
+    #[serde(default)]
+    pub object_checkpoint: Option<crate::state::Baseline>,
+    /// Absent for historical/unrecorded cells; absence never authorizes fresh
+    /// host input during replay.
+    #[serde(default)]
+    pub io_receipt: Option<shenko_wasm::replay_io::IoReceipt>,
     /// "cell"; distinguishes record kinds in one JSONL journal.
     pub kind: String,
     /// Journal schema for independent readers; bump on incompatible change.
@@ -305,6 +314,9 @@ pub struct ReplCheckpoint {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CellRecovery {
+    /// An explicit immutable R1 object checkpoint was restored; no source
+    /// or external effect was executed to obtain this state.
+    ObjectRestored { checkpoint_blake3: String, dropped: Vec<String> },
     /// Pure cell re-executed; `replayed_as` is the replay record index.
     Replayed { replayed_as: u64 },
     /// Declared-effect cell preserved as a record; its effect is not rerun.

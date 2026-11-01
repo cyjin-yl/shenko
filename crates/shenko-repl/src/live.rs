@@ -34,6 +34,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::io::FromRawFd;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::Arc;
@@ -79,7 +80,7 @@ pub struct ProcessOutcome {
 /// One owned long-lived interpreter process plus its protocol handles.
 pub struct LiveProcess {
     cancel: WasiCancellation,
-    stdin: File,
+    stdin: Option<File>,
     outcome: Arc<Mutex<Option<ProcessOutcome>>>,
     dead: Arc<AtomicBool>,
     join: Option<std::thread::JoinHandle<()>>,
@@ -106,6 +107,7 @@ impl LiveProcess {
         env: Vec<(String, String)>,
         guest_log: File,
         guest_err_log: File,
+        limits: shenko_wasm::WasiResourceLimits,
     ) -> Result<Self> {
         let (stdin_read, stdin_write) = pipe().context("create WASI session stdin pipe")?;
         let cancel = WasiCancellation::default();
@@ -124,6 +126,7 @@ impl LiveProcess {
                 );
                 command.arguments = argv;
                 command.environment = env;
+                command.limits = limits;
                 // No whole-run deadline: the guest lives for the session.
                 // Mid-cell interrupts use the cancel token; per-cell
                 // wall-clock bounds are enforced by the caller.
@@ -148,7 +151,7 @@ impl LiveProcess {
             .context("spawn live WASI session thread")?;
         Ok(Self {
             cancel,
-            stdin: stdin_write,
+            stdin: Some(stdin_write),
             outcome,
             dead,
             join: Some(join),
@@ -164,6 +167,7 @@ impl LiveProcess {
         workdir: PathBuf,
         guest_log: File,
         guest_err_log: File,
+        max_memory_bytes: Option<u64>,
     ) -> Result<Self> {
         let (stdin_read, stdin_write) = pipe().context("create native session stdin pipe")?;
         let cancel = WasiCancellation::default();
@@ -181,14 +185,14 @@ impl LiveProcess {
             .name("shenko-repl-live".into())
             .spawn(move || {
                 let recorded =
-                    run_native_child(argv, env, workdir, guest_log, guest_err_log, stdin_read, run_cancel);
+                    run_native_child(argv, env, workdir, guest_log, guest_err_log, stdin_read, run_cancel, max_memory_bytes);
                 *thread_outcome.lock().expect("live outcome lock") = Some(recorded);
                 thread_dead.store(true, Ordering::SeqCst);
             })
             .context("spawn native session thread")?;
         Ok(Self {
             cancel,
-            stdin: stdin_write,
+            stdin: Some(stdin_write),
             outcome,
             dead,
             join: Some(join),
@@ -198,6 +202,7 @@ impl LiveProcess {
     pub fn is_dead(&self) -> bool { self.dead.load(Ordering::SeqCst) }
 
     pub fn cancel(&self) { self.cancel.cancel(); }
+    pub fn cancellation(&self) -> WasiCancellation { self.cancel.clone() }
 
     /// Wait (briefly) for process death after an interrupt.
     pub fn await_death(&self, timeout: Duration) {
@@ -225,21 +230,37 @@ impl LiveProcess {
             return Err(CellInterrupt::CancelRequested);
         }
         let header_json = serde_json::to_vec(header).expect("cell header serializes");
+        let started = Instant::now();
         let framed = (|| -> std::io::Result<()> {
-            self.stdin.write_all(&(header_json.len() as u64).to_be_bytes())?;
-            self.stdin.write_all(&header_json)?;
-            self.stdin.write_all(&(source.len() as u64).to_be_bytes())?;
-            self.stdin.write_all(source)?;
-            self.stdin.flush()?;
+            let header_len = (header_json.len() as u64).to_be_bytes();
+            let source_len = (source.len() as u64).to_be_bytes();
+            for mut remaining in [&header_len[..], &header_json[..], &source_len[..], source] {
+                while !remaining.is_empty() {
+                    if self.cancel.is_cancelled() || deadline.is_some_and(|limit| started.elapsed() >= limit) {
+                        self.cancel.cancel();
+                        return Err(std::io::ErrorKind::TimedOut.into());
+                    }
+                    match self.stdin.as_mut().ok_or(std::io::ErrorKind::BrokenPipe)?.write(remaining) {
+                        Ok(0) => return Err(std::io::ErrorKind::WriteZero.into()),
+                        Ok(written) => remaining = &remaining[written..],
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(POLL_INTERVAL),
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {},
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
             Ok(())
         })();
         if framed.is_err() {
-            // Broken pipe: the guest died between cells.
-            self.dead.store(true, Ordering::SeqCst);
+            // Delivery failure is not observed worker termination.
+            self.cancel.cancel();
+            self.await_death(DEATH_TIMEOUT);
+            if deadline.is_some_and(|limit| started.elapsed() >= limit) {
+                return Err(CellInterrupt::DeadlineExceeded);
+            }
             return Err(CellInterrupt::CancelRequested);
         }
 
-        let started = Instant::now();
         loop {
             if report_path.exists() {
                 return Ok(());
@@ -265,7 +286,7 @@ impl LiveProcess {
     /// child is killed by the cancel path if it stays stuck). Journal and
     /// outputs on disk are untouched.
     pub fn shutdown(mut self) -> Option<ProcessOutcome> {
-        drop(self.stdin);
+        drop(self.stdin.take());
         if let Some(join) = self.join.take() {
             let start = Instant::now();
             while !self.dead.load(Ordering::SeqCst) && start.elapsed() < DRAIN_TIMEOUT {
@@ -281,6 +302,18 @@ impl LiveProcess {
     }
 }
 
+impl Drop for LiveProcess {
+    fn drop(&mut self) {
+        drop(self.stdin.take());
+        self.cancel.cancel();
+        if let Some(join) = self.join.take() {
+            // A blocked hostcall retains this owner rather than silently
+            // detaching a still-running interpreter and releasing capacity.
+            let _ = join.join();
+        }
+    }
+}
+
 fn run_native_child(
     argv: Vec<String>,
     env: Vec<(String, String)>,
@@ -289,16 +322,32 @@ fn run_native_child(
     guest_err_log: File,
     stdin_read: File,
     cancel: WasiCancellation,
+    max_memory_bytes: Option<u64>,
 ) -> ProcessOutcome {
     let mut command = std::process::Command::new(&argv[0]);
     command
         .args(&argv[1..])
+        .process_group(0)
         .env_clear()
         .envs(env)
         .current_dir(&workdir)
         .stdin(std::process::Stdio::from(stdin_read))
         .stdout(std::process::Stdio::from(guest_log))
         .stderr(std::process::Stdio::from(guest_err_log));
+    if let Some(bytes) = max_memory_bytes {
+        // pre_exec performs only async-signal-safe setrlimit; the limit is
+        // inherited by descendants and cannot be raised past this hard cap.
+        unsafe {
+            command.pre_exec(move || {
+                let cap = libc::rlimit { rlim_cur: bytes as libc::rlim_t,
+                    rlim_max: bytes as libc::rlim_t };
+                if libc::setrlimit(libc::RLIMIT_AS, &cap) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -313,6 +362,7 @@ fn run_native_child(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
+                terminate_process_group(child.id());
                 let code = status.code().unwrap_or(-1);
                 let outcome = if cancel.is_cancelled() && code != 0 {
                     WasiRunOutcome::Cancelled
@@ -323,19 +373,53 @@ fn run_native_child(
             }
             Ok(None) => {
                 if cancel.is_cancelled() {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return ProcessOutcome { outcome: Some(WasiRunOutcome::Cancelled), transport_error: None };
+                    // Kill the owned group, not only the interpreter: a cell
+                    // may have spawned subprocesses. Do not report death or
+                    // release the worker until the interpreter is reaped.
+                    unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); }
+                    match child.wait() {
+                        Ok(_) => {
+                            terminate_process_group(child.id());
+                            return ProcessOutcome {
+                                outcome: Some(WasiRunOutcome::Cancelled), transport_error: None,
+                            };
+                        },
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(_) => {
+                            // Unknown termination is not permission to detach.
+                            std::thread::sleep(Duration::from_millis(10));
+                            continue;
+                        }
+                    }
                 }
                 std::thread::sleep(Duration::from_millis(10));
             }
             Err(error) => {
-                return ProcessOutcome {
-                    outcome: None,
-                    transport_error: Some(format!("wait {}: {error}", argv[0])),
+                // Preserve ownership while termination cannot be observed.
+                // ECHILD means the OS no longer has an owned child to reap.
+                if error.raw_os_error() == Some(libc::ECHILD) {
+                    terminate_process_group(child.id());
+                    return ProcessOutcome { outcome: None,
+                        transport_error: Some(format!("wait {}: {error}", argv[0])) };
                 }
+                unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); }
+                std::thread::sleep(Duration::from_millis(10));
             }
         }
+    }
+}
+
+pub(crate) fn terminate_process_group(id: u32) {
+    let group = -(id as libc::pid_t);
+    loop {
+        unsafe { libc::kill(group, libc::SIGKILL); }
+        if unsafe { libc::kill(group, 0) } < 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+            return;
+        }
+        // Descendants, including zombies not yet reaped by their OS owner,
+        // retain the group's capacity until absence is actually observed.
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -347,6 +431,14 @@ pub fn pipe() -> std::io::Result<(File, File)> {
     let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
     if rc != 0 {
         return Err(std::io::Error::last_os_error());
+    }
+    // Only the host write end is nonblocking. Guest reads retain normal
+    // blocking semantics; delivery polls deadline/cancellation on backpressure.
+    let flags = unsafe { libc::fcntl(fds[1], libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fds[1], libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        let error = std::io::Error::last_os_error();
+        unsafe { libc::close(fds[0]); libc::close(fds[1]); }
+        return Err(error);
     }
     // SAFETY: fds[0] is the freshly created pipe read end, uniquely owned.
     let read = unsafe { File::from_raw_fd(fds[0]) };

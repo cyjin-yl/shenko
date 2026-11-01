@@ -3,15 +3,15 @@
 //! * Driver kernels ([`crate::kernel::KernelDriver`] != `None`) run a
 //!   **live process** ([`crate::live`]): one long-lived owned interpreter
 //!   process per session; variables, closures and imported modules persist in
-//!   interpreter memory while it lives; recovery kills and rebuilds it from
-//!   the durable journal.
+//!   interpreter memory while it lives; recovery stops it and restores
+//!   immutable, explicitly supported R1 object checkpoints without replay.
 //! * Raw kernels run **one-shot**: one independent WASI process per cell;
-//!   the R0 journal plus replay of caller-declared `Pure` cells is the whole
-//!   recovery story, and `inspect` says so.
+//!   declared-state checkpoints or sealed host-input transcripts govern
+//!   recovery; a caller's `Pure` declaration alone authorizes no fresh I/O.
 //!
-//! Everything here is honest about what is not implemented: resource fuel
-//! and memory limits are declarations without a mechanism; R2 VM-state
-//! recovery exists nowhere; interrupt success is never stop-proof.
+//! WASI fuel is store-total and linear memory is store-limited; native
+//! interpreters inherit an address-space hard cap. R2 VM-state recovery is
+//! not claimed; an interrupt request is never itself stop-proof.
 
 use crate::contract::*;
 use crate::journal as jrn;
@@ -120,17 +120,18 @@ impl ReplProvider for WasiReplProvider {
         let baseline = match &state { Some(state) => state.file.snapshot(&dir)?, None => None };
         let mut limits = request.limits;
         limits.enforced = false;
+        let recovery_level = request.kernel.recovery_level();
         let manifest = SessionManifest {
             schema_version: MANIFEST_SCHEMA, session_id, kernel: request.kernel, module_blake3,
             bind: request.bind, limits, environment_generation,
-            recovery_level: request.kernel.recovery_level(), forked_from: None, baseline,
+            recovery_level, forked_from: None, baseline,
             created_unix_ms: unix_ms(), disposed_unix_ms: None,
         };
         let engine = build_engine(&dir, &manifest.kernel, preopens)?;
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
         Ok(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
-            oneshot_cancel: None, disposed: false, preview_bytes: preview_len(request.preview_bytes) })
+            oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: preview_len(request.preview_bytes) })
     }
 
     fn reopen(&self, session_dir: &Path) -> Result<WasiReplSession> {
@@ -176,8 +177,6 @@ fn cell_namespace(dir: &Path, session_id: EntityId) -> CellNamespace {
     CellNamespace { host: dir.join("home/.shenko/cells").join(session_id.to_string()), guest }
 }
 
-/// Guest staging dir for live replay streams (under the mounted home tree).
-fn live_replay_guest_dir() -> String { format!("{SHENKO_GUEST_ROOT}/replays") }
 
 /// Environment directory for one generation tag (`g-<blake3-16>`).
 fn generation_tag(generation: &shenko_types::ids::RuntimeGeneration) -> String {
@@ -221,12 +220,23 @@ fn load_journal(dir: &Path, manifest: &SessionManifest) -> Result<jrn::Journal> 
 /// kernel lock plus committed env packages) and rewrite the manifest. Both
 /// orders are idempotent, so a repeated crash re-heals to the same content.
 fn reconcile_manifest_generation(dir: &Path, manifest: &SessionManifest, journal: &jrn::Journal) -> Result<()> {
+    for env in &journal.envs {
+        if !env_dir_host(dir, &generation_tag(&env.environment_generation)).is_dir() {
+            bail!("REPL_JOURNAL_CORRUPT: committed environment directory is missing");
+        }
+    }
     if journal.generation() == &kernel::environment_generation(&manifest.kernel) {
         return Ok(());
     }
     let mut healed = manifest.kernel.clone();
+    let mut generation = kernel::environment_generation(&healed);
     for env in &journal.envs {
+        if env.previous_generation != generation { continue; }
         healed.dependency_lock.extend(env.packages.iter().cloned());
+        generation = kernel::environment_generation(&healed);
+        if generation != env.environment_generation {
+            bail!("REPL_JOURNAL_CORRUPT: environment transition does not match its dependency lock");
+        }
     }
     if kernel::environment_generation(&healed) != *journal.generation() {
         bail!("REPL_JOURNAL_CORRUPT: environment generation does not match kernel lock plus env records");
@@ -287,7 +297,7 @@ pub fn open_session(dir: &Path, preview_bytes: usize) -> Result<WasiReplSession>
         bail!("REPL_JOURNAL_CORRUPT: reset boundary without declared state");
     }
     let mut session = WasiReplSession {
-        dir, busy: None, oneshot_cancel: None, disposed: manifest.disposed_unix_ms.is_some(),
+        dir, busy: None, oneshot_cancel: None, cancellation: Default::default(), disposed: manifest.disposed_unix_ms.is_some(), quiesced: false,
         preview_bytes: preview_len(preview_bytes), manifest, engine, state, journal,
     };
     if session.journal.pending_reset.is_some() {
@@ -500,19 +510,66 @@ pub struct WasiReplSession {
     oneshot_cancel: Option<WasiCancellation>,
     /// An immediate execution fence; disposal may still need persistence retry.
     disposed: bool,
+    quiesced: bool,
+    cancellation: std::sync::Arc<parking_lot::Mutex<Option<WasiCancellation>>>,
     preview_bytes: usize,
 }
 
 impl WasiReplSession {
+    fn has_current_cells(&self) -> bool {
+        self.journal.cells.last().is_some_and(|cell| self.journal.last_reset.as_ref()
+            .is_none_or(|reset| cell.seq > reset.after_cell_seq))
+    }
+    pub fn cancellation_handle(&self) -> std::sync::Arc<parking_lot::Mutex<Option<WasiCancellation>>> {
+        self.cancellation.clone()
+    }
+    /// Stop and join the actual interpreter before an upgrade acknowledges
+    /// quiescence. Durable history remains; resumption explicitly restores it.
+    pub fn quiesce_for_upgrade(&mut self) -> Result<bool> {
+        if self.busy.is_some() {
+            bail!("REPL_SESSION_BUSY: cannot acknowledge upgrade while a cell owns execution");
+        }
+        self.quiesced = true;
+        let running = matches!(&self.engine, Engine::Live(Some(process)) if !process.is_dead());
+        match self.stop_live_process() {
+            Some(outcome) => if let Some(error) = outcome.transport_error {
+                bail!("REPL_QUIESCE_FAILED: {error}");
+            },
+            None if running => bail!("REPL_QUIESCE_UNKNOWN: joined worker supplied no interpreter outcome"),
+            None => {},
+        }
+        Ok(running)
+    }
+
+    pub fn resume_after_upgrade_abort(&mut self, restore: bool) -> Result<()> {
+        if restore {
+            // The caller holds the session mutex and the store's admission
+            // fence. Only this explicit abort path may reconstruct it.
+            self.quiesced = false;
+            let restored = self.restore();
+            self.quiesced = true;
+            restored?;
+            if self.journal.active_restore.is_some() {
+                bail!("REPL_RECOVERY_REQUIRED: no complete R1 checkpoint for upgrade resumption");
+            }
+        }
+        self.quiesced = false;
+        Ok(())
+    }
+
     fn ensure_ready(&self) -> Result<()> {
+        if self.quiesced { bail!("REPL_QUIESCED: upgrade owns the session"); }
         if self.disposed { bail!("REPL_SESSION_DISPOSED: session is closed"); }
         if self.journal.pending_reset.is_some() || self.journal.active_restore.is_some() {
             bail!("REPL_RECOVERY_REQUIRED: finish the interrupted reset or restore");
         }
         if let Engine::Live(Some(process)) = &self.engine {
-            if process.is_dead() {
+            if process.is_dead() || process.cancellation().is_cancelled() {
                 bail!("REPL_RECOVERY_REQUIRED: the live interpreter process is gone; run restore() before more cells");
             }
+        }
+        if matches!(&self.engine, Engine::Live(None)) && self.has_current_cells() {
+            bail!("REPL_RECOVERY_REQUIRED: reopened live state requires explicit restore before execution");
         }
         Ok(())
     }
@@ -603,7 +660,11 @@ impl WasiReplSession {
                 argv.push(driver_guest);
                 let runtime = build_runtime(preopens)?;
                 LiveProcess::spawn_wasi(runtime, module, argv, self.manifest.kernel.env.clone(),
-                    guest_stdout, guest_stderr)?
+                    guest_stdout, guest_stderr, shenko_wasm::WasiResourceLimits {
+                        max_fuel: self.manifest.limits.max_fuel,
+                        max_memory_bytes: self.manifest.limits.max_memory_bytes
+                            .map(usize::try_from).transpose().context("memory limit exceeds host address space")?,
+                    })?
             }
             BackendKind::NativeHost => {
                 let ModuleSource::ModulePath(executable) = &self.manifest.kernel.module;
@@ -613,7 +674,7 @@ impl WasiReplSession {
                     .context("REPL_KERNEL_INVALID: native workdir has no host preopen")?;
                 LiveProcess::spawn_native(executable.clone(), driver_host,
                     self.manifest.kernel.argv.clone(), self.manifest.kernel.env.clone(),
-                    workdir_host, guest_stdout, guest_stderr)?
+                    workdir_host, guest_stdout, guest_stderr, self.manifest.limits.max_memory_bytes)?
             }
             other => bail!("REPL_KERNEL_INVALID: backend {other:?} cannot host a live session"),
         };
@@ -632,12 +693,10 @@ impl WasiReplSession {
     // One-shot raw-kernel execution (one real WASI process per cell).
     // -----------------------------------------------------------------------
 
-    fn run_oneshot_cell(&mut self, cell: EntityId, source: &[u8], file_stem: &str, file_dir: &str)
+    fn run_oneshot_cell(&mut self, cell: EntityId, source: &[u8], file_stem: &str, file_dir: &str,
+        recorded: Option<&CellRecord>)
         -> Result<(CellOutcome, Option<DriverReport>, PathBuf, PathBuf, u64)>
     {
-        let Engine::OneShot { runtime } = &mut self.engine else {
-            bail!("REPL_KERNEL_INVALID: one-shot engine requested for a live kernel");
-        };
         // Recheck before every invocation: the runtime reopens pathnames.
         validate_extra_mounts(&self.dir, &self.manifest.kernel)?;
         if let Some(state) = &self.state { state.verify_root()?; }
@@ -652,6 +711,30 @@ impl WasiReplSession {
         let stdout = OutputFile::new(stdout_file.try_clone()?);
         let stderr = OutputFile::new(stderr_file.try_clone()?);
         let mut command = WasiCommand::new(stdin, stdout, stderr);
+        let binding = shenko_wasm::replay_io::ReplayBinding {
+            invocation_blake3: match &self.engine {
+                Engine::OneShot { runtime } => runtime.invocation_digest(
+                    &self.manifest.kernel.argv, &self.manifest.kernel.env)?,
+                _ => bail!("REPL_REPLAY_UNOBSERVED: a live engine has no invocation input boundary"),
+            },
+            module_blake3: self.manifest.module_blake3.clone(),
+            abi: shenko_wasm::replay_io::abi_identity(),
+            environment_generation: recorded.map(|record| &record.environment_generation)
+                .unwrap_or(self.journal.generation()).0.clone(),
+            source_blake3: jrn::hash_bytes(source), cell: cell.to_string(),
+            scope: serde_json::to_string(&self.manifest.bind)?,
+        };
+        let transcript = match recorded {
+            Some(record) => {
+                record.io_receipt.as_ref().context("REPLAY_IO_UNOBSERVED: historical cell has no sealed input receipt")?;
+                self.dir.join(jrn::CELLS_DIR).join(format!("{}.io", record.cell))
+            },
+            None => cell_dir.join(format!("{file_stem}.io")),
+        };
+        let io = if recorded.is_some() {
+            shenko_wasm::replay_io::ReplayIo::replay(&transcript, &binding)?
+        } else { shenko_wasm::replay_io::ReplayIo::record(&transcript, &binding)? };
+        command.replay_io = Some(io.clone());
         command.arguments = self.manifest.kernel.argv.clone();
         command.environment = self.manifest.kernel.env.clone();
         let cancel = WasiCancellation::default();
@@ -659,12 +742,34 @@ impl WasiReplSession {
             deadline: self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis),
             cancel: Some(cancel.clone()),
         };
+        command.limits = shenko_wasm::WasiResourceLimits {
+            max_fuel: self.manifest.limits.max_fuel,
+            max_memory_bytes: self.manifest.limits.max_memory_bytes
+                .map(usize::try_from).transpose().context("memory limit exceeds host address space")?,
+        };
+        *self.cancellation.lock() = Some(cancel.clone());
         self.oneshot_cancel = Some(cancel);
         self.busy = Some(cell);
         let started = Instant::now();
-        let result = runtime.run_wasi_module(&module, command);
+        let Engine::OneShot { runtime } = &mut self.engine else {
+            bail!("REPL_KERNEL_INVALID: one-shot engine requested for a live kernel");
+        };
+        let mut result = runtime.run_wasi_module(&module, command);
+        let receipt = io.finish().and_then(|receipt| {
+            if let Some(record) = recorded {
+                let expected = record.io_receipt.as_ref().context("REPLAY_IO_UNOBSERVED: cell has no sealed input receipt")?;
+                if &receipt != expected { bail!("REPLAY_IO_RECEIPT_MISMATCH"); }
+            }
+            jrn::write_fresh_file(&cell_dir.join(format!("{file_stem}.io.receipt.json")),
+                &serde_json::to_vec(&receipt)?)?;
+            Ok(())
+        });
+        if let Err(error) = receipt {
+            if result.is_ok() { result = Err(error); }
+        }
         self.busy = None;
         self.oneshot_cancel = None;
+        *self.cancellation.lock() = None;
         // Output data and names must reach storage before any journal record.
         stdout_file.sync_all()?;
         stderr_file.sync_all()?;
@@ -688,16 +793,18 @@ impl WasiReplSession {
         -> Result<(CellOutcome, Option<DriverReport>, u64)>
     {
         self.start_live_process()?;
+        let paths = self.live_cell_paths(seq);
         let Engine::Live(Some(process)) = &mut self.engine else {
             bail!("REPL_KERNEL_INVALID: live engine unavailable");
         };
+        *self.cancellation.lock() = Some(process.cancellation());
         if let Some(state) = &self.state { state.verify_root()?; }
-        let paths = self.live_cell_paths(seq);
         self.busy = Some(cell);
         let started = Instant::now();
         let run = process.run_cell(&paths.header, source, &paths.report_host,
             self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis));
         self.busy = None;
+        *self.cancellation.lock() = None;
         let wall_clock_ms = started.elapsed().as_millis() as u64;
         let outcome = match run {
             Ok(()) => {
@@ -735,7 +842,7 @@ impl WasiReplSession {
         let (exit_code, error) = match self.engine.session_model() {
             SessionModel::OneShot => {
                 let (outcome, _, stdout_path, stderr_path, _) =
-                    self.run_oneshot_cell(record.cell, source, &artifact.to_string(), jrn::REPLAYS_DIR)?;
+                    self.run_oneshot_cell(record.cell, source, &artifact.to_string(), jrn::REPLAYS_DIR, Some(record))?;
                 move_replay_streams(&stdout_path, &stderr_path, &self.dir, artifact)?;
                 match outcome {
                     CellOutcome::Completed { exit_code } | CellOutcome::Exited { exit_code } => (Some(exit_code), None),
@@ -745,39 +852,7 @@ impl WasiReplSession {
                 }
             }
             SessionModel::LiveProcess => {
-                self.start_live_process()?;
-                let Engine::Live(Some(process)) = &mut self.engine else {
-                    bail!("REPL_KERNEL_INVALID: live engine unavailable");
-                };
-                // Replay evidence goes to artifact-named files under the
-                // host replays/ dir, never over the original per-seq cell
-                // files. The guest only sees /home, so the driver writes
-                // per-seq streams to a guest staging dir the host renames.
-                let staging = self.dir.join("home/.shenko/replays");
-                let mut header = self.live_cell_paths(record.seq).header;
-                header.cell_dir = live_replay_guest_dir();
-                if self.manifest.kernel.backend == BackendKind::NativeHost {
-                    // Native drivers take host paths verbatim.
-                    header.cell_dir = staging.to_string_lossy().into_owned();
-                }
-                // The driver names the report <cell_dir>/<seq>.report.json;
-                // poll that exact path, then move it to the artifact-named
-                // audit location with the streams.
-                let report_host = staging.join(format!("{}.report.json", record.seq));
-                let run = process.run_cell(&header, source, &report_host,
-                    self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis));
-                let stdout_host = staging.join(format!("{}.out", record.seq));
-                let stderr_host = staging.join(format!("{}.err", record.seq));
-                move_replay_streams(&stdout_host, &stderr_host, &self.dir, artifact)?;
-                match run {
-                    Ok(()) => match live::read_driver_report(&report_host)? {
-                        Some(report) if report.ok => (Some(0), None),
-                        Some(report) => (None, report.error.or_else(|| Some("replayed cell raised".into()))),
-                        None => (None, Some("replay driver report missing".into())),
-                    },
-                    Err(live::CellInterrupt::CancelRequested) => (None, Some("replay interrupted".into())),
-                    Err(live::CellInterrupt::DeadlineExceeded) => (None, Some("replay deadline exceeded".into())),
-                }
+                bail!("REPL_REPLAY_UNOBSERVED: live/native source replay has no host input capture; restore an explicit R1 checkpoint")
             }
         };
         jrn::append_replay(&mut self.journal, jrn::ReplayRecord {
@@ -846,12 +921,11 @@ impl ReplSession for WasiReplSession {
     fn execute(&mut self, request: CellRequest) -> Result<CellResult> {
         self.ensure_ready()?;
         let cell = EntityId::new();
-        let (outcome, driver_report, stdout_path, stderr_path, wall_clock_ms);
-        match self.engine.session_model() {
+        let (outcome, driver_report, stdout_path, stderr_path, wall_clock_ms) = match self.engine.session_model() {
             SessionModel::OneShot => {
                 let stem = cell.to_string();
                 let (o, d, out, err, ms) =
-                    self.run_oneshot_cell(cell, &request.source, &stem, jrn::CELLS_DIR)?;
+                    self.run_oneshot_cell(cell, &request.source, &stem, jrn::CELLS_DIR, None)?;
                 (o, d, out, err, ms)
             }
             SessionModel::LiveProcess => {
@@ -869,7 +943,20 @@ impl ReplSession for WasiReplSession {
         let stdout = self.stream_preview(&stdout_path, stdout_blake3.clone(), stdout_bytes)?;
         let stderr = self.stream_preview(&stderr_path, stderr_blake3.clone(), stderr_bytes)?;
         let stem = cell.to_string();
+        let receipt_path = self.dir.join(jrn::CELLS_DIR).join(format!("{stem}.io.receipt.json"));
+        let io_receipt = match fs::read(receipt_path) {
+            Ok(bytes) => Some(serde_json::from_slice(&bytes)?),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
         let record = CellRecord {
+            object_checkpoint: if driver_report.as_ref().is_some_and(|report| report.state_verified)
+                || (self.manifest.kernel.driver == kernel::KernelDriver::None
+                    && matches!(outcome, CellOutcome::Completed { .. })) {
+                self.state.as_ref().map(|state| state.file.snapshot_named(
+                    &self.dir.join(jrn::CELLS_DIR), &format!("{cell}.state"))).transpose()?.flatten()
+            } else { None },
+            io_receipt,
             kind: String::new(), schema_version: 0, session_id: self.manifest.session_id,
             seq: self.journal.next_cell_seq, cell, cell_kind: request.cell_kind,
             source_blake3: jrn::hash_bytes(&request.source), source_bytes: request.source.len() as u64,
@@ -898,6 +985,8 @@ impl ReplSession for WasiReplSession {
             state: if self.disposed { SessionState::Disposed } else if self.busy.is_some() { SessionState::Busy }
                 else if self.journal.active_restore.is_some() || self.journal.pending_reset.is_some()
                     || live_running == false && matches!(self.engine, Engine::Live(Some(_)))
+                    || matches!(&self.engine, Engine::Live(Some(process)) if process.cancellation().is_cancelled())
+                    || (matches!(&self.engine, Engine::Live(None)) && self.has_current_cells())
                 { SessionState::RecoveryRequired }
                 else { SessionState::Ready },
             recovery_level: self.manifest.recovery_level,
@@ -906,7 +995,7 @@ impl ReplSession for WasiReplSession {
             cells_executed: self.journal.cells.len() as u64,
             environment_generation: self.journal.generation().clone(), bind: self.manifest.bind.clone(),
             limits: self.manifest.limits.clone(),
-            enforcement: self.manifest.limits.enforcement(),
+            enforcement: self.manifest.limits.enforcement(self.manifest.kernel.backend),
             driver: self.manifest.kernel.driver.identity(),
         })
     }
@@ -925,6 +1014,7 @@ impl ReplSession for WasiReplSession {
     }
 
     fn restore(&mut self) -> Result<RecoverReport> {
+        if self.quiesced { bail!("REPL_QUIESCED: upgrade owns the session"); }
         if self.disposed { bail!("REPL_SESSION_DISPOSED: session is closed"); }
         if self.journal.pending_reset.is_some() { self.finish_reset()?; }
         // Recovery rebuilds from the immutable baseline, never from live
@@ -950,13 +1040,35 @@ impl ReplSession for WasiReplSession {
                     continue;
                 }
             };
+            if self.engine.session_model() == SessionModel::LiveProcess {
+                let recovery = if let Some(reset) = last_reset.as_ref().filter(|reset| record.seq <= reset.after_cell_seq) {
+                    CellRecovery::BeforeReset { reset: reset.id }
+                } else if let (Some(state), Some(checkpoint)) = (&self.state, &record.object_checkpoint) {
+                    state.verify_root()?;
+                    state.file.restore_named(&self.dir.join(jrn::CELLS_DIR),
+                        &format!("{}.state", record.cell), Some(checkpoint))?;
+                    state.verify_root()?;
+                    CellRecovery::ObjectRestored { checkpoint_blake3: checkpoint.blake3.clone(),
+                        dropped: record.driver_report.as_ref().map(|report| report.dropped.clone()).unwrap_or_default() }
+                } else { CellRecovery::NeedsReconciliation };
+                entries.push(RecoverEntry { cell: record.cell, seq: record.seq,
+                    cell_kind: record.cell_kind, recovery });
+                continue;
+            }
             let recovery = match record.cell_kind {
                 CellKind::Pure => {
                     if let Some(reset) = last_reset.as_ref().filter(|reset| record.seq <= reset.after_cell_seq) {
                         CellRecovery::BeforeReset { reset: reset.id }
-                    } else {
+                    } else if let (Some(state), Some(checkpoint)) = (&self.state, &record.object_checkpoint) {
+                        state.verify_root()?;
+                        state.file.restore_named(&self.dir.join(jrn::CELLS_DIR),
+                            &format!("{}.state", record.cell), Some(checkpoint))?;
+                        state.verify_root()?;
+                        CellRecovery::ObjectRestored { checkpoint_blake3: checkpoint.blake3.clone(), dropped: Vec::new() }
+                    } else if record.io_receipt.is_some()
+                        && matches!(record.outcome, CellOutcome::Completed { .. }) {
                         CellRecovery::Replayed { replayed_as: self.replay_cell(record, &source, attempt)? }
-                    }
+                    } else { CellRecovery::NeedsReconciliation }
                 }
                 CellKind::DeclaredEffect => CellRecovery::ReceiptOnly,
                 CellKind::Unknown => CellRecovery::NeedsReconciliation,
@@ -964,6 +1076,17 @@ impl ReplSession for WasiReplSession {
             entries.push(RecoverEntry { cell: record.cell, seq: record.seq, cell_kind: record.cell_kind, recovery });
         }
         if let Some(state) = &self.state { state.verify_root()?; }
+        if self.engine.session_model() == SessionModel::LiveProcess {
+            let latest = cells.iter().rev().find(|record| last_reset.as_ref()
+                .is_none_or(|reset| record.seq > reset.after_cell_seq));
+            if latest.is_some_and(|record| !entries.iter().any(|entry|
+                entry.seq == record.seq && matches!(entry.recovery, CellRecovery::ObjectRestored { .. }))) {
+                // Keep the durable active-restore fence. An absent checkpoint
+                // does not authorize native/SSH or unobserved live replay.
+                return Ok(RecoverReport { session_id: self.manifest.session_id, entries, torn_tail_at });
+            }
+            self.start_live_process()?;
+        }
         jrn::complete_restore(&mut self.journal, attempt)?;
         Ok(RecoverReport { session_id: self.manifest.session_id, entries, torn_tail_at })
     }
@@ -1004,7 +1127,7 @@ impl ReplSession for WasiReplSession {
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
         Ok(Box::new(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
-            oneshot_cancel: None, disposed: false, preview_bytes: self.preview_bytes }))
+            oneshot_cancel: None, cancellation: Default::default(), disposed: false, quiesced: false, preview_bytes: self.preview_bytes }))
     }
 
     fn cancel(&self) -> Result<CancelOutcome> {
@@ -1028,6 +1151,7 @@ impl ReplSession for WasiReplSession {
     }
 
     fn reset(&mut self) -> Result<()> {
+        if self.quiesced { bail!("REPL_QUIESCED: upgrade owns the session"); }
         if self.disposed { bail!("REPL_SESSION_DISPOSED: session is closed"); }
         if self.state.is_none() { bail!("REPL_KERNEL_UNIMPLEMENTED: no interpreter state declared"); }
         if self.journal.pending_reset.is_none() { jrn::begin_reset(&mut self.journal)?; }
@@ -1035,6 +1159,7 @@ impl ReplSession for WasiReplSession {
     }
 
     fn install_dependencies(&mut self, request: InstallRequest) -> Result<InstallOutcome> {
+        self.ensure_ready()?;
         if self.disposed { return Ok(InstallOutcome::Refused { reason: "REPL_SESSION_DISPOSED".into() }); }
         if self.journal.pending_reset.is_some() || self.journal.active_restore.is_some() {
             return Ok(InstallOutcome::Refused {
@@ -1053,11 +1178,23 @@ impl ReplSession for WasiReplSession {
         }
         let candidate_tag = format!(".candidate-{}", uuid::Uuid::new_v4());
         let candidate = self.dir.join("home/.shenko/envs").join(&candidate_tag);
+        let previous_env = env_dir_host(&self.dir, &generation_tag(self.journal.generation()));
+        if previous_env.is_dir() {
+            crate::install::copy_environment(&previous_env, &candidate)?;
+        }
         let log_dir = self.dir.join("home/.shenko/install-logs").join(candidate_tag.trim_start_matches('.').to_string());
         fs::create_dir_all(&log_dir)?;
-        let attempt = match crate::install::install_into_candidate(
-            &self.manifest.kernel, &request, &candidate, &log_dir)
-        {
+        let compatible_tags = self.journal.cells.iter().rev()
+            .filter_map(|cell| cell.driver_report.as_ref())
+            .find(|report| !report.compatible_wheel_tags.is_empty())
+            .map(|report| report.compatible_wheel_tags.as_slice()).unwrap_or(&[]);
+        let cancel = WasiCancellation::default();
+        *self.cancellation.lock() = Some(cancel.clone());
+        let installed = crate::install::install_into_candidate(
+            &self.manifest.kernel, &request, &candidate, &log_dir, compatible_tags,
+            &self.manifest.limits, &cancel);
+        *self.cancellation.lock() = None;
+        let attempt = match installed {
             Ok(attempt) => attempt,
             Err(error) => {
                 let _ = fs::remove_dir_all(&candidate);
@@ -1077,15 +1214,16 @@ impl ReplSession for WasiReplSession {
         let previous_generation = self.journal.generation().clone();
         let environment_generation =
             crate::install::next_generation(&self.manifest.kernel, &attempt.installed);
-        // Durable transition first; the manifest follows. A crash between is
-        // healed by reconcile_manifest_generation on reopen.
-        jrn::append_env(&mut self.journal, attempt.installed.clone(), previous_generation.clone(),
-            environment_generation.clone(), unix_ms())?;
         let tag = generation_tag(&environment_generation);
         let committed = env_dir_host(&self.dir, &tag);
         fs::rename(&candidate, &committed)?;
-        sync_directory_ancestors(&self.dir.join("home/.shenko/envs"))?;
         File::open(&committed)?.sync_all()?;
+        sync_directory_ancestors(&self.dir.join("home/.shenko/envs"))?;
+        // Publish only an already-durable environment. A crash before this
+        // record leaves an unreferenced directory, never a missing active
+        // generation; a crash afterward is healed from the journal.
+        jrn::append_env(&mut self.journal, attempt.installed.clone(), previous_generation.clone(),
+            environment_generation.clone(), unix_ms())?;
         self.manifest.kernel.dependency_lock.extend(attempt.installed.iter().cloned());
         self.manifest.environment_generation = environment_generation.clone();
         jrn::write_manifest(&self.dir, &self.manifest)?;
@@ -1099,6 +1237,7 @@ impl ReplSession for WasiReplSession {
     }
 
     fn dispose(&mut self) -> Result<()> {
+        if self.quiesced { bail!("REPL_QUIESCED: upgrade owns the session"); }
         // Fence immediately, but retry persistence until a write succeeds.
         self.disposed = true;
         self.busy = None;

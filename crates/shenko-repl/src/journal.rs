@@ -14,7 +14,10 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
-pub const JOURNAL_SCHEMA: u32 = 3;
+pub const JOURNAL_SCHEMA: u32 = 4;
+/// Historical records remain raw evidence. Version 3 has no captured-input
+/// or immutable-object authority; new writers emit only version 4.
+const HISTORICAL_JOURNAL_SCHEMA: u32 = 3;
 pub const SESSION_MANIFEST: &str = "session.json";
 pub const JOURNAL_FILE: &str = "journal.jsonl";
 pub const CELLS_DIR: &str = "cells";
@@ -111,7 +114,8 @@ pub fn replay_path(artifact: EntityId, extension: &str) -> PathBuf {
 
 impl Journal {
     fn validate_common(&self, schema: u32, session: EntityId, id: EntityId) -> Result<()> {
-        if schema != JOURNAL_SCHEMA || session != self.session_id || id == EntityId::nil() {
+        if !matches!(schema, JOURNAL_SCHEMA | HISTORICAL_JOURNAL_SCHEMA)
+            || session != self.session_id || id == EntityId::nil() {
             bail!("REPL_JOURNAL_CORRUPT: schema, session or identity mismatch");
         }
         Ok(())
@@ -120,12 +124,17 @@ impl Journal {
     fn check_cell(&self, record: &CellRecord) -> Result<()> {
         self.validate_common(record.schema_version, record.session_id, record.cell)?;
         if record.kind != "cell" || record.seq != self.next_cell_seq
+            || (record.schema_version == HISTORICAL_JOURNAL_SCHEMA
+                && (record.io_receipt.is_some() || record.object_checkpoint.is_some()))
             || self.pending_reset.is_some() || self.active_restore.is_some()
             || self.ids.contains(&record.cell)
             || record.source_path != cell_path(record.cell, "source")
             || !self.valid_stream_paths(record)
             || !valid_digest(&record.source_blake3) || !valid_digest(&record.stdout_blake3)
             || !valid_digest(&record.stderr_blake3)
+            || record.io_receipt.as_ref().is_some_and(|receipt|
+                !valid_digest(&receipt.binding_blake3) || !valid_digest(&receipt.chain_blake3))
+            || record.object_checkpoint.as_ref().is_some_and(|checkpoint| !valid_digest(&checkpoint.blake3))
             || record.module_blake3 != self.module_blake3
             || record.environment_generation != self.generation
         {
@@ -234,7 +243,10 @@ impl Journal {
                     bail!("REPL_JOURNAL_CORRUPT: invalid restore start");
                 }
             }
-            "restore_complete" => {
+            "restore_complete" | "restore_abandoned" => {
+                if record.kind == "restore_abandoned" && record.schema_version != JOURNAL_SCHEMA {
+                    bail!("REPL_JOURNAL_CORRUPT: historical schema has no abandoned-restore boundary");
+                }
                 let pending = self.active_restore.as_ref().context("REPL_JOURNAL_CORRUPT: restore completion without start")?;
                 if record.seq != 0 || pending.id != record.id {
                     bail!("REPL_JOURNAL_CORRUPT: restore completion identity mismatch");
@@ -261,7 +273,7 @@ impl Journal {
                 self.active_restore = Some(record);
                 self.last_replayed_cell_seq = 0;
             }
-            "restore_complete" => self.active_restore = None,
+            "restore_complete" | "restore_abandoned" => self.active_restore = None,
             _ => unreachable!("validated boundary kind"),
         }
         Ok(())
@@ -302,7 +314,7 @@ pub fn load(dir: &Path, session_id: EntityId, module: &str, generation: &Runtime
                 journal.admit_replay(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid replay")?)?;
             }
             Some("env") => journal.admit_env(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid env record")?)?,
-            Some("reset" | "reset_complete" | "restore_begin" | "restore_complete") =>
+            Some("reset" | "reset_complete" | "restore_begin" | "restore_complete" | "restore_abandoned") =>
                 journal.admit_boundary(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid boundary")?)?,
             _ => bail!("REPL_JOURNAL_CORRUPT: unknown record kind"),
         }
@@ -389,8 +401,13 @@ fn boundary(journal: &mut Journal, kind: &str, id: EntityId, seq: u64) -> Result
 }
 
 pub fn begin_reset(journal: &mut Journal) -> Result<()> {
-    if journal.pending_reset.is_some() || journal.active_restore.is_some() {
+    if journal.pending_reset.is_some() {
         bail!("REPL_RECOVERY_REQUIRED: finish interrupted operation first");
+    }
+    if let Some(restore) = journal.active_restore.clone() {
+        // Explicit reset abandons reconstruction, not the work record. Keep
+        // that decision distinct from a successful restore receipt.
+        boundary(journal, "restore_abandoned", restore.id, 0)?;
     }
     let seq = journal.next_reset_seq;
     boundary(journal, "reset", EntityId::new(), seq)?;

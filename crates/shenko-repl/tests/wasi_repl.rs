@@ -163,7 +163,7 @@ fn session_executes_cells_with_durable_r0_and_guest_file_state() -> Result<()> {
 /// an Unknown cell is reported for reconciliation. Proof: the state counter
 /// after recovery equals the number of Pure cells only.
 #[test]
-fn recover_replays_only_pure_cells_and_keeps_effect_receipts() -> Result<()> {
+fn recover_restores_only_pure_state_checkpoints_and_keeps_effect_receipts() -> Result<()> {
     let root = temp_root("recover");
     let module = write_module(&root, "kernel.wat", STATEFUL_GUEST);
     let provider = WasiReplProvider::new(root.join("sessions"));
@@ -180,9 +180,9 @@ fn recover_replays_only_pure_cells_and_keeps_effect_receipts() -> Result<()> {
     let replays: Vec<_> = report
         .entries
         .iter()
-        .filter(|e| matches!(e.recovery, CellRecovery::Replayed { .. }))
+        .filter(|e| matches!(e.recovery, CellRecovery::ObjectRestored { .. }))
         .collect();
-    assert_eq!(replays.len(), 2, "only the two Pure cells replay");
+    assert_eq!(replays.len(), 2, "only the two Pure cells restore their exact declared-state checkpoints");
     assert!(matches!(
         report.entries[2].recovery,
         CellRecovery::ReceiptOnly
@@ -192,13 +192,15 @@ fn recover_replays_only_pure_cells_and_keeps_effect_receipts() -> Result<()> {
         CellRecovery::NeedsReconciliation
     ));
 
-    // Rebuild starts from the empty baseline, not the surviving value four.
+    // Exact Pure-cell checkpoints restore two, not the surviving value four;
+    // no guest source or external effect is reexecuted.
     let state = fs::read(dir.join("home/state.bin"))?;
     assert_eq!(state, vec![2u8], "state is reconstructed from pure cells only");
 
-    // Four cells, restore start/end, and two replay audit lines.
+    // Four cells and restore start/end; R1 restoration does not invent source
+    // replay audit lines.
     let journal = fs::read_to_string(dir.join("journal.jsonl"))?;
-    assert_eq!(journal.lines().count(), 8);
+    assert_eq!(journal.lines().count(), 6);
 
     fs::remove_dir_all(&root).ok();
     Ok(())
@@ -217,7 +219,7 @@ fn reset_boundary_prevents_pre_reset_replay() -> Result<()> {
     drop(session);
     let (_recovered, report) = WasiReplProvider::recover(&dir, 0)?;
     assert!(matches!(report.entries[0].recovery, CellRecovery::BeforeReset { .. }));
-    assert!(matches!(report.entries[1].recovery, CellRecovery::Replayed { .. }));
+    assert!(matches!(report.entries[1].recovery, CellRecovery::ObjectRestored { .. }));
     assert_eq!(fs::read(dir.join("home/state.bin"))?, vec![1]);
     Ok(())
 }
@@ -313,7 +315,7 @@ fn interrupted_replay_orphan_does_not_block_next_attempt() -> Result<()> {
     assert_eq!(reopened.inspect()?.state, SessionState::RecoveryRequired);
     assert!(reopened.execute(cell("unsafe", CellKind::Pure)).is_err());
     let report = reopened.restore()?;
-    assert!(matches!(report.entries[0].recovery, CellRecovery::Replayed { .. }));
+    assert!(matches!(report.entries[0].recovery, CellRecovery::ObjectRestored { .. }));
     assert_eq!(fs::read(&path)?, b"interrupted source");
     assert_eq!(fs::read(dir.join("home/state.bin"))?, vec![1]);
     Ok(())

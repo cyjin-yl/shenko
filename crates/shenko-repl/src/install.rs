@@ -8,9 +8,9 @@
 //!   path-escaping entries, checks the wheel filename tag against the
 //!   kernel's actual ABI route, and unpacks into the candidate site dir.
 //!   Both pure-Python (`*-none-any`) and ABI-matched platform wheels are
-//!   accepted where the route can actually run them (`wasm32-*wasi*` tags
-//!   for the WASI route, `manylinux`/`musllinux`/`linux` x86_64 tags for
-//!   native); incompatible wheels are reported as skipped with the reason.
+//!   accepted only when their expanded tags occur in the executing
+//!   interpreter's observed compatibility set; incompatible wheels are
+//!   reported as skipped with the reason, never guessed from host labels.
 //! * **npm / bun** (native Node/Bun kernels): the real installer binary
 //!   (resolved next to the bound interpreter) runs with an exact environment
 //!   in the candidate dir; a nonzero exit discards the candidate and the
@@ -45,42 +45,17 @@ enum WheelRoute {
 }
 
 impl WheelRoute {
-    fn accepts(&self, py_tag: &str, abi_tag: &str, platform_tag: &str) -> Result<(), String> {
-        let py_ok = py_tag.split('.').any(|part| {
-            part == "py3" || part.starts_with("py3") || part == "py2.py3"
-        });
-        if !py_ok {
-            return Err(format!("python tag {py_tag:?} is not Python 3"));
-        }
-        if abi_tag == "none" && platform_tag == "any" {
-            return Ok(());
-        }
-        match self {
-            Self::PythonWasi => {
-                if platform_tag.contains("emscripten") {
-                    return Err("emscripten platform wheels need the Pyodide ABI route, not WASI".into());
+    fn accepts(&self, py_tag: &str, abi_tag: &str, platform_tag: &str, actual_tags: &[String]) -> Result<(), String> {
+        for py in py_tag.split('.') {
+            for abi in abi_tag.split('.') {
+                for platform in platform_tag.split('.') {
+                    if actual_tags.iter().any(|tag| tag == &format!("{py}-{abi}-{platform}")) {
+                        return Ok(());
+                    }
                 }
-                if platform_tag.contains("wasi") && !abi_tag.contains("win") {
-                    return Ok(());
-                }
-                Err(format!(
-                    "platform {platform_tag:?} is not executable on the WASI route (accepted: any, *wasi*)"
-                ))
-            }
-            Self::PythonNative => {
-                let platform_ok = platform_tag.starts_with("manylinux")
-                    || platform_tag.starts_with("musllinux")
-                    || platform_tag == "linux_x86_64";
-                let abi_ok = abi_tag == "abi3"
-                    || (abi_tag.starts_with("cp3") && !abi_tag.contains("win"));
-                if platform_ok && abi_ok {
-                    return Ok(());
-                }
-                Err(format!(
-                    "platform {platform_tag:?}/abi {abi_tag:?} is not executable on native x86_64 Linux"
-                ))
             }
         }
+        Err(format!("wheel {py_tag}-{abi_tag}-{platform_tag} is absent from the executing interpreter's compatible tags; execute a Python cell to observe its ABI"))
     }
 }
 
@@ -88,7 +63,7 @@ fn route_for(profile: &KernelProfile) -> Result<WheelRoute> {
     use crate::contract::{BackendKind, ReplRuntime};
     match (profile.backend, &profile.runtime) {
         (BackendKind::WasiPreview1, ReplRuntime::CPythonWasi) => Ok(WheelRoute::PythonWasi),
-        (BackendKind::NativeHost, ReplRuntime::CPythonWasi) => Ok(WheelRoute::PythonNative),
+        (BackendKind::NativeHost, _) if profile.driver == crate::kernel::KernelDriver::PythonCellV1 => Ok(WheelRoute::PythonNative),
         _ => bail!(
             "REPL_INSTALL_UNSUPPORTED: kernel {} has no wheel route (runtime {:?} backend {:?})",
             profile.kernel_id,
@@ -122,11 +97,11 @@ fn parse_wheel_name(path: &Path) -> Result<WheelName> {
     }
     let offset = parts.len() - 3;
     Ok(WheelName {
-        name: parts[..offset].join("-").replace('-', "_"),
-        version: parts[offset].to_string(),
-        py: parts[offset + 1].to_string(),
-        abi: parts[offset + 2].to_string(),
-        platform: parts[offset + 3].to_string(),
+        name: parts[0].replace('-', "_"),
+        version: parts[1].to_string(),
+        py: parts[offset].to_string(),
+        abi: parts[offset + 1].to_string(),
+        platform: parts[offset + 2].to_string(),
     })
 }
 
@@ -136,6 +111,7 @@ pub fn install_wheels(
     profile: &KernelProfile,
     wheels: &[PathBuf],
     candidate: &Path,
+    actual_tags: &[String],
 ) -> Result<(Vec<PackageSpec>, Vec<SkippedPackage>)> {
     let route = route_for(profile)?;
     let mut installed = Vec::new();
@@ -152,7 +128,7 @@ pub fn install_wheels(
                 continue;
             }
         };
-        if let Err(reason) = route.accepts(&parsed.py, &parsed.abi, &parsed.platform) {
+        if let Err(reason) = route.accepts(&parsed.py, &parsed.abi, &parsed.platform, actual_tags) {
             skipped.push(SkippedPackage {
                 name: parsed.name.clone(),
                 pinned: parsed.version.clone(),
@@ -160,11 +136,11 @@ pub fn install_wheels(
             });
             continue;
         }
-        unpack_wheel(wheel, candidate)
+        let archive_digest = unpack_wheel(wheel, candidate)
             .with_context(|| format!("unpack {}", wheel.display()))?;
         installed.push(PackageSpec {
             name: parsed.name,
-            pinned: parsed.version,
+            pinned: format!("{}#blake3:{}", parsed.version, archive_digest),
         });
     }
     Ok((installed, skipped))
@@ -266,9 +242,14 @@ fn confined_target(dest: &Path, name: &str) -> Result<PathBuf> {
     Ok(target)
 }
 
-fn unpack_wheel(wheel: &Path, dest: &Path) -> Result<()> {
-    let bytes = fs::read(wheel)
+fn unpack_wheel(wheel: &Path, dest: &Path) -> Result<String> {
+    let mut bytes = Vec::new();
+    File::open(wheel)?.take(MAX_TOTAL_BYTES + 1).read_to_end(&mut bytes)
         .with_context(|| format!("read wheel {}", wheel.display()))?;
+    if bytes.len() as u64 > MAX_TOTAL_BYTES {
+        bail!("REPL_INSTALL_INVALID: compressed wheel exceeds archive ceiling");
+    }
+    let archive_digest = blake3::hash(&bytes).to_hex().to_string();
     let entries = parse_central_directory(&bytes)?;
     let mut total: u64 = 0;
     for entry in &entries {
@@ -308,8 +289,9 @@ fn unpack_wheel(wheel: &Path, dest: &Path) -> Result<()> {
         match entry.method {
             METHOD_STORED => payload.extend_from_slice(compressed),
             METHOD_DEFLATED => {
-                let mut decoder = DeflateDecoder::new(compressed);
+                let decoder = DeflateDecoder::new(compressed);
                 decoder
+                    .take(MAX_ENTRY_BYTES + 1)
                     .read_to_end(&mut payload)
                     .context("zip: deflate decode failed")?;
             }
@@ -333,7 +315,7 @@ fn unpack_wheel(wheel: &Path, dest: &Path) -> Result<()> {
         file.sync_all()?;
     }
     sync_parents(dest)?;
-    Ok(())
+    Ok(archive_digest)
 }
 
 fn data_offset(bytes: &[u8], entry: &CentralEntry) -> Result<usize> {
@@ -366,7 +348,10 @@ pub fn install_registry_packages(
     packages: &[PackageSpec],
     candidate: &Path,
     log_dir: &Path,
+    limits: &crate::contract::ResourceLimits,
+    cancel: &shenko_wasm::WasiCancellation,
 ) -> Result<Vec<PackageSpec>> {
+    use std::os::unix::process::CommandExt;
     use crate::contract::BackendKind;
     let ModuleSource::ModulePath(executable) = &profile.module else {
         bail!("REPL_INSTALL_UNSUPPORTED: native kernel has no executable path");
@@ -426,18 +411,51 @@ pub fn install_registry_packages(
     envs.retain(|(key, _)| key != "PATH");
     envs.push(("PATH".into(), path_entry));
 
-    let status = std::process::Command::new(&tool)
-        .args(&args)
+    let mut command = std::process::Command::new(&tool);
+    command.args(&args)
+        .process_group(0)
         .env_clear()
         .envs(envs)
         .current_dir(candidate)
         .stdout(std::process::Stdio::from(stdout.try_clone()?))
-        .stderr(std::process::Stdio::from(stderr.try_clone()?))
-        .status()
-        .with_context(|| format!("spawn installer {}", tool.display()))?;
+        .stderr(std::process::Stdio::from(stderr.try_clone()?));
+    if let Some(bytes) = limits.max_memory_bytes {
+        unsafe { command.pre_exec(move || {
+            let cap = libc::rlimit { rlim_cur: bytes as libc::rlim_t, rlim_max: bytes as libc::rlim_t };
+            if libc::setrlimit(libc::RLIMIT_AS, &cap) == 0 { Ok(()) }
+            else { Err(std::io::Error::last_os_error()) }
+        }); }
+    }
+    let mut child = command.spawn().with_context(|| format!("spawn installer {}", tool.display()))?;
+    let started = std::time::Instant::now();
+    let mut interrupted = false;
+    let status = loop {
+        if cancel.is_cancelled() || limits.max_wall_clock_ms.is_some_and(|ms|
+            started.elapsed() >= std::time::Duration::from_millis(ms)) {
+            interrupted = true;
+            unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                crate::live::terminate_process_group(child.id());
+                break status;
+            },
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {},
+            Err(error) if error.raw_os_error() == Some(libc::ECHILD) => {
+                crate::live::terminate_process_group(child.id());
+                return Err(error.into());
+            },
+            Err(_) => {
+                interrupted = true;
+                unsafe { libc::kill(-(child.id() as libc::pid_t), libc::SIGKILL); }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    };
     stdout.sync_all()?;
     stderr.sync_all()?;
-    if !status.success() {
+    if interrupted || !status.success() {
         let tail = fs::read_to_string(&stderr_path)
             .unwrap_or_default()
             .chars()
@@ -452,7 +470,68 @@ pub fn install_registry_packages(
             tool.display()
         );
     }
-    Ok(packages.to_vec())
+    let mut hasher = blake3::Hasher::new();
+    sync_environment_tree(candidate, &mut hasher)?;
+    let digest = hasher.finalize().to_hex().to_string();
+    Ok(packages.iter().map(|package| PackageSpec {
+        name: package.name.clone(), pinned: format!("{}#environment-blake3:{digest}", package.pinned),
+    }).collect())
+}
+
+/// Bind and sync the actual installed closure, including transitive packages,
+/// lockfiles and literal symlink targets. Never follow an installer symlink.
+fn sync_environment_tree(dir: &Path, hasher: &mut blake3::Hasher) -> Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut entries = fs::read_dir(dir)?.collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
+        let name = entry.file_name();
+        hasher.update(&(name.as_bytes().len() as u64).to_le_bytes());
+        hasher.update(name.as_bytes());
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            hasher.update(b"L");
+            let target = fs::read_link(&path)?;
+            hasher.update(&(target.as_os_str().as_bytes().len() as u64).to_le_bytes());
+            hasher.update(target.as_os_str().as_bytes());
+        } else if metadata.is_dir() {
+            hasher.update(b"D");
+            sync_environment_tree(&path, hasher)?;
+            hasher.update(b"E");
+        } else if metadata.is_file() {
+            hasher.update(b"F");
+            hasher.update(&metadata.len().to_le_bytes());
+            hasher.update(crate::journal::hash_file(&path)?.as_bytes());
+            File::open(&path)?.sync_all()?;
+        } else {
+            bail!("REPL_INSTALL_INVALID: installed environment contains a special file");
+        }
+    }
+    File::open(dir)?.sync_all()?;
+    Ok(())
+}
+
+pub fn copy_environment(source: &Path, target: &Path) -> Result<()> {
+    fs::create_dir(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let path = entry.path();
+        let destination = target.join(entry.file_name());
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_environment(&path, &destination)?;
+        } else if kind.is_symlink() {
+            std::os::unix::fs::symlink(fs::read_link(&path)?, &destination)?;
+        } else if kind.is_file() {
+            fs::copy(&path, &destination)?;
+            File::open(destination)?.sync_all()?;
+        } else {
+            bail!("REPL_INSTALL_INVALID: previous environment contains a special file");
+        }
+    }
+    File::open(target)?.sync_all()?;
+    Ok(())
 }
 
 use crate::kernel::ModuleSource;
@@ -481,35 +560,23 @@ pub fn install_into_candidate(
     request: &crate::contract::InstallRequest,
     candidate: &Path,
     log_dir: &Path,
+    actual_tags: &[String],
+    limits: &crate::contract::ResourceLimits,
+    cancel: &shenko_wasm::WasiCancellation,
 ) -> Result<InstallAttempt> {
     let mut installed = Vec::new();
     let mut skipped = Vec::new();
     if !request.wheels.is_empty() {
         let (wheel_installed, wheel_skipped) =
-            install_wheels(profile, &request.wheels, candidate)?;
+            install_wheels(profile, &request.wheels, candidate, actual_tags)?;
         installed.extend(wheel_installed);
         skipped.extend(wheel_skipped);
     }
     if !request.packages.is_empty() {
-        match install_registry_packages(profile, &request.packages, candidate, log_dir) {
-            Ok(packages) => installed.extend(packages),
-            Err(error) => {
-                if installed.is_empty() {
-                    return Ok(InstallAttempt { installed, skipped: vec![SkippedPackage {
-                        name: "registry".into(),
-                        pinned: String::new(),
-                        reason: format!("{error:#}"),
-                    }] });
-                }
-                // Wheels already landed; keep them and report the registry
-                // failure as skipped so the caller can decide.
-                skipped.push(SkippedPackage {
-                    name: "registry".into(),
-                    pinned: String::new(),
-                    reason: format!("{error:#}"),
-                });
-            }
-        }
+        // A failed installer can have partially changed arbitrary candidate
+        // files. Never publish those bytes merely because wheels succeeded.
+        installed.extend(install_registry_packages(profile, &request.packages,
+            candidate, log_dir, limits, cancel)?);
     }
     Ok(InstallAttempt { installed, skipped })
 }

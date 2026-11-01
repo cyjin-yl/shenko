@@ -20,14 +20,45 @@
 //
 // EOF on stdin exits cleanly (dispose).
 
-import * as std from "std";
+import * as std from "qjs:std";
+import * as os from "qjs:os";
+
+function atomicRename(from, to) {
+    const error = os.rename(from, to);
+    if (error !== 0) throw new Error("atomic rename failed: " + error);
+}
+
+function decodeUtf8(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const result = [];
+    for (let i = 0; i < bytes.length;) {
+        const first = bytes[i++];
+        if (first < 128) { result.push(String.fromCharCode(first)); continue; }
+        const width = first >= 0xc2 && first <= 0xdf ? 2 : first >= 0xe0 && first <= 0xef ? 3 : first >= 0xf0 && first <= 0xf4 ? 4 : 0;
+        let value = first & (width === 2 ? 31 : width === 3 ? 15 : 7);
+        let valid = width !== 0 && i + width - 1 <= bytes.length;
+        for (let j = 1; valid && j < width; j++) {
+            const next = bytes[i + j - 1];
+            if ((next & 0xc0) !== 0x80) valid = false;
+            else value = value * 64 + (next & 63);
+        }
+        if (!valid || value < (width === 2 ? 0x80 : width === 3 ? 0x800 : 0x10000)
+            || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff)) {
+            result.push("\ufffd"); continue;
+        }
+        i += width - 1;
+        result.push(String.fromCodePoint(value));
+    }
+    return result.join("");
+}
 
 function readExact(file, count) {
     const buffer = new ArrayBuffer(count);
-    const view = new Uint8Array(buffer);
+
     let offset = 0;
     while (offset < count) {
-        const n = file.read(view.subarray(offset));
+        const n = file.read(buffer, offset, count - offset);
+        if (n < 0) throw new Error("framed input read failed: " + n);
         if (!n) return null; // EOF
         offset += n;
     }
@@ -49,18 +80,18 @@ const RESERVED = new Set([
     "queueMicrotask", "structuredClone",
 ]);
 
-let envLoaded = null;
+let hydrated = false;
 
 function loadState(statePath) {
-    try {
-        const handle = std.open(statePath, "r");
-        if (!handle) return {};
+        const status = {};
+        const handle = std.open(statePath, "r", status);
+        if (!handle) {
+            if (status.errno === std.Error.ENOENT) return {};
+            throw new Error("checkpoint open failed: " + status.errno);
+        }
         const raw = handle.readAsString();
         handle.close();
         return JSON.parse(raw);
-    } catch (e) {
-        return {};
-    }
 }
 
 function persistState(statePath, report) {
@@ -82,12 +113,15 @@ function persistState(statePath, report) {
         }
     }
     const body = JSON.stringify(persisted);
-    const handle = std.open(statePath, "w");
+    const handle = std.open(statePath + ".tmp", "w");
     if (!handle) throw new Error("cannot open state file");
     handle.puts(body);
     handle.close();
+    atomicRename(statePath + ".tmp", statePath);
     report.dropped = dropped.sort();
-    report.state_bytes = body.length;
+    const [metadata, statError] = os.stat(statePath);
+    if (statError !== 0) throw new Error("checkpoint stat failed: " + statError);
+    report.state_bytes = metadata.size;
     try {
         const check = loadState(statePath);
         report.state_verified = typeof check === "object" && check !== null;
@@ -104,11 +138,7 @@ function runCell(header, source) {
     // Environment switching is per cell: the header carries the active
     // generation's env dir. For QuickJS there is no sys.path equivalent;
     // env content is advisory unless the cell imports it by explicit path.
-    envLoaded = header.env_dir;
 
-    for (const [key, value] of Object.entries(loadState(statePath))) {
-        try { globalThis[key] = value; } catch (e) {}
-    }
 
     const outPath = cellDir + "/" + seq + ".out";
     const errPath = cellDir + "/" + seq + ".err";
@@ -123,6 +153,12 @@ function runCell(header, source) {
             outHandle.puts(args.map(String).join(" ") + "\n");
         };
         try {
+            if (!hydrated) {
+                for (const [key, value] of Object.entries(loadState(statePath))) {
+                    globalThis[key] = value;
+                }
+                hydrated = true;
+            }
             std.evalScript(source, { backtraceBarrier: false });
             report.ok = true;
         } catch (e) {
@@ -145,44 +181,31 @@ function runCell(header, source) {
     const tmpHandle = std.open(finalPath + ".tmp", "w");
     tmpHandle.puts(JSON.stringify(report));
     tmpHandle.close();
-    std.osRenameOrMove(finalPath + ".tmp", finalPath);
+    atomicRename(finalPath + ".tmp", finalPath);
 }
 
-// qjs exposes os.rename in the `os` module when available; degrade to a
-// direct write when it is not (the report may then be observed torn — the
-// host validates JSON and treats a torn report as an interrupted cell).
-import * as os from "os";
-function installRename() {
-    globalThis.std = std;
-    if (os && typeof os.rename === "function") {
-        std.osRenameOrMove = (from, to) => os.rename(from, to);
-    } else {
-        std.osRenameOrMove = (from, to) => {
-            const body = std.open(from, "r").readAsString();
-            const target = std.open(to, "w");
-            target.puts(body);
-            target.close();
-        };
-    }
-}
-installRename();
+globalThis.std = std;
 
 function main() {
     for (;;) {
         const headerLenRaw = readExact(std.in, 8);
         if (!headerLenRaw) return 0;
-        const headerLen = new DataView(headerLenRaw).getUint32(4);
+        const headerLength = new DataView(headerLenRaw);
+        if (headerLength.getUint32(0) !== 0) throw new Error("header exceeds wasm32 address space");
+        const headerLen = headerLength.getUint32(4);
         const headerRaw = readExact(std.in, headerLen);
         if (!headerRaw) return 0;
         const payloadLenRaw = readExact(std.in, 8);
         if (!payloadLenRaw) return 0;
-        const payloadLen = new DataView(payloadLenRaw).getUint32(4);
+        const payloadLength = new DataView(payloadLenRaw);
+        if (payloadLength.getUint32(0) !== 0) throw new Error("source exceeds wasm32 address space");
+        const payloadLen = payloadLength.getUint32(4);
         const sourceRaw = readExact(std.in, payloadLen);
         if (!sourceRaw) return 0;
         let header;
         try {
-            header = JSON.parse(new TextDecoder().decode(headerRaw));
-            const source = new TextDecoder().decode(sourceRaw);
+            header = JSON.parse(decodeUtf8(headerRaw));
+            const source = decodeUtf8(sourceRaw);
             runCell(header, source);
         } catch (e) {
             std.err.puts(String((e && e.stack) ? e.stack : e) + "\n");

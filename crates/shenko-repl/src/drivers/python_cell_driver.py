@@ -33,6 +33,40 @@ import json
 import os
 import sys
 import traceback
+import pickle
+import io
+import pickletools
+
+
+class StateUnpickler(pickle.Unpickler):
+    def find_class(self, module, name):
+        raise pickle.UnpicklingError("REPL_STATE_UNSUPPORTED: callable/class %s.%s" % (module, name))
+
+
+def load_checkpoint(handle):
+    # Reject executable opcodes before unpickling, including extension-cache
+    # opcodes that can otherwise bypass find_class. This is a data checkpoint
+    # codec, not a Python-code or VM-state restoration mechanism.
+    position = handle.tell()
+    executable = {"GLOBAL", "STACK_GLOBAL", "REDUCE", "INST", "OBJ", "NEWOBJ", "NEWOBJ_EX",
+                  "EXT1", "EXT2", "EXT4", "PERSID", "BINPERSID", "BUILD"}
+    for opcode, argument, offset in pickletools.genops(handle):
+        if opcode.name in executable:
+            raise pickle.UnpicklingError("REPL_STATE_UNSUPPORTED: executable opcode " + opcode.name)
+    handle.seek(position)
+    return StateUnpickler(handle).load()
+
+# Capture before authored code can replace import machinery or sys metadata.
+# packaging supplies the interpreter/platform ABI rules when available;
+# without it, only version-correct pure Python compatibility is asserted.
+try:
+    from packaging.tags import sys_tags
+except ImportError:
+    _wheel_tags = ["py%d-none-any" % sys.version_info.major]
+    _wheel_tags.extend("py%d%d-none-any" % (sys.version_info.major, minor)
+                       for minor in range(sys.version_info.minor + 1))
+else:
+    _wheel_tags = [str(tag) for tag in sys_tags()]
 
 
 def read_exact(stream, count):
@@ -48,6 +82,7 @@ def read_exact(stream, count):
 
 
 def write_report(cell_dir, seq, report):
+    report["compatible_wheel_tags"] = _wheel_tags
     final_path = os.path.join(cell_dir, "%d.report.json" % seq)
     tmp_path = final_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as handle:
@@ -57,7 +92,12 @@ def write_report(cell_dir, seq, report):
     os.replace(tmp_path, final_path)
 
 
+_namespace = {"__name__": "__shenko_cell__"}
+_hydrated = False
+
+
 def run_cell(header, source):
+    global _hydrated
     seq = header["seq"]
     cell_dir = header["cell_dir"]
     state_path = header["state_path"]
@@ -66,18 +106,26 @@ def run_cell(header, source):
     if os.path.isdir(env_dir) and env_dir not in sys.path:
         sys.path.insert(0, env_dir)
 
-    namespace = {"__name__": "__shenko_cell__"}
-    try:
+    namespace = _namespace
+    if not _hydrated:
         import pickle
-
-        with open(state_path, "rb") as handle:
-            loaded = pickle.load(handle)
-        if isinstance(loaded, dict):
+        try:
+            with open(state_path, "rb") as handle:
+                loaded = load_checkpoint(handle)
+            if not isinstance(loaded, dict):
+                raise TypeError("REPL_STATE_CORRUPT: checkpoint is not a namespace")
             namespace.update(loaded)
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass  # unreadable state starts clean; visible via state_bytes
+        except FileNotFoundError:
+            pass
+        except Exception:
+            with open(os.path.join(cell_dir, "%d.out" % seq), "w", encoding="utf-8"):
+                pass
+            with open(os.path.join(cell_dir, "%d.err" % seq), "w", encoding="utf-8") as output:
+                output.write(traceback.format_exc())
+            write_report(cell_dir, seq, {"ok": False, "error": "REPL_STATE_CORRUPT: checkpoint hydration failed",
+                "dropped": [], "state_bytes": 0, "state_verified": False})
+            return
+        _hydrated = True
 
     out_path = os.path.join(cell_dir, "%d.out" % seq)
     err_path = os.path.join(cell_dir, "%d.err" % seq)
@@ -107,7 +155,8 @@ def run_cell(header, source):
             if name.startswith("__"):
                 continue
             try:
-                pickle.dumps(value, protocol=4)
+                encoded = pickle.dumps(value, protocol=4)
+                load_checkpoint(io.BytesIO(encoded))
             except Exception:
                 dropped.append(name)
                 continue
@@ -120,7 +169,7 @@ def run_cell(header, source):
         report["state_bytes"] = os.path.getsize(state_path)
         try:
             with open(state_path, "rb") as handle:
-                reloaded = pickle.load(handle)
+                reloaded = load_checkpoint(handle)
             report["state_verified"] = isinstance(reloaded, dict)
         except Exception:
             report["state_verified"] = False
