@@ -219,7 +219,7 @@ loss are not claimed.
 
 Source/artifact-bound observations, failures and remaining scope are recorded in
 [the #71 evidence](../evidence/node-sync-cognition-20261026.json) and
-[C17](../tasks/C17.md). Full election, partition authority, every platform,
+[C17](../history/task-cards-20261101/C17.md). Full election, partition authority, every platform,
 arbitrary-effect fencing, encrypted disk-image recovery and 7/30-day observations
 remain separate acceptance obligations.
 
@@ -459,7 +459,7 @@ All owned listeners stop on both success/failure and are read back as refused.
 No physical machine, actual model inference, election, partition quorum,
 production child scheduler, arbitrary resource fencing, image resurrection or
 long-run acceptance follows from these two scenarios. See the machine-readable
-[evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../tasks/C17.md)
+[evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../history/task-cards-20261101/C17.md)
 for exact candidate and remaining obligations.
 
 ## Focused review repair / 复核接续

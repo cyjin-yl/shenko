@@ -1,6 +1,6 @@
 # 需求、行为、来源和验收索引
 
-这些文件物化根 SPEC v0.6.2：147 项 requirements、55 组 behaviors、59 组 sources 和216条具名 acceptance cases。来源记录含历史拼写别名；组数不等于独立上游数量。v0.6.1 的209条定义完整保留，本轮追加 RT16、AW08–AW09、A47–A49 和 G13 共7条。
+这些文件物化根 SPEC v0.6.2：147 项 requirements、56 组 behaviors、59 组 sources 和216条具名 acceptance cases。来源记录含历史拼写别名；组数不等于独立上游数量。v0.6.1 的209条定义完整保留，本轮追加 RT16、AW08–AW09、A47–A49 和 G13 共7条。
 
 R描述用户要求，B说明采用的具体行为与来源，Ref定位证据，case给出可验证情境。文档研究与真实运行要求采用不同证据；不可用“都有正文”代替实现完成。requirements中的用户编号保持原始表达，range不丢失。
 

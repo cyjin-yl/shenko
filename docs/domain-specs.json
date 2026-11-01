@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "purpose": "领域功能合同登记表。每个条目由该领域的代码拥有者撰写 docs/specs/<file>，内容是稳定的功能、接口、理由、错误与恢复合同，不是任务列表。未落地的条目表示该拥有者尚未交付，不影响其他条目的有效性。",
+  "specs": [
+    {
+      "file": "docs/specs/architecture.md",
+      "owner": "parent",
+      "current_agent": "Main",
+      "sections": "全部 SPEC；§48 自主主体、运行时能力闭环与正式文档分层"
+    },
+    {
+      "file": "docs/specs/browser.md",
+      "owner": "ArchBrowser",
+      "current_agent": "ArchBrowser",
+      "sections": "§24.6/19.1/41"
+    },
+    {
+      "file": "docs/specs/channel-adapters.md",
+      "owner": "ArchOtherChannels",
+      "current_agent": "ArchOtherChannelsNext",
+      "sections": "§15.3/16/35.6; R035/R057"
+    },
+    {
+      "file": "docs/specs/channels.md",
+      "owner": "ArchChannels",
+      "current_agent": "ArchChannelsNext",
+      "sections": "§15–16/35.6/41.6; C13"
+    },
+    {
+      "file": "docs/specs/cognition-units.md",
+      "owner": "ArchCognitionUnits",
+      "current_agent": "ArchCognitionLive",
+      "sections": "§18/38/45; C10"
+    },
+    {
+      "file": "docs/specs/configuration-playground.md",
+      "owner": "ArchPlayground",
+      "current_agent": "ArchPlayground",
+      "sections": "§21/23/41.9/41.10/43/44; C12"
+    },
+    {
+      "file": "docs/specs/contacts.md",
+      "owner": "ArchContacts",
+      "current_agent": "ArchContacts",
+      "sections": "§6/15.2/15.2.1/16/20; R059/R060/R102"
+    },
+    {
+      "file": "docs/specs/context-policies.md",
+      "owner": "ArchContextPolicies",
+      "current_agent": "ArchContextPoliciesNext",
+      "sections": "§12.3/13/37/41.7–8; C20"
+    },
+    {
+      "file": "docs/specs/desktop-runtime.md",
+      "owner": "ArchDesktop",
+      "current_agent": "ArchDesktop",
+      "sections": "§10.2.1/22/24/34; C15"
+    },
+    {
+      "file": "docs/specs/documentation.md",
+      "owner": "ArchDocs",
+      "current_agent": "ArchDocsNext",
+      "sections": "All SPEC; user document refactor mandate"
+    },
+    {
+      "file": "docs/specs/durable-state.md",
+      "owner": "ArchLedger",
+      "current_agent": "ArchLedgerNext",
+      "sections": "§10/12/36/41.1/41.4; C01/C17/C21"
+    },
+    {
+      "file": "docs/specs/inference.md",
+      "owner": "ArchBroker",
+      "current_agent": "ArchBrokerNext",
+      "sections": "§13/25–26/42/47; C04"
+    },
+    {
+      "file": "docs/specs/media.md",
+      "owner": "ArchMedia",
+      "current_agent": "ArchMedia",
+      "sections": "§20/35.3/41.6; C16"
+    },
+    {
+      "file": "docs/specs/memory.md",
+      "owner": "ArchMemory",
+      "current_agent": "ArchMemory",
+      "sections": "§10.3/10.5/12/45.12; C09"
+    },
+    {
+      "file": "docs/specs/mobile-runtime.md",
+      "owner": "ArchMobile",
+      "current_agent": "ArchMobileLifecycle",
+      "sections": "§24.5/24.5.1/5.4; C15"
+    },
+    {
+      "file": "docs/specs/model-children.md",
+      "owner": "ArchModelChildren",
+      "current_agent": "ArchModelChildrenNext",
+      "sections": "§5.3/5.5/6/14.5/41.5; R106/R107"
+    },
+    {
+      "file": "docs/specs/nodes.md",
+      "owner": "ArchNodes",
+      "current_agent": "ArchNodes",
+      "sections": "§5.4/22/38/41/44; C17"
+    },
+    {
+      "file": "docs/specs/plugins.md",
+      "owner": "ArchPluginRuntime",
+      "current_agent": "ArchPluginRuntimeNext",
+      "sections": "§7/18/36/37/41.2/41.8/45; C03"
+    },
+    {
+      "file": "docs/specs/quota-resources.md",
+      "owner": "ArchQuota",
+      "current_agent": "Parent",
+      "sections": "§13/42/47.5; C18"
+    },
+    {
+      "file": "docs/specs/remote-seats.md",
+      "owner": "ArchRemoteSeats",
+      "current_agent": "ArchSeatFences",
+      "sections": "§17/35.5/41.11; C07/C08"
+    },
+    {
+      "file": "docs/specs/repl.md",
+      "owner": "ArchRepl",
+      "current_agent": "ArchReplLimits",
+      "sections": "§19/19.1/41.3; C14"
+    },
+    {
+      "file": "docs/specs/research-memory.md",
+      "owner": "ArchResearch",
+      "current_agent": "ArchRetention",
+      "sections": "§14/12.4/10.5; C09"
+    },
+    {
+      "file": "docs/specs/self-update.md",
+      "owner": "ArchUpgrade",
+      "current_agent": "ArchUpgradeLive",
+      "sections": "§9/10/35.8/41.12/44; C08/C21"
+    },
+    {
+      "file": "docs/specs/subject-runtime.md",
+      "owner": "ArchSubject",
+      "current_agent": "ArchSubjectNext",
+      "sections": "§5–6/13.8/41.5–6/44; C01/C02/C22"
+    },
+    {
+      "file": "docs/specs/verification.md",
+      "owner": "ArchEvidence",
+      "current_agent": "ArchEvidenceNext",
+      "sections": "§23/27/28–29/40/46 and all acceptance tables; C19"
+    },
+    {
+      "file": "docs/specs/wasm-home.md",
+      "owner": "ArchWasmHome",
+      "current_agent": "ArchWasmHomeNext",
+      "sections": "§8–10/41.3/44; C05"
+    },
+    {
+      "file": "docs/specs/wasm-tools.md",
+      "owner": "ArchWasmTools",
+      "current_agent": "ArchWasmToolsNext",
+      "sections": "§8.2/18.8/35/44; C06"
+    },
+    {
+      "file": "docs/specs/web-interface.md",
+      "owner": "ArchWeb",
+      "current_agent": "ArchWeb",
+      "sections": "§21/41.6/43; C11"
+    }
+  ]
+}

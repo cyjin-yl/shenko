@@ -1,173 +1,228 @@
-# Shenko Implementation Documentation Map
+# 实现范围与必读文档
 
-每个实现范围对应的**必读文档页**。任何 Agent 开始实现前必须完整读取对应文档。
+每个实现范围对应**必读文档页**与**当前源码事实**。状态列只描述仓库里真实存在的接线程度，不描述运行验收——运行证据在 [evidence/](evidence/README.md)。
 
-## 格式
-- `实现范围`: 必读文档列表（按优先级）
+状态含义：
 
-## S1 Core (已合并 main)
-- **Store (SQLite WAL + CAS + ledger)**: 
-  - SPEC.md §41.2 (Store & Ledger)
-  - docs/requirements/requirements.json (R030, R031)
-  - docs/requirements/acceptance-cases.json (STORE-01~04)
-  
-- **Protocol types (IDs, CommitRef, TaskRecord, etc.)**:
-  - SPEC.md §41.3 (协议类型)
-  - docs/requirements/requirements.json (R029)
-
-- **Broker (Anthropic API)**:
-  - SPEC.md §13 (Inference admission)
-  - SPEC.md §47 (Provider wire contract PV01-PV08)
-  - docs/research/claude-api-2026-10-21.md
-  - docs/requirements/requirements.json (R008, R009, R059)
-
-## S2 Critical Path (已合并 main)
-- **SubjectLoop (S0/S1 state machine)**:
-  - SPEC.md §5.1 (持续主体)
-  - SPEC.md §41.5 (SubjectStep state transitions)
-  - docs/requirements/requirements.json (R003, R013)
-  - docs/requirements/acceptance-cases.json (LOOP-01~05)
-
-- **SubjectBranchHead + SubjectGenesis**:
-  - SPEC.md §41.5 (SubjectBranchHead)
-  - SPEC.md §44.6 (Genesis bootstrap)
-  - docs/requirements/requirements.json (R051)
-
-- **NapCat WS client**:
-  - SPEC.md §16 (QQ channel)
-  - docs/requirements/requirements.json (R001, R014)
-
-- **NapCat Link (可选 backend)** — shenko-channel-napcat-link 提供可选 feature backend（`napcat-link` feature，默认关闭，非 bin 依赖）:
-  - SPEC.md §16 (QQ channel)
-  - crates/shenko-channel-napcat-link/README.md
-
-- **WebUI (timeline, websocket)**:
-  - SPEC.md §21 (Web UI)
-  - docs/requirements/requirements.json (R018, R019)
-  - docs/requirements/acceptance-cases.json (UI-01~08)
-
-## S2 Self-Dev Loop (已合并 main)
-- **TmuxSeat + SSH exec** — 部分实现：TmuxSeat/SeatObservation 在 shenko-exec-ssh，未接 runtime（main.rs TODO §35.4）:
-  - SPEC.md §35.5 (三条 seat 路径)
-  - SPEC.md §11, §17 (Host execution)
-  - docs/requirements/requirements.json (R065, R066)
-
-- **BuildProvider**:
-  - SPEC.md §35.3 (独立构建工作区)
-  - SPEC.md §35.4 (自开发任务流程)
-  - docs/requirements/requirements.json (R051, R070)
-
-- **NapCat IngressSpool**:
-  - SPEC.md §35.6 (消息连续性)
-  - docs/requirements/requirements.json (R014)
-
-- **NapCat contacts/identity read (napcat.contacts)** — shenko-channel-napcat `ContactQuery` 只读 allowlist + `QueryReceipt`（raw 帧与连接 provenance）；shenko-exec-host `NapCatContactsHandler` 走既有 durable task/evidence 路径，仅 connector 配置时安装:
-  - SPEC.md §15.2, §16, §35.6
-  - docs/requirements/requirements.json (R001, R059)
-
-- **SelfKnowledgeProvider**:
-  - SPEC.md §38 (自解释插件)
-  - docs/requirements/requirements.json (R092, R093)
-  - docs/requirements/acceptance-cases.json (SELF-01~03)
-
-- **Hook API**:
-  - SPEC.md §37 (Hook 兼容与注入顺序)
-  - docs/requirements/requirements.json (R086, R087)
-
-- **Effect Contracts**:
-  - SPEC.md §36 (插件副作用、重置与恢复边界)
-  - docs/requirements/requirements.json (R082, R083)
-
-## S3 (部分实现 / 未开始)
-- **WASM runtime (wasmtime 45)** — 部分实现：engine + WASI p1 + home preopen 已接通；VFS/MountSpec 与真实家园未接，checkpoint 仅标记文件:
-  - SPEC.md §9, §10 (WASM provider)
-  - docs/research/archive/external_review_wasm.md
-  - docs/requirements/requirements.json (R028, R088)
-
-- **Memory (proactive, search, decay)** — 部分实现：FTS5（含 LIKE 回退）与 intents 存储已具备；thought loop 已在 S1 后消费标记内容并提交 intent（093b417）；`spawn_worker` 仍无调用者:
-  - SPEC.md §12 (会话真相源和记忆)
-  - docs/research/archive/research_proactive_memory.md
-  - docs/requirements/requirements.json (R039, R040, R041)
-
-- **Compact (Budget + Snap)** — 部分实现：独立 crate（shenko-compact-budget/snap），未注册为插件:
-  - SPEC.md §12.3 (历史切窗)
-  - SPEC.md §35.3 (首版默认插件闭包)
-  - docs/requirements/requirements.json (R050, R055, R056, R057)
-
-- **Self-upgrade handoff** — 部分实现：shenko-update 状态机与一致性备份已具备，未接 runtime:
-  - SPEC.md §35.7 (自升级交接)
-  - docs/requirements/requirements.json (R071)
-  - docs/requirements/acceptance-cases.json (V1-05, V1-06, V1-13)
-
-- **Playground UI (shadcn + config)** — 局部候选源码：不可变版本/精确回滚、同 Store durable Inbox、现有 native Task/Operation/E1/T2 承载 WASI 后端（无第二 action DB）；二进制业务状态与输出保留 CAS 引用。此次尚未执行构建/原生验证，完整 manifest、认证和多 runtime 仍开放:
-  - SPEC.md §43 (Conversation config + Playground)
-  - docs/research/archive/shenko_u42_u43_ui_config_playground.md
-  - docs/development/playground-backend-smoke.md (finite native HTTP + reopen recipe; not an execution receipt)
-  - docs/requirements/requirements.json (R096, R097)
-
-- **Transcript revision ingress (continuous media)** — 部分实现：durable
-  admission/类型合同/effective 观察与同一主体投影已具备；无真实音频采集、
-  ASR/声纹处理器或通话 provider 接线:
-  - SPEC.md §15.2, §20 (联系人与声纹、实时通话与课堂旁听)
-  - docs/development/media-transcript-ingress.md
-  - docs/requirements/requirements.json (R084, R085)
-
-- **Computer Use (full scope)**:
-  - SPEC.md §24 (Computer Use 与完整操作系统节点)
-  - docs/requirements/requirements.json (R032, R033, R034)
-
-- **REPL (Node/Bun)**:
-  - SPEC.md §18 (REPL execution)
-  - docs/research/archive/research_repl.md
-  - docs/requirements/requirements.json (R035, R036, R037)
-
-- **Android/iOS channel**:
-  - SPEC.md §16.2 (Android channel)
-  - docs/requirements/requirements.json (R017)
-
-- **Forgetting + Migration**:
-  - SPEC.md §27, §28 (遗忘与迁移)
-  - docs/research/archive/research_forgetting.md
-  - docs/requirements/requirements.json (R058, R076, R077)
-
-## S4/S5 Advanced (未开始)
-- **OMP托管 (JSONL RPC)**:
-  - SPEC.md §35.5 (seat path 2)
-  - docs/research/archive/research_omp_delivery_d2.md
-  
-- **Claude Code SDK托管**:
-  - SPEC.md §35.5 (seat path 3)
-  - docs/research/claude-handoff.md
-
-- **Multi-node + remote agent**:
-  - SPEC.md §29.4 (S4: 多节点)
-  - docs/research/archive/remote_agent_spec.md
-  - docs/requirements/requirements.json (R079, R080)
-
-- **Voice (input/output)**:
-  - SPEC.md §29.5 (S5: 语音)
-  - docs/requirements/requirements.json (R020, R021)
-
-- **Native inference (vLLM/TensorRT)**:
-  - SPEC.md §47.2 (PV09 local inference)
-  - docs/research/archive/research_native_inference_vllm.md
-  - docs/requirements/requirements.json (R062)
+- **已接线** — 该能力在 `bin/shenko` 的装配路径上有实际调用点。
+- **仅源码** — 有实现与类型，但没有进入运行时装配。
+- **未实现** — 仓库里没有对应实现。
 
 ## 必读基线（所有实现者）
-1. **SPEC.md** (5842 lines) — 权威规格
-2. **docs/governance/COMPLETION.md** (63 lines) — 完整交付合同
-3. **docs/governance/AUTONOMY.md** (34 lines) — 自主决策边界
-4. **docs/requirements/requirements.json** (1609 lines) — 147 项 R 完整分母
-5. **docs/requirements/acceptance-cases.json** (3798 lines) — 216 条验收 case
-6. **docs/state/coverage.json** (2366 lines) — 当前覆盖状态
-7. **.agents/skills/shenko-dev/SKILL.md** — 开发原子与约束
+
+1. [SPEC.md](../SPEC.md)（6068 行，§1–47 + §48）— 权威规格
+2. [docs/specs/architecture.md](specs/architecture.md) — 当前功能边界与各层事实归属
+3. [docs/governance/COMPLETION.md](governance/COMPLETION.md) — 完整交付合同
+4. [docs/governance/AUTONOMY.md](governance/AUTONOMY.md) — 自主决策边界
+5. [docs/requirements/requirements.json](requirements/requirements.json)（1611 行）— 147 项 R 完整分母
+6. [docs/requirements/acceptance-cases.json](requirements/acceptance-cases.json)（3798 行）— 216 条验收 case
+7. [docs/state/coverage.json](state/coverage.json)（2643 行）— 需求级实现与证据状态
+8. [.agents/skills/shenko-dev/SKILL.md](../.agents/skills/shenko-dev/SKILL.md) — 开发原子与约束
+
+## 装配根
+
+- **运行时装配（`bin/shenko/src/main.rs`）** — 24 个 workspace crate 中有 20 个在此被装配（`shenko-memory`、`shenko-repl`、`shenko-update`、`shenko-exec-ssh`、`shenko-channel-napcat-link` 除外）。
+  - SPEC.md §44（首次启动与种子发行）
+  - docs/specs/architecture.md（装配与事实归属）
+
+## 持久状态与主体
+
+- **Store（SQLite WAL + CAS + ledger）** — 已接线
+  - SPEC.md §41.2、§36
+  - docs/specs/durable-state.md
+  - docs/requirements/requirements.json（R030、R031）
+
+- **协议类型（ID、CommitRef、TaskRecord 等）** — 已接线
+  - SPEC.md §41.3
+  - docs/requirements/requirements.json（R029）
+
+- **SubjectLoop（S0/S1 状态机）** — 已接线
+  - SPEC.md §5.1、§41.5
+  - docs/specs/subject-runtime.md
+
+- **SubjectBranchHead + SubjectGenesis** — 已接线
+  - SPEC.md §41.5、§44.6
+  - docs/requirements/requirements.json（R051）
+
+- **Node 安装单元（units.rs）** — 已接线（`shenko sync` 导出/导入单位包；`shenko-node` 被 6 个 crate 消费）
+  - SPEC.md §45
+  - docs/specs/cognition-units.md
+
+- **认知归档与复制（store/cognition.rs、cognition_archive.rs）** — 已接线（`shenko sync export/receive/ack`）
+  - SPEC.md §10.6、§41
+  - docs/specs/durable-state.md
+
+## 推理与资源
+
+- **Broker（provider、admission、request）** — 已接线（`shenko start` 装配 `Broker::new` 与 provider 发现）
+  - SPEC.md §13、§42、§47
+  - docs/specs/inference.md
+  - docs/research/claude-api-2026-10-21.md
+
+- **Anthropic provider** — 已接线（`ANTHROPIC_API_KEY`）
+  - SPEC.md §47
+  - docs/requirements/requirements.json（R008、R009、R059）
+
+- **本地模型 provider** — 已接线（`SHENKO_USE_LOCAL_MODEL=1` + `SHENKO_LOCAL_MODEL_URL`）
+  - SPEC.md §25、§42
+  - docs/specs/inference.md
+
+- **额度观测与 admission（shenko-quota）** — 已接线（策略文件经 `SHENKO_QUOTA_POLICY` 读取并持久化；quota crate 被 4 个 crate 消费）
+  - SPEC.md §42、§47.5
+  - docs/specs/quota-resources.md
+
+- **KV 页与物理资源域分配** — 仅源码（`shenko-broker/admission.rs` 有 admission 合同，无运行时容量事实）
+  - SPEC.md §13
+  - docs/specs/inference.md
+
+## 上下文与压缩
+
+- **Budget compact（shenko-compact-budget）** — 已接线（`BudgetCompactPlugin` 在 `main.rs` 注册）
+  - SPEC.md §12.3、§35.3
+  - docs/specs/context-policies.md
+
+- **Snapcompact（shenko-compact-snap）** — 已接线（`SnapCompactPlugin` 在 `main.rs` 注册）
+  - SPEC.md §12.3、§21.11
+  - docs/specs/context-policies.md
+
+- **上下文窗口与策略注册（shenko-context-policy）** — 已接线（`PolicyRegistry::with_ledger`，被 8 个 crate 消费）
+  - SPEC.md §37、§41.7–8
+  - docs/specs/context-policies.md
+
+## 能力与插件
+
+- **Cordis 内核（shenko-kernel：Plugin/Service 生命周期、capability、hooks、effect contract）** — 已接线（`Supervisor` 是运行时装配根）
+  - SPEC.md §7、§37
+  - docs/specs/plugins.md
+
+- **Hook API（HookRegistry）** — 已接线（`main.rs` 创建 registry 并注入 subject loop）
+  - SPEC.md §37
+  - docs/specs/plugins.md
+  - docs/requirements/requirements.json（R086、R087）
+
+- **Effect Contract** — 仅源码（`shenko-kernel/effect_contract.rs` 有定义，运行时装配无消费点）
+  - SPEC.md §36
+  - docs/specs/plugins.md
+
+- **Awareness 单元（shenko-awareness-core）** — 已接线（`AwarenessRegistry::with_seeds`，安装 `data_dir/awareness` 下的包；被 4 个 crate 消费）
+  - SPEC.md §45
+  - docs/specs/cognition-units.md
+
+- **自解释（SelfKnowledgeProvider + SelfKnowledgeHandler）** — 已接线
+  - SPEC.md §38
+  - docs/specs/cognition-units.md
+  - docs/requirements/acceptance-cases.json（SELF-01~03）
+
+- **记忆（shenko-memory：MemoryStore、intent 链、search）** — 仅源码（crate 存在于工作区并被 `bin/shenko` 声明为依赖，但运行时无调用点；`spawn_worker` 无生产调用者）
+  - SPEC.md §12
+  - docs/specs/memory.md
+
+- **研究 / PMA** — 未实现
+  - SPEC.md §14、§12.4
+  - docs/specs/research-memory.md
+
+## 执行环境
+
+- **WASM 运行时与家园（shenko-wasm：WasmRuntime、MountSpec、BoundedOutputPipe）** — 已接线（`wasi.exec` 处理器在受管 mount 下执行已安装工具；home manifest 由 seed 准备）
+  - SPEC.md §8、§9、§10
+  - docs/specs/wasm-home.md
+
+- **WASM 家园 COW（copy_on_write mount）** — 未实现（`MountSpec::validate` 明确以 `MOUNT_MODE_UNSUPPORTED` 拒绝，不降级为直接读写）
+  - SPEC.md §8.3 / A08
+  - docs/specs/wasm-home.md
+
+- **具名 WASM 工具（`shenko tool list/install/exec`）** — 已接线
+  - SPEC.md §8.2
+  - docs/specs/wasm-tools.md
+
+- **REPL（shenko-repl：kernel、journal、state）** — 仅源码（工作区内有 kernel/journal/state 与 R0/R1/R2 合同，运行时装配无调用点）
+  - SPEC.md §19、§19.1
+  - docs/specs/repl.md
+
+- **Computer Use（X11 backend，exec-host）** — 已接线（4 个 handler 注册到同一 backend）
+  - SPEC.md §10.2.1、§24
+  - docs/specs/desktop-runtime.md
+
+- **远程 seat（shenko-exec-ssh：SSH exec、tmux pane、seat 分类）** — 仅源码（工作区内有 `SeatKind::{ClaudeCode,Omp,Codex}` 与 pane 解析，运行时装配无调用点）
+  - SPEC.md §11、§17、§35.5
+  - docs/specs/remote-seats.md
+
+- **自升级交接（shenko-update）** — 仅源码（状态机与一致性备份存在，运行时装配无调用点）
+  - SPEC.md §9、§35.7
+  - docs/specs/self-update.md
+
+- **BuildProvider（exec-host/build_provider.rs）** — 仅源码
+  - SPEC.md §35.3、§35.4
+  - docs/specs/self-update.md
+
+## 渠道与身份
+
+- **NapCat WS 接入与持久 ingress** — 已接线（`NAPCAT_WS_URL` + `NAPCAT_BOT_QQ`；ingress spool 落盘）
+  - SPEC.md §16、§35.6
+  - docs/specs/channels.md
+
+- **QQ 出站账本（outbound.rs：intent→ack→unknown→reconcile）** — 已接线
+  - SPEC.md §16
+  - docs/specs/channels.md
+
+- **NapCat 联系人查询（`NapCatContactsHandler`）** — 已接线（仅在配置了 connector 时安装）
+  - SPEC.md §15.2、§35.6
+  - docs/specs/contacts.md
+
+- **napcat-cli 适配（shenko-channel-napcat-link）** — 仅源码（可选 backend，feature 默认关闭，未被装配）
+  - SPEC.md §16
+  - docs/specs/channel-adapters.md
+
+- **官方 QQ / iLinkBot / 飞书适配器** — 未实现
+  - SPEC.md §15.3、§16
+  - docs/specs/channel-adapters.md
+
+- **身份与修订（shenko-identity）** — 已接线（`shenko identity`，含 revision CAS 编辑）
+  - SPEC.md §6
+  - docs/specs/contacts.md
+
+## 媒体、界面与作品
+
+- **媒体 ingress（shenko-media）** — 已接线（`MediaIngressPlugin` 与 `/api/media` 共用同一 durable revision admission）
+  - SPEC.md §15.2、§20
+  - docs/specs/media.md
+
+- **真实 ASR / TTS / 声纹 provider** — 未实现
+  - SPEC.md §20
+  - docs/specs/media.md
+
+- **Web UI（shenko-ui：时间线、ws、api、playground）** — 已接线
+  - SPEC.md §21、§43
+  - docs/specs/web-interface.md
+
+- **Playground 后端与 WASI 业务状态** — 已接线（`PlaygroundBackendHandler` 走既有 native Task/Operation/T1/E1/T2 路径）
+  - SPEC.md §43
+  - docs/specs/configuration-playground.md
+  - docs/development/playground-backend-smoke.md（有限原生 HTTP + 重开 recipe，不是执行回执）
+
+- **真实 provider 流式输出到 UI** — 未实现（UI 现有输出是 S1 结果，不是 provider stream）
+  - SPEC.md §21.12、§48.4
+  - docs/specs/web-interface.md
+
+## 多节点
+
+- **Node 同步与 peer 注册（shenko-node/peers.rs、bin node_sync）** — 已接线（`shenko sync status/enroll/export/receive/ack/push/sources/recover-source`）
+  - SPEC.md §22、§44
+  - docs/specs/nodes.md
+
+- **选举、quorum、fencing** — 未实现
+  - SPEC.md §22
+  - docs/specs/nodes.md
+
+- **跨节点认知复制（store/cognition.rs）** — 已接线（经 `shenko sync` 导出/接收/确认）
+  - SPEC.md §10.6
+  - docs/specs/durable-state.md
 
 ## 验证规则
+
 - 任何 Agent 任务的 prompt 必须显式列出"必读文档"清单
-- Agent 必须用 Read 工具完整读取每份文档（不能跳过或假设"已知"）
-- 实现后必须在 docs/state/coverage.json 更新对应 R/B/case 的 implementation_refs 和 evidence
+- Agent 必须完整读取每份文档，不能跳过或假设"已知"
+- 实现后在 docs/state/coverage.json 更新对应 R/B/case 的 implementation_refs 和 evidence
 - PR 描述必须列出"已读文档"清单和对应章节号
 
----
-Generated: 2025-01-23
-Spec version: 0.6.2
+覆盖率、模拟通过、源码存在与真实运行是不同事实，不互相替代。
