@@ -7,10 +7,15 @@ use shenko_store::{SessionEventFilter, Store, StoredSessionEvent};
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
+    effect::{
+        CheckpointContract, EffectContract, EffectContractBuilder, GuaranteeBasis,
+        IdempotencyGuarantee, LifecycleContract, ResourceAccess,
+    },
     evidence::{DecodeStatus, EvidenceReceipt},
     ids::*,
     object::*,
     operation::*,
+    plugin_runtime::NativeCapabilityDeclaration,
     task::{ImplementationRef, TaskRecord},
 };
 use std::sync::Arc;
@@ -450,6 +455,49 @@ impl NativeTaskHandler for HistoryHandler {
                     .into(),
             ),
         }
+    }
+
+    /// §36 effect contract of `history.query.v1`.
+    ///
+    /// The definition only reads the caller's own committed raw session. It
+    /// has no external effect, so none of the five actions applies: a read is
+    /// not reset, restored, replayed, cancelled or compensated. The
+    /// declaration says exactly that instead of borrowing another
+    /// operation's guarantee.
+    fn effect_contracts(&self) -> Vec<EffectContract> {
+        let descriptor = self.descriptor();
+        vec![EffectContractBuilder::new(
+            descriptor.implementation_ref.plugin_id,
+            descriptor.implementation(),
+            "history.query.v1",
+            descriptor.definition_version,
+        )
+        .resource("store_raw_session", "own_subject", ResourceAccess::Read)
+        .idempotency(IdempotencyGuarantee::BestEffort)
+        .checkpoint(CheckpointContract {
+            capturable: Vec::new(),
+            excluded: vec!["committed session events".into()],
+            coordinated: false,
+            consistency: "none".into(),
+        })
+        .lifecycle(LifecycleContract {
+            on_upgrade: "an in-flight read is not repeated; its result stays queryable".into(),
+            on_uninstall: "the definition is withdrawn; committed history stays readable".into(),
+            on_crash: "a read has no effect to reconcile; the attempt stays queryable".into(),
+            receipt_readable_after_removal: true,
+        })
+        .basis(GuaranteeBasis::ClaimOnly)
+        .build()]
+    }
+
+    /// The capability this definition offers while it is installed.
+    fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
+        vec![NativeCapabilityDeclaration {
+            capability_id: "native.history.query".into(),
+            version: "1".into(),
+            description: "Search, list and read the caller's own committed raw session events, with bounded previews".into(),
+            usage: Some("delegate:history.query:1 {\"op\":\"search\",\"query\":\"...\",\"from_seq\":0,\"limit\":20}".into()),
+        }]
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

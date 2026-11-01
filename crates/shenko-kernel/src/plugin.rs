@@ -11,15 +11,19 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 use cordis_core::logger::{Exporter, Level, LogRecord};
-use cordis_core::{Context, FiberHandle, Plugin, PreparedPlugin};
+use cordis_core::lifecycle::{UpdateError, UpdateOutcome};
+use cordis_core::{Context, FiberHandle, Plugin, PreparedChange, PreparedPlugin};
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
+
+use crate::errors::{ErrorObservation, ErrorSite};
 
 #[derive(Default)]
 struct Diagnostics {
     unknown: AtomicBool,
     records: Mutex<Vec<LogRecord>>,
+    errors: Option<Arc<ErrorObservation>>,
 }
 
 impl Exporter for Diagnostics {
@@ -28,8 +32,20 @@ impl Exporter for Diagnostics {
         // dispose/remove's return value. Observe already-contained owned records,
         // never call an arbitrary error's Display or panic payload's destructor.
         if record.level() >= Level::Warn && record.text().starts_with("cordis:") {
-            self.unknown.store(true, Ordering::SeqCst);
             self.records.lock().push(record.clone());
+            // One journal entry per incident: the false→true transition is the
+            // actual unable-to-continue boundary (check_outcomes then refuses
+            // every admission), not every subsequent diagnostic record.
+            let was_unknown = self.unknown.swap(true, Ordering::SeqCst);
+            if !was_unknown {
+                if let Some(errors) = &self.errors {
+                    errors.observe(
+                        ErrorSite::new("cordis_lifecycle", module_path!()),
+                        format!("Cordis lifecycle failure: {}", record.text()),
+                        serde_json::json!({ "record_level": format!("{:?}", record.level()) }),
+                    );
+                }
+            }
         }
     }
 }
@@ -39,12 +55,24 @@ pub struct PluginRegistry {
     shutdown: CancellationToken,
     stopping: Arc<AtomicBool>,
     diagnostics: Arc<Diagnostics>,
+    errors: Arc<ErrorObservation>,
 }
 
 impl PluginRegistry {
+    /// Standalone registry with its own private observation point.
     pub fn new(shutdown: CancellationToken) -> Self {
+        Self::new_with_errors(shutdown, Arc::new(ErrorObservation::new()))
+    }
+
+    /// Registry wired into the assembly's shared observation point, so a
+    /// lifecycle incident observed here is the same journal entry the hook
+    /// graph and the rest of the kernel report to.
+    pub fn new_with_errors(shutdown: CancellationToken, errors: Arc<ErrorObservation>) -> Self {
         let context = Context::new();
-        let diagnostics = Arc::new(Diagnostics::default());
+        let diagnostics = Arc::new(Diagnostics {
+            errors: Some(Arc::clone(&errors)),
+            ..Diagnostics::default()
+        });
         context
             .add_exporter(diagnostics.clone())
             .expect("fresh Cordis root is active");
@@ -53,6 +81,7 @@ impl PluginRegistry {
             shutdown,
             stopping: Arc::new(AtomicBool::new(false)),
             diagnostics,
+            errors,
         }
     }
 
@@ -111,6 +140,45 @@ impl PluginRegistry {
         self.check_outcomes()?;
         fiber.restart().await?;
         self.check_outcomes()
+    }
+
+    /// Terminally end one installed plugin and await its real cleanup barrier.
+    ///
+    /// The barrier is Cordis's own: the plugin's own generation-owned effects
+    /// run — a published service is withdrawn, a registered provider or
+    /// capability is removed from the live runtime registry, a spawned worker
+    /// is joined — before this call returns. An uninstall therefore cannot
+    /// leave a service, a registration or a timer behind, and it cannot claim
+    /// completion before the resource is actually released.
+    ///
+    /// A call from the plugin's own settle context is refused by Cordis
+    /// rather than deadlocking on its own teardown.
+    pub async fn uninstall(&self, fiber: &FiberHandle) -> Result<()> {
+        anyhow::ensure!(!self.shutdown.is_cancelled(), "plugin host is shut down");
+        fiber
+            .dispose()
+            .await
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        self.check_outcomes()
+    }
+
+    /// Replace the committed input of one installed plugin without changing
+    /// its identity.
+    ///
+    /// This is the real hot-update path of the plugin backbone: the same
+    /// Fiber keeps its identity, its dependencies and its in-flight work, and
+    /// the new input becomes the authoritative generation. A vetoed update
+    /// keeps the previous input in force.
+    pub async fn update<P: Plugin>(
+        &self,
+        fiber: &FiberHandle,
+        input: P::Input,
+    ) -> Result<UpdateOutcome, UpdateError> {
+        anyhow::ensure!(!self.shutdown.is_cancelled(), "plugin host is shut down");
+        self.check_outcomes()?;
+        let outcome = fiber.update(PreparedChange::from_input(input)).await?;
+        self.check_outcomes()?;
+        Ok(outcome)
     }
 
     /// Terminally close admission and await every native resident Fiber.

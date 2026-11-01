@@ -29,9 +29,11 @@ use shenko_store::{
 };
 use shenko_types::{
     agent::CallContext,
+    effect::EffectContract,
     ids::{EntityId, RecordRevision, RuntimeGeneration},
     object::Digest,
     operation::{AuthorityRef, OperationRecord, OperationState},
+    plugin_runtime::NativeCapabilityDeclaration,
     subject::{DelegationIntent, StepDecision},
     task::*,
 };
@@ -117,6 +119,28 @@ pub struct NativeTaskDescriptor {
     pub prompt_section: Option<String>,
 }
 
+impl NativeTaskDescriptor {
+    /// The versioned identity of this definition's implementation.
+    ///
+    /// One construction, so the live provider view, the effect contract of
+    /// an operation and the artifact digest in the ledger all name the same
+    /// implementation of the same definition.
+    pub fn implementation(&self) -> shenko_types::object::VersionedRef {
+        shenko_types::object::VersionedRef {
+            artifact: shenko_types::object::ArtifactRef {
+                digest: self.implementation_ref.artifact_digest.clone(),
+                locator: format!("native:{}", self.kind),
+            },
+            symbol: format!("native.{}.execute", self.kind),
+            schema: shenko_types::object::SchemaRef {
+                name: format!("native-task/{}", self.kind),
+                major: self.definition_version,
+                digest: self.implementation_ref.artifact_digest.clone(),
+            },
+        }
+    }
+}
+
 pub struct NativeTaskInvocation {
     pub context: CallContext,
     pub task_invocation: shenko_store::TaskInvocation,
@@ -129,6 +153,26 @@ pub struct NativeTaskInvocation {
 #[async_trait]
 pub trait NativeTaskHandler: Send + Sync + 'static {
     fn descriptor(&self) -> NativeTaskDescriptor;
+
+    /// The §36 effect contract of this definition's operations.
+    ///
+    /// A declaration is bound to the implementation that produced it, so the
+    /// recovery planner reads the real boundary of the operation it is about
+    /// to run. A definition with no external effect may leave this empty; the
+    /// runtime then publishes the definition without an effect contract
+    /// instead of pretending one exists.
+    fn effect_contracts(&self) -> Vec<EffectContract> {
+        Vec::new()
+    }
+
+    /// The capabilities this definition offers while it is installed.
+    ///
+    /// The declaration is a description of what the implementation can
+    /// actually do; it never grants a permission and never becomes a
+    /// keyword filter over the subject's requests.
+    fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
+        Vec::new()
+    }
 
     /// T1 and external effects belong to the handler. The returned operation is
     /// evidence, not authority to mark the task complete by itself.
@@ -518,14 +562,19 @@ impl NativeChildService {
             executions.closed = true;
             executions.workers.drain().map(|(_, worker)| worker).collect()
         };
+        self.join_workers(workers).await;
+    }
+
+    /// Abort and join drained managed executions. An aborted worker reports
+    /// cancelled and leaves its task Running: durable truth, reconciled on
+    /// the next pass/generation — never replayed. A panicked worker gets the
+    /// same explicit reconciling park as a reclaimed one so no execution
+    /// disappears without a durable record.
+    async fn join_workers(&self, workers: Vec<Worker>) {
         for worker in &workers {
             worker.handle.abort();
         }
         for worker in workers {
-            // An aborted worker reports cancelled and leaves its task Running:
-            // durable truth, reconciled on the next generation. A panicked
-            // worker gets the same explicit reconciling park as a reclaimed
-            // one so no execution disappears without a durable record.
             match worker.handle.await {
                 Ok(()) => {}
                 Err(error) if error.is_cancelled() => {}
@@ -554,6 +603,79 @@ impl NativeChildService {
                 }
             }
         }
+    }
+
+    /// Upgrade handoff quiesce — SPEC §45 upgrade seam: close admission and
+    /// drain every managed execution EXCEPT the excluded orchestration
+    /// workers (the caller runs inside one of them and must not join
+    /// itself). Admission stays closed until `resume_after_handoff_abort`
+    /// (same-generation reopen on abort) or the service is torn down /
+    /// reopened by the succeeding generation.
+    ///
+    /// Do not abort outer futures: an outer future can own a spawn_blocking
+    /// guest whose JoinHandle drop does NOT stop that guest or its receipt
+    /// writer. Await actual finite workers; on timeout retain their handles
+    /// and ownership so the same runtime can resume without replay.
+    pub async fn quiesce_for_handoff(
+        &self,
+        excluded_task_ids: &[EntityId],
+    ) -> Result<serde_json::Value> {
+        let _guard = self.run_lock.lock().await;
+        let excluded: std::collections::HashSet<EntityId> =
+            excluded_task_ids.iter().copied().collect();
+        for task in excluded_task_ids {
+            let task = self.store.external_task(*task)?;
+            anyhow::ensure!(task.kind == "update.control",
+                "only an explicit update.control continuation can be excluded from handoff drain");
+        }
+        let apply_epoch = {
+            let mut executions = self.executions.lock();
+            executions.closed = true;
+            executions.apply_epoch
+        };
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            let ready = {
+                let executions = self.executions.lock();
+                executions.workers.iter().filter(|(id, _)| !excluded.contains(id))
+                    .all(|(_, worker)| worker.handle.is_finished())
+            };
+            if ready { break; }
+            anyhow::ensure!(tokio::time::Instant::now() < deadline,
+                "NATIVE_HANDOFF_INCOMPLETE: actual workers still own execution; no cancellation/termination claimed");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let drained = {
+            let mut executions = self.executions.lock();
+            let ids = executions.workers.keys().filter(|id| !excluded.contains(id)).copied().collect::<Vec<_>>();
+            ids.into_iter().filter_map(|id| executions.workers.remove(&id)).collect::<Vec<_>>()
+        };
+        // All handles are finished. The shared join path cannot abandon a
+        // live guest here, and still parks panics with their original debt.
+        self.join_workers(drained).await;
+        let executions = self.executions.lock();
+        Ok(serde_json::json!({
+            "v": 1,
+            "kind": "native_child_handoff_quiesce",
+            "instance_id": self.instance_id,
+            "apply_epoch": apply_epoch,
+            "closed": executions.closed,
+            "retained_task_ids": executions.workers.keys().collect::<Vec<_>>(),
+            "excluded_task_ids": excluded_task_ids,
+        }))
+    }
+
+    /// Reopen admission after a handoff was aborted. Unlike `reopen()` this
+    /// does NOT bump `apply_epoch`: no new Cordis apply ran, so a pending
+    /// teardown effect of this generation must not be made stale by the
+    /// resume. The excluded orchestration worker is still live and stayed in
+    /// the map; durable recovery reconciles the debt the quiesce left.
+    pub async fn resume_after_handoff_abort(&self) -> Result<()> {
+        let _guard = self.run_lock.lock().await;
+        // A timeout retained live handles: do not reclassify those durable
+        // claims as recovery work while their original workers still run.
+        self.executions.lock().closed = false;
+        Ok(())
     }
 
     /// Deterministic guidance from currently installed handlers, ordered by
@@ -1210,6 +1332,122 @@ impl Plugin for NativeTaskHandlerPlugin {
             .map_err(std::io::Error::other)?;
         ctx.effect_sync(move || service.uninstall(&key, epoch))
             .map_err(std::io::Error::other)?;
+        // Live registration: while this definition is installed the runtime's
+        // discovery view names it, its effect contracts and its capabilities.
+        // The withdrawal runs in the same generation teardown, so an
+        // uninstall cannot leave a stale provider or capability behind.
+        register_native_definition(&ctx, handler.as_ref())?;
         Ok(())
     }
+}
+
+/// Publish one installed native definition in the live runtime registry.
+///
+/// The provider view names the exact implementation, the §36 effect
+/// contracts of the definition's operations, the capabilities it offers and
+/// the §18.2 usability package of every capability. Everything registered
+/// here is withdrawn in the same generation teardown, so an uninstall cannot
+/// leave a stale provider, capability or help document behind.
+fn register_native_definition(
+    ctx: &Context,
+    handler: &dyn NativeTaskHandler,
+) -> Result<(), std::io::Error> {
+    let runtime = match ctx.try_service::<shenko_kernel::runtime::PluginRuntime>() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            // The definition itself is installed; the live discovery view is
+            // not. This is an assembly fact, not a silent success.
+            tracing::warn!(
+                kind = %handler.descriptor().kind,
+                %error,
+                "native definition installed without a live runtime registry"
+            );
+            return Ok(());
+        }
+    };
+    let descriptor = handler.descriptor();
+    let implementation = descriptor.implementation();
+    let provider_id = format!("native.{}", descriptor.kind);
+    let declarations = handler.capabilities();
+    let operations = handler
+        .effect_contracts()
+        .into_iter()
+        .map(|contract| shenko_types::plugin_runtime::OperationEffectView {
+            operation_name: contract.operation_name.clone(),
+            effect_contract: contract,
+        })
+        .collect();
+    let provider = runtime
+        .register_provider(shenko_kernel::runtime::ProviderRegistration {
+            provider_id: provider_id.clone(),
+            kind: "native.task".into(),
+            version: descriptor.definition_version.to_string(),
+            plugin_id: descriptor.implementation_ref.plugin_id,
+            implementation: implementation.clone(),
+            description: descriptor.prompt_section.clone().unwrap_or_else(|| {
+                format!("native task definition {}", descriptor.kind)
+            }),
+            operations,
+            capabilities: declarations
+                .iter()
+                .map(|declaration| declaration.capability_id.clone())
+                .collect(),
+            health: shenko_types::plugin_runtime::ProviderHealth::Installed,
+        })
+        .map_err(std::io::Error::other)?;
+    let mut capability_handles = Vec::new();
+    let mut help_handles = Vec::new();
+    for declaration in &declarations {
+        let handle = runtime
+            .register_capability(shenko_kernel::runtime::CapabilityRegistration {
+                capability_id: declaration.capability_id.clone(),
+                version: declaration.version.clone(),
+                description: declaration.description.clone(),
+                plugin_id: descriptor.implementation_ref.plugin_id,
+                provider_id: Some(provider_id.clone()),
+                enabled: true,
+            })
+            .map_err(std::io::Error::other)?;
+        capability_handles.push(handle);
+        // §18.2 usability package: what the capability is for, when it
+        // applies and where its own limits are. The text comes from the
+        // installed implementation, not from a product feature list.
+        let help = runtime
+            .register_help(shenko_kernel::runtime::HelpRegistration {
+                capability_id: declaration.capability_id.clone(),
+                version: declaration.version.clone(),
+                purpose: declaration.description.clone(),
+                key_methods: declaration.usage.clone().into_iter().collect(),
+                applies_when: vec![format!(
+                    "the definition {}@{} is installed in this runtime",
+                    descriptor.kind, descriptor.definition_version
+                )],
+                does_not_apply_when: vec![format!(
+                    "the definition {} is not installed",
+                    descriptor.kind
+                )],
+                schema_help: Some(format!(
+                    "native task definition {} schema version {}",
+                    descriptor.kind, descriptor.definition_version
+                )),
+                limitations: Vec::new(),
+                recovery: None,
+                implementation: implementation.clone(),
+            })
+            .map_err(std::io::Error::other)?;
+        help_handles.push(help);
+    }
+    let teardown_runtime = runtime.clone();
+    let teardown_provider = provider.clone();
+    ctx.effect_sync(move || {
+        for handle in &capability_handles {
+            teardown_runtime.withdraw_capability(handle);
+        }
+        for handle in &help_handles {
+            teardown_runtime.withdraw_help(handle);
+        }
+        teardown_runtime.withdraw_provider(&teardown_provider);
+    })
+    .map_err(std::io::Error::other)?;
+    Ok(())
 }
