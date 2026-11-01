@@ -6,6 +6,24 @@ window requires intact manifest-bound evidence and a gap-free sampled span,
 corroborated by the same kernel boot's uptime. Missing samples, unverifiable
 identities, clock discontinuities and damaged records cannot qualify a window.
 
+Schema 3 (this file) additionally binds a run to what was actually observed:
+
+  * ``evidence_class`` distinguishes a real observation run from the
+    synthetic self-check run. Only ``real_observation`` runs can become
+    product evidence; a self-check run reports its window admission honestly
+    but is never eligible to close a SPEC obligation.
+  * the candidate binary is hashed by this tool at ``init`` and the hash must
+    equal the declared one; every sample re-resolves the subject's
+    ``/proc/<pid>/exe`` and records whether it still is that binary.
+  * the environment is *measured* (kernel, boot id, host, cpu count, memory,
+    cgroup, interpreter) instead of being copied from the caller's words.
+  * outages (subject absent, sampler gap, restart boundary, clock
+    discontinuity) become first-class records with their real durations.
+
+Legacy schema 2 directories stay readable for reporting and are explicitly
+marked as legacy: their bytes are never rewritten and they are not eligible
+as product evidence for the current candidate.
+
 Layout of the run directory (all writes are fsync'd):
 
   manifest.json      frozen at `init`: candidate/environment identity and the
@@ -37,22 +55,29 @@ import hashlib
 import json
 import math
 import os
+import platform
 import re
 import sys
 import time
 from pathlib import Path
 
-SCHEMA = 2
+SCHEMA = 3
+LEGACY_SCHEMAS = (2,)
 KIND = "c19_long_run_observation"
 SCRIPT_NAME = Path(__file__).name
 PROCFS = Path("/proc")
 DEFAULT_STATE_INTERVAL = 300.0
+EVIDENCE_REAL = "real_observation"
+EVIDENCE_SYNTHETIC = "synthetic_self_check"
+EVIDENCE_CLASSES = (EVIDENCE_REAL, EVIDENCE_SYNTHETIC)
 
 _MANIFEST_REQUIRED = (
     "schema", "kind", "run_id", "workload", "candidate", "environment",
     "declared_windows_seconds", "interval_seconds", "main_pid_source",
     "extra_pids", "created_utc", "created_epoch", "created_by",
 )
+
+_MANIFEST_REQUIRED_V3 = _MANIFEST_REQUIRED + ("evidence_class",)
 
 
 def utcnow():
@@ -172,6 +197,91 @@ def read_kernel_release():
     return os.uname().release
 
 
+def read_hostname():
+    try:
+        return os.uname().nodename
+    except OSError:
+        return None
+
+
+def read_cgroup_id(procfs=PROCFS):
+    """Identify the cgroup/container the sampler runs in. A run recorded in
+    one cgroup cannot be read as evidence for another environment."""
+    try:
+        text = (procfs / "self" / "cgroup").read_text()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        _, _, path = line.partition(":")
+        if path:
+            return path.strip()
+    return None
+
+
+def read_mem_total_kb(procfs=PROCFS):
+    try:
+        for line in (procfs / "meminfo").read_text().splitlines():
+            if line.startswith("MemTotal:"):
+                return int(line.split()[1])
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def measure_environment(procfs=PROCFS):
+    """Measure the environment instead of trusting the caller's description.
+    Every field here is read from the running system."""
+    return {
+        "kernel": read_kernel_release(),
+        "host": read_hostname(),
+        "boot_id": read_boot_id(procfs),
+        "cgroup": read_cgroup_id(procfs),
+        "cpu_count": os.cpu_count(),
+        "mem_total_kb": read_mem_total_kb(procfs),
+        "interpreter": "python " + platform.python_version(),
+        "procfs": str(procfs),
+    }
+
+
+def measure_binary(path):
+    """Measure a candidate binary: digest, size and identity of the file on
+    disk. Returns None when the path does not exist."""
+    if not path:
+        return None
+    target = Path(path)
+    try:
+        stat = target.stat()
+    except OSError:
+        return None
+    return {
+        "path": str(target),
+        "sha256": sha256_file(target),
+        "bytes": stat.st_size,
+        "mtime": int(stat.st_mtime),
+    }
+
+
+def read_subject_exe(pid, procfs=PROCFS):
+    """Resolve the subject's actual executable. This is what makes a sample
+    attributable to a candidate binary instead of to a claimed one."""
+    if pid is None:
+        return None
+    try:
+        raw = os.readlink(procfs / str(pid) / "exe")
+    except OSError:
+        return None
+    info = {"path": raw}
+    try:
+        stat = os.stat(raw)
+    except OSError:
+        return info
+    info["dev"] = stat.st_dev
+    info["ino"] = stat.st_ino
+    info["bytes"] = stat.st_size
+    info["mtime"] = int(stat.st_mtime)
+    return info
+
+
 def read_starttime_jiffies(pid, procfs=PROCFS):
     """starttime is field 22, after `comm` which may contain spaces and ')'.
 
@@ -278,16 +388,26 @@ def log_path(run_dir):
     return run_dir / "records.jsonl"
 
 
-def validate_manifest(manifest):
+def validate_manifest(manifest, allow_legacy=False):
     if not isinstance(manifest, dict):
         raise ValueError("manifest must be a JSON object")
     missing = [k for k in _MANIFEST_REQUIRED if k not in manifest]
     if missing:
         raise ValueError(f"manifest misses required fields: {missing}")
-    if manifest["schema"] != SCHEMA or manifest["kind"] != KIND:
+    schema = manifest["schema"]
+    if allow_legacy and schema in LEGACY_SCHEMAS:
+        # A legacy directory keeps its own bytes and its own admission rules.
+        # It is reported, never upgraded and never eligible as current
+        # product evidence.
+        return manifest
+    if schema != SCHEMA or manifest["kind"] != KIND:
         raise ValueError(
             "manifest schema/kind does not match this recorder "
             f"(expected schema {SCHEMA}, kind {KIND})")
+    if manifest.get("evidence_class") not in EVIDENCE_CLASSES:
+        raise ValueError(
+            "manifest must declare evidence_class "
+            f"({EVIDENCE_REAL} or {EVIDENCE_SYNTHETIC})")
     if not isinstance(manifest["run_id"], str) or not manifest["run_id"]:
         raise ValueError("manifest must name one run_id")
     windows = manifest["declared_windows_seconds"]
@@ -304,11 +424,25 @@ def validate_manifest(manifest):
         raise ValueError("manifest extra_pids must be a list")
     if not digest_string(manifest["created_by"].get("script_sha256")):
         raise ValueError("manifest must identify its recorder")
+    candidate = manifest["candidate"]
+    if manifest["evidence_class"] == EVIDENCE_REAL:
+        # A real observation run names the exact artifact it watched. Without
+        # a commit and a measured binary there is nothing to attribute.
+        if not digest_string(candidate.get("commit")):
+            raise ValueError(
+                "a real_observation run must record the candidate commit")
+        measured = candidate.get("binary_measured")
+        if not isinstance(measured, dict) or not digest_string(
+                measured.get("sha256")):
+            raise ValueError(
+                "a real_observation run must record the measured candidate "
+                "binary digest")
     return manifest
 
 
-def load_manifest(run_dir):
-    return validate_manifest(read_json(manifest_path(run_dir)))
+def load_manifest(run_dir, allow_legacy=False):
+    return validate_manifest(
+        read_json(manifest_path(run_dir)), allow_legacy=allow_legacy)
 
 
 def finite_number(value):
@@ -337,7 +471,10 @@ def valid_fingerprint(value):
 
 
 def valid_record(record):
-    if not isinstance(record, dict) or record.get("schema") != SCHEMA:
+    if not isinstance(record, dict):
+        return False
+    schema = record.get("schema")
+    if schema not in (SCHEMA,) + LEGACY_SCHEMAS:
         return False
     if not isinstance(record.get("run_id"), str) or not record["run_id"]:
         return False
@@ -518,6 +655,25 @@ def read_process_or_absent(pid):
                 "read_error": str(err)}
 
 
+def subject_binary_state(pid, candidate):
+    """What the subject actually executes right now, compared with the
+    artifact the manifest declares. A replaced binary during a run is a
+    candidate change, not a continuous observation of one candidate."""
+    exe = read_subject_exe(pid)
+    if exe is None:
+        return {"resolved": False}
+    measured = candidate.get("binary_measured")
+    state = {"resolved": True, "exe": exe}
+    if not isinstance(measured, dict):
+        state["matches_declared_candidate"] = None
+        return state
+    same = (exe.get("ino") is not None
+            and measured.get("bytes") == exe.get("bytes")
+            and measured.get("mtime") == exe.get("mtime"))
+    state["matches_declared_candidate"] = bool(same)
+    return state
+
+
 # ------------------------------------------------------------------ commands
 
 def cmd_init(args):
@@ -538,21 +694,45 @@ def cmd_init(args):
     if not windows:
         raise SystemExit("declare at least one --window NAME=SECONDS "
                          "(e.g. 7d=604800 30d=2592000)")
+    if args.evidence_class not in EVIDENCE_CLASSES:
+        raise SystemExit(
+            f"--evidence-class must be one of {', '.join(EVIDENCE_CLASSES)}")
+    measured_binary = measure_binary(args.binary_path)
+    if args.evidence_class == EVIDENCE_REAL:
+        if not digest_string(args.candidate_commit):
+            raise SystemExit(
+                "--evidence-class real_observation requires "
+                "--candidate-commit with the exact 40-hex commit")
+        if not args.profile:
+            raise SystemExit(
+                "--evidence-class real_observation requires --profile "
+                "(the runtime/build profile the observation belongs to)")
+        if measured_binary is None:
+            raise SystemExit(
+                "--evidence-class real_observation requires --binary-path "
+                "pointing at an existing candidate binary")
+        if args.binary_sha256 and args.binary_sha256 != measured_binary["sha256"]:
+            raise SystemExit(
+                "declared --binary-sha256 does not match the measured binary "
+ f"({measured_binary['sha256']}); refusing to bind a wrong artifact")
     manifest = {
         "schema": SCHEMA,
         "kind": KIND,
+        "evidence_class": args.evidence_class,
         "run_id": args.run_id,
         "workload": args.workload,
         "candidate": {
             "commit": args.candidate_commit,
             "binary_path": args.binary_path,
             "binary_sha256": args.binary_sha256,
+            "binary_measured": measured_binary,
             "source": args.candidate_source,
+            "profile": args.profile,
         },
-        "environment": {
+        "environment": dict(measure_environment(), note=args.note),
+        "environment_declared": {
             "host": args.host,
             "os": args.os,
-            "note": args.note,
         },
         "declared_windows_seconds": windows,
         "interval_seconds": args.interval,
@@ -608,10 +788,12 @@ def _take_sample(run_dir, manifest, fixed_pid, pid_file, epoch=None):
     if isinstance(resolved, dict):
         main = {"pid": None, "alive": False,
                 "unresolved": resolved["error"]}
+        main["binary"] = subject_binary_state(None, manifest["candidate"])
     else:
         main = read_process_or_absent(resolved)
         if main["alive"]:
             main["boot_id"] = clock["boot_id"]
+        main["binary"] = subject_binary_state(resolved, manifest["candidate"])
 
     # A boundary belongs to the next sample sequence. A failed sample write
     # may leave its complete boundary durable; retry that transition, not a
@@ -691,7 +873,14 @@ def cmd_run(args):
 
 def cmd_report(args):
     run_dir = Path(args.dir)
-    manifest = load_manifest(run_dir)
+    legacy = False
+    try:
+        manifest = load_manifest(run_dir)
+    except ValueError:
+        manifest = load_manifest(run_dir, allow_legacy=True)
+        legacy = manifest["schema"] in LEGACY_SCHEMAS
+        if not legacy:
+            raise
     if not finite_number(args.gap_factor) or not 1 <= args.gap_factor <= 3:
         raise ValueError("gap-factor must be between 1 and 3; known downtime cannot be waived")
     runs, issues = scan_log(log_path(run_dir))
@@ -761,18 +950,50 @@ def cmd_report(args):
                 if key in expected_restarts]
     unmatched_restarts = len(set(recorded_restarts) - expected_restarts)
     missing_restarts = len(expected_restarts - set(recorded_restarts))
+    # Outages are first-class facts: every interval in which the subject was
+    # not observed running, the sampler did not run, or the running artifact
+    # was not the declared candidate.
+    outages = []
+    for prev, cur in zip(samples, samples[1:]):
+        wall_gap = cur["epoch"] - prev["epoch"]
+        if not prev["main"].get("alive"):
+            outages.append({
+                "kind": "subject_not_running",
+                "after_seq": prev["seq"],
+                "until_seq": cur["seq"],
+                "seconds": round(max(wall_gap, 0.0), 3),
+            })
+    for gap in gaps:
+        outages.append({
+            "kind": "sampler_gap",
+            "after_seq": gap["after_seq"],
+            "seconds": gap["gap_seconds"],
+        })
+    for restart in restarts:
+        outages.append({
+            "kind": "subject_restarted",
+            "after_seq": restart["sample_seq"],
+            "reason": restart["reason"],
+        })
+    binary_drift = []
+    for sample in samples:
+        binary = sample["main"].get("binary") or {}
+        if binary.get("matches_declared_candidate") is False:
+            binary_drift.append(sample["seq"])
     integrity.update({
         "clock_unverified_sample_seqs": clock_unverified,
         "clock_discontinuities": clock_discontinuities,
         "unmatched_restart_boundaries": unmatched_restarts,
         "missing_restart_boundaries": missing_restarts,
+        "candidate_binary_drift_sample_seqs": binary_drift,
         "record_count": len(samples),
         "sample_records": len(alive) + len(absent),
         "first_sample_epoch": epochs[0] if epochs else None,
         "last_sample_epoch": epochs[-1] if epochs else None,
     })
     integrity["intact"] = integrity["intact"] and not any((
-        clock_unverified, clock_discontinuities, unmatched_restarts, missing_restarts))
+        clock_unverified, clock_discontinuities, unmatched_restarts,
+        missing_restarts, binary_drift))
     # Deliberately reject the whole declared run when any known gap exists;
     # do not splice disconnected spans into a 7/30-day observation claim.
     qualifying_span = qualifying_elapsed if integrity["intact"] and not gaps else 0.0
@@ -814,6 +1035,8 @@ def cmd_report(args):
         "kind": "c19_long_run_observation_report",
         "run_id": run_id,
         "generated_utc": iso_utc(utcnow()),
+        "evidence_class": manifest.get("evidence_class", "legacy_schema"),
+        "legacy_manifest": legacy,
         "subject": manifest["workload"],
         "candidate": manifest["candidate"],
         "environment": manifest["environment"],
@@ -831,15 +1054,24 @@ def cmd_report(args):
             }
             for seg in segments],
         "rss_main_process": rss,
+        "outages": outages,
         "integrity": integrity,
         "declared_windows": declared,
         "verdict": ("all_declared_windows_observed"
                     if all_observed else "incomplete_observation"),
+        "eligible_as_product_evidence": bool(
+            not legacy
+            and manifest.get("evidence_class") == EVIDENCE_REAL
+            and all_observed
+            and integrity["intact"]),
         "never_claimed": [
             "samples are points in time; behaviour between them is not proven",
             "absent/dead subject or sampler downtime stays recorded, not filled",
             "endpoint span alone never qualifies a window",
             "damaged, unbound, clock-discontinuous or gapped runs stay unobserved",
+            "a synthetic self-check run never closes a SPEC obligation",
+            "legacy schema runs are reported but not upgraded and are not "
+            "evidence for the current candidate",
         ],
     }
     if args.write:
@@ -866,6 +1098,13 @@ def build_parser():
     init.add_argument("--candidate-source")
     init.add_argument("--binary-path")
     init.add_argument("--binary-sha256")
+    init.add_argument("--profile",
+                      help="runtime/build profile this observation belongs to "
+                           "(required for real_observation runs)")
+    init.add_argument("--evidence-class", default=EVIDENCE_SYNTHETIC,
+                      choices=EVIDENCE_CLASSES,
+                      help="real_observation = a real candidate was watched; "
+                           "synthetic_self_check = tool self-check only")
     init.add_argument("--host")
     init.add_argument("--os")
     init.add_argument("--note")
