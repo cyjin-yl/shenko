@@ -15,8 +15,8 @@ use cordis_core::{Context, InjectSpec, Plugin, PreparedChange, Service};
 use shenko_context_policy::{
     Availability, CONTRACT_VERSION, ContextInput, ContextPolicy, CostReport, Derivative,
     HistoryItem, ItemKind, ModelCaps, PolicyError, PolicyManifest, PolicyRegistry,
-    PreparedWindow, WindowEntry, estimate_tokens, install_on, unit_is_unfinished, units,
-    unresolved_calls,
+    PreparedWindow, TriggerInput, WindowEntry, estimate_tokens, install_on, unit_is_unfinished,
+    units, unresolved_calls,
 };
 
 pub mod render;
@@ -70,6 +70,80 @@ impl SnapCompact {
         Self { config }
     }
 
+    /// The default configuration document of this strategy.
+    pub fn default_config() -> serde_json::Value {
+        let config = SnapConfig::default();
+        serde_json::json!({
+            "trigger_ratio": config.trigger_ratio,
+            "head_tokens": config.head_tokens,
+            "tail_ratio": config.tail_ratio,
+            "max_tool_output_chars": config.max_tool_output_chars,
+            "max_tool_args_chars": config.max_tool_args_chars,
+            "columns": config.columns,
+            "rows_per_frame": config.rows_per_frame,
+            "max_unrenderable_ratio": config.max_unrenderable_ratio,
+            "min_image_context": config.min_image_context,
+        })
+    }
+
+    /// Read a configuration document. A malformed field is an error, never a
+    /// silently ignored default.
+    pub fn config_from_json(value: &serde_json::Value) -> Result<SnapConfig, String> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| "snapcompact configuration must be an object".to_string())?;
+        let default = SnapConfig::default();
+        let number = |key: &str, fallback: f32| -> Result<f32, String> {
+            match object.get(key) {
+                None => Ok(fallback),
+                Some(value) => value
+                    .as_f64()
+                    .map(|number| number as f32)
+                    .ok_or_else(|| format!("snapcompact {key} must be a number")),
+            }
+        };
+        let unsigned = |key: &str, fallback: u32| -> Result<u32, String> {
+            match object.get(key) {
+                None => Ok(fallback),
+                Some(value) => value
+                    .as_u64()
+                    .and_then(|number| u32::try_from(number).ok())
+                    .ok_or_else(|| format!("snapcompact {key} must be a non-negative integer")),
+            }
+        };
+        let bounded = |key: &str, fallback: usize| -> Result<usize, String> {
+            match object.get(key) {
+                None => Ok(fallback),
+                Some(value) => value
+                    .as_u64()
+                    .and_then(|number| usize::try_from(number).ok())
+                    .ok_or_else(|| format!("snapcompact {key} must be a non-negative integer")),
+            }
+        };
+        let config = SnapConfig {
+            trigger_ratio: number("trigger_ratio", default.trigger_ratio)?,
+            head_tokens: unsigned("head_tokens", default.head_tokens)?,
+            tail_ratio: number("tail_ratio", default.tail_ratio)?,
+            max_tool_output_chars: bounded("max_tool_output_chars", default.max_tool_output_chars)?,
+            max_tool_args_chars: bounded("max_tool_args_chars", default.max_tool_args_chars)?,
+            columns: unsigned("columns", default.columns)?,
+            rows_per_frame: unsigned("rows_per_frame", default.rows_per_frame)?,
+            max_unrenderable_ratio: number("max_unrenderable_ratio", default.max_unrenderable_ratio)?,
+            min_image_context: unsigned("min_image_context", default.min_image_context)?,
+        };
+        let ratio = |value: f32| value > 0.0 && value <= 1.0;
+        if !ratio(config.trigger_ratio)
+            || !ratio(config.tail_ratio)
+            || !(0.0..=1.0).contains(&config.max_unrenderable_ratio)
+ {
+            return Err("snapcompact ratios must be in range".into());
+        }
+        if config.columns < 2 || config.rows_per_frame == 0 {
+            return Err("snapcompact frames need at least 2 columns and 1 row".into());
+        }
+        Ok(config)
+    }
+
     /// OMP Archive.text equivalent: one bounded, normalized line per event.
     fn archive_text(&self, items: &[HistoryItem], truncated: &mut u64) -> String {
         let mut out = String::new();
@@ -116,6 +190,9 @@ impl ContextPolicy for SnapCompact {
             version: env!("CARGO_PKG_VERSION").into(),
             contract: CONTRACT_VERSION,
             requires: vec!["vision".into()],
+            provides: vec!["context.snap-window".into()],
+            summary: "Renders a bounded, normalized archive of the middle history into dense PNG frames a vision model reads back; the head and tail stay text.".into(),
+            dependencies: Vec::new(),
         }
     }
 
@@ -130,9 +207,9 @@ impl ContextPolicy for SnapCompact {
         }
     }
 
-    fn should_compact(&self, input: &ContextInput<'_>) -> bool {
-        input.caps.image_request_context().is_some_and(|limit| {
-            input.used_tokens as f32 > limit as f32 * self.config.trigger_ratio
+    fn should_compact(&self, trigger: &TriggerInput<'_>) -> bool {
+        trigger.caps.image_request_context().is_some_and(|limit| {
+            trigger.used_tokens as f32 > limit as f32 * self.config.trigger_ratio
         })
     }
 
@@ -212,8 +289,18 @@ impl ContextPolicy for SnapCompact {
             entries.push(WindowEntry::Pointer { from, to, note, tokens });
             for frame in frames.pngs {
                 let tokens = frame.width.div_ceil(vision.patch_px) * frame.height.div_ceil(vision.patch_px);
+                // A frame is a real image or it is not a frame: the PNG
+                // signature is checked before the derivative is stored, so a
+                // text fallback can never travel as image proof.
+                if !render::is_png(&frame.png) {
+                    return Err(PolicyError::FrameUnreadable(format!(
+                        "rendered frame for raw seq {from}..={to} is not a PNG image"
+                    )));
+                }
                 cost.image_bytes += frame.png.len() as u64;
                 cost.vision_tokens_estimate += tokens;
+                cost.frames += 1;
+                cost.frame_pixels += u64::from(frame.width) * u64::from(frame.height);
                 derivatives.push(Derivative::new("image/png", frame.png));
                 entries.push(WindowEntry::Image { from, to, derivative: derivatives.len() - 1, tokens });
             }

@@ -2635,6 +2635,7 @@ version = "0.1.0"
 dependencies = [
  "cordis-core",
  "png",
+ "serde_json",
  "shenko-compact-budget",
  "shenko-context-policy",
  "shenko-kernel",
@@ -2654,6 +2655,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-kernel",
  "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",

@@ -11,12 +11,19 @@ use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError, units, unresolved_calls};
-use crate::policy::{CostReport, Derivative, PreparedWindow, WindowBase, WindowEntry};
+use crate::policy::{
+    CostReport, Derivative, PreparedWindow, WINDOW_BODY_VERSION, WindowBase, WindowEntry,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommittedWindow {
     pub id: EntityId,
     pub generation: u64,
+    /// Body format version. A body written by an older version still
+    /// decodes (missing field -> 0); a newer version is refused by the
+    /// reader instead of being guessed at.
+    #[serde(default)]
+    pub body_version: u32,
     /// None for genesis. A model-rebind root links its source but still
     /// materializes the full raw history rather than a compressed prefix.
     pub base: Option<WindowBase>,
@@ -110,6 +117,7 @@ impl CommittedWindow {
         Self {
             id: EntityId::new(),
             generation: 0,
+            body_version: WINDOW_BODY_VERSION,
             base: None,
             policy_id: None,
             policy_version: None,
@@ -179,6 +187,10 @@ pub enum WindowAppend {
 /// stores and enforces the head compare-and-append, so two writers cannot
 /// both extend the same head.
 pub trait WindowLog: Send + Sync {
+    /// The branch/scope this chain belongs to. A prepared window is bound to
+    /// it, so a window prepared for one branch can never be committed into
+    /// another branch's chain.
+    fn scope_id(&self) -> EntityId;
     /// Current head; an empty log creates and returns its genesis window.
     fn head(&self) -> Result<CommittedWindow, StorageError>;
     /// Every committed window, oldest first; none is ever discarded.
@@ -193,20 +205,32 @@ pub trait WindowLog: Send + Sync {
     fn model_generation(&self) -> Result<u64, StorageError>;
     fn model_profile(&self) -> Result<Option<(u64, String)>, StorageError>;
     fn rebind_model(&self, generation: u64, profile_digest: &str) -> Result<(), StorageError>;
+    /// The highest installation epoch any committed window of this chain was
+    /// prepared under. A new installation starts above it, so a window
+    /// prepared by an earlier process can never commit.
+    fn max_policy_epoch(&self) -> Result<u64, StorageError>;
 }
 
 /// In-process log for strategies and tests without a durable store.
 pub struct MemoryWindowLog {
+    scope_id: EntityId,
     state: Mutex<(Vec<CommittedWindow>, u64, Option<String>)>,
 }
 
 impl Default for MemoryWindowLog {
     fn default() -> Self {
-        Self { state: Mutex::new((vec![CommittedWindow::genesis()], 0, None)) }
+        Self {
+            scope_id: EntityId::new(),
+            state: Mutex::new((vec![CommittedWindow::genesis()], 0, None)),
+        }
     }
 }
 
 impl WindowLog for MemoryWindowLog {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
     fn head(&self) -> Result<CommittedWindow, StorageError> {
         Ok(self.state.lock().0.last().cloned().expect("log always has genesis"))
     }
@@ -262,6 +286,17 @@ impl WindowLog for MemoryWindowLog {
         state.2 = Some(profile_digest.to_owned());
         Ok(())
     }
+
+    fn max_policy_epoch(&self) -> Result<u64, StorageError> {
+        Ok(self
+            .state
+            .lock()
+            .0
+            .iter()
+            .filter_map(|window| window.base.as_ref().map(|base| base.policy_epoch))
+            .max()
+            .unwrap_or(0))
+    }
 }
 
 pub struct WindowLedger {
@@ -306,6 +341,17 @@ impl WindowLedger {
         self.log.rebind_model(generation, profile_digest)
     }
 
+    /// The branch/scope this chain belongs to.
+    pub fn scope_id(&self) -> EntityId {
+        self.log.scope_id()
+    }
+
+    /// The highest installation epoch used by a committed window of this
+    /// chain. A new installation starts above it.
+    pub fn max_policy_epoch(&self) -> Result<u64, StorageError> {
+        self.log.max_policy_epoch()
+    }
+
     /// Verify the base still holds and commit atomically. Events appended after
     /// the prepared leaf stay visible because materialization carries them.
     pub fn commit(
@@ -338,6 +384,7 @@ impl WindowLedger {
         let mut window = CommittedWindow {
             id: EntityId::new(),
             generation: current.generation + 1,
+            body_version: WINDOW_BODY_VERSION,
             base: Some(prepared.base),
             policy_id: Some(prepared.policy.id),
             policy_version: Some(prepared.policy.version),
@@ -367,6 +414,11 @@ impl WindowLedger {
         let total: u32 = next.iter().map(WindowEntry::tokens).sum();
         window.cost.reusable_prefix_tokens = reused;
         window.cost.recompute_tokens = total - reused;
+        window.cost.raw_events_covered = covered_raw_events(&window.entries);
+        window.cost.open_calls = open_calls(&window.call_states);
+        if window.cost.kv_accounting.is_empty() {
+            window.cost.kv_accounting = KV_ACCOUNTING.to_string();
+        }
         match self.log.append(current.id, window.model_generation, &window)? {
             WindowAppend::Appended => Ok(window),
             WindowAppend::SourceChanged => {
@@ -378,6 +430,44 @@ impl WindowLedger {
             }
         }
     }
+}
+
+/// How the KV figure of a committed window was obtained. It is an input
+/// identity bound estimate, never a backend cache-hit measurement.
+pub const KV_ACCOUNTING: &str = "input-identity bound prefix reuse estimate (same raw event, derived text and derivative bytes under the same model/template/encoder generation); not a backend cache-hit measurement";
+
+/// How many distinct raw events the window's entries stand for. The raw
+/// events themselves stay in the store and stay readable.
+fn covered_raw_events(entries: &[WindowEntry]) -> u64 {
+    let mut covered = BTreeSet::new();
+    for entry in entries {
+        match entry {
+            WindowEntry::Verbatim { at, .. } => {
+                covered.insert(at.seq);
+            }
+            WindowEntry::Pointer { from, to, .. }
+            | WindowEntry::Text { from, to, .. }
+            | WindowEntry::Image { from, to, .. } => {
+                for seq in *from..=*to {
+                    covered.insert(seq);
+                }
+            }
+        }
+    }
+    covered.len() as u64
+}
+
+/// How many calls the committed window still shows as unresolved.
+///
+/// The durable fact is the call-state baseline the window committed with;
+/// this count is derived from it, so it never becomes a second truth about
+/// which calls are open.
+fn open_calls(states: &BTreeMap<String, Vec<(u64, CallStatus)>>) -> u32 {
+    states
+        .values()
+        .filter_map(|entries| entries.last().map(|(_, status)| *status))
+        .filter(|status| !status.is_resolved())
+        .count() as u32
 }
 
 /// One model-visible element of a window, provider-neutral. Mapping these to
@@ -550,7 +640,13 @@ mod tests {
         let note = "archived completed call".to_string();
         let prepared = PreparedWindow {
             base,
-            policy: PolicyManifest { id: "fixture".into(), version: "1".into(), contract: crate::CONTRACT_VERSION, requires: vec![] },
+            policy: PolicyManifest {
+                id: "fixture".into(),
+                version: "1".into(),
+                contract: crate::CONTRACT_VERSION,
+                requires: vec![],
+                ..PolicyManifest::default()
+            },
             entries: vec![WindowEntry::Pointer { from: 0, to: 2, tokens: estimate_tokens(&note), note }],
             carried_calls: vec![], derivatives: vec![], cost: CostReport::default(),
         };
@@ -585,7 +681,13 @@ mod tests {
         };
         let prepared = PreparedWindow {
             base,
-            policy: PolicyManifest { id: "fixture".into(), version: "1".into(), contract: crate::CONTRACT_VERSION, requires: vec![] },
+            policy: PolicyManifest {
+                id: "fixture".into(),
+                version: "1".into(),
+                contract: crate::CONTRACT_VERSION,
+                requires: vec![],
+                ..PolicyManifest::default()
+            },
             entries: vec![
                 WindowEntry::Pointer { from: 0, to: 2, note: "pointer".into(), tokens: 1 },
                 WindowEntry::Image { from: 0, to: 2, derivative: 0, tokens: 1 },

@@ -77,7 +77,7 @@ fn window_over_store_survives_reopen_and_keeps_every_raw_event() {
     let caps = ModelCaps { model_id: "text-only".into(), max_context: 1000, vision: None };
     let log = Arc::new(StoreWindowLog::new(store.clone(), session));
     let registry = PolicyRegistry::with_ledger(WindowLedger::new(log));
-    registry.install(Arc::new(BudgetCompact::new(BudgetConfig::default())));
+    registry.install(Arc::new(BudgetCompact::new(BudgetConfig::default()))).unwrap();
     let used = raw.iter().map(|i| i.tokens).sum();
     let (prepared, _) = registry.prepare(&history, &caps, used).unwrap();
     let window = registry.commit(prepared, &history).unwrap();

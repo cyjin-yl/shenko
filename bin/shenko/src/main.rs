@@ -11,6 +11,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 mod node_sync;
 mod runtime_owner;
+mod context_policy;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -85,10 +86,40 @@ enum Command {
     /// live registry, so the printed providers, capabilities, effect contracts
     /// and hook contracts are the ones this process would use.
     Capabilities,
+    /// Inspect and manage the installed context strategies — SPEC §12.3.1.
+    Context {
+        #[command(subcommand)]
+        command: ContextCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+enum ContextCommand {
+    /// The installed context strategies and their installation record.
+    Policy {
+        #[command(subcommand)]
+        command: ContextPolicyCommand,
+    },
+    /// The committed window chain of the subject scope.
+    Windows {
+        #[arg(long, default_value_t = 20)]
+        limit: u64,
+ },
+}
+
+#[derive(Subcommand, Debug)]
+enum ContextPolicyCommand {
+    /// Every strategy this product can install, its installation record and
+    /// the order the runtime tries them in.
+    List,
+    /// Install a strategy if it is missing and enable it.
+    Enable { id: String },
+    /// Disable a strategy: the record stays, the strategy stops running.
+    Disable { id: String },
 }
 
 #[derive(Subcommand, Debug)]
@@ -482,6 +513,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             });
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
+        Command::Context { command } => context_policy::command(&data_dir, command)?,
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
             let db_path = data_dir.join("shenko.db");
@@ -785,19 +817,57 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     ),
                 )),
             ));
-            context_registry.set_preference(vec![
-                shenko_compact_snap::POLICY_ID.into(), shenko_compact_budget::POLICY_ID.into(),
-            ]);
             let _context_host = supervisor
                 .spawn(shenko_context_policy::ContextPolicyHost, Arc::clone(&context_registry))
                 .await?;
-            let _budget_policy = supervisor
-                .spawn(shenko_compact_budget::BudgetCompactPlugin, shenko_compact_budget::BudgetConfig::default())
+            // Prepared transient context contributions: producers (the PMA
+            // intervention ledger, awareness perspectives, a plugin's own
+            // notice) register here, and the request path collects what they
+            // prepared. The registry holds no business content — it merges
+            // by the kernel's one rule and records what was sent.
+            let contribution_registry =
+                Arc::new(shenko_context_policy::ContributionRegistry::new());
+            let _contribution_host = supervisor
+                .spawn(
+                    shenko_context_policy::ContributionHost,
+                    Arc::clone(&contribution_registry),
+                )
                 .await?;
-            let _snap_policy = supervisor
-                .spawn(shenko_compact_snap::SnapCompactPlugin, shenko_compact_snap::SnapConfig::default())
-                .await?;
-            let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
+            // The Node installation records are the installation authority for
+            // the context strategies: a strategy runs only while its unit is
+            // enabled, with the configuration that unit carries. The
+            // preference order follows the installation order of the enabled
+            // units until the configuration service carries a value.
+            let mut policy_node = node_sync::open_node(&data_dir, &store)?;
+            let installed_policies = context_policy::reconcile_units(
+                &mut policy_node,
+                &data_dir.join("policy-units"),
+            )?;
+            drop(policy_node);
+            let adopted = context_registry.apply_preference(
+                context_policy::preference_order(&installed_policies),
+            );
+            info!(
+                adopted = ?adopted.adopted,
+                unknown = ?adopted.unknown,
+                "context strategies installed from the unit records"
+            );
+            for policy in context_policy::enabled_policies(&installed_policies) {
+                let runtime = context_policy::runtime_config(policy)
+                    .map_err(anyhow::Error::msg)?;
+                match runtime {
+                    context_policy::PolicyRuntime::Budget(config) => {
+                        let _budget_policy = supervisor
+                            .spawn(shenko_compact_budget::BudgetCompactPlugin, config)
+                            .await?;
+                    }
+                    context_policy::PolicyRuntime::Snap(config) => {
+                        let _snap_policy = supervisor
+                            .spawn(shenko_compact_snap::SnapCompactPlugin, config)
+                            .await?;
+                    }
+                }
+            }
             // Optional quota policy install (SPEC §42): the file holds one
             // serialized QuotaPolicy; a recorded policy makes every inference
             // request pass durable admission before dispatch. Unreadable or
