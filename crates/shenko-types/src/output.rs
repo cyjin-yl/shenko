@@ -9,11 +9,97 @@ pub struct OutputSpan {
     pub line: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
-pub enum PublicationTarget {
-    QqGroup(u64),
-    QqPrivate(u64),
+/// Resolved reply destination: which registered channel and which of its
+/// audience kinds a reply control addresses. `channel` and `kind` name the
+/// channel plugin's own id and reply tag (see `crate::channel`); `id` is the
+/// platform's positive integer account for that audience.
+///
+/// Wire compatibility: new records serialize as
+/// `{"channel":"…","kind":"…","id":N}`. Records sealed before this shape
+/// stored the closed enum as `{"kind":"<channel>_<audience>","id":N}`; this
+/// reader keeps accepting that legacy form by splitting the tag on the first
+/// `_`. New-target admission is enforced by the channel registry at the
+/// parser/outbound edge, never here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PublicationTarget {
+    pub channel: String,
+    pub kind: String,
+    pub id: u64,
+}
+
+impl PublicationTarget {
+    pub fn new(channel: impl Into<String>, kind: impl Into<String>, id: u64) -> Self {
+        Self {
+            channel: channel.into(),
+            kind: kind.into(),
+            id,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for PublicationTarget {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Current {
+                channel: String,
+                kind: String,
+                id: u64,
+            },
+            /// Pre-plugin sealed form: `{"kind":"<channel>_<audience>","id":N}`.
+            Legacy { kind: String, id: u64 },
+        }
+        match Repr::deserialize(deserializer)? {
+            Repr::Current { channel, kind, id }
+                if !channel.is_empty() && !kind.is_empty() =>
+            {
+                Ok(PublicationTarget { channel, kind, id })
+            }
+            Repr::Legacy { kind, id } => {
+                let (channel, kind) = kind
+                    .split_once('_')
+                    .filter(|(channel, kind)| !channel.is_empty() && !kind.is_empty())
+                    .ok_or_else(|| serde::de::Error::custom("unknown publication target"))?;
+                Ok(PublicationTarget {
+                    channel: channel.to_owned(),
+                    kind: kind.to_owned(),
+                    id,
+                })
+            }
+            _ => Err(serde::de::Error::custom(
+                "publication target needs channel and kind",
+            )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PublicationTarget;
+
+    /// Sealed pre-plugin records `{kind:"<channel>_<audience>",id}` still
+    /// deserialize; the channel id is recovered from the legacy tag.
+    #[test]
+    fn legacy_and_current_publication_targets_round_trip() {
+        let legacy_room: PublicationTarget =
+            serde_json::from_str(r#"{"kind":"relay_room","id":7}"#).unwrap();
+        assert_eq!(legacy_room, PublicationTarget::new("relay", "room", 7));
+        let target = PublicationTarget::new("relay", "room", 9);
+        let bytes = serde_json::to_string(&target).unwrap();
+        assert_eq!(
+            serde_json::from_str::<PublicationTarget>(&bytes).unwrap(),
+            target
+        );
+        // Records that never matched either sealed shape still fail.
+        assert!(
+            serde_json::from_str::<PublicationTarget>(r#"{"kind":"tagged","id":1}"#).is_err()
+        );
+        assert!(serde_json::from_str::<PublicationTarget>(r#"{"id":1}"#).is_err());
+    }
 }
 
 /// Authored semantic task, not an endpoint, authority grant or tool schema.

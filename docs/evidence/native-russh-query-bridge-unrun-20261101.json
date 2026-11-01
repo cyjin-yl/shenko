@@ -1,0 +1,47 @@
+{
+  "status": "STATIC_CANDIDATE_NOT_COMPILED_OR_EXECUTED",
+  "as_of_utc": "2026-11-01T04:53:00Z",
+  "base_tree": "39fb8813de536027f316fe6c7f9662b863ce16e4",
+  "issue": "https://github.com/cyjin-yl/shenko/issues/12",
+  "pull_request": "https://github.com/cyjin-yl/shenko/pull/127",
+  "slice": "SshTaskRunner.query_native reconciles an already-armed original via explicit authenticated russh session and existing Store E1; it never submits original action payload or creates/replays an attempt.",
+  "binding": "Session retains a private domain-separated digest of the exact complete SshBinding from CAS-verified NativeSshTarget construction, preserved across actual host-key KEX and account authentication. A query compares its original persisted frozen binding before exec. No arbitrary tag constructor or deserialization.",
+  "boundary": "Binding equality does not prove physical endpoint routing, select/authorize a signer, grant permission/resources or install a handler. Trusted caller owns stream acquisition and exact signer authorization; no production policy provider is synthesized.",
+  "observation": "Native byte/exit/signal/interruption facts are separate from historical host-process ExecResult. Complete matching receipt required for normalization; invalid/partial/lost native results stay unknown. Old frozen inputs and legacy observation tuple remain readable; old exit255 is not reinterpreted.",
+  "prepared_tests": [
+    "native_query_records_receipt_on_original_operation_without_dispatch",
+    "native_query_rejects_other_endpoint_even_with_same_host_key_and_account",
+    "native_query_deadline_survives_reopen_and_requeries_original_without_replay",
+    "native_query_accepts_complete_receipt_on_close_without_eof",
+    "native_query_rejects_valid_json_prefix_after_transport_output_overflow",
+    "native_query_rejects_partial_json_despite_exit_zero_and_clean_close",
+    "native_query_rejects_receipt_for_another_operation",
+    "native_query_rejects_receipt_for_another_input_seal",
+    "native_query_error_keeps_native_codec_without_changing_legacy_encoding"
+  ],
+  "fixtures": "Real local Store T1/E1 plus russh over1KiB memory streams with owned deterministic keys and synthetic server replies. No real helper process, sockets, account credentials or policy grant. TestsUNRUN.",
+  "proposed_scope": "9newquerybridge tests + original62 =71selectedtests. Newmainlocalcode also unexecuted. Old62/84 are not reused as newsource validation.",
+  "unchanged": "Cargo.lock, third-party library patch/source/license, permission provider logic, Store and Node source unchanged relative39fb.",
+  "remaining": [
+    "Publish earlier tested installationa78 checkpoint after specific upstream-fixture confirmation",
+    "Verify newmain39fb and thisnewsource under separately fixed approval",
+    "Freshnative dispatch migration, production policy/resource/endpoint/signer installation, actual childhandler",
+    "Real remote helper/platform/WASM/fullproduct acceptance"
+  ],
+  "paths_sha256": {
+    "crates/shenko-exec-ssh/src/native_transport/trust.rs": "139736419b4b72c79e3e8c9890302bc5676e965c0737e85f73fb2cbfcd0b73f9",
+    "crates/shenko-exec-ssh/src/native_transport/mod.rs": "64e5e1761294a5e4995838995d91d6c15fa555f16c2ab73ed5f89fa7bf8ec3a2",
+    "crates/shenko-exec-ssh/src/task_runner.rs": "e97ba1a2ff27d1fc520fa09b3d7cf984c90f38c70c275cc9e774b1b74c66fdf5",
+    "crates/shenko-exec-ssh/src/native_query_tests.rs": "08f0691cdfbbe21d1fd2ed07afd9967495287636d5604e26e905af075eda3796"
+  },
+  "receipt_closure": "No mandatory EOF gate: RFC4254 section5.3 permits Close without EOF. russh per-channel FIFO delivers data and extendeddata before explicitClose; adapter drains throughClose. Sticky append overflow returns OutputLimit (or another nonNone error), and native normalization requires interruptionNone/accepted/closed/helperStatus0 plus complete matchingJSON. Originalaction receipt outputtruncation remains distinct from transportJSON truncation.",
+  "official_protocol": "https://www.rfc-editor.org/rfc/rfc4254.html#section-5.3",
+  "static_branch_review": {
+    "wrong_operation_and_wrong_input_seal": "Two distinct prepared protocoltests; notrun",
+    "partial_json": "Preparedprotocolnegative withstatus0/close andnointerruption; notrun",
+    "transport_overflow_valid_json_prefix": "Preparedprotocolnegative retainingexactvalidJSONprefix butextraactualbytescausestickyOutputLimit; notrun",
+    "signal_exit255_exec_reject": "Static predicate excludes everyexit otherthanStatus0 and everyinterruption/nonaccepted. Existingnative9includesactualstatus255transport; no claim of newdynamicnormalizer coverageforsignal/reject/255.",
+    "native_Error_codec": "PreparedactualInvalidLimitsbeforeexec\u2192nativeE1codec and sameoriginal legacyencodingcomparison; notrun",
+    "old_JSON": "SshObservation was/isSerializeonly. No inventedDeserializecompatibilityclaim; preparedoldpublicshapeandoldtuple assertions."
+  }
+}

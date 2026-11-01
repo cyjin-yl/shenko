@@ -158,14 +158,8 @@ impl OutboundLedger {
     pub fn record_intent(&self, op: &OutboundOperation) -> anyhow::Result<bool> {
         if let Some(store) = &self.store {
             let intent = store.subject_publication(op.operation_id)?;
-            let target = match intent.target {
-                shenko_types::output::PublicationTarget::QqGroup(id) => {
-                    (OutboundKind::SendGroup, id)
-                }
-                shenko_types::output::PublicationTarget::QqPrivate(id) => {
-                    (OutboundKind::SendPrivate, id)
-                }
-            };
+            let target = crate::channel::qq_outbound(&intent.target)
+                .ok_or_else(|| anyhow::anyhow!("publication targets a channel this plugin does not serve"))?;
             anyhow::ensure!(
                 target == (op.kind, op.target)
                     && intent.content == op.message

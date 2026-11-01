@@ -97,7 +97,13 @@ fn state(
             shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), EntityId(head.branch_id.0)),
         )),
     ))).unwrap();
-    SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store, ctx)
+    SubjectLoopState::new(
+        agent,
+        Arc::new(Inbox::new(8)),
+        store,
+        ctx,
+        shenko_channel_napcat::qq_registry(),
+    )
 }
 
 #[tokio::test]
@@ -477,7 +483,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
     let prompt = &prepared.payload.system_prompt;
     assert!(
-        prompt.starts_with(&crate::canonical_system_prompt()),
+        prompt.starts_with(&crate::canonical_system_prompt(&subject.channels)),
         "the stable contract stays the prefix so KV/model binding remains reusable"
     );
     assert!(prompt.contains("不记得自己许过什么"), "awareness body missing: {prompt}");
@@ -530,7 +536,7 @@ fn personality_stays_out_of_the_tool_contract() {
     // sealed protocol, and it is placed after the stable contract plus the
     // installed native definitions (SPEC §6 ordering, R053/R054).
     assert!(prepared.payload.tools.is_empty());
-    let contract = crate::canonical_system_prompt();
+    let contract = crate::canonical_system_prompt(&subject.channels);
     assert!(prompt.starts_with(&contract));
     assert!(!prompt[..contract.len()].contains("话少"));
     assert!(prompt.contains("history.query/v1 只读检索已提交的原始历史"));
@@ -1248,7 +1254,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
             .object,
     );
     store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
-    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw, &subject.identity_service, None)
+    let output = crate::output::parse_output(step.step_id, raw_ref.clone(), raw, &subject.identity_service, &subject.channels, None)
     .unwrap();
     assert_eq!(output.controls.len(), 2);
     let changes: Vec<_> = output
@@ -1528,7 +1534,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         .initialize_identity(&service.genesis(agent, None))
         .unwrap();
     let mut subject =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone()).unwrap();
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry()).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     execute_step(1, &[], &mut subject, &close)
@@ -1553,7 +1559,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         "test.identity/other@1"
     );
     let reopened =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone());
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry());
     assert!(
         reopened
             .err()
@@ -2897,6 +2903,54 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     assert_eq!(published.step_id, step_id);
     assert_eq!(published.text, "ledger-visible thought");
     drop(subject);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// SPEC §45.14: a runtime error that stops the loop commits as a durable
+/// `runtime_error` fact in the subject's own raw session, readable after the
+/// loop is gone. A malformed durable inbox row is the failure trigger.
+#[tokio::test]
+async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
+    let (dir, store, agent) = fixture();
+    // Durable input the Planned loop drains but cannot parse: the loop fails,
+    // and the failure itself must become a fact rather than only a warn!.
+    let mut batch = shenko_types::store::WriteBatch::new();
+    batch.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
+        event_id: EntityId::new(),
+        agent_id: agent,
+        source: "playground".into(),
+        kind: "playground".into(),
+        payload_json: "{ not json".into(),
+        received_at_ms: 0,
+    });
+    store.commit(batch).unwrap();
+
+    let result = super::run_subject_loop(
+        state(store.clone(), agent).unwrap(),
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await;
+    assert!(result.is_err(), "a malformed durable input must stop the loop");
+
+    let (head, _) = store.load_subject(agent).unwrap();
+    let session_id = EntityId(head.branch_id.0);
+    let events = store
+        .list_session_events(session_id, &shenko_store::SessionEventFilter {
+            from_seq: 0,
+            to_seq: i64::MAX,
+            limit: 20,
+            event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()],
+            roles: vec![],
+        })
+        .unwrap();
+    assert_eq!(events.len(), 1, "exactly one journaled runtime error");
+    let data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+    assert_eq!(data["v"], 1);
+    assert_eq!(data["kind"], "subject_loop");
+    assert_eq!(data["step_no"], 1);
+    assert!(data["message"].as_str().unwrap().contains("subject loop stopped on error"));
+    assert_eq!(data["journal_dropped_total"], 0);
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
 }

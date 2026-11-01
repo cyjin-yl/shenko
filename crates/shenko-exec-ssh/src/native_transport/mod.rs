@@ -33,6 +33,7 @@ pub struct NativeSshConnection {
     handle: client::Handle<StrictPeer>,
     close: stream::CloseGuard,
     account: String,
+    binding_digest: shenko_types::object::Digest,
     auth_deadline: Instant,
 }
 pub struct NativeSshSession(NativeSshConnection);
@@ -44,6 +45,7 @@ impl NativeSshConnection {
         let auth_deadline = Instant::now().checked_add(deadline)
             .filter(|_| !deadline.is_zero()).ok_or(NativeSshError::InvalidLimits)?;
         let account = target.account.clone();
+        let binding_digest = target.binding_digest.clone();
         // Upstream still advertises legacy ssh-rsa after its SHA-2 choices.
         // Pins bind the key, not the security of its negotiated signature.
         let mut preferred = russh::Preferred::default();
@@ -73,7 +75,7 @@ impl NativeSshConnection {
         if initial_host_algorithm.get() != Some(&signature.algorithm()) {
             return Err(NativeSshError::Connect);
         }
-        Ok(Self { handle, close, account, auth_deadline })
+        Ok(Self { handle, close, account, binding_digest, auth_deadline })
     }
 
     /// Public initial-KEX context for an explicitly selected agent's
@@ -143,6 +145,13 @@ pub struct NativeCommandObservation {
 }
 
 impl NativeSshSession {
+    /// Bind a task to the exact trusted installation facts used for KEX and
+    /// account authentication. The caller still owns endpoint stream acquisition
+    /// and signer authorization; a matching digest does not create either.
+    pub(crate) fn matches_binding(&self, binding: &crate::SshBinding) -> Result<bool, NativeSshError> {
+        Ok(self.0.binding_digest == NativeSshTarget::binding_digest(binding)?)
+    }
+
     /// Consume a single-use session. Cancellation closes its owned stream, but
     /// cannot prove the remote action stopped. Persist intent before calling;
     /// any lost/unknown result must query the original operation, never resend.

@@ -2,11 +2,13 @@
 //! 所有跨模块协议类型定义于此，无业务逻辑。
 
 pub mod agent;
+pub mod channel;
 pub mod commit;
 pub mod error;
 pub mod evidence;
 pub mod identity;
 pub mod ids;
+pub mod media;
 pub mod object;
 pub mod operation;
 pub mod store;
@@ -19,6 +21,7 @@ pub use error::*;
 pub use evidence::*;
 pub use identity::*;
 pub use ids::*;
+pub use media::*;
 pub use object::*;
 pub use operation::*;
 pub use store::*;

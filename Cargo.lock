@@ -3469,6 +3469,7 @@ dependencies = [
  "shenko-exec-host",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-media",
  "shenko-memory",
  "shenko-node",
  "shenko-quota",
@@ -3618,6 +3619,7 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
+ "shenko-awareness-core",
  "shenko-channel-napcat",
  "shenko-node",
  "shenko-store",
@@ -3684,6 +3686,20 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "shenko-media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cordis-core",
+ "serde",
+ "serde_json",
+ "shenko-store",
+ "shenko-subject",
+ "shenko-types",
+ "tokio",
 ]
 
 [[package]]
@@ -3768,6 +3784,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "bytes",
+ "cap-std",
  "chrono",
  "libc",
  "parking_lot",
@@ -3804,6 +3821,7 @@ dependencies = [
  "serde_json",
  "shenko-awareness-core",
  "shenko-broker",
+ "shenko-channel-napcat",
  "shenko-compact-budget",
  "shenko-context-policy",
  "shenko-identity",
@@ -3839,7 +3857,9 @@ name = "shenko-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
+ "blake3",
  "bytes",
  "chrono",
  "futures",
@@ -3849,9 +3869,11 @@ dependencies = [
  "shenko-broker",
  "shenko-context-policy",
  "shenko-kernel",
+ "shenko-media",
  "shenko-store",
  "shenko-subject",
  "shenko-types",
+ "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.26.2",
@@ -3882,7 +3904,9 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "chrono",
+ "parking_lot",
  "serde",
  "serde_json",
  "shenko-node",

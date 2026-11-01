@@ -9,7 +9,7 @@ use crate::state::StateFile;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
-use shenko_wasm::{HOME_GUEST_PATH, InputFile, MountMode, MountSpec, OutputFile, WasiCommand, WasmRuntime};
+use shenko_wasm::{HOME_GUEST_PATH, InputFile, MountMode, MountSpec, OutputFile, WasiCommand, WasmRuntime, WasiRunOutcome};
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Read;
@@ -411,8 +411,10 @@ impl WasiReplSession {
         File::open(&cell_dir)?.sync_all()?;
         if let Some(state) = &self.state { state.verify_root()?; }
         let outcome = match result {
-            Ok(0) => CellOutcome::Completed { exit_code: 0 },
-            Ok(code) => CellOutcome::Exited { exit_code: code },
+            Ok(WasiRunOutcome::Exited(0)) => CellOutcome::Completed { exit_code: 0 },
+            Ok(WasiRunOutcome::Exited(code)) => CellOutcome::Exited { exit_code: code },
+            Ok(WasiRunOutcome::Cancelled) => CellOutcome::Failed { error: "guest run cancelled".to_string() },
+            Ok(WasiRunOutcome::DeadlineExceeded) => CellOutcome::Failed { error: "guest run deadline exceeded".to_string() },
             Err(e) => CellOutcome::Failed { error: e.to_string() },
         };
         Ok((outcome, stdout_path, stderr_path, started.elapsed().as_millis() as u64))

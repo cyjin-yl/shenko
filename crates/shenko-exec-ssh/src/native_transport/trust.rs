@@ -12,6 +12,7 @@ pub struct NativeSshTarget {
     pub(super) pins: Vec<PublicKey>,
     pub(super) revoked: Vec<PublicKey>,
     public_trust_digest: Digest,
+    pub(super) binding_digest: Digest,
 }
 
 impl NativeSshTarget {
@@ -41,17 +42,27 @@ impl NativeSshTarget {
         if bytes.len() as u64 != trust.bytes || Digest::blake3(&bytes) != trust.digest {
             return Err(NativeSshError::TrustUnavailable);
         }
-        Self::parse(&t.host, t.port, t.user.clone(), trust.digest.clone(), &bytes)
+        let binding_digest = Self::binding_digest(binding)?;
+        Self::parse(&t.host, t.port, t.user.clone(), trust.digest.clone(), binding_digest, &bytes)
     }
 
     pub fn public_trust_digest(&self) -> &Digest { &self.public_trust_digest }
 
-    fn parse(host: &str, port: u16, account: String, digest: Digest, bytes: &[u8])
+    // Exact persisted installation facts, not an arbitrary caller tag or grant.
+    // Includes endpoint/account, selected credential handle, receipt root and
+    // the full sealed trust reference. No private key bytes are read or emitted.
+    pub(super) fn binding_digest(binding: &SshBinding) -> Result<Digest, NativeSshError> {
+        serde_json::to_vec(&("ssh.native-session-binding.v1", binding))
+            .map(|bytes| Digest::blake3(&bytes))
+            .map_err(|_| NativeSshError::InvalidBinding)
+    }
+
+    fn parse(host: &str, port: u16, account: String, digest: Digest, binding_digest: Digest, bytes: &[u8])
         -> Result<Self, NativeSshError>
     {
         let text = std::str::from_utf8(bytes).map_err(|_| NativeSshError::TrustUnsupported)?;
         let target = if port == 22 { host.to_owned() } else { format!("[{host}]:{port}") };
-        let mut this = Self { account, pins: vec![], revoked: vec![], public_trust_digest: digest };
+        let mut this = Self { account, pins: vec![], revoked: vec![], public_trust_digest: digest, binding_digest };
         for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
             let mut fields = line.split_whitespace();
             let mut hosts = fields.next().ok_or(NativeSshError::TrustUnsupported)?;

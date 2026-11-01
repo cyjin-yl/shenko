@@ -280,6 +280,13 @@ impl NativeChildService {
             .cloned()
     }
 
+    /// Admission can report an unavailable implementation before creating new
+    /// work. Dispatch still rechecks the Cordis generation when claiming it.
+    pub fn has_handler(&self, kind: &str, version: u32) -> bool {
+        self.registry.read().handlers.keys()
+            .any(|(registered_kind, registered_version)| registered_kind == kind && *registered_version == version)
+    }
+
     /// One bounded pass over durable candidates. Duplicate wakeups only reread
     /// this state; CAS determines whether a handler/attempt may be created.
     /// Finished managed executions are reclaimed first, so a completed short
@@ -525,6 +532,17 @@ impl NativeChildService {
                 Err(error) => {
                     tracing::warn!(task_id=%worker.task_id, %error, "managed native execution lost during teardown; parking for reconciliation");
                     if let Ok(task) = self.store.external_task(worker.task_id) {
+                        self.store.journal_runtime_error(
+                            task.agent_id,
+                            shenko_store::RuntimeErrorContext {
+                                kind: "native_worker_lost".into(),
+                                source_module: module_path!().into(),
+                                message: format!("managed native execution lost during teardown: {error}"),
+                                step_no: None,
+                                task_id: Some(worker.task_id),
+                                extra: serde_json::json!({}),
+                            },
+                        );
                         park_managed(
                             &self.store,
                             &task,
@@ -546,6 +564,18 @@ impl NativeChildService {
             .handlers
             .values()
             .filter_map(|registered| registered.descriptor.prompt_section.clone())
+            .collect()
+    }
+
+    /// The registered `(kind, definition_version)` pairs, ordered. This is the
+    /// same registry the prompt sections come from, surfaced so self-knowledge
+    /// can report what this instance can actually execute — SPEC §38.
+    pub fn installed_definitions(&self) -> Vec<(String, u32)> {
+        self.registry
+            .read()
+            .handlers
+            .keys()
+            .cloned()
             .collect()
     }
 
@@ -828,6 +858,18 @@ fn park_managed(store: &Store, task: &TaskRecord, reason: &str, detail: &str, re
         return;
     }
     if let Err(error) = park_or_report(store, task.task_id, task.record_revision, reason, detail, retry) {
+        // A rejected park CAS is itself a runtime error the subject can read.
+        store.journal_runtime_error(
+            task.agent_id,
+            shenko_store::RuntimeErrorContext {
+                kind: "native_park".into(),
+                source_module: module_path!().into(),
+                message: format!("managed park rejected for {reason}: {error}"),
+                step_no: None,
+                task_id: Some(task.task_id),
+                extra: serde_json::json!({ "reason": reason }),
+            },
+        );
         tracing::warn!(task_id=%task.task_id, %error, reason, "managed park rejected; recovery decides");
         if let Ok(current) = store.external_task(task.task_id) {
             if current.abort_request.is_some() {
@@ -864,9 +906,23 @@ async fn drive_execution(
     match job {
         WorkerJob::Execute { claim, invocation } => {
             let task_id = invocation.task.task_id;
+            let agent_id = invocation.task.agent_id;
             let operation = match registered.handler.execute(invocation).await {
                 Ok(operation) => operation,
                 Err(error) => {
+                    // SPEC §45.14: the handler failure is also a runtime fact
+                    // the owning subject can read; journaling is fail-soft.
+                    store.journal_runtime_error(
+                        agent_id,
+                        shenko_store::RuntimeErrorContext {
+                            kind: "native_execute".into(),
+                            source_module: module_path!().into(),
+                            message: format!("native handler did not produce a settled result: {error}"),
+                            step_no: None,
+                            task_id: Some(task_id),
+                            extra: serde_json::json!({}),
+                        },
+                    );
                     let current = match store.external_task(task_id) {
                         Ok(task) => task,
                         Err(read_error) => {
@@ -894,6 +950,17 @@ async fn drive_execution(
             };
             let Some(task) = fetch_task(&store, task_id) else { return };
             if operation.task_id != task_id || operation.operation_id != claim.operation_id {
+                store.journal_runtime_error(
+                    agent_id,
+                    shenko_store::RuntimeErrorContext {
+                        kind: "native_handler_contract".into(),
+                        source_module: module_path!().into(),
+                        message: "handler returned an operation with a different task/operation identity".into(),
+                        step_no: None,
+                        task_id: Some(task_id),
+                        extra: serde_json::json!({}),
+                    },
+                );
                 park_managed(
                     &store,
                     &task,
@@ -923,6 +990,17 @@ async fn drive_execution(
             let operation = match registered.handler.reconcile(&task, operation_id).await {
                 Ok(operation) => operation,
                 Err(error) => {
+                    store.journal_runtime_error(
+                        task.agent_id,
+                        shenko_store::RuntimeErrorContext {
+                            kind: "native_reconcile".into(),
+                            source_module: module_path!().into(),
+                            message: format!("original operation remains unresolved: {error}"),
+                            step_no: None,
+                            task_id: Some(task.task_id),
+                            extra: serde_json::json!({ "operation_id": operation_id.to_string() }),
+                        },
+                    );
                     park_managed(
                         &store,
                         &task,
@@ -947,6 +1025,17 @@ async fn drive_execution(
                 Ok(Some(claim)) => claim,
                 Ok(None) => return,
                 Err(error) => {
+                    store.journal_runtime_error(
+                        task.agent_id,
+                        shenko_store::RuntimeErrorContext {
+                            kind: "native_settlement".into(),
+                            source_module: module_path!().into(),
+                            message: format!("settlement-only claim could not be made: {error}"),
+                            step_no: None,
+                            task_id: Some(task.task_id),
+                            extra: serde_json::json!({ "operation_id": operation_id.to_string() }),
+                        },
+                    );
                     tracing::warn!(task_id=%task.task_id, %error, "settlement-only claim failed; recovery decides");
                     if let Some(task) = fetch_task(&store, task.task_id) {
                         park_managed(
@@ -963,6 +1052,17 @@ async fn drive_execution(
             match store.complete_native_task(&claim, &operation) {
                 Ok(Some(_)) | Ok(None) => {}
                 Err(error) => {
+                    store.journal_runtime_error(
+                        task.agent_id,
+                        shenko_store::RuntimeErrorContext {
+                            kind: "native_settlement".into(),
+                            source_module: module_path!().into(),
+                            message: format!("resolved operation could not be committed: {error}"),
+                            step_no: None,
+                            task_id: Some(task.task_id),
+                            extra: serde_json::json!({ "operation_id": operation_id.to_string() }),
+                        },
+                    );
                     tracing::warn!(task_id=%task.task_id, %error, "native settlement failed; recovery decides");
                     if let Some(task) = fetch_task(&store, task.task_id) {
                         park_managed(

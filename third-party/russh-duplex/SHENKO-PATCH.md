@@ -60,17 +60,26 @@ for these six commands. All actual compiled-artifact target/feature/profile sets
 match the previous run; this run reused verified build cache, rather than freshly
 recompiling the world. See the [source-bound evidence](../../docs/evidence/native-russh-installed-dependency-20261101.json).
 
-This published checkpoint adds only documentation/evidence to that tested tree.
-It does not imply current-main integration, whole-workspace/upstream verification
-or production authorization/child installation. The separate prior 84-case
-validation tree is not relabeled as this tree. The original two 58-pass/4-fail
-runs, fixture compile failure and zero-test filters remain in the evidence history.
+The original installation checkpoint added only documentation/evidence to that
+62-tested tree. Integration with main
+`78f5f63cc6b51cffb68a0619179e765afdb73913` plus the native query-only Store/E1 bridge
+was subsequently tested at tree `4c7631b94a2fbb2b7330e2a36cdeef3d90000104`:
+**71 selected tests actually passed** (the original 62 plus nine query cases).
+Every group was first listed and then executed against its exact frozen test
+names. The [71-case evidence](../../docs/evidence/native-russh-query-bridge-verified-20261101.json)
+records filtered tests, cache reuse, source and dependency checks, and limitations.
+The two `*-unrun-20261101.json` integration/query files remain historical static
+snapshots, not the current execution status. This is not whole-main behavior,
+whole-workspace/upstream verification or production authorization/child installation.
+The separate prior 84-case validation tree is not relabeled as this tree. The
+original two 58-pass/4-fail runs, fixture compile failure and zero-test filters
+remain in the evidence history.
 
 - [79-case result and five gated cases](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6552531628)
 - [Five cases actually executed after explicit feature approval](https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6552585194)
 
 No real SSH hosts, account credentials, production deployment, all-feature or
-whole-upstream suite, current-main integration, cross-platform/WASM behavior, or
+whole-upstream suite, full-main behavior, cross-platform/WASM behavior, or
 production policy/target/signer/endpoint/child installation is established by
 these tests. The adapter's explicit trust and signer inputs do not themselves
 supply a policy grant or host sandbox.

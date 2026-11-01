@@ -13,6 +13,106 @@ use wasmtime::{
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
+use std::io;
+use std::pin::Pin;
+use std::task::{Context as TaskContext, Poll};
+/// Bounded in-memory streams for callers that must cap guest output
+/// (Playground backend receipts) without binding the whole crate to a
+/// preview-2 path. These upstream pipes expose write errors to the guest;
+/// callers needing an independently checked bound use BoundedOutputPipe.
+pub use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
+
+/// Bounded guest output capture with host-visible rejection flags.
+///
+/// [`MemoryOutputPipe`] reports capacity overflow only as a guest-visible
+/// stream error. A guest that ignores the error can still write a valid
+/// small JSON and exit 0 — the receipt would look complete while bytes were
+/// actually rejected. This pipe records every rejected/failed write
+/// independently, so the caller's success check includes stream integrity
+/// instead of relying on the trap or the retained length.
+#[derive(Clone, Debug)]
+pub struct BoundedOutputPipe {
+    inner: Arc<BoundedOutputInner>,
+}
+
+#[derive(Debug)]
+struct BoundedOutputInner {
+    bytes: parking_lot::Mutex<bytes::BytesMut>,
+    limit: usize,
+    /// A write was rejected because it would exceed the bound.
+    overflowed: AtomicBool,
+    /// Any write failed, including a capacity rejection.
+    failed: AtomicBool,
+}
+
+impl BoundedOutputPipe {
+    /// A capture whose retained output can never exceed `limit` bytes.
+    pub fn new(limit: usize) -> Self {
+        Self {
+            inner: Arc::new(BoundedOutputInner {
+                bytes: parking_lot::Mutex::new(bytes::BytesMut::new()),
+                limit,
+                overflowed: AtomicBool::new(false),
+                failed: AtomicBool::new(false),
+            }),
+        }
+    }
+    /// The retained output; potentially truncated iff `did_overflow()`.
+    pub fn contents(&self) -> bytes::Bytes {
+        let guard = self.inner.bytes.lock();
+        bytes::Bytes::copy_from_slice(&guard)
+    }
+    /// True once any guest write had to be rejected for capacity.
+    pub fn did_overflow(&self) -> bool {
+        self.inner.overflowed.load(Ordering::SeqCst)
+    }
+    /// True once a guest write was rejected, independently of its exit code.
+    pub fn did_fail(&self) -> bool {
+        self.inner.failed.load(Ordering::SeqCst)
+    }
+}
+
+impl wasmtime_wasi::cli::IsTerminal for BoundedOutputPipe {
+    fn is_terminal(&self) -> bool { false }
+}
+
+impl StdoutStream for BoundedOutputPipe {
+    fn async_stream(&self) -> Box<dyn tokio::io::AsyncWrite + Send + Sync> {
+        Box::new(BoundedOutputWriter { inner: Arc::clone(&self.inner) })
+    }
+}
+
+struct BoundedOutputWriter {
+    inner: Arc<BoundedOutputInner>,
+}
+
+impl tokio::io::AsyncWrite for BoundedOutputWriter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut TaskContext<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let mut bytes = self.inner.bytes.lock();
+        if buf.len() > self.inner.limit.saturating_sub(bytes.len()) {
+            self.inner.overflowed.store(true, Ordering::SeqCst);
+            self.inner.failed.store(true, Ordering::SeqCst);
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "bounded guest output capacity exceeded",
+            )));
+        }
+        bytes.extend_from_slice(buf);
+        Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut TaskContext<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+}
 
 /// Shared cancellation request for a controlled WASI execution.
 ///
@@ -177,7 +277,14 @@ impl WasmRuntime {
     /// Create a runtime with a default-config engine and a fresh empty store.
     pub fn new() -> Result<Self> {
         info!("WASM runtime init (wasmtime-45)");
-        let engine = Engine::default();
+        // Compile serially on the calling thread: wasmtime's parallel
+        // compilation pool is a process-global rayon pool whose workers inherit
+        // the comm of whichever thread first compiles. Built from an invocation
+        // worker named "shenko-wasi", that pool would outlive the run and
+        // masquerade as leaked invocation threads.
+        let mut config = Config::new();
+        config.parallel_compilation(false);
+        let engine = Engine::new(&config)?;
         let store = Store::new(&engine, ());
         Ok(Self {
             engine,
@@ -301,6 +408,7 @@ impl WasmRuntime {
             if self.control_engine.is_none() {
                 let mut config = Config::new();
                 config.epoch_interruption(true);
+                config.parallel_compilation(false);
                 self.control_engine = Some(
                     Engine::new(&config)
                         .map_err(|e| anyhow!("create epoch-enabled engine: {e}"))?,

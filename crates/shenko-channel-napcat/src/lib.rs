@@ -1,9 +1,11 @@
 pub mod config;
 pub mod client;
+pub mod channel;
 pub mod adapter;
 pub mod spool;
 pub mod outbound;
 pub use config::*;
+pub use channel::*;
 pub use client::NapCatClient;
 pub use client::OneBotEvent;
 pub use client::OneBotAction;

@@ -160,6 +160,13 @@ impl Store {
         )
     }
 
+    /// Read one durable task record without claiming it. Returns `None` for
+    /// an unknown id instead of a storage error.
+    pub fn get_task(&self, id: EntityId) -> Result<Option<TaskRecord>> {
+        let conn = self.ledger.conn.lock();
+        read_task(&conn, id)
+    }
+
     /// One bounded page of dispatchable work strictly after `after`, ordered by
     /// the same stable key as recovery. `after` is a scan position, not a
     /// completion watermark: callers wrap to the beginning when a page is short.
@@ -391,6 +398,130 @@ impl Store {
             },
             storage_failure,
         )
+    }
+
+    /// Admit a fresh native task durably outside a subject S1 decision.
+    ///
+    /// This is the same task ledger dispatch already scans — no second
+    /// queue. Callers that produce deterministic work ids (Playground
+    /// backend actions keyed by (artifact_id, request_id)) get either the
+    /// inserted task or the stored task back; dedup/conflict semantics on
+    /// the stored input belong to the caller, which reads the returned
+    /// record. The frozen input object must already be sealed in CAS, the
+    /// owning subject head must exist, and the record must be a Pending,
+    /// Ready native task. The input event commits in the SAME transaction,
+    /// before any accepted response. Claims still require the dispatcher
+    /// owner; admission alone never authorizes a guest/process effect.
+    /// Returns `Some(existing)` when the id is already committed with the same
+    /// sealed input; a committed id never loses to a later binding or handler
+    /// availability check. A committed id with a DIFFERENT sealed input is a
+    /// conflict — deterministic task ids must never admit divergent inputs.
+    /// Typed validation (record shape, canonical event JSON, CAS digest,
+    /// target head existence) runs BEFORE the mutation gate so an invalid
+    /// admission can never poison the writer incarnation.
+    pub fn admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
+        ensure!(
+            matches!(task.state, TaskState::Pending { .. })
+                && matches!(task.dispatch_eligibility, DispatchEligibility::Ready)
+                && task.abort_request.is_none()
+                && task.record_revision == RecordRevision(0)
+                && task.task_revision == TaskRevision(0)
+                && task.memos.contains_key(NATIVE_INPUT)
+                && task.memos.contains_key("intent_id")
+                && !task.memos.contains_key(NATIVE_CHILD)
+                && input_event.agent_id == task.agent_id
+                && !input_event.kind.is_empty()
+                && !input_event.source.is_empty(),
+            "native_task_not_admissible"
+        );
+        // Canonical event JSON is validated BEFORE the writer is claimed:
+        // malformed payload_json would otherwise abort the mutation closure
+        // inside the transaction and be misclassified as storage failure.
+        let event: serde_json::Value = serde_json::from_str(&input_event.payload_json)
+            .map_err(|_| shenko_types::error::ShenkoError::conflict(
+                "native admission input payload must be a complete canonical event JSON"))?;
+        crate::external::validate_original_event(
+            input_event.event_id, &input_event.kind, &input_event.source, &event)?;
+        // The frozen input object is part of admission: a task whose CAS
+        // input cannot be resolved would die parked as input_unavailable.
+        // Digest and declared length are verified BEFORE the object is ever
+        // trusted (read_object already refuses digest path traversal).
+        let bytes = self.cas.read_object(&task.input_ref.digest)?;
+        ensure!(
+            bytes.len() as u64 == task.input_ref.bytes
+                && Digest::blake3(&bytes) == task.input_ref.digest,
+            "native_input_object_mismatch"
+        );
+        // Target subject head existence is validated on the read path too:
+        // missing head is a typed rejection, not a transaction failure.
+        {
+            let conn = self.ledger.conn.lock();
+            read_head(&conn, task.agent_id)?;
+            let event_exists: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM inbox_events WHERE event_id=?1)",
+                [input_event.event_id.to_string()], |row| row.get(0),
+            )?;
+            if event_exists && read_task(&conn, task.task_id)?.is_none() {
+                return Err(shenko_types::error::ShenkoError::conflict(
+                    "native admission event identity already committed").into());
+            }
+        }
+        self.ledger.with_mutation(|| self.try_admit_native_task(task, input_event), storage_failure)
+    }
+
+    fn try_admit_native_task(&self, task: &TaskRecord, input_event: &shenko_types::store::RawInboxEvent) -> Result<Option<TaskRecord>> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(existing) = read_task(&tx, task.task_id)? {
+            // The committed id wins unconditionally: identical sealed input is
+            // a replay of the original admission, a different one is a
+            // cross-node/payload conflict — never a silent false ACK.
+            if existing.input_ref.digest != task.input_ref.digest
+                || existing.input_ref.bytes != task.input_ref.bytes
+                || existing.agent_id != task.agent_id
+            {
+                return Err(shenko_types::error::ShenkoError::conflict(
+                    "native task identity already committed with different input").into());
+            }
+            tx.commit()?;
+            return Ok(Some(existing));
+        }
+        // The subject head must exist or this task would be undispatchable
+        // forever: claims resolve the owner chain against the live head.
+        read_head(&tx, task.agent_id)?;
+        // Repeat under BEGIN IMMEDIATE: a competing event admission may have
+        // won since preflight. A reused caller identity is not disk failure
+        // and MUST NOT close the writer incarnation.
+        let event_exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM inbox_events WHERE event_id=?1)",
+            [input_event.event_id.to_string()], |row| row.get(0),
+        )?;
+        if event_exists {
+            return Err(shenko_types::error::ShenkoError::conflict(
+                "native admission event identity already committed").into());
+        }
+        let seq = self.ledger.allocate_seq(&tx)?;
+        let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        let mut admitted = task.clone();
+        admitted.created_commit = commit;
+        admitted.updated_commit = commit;
+        tx.execute(
+            "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![
+                admitted.task_id.to_string(),
+                admitted.record_revision.0 as i64,
+                serde_json::to_string(&admitted)?,
+                seq.0 as i64,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO inbox_events(event_id,agent_id,kind,source,consumed,data) VALUES(?1,?2,?3,?4,0,?5)",
+            params![input_event.event_id.to_string(), input_event.agent_id.to_string(),
+                input_event.kind, input_event.source, input_event.payload_json],
+        )?;
+        child_log(&tx, self, commit, 2)?;
+        tx.commit()?;
+        Ok(None)
     }
 
     /// Durable cancellation fences the old task revision before any signal.
@@ -685,7 +816,7 @@ impl Store {
              JOIN subject_branch_heads h ON h.agent_id=i.agent_id
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
-             WHERE i.agent_id=?1 AND i.kind='task_result'
+             WHERE i.agent_id=?1 AND i.kind='task_result' AND i.source='native-child'
                AND (d.disposition IS NULL OR d.disposition='\"deferred\"')
              ORDER BY i.rowid LIMIT ?2",
         )?;

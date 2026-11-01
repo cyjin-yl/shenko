@@ -51,6 +51,38 @@
   上下文 profile digest 只覆盖稳定前缀，因此每步不同的觉察不会反复换 KV 窗口。
 - 不执行：注入的正文不触发任何分支。停用的单元根本不注入；启用与否是安装事实，不是
   权限授予。
+- 自解释（2026-10-29 接入）：`self.knowledge.query/v1` 作为有限 native child 注册，
+  模型可委派只读查询自身资料（`op`：`search` / `list` / `get`，均只读 `self://`
+  资源）。`self://runtime/capabilities` 不再写死：启动时由真实注册表快照生成——
+  当前注册的 native definition `(kind, version)` 与已安装觉察单元（id、版本、
+  启用状态）。未在快照中的能力就是当前实例没有的能力；资料有 `current/stale/
+  candidate/unknown` 状态与来源版本。查询按既有的 frozen-input → armed attempt →
+  sealed evidence 合同走，重启按原始 attempt 重观察，不产生第二条证据。
+
+### 自解释查询的有界实测（2026-10-29，评阅于 2026-10-30）
+
+源码候选 `2677a2ba1ec667d9d5b0dd8a9e3f93388659d374`，真实 Store、主体、
+provider wire、解析器及 native child；模型为当前服务的
+`swift-qwen3.8-27b-nvfp4`，服务声明的模型根为
+`/tank/hot/models/Merkyor-Coder390-NVFP4-W4A16-3e644f23`。
+三个独立沙箱各运行一次，按已提交输出及其 frozen input 中实际消费的结果评阅：
+
+| 场景 | 观察到的行为 | 结果 |
+| --- | --- | --- |
+| 已安装 definitions 与源码归属 | 先查目录，再 get capabilities/source 正文；报告三个真实 kind/version、source_revision 和 shenko-exec-host 归属 | 通过本次有界查询 |
+| 搜索后精确读取 | 消费 search/list 返回的 URI 后再 get，消费完整正文后总结，没有拿截断预览冒充正文 | 通过本次有界查询 |
+| 不存在的资源 | 实际 get self://runtime/teleportation，消费 resource_not_found 后明确报告不存在、没有正文 | 通过本次有界查询 |
+
+证据位于 `build/c10-selfknow-native-20261029/coder390-a0e803d74ca9/`：
+`receipt.json`、三个场景的 `summary.json` 与带摘要的 `native-evidence.json`。
+12 次真实转发均观察到完整 provider 终态；三个 native 进程退出 0，已观察的
+自有子进程均清空。输入文件摘要前后一致。模型服务前后声明相同 id、root 与
+上下文上限，但 `created` 和 permission id 改变，完整元数据摘要并不相同；
+这不是模型权重字节未变的证明。
+
+这是**用户明确要求查询后的工具使用**，不是自发想起、自解释的全范围完成，
+也不是任何 awareness 的效力证明。每场景只有一次，没有停用对照、重复成功率
+或留出通用性验收；不据此修改任何单元的 `accepted` 状态，C10/#15 仍开放。
 
 ## 写一个 awareness
 
@@ -166,6 +198,8 @@ dependencies: []
   以及"任意输入形成新 awareness 并自主沉淀"仍未完成，C10/#15 继续开放。
 - 取用是全量注入而非检索：单元数量增长后会挤占上下文，需要由模型自己做的按需查阅
   （渐进披露）来替代扩大预算；这一步还没做。
+- 自解释只读已接通主体委派；自解释资料仍主要是内置文本（设计哲学、源码结构、运行时
+  快照），没有 docs/source 的动态索引，回答深度受已安装资源限制。
 - 跨节点同步安装单元、逐节点 readiness 属于 #71/C17 的安装单元切片，不代表 awareness
   在所有节点已可用。
 - 行为是否真的被改变，要用真实本地模型在沙箱里的成效自测来判断，见

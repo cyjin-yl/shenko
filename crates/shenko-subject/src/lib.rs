@@ -24,9 +24,9 @@ pub use context_projection::{IDLE_CONTINUATION_PROMPT, staged_message_text};
 /// contract followed by the output protocol, in the order SPEC §5.1/§6
 /// defines. Behavior evaluation binds to this exact text instead of a copy, so
 /// a prompt change cannot silently pass a stale harness.
-pub fn canonical_system_prompt() -> String {
+pub fn canonical_system_prompt(channels: &shenko_types::channel::ChannelRegistry) -> String {
     let mut prompt = String::from(loop_runner::SUBJECT_CONTRACT);
     prompt.push_str("\n\n");
-    prompt.push_str(output::OUTPUT_CONTRACT);
+    prompt.push_str(&output::output_contract(channels));
     prompt
 }

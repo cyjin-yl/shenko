@@ -437,6 +437,48 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .await?;
             install_node_capability_reader(&supervisor, Arc::clone(&store), node).await?;
             install_node_selection_recorder(&supervisor, Arc::clone(&store), selection_node).await?;
+            // Runtime-error awareness — SPEC §45.14: errors.read exposes the
+            // subject's own committed runtime_error facts; issue.submit writes
+            // subject-authored drafts into the local issues outbox only.
+            let errors_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::ErrorsReadHandler::new(Arc::clone(&store)));
+            let _native_errors_read_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, errors_read_handler)
+                .await?;
+            let issue_submit_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+                shenko_exec_host::IssueSubmitHandler::new(
+                    Arc::clone(&store),
+                    data_dir.join("issues"),
+                ),
+            );
+            let _native_issue_submit_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, issue_submit_handler)
+                .await?;
+            // Built-in, replaceable self-explanation — SPEC §38, R124. The
+            // provider is seeded from compiled-in material now; the real
+            // `self://runtime/capabilities` snapshot is installed below once
+            // the native and awareness registries are populated.
+            let self_knowledge = Arc::new(shenko_awareness_core::SelfKnowledgeProvider::new(
+                option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound"),
+                "0.6.2",
+            ));
+            let self_knowledge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::SelfKnowledgeHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&self_knowledge),
+                ));
+            let _native_self_knowledge_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    self_knowledge_handler,
+                )
+                .await?;
+            let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+                shenko_ui::PlaygroundBackendHandler::new(Arc::clone(&store), data_dir.join("playground")),
+            );
+            let _native_playground_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
+                .await?;
             // Real X11 Computer Use: four kinds share one live backend state
             // so lease authority and session identity agree across tasks.
             let computer_use_backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(
@@ -477,6 +519,37 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;
             native_child.recover()?;
+            // Typed continuous-media ingress: one durable revision admission +
+            // the bound subject inbox event, published on the same Cordis root
+            // so real providers inject it (and the /api/media routes share it).
+            // SPEC §15.2, §20. Transcript text still comes only from providers.
+            let _media_ingress_plugin = supervisor
+                .spawn(
+                    shenko_media::MediaIngressPlugin,
+                    (Arc::clone(&store), agent_id, subject_inbox.sender()),
+                )
+                .await?;
+            let media_ingress = supervisor
+                .context()
+                .try_service::<shenko_media::MediaIngress>()?;
+            // Awareness is installed capability, not kernel business logic:
+            // the shipped seeds plus any packages under data_dir/awareness
+            // become advisory perspectives for the model. Nothing here
+            // dispatches on keywords; every enabled unit travels as bounded
+            // advisory text.
+            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
+            let awareness_packages = data_dir.join("awareness");
+            if awareness_packages.is_dir() {
+                for unit in awareness.install_from_dir(&awareness_packages)? {
+                    info!(unit = %unit, "awareness unit installed");
+                }
+            }
+            // Record what actually registered so self-knowledge answers from
+            // the real registries instead of a stale product feature list.
+            self_knowledge.install_runtime_capabilities(
+                &native_child.installed_definitions(),
+                &awareness.list(),
+            );
             let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
             let dispatch_native = Arc::clone(&native_child);
@@ -513,7 +586,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 );
                 println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
                 let runtime_result =
-                    run_deterministic_ui(port, store, data_dir, model_profile, cancel).await;
+                    run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child).await;
                 consumer_cancel.cancel();
                 match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
                     Ok(result) => result??,
@@ -575,17 +648,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // ModelChildHandler reconstructed all outstanding original charges
             // before any subject/child inference can enter this broker.
             tokio::spawn(broker.run());
-            // Awareness is installed capability, not kernel business logic: the
-            // shipped seeds plus any packages under data_dir/awareness become
-            // advisory perspectives for the model. Nothing here dispatches on
-            // keywords; every enabled unit travels as bounded advisory text.
-            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
-            let awareness_packages = data_dir.join("awareness");
-            if awareness_packages.is_dir() {
-                for unit in awareness.install_from_dir(&awareness_packages)? {
-                    info!(unit = %unit, "awareness unit installed");
-                }
-            }
             let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
@@ -593,6 +655,16 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // The contacts query handler is only real while its connector is
             // configured; the plugin handle must outlive the napcat block.
             let mut _native_contacts_plugin = None;
+
+            // The IM reply boundary ships as channel plugins: the live prompt
+            // and parser advertise exactly the channels whose transport is
+            // configured. With no NapCat endpoint no reply channel exists, so
+            // the contract cannot promise an undeliverable reply.
+            let channel_registry = if napcat.is_some() {
+                shenko_channel_napcat::qq_registry()
+            } else {
+                shenko_types::channel::ChannelRegistry::new()
+            };
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
             if let Some(ws_url) = napcat {
@@ -749,13 +821,13 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         for work in reply_store.committed_intents(Some("publication"), Some("ready"), 32)? {
                             let publication: shenko_types::subject::PublicationIntent = serde_json::from_value(work.payload)?;
 
-                            let (kind, target) = match publication.target {
-                                shenko_types::output::PublicationTarget::QqGroup(id) => {
-                                    (OutboundKind::SendGroup, id)
-                                }
-                                shenko_types::output::PublicationTarget::QqPrivate(id) => {
-                                    (OutboundKind::SendPrivate, id)
-                                }
+                            let Some((kind, target)) =
+                                shenko_channel_napcat::qq_outbound(&publication.target)
+                            else {
+                                anyhow::bail!(
+                                    "publication {} targets a channel/kind the napcat plugin does not serve",
+                                    publication.intent_id
+                                );
                             };
                             let mut op =
                                 OutboundOperation::new(kind, target, publication.content.clone());
@@ -821,6 +893,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&subject_inbox),
                 Arc::clone(&store),
                 identity_context.clone(),
+                channel_registry,
             )?
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities.clone())
@@ -844,9 +917,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 
             // 6. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
+                .with_native(Arc::clone(&native_child))
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
+                .with_media_ingress(media_ingress)
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
@@ -1222,8 +1297,10 @@ async fn run_deterministic_ui(
     data_dir: PathBuf,
     model_profile: shenko_seed::ModelProfile,
     failure: tokio_util::sync::CancellationToken,
+    native: Arc<shenko_subject::NativeChildService>,
 ) -> Result<()> {
     let ui = shenko_ui::server::UiServer::new(port)
+        .with_native(native)
         .with_store(store)
         .with_data_dir(data_dir)
         .with_inference_status(model_profile.model, model_profile.configured);
@@ -1740,7 +1817,7 @@ mod recovery_integration_tests {
         ))).unwrap();
         let decision = StepDecision {
             schema_version: 7,
-            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, None)
+            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, &shenko_channel_napcat::qq_registry(), None)
             .unwrap(),
             identity_intent: None,
             step_id: step.step_id,
@@ -1795,6 +1872,7 @@ mod recovery_integration_tests {
             Arc::new(shenko_subject::inbox::Inbox::new(8)),
             store.clone(),
             identity_context,
+            shenko_channel_napcat::qq_registry(),
         )
         .unwrap();
         assert_eq!(restored.head.branch_id, head.branch_id);
@@ -1922,7 +2000,7 @@ mod recovery_integration_tests {
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
 
         let identity = IdentityService::new(Arc::new(shenko_identity::DefaultIdentityPolicy));
-        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, None)
+        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, &shenko_channel_napcat::qq_registry(), None)
         .unwrap();
         let mut delegated_task_intents = vec![];
         for control in &output.controls {
@@ -3247,14 +3325,14 @@ mod reply_directive_tests {
             shenko_identity::DefaultIdentityPolicy,
         ));
         let parsed =
-            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, None)
+            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, &shenko_channel_napcat::qq_registry(), None)
                 .unwrap();
         assert_eq!(parsed.controls.len(), 6); // two replies, two identity, one memory, one task
         let first = &parsed.controls[0];
         let OutputAction::Reply { target, text } = &first.action else {
             panic!("reply")
         };
-        assert_eq!(*target, PublicationTarget::QqGroup(7));
+        assert_eq!(*target, PublicationTarget::new(shenko_channel_napcat::QQ_CHANNEL_ID, "group", 7));
         assert_eq!(
             text,
             " 你好\n继续说\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
@@ -3280,6 +3358,7 @@ mod reply_directive_tests {
                 obsolete,
                 "[memory] obsolete",
                 &identity,
+                &shenko_channel_napcat::qq_registry(),
                 None,
             )
             .unwrap_err()
@@ -3308,7 +3387,7 @@ mod reply_directive_tests {
                 .seal_object(raw.as_bytes(), "text/plain", "test", "text", 1)
                 .unwrap()
                 .object;
-            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, None)
+            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, &shenko_channel_napcat::qq_registry(), None)
         };
 
         // A start names the condition and its cap, next to an ordinary action.

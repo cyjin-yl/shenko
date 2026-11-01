@@ -116,6 +116,9 @@ pub struct SubjectLoopState {
     pub head: SubjectBranchHead,
     pub step: SubjectStep,
     pub inbox: Arc<Inbox>,
+    /// Registered IM channel plugins: the reply grammar, reply-target
+    /// resolution and ingress staging all bind through this boundary.
+    pub channels: shenko_types::channel::ChannelRegistry,
     pub semantic_wait: Option<SemanticWait>,
     pub semantic_wait_receipt: Option<SemanticWaitReceipt>,
     pub store: Arc<shenko_store::store::Store>,
@@ -152,6 +155,7 @@ impl SubjectLoopState {
         inbox: Arc<Inbox>,
         store: Arc<shenko_store::store::Store>,
         plugin_context: cordis_core::Context,
+        channels: shenko_types::channel::ChannelRegistry,
     ) -> Result<Self, ShenkoError> {
         let (head, step) = store.load_subject(agent_id)?;
         if !matches!(head.mode, SubjectMode::Active | SubjectMode::Paused) {
@@ -211,6 +215,7 @@ impl SubjectLoopState {
             head,
             step,
             inbox,
+            channels,
             semantic_wait,
             semantic_wait_receipt,
             store,
@@ -401,6 +406,22 @@ pub async fn run_subject_loop(
         tokio::task::yield_now().await;
     };
 
+    // Every error that stops the loop is a durable runtime fact the subject
+    // can later read through errors.read — SPEC §45.14. The journal write is
+    // fail-soft: it never masks or replaces the original error.
+    if let Err(error) = &result {
+        state.store.journal_runtime_error(
+            state.agent_id,
+            shenko_store::RuntimeErrorContext {
+                kind: "subject_loop".into(),
+                source_module: module_path!().into(),
+                message: format!("subject loop stopped on error: {error}"),
+                step_no: Some(state.step.step_no),
+                task_id: None,
+                extra: serde_json::json!({}),
+            },
+        );
+    }
     // Keeping Arc<Inbox> in main must not leave a dead consumer accepting input.
     state.inbox.close().await;
     info!("subject loop terminated");
@@ -413,7 +434,7 @@ pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 age
      你有持续的内心生活：关注、兴趣、承诺、疑问。\n\
      你在没有外部消息时也继续思考——空闲不是停止的理由。\n\
      思考是连续的，上一步的想法会成为这一步的起点。\n\
-     普通正文是自己的想法，可显示在系统时间线，但不会作为 QQ 消息发送。要让 QQ 对方收到的话，必须通过回复控制行发送。";
+     普通正文是自己的想法，可显示在系统时间线，但不会作为外部消息发送。要让对方收到的话，必须通过回复控制行发送。";
 
 /// System prompt for the continuous subject: contract → persona → per-step
 /// suffix. SPEC §5.1, §6 ordering; §13.5 keeps the stable part first.
@@ -422,7 +443,7 @@ pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 age
 /// reusable across steps; the context profile digest covers this text, not the
 /// per-step suffix.
 pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
-    let mut prompt = crate::canonical_system_prompt();
+    let mut prompt = crate::canonical_system_prompt(&state.channels);
 
     if !state.native_capability_sections.is_empty() {
         prompt.push_str("\n\n当前实际注册的 native definitions：\n");
@@ -934,6 +955,7 @@ async fn execute_step(
                 .ok_or_else(|| ShenkoError::conflict("missing model result"))?,
             model_output.as_deref().unwrap_or(""),
             &state.identity_service,
+            &state.channels,
             input.semantic_wait.as_ref().map(|wait| wait.wait_id),
         )
     } else {

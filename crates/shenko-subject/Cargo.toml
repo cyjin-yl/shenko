@@ -33,6 +33,7 @@ dashmap = { workspace = true }
 futures = { workspace = true }
 [dev-dependencies]
 shenko-compact-budget = { path = "../shenko-compact-budget" }
+shenko-channel-napcat = { path = "../shenko-channel-napcat" }
 rusqlite = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

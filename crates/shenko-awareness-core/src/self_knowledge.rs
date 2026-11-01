@@ -18,6 +18,29 @@ pub enum SelfResourceKind {
     Design,    // self://design — SPEC, design philosophy, architecture decisions
 }
 
+impl SelfResourceKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SelfResourceKind::Runtime => "runtime",
+            SelfResourceKind::Docs => "docs",
+            SelfResourceKind::Source => "source",
+            SelfResourceKind::Design => "design",
+        }
+    }
+
+    /// Parse the serialized kind name; unknown kinds are rejected so a misspelt
+    /// filter is an explicit failure, not a silently empty list.
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value.trim() {
+            "runtime" => Some(SelfResourceKind::Runtime),
+            "docs" => Some(SelfResourceKind::Docs),
+            "source" => Some(SelfResourceKind::Source),
+            "design" => Some(SelfResourceKind::Design),
+            _ => None,
+        }
+    }
+}
+
 /// A self-knowledge resource record
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelfResource {
@@ -41,6 +64,17 @@ pub enum ResourceStatus {
     Stale,         // needs reindex
     Candidate,     // from a candidate build, not yet active
     Unknown,
+}
+
+impl ResourceStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ResourceStatus::Current => "current",
+            ResourceStatus::Stale => "stale",
+            ResourceStatus::Candidate => "candidate",
+            ResourceStatus::Unknown => "unknown",
+        }
+    }
 }
 
 /// SelfKnowledgeProvider — answers "how do I work, why this way, is X enabled"
@@ -114,24 +148,6 @@ impl SelfKnowledgeProvider {
             },
             SelfResource {
                 resource_id: EntityId::new(),
-                kind: SelfResourceKind::Runtime,
-                uri: "self://runtime/capabilities".into(),
-                title: "当前能力清单".into(),
-                content: "Store (SQLite WAL), CAS (blake3), Broker (Anthropic API), \
-                         Subject loop (S0/S1), NapCat (OneBot v11 WS), \
-                         WebUI (axum), Tmux seat, SSH exec (localhost only for now), \
-                         WASM runtime (stub — not yet implemented), \
-                         Memory, Awareness, Budget/Snap compact; \
-                         SelfKnowledge: capabilities are partially hardcoded; runtime probing not yet implemented".into(),
-                source_revision: Some(revision.clone()),
-                artifact_digest: None,
-                doc_revision: None,
-                applicable_version: None,
-                cached_at: now,
-                status: ResourceStatus::Current,
-            },
-            SelfResource {
-                resource_id: EntityId::new(),
                 kind: SelfResourceKind::Docs,
                 uri: "self://docs/plugin-dev".into(),
                 title: "插件开发指南".into(),
@@ -153,10 +169,12 @@ impl SelfKnowledgeProvider {
                 content: "crates/shenko-types (协议类型), shenko-store (SQLite+CAS), \
                          shenko-kernel (插件注册+生命周期), shenko-broker (推理调度), \
                          shenko-subject (持续主体), shenko-memory, shenko-channel-napcat, \
+                         shenko-exec-host (有限 native child：host.printf/history.query/self.knowledge.query), \
                          shenko-exec-ssh (SSH+tmux seat), shenko-wasm, \
                          shenko-repl (WASI REPL sessions + R0 journal), \
                          shenko-compact-budget, shenko-compact-snap, \
-                         shenko-awareness-core (自解释), shenko-ui, shenko-seed".into(),
+                         shenko-awareness-core (觉察单元+自解释), shenko-node (安装单元/节点), \
+                         shenko-quota, shenko-context-policy, shenko-ui, shenko-seed".into(),
                 source_revision: Some(revision),
                 artifact_digest: None,
                 doc_revision: None,
@@ -201,6 +219,57 @@ impl SelfKnowledgeProvider {
         } else {
             resources.push(resource);
         }
+    }
+
+    /// Record what this instance actually installed — SPEC §38.3, R124.
+    ///
+    /// `self://runtime/capabilities` is built from the real registries at
+    /// startup, not from a template: `native_definitions` are the registered
+    /// finite-child `(kind, version)` pairs and `awareness_units` the installed
+    /// awareness units with version and enabled state. A capability absent
+    /// from this snapshot is absent from the running instance; the caller must
+    /// not blend registry facts with a static product feature list.
+    pub fn install_runtime_capabilities(
+        &self,
+        native_definitions: &[(String, u32)],
+        awareness_units: &[crate::awareness_unit::AwarenessUnit],
+    ) {
+        let mut content = String::from(
+            "本实例启动时实际注册的能力（注册表快照；不是产品全量功能清单，\
+            未列出的能力不存在于当前实例）。\n\n\
+            已注册的 native definitions（用 [delegate:kind:version] 委派有限 child）：",
+        );
+        if native_definitions.is_empty() {
+            content.push_str("\n- （无）");
+        }
+        for (kind, version) in native_definitions {
+            content.push_str(&format!("\n- {kind}:{version}"));
+        }
+        content.push_str("\n\n已安装的觉察单元：");
+        if awareness_units.is_empty() {
+            content.push_str("\n- （无）");
+        }
+        for unit in awareness_units {
+            let state = if unit.enabled { "启用" } else { "停用" };
+            content.push_str(&format!(
+                "\n- {}@{}（{state}）— {}",
+                unit.id, unit.version, unit.capability_card
+            ));
+        }
+        let revision = self.build_manifest.read().source_revision.clone();
+        self.install_resource(SelfResource {
+            resource_id: EntityId::new(),
+            kind: SelfResourceKind::Runtime,
+            uri: "self://runtime/capabilities".into(),
+            title: "当前实例已安装能力清单".into(),
+            content,
+            source_revision: Some(revision),
+            artifact_digest: None,
+            doc_revision: None,
+            applicable_version: None,
+            cached_at: Utc::now(),
+            status: ResourceStatus::Current,
+        });
     }
 
     /// Invalidate cached resources when generation changes. SPEC §38.6
