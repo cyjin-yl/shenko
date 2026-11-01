@@ -187,7 +187,7 @@ fn sandbox(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         seed_manifest_ref: object.clone(),
         initial_profile_ref: object.clone(),
         home_manifest_ref: object.clone(),
-        bootstrap_event_ref: object,
+        bootstrap_event_ref: object.clone(),
         created_commit: precommit,
     };
     let head = SubjectBranchHead {
@@ -228,7 +228,15 @@ fn sandbox(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent,
+        object,
+        precommit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first, &root_task)
+        .unwrap();
     (dir, store, agent)
 }
 

@@ -13,6 +13,7 @@ use shenko_types::ids::EntityId;
 use shenko_types::ids::{BranchId, RecordRevision};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::store::{StoreCapabilities, WriteBatch};
+use shenko_types::task::{TaskOwner, TaskRecord};
 use shenko_types::subject::{
     SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStep, SubjectStepState,
 };
@@ -170,15 +171,48 @@ impl Store {
         &self.capabilities
     }
 
-    /// 同笔创建出生记录、head 与第一步；提交引用由真实事务赋值。§44.6
+    /// Tx-scoped extension seam for genesis (activation/handoff cutovers).
+    /// The extension writes its typed rows inside the same genesis
+    /// transaction; a failure rolls back genesis, the root task, the head
+    /// and the first step together. The store owns the root task, head and
+    /// first step identities — an extension MUST NOT insert those.
+    pub trait GenesisExtension {
+        fn extend_genesis(
+            &self,
+            store: &Store,
+            tx: &rusqlite::Transaction<'_>,
+            root_commit: CommitRef,
+        ) -> Result<(), ShenkoError>;
+    }
+
+    /// 同笔创建出生记录、head、root task 与第一步；提交引用由真实事务赋值。§44.6
+    /// The root task is the subject's own root task identity: the head binds
+    /// to it and the row is inserted in the same transaction, so the launch
+    /// binding is atomic with genesis (SPEC §41.5 launch binding).
     pub fn initialize_genesis(
         &self,
         genesis: &SubjectGenesis,
         head: &SubjectBranchHead,
         first_step: &SubjectStep,
+        root_task: &TaskRecord,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.initialize_genesis_with(genesis, head, first_step, root_task, None)
+    }
+
+    /// Genesis with a tx-scoped extension seam: upgrade/handoff activation
+    /// writes its typed rows inside the same genesis transaction. The
+    /// extension MUST NOT insert the root task, the head or the first step;
+    /// the store owns those identities.
+    pub fn initialize_genesis_with(
+        &self,
+        genesis: &SubjectGenesis,
+        head: &SubjectBranchHead,
+        first_step: &SubjectStep,
+        root_task: &TaskRecord,
+        extension: Option<&dyn GenesisExtension>,
     ) -> Result<CommitReceipt, ShenkoError> {
         self.ledger.with_mutation(
-            || self.try_initialize_genesis(genesis, head, first_step),
+            || self.try_initialize_genesis(genesis, head, first_step, root_task, extension),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -188,6 +222,8 @@ impl Store {
         genesis: &SubjectGenesis,
         head: &SubjectBranchHead,
         first_step: &SubjectStep,
+        root_task: &TaskRecord,
+        extension: Option<&dyn GenesisExtension>,
     ) -> Result<CommitReceipt, ShenkoError> {
         if genesis.subject_id != head.agent_id
             || head.genesis_ref.genesis_id != genesis.genesis_id
@@ -196,6 +232,10 @@ impl Store {
             || head.committed_step_id.is_some()
             || head.record_revision != RecordRevision(0)
             || head.mode != SubjectMode::Active
+            || head.subject_root_task_id != root_task.task_id
+            || root_task.agent_id != genesis.subject_id
+            || root_task.owner != TaskOwner::Task { id: root_task.task_id }
+            || root_task.record_revision != RecordRevision(0)
             || first_step.state != SubjectStepState::Planned
             || first_step.record_revision != RecordRevision(0)
         {
@@ -222,7 +262,14 @@ impl Store {
             "INSERT INTO subject_branch_heads (agent_id, branch_id, committed_step_no, committed_step_id, next_step_id, mode, record_revision, data, updated_commit_seq) VALUES (?1,?2,0,NULL,?3,'active',0,?4,?5)",
             params![head.agent_id.to_string(), head.branch_id.0.to_string(), head.next_step_id.to_string(), serde_json::to_string(&head)?, seq.0 as i64],
         ).map_err(storage_error)?;
+        tx.execute(
+            "INSERT INTO tasks(task_id,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![root_task.task_id.to_string(), root_task.record_revision.0 as i64, serde_json::to_string(root_task)?, seq.0 as i64],
+        ).map_err(storage_error)?;
         insert_step(&tx, &first_step, seq.0)?;
+        if let Some(extension) = extension {
+            extension.extend_genesis(self, &tx, commit_ref)?;
+        }
         self.record_subject_commit(&tx, commit_ref, 3)?;
         tx.commit().map_err(storage_error)?;
         Ok(self.subject_receipt(
@@ -244,6 +291,59 @@ impl Store {
         ))
     }
 
+    /// Fences the subject head for a handoff/activation cutover: the head
+    /// moves to `Handoff` mode with epoch+1 and a durable reason reference,
+    /// CAS on `record_revision` and `next_step_id` so a concurrent step
+    /// commit or a second handoff loses the race. Callers resume with
+    /// `resume_subject`.
+    pub fn fence_head_for_handoff(
+        &self,
+        head: &SubjectBranchHead,
+        expected_revision: RecordRevision,
+        reason_ref: ObjectRef,
+    ) -> Result<SubjectBranchHead, ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(storage_error)?;
+                let fresh = checked_head(&tx, head)?;
+                let mut fenced = fresh.clone();
+                fenced.mode = SubjectMode::Handoff;
+                fenced.controller_epoch = fresh.controller_epoch + 1;
+                fenced.mode_reason_ref = Some(reason_ref);
+                fenced.record_revision = RecordRevision(fresh.record_revision.0 + 1);
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+                fenced.committed_at = commit_ref;
+                let changed = tx
+                    .execute(
+                        "UPDATE subject_branch_heads SET mode='handoff', record_revision=?3, data=?4, updated_commit_seq=?5
+                         WHERE agent_id=?1 AND branch_id=?2 AND record_revision=?6 AND next_step_id=?7",
+                        params![
+                            fenced.agent_id.to_string(),
+                            fenced.branch_id.0.to_string(),
+                            fenced.record_revision.0 as i64,
+                            serde_json::to_string(&fenced)?,
+                            seq.0 as i64,
+                            expected_revision.0 as i64,
+                            fenced.next_step_id.to_string(),
+                        ],
+                    )
+                    .map_err(storage_error)?;
+                if changed != 1 {
+                    return Err(ShenkoError::conflict("stale branch head for handoff fence"));
+                }
+                self.record_subject_commit(&tx, commit_ref, 1)?;
+                tx.commit().map_err(storage_error)?;
+                Ok(fenced)
+            },
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+
     /// S0 与结果落账只更新已登记步骤，不允许插入随机新步骤。§41.5
     pub fn upsert_step(
         &self,
@@ -252,7 +352,7 @@ impl Store {
         expected_revision: RecordRevision,
     ) -> Result<CommitReceipt, ShenkoError> {
         self.ledger.with_mutation(
-            || self.try_upsert_step(step, expected_head, expected_revision, None),
+            || self.try_upsert_step(step, expected_head, expected_revision, None, None),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -276,6 +376,33 @@ impl Store {
                     expected_head,
                     expected_revision,
                     Some(claim_send),
+                    None,
+                )
+            },
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    /// The `AwaitingModel` transition and the armed request identity commit
+    /// in ONE transaction (SPEC §41.5 S0). The request can never become
+    /// visible without its receipt identity, and the identity can never
+    /// become visible without the step that owns it.
+    pub fn upsert_step_arming_request(
+        &self,
+        step: &SubjectStep,
+        expected_head: &SubjectBranchHead,
+        expected_revision: RecordRevision,
+        claim_send: Option<EntityId>,
+        attempt: &crate::subject_request::SubjectRequestAttempt,
+    ) -> Result<CommitReceipt, ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                self.try_upsert_step(
+                    step,
+                    expected_head,
+                    expected_revision,
+                    claim_send,
+                    Some(attempt),
                 )
             },
             |e| matches!(e, ShenkoError::Storage(_)),
@@ -288,6 +415,7 @@ impl Store {
         expected_head: &SubjectBranchHead,
         expected_revision: RecordRevision,
         claim_send: Option<EntityId>,
+        attempt: Option<&crate::subject_request::SubjectRequestAttempt>,
     ) -> Result<CommitReceipt, ShenkoError> {
         let mut conn = self.ledger.conn.lock();
         let tx = conn
@@ -315,7 +443,8 @@ impl Store {
                 && (step.input_plan_ref != previous.input_plan_ref
                     || step.context_revision != previous.context_revision))
             || (previous.active_request_id.is_some()
-                && step.active_request_id != previous.active_request_id)
+                && step.active_request_id != previous.active_request_id
+                && !self.retry_may_replace_request(&tx, previous, step)?)
             || (previous.active_attempt_id.is_some()
                 && step.active_attempt_id != previous.active_attempt_id)
             || step.input_plan_ref.is_none()
@@ -389,6 +518,13 @@ impl Store {
         let seq = self.ledger.allocate_seq(&tx)?;
         update_step(&tx, step, expected_revision, seq.0)?;
         let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
+        if let Some(attempt) = attempt {
+            // The armed request identity commits with the very transition
+            // that admits it.
+            let mut armed = attempt.clone();
+            armed.created_commit = commit_ref;
+            self.insert_subject_request_tx(&tx, &armed, seq.0)?;
+        }
         self.record_subject_commit(&tx, commit_ref, 1)?;
         tx.commit().map_err(storage_error)?;
         Ok(self.subject_receipt(
@@ -586,8 +722,8 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("S1 missing decision"))?;
         let decision: shenko_types::subject::StepDecision =
             serde_json::from_slice(&self.cas.read_object(&decision_ref.digest)?)?;
-        if decision.schema_version != 7
-            || decision.output.schema_version != 4
+        if decision.schema_version != 8
+            || decision.output.schema_version != 5
             || decision.output.step_id != step.step_id
             || Some(&decision.output.raw_ref) != step.model_result_ref.as_ref()
             || decision.step_id != step.step_id
@@ -597,6 +733,7 @@ impl Store {
         {
             return Err(ShenkoError::conflict("decision/step/successor mismatch"));
         }
+        self.validate_decision_controls(&tx, &head, step, &decision)?;
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
         // Identity is settled under the SAME IMMEDIATE transaction as S1. The
@@ -611,7 +748,7 @@ impl Store {
                 .get("identity_provider_revision")
                 .and_then(|v| v.as_str())
                 != Some(intent.provider_revision.as_str())
-                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(11)
+                || frozen.get("schema_version").and_then(|v| v.as_u64()) != Some(12)
                 || frozen
                     .pointer("/identity/revision")
                     .and_then(|v| v.as_u64())
@@ -697,16 +834,21 @@ impl Store {
         update_step(&tx, &step, previous.record_revision, seq.0)?;
         // 与 S1 同事务保存处置索引；I 只据此确认，不把送入内存 channel 当消费。
         // deferred 可由后续步继续处理，已接受的处置不能产生第二份决定/外部意图。
+        // The full EventDisposition JSON is stored, so a later committed step
+        // can re-dispose a deferred event with its richer reason/priority and
+        // readers can audit the authored control. The deferred-only upgrade
+        // accepts both legacy bare-enum rows and the new object rows.
         for disposition in &decision.event_dispositions {
-            let kind = serde_json::to_string(&disposition.disposition)?;
+            let stored = serde_json::to_string(&disposition)?;
             let changed = tx.execute(
                 "INSERT INTO subject_event_dispositions (branch_id,event_id,step_id,disposition,commit_seq)
                  VALUES (?1,?2,?3,?4,?5)
                  ON CONFLICT(branch_id,event_id) DO UPDATE SET
                      step_id=excluded.step_id, disposition=excluded.disposition, commit_seq=excluded.commit_seq
-                 WHERE subject_event_dispositions.disposition='\"deferred\"'",
+                 WHERE subject_event_dispositions.disposition='\"deferred\"'
+                    OR json_extract(subject_event_dispositions.disposition,'$.disposition')='deferred'",
                 params![head.branch_id.0.to_string(), disposition.event_id.to_string(),
-                    step.step_id.to_string(), kind, seq.0 as i64],
+                    step.step_id.to_string(), stored, seq.0 as i64],
             ).map_err(storage_error)?;
             if changed != 1 {
                 return Err(ShenkoError::conflict(
@@ -758,6 +900,191 @@ impl Store {
                 },
             ],
         ))
+    }
+
+    /// Whether this transition may replace the request identity with a new
+    /// attempt. Only a `RetryPending` step whose sealed retry evidence binds
+    /// to the PREVIOUS request may do that: the previous attempt's outcome
+    /// is conclusive (never dispatched, provider-rejected or dispatch-lost)
+    /// and the spent identity is never re-used.
+    fn retry_may_replace_request(
+        &self,
+        tx: &rusqlite::Connection,
+        previous: &SubjectStep,
+        step: &SubjectStep,
+    ) -> Result<bool, ShenkoError> {
+        if previous.state != SubjectStepState::RetryPending
+            || step.state != SubjectStepState::AwaitingModel
+        {
+            return Ok(false);
+        }
+        let Some(object) = previous.retry_reason_ref.as_ref() else {
+            return Ok(false);
+        };
+        let bytes = self.cas.read_object(&object.digest)?;
+        if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
+            return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+        }
+        let evidence: shenko_types::subject::SubjectRetryEvidence =
+            serde_json::from_slice(&bytes)?;
+        Ok(evidence.permits_retry(previous.active_request_id))
+    }
+
+    /// Validate the authored S1 controls before the decision is durable:
+    /// dispositions carry an audit reason unless they merely acknowledge,
+    /// priority dispositions name a review time, attention switches are
+    /// bounded, and every applied steering record binds to a real admitted
+    /// steer submission whose event was actually selected into this step's
+    /// sealed S0 (SPEC §13.8/§41).
+    fn validate_decision_controls(
+        &self,
+        tx: &rusqlite::Connection,
+        head: &SubjectBranchHead,
+        step: &SubjectStep,
+        decision: &shenko_types::subject::StepDecision,
+    ) -> Result<(), ShenkoError> {
+        use shenko_types::subject::{
+            AppliedSteeringRecord, AttentionState, Disposition,
+        };
+        for disposition in &decision.event_dispositions {
+            if disposition.reason.as_deref().unwrap_or("").trim().is_empty()
+                && disposition.disposition != Disposition::Acknowledged
+            {
+                return Err(ShenkoError::conflict(
+                    "disposition requires a reason unless acknowledged",
+                ));
+            }
+            if disposition.priority.is_some() && disposition.review_after.is_none() {
+                return Err(ShenkoError::conflict(
+                    "priority disposition requires a review time",
+                ));
+            }
+        }
+        if let Some(policy) = &decision.attention_policy {
+            if policy.reason.trim().is_empty() {
+                return Err(ShenkoError::conflict("attention decision requires a reason"));
+            }
+            if policy.state == AttentionState::Off
+                && (policy.sources.is_empty() || policy.review_after.is_none())
+            {
+                return Err(ShenkoError::conflict(
+                    "attention off requires sources and a review time",
+                ));
+            }
+        }
+        // An obligation that answers a specific input must name an event
+        // that was actually selected into this step's sealed S0. A promise
+        // attached to an event nobody showed the subject is not a promise
+        // the subject can keep.
+        if decision
+            .pending_obligations
+            .iter()
+            .any(|obligation| obligation.origin_event_id.is_some())
+        {
+            let frozen: serde_json::Value = serde_json::from_slice(
+                &self.cas.read_object(&decision.input_plan_ref.digest)?,
+            )?;
+            let selected: Vec<String> = frozen
+                .get("events")
+                .and_then(|value| value.as_array())
+                .map(|events| {
+                    events
+                        .iter()
+                        .filter_map(|event| {
+                            event
+                                .get("event_id")
+                                .and_then(|value| value.as_str())
+                                .map(str::to_owned)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for obligation in &decision.pending_obligations {
+                let Some(origin) = obligation.origin_event_id else {
+                    continue;
+                };
+                if !selected.iter().any(|event_id| event_id == &origin.to_string()) {
+                    return Err(ShenkoError::conflict(
+                        "obligation names an input event that was not selected into this step",
+                    ));
+                }
+            }
+        }
+        if !decision.applied_steering_refs.is_empty() {
+            let frozen: serde_json::Value = serde_json::from_slice(
+                &self
+                    .cas
+                    .read_object(&decision.input_plan_ref.digest)?,
+            )?;
+            let selected_events: Vec<serde_json::Value> = frozen
+                .get("events")
+                .and_then(|value| value.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for steer_ref in &decision.applied_steering_refs {
+                let record: AppliedSteeringRecord =
+                    serde_json::from_slice(&self.cas.read_object(&steer_ref.digest)?)?;
+                if record.schema_version != 1
+                    || record.decided_at_step_id != step.step_id
+                {
+                    return Err(ShenkoError::conflict("stale applied steering record"));
+                }
+                let event = selected_events
+                    .iter()
+                    .find(|event| {
+                        event
+                            .get("event_id")
+                            .and_then(|value| value.as_str())
+                            .map(str::to_owned)
+                            == Some(record.steer_event_id.to_string())
+                    })
+                    .ok_or_else(|| {
+                        ShenkoError::conflict(
+                            "steering is not bound to a selected input event",
+                        )
+                    })?;
+                let payload = event
+                    .get("payload")
+                    .ok_or_else(|| ShenkoError::conflict("steering event has no payload"))?;
+                let submission_id = payload
+                    .get("submission_id")
+                    .and_then(|value| value.as_str())
+                    .ok_or_else(|| {
+                        ShenkoError::conflict(
+                            "steering event is not a web steer submission",
+                        )
+                    })?;
+                if submission_id != record.steer_submission_id {
+                    return Err(ShenkoError::conflict(
+                        "steering record does not match its admitted submission",
+                    ));
+                }
+                let mode = payload
+                    .get("mode")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default();
+                if mode != record.mode {
+                    return Err(ShenkoError::conflict(
+                        "steering record mode does not match the sealed event payload",
+                    ));
+                }
+                let admitted: Option<String> = tx
+                    .query_row(
+                        "SELECT submission_id FROM web_input_submissions
+                         WHERE agent_id=?1 AND submission_id=?2",
+                        params![head.agent_id.to_string(), submission_id],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(storage_error)?;
+                if admitted.is_none() {
+                    return Err(ShenkoError::conflict(
+                        "steering submission was not admitted for this agent",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Read terminal evidence bound to this exact result/request, independently
@@ -860,7 +1187,9 @@ impl Store {
                 "SELECT s.data FROM subject_event_dispositions d
              JOIN subject_branch_heads h ON h.branch_id=d.branch_id
              JOIN subject_steps s ON s.step_id=d.step_id
-             WHERE h.agent_id=?1 AND d.event_id=?2 AND d.disposition!='\"deferred\"'",
+             WHERE h.agent_id=?1 AND d.event_id=?2
+               AND NOT (d.disposition='\"deferred\"'
+                        OR json_extract(d.disposition,'$.disposition')='deferred')",
                 params![agent_id.to_string(), event_id.to_string()],
                 |row| {
                     let data = row.get_ref(0)?.as_str().map_err(|error| {

@@ -4545,7 +4545,7 @@ mod archive_admission_tests {
         let genesis = SubjectGenesis {
             genesis_id, subject_id: agent, bootstrap_id: EntityId::new(), launch_id: EntityId::new(),
             seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(),
-            home_manifest_ref: object.clone(), bootstrap_event_ref: object, created_commit: commit,
+            home_manifest_ref: object.clone(), bootstrap_event_ref: object.clone(), created_commit: commit,
         };
         let head = SubjectBranchHead {
             agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
@@ -4563,7 +4563,15 @@ mod archive_admission_tests {
             model_outcome_ref: None, decision_ref: None, commit_ref: None,
             retry_reason_ref: None, record_revision: RecordRevision(0), created_by_step_id: None,
         };
-        source.initialize_genesis(&genesis, &head, &step).unwrap();
+        let root_task = shenko_types::task::TaskRecord::subject_root(
+            head.subject_root_task_id,
+            agent,
+            object,
+            commit,
+        );
+        source
+            .initialize_genesis(&genesis, &head, &step, &root_task)
+            .unwrap();
         let memory = root.join("source-memory");
         fs::create_dir(&memory).unwrap();
         fs::write(memory.join("remote.txt"), b"must not publish").unwrap();

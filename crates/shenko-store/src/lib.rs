@@ -17,6 +17,11 @@ pub mod semantic_wait;
 pub mod seat;
 pub mod runtime_boundary;
 pub mod web_input;
+pub mod subject_request;
+pub mod subject_state;
+pub use subject_request::{
+    SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
+};
 
 pub use store::*;
 pub use cas::*;

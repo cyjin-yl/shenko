@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use shenko_broker::request::{InferenceMessage, InferencePart, InferencePayload, ProviderCapabilities};
 use shenko_context_policy::{
     Attempt, CONTRACT_VERSION, CommittedWindow, HistoryItem, HistorySource, ItemKind, ModelCaps,
-    PrepareError, Projected, StorageError, StoreHistory, VisionCaps, estimate_tokens,
+    Projected, StorageError, StoreHistory, VisionCaps, estimate_tokens,
 };
 use shenko_store::{Store, SubjectContextRef, SubjectHistoryInput};
 use shenko_types::{error::ShenkoError, ids::EntityId, object::Digest, task::TaskResult};
@@ -23,6 +23,9 @@ pub const IDLE_CONTINUATION_PROMPT: &str = "[运行时连续思考提示；不�
 pub(super) enum ContextSelection {
     Unavailable { reason: String },
     Retained,
+    /// Compaction is preparing off the S0 path; this step keeps the current
+    /// window. The next step adopts the prepared candidate when it verifies.
+    Preparing { attempts: Vec<Attempt> },
     NoUsablePolicy { attempts: Vec<Attempt> },
     Compacted { attempts: Vec<Attempt> },
 }
@@ -49,10 +52,148 @@ pub(super) struct PreparedContextInput {
     pub semantic_wait: Option<shenko_types::subject::SemanticWait>,
     pub payload: InferencePayload,
     pub context: FrozenContextInput,
+    /// The prepared contributions collected for this step. They are sealed
+    /// with the request, so each item's provenance (producer, version,
+    /// artifact digest) reaches the raw call record through the seal.
+    pub contributions: Vec<serde_json::Value>,
+    /// Why each prepared contribution was NOT sent (conflict, expired,
+    /// scope mismatch, over budget). An omission is data, not a failure.
+    pub contribution_omissions: Vec<serde_json::Value>,
+    /// The token cost the contributions charge against this step's budget.
+    pub contribution_tokens: u64,
+    /// The collected plan itself. It is carried to the seal because the
+    /// usage evidence is built from it (the reduced use records and the
+    /// omission reasons), and that evidence must name the request which
+    /// actually carried the material.
+    pub contribution_plan: Option<shenko_context_policy::ContributionPlan>,
 }
 
 fn storage(error: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(error.to_string())
+}
+
+/// What the contribution registry returned for this step.
+pub(super) struct CollectedContributions {
+    pub contributions: Vec<serde_json::Value>,
+    pub omissions: Vec<serde_json::Value>,
+    pub total_tokens: u64,
+    /// The model-facing text of every collected contribution, resolved from
+    /// the sealed document each contribution's reference points at.
+    pub material: Vec<String>,
+    pub plan: shenko_context_policy::ContributionPlan,
+}
+
+/// Collect the prepared contributions for this step.
+///
+/// The registry merges them: identical material collapses, a disagreement is
+/// reported, and a producer's failure never throws. An omission carries its
+/// own reason and is DATA, not a failure of the step. A missing REQUIRED
+/// contribution is the decision point: the step is not admissible without
+/// it, so it fails with a typed conflict that names exactly what was
+/// missing — never a silent drop.
+fn collect_contributions(
+    state: &SubjectLoopState,
+    scope_id: EntityId,
+) -> Result<Option<CollectedContributions>, ShenkoError> {
+    let Ok(registry) = state
+        .plugin_context
+        .try_service::<shenko_context_policy::ContributionRegistry>()
+    else {
+        // No contribution runtime installed: there is nothing to collect.
+        return Ok(None);
+    };
+    // The scope is scope-wide: a task-bound contribution is not eligible
+    // for the subject's own step, and the registry reports that as a
+    // scope_mismatch omission instead of including it silently.
+    let scope = shenko_context_policy::contribution::scope_wide(scope_id);
+    let plan = registry.collect(&scope, chrono::Utc::now().timestamp_millis());
+    if !plan.missing_required.is_empty() {
+        return Err(ShenkoError::conflict(format!(
+            "CONTRIBUTION_REQUIRED_MISSING: {}",
+            plan.missing_required.join(", ")
+        )));
+    }
+    // The model-facing text of a contribution lives in the CAS document its
+    // reference points at, not in the record itself. The document version is
+    // read through the registry's own reader, so a newer document is an
+    // error rather than a guess.
+    let mut material = Vec::new();
+    for contribution in &plan.contributions {
+        let bytes = state.store.cas.read_object(&contribution.data.digest)?;
+        if bytes.len() as u64 != contribution.data.bytes
+            || Digest::blake3(&bytes) != contribution.data.digest
+        {
+            return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
+        }
+        material.push(
+            shenko_context_policy::contribution::ContributionPayload::read(&bytes).map_err(
+                |error| {
+                    ShenkoError::storage(format!("CONTRIBUTION_PAYLOAD_INVALID: {error}"))
+                },
+            )?,
+        );
+    }
+    let contributions = plan
+        .contributions
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ShenkoError::Serde)?;
+    let omissions = plan
+        .omitted
+        .iter()
+        .map(serde_json::to_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(ShenkoError::Serde)?;
+    Ok(Some(CollectedContributions {
+        contributions,
+        omissions,
+        total_tokens: plan.total_tokens,
+        material,
+        plan,
+    }))
+}
+
+/// A prepared window can only be adopted against the history it was cut
+/// from. Staleness of any binding (source window, model generation, policy
+/// epoch, leaf) means this S0's snapshot is no longer the one the candidate
+/// verified — re-snapshot, never adopt against a moved source. Storage
+/// failures stay storage failures.
+fn adopt_error(error: shenko_context_policy::CommitError) -> ShenkoError {
+    match error {
+        shenko_context_policy::CommitError::Storage(error) => storage(error),
+        other => ShenkoError::ResnapshotRequired {
+            reason: format!("prepared context window not adoptable: {other}"),
+        },
+    }
+}
+
+/// The slow compaction work (raw history render, per-policy attempts,
+/// window cut) runs on the blocking pool, never inside an S0 seal. The
+/// candidate publishes when done; a later step adopts it when it verifies
+/// against that step's bounded history. Failure is logged, not propagated:
+/// the current window stays live and the next over-budget step retries.
+fn launch_context_preparer(
+    registry: &Arc<shenko_context_policy::PolicyRegistry>,
+    store: Arc<Store>,
+    scope_id: EntityId,
+    caps: ModelCaps,
+    used_tokens: u32,
+) {
+    let registry = Arc::clone(registry);
+    tokio::task::spawn_blocking(move || {
+        let history =
+            StoreHistory::new(store, scope_id, Arc::new(estimate_tokens));
+        // Prepare and publish are one off-S0 step: the candidate binds itself
+        // to the live scope/window/model/policy revisions it was cut from, so
+        // a later adoption can verify every one of them.
+        match registry.prepare_and_publish(&history, &caps, used_tokens) {
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, "context preparer produced no publishable candidate");
+            }
+        }
+    });
 }
 
 /// Bound the append-only source before selecting/projecting a window. A later
@@ -160,6 +301,11 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
             "user"
         }
     };
+    // Every staged input cites the durable event identity it came from, so a
+    // control or reply can bind to the exact fact (SPEC §41.5) and two
+    // same-source deliveries can be told apart in the model history.
+    let text = data["text"].as_str().unwrap_or_default().to_owned();
+    data["text"] = serde_json::Value::String(format!("[event {}] {text}", event.event_id));
     Ok(SubjectHistoryInput { event_id: event.event_id, event_type: event_type.into(), data })
 }
 
@@ -522,7 +668,11 @@ pub(super) fn prepare_context(
     let awareness: Vec<String> = state
         .awareness
         .as_ref()
-        .map(|registry| registry.active_intuitions())
+        .map(|catalog| catalog.disclosure().map(|text| vec![text]))
+        .transpose()
+        .map_err(|error| {
+            ShenkoError::storage(format!("cognition disclosure failed: {error:#}"))
+        })?
         .unwrap_or_default();
     let stable_prompt = stable_system_prompt(state);
     let system_prompt = build_system_prompt(state, &awareness);
@@ -581,19 +731,31 @@ pub(super) fn prepare_context(
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
     let (trigger_budget_input_tokens, mut budget_provenance) = budget_tokens(state, binding, current_estimate);
     let mut selected_budget_input_tokens = trigger_budget_input_tokens;
+    // Record pressure every S0 so the durable window ledger sees the used/
+    // available shape even when no strategy fires this step.
+    if let Some(caps) = caps.as_ref() {
+        registry
+            .observe_pressure(caps, trigger_budget_input_tokens)
+            .map_err(storage)?;
+    }
     let selection = match &caps {
         None => ContextSelection::Unavailable { reason: "model_context_limit_not_observed".into() },
         Some(caps) => {
-            // The trigger is cheap: it records the observed pressure and reads
-            // the window ledger only; the raw history is prepared off this
-            // path.
-            registry.observe_pressure(caps, trigger_budget_input_tokens).map_err(storage)?;
+            // The trigger is a cheap decision over the committed window and
+            // the observed pressure; it reads no raw history, so it can run
+            // inside an S0 seal.
             if !registry.needs_preparation(caps, trigger_budget_input_tokens) {
                 ContextSelection::Retained
             } else {
-                match registry.prepare(&history, caps, trigger_budget_input_tokens) {
-                    Ok((prepared, attempts)) => {
-                        window = registry.commit(prepared, &history).map_err(storage)?;
+                // The slow strategy work (history render, policy attempts,
+                // window cut) happens OFF the S0 path: a prior step's
+                // preparer published a candidate, or this step launches one
+                // and keeps the current window. Adoption re-verifies scope,
+                // source window, model generation, policy epoch and leaf
+                // against this exact bounded history.
+                match registry.adopt_prepared(&history).map_err(adopt_error)? {
+                    Some((adopted, attempts)) => {
+                        window = adopted;
                         (payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq) = project_payload_stable(
                             &state.store, &window, &history, system_prompt, Some(caps), state.max_tokens, &input_raw_event_ids,
                         )?;
@@ -602,10 +764,15 @@ pub(super) fn prepare_context(
                         budget_provenance.push_str("; selected compacted heuristic");
                         ContextSelection::Compacted { attempts }
                     }
-                    Err(PrepareError::NoUsablePolicy { attempts }) => ContextSelection::NoUsablePolicy { attempts },
-                    Err(PrepareError::Storage(error)) => return Err(storage(error)),
-                    Err(PrepareError::Publish(error)) => {
-                        return Err(ShenkoError::conflict(format!("window publication refused: {error}")))
+                    None => {
+                        launch_context_preparer(
+                            &registry,
+                            Arc::clone(&state.store),
+                            scope_id,
+                            caps.clone(),
+                            trigger_budget_input_tokens,
+                        );
+                        ContextSelection::Preparing { attempts: Vec::new() }
                     }
                 }
             }
@@ -613,6 +780,40 @@ pub(super) fn prepare_context(
     };
     let final_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("selected projection has no trustworthy token estimate"))?;
+    // The prepared contributions are collected BEFORE the final budget
+    // check, so their cost is charged together with the context and the
+    // tool cost (SPEC §37.7) and can never be added after the check.
+    let collected = collect_contributions(state, scope_id)?;
+    let (contributions, contribution_omissions, contribution_tokens, contribution_plan) =
+        match &collected {
+        Some(collected) => {
+            // The model-facing material of a contribution is the text of the
+            // sealed document its reference points at. Its provenance
+            // (producer, version, artifact digest) is NOT put in front of
+            // the model: that reaches the raw call record through the seal.
+            if !collected.material.is_empty() {
+                payload.messages.push(InferenceMessage::text(
+                    "user",
+                    format!(
+                        "[prepared contributions]\n{}",
+                        collected.material.join("\n")
+                    ),
+                ));
+                estimated_input_tokens =
+                    estimate_payload_tokens(&payload, 0).or(estimated_input_tokens);
+            }
+            (
+                collected.contributions.clone(),
+                collected.omissions.clone(),
+                collected.total_tokens,
+                Some(collected.plan.clone()),
+            )
+        }
+        None => (Vec::new(), Vec::new(), 0, None),
+    };
+    selected_budget_input_tokens = selected_budget_input_tokens.saturating_add(
+        u32::try_from(contribution_tokens).unwrap_or(u32::MAX),
+    );
     let has_image = payload.messages.iter().flat_map(|message| &message.parts)
         .any(InferencePart::is_image);
     let input_limit = caps.as_ref().and_then(|caps| if has_image {
@@ -628,6 +829,10 @@ pub(super) fn prepare_context(
     Ok(PreparedContextInput {
         events: recovered, semantic_wait: state.semantic_wait.clone(),
         payload,
+        contributions,
+        contribution_omissions,
+        contribution_tokens,
+        contribution_plan,
         context: FrozenContextInput {
             source: SubjectContextRef { scope_id, source_commit_seq,
                 leaf_seq: history.leaf, input_raw_event_ids,

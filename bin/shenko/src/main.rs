@@ -613,6 +613,13 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     "IDENTITY_REVISION_CONFLICT: expected {expected}, actual {}",
                     current.revision
                 );
+                // An over-long edit is refused with a reason: it is never
+                // silently truncated, so the operator sees what did not fit.
+                for change in &changes {
+                    identity_service
+                        .check_change(change)
+                        .map_err(|rejection| anyhow::anyhow!("IDENTITY_EDIT_REJECTED: {rejection}"))?;
+                }
                 if let Some(next) =
                     identity_service.revise(&current, &changes, IdentitySource::Operator)
                 {
@@ -1787,7 +1794,7 @@ fn bootstrap_genesis(
         subject_id: agent_id,
         bootstrap_id,
         launch_id,
-        seed_manifest_ref: seed_manifest,
+        seed_manifest_ref: seed_manifest.clone(),
         initial_profile_ref: initial_profile,
         home_manifest_ref: home_manifest,
         bootstrap_event_ref: bootstrap_event,
@@ -1841,7 +1848,13 @@ fn bootstrap_genesis(
         created_by_step_id: None,
     };
 
-    let receipt = store.initialize_genesis(&genesis, &head, &first_step)?;
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        seed_manifest,
+        genesis.created_commit,
+    );
+    let receipt = store.initialize_genesis(&genesis, &head, &first_step, &root_task)?;
     info!(agent_id=%agent_id, name=name.unwrap_or("(unnamed)"), commit=%receipt.commit_ref, "genesis created");
 
     Ok(agent_id)
@@ -2085,7 +2098,7 @@ mod recovery_integration_tests {
         let leaf_seq = store.session_leaf_seq(scope).unwrap()
             .map(|seq| u64::try_from(seq).unwrap());
         let input = serde_json::json!({
-            "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
+            "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
             "events":events, "provider_binding":null,
             "payload":shenko_broker::request::InferencePayload {
                 system_prompt:"native recovery fixture".into(), messages,
@@ -2110,7 +2123,7 @@ mod recovery_integration_tests {
             },
         });
         store.cas.seal_object(&serde_json::to_vec(&input).unwrap(), "application/json",
-            "input_plans", "subject_step_input", 11).unwrap().object
+            "input_plans", "subject_step_input", 12).unwrap().object
     }
 
     /// Deterministic model-output fixture admitted through the real parser and S1

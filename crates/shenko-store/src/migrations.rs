@@ -86,6 +86,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable browser input submission bindings (SPEC §41.18). Additive,
     // never rewrites the original event or its admission fact.
     conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
+    // Durable main-request receipts (SPEC §41.5/§41.4): the subject's own
+    // generation arms an attempt before any wire send and records terminal
+    // evidence independently of the caller. Additive, own table only.
+    conn.execute_batch(crate::subject_request::SCHEMA)?;
+    // Durable commitments the subject made about itself (SPEC §13.8): the
+    // obligations it is still carrying and its own attention decision.
+    // Additive, own tables only.
+    conn.execute_batch(crate::subject_state::SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
