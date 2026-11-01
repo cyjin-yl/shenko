@@ -319,6 +319,7 @@ impl Store {
                 entity_id: target,
                 record_revision: RecordRevision((revision.max(0) + 1) as u64),
             }],
+            sealed_objects: Vec::new(),
         })
     }
 
@@ -366,6 +367,7 @@ impl Store {
                 entity_id: entry.entry_id,
                 record_revision: RecordRevision(entry.record_revision),
             }],
+            sealed_objects: Vec::new(),
         })
     }
 

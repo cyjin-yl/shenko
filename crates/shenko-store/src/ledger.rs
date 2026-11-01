@@ -104,21 +104,73 @@ impl Ledger {
         let commit_ref = CommitRef::new(self.ledger_id, seq);
         let mut updated = vec![];
 
-        // 本次只统一序号/写锁；下列通用 upsert 仍缺业务 revision CAS 和 writer 失效协议。
+        // A record-revision row admits only the successor of the stored
+        // revision: the caller builds its update on the revision it read, so
+        // anything else is a stale or foreign writer — a typed conflict,
+        // never a silent overwrite (SPEC §41.2 generic write path).
         for task in &batch.task_upserts {
             let json =
                 serde_json::to_string(task).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            tx.execute(
-                "INSERT OR REPLACE INTO tasks (task_id, record_revision, data, updated_commit_seq)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    task.task_id.to_string(),
-                    task.record_revision.0 as i64,
-                    json,
-                    seq.0 as i64,
-                ],
-            )
-            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+            let stored: Option<(i64, String)> = tx
+                .query_row(
+                    "SELECT record_revision, data FROM tasks WHERE task_id=?1",
+                    params![task.task_id.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+            match stored {
+                None => {
+                    tx.execute(
+                        "INSERT INTO tasks (task_id, record_revision, data, updated_commit_seq)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![
+                            task.task_id.to_string(),
+                            task.record_revision.0 as i64,
+                            json,
+                            seq.0 as i64,
+                        ],
+                    )
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                }
+                Some((_, stored_json)) if stored_json == json => {
+                    // An identical replay admits nothing new; the original
+                    // fact stays the truth of record.
+                }
+                Some((stored_revision, stored_json)) => {
+                    // A terminal task is never rewritten by any writer; a
+                    // live one only by the revision its writer read.
+                    let stored_terminal = serde_json::from_str::<
+                        shenko_types::task::TaskRecord,
+                    >(&stored_json)
+                    .map(|stored| stored.is_terminal())
+                    .unwrap_or(false);
+                    if stored_terminal {
+                        return Err(ShenkoError::conflict(format!(
+                            "terminal task {} is never rewritten",
+                            task.task_id
+                        )));
+                    }
+                    if task.record_revision.0 as i64 != stored_revision + 1 {
+                        return Err(ShenkoError::conflict(format!(
+                            "task {} revision conflict: stored {stored_revision}, incoming {}",
+                            task.task_id, task.record_revision.0
+                        )));
+                    }
+                    tx.execute(
+                        "UPDATE tasks SET record_revision=?2, data=?3, updated_commit_seq=?4
+                         WHERE task_id=?1 AND record_revision=?5",
+                        params![
+                            task.task_id.to_string(),
+                            task.record_revision.0 as i64,
+                            json,
+                            seq.0 as i64,
+                            stored_revision,
+                        ],
+                    )
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                }
+            }
             updated.push(UpdatedEntity {
                 entity_id: task.task_id,
                 record_revision: task.record_revision,
@@ -128,51 +180,218 @@ impl Ledger {
         for op in &batch.operation_upserts {
             let json =
                 serde_json::to_string(op).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            tx.execute(
-                "INSERT OR REPLACE INTO operations (operation_id, record_revision, data, updated_commit_seq)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    op.operation_id.to_string(),
-                    op.record_revision.0 as i64,
-                    json,
-                    seq.0 as i64,
-                ],
-            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            let stored: Option<(i64, String)> = tx
+                .query_row(
+                    "SELECT record_revision, data FROM operations WHERE operation_id=?1",
+                    params![op.operation_id.to_string()],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+            match stored {
+                None => {
+                    tx.execute(
+                        "INSERT INTO operations (operation_id, record_revision, data, updated_commit_seq)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![
+                            op.operation_id.to_string(),
+                            op.record_revision.0 as i64,
+                            json,
+                            seq.0 as i64,
+                        ],
+                    )
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                }
+                Some((_, stored_json)) if stored_json == json => {}
+                Some((stored_revision, stored_json)) => {
+                    // An operation whose effect outcome is already recorded
+                    // is terminal: never rewritten, even by a successor
+                    // revision (SPEC §41.4: the recorded effect is final).
+                    let stored_resolved = serde_json::from_str::<
+                        shenko_types::operation::OperationRecord,
+                    >(&stored_json)
+                    .map(|stored| {
+                        stored.outcome.is_some()
+                            && stored.state == shenko_types::operation::OperationState::Resolved
+                    })
+                    .unwrap_or(false);
+                    if stored_resolved {
+                        return Err(ShenkoError::conflict(format!(
+                            "resolved operation {} is never rewritten",
+                            op.operation_id
+                        )));
+                    }
+                    if op.record_revision.0 as i64 != stored_revision + 1 {
+                        return Err(ShenkoError::conflict(format!(
+                            "operation {} revision conflict: stored {stored_revision}, incoming {}",
+                            op.operation_id, op.record_revision.0
+                        )));
+                    }
+                    tx.execute(
+                        "UPDATE operations SET record_revision=?2, data=?3, updated_commit_seq=?4
+                         WHERE operation_id=?1 AND record_revision=?5",
+                        params![
+                            op.operation_id.to_string(),
+                            op.record_revision.0 as i64,
+                            json,
+                            seq.0 as i64,
+                            stored_revision,
+                        ],
+                    )
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                }
+            }
         }
 
         for att in &batch.attempt_upserts {
             let json =
                 serde_json::to_string(att).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            tx.execute(
-                "INSERT OR REPLACE INTO attempts (attempt_id, operation_id, data, updated_commit_seq)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    att.attempt_id.to_string(),
-                    att.operation_id.to_string(),
-                    json,
-                    seq.0 as i64,
-                ],
-            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            let stored: Option<String> = tx
+                .query_row(
+                    "SELECT data FROM attempts WHERE attempt_id=?1",
+                    params![att.attempt_id.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+            match stored {
+                None => {
+                    // Append-only: the armed/dispatch fact keeps its original
+                    // identity; a later observation is new evidence, not an
+                    // edit of the attempt fact.
+                    tx.execute(
+                        "INSERT INTO attempts (attempt_id, operation_id, data, updated_commit_seq)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![
+                            att.attempt_id.to_string(),
+                            att.operation_id.to_string(),
+                            json,
+                            seq.0 as i64,
+                        ],
+                    )
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                }
+                Some(stored_json) if stored_json == json => {}
+                Some(_) => {
+                    return Err(ShenkoError::conflict(format!(
+                        "attempt {} already holds a different fact",
+                        att.attempt_id
+                    )));
+                }
+            }
         }
 
         for ev in &batch.evidence_upserts {
             let json =
                 serde_json::to_string(ev).map_err(|e| ShenkoError::storage(e.to_string()))?;
-            tx.execute(
-                "INSERT OR REPLACE INTO evidence_receipts (receipt_id, operation_id, data, updated_commit_seq)
-                 VALUES (?1, ?2, ?3, ?4)",
-                params![
-                    ev.receipt_id.to_string(),
-                    ev.operation_id.map(|id| id.to_string()),
-                    json,
-                    seq.0 as i64,
-                ],
-            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            // X05 source-key dedup: a duplicate source event key binds to the
+            // first durable receipt, never creates a competing fact.
+            if let Some(source_key) = &ev.source_event_key {
+                let prior: Option<(String, String)> = tx
+                    .query_row(
+                        "SELECT receipt_id, data FROM evidence_receipts
+                         WHERE json_extract(data,'$.source_id')=?1
+                           AND json_extract(data,'$.source_event_key')=?2
+                         ORDER BY updated_commit_seq LIMIT 1",
+                        params![ev.source_id, source_key],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .optional()
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                if let Some((first_id, _)) = prior {
+                    if let Ok(entity_id) = first_id.parse() {
+                        updated.push(UpdatedEntity {
+                            entity_id,
+                            record_revision: shenko_types::ids::RecordRevision(0),
+                        });
+                    }
+                    continue;
+                }
+            }
+            let stored: Option<String> = tx
+                .query_row(
+                    "SELECT data FROM evidence_receipts WHERE receipt_id=?1",
+                    params![ev.receipt_id.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+            match stored {
+                None => {
+                    // Receipts are append-only; a different fact under the
+                    // same id is a typed conflict, not a replacement.
+                    tx.execute(
+                        "INSERT INTO evidence_receipts (receipt_id, operation_id, data, updated_commit_seq)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![
+                            ev.receipt_id.to_string(),
+                            ev.operation_id.map(|id| id.to_string()),
+                            json,
+                            seq.0 as i64,
+                        ],
+                    )
+                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                    // E1 closure: the owning operation's evidence cursor
+                    // advances with the receipt in the same commit.
+                    if let Some(operation_id) = ev.operation_id {
+                        let op_row: Option<(i64, String)> = tx
+                            .query_row(
+                                "SELECT record_revision, data FROM operations WHERE operation_id=?1",
+                                params![operation_id.to_string()],
+                                |row| Ok((row.get(0)?, row.get(1)?)),
+                            )
+                            .optional()
+                            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                        if let Some((op_revision, op_json)) = op_row {
+                            let mut operation: shenko_types::operation::OperationRecord =
+                                serde_json::from_str(&op_json)
+                                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                            // The cursor marks the commit through which this
+                            // operation's evidence is folded; the newest
+                            // admission advances it monotonically.
+                            // A resolved operation already holds its final
+                            // fact: its evidence cursor is never rewritten,
+                            // the receipt itself stays durable.
+                            let resolved = operation.outcome.is_some()
+                                && operation.state
+                                    == shenko_types::operation::OperationState::Resolved;
+                            if !resolved && operation.evidence_through != Some(commit_ref) {
+                                operation.evidence_through = Some(commit_ref);
+                                operation.record_revision = operation.record_revision.next();
+                                let operation_json = serde_json::to_string(&operation)
+                                    .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                                tx.execute(
+                                    "UPDATE operations SET record_revision=?2, data=?3, updated_commit_seq=?4
+                                     WHERE operation_id=?1 AND record_revision=?5",
+                                    params![
+                                        operation_id.to_string(),
+                                        operation.record_revision.0 as i64,
+                                        operation_json,
+                                        seq.0 as i64,
+                                        op_revision,
+                                    ],
+                                )
+                                .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                            }
+                        }
+                    }
+                }
+                Some(stored_json) if stored_json == json => {}
+                Some(_) => {
+                    return Err(ShenkoError::conflict(format!(
+                        "evidence receipt {} already holds a different fact",
+                        ev.receipt_id
+                    )));
+                }
+            }
         }
 
         for ie in &batch.inbox_event_upserts {
-            tx.execute(
-                "INSERT OR IGNORE INTO inbox_events (event_id, agent_id, kind, source, consumed, data)
+            // Raw deliveries are append-only facts: an identical replay is a
+            // no-op, a different fact under an existing event identity is a
+            // typed conflict — never a silently ignored row.
+            let insert = tx.execute(
+                "INSERT INTO inbox_events (event_id, agent_id, kind, source, consumed, data)
                  VALUES (?1, ?2, ?3, ?4, 0, ?5)",
                 params![
                     ie.event_id.to_string(),
@@ -181,7 +400,41 @@ impl Ledger {
                     ie.source,
                     ie.payload_json,
                 ],
-            ).map_err(|e| ShenkoError::storage(e.to_string()))?;
+            );
+            match insert {
+                Ok(_) => {}
+                Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error {
+                        code: rusqlite::ErrorCode::ConstraintViolation,
+                        ..
+                    },
+                    _,
+                )) => {
+                    let stored: Option<(String, String, String, String)> = tx
+                        .query_row(
+                            "SELECT agent_id, kind, source, data FROM inbox_events WHERE event_id=?1",
+                            params![ie.event_id.to_string()],
+                            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                        )
+                        .optional()
+                        .map_err(|e| ShenkoError::storage(e.to_string()))?;
+                    if stored
+                        .as_ref()
+                        .is_none_or(|(agent, kind, source, data)| {
+                            agent != &ie.agent_id.to_string()
+                                || kind != &ie.kind
+                                || source != &ie.source
+                                || data != &ie.payload_json
+                        })
+                    {
+                        return Err(ShenkoError::conflict(format!(
+                            "inbox event {} already holds a different fact",
+                            ie.event_id
+                        )));
+                    }
+                }
+                Err(error) => return Err(ShenkoError::storage(error.to_string())),
+            }
             updated.push(UpdatedEntity {
                 entity_id: ie.event_id,
                 record_revision: shenko_types::ids::RecordRevision(0),
@@ -218,6 +471,7 @@ impl Ledger {
             durability_profile: DurabilityProfile::PowerLossLocal,
             store_incarnation: self.incarnation,
             updated,
+            sealed_objects: Vec::new(),
         })
     }
 
