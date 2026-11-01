@@ -13,6 +13,7 @@ pub mod context_windows;
 pub mod raw_session;
 pub mod cognition;
 pub mod cognition_archive;
+pub mod contacts;
 pub mod recovery_sources;
 pub mod semantic_wait;
 pub mod seat;
@@ -34,6 +35,7 @@ pub use context_windows::*;
 pub use raw_session::*;
 pub use cognition::*;
 pub use cognition_archive::*;
+pub use contacts::*;
 pub use semantic_wait::*;
 pub use seat::*;
 

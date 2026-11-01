@@ -44,3 +44,8 @@ pub use retention_task::*;
 
 pub mod builtin;
 pub use builtin::*;
+pub mod person_task;
+pub use person_task::*;
+
+pub mod life_identity;
+pub use life_identity::*;
