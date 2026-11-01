@@ -22,7 +22,7 @@ const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
 const THEME_KEY = 'shenko.theme.v1';
 const RECEIPT_REFRESH_MS = 2000;
 const RECONNECT_BASE = [1, 2, 4, 8, 15];
-const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config']);
+const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config', 'playground']);
 const VALID_READING = new Set<ReadingState>([
   'following_latest',
   'reading_history',
@@ -165,6 +165,7 @@ function initialState(): UiState {
     self_error: false,
     tasks_error: false,
     memory_error: false,
+    playground_error: false,
     display,
   };
 }
@@ -261,6 +262,7 @@ class LiveController implements ProjectionController {
           this.emit();
           if (view === 'tasks') void this.loadTasks();
           if (view === 'memory') void this.loadMemory();
+          if (view === 'playground') void this.loadPlayground();
           if (view === 'config') {
             void this.loadConfig();
             void this.loadSelf();
@@ -919,6 +921,29 @@ class LiveController implements ProjectionController {
       if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
       this.state.memory = undefined;
       this.state.memory_error = true;
+    }
+    if (!this.disposed) this.emit();
+  }
+
+  private async loadPlayground(): Promise<void> {
+    try {
+      const [surface, namespaces] = await Promise.all([
+        this.fetchJson('/api/playground'),
+        this.fetchJson('/api/config/namespaces').catch(() => undefined),
+      ]);
+      if (!isObject(surface)) throw new Error('invalid playground surface');
+      const namespaceList = isObject(namespaces) && 'namespaces' in namespaces && Array.isArray(namespaces.namespaces)
+        ? namespaces.namespaces
+        : undefined;
+      this.state.playground = {
+        ...(surface as Record<string, unknown>),
+        namespaces: namespaceList,
+      } as UiState['playground'];
+      this.state.playground_error = false;
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.playground = undefined;
+      this.state.playground_error = true;
     }
     if (!this.disposed) this.emit();
   }

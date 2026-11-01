@@ -169,6 +169,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           <TasksSurface node={nodes.tasks} />
           <MemorySurface node={nodes.memory} />
           <ConfigSurface node={nodes.config} projection={projection} />
+          <PlaygroundSurface node={nodes.playground_surface} />
         </div>
         <Composer node={composer} emit={emit} />
       </main>
@@ -192,6 +193,7 @@ const VIEW_LABELS: Record<ViewName, string> = {
   tasks: '任务',
   memory: '记忆',
   config: '配置',
+  playground: 'Playground',
 };
 
 function NavigationItems({ node, emit, mobile = false }: { node: UiNode; emit: Emit; mobile?: boolean }) {
@@ -737,6 +739,48 @@ function ConfigItem({ label, value, wide = false }: { label: string; value: stri
   return <div className={`config-item ${wide ? 'is-wide' : ''}`}><span>{label}</span><strong title={value}>{value}</strong></div>;
 }
 
+function PlaygroundSurface({ node }: { node?: UiNode }) {
+  if (!node) return null;
+  const playground = node.props.playground;
+  const roots = Array.isArray(playground?.roots) ? playground.roots : [];
+  const artifacts = Array.isArray(playground?.artifacts) ? playground.artifacts : [];
+  const namespaces = Array.isArray(playground?.namespaces) ? playground.namespaces : [];
+  return <section className="detail-surface playground-surface" hidden={node.props.hidden}>
+    <SurfaceHeader eyebrow="全栈工件" title="Playground" detail="工件、可选根与配置命名空间全部来自持久记录；不可用即显示不可用，不用占位数据。" />
+    {node.props.error ? <SurfaceNote text="Playground 接口不可用" tone="error" /> : playground?.available === false ? <SurfaceNote text="Playground 需要持久 Store 与主体" /> : <>
+      <div className="capability-block">
+        <h3>可选根（enumerable roots）</h3>
+        {roots.length === 0 ? <SurfaceNote text="尚无已选根" /> : (
+          <div className="data-list">{roots.map((root) => <div className="data-row playground-row" key={String(root.artifact_id)}>
+            <code>{String(root.artifact_id)}</code><span>{String(root.root)}</span><code>{String(root.identity).slice(0, 16)}…</code>
+          </div>)}</div>
+        )}
+      </div>
+      <div className="capability-block">
+        <h3>工件</h3>
+        {artifacts.length === 0 ? <SurfaceNote text="尚无工件" /> : (
+          <div className="data-list">{artifacts.map((artifact) => <div className="data-row playground-row" key={String(artifact.artifact_id)}>
+            <strong>{String(artifact.title ?? artifact.artifact_id)}</strong>
+            <span>r{String(artifact.revision ?? '—')}</span>
+            <span>{String(artifact.mime ?? '—')}</span>
+            <span>{artifact.backend ? 'backend' : 'content'}</span>
+            <span>{String(artifact.lifecycle ?? 'draft')}</span>
+            <time>{formatStamp(artifact.updated_at)}</time>
+          </div>)}</div>
+        )}
+      </div>
+      <div className="capability-block">
+        <h3>配置命名空间</h3>
+        {namespaces.length === 0 ? <SurfaceNote text="尚未注册配置命名空间" /> : (
+          <div className="data-list">{namespaces.map((entry) => <div className="data-row playground-row" key={String(entry.namespace)}>
+            <code>{String(entry.namespace)}</code><span>{String(entry.description ?? '—')}</span>
+          </div>)}</div>
+        )}
+      </div>
+    </>}
+  </section>;
+}
+
 function SurfaceNote({ text, tone = 'neutral' }: { text: string; tone?: 'neutral' | 'error' }) {
   return <div className={`surface-note is-${tone}`}><span className="note-mark" /><p>{text}</p></div>;
 }
@@ -863,6 +907,7 @@ function Icon({ name }: { name: string }) {
     case 'tasks': return <svg {...common}><rect x="3" y="2.5" width="10" height="11" rx="2" /><path d="m5.5 6 1 1 2-2M9.5 6h1M5.5 10l1 1 2-2M9.5 10h1" /></svg>;
     case 'memory': return <svg {...common}><path d="M5 3.5h6a2 2 0 0 1 2 2v7H6a3 3 0 0 1-3-3v-6Z" /><path d="M6 3.5v9M8.5 6h2M8.5 8.5h2" /></svg>;
     case 'config': return <svg {...common}><circle cx="8" cy="8" r="2" /><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" /></svg>;
+    case 'playground': return <svg {...common}><path d="M3 3.5h10v9H3Z" /><path d="m6.5 5.8 3.5 2.2-3.5 2.2Z" /></svg>;
     case 'panel': return <svg {...common}><rect x="2" y="2.5" width="12" height="11" rx="2" /><path d="M9.5 2.5v11M12 6h.01M12 9h.01" /></svg>;
     case 'sun': return <svg {...common}><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5v1M8 13.5v1M1.5 8h1M13.5 8h1M3.4 3.4l.7.7M11.9 11.9l.7.7M12.6 3.4l-.7.7M4.1 11.9l-.7.7" /></svg>;
     case 'moon': return <svg {...common}><path d="M12.8 10.2A5.4 5.4 0 0 1 5.8 3.3a5.4 5.4 0 1 0 7 6.9Z" /></svg>;

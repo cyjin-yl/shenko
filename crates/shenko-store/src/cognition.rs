@@ -821,6 +821,109 @@ const TABLES: &[TableSpec] = &[
         local_seq: None,
         kind: RowKind::Verbatim,
     },
+    // Configuration and owner facts — SPEC §43.1, §44.4. The saved desired
+    // value, its change record and the consumers' adoptions travel together:
+    // a peer that receives only the desired revision would otherwise believe
+    // an unadopted value is in effect. `owner_admin_tokens` is deliberately
+    // absent: a credential digest is installation-local and is never
+    // replicated.
+    TableSpec {
+        name: "owner_grants",
+        key: &["installation_id"],
+        columns: &[
+            "installation_id",
+            "grant_id",
+            "claim_id",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "config_entries",
+        key: &["namespace", "logical_key"],
+        columns: &[
+            "namespace",
+            "logical_key",
+            "desired_revision",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "config_changes",
+        key: &["change_id"],
+        columns: &[
+            "change_id",
+            "origin_identity",
+            "logical_key",
+            "namespace",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "config_adoptions",
+        key: &["namespace", "logical_key", "consumer_id"],
+        columns: &[
+            "namespace",
+            "logical_key",
+            "consumer_id",
+            "adopted_revision",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Playground business state — SPEC §43.2. The artifact record, its
+    // versioned manifests and the runtime instances are replicated so a peer
+    // can enumerate the artifact roots instead of discovering them by
+    // listing an unknown directory.
+    TableSpec {
+        name: "artifact_records",
+        key: &["artifact_id"],
+        columns: &[
+            "artifact_id",
+            "subject_id",
+            "lifecycle",
+            "state_revision",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "artifact_manifests",
+        key: &["artifact_id", "version_digest"],
+        columns: &[
+            "artifact_id",
+            "version_digest",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "artifact_runtime_instances",
+        key: &["instance_id"],
+        columns: &[
+            "instance_id",
+            "artifact_id",
+            "state",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
 ];
 
 /// Everything one snapshot consists of.

@@ -17,6 +17,8 @@ pub mod semantic_wait;
 pub mod seat;
 pub mod runtime_boundary;
 pub mod web_input;
+pub mod config;
+pub mod artifacts;
 
 pub use store::*;
 pub use cas::*;
@@ -29,6 +31,8 @@ pub use cognition::*;
 pub use cognition_archive::*;
 pub use semantic_wait::*;
 pub use seat::*;
+pub use config::*;
+pub use artifacts::*;
 
 pub mod external;
 pub use external::{InboxAdmission, TaskInvocation};

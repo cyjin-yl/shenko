@@ -83,6 +83,7 @@ function demoState(): UiState {
     tasks_error: false,
     memory: { items: [], note: '模拟投影不读取真实记忆。' },
     memory_error: false,
+    playground_error: false,
     display,
   };
 }

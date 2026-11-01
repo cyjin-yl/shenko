@@ -470,8 +470,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     self_knowledge_handler,
                 )
                 .await?;
+            // Long-lived artifact backend services: the launcher/owner every
+            // host-process backend instance reports to. Recovery reconciles
+            // durable `running` rows with the live process table before any
+            // launch, so a restart never starts a second copy of a service
+            // that is still alive (SPEC §41.10).
+            let artifact_services = Arc::new(shenko_ui::playground_backend::ArtifactServiceController::new(
+                Arc::clone(&store),
+                data_dir.join("playground"),
+            ));
+            artifact_services.recover_on_boot()?;
             let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
-                shenko_ui::PlaygroundBackendHandler::new(Arc::clone(&store), data_dir.join("playground")),
+                shenko_ui::PlaygroundBackendHandler::new(Arc::clone(&store), data_dir.join("playground"))
+                    .with_services(Arc::clone(&artifact_services)),
             );
             let _native_playground_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
@@ -912,7 +923,32 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             info!("subject loop started");
 
 
-            // 6. Start WebUI
+            // 6. Ownership bootstrap — SPEC §44.4. The installation ships
+            // with a one-time claim capability provided through the install
+            // control channel (the data directory). The first recognized
+            // human who presents it is recorded as the owner; an HTTP visit
+            // is never proof.
+            let installation_id = store.ledger.ledger_id();
+            if shenko_ui::owner::load_claim_capability(&data_dir).is_none()
+                && store.owner_grant(installation_id)?.is_none()
+            {
+                let (capability, secret) = shenko_ui::owner::issue_claim_capability(installation_id);
+                shenko_ui::owner::persist_claim_capability(&data_dir, &capability)?;
+                // The install control channel shows this exactly once; it is
+                // never written to the log or any replicated table.
+                eprintln!("SHENKO CLAIM CAPABILITY (present once to POST /api/owner/claim):\n{secret}");
+            }
+            let owner_state = shenko_ui::owner::OwnerState {
+                store: Arc::clone(&store),
+                installation_id,
+                data_dir: data_dir.clone(),
+            };
+            // The configuration service: discover/read/preview/apply over the
+            // durable config tables. Namespaces register their handlers on
+            // this service; without a handler a namespace is not advertised.
+            let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(Arc::clone(&store)));
+
+            // 7. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
                 .with_native(Arc::clone(&native_child))
                 .with_inbox(subject_inbox.sender())
@@ -921,6 +957,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_media_ingress(media_ingress)
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
+                .with_owner(owner_state)
+                .with_config(config_service)
+                .with_artifact_services(Arc::clone(&artifact_services))
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject task: supervised (durable boundary pause may be active)");

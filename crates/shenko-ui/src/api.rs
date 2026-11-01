@@ -23,6 +23,8 @@ use serde_json::{Value, json};
 use shenko_store::store::Store;
 
 use crate::playground::PlaygroundState;
+use crate::config_service::{ConfigApplyRequest, ConfigService};
+use crate::owner::{OwnerState, claim_installation};
 use crate::ws::LiveStatus;
 
 /// Live context-policy facts supplied by the same bootstrap that installs the
@@ -82,6 +84,12 @@ pub struct ApiState {
     /// Live context-policy wiring for `/api/context`. None means installation
     /// state is not observed rather than fabricated strategies.
     pub context: Option<ContextFacts>,
+    /// The configuration service (discover/read/preview/apply). None means
+    /// the installation exposes no configuration namespaces yet.
+    pub config: Option<Arc<ConfigService>>,
+    /// Ownership state (claim + authenticated actor). None means the routes
+    /// report that ownership is not installed rather than fabricating one.
+    pub owner: Option<OwnerState>,
 }
 
 impl ApiState {
@@ -122,6 +130,16 @@ impl ApiState {
         self.context = Some(facts);
         self
     }
+
+    pub fn with_config(mut self, config: Arc<ConfigService>) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn with_owner(mut self, owner: OwnerState) -> Self {
+        self.owner = Some(owner);
+        self
+    }
 }
 
 /// Mount the JSON API. Registered from [`crate::server::UiServer::run`] so
@@ -133,7 +151,172 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/config", get(config_handler))
         .route("/api/self", get(self_status_handler))
         .route("/api/context", get(context_handler))
+        .route("/api/config/namespaces", get(config_namespaces_handler))
+        .route("/api/config/entries/{namespace}/{key}", get(config_entry_handler))
+        .route("/api/config/preview", post(config_preview_handler))
+        .route("/api/config/apply", post(config_apply_handler))
+        .route("/api/config/adoptions/{namespace}/{key}", get(config_adoptions_handler))
+        .route("/api/owner/state", get(owner_state_handler))
+        .route("/api/owner/claim", post(owner_claim_handler))
+        .route("/api/playground", get(playground_surface_handler))
         .with_state(state)
+}
+
+// ---------------------------------------------------------------------------
+// Configuration and ownership — SPEC §43.1, §44.4.
+//
+// Discover/read are open to every session. Preview is open: looking at a
+// change is never privileged. Apply requires an authenticated actor; whether
+// the actor may change a namespace is the handler's decision, not the
+// route's. There is no routine approval gate: a durable change receipt is
+// the record, adoption by consumers is separately observed.
+// ---------------------------------------------------------------------------
+
+/// `GET /api/config/namespaces` → the installed namespaces and their keys.
+async fn config_namespaces_handler(State(state): State<ApiState>) -> Json<Value> {
+    match state.config.as_ref() {
+        Some(config) => Json(json!({
+            "available": true,
+            "namespaces": config.discover(),
+        })),
+        None => Json(json!({ "available": false, "namespaces": [] })),
+    }
+}
+
+async fn config_entry_handler(
+    State(state): State<ApiState>,
+    AxumPath((namespace, key)): AxumPath<(String, String)>,
+) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    match config.read(&namespace, &key) {
+        Ok(view) => Json(json!({ "available": true, "entry": view })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+async fn config_preview_handler(
+    State(state): State<ApiState>,
+    Json(request): Json<ConfigApplyRequest>,
+) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    match config.preview(&request.namespace, &request.logical_key, request.desired.clone(), request.expected_base_revision) {
+        Ok(preview) => Json(json!({ "available": true, "accepted": true, "preview": preview })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+async fn config_apply_handler(
+    State(state): State<ApiState>,
+    headers: axum::http::HeaderMap,
+    Json(mut request): Json<ConfigApplyRequest>,
+) -> Json<Value> {
+    let (Some(config), Some(owner)) = (state.config.as_ref(), state.owner.as_ref()) else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    // The actor is resolved from the request's credentials, never from a
+    // body field: only an owner principal or a delegated subject task may
+    // carry an administrative configuration change.
+    let actor = match owner.actor(&headers) {
+        Ok(actor) => actor,
+        Err(error) => return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED", "error": error.to_string() })),
+    };
+    request.actor = match (&request.actor, actor) {
+        (crate::config_service::ConfigActor::Owner { .. }, authenticated) => match authenticated {
+            crate::owner::AuthenticatedActor::Owner { principal_ref } =>
+                crate::config_service::ConfigActor::Owner { principal_ref },
+            crate::owner::AuthenticatedActor::Participant =>
+                return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED",
+                    "error": "CONFIG_DENIED: an owner actor requires owner authentication" })),
+        },
+        (delegated, _) => delegated.clone(),
+    };
+    match config.apply(request) {
+        Ok(change) => Json(json!({ "available": true, "accepted": true, "change": change })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+async fn config_adoptions_handler(
+    State(state): State<ApiState>,
+    AxumPath((namespace, key)): AxumPath<(String, String)>,
+) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    match config.adoption_state(&namespace, &key) {
+        Ok(adoptions) => Json(json!({ "available": true, "adoptions": adoptions })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+/// `GET /api/owner/state` → whether the installation has an owner and
+/// whether a claim capability is still pending. No credential material is
+/// ever included.
+async fn owner_state_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({ "available": false }));
+    };
+    let claimed = matches!(owner.store.owner_grant(owner.installation_id), Ok(Some(_)));
+    let claim_pending = crate::owner::load_claim_capability(&owner.data_dir).is_some();
+    Json(json!({
+        "available": true,
+        "installation_id": owner.installation_id,
+        "claimed": claimed,
+        "claim_pending": claim_pending,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaimRequest {
+    capability: String,
+}
+
+/// `POST /api/owner/claim` → the first recognized human presents the install
+/// capability; the response carries the admin bearer exactly once.
+async fn owner_claim_handler(State(state): State<ApiState>, Json(request): Json<ClaimRequest>) -> Json<Value> {
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({ "available": false, "error": "ownership is not installed" }));
+    };
+    match claim_installation(&owner.store, &owner.data_dir, &request.capability) {
+        Ok(response) => {
+            let status = if response.outcome == "granted" { "granted" } else { &response.outcome };
+            Json(json!({ "available": true, "outcome": status, "response": response }))
+        }
+        Err(error) => Json(json!({ "available": true, "outcome": "error", "error": error.to_string() })),
+    }
+}
+
+/// `GET /api/playground` → the Proto-UI playground surface projection: the
+/// enumerable roots, every artifact with its durable record and its committed
+/// head. The frontend renders this as a Proto-UI view, not a second page.
+async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(playground) = state.playground.as_ref() else {
+        return Json(json!({ "available": false }));
+    };
+    let artifacts: Vec<Value> = playground.list().into_iter().map(|version| {
+        let durable = playground.durable_record(version.artifact_id).ok().flatten();
+        json!({
+            "artifact_id": version.artifact_id,
+            "title": version.title,
+            "mime": version.mime,
+            "revision": version.revision,
+            "parent_revision": version.parent_revision,
+            "updated_at": version.updated_at,
+            "backend": version.backend.is_some(),
+            "lifecycle": durable.as_ref().map(|record| record.lifecycle.clone()),
+            "record": durable,
+        })
+    }).collect();
+    Json(json!({
+        "available": true,
+        "roots": playground.roots(),
+        "artifacts": artifacts,
+    }))
 }
 
 #[derive(Debug, Deserialize)]

@@ -7,6 +7,8 @@ pub mod media;
 pub mod ws;
 pub mod playground;
 pub mod playground_backend;
+pub mod config_service;
+pub mod owner;
 
 pub use server::*;
 pub use routes::*;
@@ -14,3 +16,5 @@ pub use api::ApiState;
 pub use ws::*;
 pub use playground::*;
 pub use playground_backend::PlaygroundBackendHandler;
+pub use config_service::ConfigService;
+pub use owner::{OwnerState, AuthenticatedActor};
