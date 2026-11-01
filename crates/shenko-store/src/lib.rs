@@ -40,3 +40,10 @@ pub mod intents;
 
 pub mod media;
 pub mod quota;
+
+/// Durable source-bound content stream journal — SPEC §12.5.
+pub mod content_stream;
+pub use content_stream::{
+    CONTENT_CHUNK_MAX_BYTES, CONTENT_FLUSH_MAX_MILLIS, CONTENT_WHOLE_MAX_BYTES,
+    ContentStreamBatcher, ContentStreamRecord, ContentStreamUnit, provider_stream_id,
+};

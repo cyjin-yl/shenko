@@ -163,7 +163,45 @@ impl Store {
     }
 
     pub fn commit(&self, batch: WriteBatch) -> Result<CommitReceipt, ShenkoError> {
-        self.ledger.commit(batch)
+        // SPEC §41.2: the object exists before the commit that references it.
+        // Seal every raw object the batch carries FIRST, then admit the facts.
+        // A left-behind sealed object is an orphan (harmless, content
+        // addressed); a committed fact referencing a missing object is not.
+        let mut sealed_objects = Vec::with_capacity(batch.raw_objects.len());
+        for raw in &batch.raw_objects {
+            sealed_objects.push(
+                self.cas
+                    .seal_object(
+                        raw.data.as_ref(),
+                        &raw.media_type,
+                        &raw.namespace,
+                        &raw.codec_name,
+                        &raw.codec_major,
+                    )?
+                    .object,
+            );
+        }
+        // E1 closure: every receipt's object references must already resolve
+        // in CAS — sealed just above or by an earlier commit. A batch that
+        // would admit a dangling evidence reference is rejected whole.
+        let missing = batch
+            .evidence_upserts
+            .iter()
+            .flat_map(|ev| {
+                [Some(&ev.raw_ref), ev.normalized_ref.as_ref()]
+                    .into_iter()
+                    .flatten()
+            })
+            .filter(|object| !self.cas.object_exists(&object.digest))
+            .count();
+        if missing > 0 {
+            return Err(ShenkoError::ObjectClosureIncomplete {
+                missing_count: missing,
+            });
+        }
+        let mut receipt = self.ledger.commit(batch)?;
+        receipt.sealed_objects = sealed_objects;
+        Ok(receipt)
     }
 
     pub fn capabilities(&self) -> &StoreCapabilities {
@@ -719,6 +757,31 @@ impl Store {
         // SAME transaction as the intent rows themselves, so a rolled back S1
         // leaves neither behind.
         self.append_committed_intent_facts(&tx, &head, &step, &decision)?;
+        // The model result is a whole unit of the durable stream journal,
+        // bound to its request/attempt identity and committed with the step:
+        // a reconnecting UI or recovering consumer reads it back instead of
+        // trusting a callback that died with the process (SPEC §12.5).
+        if let Some(model_result_ref) = &step.model_result_ref {
+            let raw = self.cas.read_object(&model_result_ref.digest)?;
+            let data = String::from_utf8(raw).unwrap_or_else(|_| {
+                serde_json::to_string(model_result_ref).unwrap_or_else(|_| "{}".into())
+            });
+            self.journal_step_model_result(
+                &tx,
+                head.agent_id,
+                &head.branch_id.0.to_string(),
+                step.step_no as i64,
+                &serde_json::json!({
+                    "request_id": step.active_request_id,
+                    "attempt_id": step.active_attempt_id,
+                    "step_id": step.step_id,
+                    "result_ref": model_result_ref,
+                })
+                .to_string(),
+                &data,
+                seq,
+            )?;
+        }
         // The handled wait policy intent carries the exact receipt of this
         // step. It is settled, never left ready and never left blocked.
         self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
@@ -828,6 +891,7 @@ impl Store {
             durability_profile: self.capabilities.durability_profile,
             store_incarnation: self.capabilities.incarnation,
             updated,
+            sealed_objects: Vec::new(),
         }
     }
 

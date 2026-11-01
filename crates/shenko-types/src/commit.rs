@@ -62,6 +62,11 @@ pub struct CommitReceipt {
     pub durability_profile: DurabilityProfile,
     pub store_incarnation: EntityId,
     pub updated: Vec<UpdatedEntity>,
+    /// Content-addressed objects sealed as part of this commit (SPEC §41.2:
+    /// the object exists before the commit that references it). Empty when
+    /// the batch carried no raw objects.
+    #[serde(default)]
+    pub sealed_objects: Vec<crate::object::ObjectRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
