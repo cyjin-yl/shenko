@@ -23,3 +23,9 @@ pub use wasi_task::*;
 
 pub mod contact_task;
 pub use contact_task::*;
+
+pub mod person_task;
+pub use person_task::*;
+
+pub mod life_identity;
+pub use life_identity::*;

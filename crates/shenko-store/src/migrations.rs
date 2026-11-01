@@ -96,6 +96,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
     // additive, own tables only; location history is never rewritten.
     conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
+    // Contact / person directory (SPEC §15.2, §15.2.1): append-only claim
+    // revisions, identity events and owner-set admin facts. Never rewrites
+    // an admitted row; see crates/shenko-store/src/contacts.rs.
+    conn.execute_batch(crate::contacts::CONTACTS_SCHEMA)?;
     Ok(())
 }
 

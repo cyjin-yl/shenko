@@ -79,10 +79,128 @@ enum Command {
         #[command(subcommand)]
         command: ToolCommand,
     },
+    /// Owner-set admin facts — SPEC §16. Admin is a human decision only:
+    /// it never follows familiarity, group status, platform roles or
+    /// voiceprints, and ordinary users can talk without one.
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+    /// Contact/person directory — SPEC §15.2, §15.2.1. Local owner path to
+    /// inspect people and import the owner's own Life identity material;
+    /// the running subject reaches the same store through the
+    /// person.directory native child.
+    Contacts {
+        #[command(subcommand)]
+        command: ContactsCommand,
+    },
     /// Validate configuration and exit
     Check,
     /// Print version info
     Version,
+}
+
+#[derive(Subcommand, Debug)]
+enum AdminCommand {
+    /// Grant admin to a person or a platform account. The decision is a
+    /// durable fact with the deciding human recorded on it.
+    Grant {
+        #[arg(long, conflicts_with = "platform_account")]
+        person: Option<shenko_types::ids::EntityId>,
+        /// provider:account:tenant:platform_user_id (empty tenant: a::b)
+        #[arg(long, conflicts_with = "person")]
+        platform_account: Option<String>,
+        /// The human making this decision; recorded on the fact.
+        #[arg(long)]
+        granted_by: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// Revoke a previously granted admin fact (owner only).
+    Revoke {
+        #[arg(long, conflicts_with = "platform_account")]
+        person: Option<shenko_types::ids::EntityId>,
+        #[arg(long, conflicts_with = "person")]
+        platform_account: Option<String>,
+        #[arg(long)]
+        granted_by: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// List every admin fact of this instance.
+    List,
+}
+
+#[derive(Subcommand, Debug)]
+enum ContactsCommand {
+    /// Import the owner's own Life identity material: the people catalog
+    /// (catalog/people) and/or a voiceprint rank export. Only identifiers
+    /// and statuses are read; encrypted batches, embeddings and audio are
+    /// never touched, and unknown fields fail the import.
+    LifeImport {
+        /// Path of the local `life` checkout.
+        #[arg(long)]
+        life_dir: PathBuf,
+        /// Optional JSON export of voiceprint rank records.
+        #[arg(long)]
+        ranks: Option<PathBuf>,
+        /// Parse and report only; write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Read-only lookup of the local person directory.
+    Lookup {
+        #[arg(long, conflicts_with_all = ["platform_account", "alias"])]
+        person: Option<shenko_types::ids::EntityId>,
+        /// provider:account:tenant:platform_user_id (empty tenant: a::b)
+        #[arg(long, conflicts_with_all = ["person", "alias"])]
+        platform_account: Option<String>,
+        #[arg(long, conflicts_with_all = ["person", "platform_account"])]
+        alias: Option<String>,
+    },
+}
+
+fn parse_platform_account(arg: &str) -> Result<shenko_types::contacts::PlatformAccount> {
+    let parts: Vec<&str> = arg.split(':').collect();
+    anyhow::ensure!(
+        parts.len() == 4,
+        "platform accounts use provider:account:tenant:platform_user_id \
+         (empty tenant: provider:account::user)"
+    );
+    anyhow::ensure!(
+        !parts[0].is_empty() && !parts[1].is_empty() && !parts[3].is_empty(),
+        "provider, account and platform_user_id must not be empty"
+    );
+    Ok(shenko_types::contacts::PlatformAccount {
+        provider: parts[0].to_owned(),
+        account: parts[1].to_owned(),
+        tenant: parts[2].to_owned(),
+        platform_user_id: parts[3].to_owned(),
+    })
+}
+
+fn admin_input(
+    person: Option<shenko_types::ids::EntityId>,
+    platform_account: Option<String>,
+    granted: bool,
+    granted_by: String,
+    reason: Option<String>,
+) -> Result<shenko_types::contacts::AdminFactInput> {
+    use shenko_types::contacts::AdminSubjectKind;
+    let (subject_kind, subject_key) = match (person, platform_account) {
+        (Some(person), None) => (AdminSubjectKind::Person, person.to_string()),
+        (None, Some(account)) => {
+            (AdminSubjectKind::PlatformAccount, parse_platform_account(&account)?.key())
+        }
+        _ => anyhow::bail!("give exactly one of --person or --platform-account"),
+    };
+    Ok(shenko_types::contacts::AdminFactInput {
+        subject_kind,
+        subject_key,
+        granted,
+        granted_by,
+        reason,
+    })
 }
 
 #[derive(Subcommand, Debug)]
@@ -225,6 +343,119 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     match command {
         Command::Node => node_sync::node_command(&data_dir)?,
         Command::Tool { command } => tool_command(&data_dir, command)?,
+        Command::Admin { command } => {
+            tokio::fs::create_dir_all(&data_dir).await?;
+            let store =
+                shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let agent_id = store
+                .get_existing_agent_id()?
+                .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
+            match command {
+                AdminCommand::Grant {
+                    person,
+                    platform_account,
+                    granted_by,
+                    reason,
+                } => {
+                    let input =
+                        admin_input(person, platform_account, true, granted_by, reason)?;
+                    let fact = store.set_admin_fact(agent_id, &input)?;
+                    println!("{}", serde_json::to_string_pretty(&fact)?);
+                }
+                AdminCommand::Revoke {
+                    person,
+                    platform_account,
+                    granted_by,
+                    reason,
+                } => {
+                    let input =
+                        admin_input(person, platform_account, false, granted_by, reason)?;
+                    let fact = store.set_admin_fact(agent_id, &input)?;
+                    println!("{}", serde_json::to_string_pretty(&fact)?);
+                }
+                AdminCommand::List => {
+                    let facts = store.list_admin_facts(agent_id)?;
+                    println!("{}", serde_json::to_string_pretty(&facts)?);
+                }
+            }
+        }
+        Command::Contacts { command } => {
+            tokio::fs::create_dir_all(&data_dir).await?;
+            let store =
+                shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+            let agent_id = store
+                .get_existing_agent_id()?
+                .ok_or_else(|| anyhow::anyhow!("no instance yet; run `shenko start` first"))?;
+            match command {
+                ContactsCommand::LifeImport {
+                    life_dir,
+                    ranks,
+                    dry_run,
+                } => {
+                    let entries =
+                        shenko_exec_host::read_people_catalog(&life_dir.join("catalog/people"))?;
+                    let rank_records = ranks
+                        .as_deref()
+                        .map(shenko_exec_host::read_ranks_export)
+                        .transpose()?;
+                    if dry_run {
+                        let mut report = shenko_exec_host::LifeImportReport {
+                            persons_seen: entries.len(),
+                            persons_created: 0,
+                            persons_updated: 0,
+                            claims_admitted: 0,
+                            claims_replayed: 0,
+                            ranks_seen: rank_records.as_ref().map(Vec::len).unwrap_or(0),
+                            ranks_admitted: 0,
+                            ranks_replayed: 0,
+                            links: 0,
+                            skipped: Vec::new(),
+                        };
+                        for entry in &entries {
+                            if entry.life_person_id.trim().is_empty() {
+                                report.skipped.push("entry without id".into());
+                            }
+                        }
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        let adapter = shenko_exec_host::LifeIdentityAdapter::new(Arc::new(store));
+                        let mut report = adapter.import_people(agent_id, &entries)?;
+                        if let Some(records) = &rank_records {
+                            let rank_report = adapter.import_ranks(agent_id, records)?;
+                            report.ranks_seen = rank_report.ranks_seen;
+                            report.ranks_admitted = rank_report.ranks_admitted;
+                            report.ranks_replayed = rank_report.ranks_replayed;
+                            report.links = rank_report.links;
+                            report.skipped.extend(rank_report.skipped);
+                        }
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    }
+                }
+                ContactsCommand::Lookup {
+                    person,
+                    platform_account,
+                    alias,
+                } => {
+                    let views = match (person, platform_account, alias) {
+                        (Some(person), None, None) => {
+                            store
+                                .person_view(agent_id, person)?
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                        }
+                        (None, Some(account), None) => {
+                            store.person_by_platform_account(
+                                agent_id,
+                                &parse_platform_account(&account)?,
+                            )?
+                        }
+                        (None, None, Some(alias)) => store.person_by_alias(agent_id, &alias)?,
+                        _ => anyhow::bail!("give exactly one of --person, --platform-account or --alias"),
+                    };
+                    println!("{}", serde_json::to_string_pretty(&views)?);
+                }
+            }
+        }
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
             let db_path = data_dir.join("shenko.db");
@@ -450,6 +681,15 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             );
             let _native_issue_submit_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, issue_submit_handler)
+                .await?;
+            // Person directory — SPEC §15.2/§15.2.1, R059/R060/R102: stable
+            // person ids, platform accounts, aliases and relationships with
+            // revision history; merge/split; Life identity links; read-only
+            // admin facts. Admin grants never pass through this surface.
+            let person_directory_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::PersonDirectoryHandler::new(Arc::clone(&store)));
+            let _native_person_directory_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, person_directory_handler)
                 .await?;
             // Built-in, replaceable self-explanation — SPEC §38, R124. The
             // provider is seeded from compiled-in material now; the real

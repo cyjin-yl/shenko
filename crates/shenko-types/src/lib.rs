@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod channel;
 pub mod commit;
+pub mod contacts;
 pub mod error;
 pub mod evidence;
 pub mod identity;
@@ -17,6 +18,7 @@ pub mod task;
 
 pub use agent::*;
 pub use commit::*;
+pub use contacts::*;
 pub use error::*;
 pub use evidence::*;
 pub use identity::*;
