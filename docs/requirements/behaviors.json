@@ -2,7 +2,7 @@
   "schema_version": 1,
   "spec_version": "0.6.2",
   "spec_path": "SPEC.md",
-  "count": 55,
+  "count": 56,
   "items": [
     {
       "id": "B01",
@@ -829,6 +829,18 @@
       "contract": "可工作的 OS/控制/存储继续确定性日志与授权导出，读取原始经历无需 LLM；磁盘镜像与版本化读取材料可在其他节点恢复合并。密钥缺失/介质损坏/未复制事实如实，未知效果保留而不盲重放。",
       "verification": "§22.2/5.4/10/38/44；A49；全模型故障、credential 导出、离线镜像和缺口均可复查。",
       "requirements": [
+        "R147"
+      ]
+    },
+    {
+      "id": "B56",
+      "status": "已规定；待实现与目标环境验证",
+      "title": "运行时错误事实与主体自主处置",
+      "refs": "2026-11-01 用户要求；REF-USER、REF-DURABLE、REF-DESIGN",
+      "contract": "每个 runtime/engine 错误作为 runtime_error 事实提交进自身分支原始会话，独立事务、fail-soft 计数可见、凭证形态脱敏与有界消息；errors.read 只读本 subject 错误，issue.submit 把主体自主决定落成本地 outbox 草案而非自动上报。",
+      "verification": "§45.14/41.14/12.1；journal 往返、计数可见、有界读、digest 去重与 armed 恢复分别核验。",
+      "requirements": [
+        "R129",
         "R147"
       ]
     }

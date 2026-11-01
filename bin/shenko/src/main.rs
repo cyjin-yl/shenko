@@ -434,6 +434,23 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_history_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
                 .await?;
+            // Runtime-error awareness — SPEC §45.14: errors.read exposes the
+            // subject's own committed runtime_error facts; issue.submit writes
+            // subject-authored drafts into the local issues outbox only.
+            let errors_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::ErrorsReadHandler::new(Arc::clone(&store)));
+            let _native_errors_read_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, errors_read_handler)
+                .await?;
+            let issue_submit_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+                shenko_exec_host::IssueSubmitHandler::new(
+                    Arc::clone(&store),
+                    data_dir.join("issues"),
+                ),
+            );
+            let _native_issue_submit_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, issue_submit_handler)
+                .await?;
             // Built-in, replaceable self-explanation — SPEC §38, R124. The
             // provider is seeded from compiled-in material now; the real
             // `self://runtime/capabilities` snapshot is installed below once

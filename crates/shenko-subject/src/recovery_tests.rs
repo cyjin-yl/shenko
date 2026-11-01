@@ -2906,3 +2906,51 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     drop(store);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// SPEC §45.14: a runtime error that stops the loop commits as a durable
+/// `runtime_error` fact in the subject's own raw session, readable after the
+/// loop is gone. A malformed durable inbox row is the failure trigger.
+#[tokio::test]
+async fn subject_loop_error_is_journaled_as_runtime_error_fact() {
+    let (dir, store, agent) = fixture();
+    // Durable input the Planned loop drains but cannot parse: the loop fails,
+    // and the failure itself must become a fact rather than only a warn!.
+    let mut batch = shenko_types::store::WriteBatch::new();
+    batch.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
+        event_id: EntityId::new(),
+        agent_id: agent,
+        source: "playground".into(),
+        kind: "playground".into(),
+        payload_json: "{ not json".into(),
+        received_at_ms: 0,
+    });
+    store.commit(batch).unwrap();
+
+    let result = super::run_subject_loop(
+        state(store.clone(), agent).unwrap(),
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await;
+    assert!(result.is_err(), "a malformed durable input must stop the loop");
+
+    let (head, _) = store.load_subject(agent).unwrap();
+    let session_id = EntityId(head.branch_id.0);
+    let events = store
+        .list_session_events(session_id, &shenko_store::SessionEventFilter {
+            from_seq: 0,
+            to_seq: i64::MAX,
+            limit: 20,
+            event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()],
+            roles: vec![],
+        })
+        .unwrap();
+    assert_eq!(events.len(), 1, "exactly one journaled runtime error");
+    let data: serde_json::Value = serde_json::from_str(&events[0].data).unwrap();
+    assert_eq!(data["v"], 1);
+    assert_eq!(data["kind"], "subject_loop");
+    assert_eq!(data["step_no"], 1);
+    assert!(data["message"].as_str().unwrap().contains("subject loop stopped on error"));
+    assert_eq!(data["journal_dropped_total"], 0);
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}

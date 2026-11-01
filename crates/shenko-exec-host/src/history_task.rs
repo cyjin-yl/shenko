@@ -16,12 +16,12 @@ use shenko_types::{
 use std::sync::Arc;
 
 const CONTRACT: &[u8] = b"shenko.history.query/v1: immutable own-subject raw session reads; no external effects; bounded linear literal-match previews";
-const MAX_QUERY_BYTES: usize = 4096;
+pub(crate) const MAX_QUERY_BYTES: usize = 4096;
 const MAX_FILTER_VALUES: usize = 8;
 const MAX_FILTER_VALUE_BYTES: usize = 64;
 const MAX_LIMIT: usize = 50;
-const MAX_PREVIEW_CHARS: usize = 400;
-const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
+pub(crate) const MAX_PREVIEW_CHARS: usize = 400;
+pub(crate) const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -482,7 +482,7 @@ impl NativeTaskHandler for HistoryHandler {
     }
 }
 
-fn event_ref(event: &StoredSessionEvent) -> String {
+pub(crate) fn event_ref(event: &StoredSessionEvent) -> String {
     format!(
         "session:{}/event:{}/seq:{}",
         event.session_id, event.event_id, event.seq
@@ -491,7 +491,7 @@ fn event_ref(event: &StoredSessionEvent) -> String {
 
 // FTS/LIKE can match ASCII case-insensitively. KMP keeps this linear even for
 // long repeated inputs; the bounded prefix table never allocates on the heap.
-fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
+pub(crate) fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
     let pattern = query.as_bytes();
     if pattern.is_empty() || pattern.len() > MAX_QUERY_BYTES || !query.is_ascii() {
         return None;
@@ -522,7 +522,7 @@ fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
     None
 }
 
-fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json::Value {
+pub(crate) fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json::Value {
     // The store can return FTS matches without a byte-identical substring.
     // Center only a literal (or ASCII case-insensitive) match we can locate;
     // otherwise retain the prefix and explicitly report that no match is shown.
@@ -556,7 +556,7 @@ fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json:
     })
 }
 
-fn collection_result(
+pub(crate) fn collection_result(
     op: &str,
     session_id: EntityId,
     filter: &SessionEventFilter,
@@ -573,7 +573,7 @@ fn collection_result(
     })
 }
 
-fn read_result(
+pub(crate) fn read_result(
     session_id: EntityId,
     event_id: EntityId,
     seq: Option<i64>,

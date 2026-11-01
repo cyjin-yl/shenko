@@ -17,33 +17,52 @@ pub async fn run_committed_dispatcher(
         tokio::select! { biased;
             _=cancel.cancelled()=>return Ok(()),
             _=tick.tick()=>{
-                store.settle_subject_memory()?;
-                store.reconcile_subject_publications()?;
-                native.run_once().await?;
+                // One dispatcher pass: every failure is a durable runtime
+                // fact the subject can read (SPEC §45.14), then propagates.
+                let pass: anyhow::Result<()> = async {
+                    store.settle_subject_memory()?;
+                    store.reconcile_subject_publications()?;
+                    native.run_once().await?;
 
-                // With no subject model, results stay durable for the later
-                // subject to consume. Do not fill an undrained in-memory inbox.
-                let Some(task_result_tx) = task_result_tx.as_ref() else {
-                    continue;
-                };
-                let ready = store.ready_native_results(agent_id, 64)?;
-                let ready_ids: HashSet<_> = ready.iter().map(|result| result.result_id).collect();
-                delivered.retain(|id| ready_ids.contains(id));
-                for result in ready {
-                    if !delivered.insert(result.result_id) {
-                        continue;
+                    // With no subject model, results stay durable for the later
+                    // subject to consume. Do not fill an undrained in-memory inbox.
+                    if let Some(task_result_tx) = task_result_tx.as_ref() {
+                        let ready = store.ready_native_results(agent_id, 64)?;
+                        let ready_ids: HashSet<_> =
+                            ready.iter().map(|result| result.result_id).collect();
+                        delivered.retain(|id| ready_ids.contains(id));
+                        for result in ready {
+                            if !delivered.insert(result.result_id) {
+                                continue;
+                            }
+                            let event = InboxEvent {
+                                event_id: result.result_id,
+                                kind: InboxEventKind::TaskResult,
+                                payload: serde_json::to_value(&result)?,
+                                created_at: chrono::Utc::now(),
+                                source: "native-child".into(),
+                            };
+                            tokio::select! {
+                                _ = cancel.cancelled() => break,
+                                result = task_result_tx.send(event) => result?,
+                            }
+                        }
                     }
-                    let event = InboxEvent {
-                        event_id: result.result_id,
-                        kind: InboxEventKind::TaskResult,
-                        payload: serde_json::to_value(&result)?,
-                        created_at: chrono::Utc::now(),
-                        source: "native-child".into(),
-                    };
-                    tokio::select! {
-                        _ = cancel.cancelled() => return Ok(()),
-                        result = task_result_tx.send(event) => result?,
-                    }
+                    Ok(())
+                }.await;
+                if let Err(error) = pass {
+                    store.journal_runtime_error(
+                        agent_id,
+                        shenko_store::RuntimeErrorContext {
+                            kind: "native_dispatcher".into(),
+                            source_module: module_path!().into(),
+                            message: format!("committed dispatcher pass failed: {error:#}"),
+                            step_no: None,
+                            task_id: None,
+                            extra: serde_json::json!({}),
+                        },
+                    );
+                    return Err(error);
                 }
             }
         }

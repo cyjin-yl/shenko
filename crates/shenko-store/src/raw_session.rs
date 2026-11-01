@@ -14,6 +14,7 @@
 //! duplicating or acknowledging them.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use std::sync::atomic::Ordering;
 
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
@@ -26,6 +27,145 @@ use shenko_types::subject::{
 
 use crate::session_events::{COLUMNS, StoredSessionEvent, parse_row, row};
 use crate::store::{Store, checked_head, read_step, storage_error, validate_step_binding};
+
+/// One structured runtime-error journal entry — SPEC §45.14.
+///
+/// A runtime error is a fact of the subject's own history, not a diagnostic
+/// lost to stderr: it commits as a `runtime_error` raw session event of the
+/// subject's CURRENT branch. The write never joins the failing operation's
+/// transaction and never depends on the caller's possibly stale head copy,
+/// so it stays possible exactly when the original work could not commit.
+#[derive(Debug, Clone, Default)]
+pub struct RuntimeErrorContext {
+    /// Stable machine-readable site, e.g. `subject_loop`, `native_execute`.
+    pub kind: String,
+    /// Rust module path of the reporting site.
+    pub source_module: String,
+    /// Human-readable summary; credentials are redacted before commit and
+    /// the text is bounded. The caller passes its best message.
+    pub message: String,
+    /// Subject step number when the error belongs to a step, else None.
+    pub step_no: Option<u64>,
+    /// Finite task when the error belongs to a native dispatch, else None.
+    pub task_id: Option<EntityId>,
+    /// Bounded extra fields; unknown/failed values stay inside the object.
+    pub extra: serde_json::Value,
+}
+
+/// The event_type (and role) of committed runtime-error facts.
+pub const RUNTIME_ERROR_EVENT_TYPE: &str = "runtime_error";
+
+const RUNTIME_ERROR_MESSAGE_MAX_CHARS: usize = 4096;
+const RUNTIME_ERROR_EXTRA_MAX_BYTES: usize = 4096;
+
+/// Redact credential-looking material before a message becomes a durable
+/// fact. This is a bounded best effort, not a parser: keyed assignments and
+/// bearer-style tokens are replaced; the rest of the message is kept verbatim.
+pub(crate) fn redact_journal_text(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (index, line) in text.split('\n').enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        out.push_str(&redact_bearer(&redact_line(line)));
+    }
+    out
+}
+
+fn redact_line(line: &str) -> String {
+    // `KEY=value`/`KEY: value` for credential-looking keys. `=` binds one
+    // token (`token=abc retry` keeps ` retry`); `:` binds the header/JSON
+    // value, which runs to `,`/`}`/`]` or end of line so
+    // `authorization: Bearer x` cannot leak `x`.
+    const KEYS: [&str; 10] = [
+        "token", "secret", "password", "passwd", "apikey", "api_key", "api-key",
+        "authorization", "auth", "credential",
+    ];
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(index) = rest.find(['=', ':']) {
+        let (head, tail) = rest.split_at(index);
+        let key_start = head
+            .rfind(|c: char| c.is_whitespace() || c == '"')
+            .map_or(0, |pos| pos + 1);
+        let key = &head[key_start..];
+        let lowered = key.to_ascii_lowercase();
+        if !key.is_empty() && KEYS.iter().any(|k| lowered.contains(k)) {
+            out.push_str(&head[..key_start]);
+            out.push_str(key);
+            out.push_str(&tail[..1]);
+            out.push_str("<redacted>");
+            let after = &tail[1..];
+            let spaced = after.len() - after.trim_start().len();
+            let value = &after[spaced..];
+            let value_len = if tail.starts_with(':') {
+                if let Some(quoted) = value.strip_prefix('"') {
+                    quoted.find('"').map(|end| end + 2).unwrap_or(value.len())
+                } else {
+                    value
+                        .find([',', '}', ']'])
+                        .unwrap_or(value.len())
+                }
+            } else if let Some(quoted) = value.strip_prefix('"') {
+                quoted.find('"').map(|end| end + 2).unwrap_or(value.len())
+            } else {
+                value.find(char::is_whitespace).unwrap_or(value.len())
+            };
+            out.push_str(&after[..spaced]);
+            rest = &value[value_len..];
+        } else {
+            out.push_str(&rest[..index + 1]);
+            rest = &rest[index + 1..];
+        }
+        if rest.is_empty() {
+            break;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// `bearer <token>` in any casing and position; ASCII lowercasing keeps byte
+/// length so the lowercased index maps back onto the original text.
+fn redact_bearer(text: &str) -> String {
+    const MARK: &str = "bearer ";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        let Some(pos) = rest.to_ascii_lowercase().find(MARK) else {
+            break;
+        };
+        let word_boundary = pos == 0
+            || !rest[..pos]
+                .chars()
+                .next_back()
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !word_boundary {
+            out.push_str(&rest[..pos + MARK.len()]);
+            rest = &rest[pos + MARK.len()..];
+            continue;
+        }
+        out.push_str(&rest[..pos + MARK.len()]);
+        let after = &rest[pos + MARK.len()..];
+        // `bearer  x` (extra spacing) must still lose the token, so measure
+        // the token inside the whitespace-trimmed tail.
+        let trimmed = after.trim_start();
+        let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+        out.push_str("<redacted>");
+        rest = &trimmed[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn bound_chars(text: &str, max_chars: usize) -> (String, bool) {
+    if text.chars().count() <= max_chars {
+        return (text.to_owned(), false);
+    }
+    let mut cut: String = text.chars().take(max_chars).collect();
+    cut.push('…');
+    (cut, true)
+}
 
 /// Link rows from a subject step to the raw rows it staged.
 ///
@@ -745,6 +885,116 @@ impl Store {
         )?;
         let commit_seq = self.ledger.allocate_seq(&tx)?;
         self.record_subject_commit(&tx, CommitRef::new(self.ledger.ledger_id(), commit_seq), i64::from(written))?;
+        tx.commit().map_err(storage_error)?;
+        Ok(fact)
+    }
+
+    /// Commit one runtime-error fact to the agent's current raw session —
+    /// SPEC §45.14. The session is resolved inside the write transaction from
+    /// the durable head row, so a caller holding a stale head or running on a
+    /// broken path still appends to the same committed history the subject
+    /// reads. The entry is bounded and credential-looking spans are redacted
+    /// before they become durable.
+    ///
+    /// The journal write is its own transaction and never joins the failing
+    /// operation's fate. `journal_runtime_error` additionally refuses to
+    /// propagate a journal failure: it increments `error_journal_dropped`,
+    /// which later committed entries surface to readers.
+    pub fn record_runtime_error(
+        &self,
+        agent_id: EntityId,
+        context: RuntimeErrorContext,
+    ) -> Result<StoredSessionEvent, ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_record_runtime_error(agent_id, &context),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    /// Fail-soft entry point for error paths: a journal failure is counted
+    /// and traced, never propagated into the error path that produced it.
+    pub fn journal_runtime_error(&self, agent_id: EntityId, context: RuntimeErrorContext) {
+        if let Err(error) = self.record_runtime_error(agent_id, context) {
+            let dropped =
+                self.error_journal_dropped.fetch_add(1, Ordering::Relaxed) + 1;
+            tracing::warn!(
+                %agent_id, dropped, %error,
+                "runtime error journal write failed; counting instead of propagating"
+            );
+        }
+    }
+
+    fn try_record_runtime_error(
+        &self,
+        agent_id: EntityId,
+        context: &RuntimeErrorContext,
+    ) -> Result<StoredSessionEvent, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        // The durable head row owns the current raw session. A caller's
+        // in-memory head can be stale exactly when the journal must write;
+        // the raw session of the recorded branch is the correct scope even
+        // after the head advanced.
+        let branch: Option<String> = tx
+            .query_row(
+                "SELECT branch_id FROM subject_branch_heads WHERE agent_id=?1",
+                [agent_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let branch = branch.ok_or_else(|| {
+            ShenkoError::not_found(format!("no subject branch for agent {agent_id}"))
+        })?;
+        let branch_id = BranchId(
+            branch
+                .parse::<EntityId>()
+                .map_err(|e| ShenkoError::storage(format!("bad branch id {branch}: {e}")))?
+                .0,
+        );
+        let session_id = EntityId(branch_id.0);
+        ensure_raw_session(
+            &tx,
+            session_id,
+            agent_id,
+            &raw_session_data(agent_id, &branch_id),
+        )?;
+        let (message, message_truncated) =
+            bound_chars(&redact_journal_text(&context.message), RUNTIME_ERROR_MESSAGE_MAX_CHARS);
+        let extra = serde_json::to_vec(&context.extra)
+            .ok()
+            .filter(|bytes| bytes.len() <= RUNTIME_ERROR_EXTRA_MAX_BYTES)
+            .map(|_| context.extra.clone())
+            .unwrap_or(serde_json::json!({
+                "journal_extra_dropped": "context extra exceeded 4096 bytes or was not serializable"
+            }));
+        let data = serde_json::json!({
+            "v": 1,
+            "kind": bound_chars(&context.kind, 128).0,
+            "source_module": bound_chars(&context.source_module, 256).0,
+            "message": message,
+            "message_truncated": message_truncated,
+            "step_no": context.step_no,
+            "task_id": context.task_id,
+            "error_digest": format!("blake3:{}", blake3::hash(context.message.as_bytes()).to_hex()),
+            "occurred_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            "journal_dropped_total": self.error_journal_dropped.load(Ordering::Relaxed),
+            "extra": extra,
+        });
+        let fact = append_fact(
+            &tx,
+            session_id,
+            RUNTIME_ERROR_EVENT_TYPE,
+            serde_json::to_string(&data)?,
+        )?;
+        let commit_seq = self.ledger.allocate_seq(&tx)?;
+        self.record_subject_commit(
+            &tx,
+            CommitRef::new(self.ledger.ledger_id(), commit_seq),
+            1,
+        )?;
         tx.commit().map_err(storage_error)?;
         Ok(fact)
     }
