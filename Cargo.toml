@@ -55,6 +55,8 @@ serde_bytes = "0.11"
 rusqlite = { version = "0.32", features = ["bundled", "hooks", "functions", "backup"] }
 rusqlite_migration = "1.3"
 blake3 = "1"
+# Upstream build-receipt provenance digests (sha256); never an artifact identity.
+sha2 = "0.10"
 
 # Snapcompact frame rendering
 png = "0.17"

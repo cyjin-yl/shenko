@@ -13,6 +13,7 @@ mod node_sync;
 mod runtime_owner;
 mod context_policy;
 mod inference_runtime;
+mod tool_install;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -301,6 +302,70 @@ enum ToolCommand {
         /// Expected blake3:<hex> digest; install aborts on mismatch.
         #[arg(long)]
         expected_digest: Option<String>,
+        /// Upstream receipt digest (sha256) of the artifact. Provenance only:
+        /// it never becomes the unit's identity.
+        #[arg(long)]
+        source_sha256: Option<String>,
+        /// SPDX license identifier of the upstream project.
+        #[arg(long)]
+        license: Option<String>,
+    },
+    /// Inspect a real artifact without installing it: the ABI and the imports
+    /// are read from the module's actual bytes, never from its name.
+    Inspect {
+        /// Host path of the artifact (.wasm binary module).
+        #[arg(long)]
+        file: PathBuf,
+    },
+    /// Build a tool-set manifest from a port build receipt. The receipt's
+    /// per-artifact sha256 digests become the manifest's upstream
+    /// provenance; the manifest also pins each artifact's blake3 identity,
+    /// which is the digest the installation binds.
+    Manifest {
+        /// The build receipt written by the port recipe.
+        #[arg(long)]
+        receipt: PathBuf,
+        /// Directory holding the produced artifacts.
+        #[arg(long)]
+        artifacts: PathBuf,
+        /// Set name, for example toybox-wasi.
+        #[arg(long)]
+        set: String,
+        /// Upstream release, for example 0.8.15.
+        #[arg(long)]
+        version: String,
+        /// Prefix of the installation names, for example toybox.
+        #[arg(long)]
+        name_prefix: String,
+        /// SPDX license identifier of the upstream project.
+        #[arg(long)]
+        license: String,
+        /// Path of the license text shipped with the port.
+        #[arg(long)]
+        license_file: String,
+        /// Upstream project URL.
+        #[arg(long)]
+        source_uri: String,
+        /// How the artifacts were obtained, for example
+        /// source_build:wasi-sdk-34.0.
+        #[arg(long)]
+        provenance: String,
+        /// Compatibility class of the artifacts (wasi_preview1, ...).
+        #[arg(long)]
+        abi: String,
+        /// Write the manifest to this file instead of stdout.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Install every artifact of a tool-set manifest. Each artifact's
+    /// receipt digest is re-verified against the file before it is admitted.
+    InstallSet {
+        /// The tool-set manifest.
+        #[arg(long)]
+        manifest: PathBuf,
+        /// Directory holding the produced artifacts.
+        #[arg(long)]
+        artifacts: PathBuf,
     },
     /// Execute an installed tool with real argv/env/stdio under the managed
     /// mounts. Exit code is reported exactly; tool names resolve against the
@@ -1882,14 +1947,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
 /// inventory. `<data>/tools` is only where the unit authority materializes
 /// bytes; no separate tool registry exists to diverge or adopt foreign data.
 fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
-    use shenko_node::{
-        Node, UnitDescriptor, UnitExport, UnitKind, UnitPackage, UnitRequest, UNIT_SCHEMA,
-    };
+    use shenko_node::Node;
     use shenko_wasm::{
-        InputFile, OutputFile, ToolAbi, ToolDescriptor, ToolSource, WasiRunOutcome,
-        inspect_module, installed_tools, named_target_report, resolve_tool,
+        InputFile, OutputFile, ToolAbi, ToolSource, WasiRunOutcome, installed_tools,
+        named_target_report, resolve_tool,
     };
-    use base64::{Engine as _, engine::general_purpose::STANDARD as B64_STD};
     use std::io::Write as _;
 
     let tools_root = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
@@ -1920,30 +1982,25 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             source_release,
             provenance,
             expected_digest,
+            source_sha256,
+            license,
         } => {
             let abi = ToolAbi::parse(&abi)
                 .ok_or_else(|| anyhow::anyhow!("unknown --abi {abi:?}"))?;
             shenko_wasm::validate_tool_name(&name)?;
-            let artifact = std::fs::read(&file)
-                .with_context(|| format!("read artifact {}", file.display()))?;
-            anyhow::ensure!(
-                artifact.len() as u64 <= shenko_wasm::TOOL_ARTIFACT_MAX_BYTES,
-                "TOOL_ARTIFACT_TOO_LARGE:{name}: {} bytes exceeds {}",
-                artifact.len(),
-                shenko_wasm::TOOL_ARTIFACT_MAX_BYTES
-            );
-            // Real ABI from the real bytes: the executable claim
-            // `wasi_preview1` requires the module to actually link under the
-            // preview1 linker (typed imports, () -> () _start, memory).
-            let inspected = inspect_module(&artifact)
-                .with_context(|| format!("TOOL_ABI_UNSUPPORTED:{name}"))?;
-            anyhow::ensure!(
-                inspected.runnable == (abi == ToolAbi::WasiPreview1),
-                "TOOL_ABI_UNSUPPORTED:{name}: declared {} but {:?}",
-                abi.name(),
-                inspected.detail
-            );
-            let actual = shenko_types::object::Digest::blake3(&artifact);
+            // The artifact's identity is computed by streaming the file, so
+            // a large module is never accumulated here just to be hashed.
+            // The real ABI and the provenance digest are checked by the
+            // installer, which reads the module's actual imports.
+            let actual = {
+                let mut handle = std::fs::File::open(&file)
+                    .with_context(|| format!("open artifact {}", file.display()))?;
+                let mut reader = std::io::BufReader::with_capacity(
+                    shenko_wasm::artifact::ARTIFACT_STREAM_BUFFER,
+                    &mut handle,
+                );
+                shenko_wasm::artifact::stream_identity(&mut reader)?.0
+            };
             if let Some(expected) = &expected_digest {
                 let expected = shenko_types::object::Digest(expected.clone());
                 anyhow::ensure!(
@@ -1987,29 +2044,7 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 data_dir.join("cas"),
             )?;
             let mut node = node_sync::open_node(data_dir, &store)?;
-            let unit_id = format!("tool.{name}");
-            // Same name@version is idempotent only when the artifact is
-            // identical; new content under an existing version is a loud
-            // conflict, never an in-place overwrite.
-            for fact in node.tool_unit_facts()? {
-                if fact.unit_id == unit_id {
-                    let record_name = fact
-                        .tool
-                        .get("version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default();
-                    if record_name == version {
-                        anyhow::ensure!(
-                            fact.artifact_digest == actual,
-                            "TOOL_INSTALL_CONFLICT:{name}@{version}: a different artifact \
-                             is already installed under this version"
-                        );
-                        println!("already installed: {unit_id}@{version} {actual}");
-                        return Ok(());
-                    }
-                }
-            }
-            let descriptor = ToolDescriptor {
+            let request = tool_install::InstallRequest {
                 name: name.clone(),
                 version: version.clone(),
                 abi,
@@ -2019,37 +2054,95 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                     release: source_release.unwrap_or_default(),
                     provenance: provenance.unwrap_or_else(|| "manual".into()),
                 },
-                imports: inspected.imports.clone(),
+                license,
+                sha256: source_sha256,
+                path: file.clone(),
             };
-            let export = UnitExport {
-                schema: UNIT_SCHEMA,
-                root_unit_id: unit_id.clone(),
-                root_revision: Some(version.clone()),
-                root_artifact_digest: Some(actual.clone()),
-                origin_node: None,
-                enabled: true,
-                packages: vec![UnitPackage {
-                    unit: UnitDescriptor {
-                        unit_id: unit_id.clone(),
-                        kind: UnitKind::Code,
-                        revision: version.clone(),
-                        artifact_digest: actual.clone(),
-                        provides: vec![format!("tool:{name}")],
-                        dependencies: vec![],
-                        config: serde_json::json!({"tool": descriptor}),
-                        applicability: None,
-                    },
-                    artifact_base64: B64_STD.encode(&artifact),
-                    evidence: vec![],
-                    resolved_dependencies: None,
-                }],
+            let installed = tool_install::install_one(&mut node, &store, &tools_root, &request)?;
+            println!("{}", serde_json::to_string_pretty(&installed)?);
+        }
+        ToolCommand::Inspect { file } => {
+            // No installation is touched: the ABI and the imports are read
+            // from the module's actual bytes.
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&tool_install::inspect_artifact(&file)?)?
+                        );
+        }
+        ToolCommand::Manifest {
+            receipt,
+            artifacts,
+            set,
+            version,
+            name_prefix,
+            license,
+            license_file,
+            source_uri,
+            provenance,
+            abi,
+            out,
+        } => {
+            let abi = ToolAbi::parse(&abi)
+                .ok_or_else(|| anyhow::anyhow!("unknown --abi {abi:?}"))?;
+            let meta = shenko_wasm::ToolSetMeta {
+                set,
+                version,
+                name_prefix,
+                license_spdx: license,
+                license_file,
+                license_notice: None,
+                source_uri,
+                provenance,
+                abi,
+                recipe: None,
+                receipt_path: receipt.display().to_string(),
             };
-            let outcome = node.handle_unit_request(UnitRequest::Import {
-                export,
-                package_root: tools_root.to_string_lossy().into_owned(),
-                enable: Some(true),
-            })?;
-            println!("{}", serde_json::to_string_pretty(&outcome)?);
+            let manifest = tool_install::build_manifest(&receipt, &artifacts, &meta)?;
+            let encoded = serde_json::to_vec_pretty(&manifest)?;
+            match out {
+                Some(path) => {
+                    std::fs::write(&path, &encoded)
+                        .with_context(|| format!("write manifest {}", path.display()))?;
+                    println!("{}", path.display());
+                }
+                None => println!("{}", String::from_utf8_lossy(&encoded)),
+            }
+        }
+        ToolCommand::InstallSet { manifest, artifacts } => {
+            let encoded = std::fs::read(&manifest)
+                .with_context(|| format!("read manifest {}", manifest.display()))?;
+            let set = shenko_wasm::ToolSetManifest::parse(&encoded)?;
+            anyhow::ensure!(
+                data_dir.join("shenko.db").is_file(),
+                "no managed installation at {}; run `shenko start` once",
+                data_dir.display()
+            );
+            // The same foreign-content admission the single install performs:
+            // an unowned nonempty tools/ directory is refused before any
+            // unit is written.
+            let tools_dir = data_dir.join(shenko_wasm::TOOL_DIR_NAME);
+            if tools_dir.exists() && std::fs::read_dir(&tools_dir)?.next().is_some() {
+                let node_check = Node::open_inspect(&data_dir.join("node"))?
+                    .ok_or_else(|| anyhow::anyhow!(
+                        "DATA_PATH_CONFLICT: {} exists but no node installation owns it",
+                        tools_dir.display()
+                    ))?;
+                let roots = node_check.materialization_roots()?;
+                let canonical = tools_dir.canonicalize()?;
+                anyhow::ensure!(
+                    roots.iter().any(|root| std::path::Path::new(root).canonicalize().ok() == Some(canonical.clone())),
+                    "DATA_PATH_CONFLICT: {} is not this installation's tool materialization root",
+                    tools_dir.display()
+                );
+            }
+            let store = shenko_store::store::Store::open(
+                data_dir.join("shenko.db"),
+                data_dir.join("cas"),
+            )?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let installed =
+                tool_install::install_set(&mut node, &store, &tools_root, &set, &artifacts)?;
+            println!("{}", serde_json::to_string_pretty(&installed)?);
         }
         ToolCommand::Exec {
             tool,
@@ -2106,8 +2199,22 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             let facts = node.tool_unit_facts()?;
             let (record, _) = resolve_tool(&facts, &tool)?;
             // Every execution re-verifies the sealed bytes and the real ABI;
-            // the materialized copy is never trusted.
-            let (module, _inspection) = shenko_wasm::tool_module(&node, &record)?;
+            // the materialized copy is never trusted. A tool whose bytes live
+            // in the installation's content store is reassembled from its
+            // chunk objects there; only then is it compiled.
+            let (module, _inspection) = match record.artifact.kind {
+                shenko_wasm::ToolArtifactKind::NodeInline => {
+                    shenko_wasm::tool_module(&node, &record)?
+                }
+                shenko_wasm::ToolArtifactKind::ContentStore => {
+                    let store = shenko_store::store::Store::open(
+                        data_dir.join("shenko.db"),
+                        data_dir.join("cas"),
+                    )?;
+                    let content = shenko_wasm::CasToolContentStore::new(&store.cas);
+                    shenko_wasm::tool_module_with_store(&node, &record, &content)?
+                }
+            };
             let stdin_bytes = match &stdin_file {
                 Some(path) => std::fs::read(path)
                     .with_context(|| format!("read stdin file {}", path.display()))?,
