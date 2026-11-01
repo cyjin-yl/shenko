@@ -101,6 +101,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Durable ordered public-text output parts (SPEC §21.11). Append-only;
+    // no row is ever updated or deleted by a migration.
+    conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
@@ -115,7 +118,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // source-bound stream, journaled with their delivery identity.
     conn.execute_batch(crate::content_stream::CONTENT_STREAM_SCHEMA)?;
     // Aggregate domain schemas (research, seats v2, contacts, config and
-    // playground artifacts, channels, output parts, media v2).
+    // playground artifacts, channels, media v2).
     // Every statement is CREATE TABLE/INDEX IF NOT EXISTS: the archive
     // schema is the sum of all domains, so the tables exist on every store
     // regardless of which module first asked for them.
@@ -544,25 +547,6 @@ CREATE TABLE IF NOT EXISTS channel_record_migrations(
  target_digest TEXT NOT NULL,
  migrated_seq INTEGER NOT NULL,
  PRIMARY KEY(record_kind,record_id));
--- Durable subject output parts (output_parts.rs).
-CREATE TABLE IF NOT EXISTS subject_output_parts (
-    agent_id TEXT NOT NULL,
-    stream_id TEXT NOT NULL,
-    request_id TEXT NOT NULL,
-    attempt_id TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    part_id TEXT NOT NULL,
-    part_revision TEXT NOT NULL,
-    chunk_seq INTEGER NOT NULL,
-    terminal INTEGER NOT NULL DEFAULT 0,
-    content TEXT NOT NULL,
-    content_kind TEXT NOT NULL DEFAULT 'public_text',
-    commit_seq INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (agent_id, stream_id, message_id, part_id, chunk_seq)
-);
-CREATE INDEX IF NOT EXISTS idx_subject_output_parts_cursor
-    ON subject_output_parts(agent_id, commit_seq);
 -- Recording control and priority inputs (media.rs v2): the latest-state
 -- recording projection plus its immutable control notices.
 CREATE TABLE IF NOT EXISTS media_recordings (

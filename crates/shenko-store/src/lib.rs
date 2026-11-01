@@ -25,6 +25,7 @@ pub mod subject_state;
 pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };
+pub mod output_parts;
 
 pub use store::*;
 pub use activation::*;
