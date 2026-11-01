@@ -1,55 +1,94 @@
-# Shenko
+# Shenko（深刻）
 
-深刻。
+Shenko 是面向 personal agent 的最小框架：一条持续存在的主思考流、一个持久 WASM 家园，以及一组可安装、可替换、可自我演进的能力。编码、聊天、研究、远程控制和电脑操作不是它的分区功能，而是同一主体按需安装的能力包。
 
-当前仓库提供完整产品规格、自主开发交接资料与开发 Skill 组，**尚未实现或部署产品**。Shenko 是面向 personal agent 的最小框架：Rust 2024/cordis-rs 主干、持久 WASM 家园、一条持续串行的主思考流，以及可安装、可替换、可自我演进的能力。名称是框架名；每个实例可以由人命名或自己取名。
+当前仓库是**实现中的源码树**：Rust 2024 / cordis-rs 主干、24 个 workspace crate 与 `shenko` 可执行文件都在这里，运行时装配集中在 `bin/shenko/src/main.rs`。已实现的范围、尚未闭合的部分和真实运行证据分别记录在 [文档索引](docs/INDEX.md) 与 [证据目录](docs/evidence/README.md)——这里不重复进度板。
 
-## 文档入口
+## 产品是什么
+
+- **一个持续的主体**：唯一有效的决策序列在一条分支上推进。children 是有限任务执行者，可以有自己的 system prompt、模型、上下文与工具预算，也可以继续委派与双向讨论。
+- **可安装的能力**：perception、awareness、Skill 与 code 共享同一安装单元权威，按需发现、按需读取精确版本正文。核心不做关键词判断，也不把"所有正文灌进上下文"当作唯一方案。
+- **真实的事实与效果**：原始 session、持久任务、效果账本、未知态与可恢复迁移是产品的一部分，不是一次性生成结果。
+- **可替换的实现**：内核、恢复器、provider、渠道、设备适配器都能被替换并在交接后继续工作；核心只保证机制，不保证某条渠道或某个模型。
+- **多个节点，同一个自我**：节点各自持有真实能力与凭据。连通域内有一个主节点，分区后递归选择实际可用的备用节点。
+
+## 安装
+
+仓库是 Rust workspace，需要 Rust 2024 edition（`rust-version = 1.85`）与 Cargo。
+
+```bash
+git clone https://github.com/cyjin-yl/shenko
+cd shenko
+cargo build --release -p shenko
+```
+
+依赖包含一个固定 revision 的 git 依赖 `cordis-core`（`rev 9a8a49fa459991ee29da73fb42ea9324cee9b680`，MIT）。首次构建需要能取到该 git 依赖与 crates.io 索引；离线环境按 `.agents/skills/shenko-dev/SKILL.md` 的说明预取依赖。
+
+产物是单个可执行文件 `target/release/shenko`：
+
+```bash
+./target/release/shenko check     # 校验数据目录、Store 与引导视图
+./target/release/shenko version
+```
+
+数据目录默认取用户数据目录下的 `shenko/`，可用 `--data-dir` 或 `SHENKO_DATA_DIR` 覆盖。首次 `shenko start` 会在该目录建立 SQLite WAL 库、CAS 对象目录和 WASM 家园。
+
+## 使用
+
+```bash
+shenko start --port 7860            # 启动主体、插件装配与 Web 时间线
+shenko identity --history           # 查看实例的名称、灵魂与人格修订历史
+shenko runtime status --request-id <id>   # 查询一次主体边界请求的持久结果
+shenko sync status                  # 本地持久事实、未确认变更与 peer watermark
+shenko tool list                    # 已安装 WASM 工具与具名目标的真实状态
+```
+
+模型绑定通过环境变量，不写入代码：
+
+| 变量 | 作用 |
+| --- | --- |
+| `SHENKO_USE_LOCAL_MODEL=1` | 使用本地 OpenAI 兼容端点 |
+| `SHENKO_LOCAL_MODEL_URL` / `SHENKO_LOCAL_MODEL` | 端点与模型名 |
+| `ANTHROPIC_API_KEY` | 使用 Anthropic provider |
+| `NAPCAT_WS_URL` / `NAPCAT_BOT_QQ` | QQ 通道接入与账号绑定 |
+| `SHENKO_QUOTA_POLICY` | 一个序列化额度策略文件；读取失败即启动失败，不静默按无额度运行 |
+| `SHENKO_DATA_DIR` / `SHENKO_LOG` | 数据目录与日志级别 |
+
+没有配置模型时，`shenko start` 仍然启动确定性恢复服务与 Web 界面，并明确报告"模型容量 blocked"，不会假装推理可用。
+
+Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线：`/ws` 是输入与输出通道，`/api/tasks`、`/api/memory`、`/api/config`、`/api/self`、`/api/context` 读取当前事实，`/playground` 是持久 Playground。
+
+## 扩展
+
+能力通过插件进入运行时，运行时装配在 `bin/shenko/src/main.rs` 中可见：
+
+- **原生任务处理**：实现 `NativeTaskHandler`（`descriptor` / `execute` / `reconcile`）并用 `NativeTaskHandlerPlugin` 注册，即可成为主体可委派的能力。已有的例子是 WASI 工具执行、Computer Use、Playground 后端、错误读取、issue 草稿与自解释。
+- **provider**：实现 broker 的 provider 合同接入推理；额度观测与 admission 是独立策略，不写死模型名单。
+- **渠道插件**：插件同时拥有入站分类、来源/账户命名空间与出站描述、派发与回执。目标标识是不透明字符串。
+- **意识与感知单元**：`shenko-awareness-core` 解析 awareness 文档，`shenko-node` 的单位库保存版本、依赖、启停与试用结果。纯文本单元不启动 daemon。
+- **WASM 工具**：`shenko tool install --file <artifact> --name <n> --version <v> --abi wasi_preview1` 安装真实二进制，`shenko tool exec <name>` 在受管 mount 下执行。声明了 ABI 但没有可核验工件的目标会被如实标记为未解析。
+
+开发入口与协作规则见 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 是指向它的符号链接）与 [shenko-dev Skill](.agents/skills/shenko-dev/SKILL.md)。
+
+## 文档导航
 
 | 文档 | 内容 |
 | --- | --- |
-| [SPEC.md](SPEC.md) | v0.6.2 完整规格：47 章，147 项需求、55 组行为、59 条来源记录、216 条具名验收；保留全部 U01–U62 原话 |
-| [WHY.md](WHY.md) | 核心设计的目的、因果理由与已确定的取舍 |
-| [AGENTS.md](AGENTS.md) | 自主开发、并行协作、验证、接续与 PR 规则 |
-| [shenko-dev](.agents/skills/shenko-dev/SKILL.md) | 所有开发者必读的哲学：持续思考、从输入形成 awareness、原子能力、设备容灾与自主开发；包含八个原子开发 Skill 的入口 |
-| [GOAL.md](GOAL.md) | 交给朋友 Claude 的完整实施目标与可复制 `/goal` |
-| [HANDOFF.md](HANDOFF.md) | 从安装 gh、登录、fork/clone 开始的一条可转交 `/goal` |
-| [CLAUDE.md](CLAUDE.md) | 指向 AGENTS.md 的符号链接，共用同一份开发规则 |
-| [文档总索引](docs/INDEX.md) | 现行、历史与研究资料的真实盘点，含全部旧稿去向 |
-| [完整交付合同](docs/governance/COMPLETION.md) | 什么才算完成，以及如何证明 |
-| [GitHub 接入与 PR](docs/governance/GITHUB.md) | 本人身份、认证、自己的 fork、持续 PR 更新 |
-| [CONTRIBUTORS.md](CONTRIBUTORS.md) | 真实贡献来源、Git 作者身份与先对齐任务分配的协作约定 |
-| [Claude 启动](docs/governance/CLAUDE.md) | bypassPermissions、Opus 5.5、ultracode、原生 goal、headless 与 resume |
-| [运行与恢复](docs/governance/CONTINUATION.md) | 跨 session、goal 清除、worker 与真实外部状态接续 |
-| [上游治理研究](docs/research/agent-development-governance.md) | Pi/OMP、Symphony/Codex、Anthropic、Superpowers、gstack、Spec Kit 的采用与差异 |
-| [Claude API 迁移核验](docs/research/claude-api-2026-10-21.md) | 2026-10-21 API、SDK major、鉴权和消息格式的真实变化，以及 §47 的采用边界 |
+| [SPEC.md](SPEC.md) | 完整产品规格：47 章 + §48 文档分层，147 项需求、216 条具名验收，保留全部用户原话 |
+| [docs/specs/architecture.md](docs/specs/architecture.md) | 当前功能边界与各层事实归属 |
+| [docs/INDEX.md](docs/INDEX.md) | 全部文档的真实盘点、阅读顺序与归档去向 |
+| [docs/specs/](docs/specs/) | 各领域的功能合同（功能、接口、理由、错误与恢复） |
+| [docs/governance/](docs/governance/) | 自主决定边界、完整交付合同、许可与接续 |
+| [docs/requirements/](docs/requirements/) | 147 项 R、56 组 B、59 条来源与 216 条验收的机器可读索引 |
+| [docs/evidence/](docs/evidence/) | 已保存的真实运行证据与其边界 |
+| [docs/state/coverage.json](docs/state/coverage.json) | 每项需求的实现与证据状态 |
+| [docs/history/](docs/history/) | 历史来源：原规格快照、46 份旧稿、已归档的任务入口与任务卡 |
+| [WHY.md](WHY.md) | 设计为什么成立，以及已经确定的取舍 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献与协作约定 |
+| [CONTRIBUTORS.md](CONTRIBUTORS.md) | 贡献来源与署名归属 |
 
-## 交给开发 Agent
+历史任务入口（`GOAL.md`、`PROMPT.md`、`HANDOFF.md`）、旧进度板与 22 张社区任务卡已按 §48.5 移入 `docs/history/`，原件字节保留，不保留根目录兼容入口。
 
-先完整读取 `shenko-dev`，再按实际需要选用八个独立开发 Skill。规范源在 `.agents/skills`；`.claude/skills` 与 `.codex/skills` 均通过相对目录符号链接读取同一份内容。Codex 可显式调用 `$shenko-dev`，Claude Code 可调用 `/shenko-dev`；必读约定由 AGENTS 入口承载，不依赖描述是否自动匹配。格式与官方依据见 [兼容约定](.agents/skills/shenko-dev/references/compatibility.md)。
+## 许可与归属
 
-朋友使用自己的 GitHub 与 Claude 身份，fork 后 clone 自己的仓库。在这个 fork 中自主开发、合并、重构、安装工具、配置 CI 和调配子 Agent，持续向 upstream 提交并更新 PR。读取 GOAL.md；实际账号、模型与工具版本按 [交接核验](docs/research/claude-handoff.md) 检查。当前官方入口为：
-
-```bash
-claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions
-```
-
-随后输入 GOAL.md 末尾的 `/goal`。它要求完整实施所有正式阶段、主动使用隔离的并行子 Agent、自主决策和验证，并持续更新 PR。等待 review 时照常推进；最终交付为完整、有证据的 ready PR。首版和阶段 PR 提供自举与早期反馈，之后继续剩余完整范围。
-
-`--dangerously-skip-permissions` 是用户指定 bypassPermissions 模式的官方实际拼写。每次重新启动或恢复结束的会话都显式带上该参数，具体命令见 Claude 启动文档。
-
-原生 `/goal` 不保证跨任意错误永久在线，也不会独立读取证据文件；接手者要在会话中呈现结果，并维护仓库检查点。`ultracode` 也不是全局资源上限。对应真实语义与官方来源见上述核验报告。
-
-## 当前可执行检查
-
-主体上下文投影对尚未成功提交的输入使用持久 raw event ID 保护首次正文呈现：即使 Budget 或其他策略选中了历史指针，待处理正文仍进入封存 payload，并计入最终输入预算。策略插件本身不承担 inbox 确认职责。正文补回后整批超限时拒绝派发、保留待处理输入；不以指针代替正文后确认成功，也不声称自动分批。`shenko-subject` 的 `budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1` 与 `oversized_fresh_batch_stays_pending_across_reopen` 是对应的确定性恢复回归；前者消费封存 payload 和持久结果边界，不代表真实供应商网络派发证据。本次修改未运行这些检查。
-
-```bash
-python3 scripts/check_docs.py
-```
-
-此命令只核对文档、索引与归档完整性，不构建或验证尚不存在的 Shenko 产品。产品命令和验收 runner 由实际实现加入；不可将文档检查绿色状态当产品完成。
-
-## 资料与权限
-
-本仓库为 [cyjin-yl/shenko](https://github.com/cyjin-yl/shenko)，公开，默认分支 `main`。完整规格保留原始需求及部署背景；当前接续状态见 docs/state/goal.json。上游来源、固定提交、已采用行为和未验证边界保存在 SPEC 与研究索引；历史草稿保留但不再作为现行指令。社区版采用 AGPL-3.0-or-later（见 `LICENSE` 与 `docs/governance/LICENSING.md`）；owner 本人保留闭源/商业双许可，贡献者归属与上游各自许可保留。
+社区版采用 AGPL-3.0-or-later（`LICENSE` 与 [docs/governance/LICENSING.md](docs/governance/LICENSING.md)）；owner `cyjin-yl` 本人保留闭源与商业双许可，贡献者再许可条款见 [CONTRIBUTOR_LICENSE.md](docs/governance/CONTRIBUTOR_LICENSE.md)，来源声明见 [DCO.md](docs/governance/DCO.md)。第三方依赖各自许可保留，清单见 [LICENSE-INVENTORY.md](docs/governance/LICENSE-INVENTORY.md)。

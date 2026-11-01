@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Validate handoff document integrity; this is not a Shenko product test."""
+"""Validate documentation, archive and index integrity.
+
+This is a documentation-integrity check. It does not build, run or verify the
+Shenko product, and it never claims that a requirement is satisfied.
+"""
 from pathlib import Path
 import hashlib
 import json
@@ -31,6 +35,7 @@ def outside_fences(text):
             yield number, line
 
 spec = (ROOT / 'SPEC.md').read_text()
+spec_bytes = (ROOT / 'SPEC.md').read_bytes()
 rows = list(outside_fences(spec))
 requirements = read_json('docs/requirements/requirements.json')
 behaviors = read_json('docs/requirements/behaviors.json')
@@ -100,6 +105,65 @@ for number in range(54, 64):
 original_case_ids = {item['case_id'] for item in read_json('docs/history/acceptance-source-v0.5.1.json')['cases']}
 check(original_case_ids <= cids, 'Original acceptance obligations dropped')
 
+# --- SPEC §48 immutability -----------------------------------------------------
+# §1–47 and every original user utterance are immutable bytes. §48 is the only
+# permitted append, so the original prefix is verified byte-for-byte and any
+# appended text must start with the §48 heading.
+spec_integrity = read_json('docs/history/spec-integrity.json')
+prefix_bytes = spec_integrity['original_prefix_bytes']
+prefix_sha = spec_integrity['original_prefix_sha256']
+check(len(spec_bytes) >= prefix_bytes,
+      f'SPEC.md is shorter than the immutable original prefix ({len(spec_bytes)} < {prefix_bytes} bytes)')
+if len(spec_bytes) >= prefix_bytes:
+    actual_prefix = hashlib.sha256(spec_bytes[:prefix_bytes]).hexdigest()
+    check(actual_prefix == prefix_sha,
+          f'SPEC.md original prefix changed: {actual_prefix} != {prefix_sha}')
+    appended = spec_bytes[prefix_bytes:].decode('utf-8', errors='replace')
+    if appended:
+        check(appended.lstrip('\n').startswith(spec_integrity['appended_section_heading']),
+              'SPEC.md may only be extended by the documented §48 appendix')
+
+# --- 2026-11-01 archive ---------------------------------------------------------
+archives = read_json('docs/history/archives-20261101.json')
+check(len(archives['files']) == archives['archived_file_count'], 'Archive manifest count mismatch')
+archived_by_original = {}
+for item in archives['files']:
+    path = ROOT / item['archived_path']
+    check(path.exists(), f"Archived file missing: {item['archived_path']}")
+    if path.exists():
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        check(digest == item['sha256'], f"Archived file changed: {item['archived_path']}")
+        check(path.stat().st_size == item['bytes'], f"Archived file size changed: {item['archived_path']}")
+    archived_by_original[item['original_path']] = item
+for retired in archives['retired_root_paths']:
+    retired_path = ROOT / retired
+    check(not retired_path.exists() and not retired_path.is_symlink(),
+          f'Retired path still present at its old location: {retired}')
+    check(retired in archived_by_original, f'Retired path is not covered by the archive manifest: {retired}')
+for root_entry in archives['retired_root_paths']:
+    if root_entry.count('/') != 0:
+        continue
+    check(not (ROOT / root_entry).exists(), f'Root compatibility entry still present: {root_entry}')
+
+# --- domain specification registry ----------------------------------------------
+registry = read_json('docs/domain-specs.json')
+registered = {}
+for item in registry['specs']:
+    registered[item['file']] = item
+    check(item['file'].startswith('docs/specs/'), f"Domain spec outside docs/specs/: {item['file']}")
+    check(bool(item.get('owner')), f"Domain spec without owner: {item['file']}")
+    check(bool(item.get('sections')), f"Domain spec without SPEC sections: {item['file']}")
+specs_dir = ROOT / 'docs/specs'
+present_specs = sorted(p.name for p in specs_dir.glob('*.md')) if specs_dir.is_dir() else []
+for name in present_specs:
+    check(f'docs/specs/{name}' in registered, f'Unregistered domain spec file: docs/specs/{name}')
+    text = (specs_dir / name).read_text()
+    check(text.strip().startswith('#'), f'Domain spec does not start with a heading: docs/specs/{name}')
+pending_specs = sorted(
+    path for path, item in registered.items() if not (ROOT / item['file']).exists()
+)
+
+# --- development Skills and the shared entrypoint --------------------------------
 claude_entry = ROOT / 'CLAUDE.md'
 check(claude_entry.is_symlink() and claude_entry.readlink() == Path('AGENTS.md'),
       'CLAUDE.md must be a symbolic link to AGENTS.md')
@@ -129,6 +193,16 @@ for name, directory in skill_dirs.items():
 check('.agents/skills/shenko-dev/SKILL.md' in (ROOT / 'AGENTS.md').read_text(),
       'AGENTS.md does not identify the mandatory philosophy Skill')
 
+# --- local links ----------------------------------------------------------------
+# Historical material keeps its original layout. A link inside SPEC.md to a
+# retired root entrypoint is explained by §48.5 and is therefore resolved
+# against the archive manifest instead of being reported as broken.
+def archived_for(original_path):
+    for item in archives['files']:
+        if item['original_path'] == original_path:
+            return item
+    return None
+
 for path in ROOT.rglob('*.md'):
     rel = path.relative_to(ROOT)
     if rel.parts[:2] == ('docs','history') or rel.parts[:3] == ('docs','research','archive'):
@@ -140,13 +214,36 @@ for path in ROOT.rglob('*.md'):
             local = unquote(target.split('#',1)[0])
             if not local:
                 continue
-            check((path.parent / local).exists(), f'Broken local link in {rel}: {target}')
+            if (path.parent / local).exists():
+                continue
+            # A domain spec that another writer still owes is tracked, not broken.
+            resolved = (path.parent / local).resolve()
+            if resolved.is_relative_to(ROOT):
+                relative = resolved.relative_to(ROOT).as_posix()
+                if relative in registered:
+                    continue
+            # SPEC §1–47 keeps its original links; §48.5 explains them.
+            if rel == Path('SPEC.md'):
+                archived = archived_for(resolved.relative_to(ROOT).as_posix()) \
+                    if resolved.is_relative_to(ROOT) else None
+                if archived is not None and (ROOT / archived['archived_path']).exists():
+                    continue
+            check(False, f'Broken local link in {rel}: {target}')
 
-goal = (ROOT / 'GOAL.md').read_text()
-goal_lines = [line for line in goal.splitlines() if line.startswith('/goal ')]
-check(len(goal_lines) == 1, 'Expected one copyable goal entry in GOAL.md')
-check(all(len(line[6:]) <= 4000 for line in goal_lines), 'Goal condition exceeds native 4000-character limit')
-
-result = {'kind':'documentation_integrity_only','product_tested':False,'requirements':len(rids),'behaviors':len(bids),'source_records':len(refids),'acceptance_definitions':len(cids),'archived_sources':len(manifest['files']),'development_skills':len(skill_dirs),'errors':errors}
+result = {
+    'kind': 'documentation_integrity_only',
+    'product_tested': False,
+    'requirements': len(rids),
+    'behaviors': len(bids),
+    'source_records': len(refids),
+    'acceptance_definitions': len(cids),
+    'archived_sources': len(manifest['files']),
+    'archived_entrypoints': len(archives['files']),
+    'development_skills': len(skill_dirs),
+    'domain_specs_registered': len(registered),
+    'domain_specs_present': len(present_specs),
+    'domain_specs_pending': pending_specs,
+    'errors': errors,
+}
 print(json.dumps(result, ensure_ascii=False, indent=2))
 sys.exit(1 if errors else 0)

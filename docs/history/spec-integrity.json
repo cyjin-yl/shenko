@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "spec_path": "SPEC.md",
+  "base_commit": "78f5f63cc6b51cffb68a0619179e765afdb73913",
+  "original_prefix_bytes": 783140,
+  "original_prefix_sha256": "594edc2e5a282cf9cf51812bda0a05e988ea16a68af007962cf4e9de0123c077",
+  "appended_section_heading": "# 48 ",
+  "note": "§1–47 与全部用户原话是不可变字节。§48 是唯一允许的追加章节，追加内容必须以 §48 标题开头。原文中指向旧 GOAL 等路径的链接属于旧文档布局，按 §48.5 解释，不为此修改原文字节。"
+}
