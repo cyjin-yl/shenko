@@ -1,6 +1,11 @@
 pub mod runtime;
 pub mod mount;
+pub mod cow;
+pub mod p1;
+pub mod fsx;
 pub mod tool;
 pub use runtime::*;
 pub use mount::*;
+pub use cow::*;
+pub use p1::{P1Host, StdioStreams};
 pub use tool::*;

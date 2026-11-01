@@ -21,6 +21,12 @@ parking_lot = { workspace = true }
 async-trait = { workspace = true }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
+# Shenko-owned preview1 host boundary (SPEC §8.3/A08): the WITX interface is
+# generated with wiggle, and every guest filesystem resolution proceeds from
+# cap-std directory capabilities instead of a re-resolved host pathname.
+cap-std = "3.4.6"
+wiggle = "45"
+getrandom = "0.2"
 
 [dev-dependencies]
 wat = "1"
