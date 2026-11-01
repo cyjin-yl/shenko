@@ -609,7 +609,7 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
         // The larger context still needs a bounded tail that actually drops
         // old history; the behavior under test is preserving unresolved calls.
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.85, recent_ratio: 0.1 },
-    )));
+    ))).expect("install budget compact");
     let call_id = EntityId::new();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_call", &serde_json::json!({
         "v":1,"text":"unresolved fixture call", "call_id":call_id,
@@ -691,7 +691,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     subject.max_tokens = 10;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    )));
+    ))).expect("install budget compact");
     for index in 0..20 {
         store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
             &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
@@ -815,7 +815,7 @@ fn oversized_fresh_batch_stays_pending_across_reopen() {
     subject.max_tokens = 10;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    )));
+    ))).expect("install budget compact");
     let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
         event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),

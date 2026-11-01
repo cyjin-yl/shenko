@@ -584,7 +584,11 @@ pub(super) fn prepare_context(
     let selection = match &caps {
         None => ContextSelection::Unavailable { reason: "model_context_limit_not_observed".into() },
         Some(caps) => {
-            if !registry.should_compact(&history, caps, trigger_budget_input_tokens).map_err(storage)? {
+            // The trigger is cheap: it records the observed pressure and reads
+            // the window ledger only; the raw history is prepared off this
+            // path.
+            registry.observe_pressure(caps, trigger_budget_input_tokens).map_err(storage)?;
+            if !registry.needs_preparation(caps, trigger_budget_input_tokens) {
                 ContextSelection::Retained
             } else {
                 match registry.prepare(&history, caps, trigger_budget_input_tokens) {
@@ -600,6 +604,9 @@ pub(super) fn prepare_context(
                     }
                     Err(PrepareError::NoUsablePolicy { attempts }) => ContextSelection::NoUsablePolicy { attempts },
                     Err(PrepareError::Storage(error)) => return Err(storage(error)),
+                    Err(PrepareError::Publish(error)) => {
+                        return Err(ShenkoError::conflict(format!("window publication refused: {error}")))
+                    }
                 }
             }
         }

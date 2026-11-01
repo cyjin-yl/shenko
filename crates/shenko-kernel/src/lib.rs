@@ -7,6 +7,7 @@ pub mod lifecycle;
 pub mod supervisor;
 pub mod hooks;
 pub mod effect_contract;
+pub mod contribution;
 
 pub use plugin::*;
 pub use capability::*;
@@ -14,6 +15,7 @@ pub use lifecycle::*;
 pub use supervisor::*;
 pub use hooks::*;
 pub use effect_contract::*;
+pub use contribution::*;
 
 // These are the actual upstream contracts, not Shenko aliases or adapters.
 pub use cordis_core::{Context, FiberHandle, InjectSpec, Plugin, PreparedPlugin, Service};

@@ -15,6 +15,26 @@ impl EntityId {
         Self(Uuid::new_v4())
     }
 
+    /// A deterministic identity derived from content.
+    ///
+    /// Some identities are facts about content rather than about an event:
+    /// an effect contract, a capability declaration or a help document
+    /// describes one artifact, and two reads of that artifact must name the
+    /// same thing. A random id would make every read look like a new
+    /// declaration.
+    pub fn derived(namespace: &str, content: &[u8]) -> Self {
+        // Fold the namespace into the content so two namespaces cannot
+        // produce the same identity for different content.
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(namespace.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(content);
+        let digest = hasher.finalize();
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest.as_bytes()[..16]);
+        Self(Uuid::from_bytes(bytes))
+    }
+
     pub fn nil() -> Self {
         Self(Uuid::nil())
     }

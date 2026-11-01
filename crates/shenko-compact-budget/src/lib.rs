@@ -10,8 +10,8 @@ use std::sync::Arc;
 use cordis_core::{Context, InjectSpec, Plugin, PreparedChange, Service};
 use shenko_context_policy::{
     Availability, CONTRACT_VERSION, ContextInput, ContextPolicy, CostReport, ItemKind, ModelCaps,
-    PolicyError, PolicyManifest, PolicyRegistry, PreparedWindow, WindowEntry, estimate_tokens,
-    install_on, unit_is_unfinished, units, unresolved_calls,
+    PolicyError, PolicyManifest, PolicyRegistry, PreparedWindow, TriggerInput, WindowEntry,
+    estimate_tokens, install_on, unit_is_unfinished, units, unresolved_calls,
 };
 
 pub const POLICY_ID: &str = "budget-compact";
@@ -39,6 +39,42 @@ impl BudgetCompact {
     pub fn new(config: BudgetConfig) -> Self {
         Self { config }
     }
+
+    /// The default configuration document of this strategy.
+    pub fn default_config() -> serde_json::Value {
+        let config = BudgetConfig::default();
+        serde_json::json!({
+            "trigger_ratio": config.trigger_ratio,
+            "recent_ratio": config.recent_ratio,
+        })
+    }
+
+    /// Read a configuration document. A malformed field is an error, never a
+    /// silently ignored default.
+    pub fn config_from_json(value: &serde_json::Value) -> Result<BudgetConfig, String> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| "budget compact configuration must be an object".to_string())?;
+        let default = BudgetConfig::default();
+        let ratio = |key: &str, fallback: f32| -> Result<f32, String> {
+            match object.get(key) {
+                None => Ok(fallback),
+                Some(value) => value
+                    .as_f64()
+                    .map(|number| number as f32)
+                    .ok_or_else(|| format!("budget compact {key} must be a number")),
+            }
+        };
+        let config = BudgetConfig {
+            trigger_ratio: ratio("trigger_ratio", default.trigger_ratio)?,
+            recent_ratio: ratio("recent_ratio", default.recent_ratio)?,
+        };
+        let valid = |value: f32| value > 0.0 && value <= 1.0;
+        if !valid(config.trigger_ratio) || !valid(config.recent_ratio) {
+            return Err("budget compact ratios must be in (0, 1]".into());
+        }
+        Ok(config)
+    }
 }
 
 fn pointer(from: u64, to: u64) -> WindowEntry {
@@ -56,6 +92,9 @@ impl ContextPolicy for BudgetCompact {
             version: env!("CARGO_PKG_VERSION").into(),
             contract: CONTRACT_VERSION,
             requires: Vec::new(),
+            provides: vec!["context.budget-window".into()],
+            summary: "Starts a new context window that keeps the system prefix, every unfinished call unit and a recent tail of whole units, and points at the rest.".into(),
+            dependencies: Vec::new(),
         }
     }
 
@@ -63,8 +102,8 @@ impl ContextPolicy for BudgetCompact {
         Availability::Available
     }
 
-    fn should_compact(&self, input: &ContextInput<'_>) -> bool {
-        input.used_tokens as f32 > input.caps.max_context as f32 * self.config.trigger_ratio
+    fn should_compact(&self, trigger: &TriggerInput<'_>) -> bool {
+        trigger.used_tokens as f32 > trigger.caps.max_context as f32 * self.config.trigger_ratio
     }
 
     fn prepare(&self, input: &ContextInput<'_>) -> Result<PreparedWindow, PolicyError> {
