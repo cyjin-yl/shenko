@@ -417,6 +417,11 @@ async fn install_native_definitions(
     let _native_person_directory_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, person_directory_handler)
         .await?;
+    let media_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_media::MediaReadHandler::new(Arc::clone(store)));
+    let _media_read_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, media_read_handler)
+        .await?;
     // Built-in, replaceable self-explanation — SPEC §38, R124. The
     // provider is seeded from compiled-in material now; the real
     // `self://runtime/capabilities` snapshot is installed below once
@@ -1038,6 +1043,23 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let media_ingress = supervisor
                 .context()
                 .try_service::<shenko_media::MediaIngress>()?;
+            // Media runtime behind the reserved slots: realtime sessions
+            // against configured engine bindings (data_dir/media/
+            // providers.json), recording capture with CAS closure, barge-in
+            // and speech playback. SPEC §20. No engine configured is honest:
+            // the ingress path still admits external provider facts.
+            let media_providers =
+                shenko_media::runtime::MediaProviders::load(&data_dir, Arc::clone(&store.cas))?;
+            let _media_runtime_plugin = supervisor
+                .spawn(
+                    shenko_media::MediaRuntimePlugin,
+                    (
+                        Arc::clone(&media_ingress),
+                        Arc::clone(&store),
+                        media_providers,
+                    ),
+                )
+                .await?;
             // Cognition units are installed capability, not kernel business
             // logic: perception, awareness, Skill and code share one
             // installation authority — the Node's unit store (SPEC §45). The
@@ -1775,7 +1797,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
-                .with_media_ingress(media_ingress)
+                .with_media_ingress(Arc::clone(&media_ingress))
+                .with_media_runtime(
+                    supervisor
+                        .context()
+                        .try_service::<shenko_media::runtime::MediaRuntime>()?,
+                )
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);

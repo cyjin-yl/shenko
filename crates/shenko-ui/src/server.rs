@@ -28,6 +28,7 @@ pub struct UiServer {
     /// Live media ingress service for `/api/media/*`; `None` leaves those
     /// routes answering `available: false` instead of faking admission.
     media_ingress: Option<std::sync::Arc<shenko_media::MediaIngress>>,
+    media_runtime: Option<std::sync::Arc<shenko_media::runtime::MediaRuntime>>,
 }
 
 impl UiServer {
@@ -43,6 +44,7 @@ impl UiServer {
             context: None,
             inbox_tx: None,
             media_ingress: None,
+            media_runtime: None,
         }
     }
 
@@ -116,6 +118,16 @@ impl UiServer {
         self
     }
 
+    /// Attach the media runtime (realtime sessions, recording, barge-in,
+    /// speech playback) behind `/api/media/*`. SPEC §20.
+    pub fn with_media_runtime(
+        mut self,
+        runtime: std::sync::Arc<shenko_media::runtime::MediaRuntime>,
+    ) -> Self {
+        self.media_runtime = Some(runtime);
+        self
+    }
+
     /// Wire the subject outbox so model output reaches the timeline. SPEC §21.12.
     pub fn with_outbox(
         mut self,
@@ -160,6 +172,7 @@ impl UiServer {
             media_state.store = Some(store);
         }
         media_state.ingress = self.media_ingress.clone();
+        media_state.runtime = self.media_runtime.clone();
         if let Some(data_dir) = self.data_dir.clone() {
             api_state = api_state.with_data_dir(data_dir);
         }
