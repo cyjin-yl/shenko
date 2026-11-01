@@ -11,6 +11,7 @@ members = [
     "crates/shenko-memory",
     "crates/shenko-channel-napcat",
     "crates/shenko-channel-napcat-link",
+    "crates/shenko-mobile",
     "crates/shenko-media",
     "crates/shenko-exec-host",
     "crates/shenko-exec-ssh",
@@ -25,6 +26,7 @@ members = [
     "crates/shenko-ui",
     "crates/shenko-seed",
     "crates/shenko-update",
+    "mobile/rust-shell",
     "bin/shenko",
 ]
 

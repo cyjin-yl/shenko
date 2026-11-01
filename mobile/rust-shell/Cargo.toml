@@ -1,0 +1,21 @@
+[package]
+name = "shenko-android-shell"
+description = "JNI cdylib shell hosting the Shenko node in-process inside the Android APK (SPEC §24.5)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "shenko_android"
+crate-type = ["cdylib"]
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"
+
+# `jni` is only linked when actually targeting Android; on every other host
+# this crate compiles to an empty cdylib so the workspace stays buildable.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+shenko = { path = "../../bin/shenko" }
+tokio = { workspace = true }
