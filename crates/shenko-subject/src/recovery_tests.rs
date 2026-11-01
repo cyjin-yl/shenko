@@ -36,7 +36,7 @@ fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
         seed_manifest_ref: object.clone(),
         initial_profile_ref: object.clone(),
         home_manifest_ref: object.clone(),
-        bootstrap_event_ref: object,
+        bootstrap_event_ref: object.clone(),
         created_commit: precommit,
     };
     let head = SubjectBranchHead {
@@ -77,7 +77,15 @@ fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent,
+        object,
+        precommit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first, &root_task)
+        .unwrap();
     (dir, store, agent)
 }
 
@@ -189,7 +197,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
+        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
@@ -206,7 +214,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 11).unwrap().object);
+        "subject_step_input", 12).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -375,16 +383,26 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 11, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 12, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
         identity: subject.identity.clone(),
         identity_provider_revision: subject.identity_service.revision().into(),
+        request_id: shenko_types::ids::EntityId::new(),
+        hook_graph_ref: None,
+        provider_selection: super::provider_selection(
+            subject.broker.as_ref().map(|broker| broker.binding()),
+        ),
+        contributions: vec![],
+        contribution_omissions: vec![],
+        contribution_tokens: 0,
+        obligations: vec![],
+        attention: None,
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 11).unwrap());
+        "subject_step_input", 12).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -609,7 +627,7 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
         // The larger context still needs a bounded tail that actually drops
         // old history; the behavior under test is preserving unresolved calls.
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.85, recent_ratio: 0.1 },
-    )));
+    ))).unwrap();
     let call_id = EntityId::new();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_call", &serde_json::json!({
         "v":1,"text":"unresolved fixture call", "call_id":call_id,
@@ -691,7 +709,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
     subject.max_tokens = 10;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    )));
+    ))).unwrap();
     for index in 0..20 {
         store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
             &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
@@ -815,7 +833,7 @@ fn oversized_fresh_batch_stays_pending_across_reopen() {
     subject.max_tokens = 10;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    )));
+    ))).unwrap();
     let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
         event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),

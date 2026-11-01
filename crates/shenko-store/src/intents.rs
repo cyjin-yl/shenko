@@ -209,6 +209,60 @@ impl Store {
                 serde_json::to_value(intent)?,
             )?;
         }
+        // The subject's own obligations and attention decision are durable
+        // commitments, not notes: they are written in the SAME transaction
+        // as the decision that authored them, so a crash cannot lose a
+        // promise the subject already made.
+        for obligation in &decision.pending_obligations {
+            if obligation.obligation_id == EntityId::nil() {
+                if historical {
+                    // A historical decision predates obligation identities.
+                    // Keep it discoverable; never invent an identity.
+                    continue;
+                }
+                return Err(ShenkoError::conflict("obligation without an identity"));
+            }
+            tx.execute(
+                "INSERT INTO subject_obligations
+                    (obligation_id,agent_id,step_id,origin_event_id,description,
+                     depends_on_task_id,resume_condition,due_at,state,decision_ref,
+                     created_seq,updated_seq)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,'open',?9,?10,?10)",
+                params![
+                    obligation.obligation_id.to_string(),
+                    head.agent_id.to_string(),
+                    step.step_id.to_string(),
+                    obligation.origin_event_id.map(|id| id.to_string()),
+                    obligation.description,
+                    obligation.depends_on_task_id.map(|id| id.to_string()),
+                    obligation.resume_condition,
+                    obligation.due_at.map(|due| due.to_rfc3339()),
+                    serde_json::to_string(decision_ref)?,
+                    commit.seq.0 as i64,
+                ],
+            )
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        }
+        if let Some(policy) = &decision.attention_policy {
+            tx.execute(
+                "INSERT INTO subject_attention_policies
+                    (intent_id,agent_id,step_id,state,sources,reason,review_after,
+                     decision_ref,created_seq,updated_seq)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",
+                params![
+                    policy.intent_id.to_string(),
+                    head.agent_id.to_string(),
+                    step.step_id.to_string(),
+                    serde_json::to_string(&policy.state)?,
+                    serde_json::to_string(&policy.sources)?,
+                    policy.reason,
+                    policy.review_after.map(|review| review.to_rfc3339()),
+                    serde_json::to_string(decision_ref)?,
+                    commit.seq.0 as i64,
+                ],
+            )
+            .map_err(|e| ShenkoError::storage(e.to_string()))?;
+        }
         if !historical {
             tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract<>?2) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
         }
@@ -291,7 +345,7 @@ impl Store {
             .ok_or_else(invalid)?;
         let definition = intent.definition.as_ref().ok_or_else(invalid)?;
         let input = &definition.input;
-        if plan.get("schema_version").and_then(|value| value.as_u64()) != Some(11)
+        if plan.get("schema_version").and_then(|value| value.as_u64()) != Some(12)
             || plan.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || definition.definition_version != 1
             || input.get("schema_version").and_then(|value| value.as_u64()) != Some(1)

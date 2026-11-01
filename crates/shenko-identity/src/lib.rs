@@ -110,11 +110,39 @@ fn clean(value: &str, max_chars: usize, single_line: bool) -> Option<String> {
     } else {
         value
     };
-    let value: String = value.trim().chars().take(max_chars).collect();
-    let value = value.trim().to_string();
+    // The value is NOT truncated. An over-long edit is refused so the writer
+    // is told that the text did not fit: a silent truncation would make the
+    // subject believe it wrote something it did not write.
+    let trimmed = value.trim();
+    if trimmed.chars().count() > max_chars {
+        return None;
+}
+    let value = trimmed.to_string();
     (!value.is_empty()).then_some(value)
 }
 
+/// Why one identity edit was refused. The bound exists so a self-edit cannot
+/// swallow the context window; exceeding it is a diagnosable refusal, never
+/// a silent truncation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdentityRejection {
+    TooLong {
+        field: &'static str,
+        chars: usize,
+        limit: usize,
+    },
+}
+
+impl std::fmt::Display for IdentityRejection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooLong { field, chars, limit } => write!(
+                f,
+                "identity {field} edit is {chars} characters; the limit is {limit}"
+            ),
+        }
+    }
+}
 impl DefaultIdentityPolicy {
     /// Apply the complete edit against one snapshot, as one revision.
     pub fn revise(
@@ -144,6 +172,29 @@ impl DefaultIdentityPolicy {
             "personality" => Some(IdentityChange::Personality(value.to_owned())),
             _ => None,
         }
+    }
+
+    /// Whether one authored edit fits the profile bounds. The bound exists so
+    /// a self-edit cannot swallow the context window; exceeding it is a
+    /// diagnosable refusal, never a silent truncation.
+    pub fn check_change(change: &IdentityChange) -> Result<(), IdentityRejection> {
+        let (field, value, limit, single_line) = match change {
+            IdentityChange::Name(value) => ("name", value, MAX_NAME_CHARS, true),
+            IdentityChange::Soul(value) => ("soul", value, MAX_SOUL_CHARS, false),
+            IdentityChange::Personality(value) => {
+                ("personality", value, MAX_PERSONALITY_CHARS, false)
+            }
+        };
+        let measured = if single_line {
+            value.lines().next().unwrap_or("")
+        } else {
+            value
+        };
+        let chars = measured.trim().chars().count();
+        if chars > limit {
+            return Err(IdentityRejection::TooLong { field, chars, limit });
+        }
+        Ok(())
     }
 }
 
@@ -203,6 +254,13 @@ pub trait IdentityPolicy: Send + Sync + 'static {
         changes: &[IdentityChange],
         source: IdentitySource,
     ) -> Option<IdentityProfile>;
+    /// Whether one authored edit fits the profile bounds. The default
+    /// implementation accepts everything; the default policy refuses an
+    /// over-long edit instead of silently truncating it.
+    fn check_change(&self, change: &IdentityChange) -> Result<(), IdentityRejection> {
+        let _ = change;
+        Ok(())
+    }
 }
 
 impl IdentityPolicy for DefaultIdentityPolicy {
@@ -225,6 +283,10 @@ impl IdentityPolicy for DefaultIdentityPolicy {
         source: IdentitySource,
     ) -> Option<IdentityProfile> {
         Self::revise(current, changes, source)
+    }
+
+    fn check_change(&self, change: &IdentityChange) -> Result<(), IdentityRejection> {
+        Self::check_change(change)
     }
 }
 
@@ -258,6 +320,11 @@ impl IdentityService {
         source: IdentitySource,
     ) -> Option<IdentityProfile> {
         self.policy.revise(current, changes, source)
+    }
+    /// Whether one authored edit fits the profile bounds. An over-long edit
+    /// is refused with a reason: it is never silently truncated.
+    pub fn check_change(&self, change: &IdentityChange) -> Result<(), IdentityRejection> {
+        self.policy.check_change(change)
     }
 }
 

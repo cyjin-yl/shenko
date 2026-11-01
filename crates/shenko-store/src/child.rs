@@ -817,7 +817,8 @@ impl Store {
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
              WHERE i.agent_id=?1 AND i.kind='task_result' AND i.source='native-child'
-               AND (d.disposition IS NULL OR d.disposition='\"deferred\"')
+               AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')
              ORDER BY i.rowid LIMIT ?2",
         )?;
         let rows = query

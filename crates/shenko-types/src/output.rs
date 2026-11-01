@@ -113,6 +113,77 @@ pub struct ModelChildSpec {
     pub max_tokens: u64,
 }
 
+/// Authored disposition of one durable input event. The sealed decision binds
+/// it to the exact event selected into this step's S0 (SPEC §13.8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DispositionSpec {
+    pub event_id: EntityId,
+    pub disposition: crate::subject::Disposition,
+    /// Why the model disposed it this way. Required unless acknowledged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<crate::subject::EventPriority>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// A durable obligation the subject takes on: it stays ready and is read
+/// back into a later S0 until completed or explicitly cancelled.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ObligationSpec {
+    pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on_task_id: Option<EntityId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_condition: Option<String>,
+    /// The durable event this obligation answers; required when the
+    /// obligation answers a specific input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_event_id: Option<EntityId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Authored dialogue turn to a durable task (usually a model child).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DialogueSpec {
+    pub target_task_id: EntityId,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<EntityId>,
+    /// Defaults to the child direction; `to_subject` is how a child answers
+    /// its parent and is not authored by the subject loop.
+    #[serde(default)]
+    pub direction: crate::subject::DialogueDirection,
+}
+
+/// The subject's own attention decision (do-not-disturb and back). A switch
+/// off requires the sources it silences and a review time; it is never an
+/// unbounded silent switch (SPEC §13.8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AttentionSpec {
+    pub state: crate::subject::AttentionState,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sources: Vec<String>,
+    pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The subject's adoption of one live steer that was carried into this
+/// step's sealed request. The submission key must name a steer that was
+/// actually selected into this S0; the store re-checks that binding at S1.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SteerSpec {
+    pub submission_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OutputAction {
@@ -138,6 +209,26 @@ pub enum OutputAction {
     /// The subject's own semantic wait decision. One wait control per result.
     SemanticWait {
         change: crate::subject::SemanticWaitChange,
+    },
+    /// Authored disposition of one selected input event.
+    Dispose {
+        spec: DispositionSpec,
+    },
+    /// A durable obligation taken on by this step.
+    Obligation {
+        spec: ObligationSpec,
+    },
+    /// An authored dialogue turn to a durable task.
+    Dialogue {
+        spec: DialogueSpec,
+    },
+    /// Attention switch (do-not-disturb / resume).
+    Dnd {
+        spec: AttentionSpec,
+    },
+    /// The subject adopted one live steer carried into this step.
+    Steer {
+        spec: SteerSpec,
     },
 }
 

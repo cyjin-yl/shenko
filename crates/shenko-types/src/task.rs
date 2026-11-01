@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::commit::CommitRef;
 use crate::ids::{ControllerEpoch, EntityId, RecordRevision, TaskRevision};
-use crate::object::ObjectRef;
+use crate::object::{Digest, ObjectRef};
 
 /// Explicit deterministic native work requested by a delegation. Identity,
 /// role and authority are deliberately absent: the Cordis registry supplies them.
@@ -172,6 +172,46 @@ pub struct TaskRecord {
 }
 
 impl TaskRecord {
+    /// The subject's own root task: self-owned, never dispatched by the
+    /// scheduler, created atomically with subject genesis so the launch
+    /// binding is part of the birth transaction (SPEC §41.5/§44.6).
+    pub fn subject_root(
+        task_id: EntityId,
+        agent_id: EntityId,
+        input_ref: ObjectRef,
+        created_commit: CommitRef,
+    ) -> Self {
+        TaskRecord {
+            record_schema_version: 1,
+            task_id,
+            task_revision: TaskRevision(0),
+            record_revision: RecordRevision(0),
+            agent_id,
+            conversation_id: agent_id,
+            owner: TaskOwner::Task { id: task_id },
+            background: false,
+            kind: "subject_root".into(),
+            definition_version: 1,
+            implementation_ref: ImplementationRef {
+                plugin_id: EntityId::nil(),
+                artifact_digest: Digest::blake3(b"shenko.subject.root"),
+                registry_revision: 1,
+            },
+            input_ref,
+            state: TaskState::Pending { checkpoint_ref: None },
+            abort_request: None,
+            memos: serde_json::Map::new(),
+            residual_case_ids: vec![],
+            created_by_step_id: None,
+            dispatch_eligibility: DispatchEligibility::Ready,
+            no_progress_crashes: 0,
+            first_run_at: None,
+            terminal_at: None,
+            created_commit,
+            updated_commit: created_commit,
+        }
+    }
+
     pub fn is_terminal(&self) -> bool {
         matches!(self.state, TaskState::Terminal { .. })
     }

@@ -149,8 +149,14 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     };
 
     // Initialize genesis atomically
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        dummy_ref,
+        genesis_commit,
+    );
     let receipt = store
-        .initialize_genesis(&genesis, &head, &first_step)
+        .initialize_genesis(&genesis, &head, &first_step, &root_task)
         .unwrap();
     assert_eq!(receipt.updated.len(), 3);
 
@@ -271,7 +277,7 @@ fn recorded_result_with_wait(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "events":[], "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
@@ -296,7 +302,7 @@ fn recorded_result_with_wait(
     step.record_revision = RecordRevision(1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 11).unwrap().object);
+        "subject_step_input", 12).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);

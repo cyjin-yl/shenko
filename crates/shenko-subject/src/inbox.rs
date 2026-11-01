@@ -50,11 +50,35 @@ impl Inbox {
     pub async fn recv_batch(&self, max: usize, timeout_ms: u64) -> Vec<InboxEvent> {
         let mut events = vec![];
         let mut rx = self.rx.lock().await;
+        // First drain everything that is already buffered. A wake channel
+        // that is full must be emptied completely: otherwise the dispatcher
+        // blocks on a bounded buffer that only this consumer can empty, and
+        // the subject's own next input is stuck behind it.
+        while events.len() < max {
+            match rx.try_recv() {
+                Ok(event) => events.push(event),
+                Err(_) => break,
+            }
+        }
+        if events.len() >= max {
+            return events;
+        }
         let deadline = tokio::time::Instant::now()
             + tokio::time::Duration::from_millis(timeout_ms);
         loop {
             match tokio::time::timeout_at(deadline, rx.recv()).await {
-                Ok(Some(ev)) => { events.push(ev); if events.len() >= max { break; } }
+                Ok(Some(ev)) => {
+                    events.push(ev);
+                    if events.len() >= max { break; }
+                    // Take everything that is already waiting instead of
+                    // sleeping through it.
+                    while events.len() < max {
+                        match rx.try_recv() {
+                            Ok(event) => events.push(event),
+                            Err(_) => break,
+                        }
+                    }
+                }
                 _ => break,
             }
         }

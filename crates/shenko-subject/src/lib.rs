@@ -3,11 +3,13 @@
 pub mod child;
 pub mod dispatch;
 pub mod inbox;
+mod authored_controls;
 mod context_projection;
 pub mod loop_runner;
 pub mod outbox;
 pub mod model_child;
 mod quota_gate;
+mod subject_receipt;
 
 pub use child::*;
 pub use dispatch::*;
@@ -18,6 +20,7 @@ pub use model_child::ModelChildHandler;
 
 pub mod output;
 
+pub use authored_controls::public_text_prefix;
 pub use context_projection::{IDLE_CONTINUATION_PROMPT, staged_message_text};
 
 /// The stable system-prompt prefix every subject step ships: the subject
