@@ -86,6 +86,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable browser input submission bindings (SPEC §41.18). Additive,
     // never rewrites the original event or its admission fact.
     conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
+    // Durable ordered public-text output parts (SPEC §21.11). Append-only;
+    // no row is ever updated or deleted by a migration.
+    conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,

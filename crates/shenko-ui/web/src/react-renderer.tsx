@@ -18,6 +18,7 @@ import {
 import {
   intentFor,
   type ConnectionState,
+  type DegradedDocument,
   type Dispatch,
   type Submission,
   type TimelinePart,
@@ -414,7 +415,9 @@ function TimelineEntries({ entries, emit }: { entries: UiNode[]; emit: Emit }) {
   return <div className="timeline-entries">{entries.map((entry) => {
     const value = entry.kind === 'subject_part'
       ? entry.props.part.observed_at
-      : entry.props.submission.created_at;
+      : entry.kind === 'user_submission'
+        ? entry.props.submission.created_at
+        : null;
     const day = dayLabel(value);
     const separator = day !== lastDay ? <div className="day-separator" key={`day-${entry.node_id}`}><span>{day}</span></div> : null;
     lastDay = day;
@@ -425,7 +428,44 @@ function TimelineEntries({ entries, emit }: { entries: UiNode[]; emit: Emit }) {
 function EntryView({ node, emit }: { node: UiNode; emit: Emit }) {
   return node.kind === 'subject_part'
     ? <SubjectPart node={node} emit={emit} />
-    : <UserSubmission node={node} emit={emit} />;
+    : node.kind === 'semantic_document'
+      ? <SemanticDocumentView node={node} emit={emit} />
+      : <UserSubmission node={node} emit={emit} />;
+}
+
+// A degraded semantic document: the mode decides how much structure renders,
+// but the numbered options are always the same action identities (§21.8).
+// Execution authority comes from the subject's disposition of the admitted
+// input; this view only submits that input.
+function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
+  const document = node.props.document as DegradedDocument;
+  return (
+    <article className="timeline-entry document-entry" data-entry-key={node.node_id} data-document-id={document.document_id}>
+      <div className="entry-gutter"><span className="step-label">界面</span></div>
+      <div className="entry-content">
+        <div className={`semantic-document is-${document.mode}`}>
+          <p className="document-summary">{document.summary}</p>
+          {document.mode === 'rich' && Array.isArray(document.nodes) && document.nodes.length > 0 && (
+            <pre className="document-tree">{JSON.stringify(document.nodes, null, 2)}</pre>
+          )}
+          {document.options.length > 0 && (
+            <ol className="document-options">
+              {document.options.map((option, index) => (
+                <li key={`${option.action_id}:${option.nonce}`}>
+                  <ProtoButton
+                    styleProfile="rhea"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => emit(node.node_id, node.action_refs[index])}
+                  >{index + 1}. {option.label}</ProtoButton>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+    </article>
+  );
 }
 
 function SubjectPart({ node, emit }: { node: UiNode; emit: Emit }) {
@@ -591,6 +631,16 @@ function UserSubmission({ node, emit }: { node: UiNode; emit: Emit }) {
 }
 
 function ReceiptView({ submission, emit, node }: { submission: Submission; emit: Emit; node: UiNode }) {
+  const placement = submission.placement;
+  const placementText = placement
+    ? placement.actual === 'next_boundary'
+      ? '处置位置：下一边界'
+      : placement.actual === 'live_steer'
+        ? '处置位置：进行中请求内'
+        : placement.actual === 'cancel_reseal'
+          ? '处置位置：取消重封'
+          : '处置位置：待定'
+    : null;
   const labels: Record<string, string> = {
     sending: '发送中',
     sent: '已写入传输 · 等待服务端回执',
@@ -601,11 +651,25 @@ function ReceiptView({ submission, emit, node }: { submission: Submission; emit:
     rejected: '未接收',
     unknown: '传输回执未知 · 可用同一 ID 查询或重试',
   };
+  const withdrawal = submission.withdrawal;
+  const withdrawAction = node.props.withdraw_action as string | undefined;
   return <div className={`receipt is-${submission.receipt}`} data-receipt={submission.receipt}>
     <span className="receipt-mark" aria-hidden="true" />
-    <span>{labels[submission.receipt]}{submission.detail ? ` · ${submission.detail}` : ''}</span>
-    {(submission.receipt === 'rejected' || submission.receipt === 'unknown') && node.action_refs.length > 0 && (
-      <ProtoButton styleProfile="rhea" variant="outline" size="sm" onClick={() => emit(node.node_id, node.action_refs[0])}>以同一 ID 重试</ProtoButton>
+    <span>
+      {labels[submission.receipt]}{submission.detail ? ` · ${submission.detail}` : ''}
+      {placementText ? ` · ${placementText}` : ''}
+    </span>
+    {withdrawal && (
+      <span className="withdrawal-mark">
+        {withdrawal.result === 'withdrawal_queued' ? '撤回已排队 · 等待 S-折入' : '呈现前已撤回'}
+      </span>
+    )}
+    {(submission.receipt === 'rejected' || submission.receipt === 'unknown')
+      && typeof node.props.retry_action === 'string' && (
+      <ProtoButton styleProfile="rhea" variant="outline" size="sm" onClick={() => emit(node.node_id, node.props.retry_action)}>以同一 ID 重试</ProtoButton>
+    )}
+    {!withdrawal && typeof withdrawAction === 'string' && (
+      <ProtoButton styleProfile="rhea" variant="outline" size="sm" onClick={() => emit(node.node_id, withdrawAction)}>撤回</ProtoButton>
     )}
   </div>;
 }
@@ -613,12 +677,20 @@ function ReceiptView({ submission, emit, node }: { submission: Submission; emit:
 function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
   const draftAction = node.action_refs[0];
   const appendAction = node.action_refs[1];
+  const steerAction = node.props.steer_action as string | undefined;
   const append = node.props.append_action as string;
   const canSend = Boolean(node.props.append_enabled) && appendAction === append;
+  const canSteer = Boolean(node.props.steer_enabled) && steerAction === node.action_refs[2];
   return (
     <footer className="composer-dock" hidden={node.props.hidden}>
       <div className="composer-shell">
-        <div className="composer-topline"><span className="composer-mode">Append<span className="mode-dot" /></span><span className="composer-capability">Steer 尚未接入</span></div>
+        <div className="composer-topline">
+          <span className="composer-mode">Append<span className="mode-dot" /></span>
+          <span className="composer-capability">
+            {node.props.streaming === true ? '流式传输已接入' : '仅已提交内容'}
+            {canSteer ? ' · Steer 可用（下一边界处置）' : ' · Steer 未提供'}
+          </span>
+        </div>
         <div
           className="composer-editor"
           id="composer-editor"
@@ -647,8 +719,17 @@ function Composer({ node, emit }: { node: UiNode; emit: Emit }) {
         <div className="composer-actions">
           <div className="composer-truth">
             <span>{node.props.demo ? '本地模拟 · live 写入未启动' : node.props.connection !== 'online' ? '离线时保留草稿' : !node.props.subject_bound ? '等待真实 subject 绑定' : '草稿仅保存在此浏览器'}</span>
-            <span className="composer-hint">Enter 追加 · Shift+Enter 换行</span>
+            <span className="composer-hint">Enter 追加 · Shift+Enter 换行{canSteer ? ' · Steer 在下一边界处置' : ''}</span>
           </div>
+          {canSteer && (
+            <ProtoButton
+              styleProfile="rhea"
+              variant="outline"
+              size="default"
+              disabled={!canSteer}
+              onClick={() => emit('composer', steerAction)}
+            >Steer<Icon name="arrow" /></ProtoButton>
+          )}
           <ProtoButton
             styleProfile="rhea"
             variant="default"
@@ -833,7 +914,8 @@ function formatTime(value: unknown): string {
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
-function dayLabel(value: string): string {
+function dayLabel(value: string | null): string {
+  if (value === null) return '时间未知';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '时间未知';
   const weekdays = '日一二三四五六';

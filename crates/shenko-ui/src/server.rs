@@ -6,9 +6,12 @@ use std::sync::Arc;
 use tracing::info;
 
 use crate::api::{self, ApiState};
+use crate::input::WebInputService;
 use crate::media::{self, MediaRouteState};
 use crate::playground::{self, PlaygroundState};
+use crate::presentation::{PresentationService, SurfaceCapabilityProvider};
 use crate::routes::*;
+use crate::stream::StreamSink;
 use crate::ws::{WsState, ws_handler};
 
 pub struct UiServer {
@@ -25,6 +28,11 @@ pub struct UiServer {
     inference: Option<api::InferenceStatus>,
     context: Option<api::ContextFacts>,
     inbox_tx: Option<tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>>,
+    /// Rich presentation service: document projection, degradation, caps.
+    presentation: Option<Arc<PresentationService>>,
+    /// Durable stream sink; absent = no real producer wired (UI reports
+    /// streaming:false rather than faking chunks).
+    stream_sink: Option<Arc<StreamSink>>,
     /// Live media ingress service for `/api/media/*`; `None` leaves those
     /// routes answering `available: false` instead of faking admission.
     media_ingress: Option<std::sync::Arc<shenko_media::MediaIngress>>,
@@ -42,6 +50,8 @@ impl UiServer {
             inference: None,
             context: None,
             inbox_tx: None,
+            presentation: None,
+            stream_sink: None,
             media_ingress: None,
         }
     }
@@ -102,8 +112,21 @@ impl UiServer {
         mut self,
         inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
     ) -> Self {
-        self.state = self.state.with_inbox(inbox_tx.clone());
         self.inbox_tx = Some(inbox_tx);
+        self
+    }
+
+    /// Attach the rich presentation service (document projection + caps).
+    /// When omitted, `run` builds one with server-side facts (streaming on
+    /// iff a real stream sink is attached).
+    pub fn with_presentation(mut self, presentation: Arc<PresentationService>) -> Self {
+        self.presentation = Some(presentation);
+        self
+    }
+
+    /// Attach the durable stream sink (real producer required upstream).
+    pub fn with_stream_sink(mut self, sink: Arc<StreamSink>) -> Self {
+        self.stream_sink = Some(sink);
         self
     }
 
@@ -126,6 +149,36 @@ impl UiServer {
     }
 
     pub async fn run(self) -> Result<()> {
+        let mut state = self.state;
+        // Build the durable input service when the real store, genesis
+        // subject, and live inbox are all present (§41.18). Without all
+        // three the UI honestly reports input:false instead of faking
+        // acceptance. Presentation defaults to server facts when the caller
+        // did not inject one.
+        if state.input.is_none() {
+            if let (Some(store), Some(subject_id), Some(inbox_tx)) =
+                (self.store.clone(), state.subject_id, self.inbox_tx.clone())
+            {
+                let presentation = self.presentation.clone().unwrap_or_else(|| {
+                    PresentationService::new(
+                        8,
+                        SurfaceCapabilityProvider::new(
+                            self.stream_sink.is_some(),
+                            "shenko-ui".to_owned(),
+                        ),
+                    )
+                });
+                state.presentation = Some(Arc::clone(&presentation));
+                state.input = Some(WebInputService::new(
+                    store,
+                    subject_id,
+                    Some(Arc::new(inbox_tx)),
+                    presentation,
+                ));
+            }
+        }
+        state.stream = state.stream.or_else(|| self.stream_sink.clone());
+
         // Playground shares the inbox the WS handler already writes to, so
         // artifact changes are perceived by the same subject loop. SPEC §43.2.
         let playground_root = self.playground_root;
@@ -140,9 +193,9 @@ impl UiServer {
         // `/api/self` knows the last committed thought step and whether the
         // loop is active. A broadcast subscriber never consumes messages meant
         // for WS clients. SPEC §21.12.
-        if let Some(outbox_tx) = self.state.outbox_tx.as_ref() {
-            self.state.live.set_wired(true);
-            let live = Arc::clone(&self.state.live);
+        if let Some(outbox_tx) = state.outbox_tx.as_ref() {
+            state.live.set_wired(true);
+            let live = Arc::clone(&state.live);
             let mut outbox_rx = outbox_tx.subscribe();
             tokio::spawn(async move {
                 while let Ok(msg) = outbox_rx.recv().await {
@@ -172,7 +225,7 @@ impl UiServer {
         // Shared Arc registries: `/api/self` reports the same live objects the
         // Playground routes and WS handler use, not a second copy.
         if let Some(pg) = playground_state.clone() { api_state = api_state.with_playground(pg); }
-        api_state = api_state.with_live(Arc::clone(&self.state.live));
+        api_state = api_state.with_live(Arc::clone(&state.live));
 
         let playground_routes = match playground_state {
             Some(pg) => playground::router(pg),
@@ -197,7 +250,7 @@ impl UiServer {
             .merge(playground_routes)
             .merge(api::router(api_state))
             .merge(media::router(media_state))
-            .layer(Extension(self.state));
+            .layer(Extension(state));
         info!(addr=%self.bind, playground=%playground_root.display(), "UI server starting");
         let listener = tokio::net::TcpListener::bind(self.bind).await?;
         axum::serve(listener, app).await?;
