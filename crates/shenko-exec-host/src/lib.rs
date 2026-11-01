@@ -49,3 +49,8 @@ pub use person_task::*;
 
 pub mod life_identity;
 pub use life_identity::*;
+pub mod node_capabilities_task;
+pub use node_capabilities_task::*;
+
+pub mod node_selection_task;
+pub use node_selection_task::*;

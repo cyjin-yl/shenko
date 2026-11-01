@@ -1,0 +1,462 @@
+{
+  "schema": "shenko.fixed-verification.v1",
+  "recordedAtUTC": "2026-10-31T15:30:56Z",
+  "candidate": "0b27a109c819f365e4fb7422499deabaf997bc83",
+  "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+  "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87",
+  "sourceEvidenceParent": "2779b1ce6849457089da552b9876e52b5f058d0d",
+  "authority": "Continuation of the existing owner-approved fixed 0b27a109 source, Rust 1.98.1/original lock, static public dependency preparation, eight selected-SSH tests plus node regression in the dot online environment. No new source version or external execution scope.",
+  "result": "Fresh compilation and all 8 selected SSH plus 18 node tests passed. No source, dependency, assertion or lock changes. Six other SSH tests were filtered out; node binary and doc suites each contained zero tests.",
+  "observationWindowUTC": [
+    "2026-10-31T15:29:16Z",
+    "2026-10-31T15:30:56Z"
+  ],
+  "clockNote": "The raw executor UTC timestamps fall within the independent UTC observation window; no correction was applied.",
+  "preparation": {
+    "priorMissingPackages": [
+      {
+        "name": "gethostname",
+        "version": "1.1.0",
+        "archiveSha256": "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8",
+        "archiveBytes": 9865,
+        "officialIndexRecordMatchesLock": true,
+        "officialIndexSha256": "903a9bcb8074951a28e9635e71e499167725c35f607a32d1dfdc3bcba16ddb66"
+      },
+      {
+        "name": "x11rb",
+        "version": "0.13.2",
+        "archiveSha256": "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414",
+        "archiveBytes": 220549,
+        "officialIndexRecordMatchesLock": true,
+        "officialIndexSha256": "b5d018bdee495ef0a187d8784020cf018260e9d4b895f02104a3e619f677a24c"
+      },
+      {
+        "name": "x11rb-protocol",
+        "version": "0.13.2",
+        "archiveSha256": "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd",
+        "archiveBytes": 514069,
+        "officialIndexRecordMatchesLock": true,
+        "officialIndexSha256": "65d348f38ff57fb6e3c93a551087286f52b833d8dbd3250d7e9448cd5c5c860f"
+      }
+    ],
+    "registryArchivesVerified": 401,
+    "registryArchivesExpected": 401,
+    "archiveManifestSha256": "5cf5a9a3642517ce3eeee50730e18cd7f7018a1440cc3fb1c7273cdb3dfe2a1b",
+    "gitDependency": {
+      "repository": "https://github.com/cyjin-yl/cordis-rs",
+      "commit": "9a8a49fa459991ee29da73fb42ea9324cee9b680"
+    },
+    "rustArchive": "https://static.rust-lang.org/dist/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz",
+    "rustArchiveSha256": "5326b36c53de11d148c8f8dab6553a3d1006c2cfd32123683073fad3c302605b",
+    "rustArchiveChecksumSource": "https://static.rust-lang.org/dist/rust-1.98.1-x86_64-unknown-linux-gnu.tar.xz.sha256",
+    "restoration": "The previous toolchain/cache was absent. Downloaded the exact official archive, checked its official HTTPS checksum, and copied only rustc/cargo/rust-std component files without running installer scripts. No independent signature claim.",
+    "staticFetchFailure": "The first credential-free static cargo fetch omitted the platform Git/network route and failed resolving github.com. The same public fixed Git revision and locked archives then fetched through the existing platform route; no source or lock change. No project build scripts ran during fetch."
+  },
+  "toolchain": {
+    "version": "Rust/Cargo 1.98.1",
+    "binarySha256": {
+      "rustc": "859254978c0a0402c32f949f6de0d99aee73be8d15f45aac00ae1448aac51e74",
+      "cargo": "da77c8b33849312255ccde3179198ada4c8deb370488d050286146b1d1b27e14",
+      "rustdoc": "3ff7fed6d1064d8d75d24ae8beff9fe1d68031d3d819966481d22c3c9002b709"
+    },
+    "sameAsPreviousApprovedBinaryHashes": true
+  },
+  "isolation": {
+    "emptyHome": true,
+    "freshIndependentTarget": true,
+    "separateCargoHome": true,
+    "explicitCredentialFreeEnvironment": true,
+    "network": "Cargo --offline plus inherited seccomp denial of socket/connect/bind/listen/accept/accept4/io_uring_setup; anonymous process-local socketpair IPC remains available for compiler process startup. Inherited extra descriptors are closed. No mount-namespace claim.",
+    "probe": "IPv4, IPv6 and Unix socket creation each returned EPERM; anonymous socketpair transferred a local probe. No network socket or real SSH/model connection was permitted.",
+    "wrapperSha256": "dd00143f7a5b7752da148d1026011208351e13fc172f1bbe732bdd31228511a8",
+    "wrapperSource": "import ctypes, errno, os, sys\ns = ctypes.CDLL('libseccomp.so.2', use_errno=True)\ns.seccomp_init.argtypes = [ctypes.c_uint32]\ns.seccomp_init.restype = ctypes.c_void_p\ns.seccomp_syscall_resolve_name.argtypes = [ctypes.c_char_p]\ns.seccomp_syscall_resolve_name.restype = ctypes.c_int\ns.seccomp_rule_add.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int, ctypes.c_uint]\ns.seccomp_load.argtypes = [ctypes.c_void_p]\ns.seccomp_release.argtypes = [ctypes.c_void_p]\nc = s.seccomp_init(0x7fff0000)\nassert c\n# Keep anonymous local IPC for Cargo's jobserver; forbid creating or connecting any network socket.\nfor name in (b'socket', b'connect', b'bind', b'listen', b'accept', b'accept4', b'io_uring_setup'):\n    num = s.seccomp_syscall_resolve_name(name)\n    if num >= 0:\n        assert s.seccomp_rule_add(c, 0x50000 | errno.EPERM, num, 0) == 0\nassert s.seccomp_load(c) == 0\ns.seccomp_release(c)\nos.closerange(3, 1024)\nos.execv(sys.argv[1], sys.argv[1:])\n"
+  },
+  "firstAttempt": {
+    "result": "Both fixed-source commands exited 101 at the first compiler spawn. Cargo explicitly reported rustc never executed; zero tests. The initial custom wrapper had unnecessarily denied anonymous socketpair IPC as well as network sockets.",
+    "runs": [
+      {
+        "name": "selected-ssh",
+        "source": {
+          "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+          "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+          "dirty": "",
+          "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+        },
+        "command": [
+          "/usr/bin/python3",
+          "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/no-network.py",
+          "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "shenko-exec-ssh",
+          "selected_task::tests",
+          "--message-format=json"
+        ],
+        "environment": {
+          "PATH": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin:/usr/bin:/bin",
+          "HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/home",
+          "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/cargo-home",
+          "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/target",
+          "RUSTC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustc",
+          "RUSTDOC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustdoc",
+          "CARGO_NET_OFFLINE": "true",
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_INCREMENTAL": "0",
+          "CARGO_PROFILE_DEV_DEBUG": "0",
+          "CARGO_PROFILE_TEST_DEBUG": "0",
+          "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/tmp",
+          "LANG": "C.UTF-8",
+          "TZ": "UTC"
+        },
+        "startedAtRawExecutorUTC": "2026-10-31T15:26:38.535655+00:00",
+        "finishedAtRawExecutorUTC": "2026-10-31T15:26:38.686782+00:00",
+        "wallSeconds": 0.1511388920043828,
+        "exitCode": 101,
+        "after": {
+          "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+          "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+          "dirty": "",
+          "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+        },
+        "logHashes": {
+          "stdout": "7c4af99fd1ea2a26d5425d34c5279d692c40dff9303bccfa457c8b1058299ee8",
+          "stderr": "64736baf9b3942d05dd50bf2c4e31853ecc71cad902c1634c14aa32b1960f5ab"
+        }
+      },
+      {
+        "name": "node",
+        "source": {
+          "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+          "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+          "dirty": "",
+          "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+        },
+        "command": [
+          "/usr/bin/python3",
+          "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/no-network.py",
+          "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/cargo",
+          "test",
+          "--locked",
+          "--offline",
+          "-p",
+          "shenko-node",
+          "--message-format=json"
+        ],
+        "environment": {
+          "PATH": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin:/usr/bin:/bin",
+          "HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/home",
+          "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/cargo-home",
+          "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/target",
+          "RUSTC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustc",
+          "RUSTDOC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustdoc",
+          "CARGO_NET_OFFLINE": "true",
+          "CARGO_BUILD_JOBS": "1",
+          "CARGO_INCREMENTAL": "0",
+          "CARGO_PROFILE_DEV_DEBUG": "0",
+          "CARGO_PROFILE_TEST_DEBUG": "0",
+          "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/tmp",
+          "LANG": "C.UTF-8",
+          "TZ": "UTC"
+        },
+        "startedAtRawExecutorUTC": "2026-10-31T15:26:38.695235+00:00",
+        "finishedAtRawExecutorUTC": "2026-10-31T15:26:38.824276+00:00",
+        "wallSeconds": 0.1290525520016672,
+        "exitCode": 101,
+        "after": {
+          "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+          "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+          "dirty": "",
+          "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+        },
+        "logHashes": {
+          "stdout": "7c4af99fd1ea2a26d5425d34c5279d692c40dff9303bccfa457c8b1058299ee8",
+          "stderr": "64736baf9b3942d05dd50bf2c4e31853ecc71cad902c1634c14aa32b1960f5ab"
+        }
+      }
+    ],
+    "initialWrapperSha256": "70c5a888dd1d512a8fbe425b475eb2169933f83e95e7d2e161f68256960281f8",
+    "diagnosisAndRecovery": "System-only probes confirmed the additional IPC restriction. Static Cargo metadata succeeded without project compilation. A ptrace diagnostic was unavailable and not retried. One corrected-wrapper rerun retained denial of all new network sockets and connections, while restoring anonymous process-local IPC; that rerun compiled and passed unchanged source.",
+    "failureStderr": {
+      "selected-ssh": "   Compiling proc-macro2 v1.0.107\nerror: could not compile `proc-macro2` (build script)\n\nCaused by:\n  could not execute process `/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustc --crate-name build_script_build --edition=2021 /workspace/scratch/3ca1e20addac/shenko-advance-evidence/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/build.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C embed-bitcode=no --cfg 'feature=\"default\"' --cfg 'feature=\"proc-macro\"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values(\"default\", \"nightly\", \"proc-macro\", \"span-locations\"))' -C metadata=f71d64e35808ef64 -C extra-filename=-0ca1b77b693ce48f --out-dir /workspace/scratch/3ca1e20addac/shenko-advance-evidence/target/debug/build/proc-macro2-0ca1b77b693ce48f -C strip=debuginfo -L dependency=/workspace/scratch/3ca1e20addac/shenko-advance-evidence/target/debug/deps --cap-lints allow` (never executed)\n\nCaused by:\n  Operation not permitted (os error 1)\n",
+      "node": "   Compiling proc-macro2 v1.0.107\nerror: could not compile `proc-macro2` (build script)\n\nCaused by:\n  could not execute process `/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustc --crate-name build_script_build --edition=2021 /workspace/scratch/3ca1e20addac/shenko-advance-evidence/cargo-home/registry/src/index.crates.io-1949cf8c6b5b557f/proc-macro2-1.0.107/build.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type bin --emit=dep-info,link -C embed-bitcode=no --cfg 'feature=\"default\"' --cfg 'feature=\"proc-macro\"' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values(\"default\", \"nightly\", \"proc-macro\", \"span-locations\"))' -C metadata=f71d64e35808ef64 -C extra-filename=-0ca1b77b693ce48f --out-dir /workspace/scratch/3ca1e20addac/shenko-advance-evidence/target/debug/build/proc-macro2-0ca1b77b693ce48f -C strip=debuginfo -L dependency=/workspace/scratch/3ca1e20addac/shenko-advance-evidence/target/debug/deps --cap-lints allow` (never executed)\n\nCaused by:\n  Operation not permitted (os error 1)\n"
+    }
+  },
+  "runs": [
+    {
+      "name": "selected-ssh",
+      "source": {
+        "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+        "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+        "dirty": "",
+        "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+      },
+      "command": [
+        "/usr/bin/python3",
+        "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/no-network.py",
+        "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-ssh",
+        "selected_task::tests",
+        "--message-format=json"
+      ],
+      "environment": {
+        "PATH": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin:/usr/bin:/bin",
+        "HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/home",
+        "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/cargo-home",
+        "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/target",
+        "RUSTC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustc",
+        "RUSTDOC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustdoc",
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/tmp",
+        "LANG": "C.UTF-8",
+        "TZ": "UTC"
+      },
+      "startedAtRawExecutorUTC": "2026-10-31T15:29:19.722449+00:00",
+      "finishedAtRawExecutorUTC": "2026-10-31T15:30:18.526804+00:00",
+      "wallSeconds": 58.804371306003304,
+      "exitCode": 0,
+      "after": {
+        "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+        "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+        "dirty": "",
+        "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+      },
+      "logHashes": {
+        "stdout": "7318b990aca3ab0c94ad161a6bf22b4e671a78e84b5d010605baf3a75fa3d478",
+        "stderr": "13c7d0eac19f8a060eeed8a3b3948d7c3306622cfc66b0dd4b2f159f68e54fd9"
+      },
+      "testOutput": [
+        "running 8 tests",
+        "test selected_task::tests::unrelated_authority_is_refused_before_t1 ... ok",
+        "test selected_task::tests::different_registered_target_is_not_a_fallback ... ok",
+        "test selected_task::tests::legacy_input_bytes_are_unchanged_when_selection_is_absent ... ok",
+        "test selected_task::tests::forged_worker_is_refused_before_t1 ... ok",
+        "test selected_task::tests::legacy_selected_input_remains_query_only_without_inventing_generation ... ok",
+        "test selected_task::tests::conflicting_retry_cannot_change_action_or_dispatch_twice ... ok",
+        "test selected_task::tests::changed_runtime_generation_cannot_reuse_selected_invocation ... ok",
+        "test selected_task::tests::selection_is_sealed_in_real_t1_and_recovery_never_reselects ... ok",
+        "test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.34s"
+      ],
+      "buildWarnings": [],
+      "freshBuildObserved": true
+    },
+    {
+      "name": "node",
+      "source": {
+        "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+        "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+        "dirty": "",
+        "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+      },
+      "command": [
+        "/usr/bin/python3",
+        "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/no-network.py",
+        "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-node",
+        "--message-format=json"
+      ],
+      "environment": {
+        "PATH": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin:/usr/bin:/bin",
+        "HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/home",
+        "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/cargo-home",
+        "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/target",
+        "RUSTC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustc",
+        "RUSTDOC": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/toolchain/bin/rustdoc",
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/tmp",
+        "LANG": "C.UTF-8",
+        "TZ": "UTC"
+      },
+      "startedAtRawExecutorUTC": "2026-10-31T15:30:18.535939+00:00",
+      "finishedAtRawExecutorUTC": "2026-10-31T15:30:39.003074+00:00",
+      "wallSeconds": 20.467130543998792,
+      "exitCode": 0,
+      "after": {
+        "head": "0b27a109c819f365e4fb7422499deabaf997bc83",
+        "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+        "dirty": "",
+        "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87"
+      },
+      "logHashes": {
+        "stdout": "9762aaaefc9bd49f6fbb3224c230f117c8361b95633f4a62d6e031e494924cf5",
+        "stderr": "4af125cbd0743b43de52773ca5e843c472c4968a937aacffcff47fd6f7b9ee37"
+      },
+      "testOutput": [
+        "running 18 tests",
+        "test admission::tests::private_sqlite_recovery_cannot_mutate_an_outside_database ... ok",
+        "test roles::tests::role_assignment_and_observation_remain_distinct_across_reopen ... ok",
+        "test selection::tests::explicit_choice_survives_reopen_and_replay_never_dispatches ... ok",
+        "test selection::tests::snapshot_is_bounded_non_ranked_and_keeps_unknown_without_routes ... ok",
+        "test selection::tests::oversized_advertisement_is_explicit_and_cannot_be_recorded_as_ready ... ok",
+        "test capability::tests::malformed_advertisement_and_unverified_peer_have_no_authority ... ok",
+        "test units::tests::digest_versions_keep_independent_edges_and_re_resolve ... ok",
+        "test selection::tests::changed_observation_returns_reason_and_never_substitutes ... ok",
+        "test selection::tests::absent_observation_and_unenrolled_target_are_explained_not_guessed ... ok",
+        "test units::tests::exported_root_digest_is_independent_of_package_order ... ok",
+        "test units::tests::unresolved_attempt_becomes_unknown_and_is_never_replayed ... ok",
+        "test capability::tests::generation_safe_capability_facts_drive_candidacy ... ok",
+        "test units::tests::incoming_descriptor_supersedes_its_stale_retained_candidate ... ok",
+        "test units::tests::schema_two_transfer_does_not_invent_an_old_selection ... ok",
+        "test units::tests::trial_records_real_success_and_real_failure ... ok",
+        "test units::tests::export_retains_distinct_pins_and_recovers_a_missing_selected_version ... ok",
+        "test units::tests::v3_migration_preserves_identity_history_and_ambiguous_legacy_rows ... ok",
+        "test units::tests::package_transfers_between_nodes_without_inheriting_readiness ... ok",
+        "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s",
+        "running 0 tests",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "running 0 tests",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "buildWarnings": [],
+      "freshBuildObserved": true
+    }
+  ],
+  "logs": {
+    "cargo-fetch-platform-route.exit": {
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    "cargo-fetch-platform-route.stderr": {
+      "sha256": "3d861533c972b0093d0b8c77f90da79ca70c9e6ed5a07557e23f0a7d8405bb4d",
+      "bytes": 13407
+    },
+    "cargo-fetch-platform-route.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "cargo-fetch.exit": {
+      "sha256": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "bytes": 4
+    },
+    "cargo-fetch.stderr": {
+      "sha256": "6ba829ac19a9cc2f14727c5aaa4ec61f043770060c703d38361a4ef66daa2326",
+      "bytes": 2178
+    },
+    "cargo-fetch.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "dependency-verification.json": {
+      "sha256": "5cf5a9a3642517ce3eeee50730e18cd7f7018a1440cc3fb1c7273cdb3dfe2a1b",
+      "bytes": 65149
+    },
+    "first-attempt-node.result.json": {
+      "sha256": "6f6037e2711fff244c0f22218b431b7cde1bd835e1727da25c4c3489e77f5afc",
+      "bytes": 2010
+    },
+    "first-attempt-node.stderr": {
+      "sha256": "64736baf9b3942d05dd50bf2c4e31853ecc71cad902c1634c14aa32b1960f5ab",
+      "bytes": 1078
+    },
+    "first-attempt-node.stdout": {
+      "sha256": "7c4af99fd1ea2a26d5425d34c5279d692c40dff9303bccfa457c8b1058299ee8",
+      "bytes": 44
+    },
+    "first-attempt-results.json": {
+      "sha256": "f786976147e23c818efd9a9a1678767aed6235028ef2373ed013515ef939b05d",
+      "bytes": 4267
+    },
+    "first-attempt-selected-ssh.result.json": {
+      "sha256": "6ce5c51cc24930ac7107fd5b243582c1abe856e90532cb187abcaa56fcf9033c",
+      "bytes": 2050
+    },
+    "first-attempt-selected-ssh.stderr": {
+      "sha256": "64736baf9b3942d05dd50bf2c4e31853ecc71cad902c1634c14aa32b1960f5ab",
+      "bytes": 1078
+    },
+    "first-attempt-selected-ssh.stdout": {
+      "sha256": "7c4af99fd1ea2a26d5425d34c5279d692c40dff9303bccfa457c8b1058299ee8",
+      "bytes": 44
+    },
+    "metadata-no-trace.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "metadata-no-trace.stdout": {
+      "sha256": "3ad50b5acfbd654e8d5b702d2b64b1b05e82522781f8ace3c4a55c0dbdcd467c",
+      "bytes": 1929260
+    },
+    "metadata-process-probe.stderr": {
+      "sha256": "54c4fd1054c5c741ab0218ea148520f87ad3298ea3fac32a7fbfe043550ca21f",
+      "bytes": 283
+    },
+    "metadata-process-probe.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "metadata-process-probe.strace": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "missing-package-recovery.json": {
+      "sha256": "7aa69d7a791f7e0c170db6367936ebbfb1db90aa1392e60f77063c838dd656fe",
+      "bytes": 945
+    },
+    "node.result.json": {
+      "sha256": "c8302aca43c5cd0f9d1b7fd52945be1ec1ef38e64d3b3f8fce3379172ec926eb",
+      "bytes": 2008
+    },
+    "node.stderr": {
+      "sha256": "4af125cbd0743b43de52773ca5e843c472c4968a937aacffcff47fd6f7b9ee37",
+      "bytes": 961
+    },
+    "node.stdout": {
+      "sha256": "9762aaaefc9bd49f6fbb3224c230f117c8361b95633f4a62d6e031e494924cf5",
+      "bytes": 72841
+    },
+    "results.json": {
+      "sha256": "0fa49d8ebff81100e3f19148cec46c0bf6da17d32b176b7e14664a0d5e13fa61",
+      "bytes": 4263
+    },
+    "selected-ssh.result.json": {
+      "sha256": "8407695c566dfc8949c3abf82bed14d4d41a036fbac9ae3c5a87823c9767a825",
+      "bytes": 2048
+    },
+    "selected-ssh.stderr": {
+      "sha256": "13c7d0eac19f8a060eeed8a3b3948d7c3306622cfc66b0dd4b2f159f68e54fd9",
+      "bytes": 2851
+    },
+    "selected-ssh.stdout": {
+      "sha256": "7318b990aca3ab0c94ad161a6bf22b4e671a78e84b5d010605baf3a75fa3d478",
+      "bytes": 92250
+    },
+    "socket-probe.stderr": {
+      "sha256": "51ebb34302cea9f4d5c1dca083f4804239403c3e654331a66d7d38b74c8ecb79",
+      "bytes": 383
+    },
+    "socket-probe.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "localEvidenceDirectory": "/workspace/scratch/3ca1e20addac/shenko-advance-evidence/logs",
+  "remaining": [
+    "Installed authenticated child handler and registered-target permission/resource resolver remain absent.",
+    "Capability discovery/model-driven node choice and real remote execution have not been validated.",
+    "Six non-selected SSH tests, crash/commit-fault injection and full workspace suites were not run.",
+    "This fixed candidate is based on earlier main bc33b654; current main 9aac97c8 was not integrated or tested by this run.",
+    "PR #127 remains Draft and depends on unmerged #114. No full C17 or S1-S5 completion claim."
+  ],
+  "notPerformed": [
+    "No project source/dependency/assertion changes.",
+    "No real remote/model, account credentials, production/deployment, PR merge, review approval, protection change or key creation.",
+    "No GitHub CI success claim; these are local results in the dot online execution environment."
+  ]
+}
