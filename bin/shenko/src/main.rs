@@ -622,11 +622,11 @@ async fn install_native_definitions(
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
         .await?;
-    // Real X11 Computer Use: four kinds share one live backend state
-    // so lease authority and session identity agree across tasks.
+    // Desktop and VM handlers share one provider registry, lease authority
+    // and session state across tasks.
     let computer_use_backend =
         Arc::new(shenko_exec_host::ComputerUseBackend::new(Arc::clone(store)));
-    let computer_use_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
+    let computer_use_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 6] = [
         Arc::new(shenko_exec_host::ComputerUseSessionHandler::new(Arc::clone(
             &computer_use_backend,
         ))),
@@ -637,6 +637,12 @@ async fn install_native_definitions(
             &computer_use_backend,
         ))),
         Arc::new(shenko_exec_host::ComputerUseInputHandler::new(Arc::clone(
+            &computer_use_backend,
+        ))),
+        Arc::new(shenko_exec_host::ComputerUseCapabilitiesHandler::new(Arc::clone(
+            &computer_use_backend,
+        ))),
+        Arc::new(shenko_exec_host::ComputerUseVmHandler::new(Arc::clone(
             &computer_use_backend,
         ))),
     ];
