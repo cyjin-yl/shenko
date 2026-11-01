@@ -150,6 +150,8 @@ pub(super) struct FrozenInput {
     // operations and their receipt readers keep their original input digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) selection: Option<crate::selected_task::TaskBoundNodeSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) installation: Option<crate::NativeInstallationSeal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -221,7 +223,7 @@ impl SshTaskRunner<'_> {
         timeout_secs: u64,
     ) -> Result<SshObservation> {
         self.execute_frozen(ctx, operation_id, logical_key, authority,
-            FrozenInput { binding, action, selection: None }, timeout_secs).await
+            FrozenInput { binding, action, selection: None, installation: None }, timeout_secs).await
     }
 
     pub(super) async fn execute_frozen(
@@ -233,6 +235,19 @@ impl SshTaskRunner<'_> {
         frozen: FrozenInput,
         timeout_secs: u64,
     ) -> Result<SshObservation> {
+        let (op, att, frozen, fresh) = self.prepare_frozen(
+            ctx, operation_id, logical_key, authority, frozen)?;
+        self.observe(op, att, frozen, if fresh { "dispatch" } else { "query" }, timeout_secs).await
+    }
+
+    fn prepare_frozen(
+        &self,
+        ctx: &TaskInvocation,
+        operation_id: EntityId,
+        logical_key: &str,
+        authority: AuthorityRef,
+        frozen: FrozenInput,
+    ) -> Result<(OperationRecord, AttemptRecord, FrozenInput, bool)> {
         if let Some(selected) = &frozen.selection {
             selected.ensure_fresh()?;
         }
@@ -319,10 +334,80 @@ impl SshTaskRunner<'_> {
         };
         if let Some(existing) = self.store.arm_external_operation(ctx, &mut op, &mut att)? {
             // Even an armed-but-never-sent record is uncertain after recovery.
-            return self.query(existing.operation_id, timeout_secs).await;
+            let (op, att, frozen) = self.query_input(existing.operation_id)?;
+            return Ok((op, att, frozen, false));
         }
-        self.observe(op, att, frozen, "dispatch", timeout_secs)
-            .await
+        Ok((op, att, frozen, true))
+    }
+
+    pub(super) async fn execute_frozen_installed(
+        &self, ctx: &TaskInvocation, operation_id: EntityId, logical_key: &str,
+        authority: AuthorityRef, mut frozen: FrozenInput,
+        installation: &crate::NativeSshInstallation, limits: NativeCommandLimits,
+    ) -> Result<SshObservation> {
+        ensure!(installation.matches_original(self.store, &frozen.binding, Some(installation.seal())),
+            "native SSH installation binding mismatch");
+        // The native transport's already established bound includes the JSON
+        // envelope/base64, not merely decoded action stdin/upload bytes. Reject
+        // oversized fresh input before T1, never as an unknown sent operation.
+        ensure!(serde_json::to_vec(&frozen.action)?.len() <= 1024 * 1024,
+            "native SSH action exceeds 1MiB encoded transport input");
+        frozen.installation = Some(installation.seal().clone());
+        // All connection/signing code is below this durable T1. No permission
+        // verdict or metadata descriptor is converted into an invented grant.
+        let (op, att, frozen, fresh) = self.prepare_frozen(
+            ctx, operation_id, logical_key, authority, frozen)?;
+        self.observe_installed(op, att, frozen, installation, limits,
+            if fresh { Some(ctx) } else { None }).await
+    }
+
+    /// Installed handler recovery. The target comes from original frozen data,
+    /// not a newly supplied model target; credentials remain local to installer.
+    pub fn original_target_id(&self, id: EntityId) -> Result<String> {
+        Ok(self.query_input(id)?.2.binding.target_id)
+    }
+
+    pub async fn query_installed(&self, id: EntityId,
+        installation: &crate::NativeSshInstallation, limits: NativeCommandLimits,
+    ) -> Result<SshObservation> {
+        let (op, att, frozen) = self.query_input(id)?;
+        self.observe_installed(op, att, frozen, installation, limits, None).await
+    }
+
+    async fn observe_installed(&self, op: OperationRecord, att: AttemptRecord,
+        frozen: FrozenInput, installation: &crate::NativeSshInstallation,
+        mut limits: NativeCommandLimits, fresh: Option<&TaskInvocation>,
+    ) -> Result<SshObservation> {
+        use crate::native_transport::NativeSshError;
+        let mode = if fresh.is_some() { "dispatch" } else { "query" };
+        let command = Self::helper_command(&op, &frozen.binding, mode);
+        let payload = if fresh.is_some() { serde_json::to_vec(&frozen.action)? } else { Vec::new() };
+        let end = tokio::time::Instant::now().checked_add(limits.deadline)
+            .filter(|_| !limits.deadline.is_zero());
+        let observed = async {
+            let end = end.ok_or(NativeSshError::InvalidLimits)?;
+            if let Some(ctx) = fresh {
+                if self.store.native_invocation_current(ctx).ok() != Some(true) {
+                    return Err(NativeSshError::InvocationChanged);
+                }
+            }
+            let session = tokio::time::timeout_at(end, installation.open_original(self.store,
+                &frozen.binding, frozen.installation.as_ref(), limits.deadline)).await
+                .map_err(|_| NativeSshError::Deadline)??;
+            // No Store or Node lock crosses the opener/authentication await.
+            // Durable cancellation/ancestor/generation change is observed
+            // before a NEW exec; original recovery only queries an old receipt.
+            if let Some(ctx) = fresh {
+                if self.store.native_invocation_current(ctx).ok() != Some(true) {
+                    return Err(NativeSshError::InvocationChanged);
+                }
+            }
+            limits.deadline = end.saturating_duration_since(tokio::time::Instant::now());
+            session.execute(command.as_bytes(), &payload, limits).await
+        }.await.map_err(|error: NativeSshError| error.to_string());
+        // Failed connection/credential/fencing after T1 is armed/unknown.
+        // No false NeverDispatched and no implicit retry or alternate identity.
+        self.record_observation(op, att, frozen, ObservedTransport::Native(observed))
     }
 
     pub async fn query(&self, id: EntityId, timeout_secs: u64) -> Result<SshObservation> {
@@ -452,6 +537,23 @@ impl SshTaskRunner<'_> {
             self.seal(&(receipt.as_ref(), transport.as_ref(), dispatch_error.as_ref()),
                 "ssh-observation")?
         };
+        // The installed child exposes a bounded result plus a CAS reference to
+        // the complete receipt. It does not recast an arbitrary exec as known
+        // effects. Historical codecs/frozen inputs retain their old shape.
+        let normalized = if frozen.installation.is_some() {
+            let receipt_ref = receipt.as_ref().map(|receipt|
+                self.seal(receipt, "ssh-native-helper-receipt-v1")).transpose()?;
+            Some(self.seal(&serde_json::json!({
+                "schema": "ssh.native-task-result.v1", "operation_id": op.operation_id,
+                "receipt_ref": receipt_ref, "effect_status": effect,
+                "state": receipt.as_ref().map(|r| &r.state),
+                "exit_code": receipt.as_ref().and_then(|r| r.exit_code),
+                "stdout_preview_b64": receipt.as_ref().map(|r| r.stdout_b64.chars().take(8192).collect::<String>()),
+                "stderr_preview_b64": receipt.as_ref().map(|r| r.stderr_b64.chars().take(8192).collect::<String>()),
+                "stdout_preview_truncated": receipt.as_ref().map(|r| r.stdout_truncated || r.stdout_b64.len() > 8192),
+                "stderr_preview_truncated": receipt.as_ref().map(|r| r.stderr_truncated || r.stderr_b64.len() > 8192),
+            }), "ssh-native-task-result-v1")?)
+        } else { None };
         let ev = EvidenceReceipt {
             record_schema_version: 1,
             receipt_id: EntityId::new(),
@@ -470,7 +572,7 @@ impl SshTaskRunner<'_> {
                 DecodeStatus::Uninterpreted
             },
             observation_level: completed.map(|_| ObservationLevel::RemoteCompleted),
-            normalized_ref: None,
+            normalized_ref: normalized,
             observed_at: Some(chrono::Utc::now()),
             received_commit: op.prepared_commit,
         };

@@ -19,6 +19,9 @@ use tokio::{io::{AsyncRead, AsyncWrite}, time::{Instant, timeout, timeout_at}};
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum NativeSshError {
     #[error("invalid native SSH binding")] InvalidBinding,
+    #[error("native SSH installation identity mismatch")] InstallationMismatch,
+    #[error("selected native SSH credential unavailable")] CredentialUnavailable,
+    #[error("native SSH task invocation changed before exec")] InvocationChanged,
     #[error("sealed public trust unavailable")] TrustUnavailable,
     #[error("unsupported sealed public trust syntax")] TrustUnsupported,
     #[error("invalid native SSH limits")] InvalidLimits,
@@ -36,7 +39,7 @@ pub struct NativeSshConnection {
     binding_digest: shenko_types::object::Digest,
     auth_deadline: Instant,
 }
-pub struct NativeSshSession(NativeSshConnection);
+pub struct NativeSshSession(NativeSshConnection, PublicKey);
 
 impl NativeSshConnection {
     pub async fn connect_stream<R>(target: NativeSshTarget, io: R, deadline: Duration)
@@ -92,12 +95,13 @@ impl NativeSshConnection {
         if key.algorithm().is_rsa() && key.hash_alg().is_none() {
             return Err(NativeSshError::Authentication); // no RSA/SHA-1 fallback
         }
+        let public_key = key.public_key().clone();
         let result = timeout_at(self.auth_deadline,
             self.handle.authenticate_publickey(self.account.clone(), key)).await
             .map_err(|_| NativeSshError::Deadline)?
             .map_err(|_| NativeSshError::Authentication)?;
         if !result.success() { return Err(NativeSshError::Authentication); }
-        Ok(NativeSshSession(self))
+        Ok(NativeSshSession(self, public_key))
     }
 
     /// One exact public identity and signer; no enumeration/fallback. An agent
@@ -106,12 +110,13 @@ impl NativeSshConnection {
         -> Result<NativeSshSession, NativeSshError>
     where S: russh::Signer + Send, S::Error: Send {
         if key.algorithm().is_rsa() && hash.is_none() { return Err(NativeSshError::Authentication); }
+        let public_key = key.clone();
         let result = timeout_at(self.auth_deadline,
             self.handle.authenticate_publickey_with(self.account.clone(), key, hash, signer)).await
             .map_err(|_| NativeSshError::Deadline)?
             .map_err(|_| NativeSshError::Authentication)?;
         if !result.success() { return Err(NativeSshError::Authentication); }
-        Ok(NativeSshSession(self))
+        Ok(NativeSshSession(self, public_key))
     }
 }
 
@@ -145,6 +150,10 @@ pub struct NativeCommandObservation {
 }
 
 impl NativeSshSession {
+    pub(crate) fn matches_public_key(&self, key: &PublicKey) -> bool {
+        self.1.key_data() == key.key_data()
+    }
+
     /// Bind a task to the exact trusted installation facts used for KEX and
     /// account authentication. The caller still owns endpoint stream acquisition
     /// and signer authorization; a matching digest does not create either.

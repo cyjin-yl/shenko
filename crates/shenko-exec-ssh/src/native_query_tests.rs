@@ -35,7 +35,7 @@ fn fixture() -> Fixture {
     let runner = SshTaskRunner { store: &store };
     let frozen = FrozenInput { binding: binding.clone(),
         action: SshAction::exec(vec!["NEVER-DISPATCH-OR-REPLAY".into()], b"private-owned-fixture-input"),
-        selection: None };
+        selection: None, installation: None };
     let input = runner.seal(&frozen, "ssh-frozen-input").unwrap();
     let conversation_id = EntityId::new();
     let task = TaskRecord { record_schema_version: 1, task_id: ctx.task_id,

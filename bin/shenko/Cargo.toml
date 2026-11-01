@@ -45,6 +45,9 @@ dirs-next = "2"
 libc = "0.2"
 
 [dev-dependencies]
+shenko-exec-ssh = { path = "../../crates/shenko-exec-ssh" }
+russh = { workspace = true }
+async-trait = { workspace = true }
 x11rb = { workspace = true }
 
 [lints.rust]

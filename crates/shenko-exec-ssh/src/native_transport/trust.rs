@@ -51,7 +51,7 @@ impl NativeSshTarget {
     // Exact persisted installation facts, not an arbitrary caller tag or grant.
     // Includes endpoint/account, selected credential handle, receipt root and
     // the full sealed trust reference. No private key bytes are read or emitted.
-    pub(super) fn binding_digest(binding: &SshBinding) -> Result<Digest, NativeSshError> {
+    pub(crate) fn binding_digest(binding: &SshBinding) -> Result<Digest, NativeSshError> {
         serde_json::to_vec(&("ssh.native-session-binding.v1", binding))
             .map(|bytes| Digest::blake3(&bytes))
             .map_err(|_| NativeSshError::InvalidBinding)

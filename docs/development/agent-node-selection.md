@@ -733,3 +733,125 @@ This does not establish real remote execution or installed model discovery.
 The lock
 changes only by adding the already-existing local `shenko-node` package as a
 `shenko-exec-ssh` dependency; no external dependency version is changed.
+
+
+## Native installed child candidate — 2026-11-01, UNEXECUTED
+
+The next increment actually consumes the existing bridge through
+`NativeSshTaskHandler`, registered by `shenko start --ssh-targets /absolute/config.json`.
+The CLI is explicit: no HOME, SSH config, key enumeration, agent discovery or
+credential environment lookup. Without this option the SSH child is not
+installed; startup explains the missing capability. There is no always-allow
+policy shim, product command allowlist or per-command human approval gate.
+
+```text
+real native registry/subject task + recorded explicit node choice
+  → installed target/node map + local connection slot
+  → Store T1 freezes operation/attempt/action/selection/installation identity
+  → exact local signer + CAS-pinned host/account over native russh
+  → current generation/owner/ancestor check before fresh exec
+  → helper receipt / E1 / bounded result + full-receipt CAS reference
+  → existing scheduler T2 only for genuinely known effects
+```
+
+The JSON schema is `shenko.ssh.file-installation.v1`, with a `targets` list.
+Each entry explicitly provides `node_id`, `target_id`, `revision`, `host`, `port`,
+`account`, `private_key_file`, `public_key_openssh`, `known_hosts_file`, and
+`receipt_root`. Locations must be absolute. Do not put private key contents,
+passphrases or tokens in this file. Startup seals the selected public trust;
+private material is read only after durable T1. The installed model projection
+contains target-to-node IDs, not host/account/key locations. This is the
+installer's explicit relationship to an already enrolled Node, **not** a claim
+that SSH authentication cryptographically certifies the remote Node process.
+No Node membership or another owner's target registration is overwritten.
+
+The first concrete installer supports an explicitly selected unencrypted
+OpenSSH/compatible private-key file and its expected public identity. On Unix
+it opens without following a final symlink or blocking on a replaced FIFO,
+checks a regular file and disallows group/other-readable key permissions.
+Configuration and known-host files use the same bounded regular/no-follow/nonblocking
+Unix open discipline, without imposing private-key mode rules on public material.
+A private key mode of 0400 is valid; the rule is no group/other access, not exactly 0600.
+Transient read buffers use the already locked `zeroize` package; this is not a
+claim that every library/OS copy is erased. Windows ACL equivalence is untested.
+Encrypted-file passphrases, managed agents, hardware signers and CA/hashed-host
+trust remain uninstalled capabilities; `NativeSessionOpener` reuses the native
+signer/session API for a real future adapter, not a fake success implementation.
+RSA file authentication selects SHA-512 and never falls back to SHA-1; RSA-SHA256-
+only servers need a later evidenced algorithm-selection improvement.
+
+The new non-secret seal binds ledger, Node mapping, revision, complete endpoint/
+account/trust binding and actual authenticated public key. Changing any of these
+cannot redirect an armed operation. Recovery reads the original target from CAS,
+requires the original installation seal and queries the same operation/attempt
+with empty stdin. Old v1 records without this seal remain readable by their
+historical explicit query reader; the new installed handler does not manufacture
+an original signer identity for them. The optional absent seal retains the old
+serialized shape. Historical receipts and observation codecs are not rewritten.
+
+`permission_ref` in `ssh.target-references.v1` still means a provider-owned
+object/version **reference**, not a credential, grant, resource lease or approval.
+The older read-only `PolicyObserved` evidence is not promoted into authority.
+This installed route consumes actual selected OS/account/signer capabilities,
+the existing task authority/fencing and local resource capacity; it does not
+require an invented positive verdict from the metadata-only inspection API.
+The four local slots bound local connections, not remote effects. The existing
+native bounds remain unchanged: at most 1 MiB encoded action JSON before T1,
+2 MiB helper stdout, 1 MiB helper stderr; decoded upload/stdin size alone is not
+the encoded-envelope size. Larger helper receipts hit the transport output cap
+and remain unknown rather than being truncated into a successful receipt.
+Aborting or
+closing a connection does not prove a remote command stopped; a race after the
+last fence and a lost receipt remain unknown. POSIX/Python3 helper availability,
+remote account capabilities and target directory protection remain real runtime
+requirements. The old host-ssh/tmux path is not a native fallback here.
+
+Nine new static tests target concrete risks: (1) real parser/Store/Node/child T1
+before authentication and successful receipt/T2; (2) lost reply plus Store reopen
+queries the original operation without action replay; (3) cancellation while
+awaiting an authenticated opener prevents fresh exec; (4) a different, genuinely
+authenticated public identity cannot impersonate the installed signer;
+(5) the real startup file installer diagnoses an owned missing key after T1
+without credential discovery or host-ssh fallback; (6) a generated, owned
+protected key file loads the exact identity and becomes unavailable if made
+group-readable; (7) the shared public configuration/trust reader refuses an
+owned FIFO without waiting for a writer; (8) a same-agent but different
+branch/origin installation cannot reach T1 or its opener; (9) one detached task
+snapshot/call-context pair is refused before T1 or the opener. The last two
+are combined negative identities, not separate tests isolating each individual
+field predicate. The protocol fixtures use 1 KiB memory streams and synthetic
+helper receipts; they do not execute the remote Python helper or a real host.
+**These nine and the modified source have not been compiled or run.** Prior
+71-pass/84-selected evidence belongs to earlier exact versions, not this one.
+No real model has sampled the new installed usage prompt; model-behavior
+acceptance, actual SSH interoperability, platform ACLs, independently hosted CI
+and long-run recovery remain open.
+
+
+## 2026-11-01 native installed child validation checkpoint
+
+The static candidate above was executed as tree `42f65b6c`: 78 passed / 2 failed.
+Both owned negative fixtures bound the pending placeholder implementation rather
+than the registered handler descriptor, so the correct production implementation
+guard stopped them before the intended identity/context checks. That failed run
+and its original source/ledger/logs remain preserved.
+
+Only the owned fixture helper was corrected to use the real Store claim API with
+the installed descriptor; four kind/version/plugin/artifact preconditions were
+added. The existing precise rejection, no-T1, no-opener and no-exec assertions
+were not weakened. All other 542 source leaves, product code and dependencies
+remain byte-identical to the first run. Fixed recovery tree `cb59d5a4` then passed
+**all 80 selected tests**, after nine exact name listings, with 0 failures/ignored.
+The two direct-Store negative fixtures are not described as full registry dispatch;
+the five positive installed-child journeys use the actual service registry.
+
+The source/dependency/lock/toolchain pre/post guards matched (543 source leaves,
+493 registry archives and 25,840 extracted files). Existing compilation cache was
+reused; this is not a clean full rebuild. See the [version-bound result and retained
+failures](../evidence/native-installed-ssh-child-verified-20261101.json).
+
+This proves the selected owned in-memory child/receipt/recovery paths and bounded
+file/FIFO fixture behavior, not real SSH hosts/remote helper, real model use,
+encrypted private-key/agent/hardware installation, Windows ACL or WASM acceptance.
+No command allowlist or fake permission grant was introduced. C07/#12 remains open;
+PR127 remains Draft and independent hosted CI is still missing.

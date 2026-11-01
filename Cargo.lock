@@ -3452,12 +3452,14 @@ name = "shenko"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "clap",
  "cordis-core",
  "dirs-next",
  "libc",
+ "russh",
  "serde",
  "serde_json",
  "shenko-awareness-core",
@@ -3467,6 +3469,7 @@ dependencies = [
  "shenko-compact-snap",
  "shenko-context-policy",
  "shenko-exec-host",
+ "shenko-exec-ssh",
  "shenko-identity",
  "shenko-kernel",
  "shenko-media",
@@ -3621,6 +3624,7 @@ dependencies = [
  "serde_json",
  "shenko-awareness-core",
  "shenko-channel-napcat",
+ "shenko-exec-ssh",
  "shenko-node",
  "shenko-store",
  "shenko-subject",
@@ -3643,6 +3647,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "libc",
  "rusqlite",
  "russh",
  "serde",
@@ -3654,6 +3659,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

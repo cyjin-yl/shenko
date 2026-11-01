@@ -43,6 +43,9 @@ enum Command {
         /// Account bound to the persistent ingress database (not an admin grant).
         #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
         napcat_account: Option<u64>,
+        /// Explicit native SSH installation metadata; never discovered from HOME/env.
+        #[arg(long)]
+        ssh_targets: Option<PathBuf>,
     },
     /// Show or edit the instance's name, soul and personality — SPEC §6.
     /// Every edit is a new revision of the same agent; history is kept.
@@ -346,6 +349,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             name,
             napcat,
             napcat_account,
+            ssh_targets,
         } => {
             if napcat.is_some() {
                 anyhow::ensure!(
@@ -425,6 +429,13 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     ),
                 )
                 .await?;
+            if let Some(path) = ssh_targets {
+                let ssh_node = node_sync::open_node(&data_dir, &store)?;
+                install_native_ssh(&supervisor, Arc::clone(&store), ssh_node, &path).await?;
+                info!("native SSH explicit installation ready; credentials are loaded only after task admission");
+            } else {
+                info!("native SSH unavailable: no explicit --ssh-targets installation configured");
+            }
             let printf_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
                 Arc::new(shenko_exec_host::HostPrintfHandler::new(Arc::clone(&store)));
             let _native_printf_plugin = supervisor
@@ -1583,8 +1594,23 @@ async fn install_node_selection_recorder(
     Ok(())
 }
 
+// The real startup consumer: absence means uninstalled, not an always-deny
+// pseudo-provider. Tests use the same registry lifecycle with owned fixtures.
+async fn install_native_ssh(
+    supervisor: &shenko_kernel::Supervisor,
+    store: Arc<shenko_store::Store>,
+    node: shenko_node::Node,
+    path: &std::path::Path,
+) -> Result<()> {
+    let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::NativeSshTaskHandler::from_file(store, node, path)?);
+    supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod recovery_integration_tests {
+    include!("native_ssh_installation_tests.rs");
     use super::*;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
     use shenko_types::{
