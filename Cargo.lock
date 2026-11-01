@@ -484,6 +484,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cesu8"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d43a04d8753f35258c91f8ec639f792891f748a1edbd759cf1dcea3382ad83c"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -594,6 +600,16 @@ name = "colorchoice"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d07550c9036bf2ae0c684c4297d503f838287c83c53686d05370d0e139ae570"
+
+[[package]]
+name = "combine"
+version = "4.6.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4356eba6976435498d05a311ee9fc486da3bc81c200d3f0d7dd9703b41913f92"
+dependencies = [
+ "bytes",
+ "memchr",
+]
 
 [[package]]
 name = "const-oid"
@@ -1967,6 +1983,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "jni"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a87aa2bb7d2af34197c04845522473242e1aa17c12f4935d5856491a7fb8c97"
+dependencies = [
+ "cesu8",
+ "cfg-if",
+ "combine",
+ "jni-sys 0.3.1",
+ "log",
+ "thiserror 1.0.69",
+ "walkdir",
+ "windows-sys 0.45.0",
+]
+
+[[package]]
+name = "jni-sys"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258"
+dependencies = [
+ "jni-sys 0.4.1",
+]
+
+[[package]]
+name = "jni-sys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6377a88cb3910bee9b0fa88d4f42e1d2da8e79915598f65fb0c7ee14c878af2"
+dependencies = [
+ "jni-sys-macros",
+]
+
+[[package]]
+name = "jni-sys-macros"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "38c0b942f458fe50cdac086d2f946512305e5631e720728f2a61aabcd47a6264"
+dependencies = [
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "jobserver"
 version = "0.1.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2914,6 +2974,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-core",
+ "futures-util",
  "http",
  "http-body",
  "http-body-util",
@@ -2922,6 +2983,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -2933,12 +2995,14 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
+ "tokio-util",
  "tower",
  "tower-http",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams",
  "web-sys",
  "webpki-roots",
 ]
@@ -3206,6 +3270,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "same-file"
+version = "1.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
+dependencies = [
+ "winapi-util",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3454,12 +3527,14 @@ name = "shenko"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "base64 0.22.1",
  "chrono",
  "clap",
  "cordis-core",
  "dirs-next",
  "libc",
+ "parking_lot",
  "serde",
  "serde_json",
  "shenko-awareness-core",
@@ -3469,9 +3544,12 @@ dependencies = [
  "shenko-compact-snap",
  "shenko-context-policy",
  "shenko-exec-host",
+ "shenko-exec-ssh",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-media",
  "shenko-memory",
+ "shenko-mobile",
  "shenko-node",
  "shenko-quota",
  "shenko-repl",
@@ -3480,6 +3558,7 @@ dependencies = [
  "shenko-subject",
  "shenko-types",
  "shenko-ui",
+ "shenko-update",
  "shenko-wasm",
  "tokio",
  "tokio-util",
@@ -3487,6 +3566,14 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "x11rb",
+]
+
+[[package]]
+name = "shenko-android-shell"
+version = "0.1.0"
+dependencies = [
+ "jni",
+ "shenko",
 ]
 
 [[package]]
@@ -3499,6 +3586,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "shenko-node",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
@@ -3528,6 +3616,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-channel-adapters"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "futures",
+ "hex",
+ "md5",
+ "parking_lot",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "shenko-types",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tokio-util",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "shenko-channel-napcat"
 version = "0.1.0"
 dependencies = [
@@ -3537,6 +3648,7 @@ dependencies = [
  "chrono",
  "futures",
  "parking_lot",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
@@ -3612,6 +3724,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-evidence"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "shenko-exec-host"
 version = "0.1.0"
 dependencies = [
@@ -3633,6 +3752,7 @@ dependencies = [
  "shenko-context-policy",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-memory",
  "shenko-node",
  "shenko-store",
  "shenko-subject",
@@ -3662,6 +3782,7 @@ dependencies = [
  "serde_json",
  "shenko-node",
  "shenko-store",
+ "shenko-subject",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
@@ -3702,19 +3823,64 @@ dependencies = [
 ]
 
 [[package]]
+name = "shenko-media"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "cordis-core",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "shenko-store",
+ "shenko-subject",
+ "shenko-types",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "tracing",
+]
+
+[[package]]
 name = "shenko-memory"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "cordis-core",
+ "parking_lot",
  "serde",
  "serde_json",
+ "shenko-context-policy",
  "shenko-store",
  "shenko-types",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "shenko-mobile"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "blake3",
+ "chrono",
+ "png",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "shenko-store",
+ "shenko-subject",
+ "shenko-types",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3749,7 +3915,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64",
+ "base64 0.22.1",
  "blake3",
  "cap-std",
  "chrono",
@@ -3778,6 +3944,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shenko-node",
+ "shenko-store",
  "shenko-types",
  "shenko-wasm",
  "thiserror 2.0.21",
@@ -3793,6 +3960,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "bytes",
+ "cap-std",
  "chrono",
  "libc",
  "parking_lot",
@@ -3824,15 +3992,19 @@ dependencies = [
  "futures",
  "parking_lot",
  "pulldown-cmark",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
  "shenko-awareness-core",
  "shenko-broker",
+ "shenko-channel-napcat",
  "shenko-compact-budget",
  "shenko-context-policy",
  "shenko-identity",
  "shenko-kernel",
+ "shenko-memory",
+ "shenko-node",
  "shenko-quota",
  "shenko-store",
  "shenko-types",
@@ -3864,19 +4036,24 @@ name = "shenko-ui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
+ "blake3",
  "bytes",
  "chrono",
  "futures",
  "parking_lot",
+ "pulldown-cmark",
  "serde",
  "serde_json",
  "shenko-broker",
  "shenko-context-policy",
  "shenko-kernel",
+ "shenko-media",
  "shenko-store",
  "shenko-subject",
  "shenko-types",
+ "shenko-wasm",
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite 0.26.2",
@@ -3890,13 +4067,21 @@ dependencies = [
 name = "shenko-update"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-trait",
  "chrono",
+ "parking_lot",
  "rusqlite",
  "rustix",
  "serde",
+ "serde_json",
+ "shenko-store",
+ "shenko-subject",
  "shenko-types",
  "thiserror 2.0.21",
+ "tokio",
  "tracing",
+ "uuid",
  "windows-sys 0.61.2",
 ]
 
@@ -3909,10 +4094,13 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "bytes",
+ "cap-std",
  "chrono",
+ "getrandom 0.2.17",
+ "parking_lot",
  "serde",
  "serde_json",
- "sha2",
+ "sha2 0.10.9",
  "shenko-node",
  "shenko-store",
  "shenko-types",
@@ -3923,6 +4111,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wat",
+ "wiggle",
 ]
 
 [[package]]
@@ -4639,6 +4828,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
+name = "walkdir"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+dependencies = [
+ "same-file",
+ "winapi-util",
+]
+
+[[package]]
 name = "want"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4753,6 +4952,19 @@ checksum = "4495a6f85dd94c411c749303efcbc5defade0b0cbdbc0541495241ab917a9b5a"
 dependencies = [
  "leb128fmt",
  "wasmparser 0.262.0",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -5162,6 +5374,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-environ",
  "wiggle-macro",
+ "witx",
 ]
 
 [[package]]
@@ -5343,11 +5556,20 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
+version = "0.45.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
+dependencies = [
+ "windows-targets 0.42.2",
+]
+
+[[package]]
+name = "windows-sys"
 version = "0.52.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
 dependencies = [
- "windows-targets",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -5361,18 +5583,33 @@ dependencies = [
 
 [[package]]
 name = "windows-targets"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e5180c00cd44c9b1c88adb3693291f1cd93605ded80c250a75d472756b4d071"
+dependencies = [
+ "windows_aarch64_gnullvm 0.42.2",
+ "windows_aarch64_msvc 0.42.2",
+ "windows_i686_gnu 0.42.2",
+ "windows_i686_msvc 0.42.2",
+ "windows_x86_64_gnu 0.42.2",
+ "windows_x86_64_gnullvm 0.42.2",
+ "windows_x86_64_msvc 0.42.2",
+]
+
+[[package]]
+name = "windows-targets"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973"
 dependencies = [
- "windows_aarch64_gnullvm",
- "windows_aarch64_msvc",
- "windows_i686_gnu",
+ "windows_aarch64_gnullvm 0.52.6",
+ "windows_aarch64_msvc 0.52.6",
+ "windows_i686_gnu 0.52.6",
  "windows_i686_gnullvm",
- "windows_i686_msvc",
- "windows_x86_64_gnu",
- "windows_x86_64_gnullvm",
- "windows_x86_64_msvc",
+ "windows_i686_msvc 0.52.6",
+ "windows_x86_64_gnu 0.52.6",
+ "windows_x86_64_gnullvm 0.52.6",
+ "windows_x86_64_msvc 0.52.6",
 ]
 
 [[package]]
@@ -5386,15 +5623,33 @@ dependencies = [
 
 [[package]]
 name = "windows_aarch64_gnullvm"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "597a5118570b68bc08d8d59125332c54f1ba9d9adeedeef5b99b02ba2b0698f8"
+
+[[package]]
+name = "windows_aarch64_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
 
 [[package]]
 name = "windows_aarch64_msvc"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e08e8864a60f06ef0d0ff4ba04124db8b0fb3be5776a5cd47641e942e58c4d43"
+
+[[package]]
+name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
+
+[[package]]
+name = "windows_i686_gnu"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c61d927d8da41da96a81f029489353e68739737d3beca43145c8afec9a31a84f"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -5410,9 +5665,21 @@ checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
 
 [[package]]
 name = "windows_i686_msvc"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "44d840b6ec649f480a41c8d80f9c65108b92d89345dd94027bfe06ac444d1060"
+
+[[package]]
+name = "windows_i686_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
+
+[[package]]
+name = "windows_x86_64_gnu"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8de912b8b8feb55c064867cf047dda097f92d51efad5b491dfb98f6bbb70cb36"
 
 [[package]]
 name = "windows_x86_64_gnu"
@@ -5422,9 +5689,21 @@ checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26d41b46a36d453748aedef1486d5c7a85db22e56aff34643984ea85514e94a3"
+
+[[package]]
+name = "windows_x86_64_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
+
+[[package]]
+name = "windows_x86_64_msvc"
+version = "0.42.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0"
 
 [[package]]
 name = "windows_x86_64_msvc"
