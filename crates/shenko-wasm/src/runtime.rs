@@ -1,4 +1,5 @@
-use crate::mount::{MountMode, MountSpec, validate_mounts};
+use crate::mount::{MountMode, MountSpec, admit_mounts, validate_mounts};
+use crate::p1::{P1Host, StdioStreams};
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,8 +11,7 @@ use wasmtime::{
     Config, Engine, Error as WasmtimeError, Instance, Linker, Module, Store, UpdateDeadline,
     Val,
 };
-use wasmtime_wasi::p1::{self, WasiP1Ctx};
-use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
+use wasmtime_wasi::I32Exit;
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
 use std::io;
 use std::pin::Pin;
@@ -339,9 +339,12 @@ impl WasmRuntime {
     /// Run a WASI preview1 command module and return its typed outcome.
     ///
     /// `wasm_or_wat` may be either a binary module or WAT text. Every preopen
-    /// comes from `self.mounts` with its declared RO/RW permissions. Wasmtime
-    /// currently reopens the checked pathname, so an ancestor swap can still
-    /// redirect a preopen; do not treat validation as a capability binding.
+    /// comes from `self.mounts` with its declared RO/RW/COW permissions. Each
+    /// mount is admitted once into an owned directory capability before the
+    /// guest exists, and the guest's preview1 host resolves every path from
+    /// those handles: no host pathname is re-resolved for the guest, so an
+    /// ancestor swap between validation and use cannot redirect a preopen
+    /// (SPEC §8.3, A08).
     /// The command supplies exact argv, environment and streams, without a
     /// shell or inherited process state. A normal return is exit code 0 and a
     /// `proc_exit(n)` trap is exit code `n`; other traps are errors, and any
@@ -485,7 +488,7 @@ impl WasmRuntime {
 /// typed outcome the callback committed to, so the caller can distinguish a
 /// deliberate kill from an ordinary guest trap.
 struct ControlledCtx {
-    wasi: WasiP1Ctx,
+    host: P1Host,
     cancel: Option<WasiCancellation>,
     deadline: Option<Instant>,
     stop: Option<WasiRunOutcome>,
@@ -504,7 +507,14 @@ fn wasi_exit(result: wasmtime::Result<()>) -> Result<WasiRunOutcome> {
     }
 }
 
-/// Instantiate a WASI preview1 command with the home preopen and run `_start`.
+/// Instantiate a WASI preview1 command with the admitted mount closure and
+/// run `_start`.
+///
+/// The mount closure is admitted once, before the guest exists: every mount
+/// is opened into an owned directory capability and the guest's preview1
+/// host resolves paths from those handles only. No host pathname is
+/// re-resolved for the guest, so an ancestor swap between validation and
+/// use cannot redirect a preopen (SPEC §8.3, A08).
 fn run_wasi_blocking<I, O, E>(
     engine: &Engine,
     home: &Path,
@@ -520,44 +530,31 @@ where
 {
     let controlled = deadline_at.is_some() || command.control.cancel.is_some();
     let cancel = command.control.cancel.clone();
-    let canonical_sources = validate_mounts(mounts, home)?;
+    validate_mounts(mounts, home)?;
     let module =
         Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
 
-    let mut builder = WasiCtxBuilder::new();
-    builder
-        .args(&command.arguments)
-        .envs(&command.environment)
-        .stdin(command.stdin)
-        .stdout(command.stdout)
-        .stderr(command.stderr);
-    for (mount, source) in mounts.iter().zip(canonical_sources.iter()) {
-        let (dir_perms, file_perms) = match mount.mode {
-            MountMode::ReadOnly => (DirPerms::READ, FilePerms::READ),
-            MountMode::ReadWrite => (DirPerms::all(), FilePerms::all()),
-            MountMode::CopyOnWrite => unreachable!("validated COW must fail before preopen"),
-        };
-        // wasmtime 45 has its own `Error` type (not `std::error::Error`), so
-        // `anyhow::Context` does not apply here; embed the binding in the message.
-        builder
-            .preopened_dir(source, &mount.guest_path, dir_perms, file_perms)
-            .map_err(|e| {
-                anyhow!(
-                    "preopen {} at {} ({:?}): {e}",
-                    source.display(),
-                    mount.guest_path,
-                    mount.mode
-                )
-            })?;
-    }
-    let wasi = builder.build_p1();
+    // Admission (A08): one owned directory capability per mount, plus the
+    // managed COW branch overlay for copy-on-write mounts.
+    let bindings = admit_mounts(mounts, home)?;
+    let stdio = StdioStreams::from_async(
+        command.stdin.async_stream(),
+        command.stdout.async_stream(),
+        command.stderr.async_stream(),
+    );
+    let host = P1Host::new(
+        bindings,
+        stdio,
+        command.arguments,
+        command.environment,
+    )?;
 
     if !controlled {
-        let mut linker: Linker<WasiP1Ctx> = Linker::new(engine);
-        p1::add_to_linker_sync(&mut linker, |cx| cx)
+        let mut linker: Linker<P1Host> = Linker::new(engine);
+        crate::p1::add_to_linker_sync(&mut linker, |host| host)
             .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
-        let mut store = Store::new(engine, wasi);
+        let mut store = Store::new(engine, host);
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(|e| anyhow!("instantiate WASI module: {e}"))?;
@@ -571,14 +568,14 @@ where
     let mut store = Store::new(
         engine,
         ControlledCtx {
-            wasi,
+            host,
             cancel,
             deadline: deadline_at,
             stop: None,
         },
     );
     let mut linker: Linker<ControlledCtx> = Linker::new(engine);
-    p1::add_to_linker_sync(&mut linker, |cx| &mut cx.wasi)
+    crate::p1::add_to_linker_sync(&mut linker, |cx| &mut cx.host)
         .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
     // The epoch deadline is one check interval, not the caller's wall-clock
