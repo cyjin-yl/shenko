@@ -10,6 +10,12 @@ use std::collections::{HashMap, HashSet};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceObservationPolicy {
     pub source_kind: crate::model::SourceKind,
+    /// The exact source contract this admission covers, when the policy
+    /// admits one contract of that kind. `None` admits every contract of the
+    /// kind. Two contracts of one kind are different facts: a configured
+    /// limit document and a usage report are never the same evidence.
+    #[serde(default)]
+    pub contract: Option<String>,
     /// How long a reading from this source stays current.
     pub ttl: Duration,
     /// What a reading that is no longer fresh may still plan.
@@ -19,6 +25,14 @@ pub struct SourceObservationPolicy {
 impl SourceObservationPolicy {
     pub fn options(&self) -> crate::forecast::ForecastOptions {
         crate::forecast::ForecastOptions { ttl: self.ttl, stale: self.stale }
+    }
+
+    /// Whether this admission covers a reading of the given contract.
+    pub fn admits_contract(&self, contract: &str) -> bool {
+        match &self.contract {
+            None => true,
+            Some(pinned) => pinned == contract,
+        }
     }
 }
 
@@ -128,6 +142,40 @@ impl QuotaPolicy {
             .iter()
             .find(|entry| entry.source_kind == source_kind)
             .map(SourceObservationPolicy::options)
+    }
+
+    /// The forecast options bound to one source contract, or None when this
+    /// policy does not admit that contract as evidence at all.
+    pub fn forecast_options_for(
+        &self,
+        source_kind: crate::model::SourceKind,
+        contract: &str,
+    ) -> Option<crate::forecast::ForecastOptions> {
+        self.observation_sources
+            .iter()
+            .find(|entry| entry.source_kind == source_kind && entry.admits_contract(contract))
+            .map(SourceObservationPolicy::options)
+    }
+
+    /// The admission entry that covers one source contract.
+    pub fn source_admission(
+        &self,
+        source_kind: crate::model::SourceKind,
+        contract: &str,
+    ) -> Option<&SourceObservationPolicy> {
+        self.observation_sources
+            .iter()
+            .find(|entry| entry.source_kind == source_kind && entry.admits_contract(contract))
+    }
+
+    /// The model a decided profile actually runs, for the request seal that
+    /// follows the decision. The decision chooses a profile; the seal binds
+    /// the profile's real model.
+    pub fn model_for_profile(&self, profile_id: &str) -> Option<&str> {
+        self.profiles
+            .iter()
+            .find(|profile| profile.profile_id == profile_id)
+            .map(|profile| profile.model_ref.as_str())
     }
 }
 
@@ -350,7 +398,9 @@ pub(crate) fn validate(policy: &QuotaPolicy, now: DateTime<Utc>) -> Result<DateT
     let mut names = HashSet::new();
     for (index, source) in policy.observation_sources.iter().enumerate() {
         if source.ttl <= Duration::zero()
-            || policy.observation_sources.iter().take(index).any(|earlier| earlier.source_kind == source.source_kind)
+            || policy.observation_sources.iter().take(index).any(|earlier| {
+                earlier.source_kind == source.source_kind && earlier.contract == source.contract
+            })
         {
             return Err(PolicyError::InvalidAssumption);
         }
