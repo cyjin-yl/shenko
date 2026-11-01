@@ -452,26 +452,29 @@ fn native_result_replay_keeps_first_delivery_metadata() {
 
 #[test]
 fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
-    fn install(dir: &std::path::Path) -> Arc<shenko_awareness_core::AwarenessRegistry> {
+    fn install(dir: &std::path::Path) -> Arc<shenko_awareness_core::CognitionCatalog> {
         let packages = dir.join("awareness");
         std::fs::create_dir_all(packages.join("check-commitments")).unwrap();
         std::fs::write(
             packages.join("check-commitments/AWARENESS.md"),
-            "---\nid: test.check-commitments\nversion: 1\n\
+            "---\nid: test.check-commitments\nversion: 1\nkind: awareness\ntitle: 承诺\n\
              capability_card: 约定 承诺 时间冲突\nprovenance: [SPEC §14]\n---\n\
              承诺一旦给出就落在时间里；不记得自己许过什么，很难说现在还剩下多少余地。\n",
         )
         .unwrap();
-        let registry = Arc::new(shenko_awareness_core::AwarenessRegistry::new());
-        registry.install_from_dir(&packages).unwrap();
-        registry
+        let node = Arc::new(parking_lot::Mutex::new(
+            shenko_node::Node::open(&dir.join("node")).unwrap(),
+        ));
+        let catalog = Arc::new(shenko_awareness_core::CognitionCatalog::new(node));
+        shenko_awareness_core::install_dir(&catalog, &packages).unwrap();
+        catalog
     }
 
     let (_dir, store, agent) = fixture();
-    let registry = install(&_dir);
+    let catalog = install(&_dir);
     let mut subject = state(store.clone(), agent)
         .unwrap()
-        .with_awareness(Arc::clone(&registry));
+        .with_awareness(Arc::clone(&catalog));
     // The message mentions a word from the unit's own card, as ordinary
     // conversation would; retrieval must work from real input, not a keyword
     // command the user has to know.
@@ -486,26 +489,36 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         prompt.starts_with(&crate::canonical_system_prompt(&subject.channels)),
         "the stable contract stays the prefix so KV/model binding remains reusable"
     );
-    assert!(prompt.contains("不记得自己许过什么"), "awareness body missing: {prompt}");
+    // Only the short card travels; the body is read on demand at an exact
+    // version through cognition.unit.read, never injected whole.
+    assert!(prompt.contains("约定 承诺 时间冲突"), "unit card missing: {prompt}");
+    assert!(
+        !prompt.contains("不记得自己许过什么"),
+        "unit body must not be injected without an exact-version read: {prompt}"
+    );
+    assert!(
+        prompt.contains("cognition.unit.read"),
+        "the card must tell the model how to read the body: {prompt}"
+    );
     assert!(prompt.contains("不是命令"), "advisory framing missing: {prompt}");
     assert!(
-        prompt.find("不记得自己许过什么") > prompt.find("你是一个持续运行的个人 agent"),
+        prompt.find("约定 承诺 时间冲突") > prompt.find("你是一个持续运行的个人 agent"),
         "per-step material must follow the stable prefix"
     );
 
     // Disabled units are not injected at all; no code branch executes either way.
-    registry.disable("test.check-commitments").unwrap();
+    catalog.set_enabled("test.check-commitments", false).unwrap();
     let (_dir, store, agent) = fixture();
     let mut subject = state(store, agent)
         .unwrap()
-        .with_awareness(Arc::clone(&registry));
+        .with_awareness(Arc::clone(&catalog));
     let event = crate::inbox::InboxEvent {
         source: "napcat".into(),
         ..message("上次的约定还算数吗？周末一起看展览")
     };
     let prepared =
         crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
-    assert!(!prepared.payload.system_prompt.contains("不记得自己许过什么"));
+    assert!(!prepared.payload.system_prompt.contains("约定 承诺 时间冲突"));
 }
 
 #[test]

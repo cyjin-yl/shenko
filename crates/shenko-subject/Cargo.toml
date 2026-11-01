@@ -34,6 +34,8 @@ futures = { workspace = true }
 [dev-dependencies]
 shenko-compact-budget = { path = "../shenko-compact-budget" }
 shenko-channel-napcat = { path = "../shenko-channel-napcat" }
+shenko-node = { path = "../shenko-node" }
+parking_lot = { workspace = true }
 rusqlite = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

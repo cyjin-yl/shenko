@@ -41,6 +41,7 @@ serde_json = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
+parking_lot = { workspace = true }
 dirs-next = "2"
 libc = "0.2"
 

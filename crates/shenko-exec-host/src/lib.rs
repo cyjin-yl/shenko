@@ -18,6 +18,15 @@ pub use runtime_error::*;
 pub mod self_knowledge_task;
 pub use self_knowledge_task::*;
 
+pub mod cognition_task;
+pub use cognition_task::*;
+
+pub mod cognition_query;
+pub use cognition_query::*;
+
+pub mod cognition_trial;
+pub use cognition_trial::*;
+
 pub mod wasi_task;
 pub use wasi_task::*;
 

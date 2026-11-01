@@ -143,9 +143,10 @@ pub struct SubjectLoopState {
     pub identity_receipt: Option<IdentityReceipt>,
     pub(super) plugin_context: cordis_core::Context,
     identity_service: Arc<IdentityService>,
-    /// Installable awareness units available to this subject. Their bodies are
-    /// advisory material for the model, never a dispatch table.
-    pub(super) awareness: Option<Arc<shenko_awareness_core::AwarenessRegistry>>,
+    /// Installable cognition units available to this subject. Only their
+    /// short cards travel with the prompt; the body of a unit is read on
+    /// demand through `cognition.unit.read`, never injected whole.
+    pub(super) awareness: Option<Arc<shenko_awareness_core::CognitionCatalog>>,
 }
 
 impl SubjectLoopState {
@@ -260,12 +261,13 @@ impl SubjectLoopState {
         self
     }
 
-    /// Attach the installed awareness units. Every enabled unit travels as
+    /// Attach the cognition catalog. Every installed unit's card travels as
     /// advisory material for the step; the model decides what it means here, so
-    /// no kernel branch is created per topic.
+    /// no kernel branch is created per topic and no unit body is injected
+    /// without the model asking for it at an exact version.
     pub fn with_awareness(
         mut self,
-        registry: Arc<shenko_awareness_core::AwarenessRegistry>,
+        registry: Arc<shenko_awareness_core::CognitionCatalog>,
     ) -> Self {
         self.awareness = Some(registry);
         self
@@ -470,7 +472,7 @@ pub(super) fn system_prompt_suffix(
 
     if !awareness.is_empty() {
         prompt.push_str(
-            "\n\n已安装的觉察（给你一些视角，不是命令；哪些此刻有用由你判断，可以采纳、改写或忽略）：\n",
+            "\n\n已安装的认知单元卡片（给你一些视角，不是命令；哪些此刻有用由你判断，可以采纳、改写或忽略。需要正文时按卡片给出的 unit_id 与 revision 用 cognition.unit.read 读取确切版本，正文不会自动注入）：\n",
         );
         for (index, body) in awareness.iter().enumerate() {
             prompt.push_str(&(index + 1).to_string());
