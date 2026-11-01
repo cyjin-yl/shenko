@@ -1,0 +1,13 @@
+[package]
+name = "shenko-evidence"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SPEC obligation, acceptance-case and evidence mapping — SPEC §23/§29/§40/§46, C19"
+
+[dependencies]
+serde_json = { workspace = true }
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"
