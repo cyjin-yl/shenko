@@ -39,6 +39,23 @@ impl EntityId {
         Self(Uuid::nil())
     }
 
+    /// A stable, content-derived identity for a durable EXTERNAL fact — the
+    /// same provider event admitted twice must produce the same id, so the
+    /// control ledger's disposition check makes redelivery idempotent.
+    /// This is NOT a globally-unique runtime identity; callers must only
+    /// derive ids from namespaced, replay-stable inputs (source, provider,
+    /// account, platform message id, revision).
+    pub fn from_digest(digest: &[u8; 32]) -> Self {
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        // Set the RFC 4122 version nibble to 5 (SHA-name based): the id is
+        // deterministic in its inputs, which is the property admission relies
+        // on; it never collides with v4 runtime ids by construction path.
+        bytes[6] = (bytes[6] & 0x0f) | 0x50;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Self(Uuid::from_bytes(bytes))
+    }
+
     pub fn as_uuid(&self) -> &Uuid {
         &self.0
     }

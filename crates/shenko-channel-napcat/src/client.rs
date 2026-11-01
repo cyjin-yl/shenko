@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::header::{AUTHORIZATION, HeaderValue};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{error, info, warn};
 use url::Url;
@@ -41,6 +43,48 @@ pub fn endpoint_provenance(ws_url: &str) -> String {
         }
         Err(_) => "<unparseable ws_url>".to_string(),
     }
+}
+
+/// Build the WebSocket handshake request.
+///
+/// The configured transport token is sent as an `Authorization: Bearer`
+/// header and marked sensitive, so it never travels in a URL, a log line or
+/// an error message. A token the operator left in the URL query is moved
+/// into the same header and removed from the query.
+fn build_request(
+    config: &NapCatConfig,
+) -> anyhow::Result<tokio_tungstenite::tungstenite::handshake::client::Request> {
+    let mut url = Url::parse(&config.ws_url)
+        .map_err(|error| anyhow::anyhow!("NapCat WS URL 无效: {error}"))?;
+    let query_token = url
+        .query_pairs()
+        .find(|(key, _)| key == "access_token")
+        .map(|(_, value)| value.to_string());
+    let token = config.access_token.clone().or(query_token);
+    if token.is_some() {
+        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(
+            url.query().unwrap_or_default().as_bytes(),
+        )
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .filter(|(key, _)| key != "access_token")
+        .collect();
+        if pairs.is_empty() {
+            url.set_query(None);
+        } else {
+            let encoded = url::form_urlencoded::Serializer::new(String::new())
+                .extend_pairs(pairs.iter().map(|(key, value)| (key.as_str(), value.as_str())))
+                .finish();
+            url.set_query(Some(&encoded));
+        }
+    }
+    let mut request = url.as_str().into_client_request()?;
+    if let Some(token) = token {
+        let mut value = HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|_| anyhow::anyhow!("NapCat access token 不可用作请求头"))?;
+        value.set_sensitive(true);
+        request.headers_mut().insert(AUTHORIZATION, value);
+    }
+    Ok(request)
 }
 
 /// Pending outbound actions, keyed by echo token.
@@ -273,6 +317,27 @@ impl NapCatClient {
         Ok(Self::with_spool(config, spool))
     }
 
+    /// Open a connector whose ingress spool is an on-disk SQLite file under a
+    /// unique temporary directory. Reception stays durable (it is a real file
+    /// spool, never memory); only the location is not the runtime's data
+    /// directory. Tests and non-canonical embedders use this; the subject
+    /// runtime uses `open_persistent` inside its own data directory.
+    pub fn open_isolated(
+        config: NapCatConfig,
+    ) -> anyhow::Result<(
+        Self,
+        mpsc::Receiver<OneBotEvent>,
+        mpsc::Receiver<OneBotAction>,
+    )> {
+        let dir = std::env::temp_dir().join(format!(
+            "shenko-napcat-spool-{}-{}",
+            std::process::id(),
+            shenko_types::ids::EntityId::new()
+        ));
+        std::fs::create_dir_all(&dir)?;
+        Self::open_persistent(config, dir.join("ingress.sqlite"))
+    }
+
     fn with_spool(
         config: NapCatConfig,
         spool: Arc<IngressSpool>,
@@ -331,7 +396,7 @@ impl NapCatClient {
         message: &str,
         echo: String,
     ) -> Result<SendReceipt, SendError> {
-        self.send_action(
+        self.send_action_with_echo(
             "send_private_msg",
             serde_json::json!({ "user_id": user_id, "message": message }),
             echo,
@@ -346,7 +411,7 @@ impl NapCatClient {
         message: &str,
         echo: String,
     ) -> Result<SendReceipt, SendError> {
-        self.send_action(
+        self.send_action_with_echo(
             "send_group_msg",
             serde_json::json!({ "group_id": group_id, "message": message }),
             echo,
@@ -355,7 +420,10 @@ impl NapCatClient {
     }
 
     /// Enqueue one action and await its correlated response. SPEC §35.6.
-    async fn send_action(
+    ///
+    /// The action name and parameters are the caller's; the plugin layer
+    /// decides which platform action a publication becomes.
+    pub async fn send_action_with_echo(
         &self,
         action: &str,
         params: serde_json::Value,
@@ -528,15 +596,12 @@ impl NapCatClient {
                 break;
             }
 
-            let url = match Url::parse(&config.ws_url) {
-                Ok(u) => u,
-                Err(e) => return Err(anyhow::anyhow!("NapCat WS URL 无效: {e}")),
-            };
+            let request = build_request(&config)?;
 
             info!(url=%endpoint_provenance(&config.ws_url), "NapCat: connecting");
 
             let connected = tokio::select! {
-                result = connect_async(url.as_str()) => result,
+                result = connect_async(request) => result,
                 _ = cancel.cancelled() => break,
             };
             match connected {

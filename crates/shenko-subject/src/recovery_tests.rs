@@ -110,7 +110,7 @@ fn state(
         Arc::new(Inbox::new(8)),
         store,
         ctx,
-        shenko_channel_napcat::qq_registry(),
+        shenko_channel_napcat::qq_test_registry(),
     )
 }
 
@@ -1300,7 +1300,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 7,
+        schema_version: 8,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1344,7 +1344,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -1373,7 +1373,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -1565,7 +1565,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         .initialize_identity(&service.genesis(agent, None))
         .unwrap();
     let mut subject =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry()).unwrap();
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_test_registry()).unwrap();
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     execute_step(1, &[], &mut subject, &close)
@@ -1590,7 +1590,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         "test.identity/other@1"
     );
     let reopened =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry());
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_test_registry());
     assert!(
         reopened
             .err()

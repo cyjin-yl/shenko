@@ -48,22 +48,22 @@ pub fn reply_grammar(channels: &ChannelRegistry) -> String {
         .plugins()
         .flat_map(|plugin| {
             plugin
-                .kinds
+                .kinds()
                 .iter()
                 .map(|kind| format!("[reply:{}:{}]", kind.tag, kind.id_hint))
         })
         .collect();
-    let names: Vec<&'static str> = channels
+    let names: Vec<&str> = channels
         .plugins()
-        .filter(|plugin| !plugin.kinds.is_empty())
-        .map(|plugin| plugin.prompt_names)
+        .filter(|plugin| !plugin.kinds().is_empty())
+        .map(|plugin| plugin.prompt_names())
         .collect();
     if targets.is_empty() {
         return "当前没有注册的回复通道：无法对外发送回复，普通正文不会送达对方；".to_owned();
     }
     format!(
         "{} 正文；你决定对用户说的话必须放在对应回复控制行，单独写普通正文不会送达；后续普通行续接该回复。\n\
-用户消息开头会标出发送者与可回复的 {}，回复就用那个号码；",
+用户消息开头会标出发送者与可回复的 {}，回复就把那个标识原样写进回复行；",
         targets.join(" 正文 或 "),
         names.join("、")
     )
@@ -306,18 +306,22 @@ pub fn parse_output(
                 .ok_or_else(|| invalid(line_no, "missing ]"))?;
             let value = value.strip_prefix(' ').unwrap_or(value);
             let action = if let Some(target) = header.strip_prefix("[reply:") {
+                // The reply id is an OPAQUE platform identity. It is taken
+                // verbatim to the end of the line and resolved by the plugin
+                // that owns the kind; the core never parses it. SPEC §16.
                 let (kind, id) = target
                     .split_once(':')
                     .ok_or_else(|| invalid(line_no, "reply target must include kind and id"))?;
-                let id = id
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|id| *id > 0)
-                    .ok_or_else(|| invalid(line_no, "reply id must be positive"))?;
-                let channel = channels
-                    .reply_channel(kind)
+                let id = id.trim();
+                if kind.is_empty() || id.is_empty() {
+                    return Err(invalid(line_no, "reply target must include kind and id"));
+                }
+                let plugin = channels
+                    .plugin_for_kind(kind)
                     .ok_or_else(|| invalid(line_no, "unknown reply target"))?;
-                let target = PublicationTarget::new(channel, kind, id);
+                let target = plugin
+                    .resolve_reply(kind, id)
+                    .ok_or_else(|| invalid(line_no, "reply id is not resolvable on this channel"))?;
                 let text = if value.is_empty() {
                     String::new()
                 } else {

@@ -1490,6 +1490,10 @@ async fn execute_step(
     }
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
+    // schema_version 8: the sealed decision now carries the versioned
+    // PublicationTarget (v2: opaque String id + explicit account, optional
+    // tenant/conversation) inside its publication intents. See
+    // shenko_store::channel::DECISION_SCHEMA_VERSION.
     let decision = StepDecision {
         schema_version: 8,
         step_id,

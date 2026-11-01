@@ -267,7 +267,7 @@ async fn committed_output(
             )),
         )))
         .map_err(|error| format!("context policy: {error}"))?;
-    let state = SubjectLoopState::new(agent, Arc::clone(&inbox), store.clone(), ctx, shenko_channel_napcat::qq_registry())
+    let state = SubjectLoopState::new(agent, Arc::clone(&inbox), store.clone(), ctx, shenko_channel_napcat::qq_test_registry())
         .map_err(|e| e.to_string())?
         .with_broker(handle.clone())
         .with_awareness(awareness);

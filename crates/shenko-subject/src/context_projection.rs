@@ -234,6 +234,14 @@ pub fn staged_message_text(
     source: &str,
     channels: &shenko_types::channel::ChannelRegistry,
 ) -> String {
+    // The owning plugin classifies the payload and renders the model's view
+    // of it. A payload that is already the normalized envelope classifies to
+    // itself, so the projection is stable across admission and replay.
+    if let Some(plugin) = channels.channel_for_source(source) {
+        if let Some(envelope) = plugin.classify(source, payload) {
+            return plugin.staged_text(&envelope);
+        }
+    }
     let sender = payload.get("sender");
     let who = sender
         .and_then(|sender| sender.get("nickname"))
@@ -249,13 +257,7 @@ pub fn staged_message_text(
         .filter(|text| !text.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| payload.to_string());
-    let target = channels
-        .channel_for_source(source)
-        .and_then(|plugin| (plugin.staged_target)(payload));
-    match target {
-        Some(target) => format!("[{who} · {target}] {body}"),
-        None => format!("[{who}] {body}"),
-    }
+    format!("[{who}] {body}")
 }
 
 fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHistoryInput, ShenkoError> {

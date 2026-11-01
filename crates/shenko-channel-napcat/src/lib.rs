@@ -1,18 +1,27 @@
-pub mod config;
-pub mod client;
+//! QQ/NapCat channel plugin — SPEC §16, §35.6, §41.6.
+//!
+//! The plugin owns everything QQ-specific: the OneBot v11 wire protocol, the
+//! numeric account ids, the reply audience kinds, the attachment segments and
+//! the acceptance predicate of a send. The durable intent, attempt and
+//! receipt live in the shared Store, so every channel uses one ledger.
+pub mod attachments;
 pub mod channel;
-pub mod adapter;
+pub mod client;
+pub mod config;
+pub mod napcat_cli;
 pub mod spool;
-pub mod outbound;
-pub use config::*;
-pub use channel::*;
-pub use client::NapCatClient;
-pub use client::OneBotEvent;
-pub use client::OneBotAction;
-pub use client::SendError;
-pub use client::ContactQuery;
-pub use client::QueryReceipt;
-pub use client::endpoint_provenance;
-pub use adapter::*;
+
+pub use attachments::{
+    AttachmentError, ParsedMessage, ResolvedAttachment, MAX_ATTACHMENT_BYTES,
+};
+pub use channel::{
+    qq_registry, NapCatChannel, QQ_CHANNEL_ID, QQ_REPLY_KINDS, QQ_SOURCE,
+    QQ_TRANSPORT_IDENTITY_DOMAIN,
+};
+pub use client::{
+    endpoint_provenance, ContactQuery, NapCatClient, OneBotAction, OneBotEvent, QueryReceipt,
+    SendError,
+};
+pub use config::NapCatConfig;
+pub use napcat_cli::{CliSourceError, NapCatCliSource};
 pub use spool::*;
-pub use outbound::*;

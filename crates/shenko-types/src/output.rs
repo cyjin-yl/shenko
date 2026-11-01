@@ -9,31 +9,106 @@ pub struct OutputSpan {
     pub line: u64,
 }
 
-/// Resolved reply destination: which registered channel and which of its
-/// audience kinds a reply control addresses. `channel` and `kind` name the
-/// channel plugin's own id and reply tag (see `crate::channel`); `id` is the
-/// platform's positive integer account for that audience.
+/// The sealed format version of a publication target.
+pub const PUBLICATION_TARGET_SCHEMA_VERSION: u32 = 2;
+
+/// Resolved reply destination: which registered channel, which of its
+/// audience kinds and which account scope a reply control addresses.
 ///
-/// Wire compatibility: new records serialize as
-/// `{"channel":"…","kind":"…","id":N}`. Records sealed before this shape
-/// stored the closed enum as `{"kind":"<channel>_<audience>","id":N}`; this
-/// reader keeps accepting that legacy form by splitting the tag on the first
-/// `_`. New-target admission is enforced by the channel registry at the
-/// parser/outbound edge, never here.
+/// `id` is an OPAQUE platform identity. A QQ number, an official OpenID, a
+/// Feishu `chat_id` and an iLink context token are different namespaces; the
+/// core stores them as strings and only the owning plugin interprets them
+/// (SPEC §16, §35.6). `account` is the account/tenant namespace that owns
+/// the conversation; `tenant` and `conversation` carry the platform's own
+/// namespaces when it has them.
+///
+/// The record is explicitly versioned: `schema_version` is part of the sealed
+/// bytes. Older sealed records (a numeric id, or the pre-plugin
+/// `kind:"<channel>_<audience>"` form) are NOT accepted by this reader —
+/// they are converted by the explicit Store migration, which writes the
+/// versioned successor. There is no unversioned alias.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PublicationTarget {
+    pub schema_version: u32,
     pub channel: String,
     pub kind: String,
-    pub id: u64,
+    pub id: String,
+    /// The account namespace that owns the conversation. An empty string marks
+    /// an unscoped record (only produced by the migration of an old target);
+    /// only a plugin bound to exactly one account may serve it, and it records
+    /// the account it actually used.
+    pub account: String,
+    pub tenant: Option<String>,
+    pub conversation: Option<String>,
 }
 
 impl PublicationTarget {
-    pub fn new(channel: impl Into<String>, kind: impl Into<String>, id: u64) -> Self {
+    /// A scoped target for one account.
+    pub fn new(
+        channel: impl Into<String>,
+        kind: impl Into<String>,
+        id: impl Into<String>,
+        account: impl Into<String>,
+    ) -> Self {
         Self {
+            schema_version: PUBLICATION_TARGET_SCHEMA_VERSION,
             channel: channel.into(),
             kind: kind.into(),
-            id,
+            id: id.into(),
+            account: account.into(),
+            tenant: None,
+            conversation: None,
         }
+    }
+
+    /// Add the platform's own tenant/conversation namespaces.
+    pub fn with_scope(
+        mut self,
+        tenant: Option<String>,
+        conversation: Option<String>,
+    ) -> Self {
+        self.tenant = tenant;
+        self.conversation = conversation;
+        self
+    }
+
+    /// Convert one older sealed target into the versioned successor.
+///
+    /// This is the ONLY reader of the pre-v2 shapes and it exists for the
+    /// explicit Store migration. It never guesses an account scope: an old
+    /// record carried none, so the migrated target stays unscoped.
+    pub fn read_legacy(value: &serde_json::Value) -> Option<Self> {
+        let id = match value.get("id") {
+            Some(serde_json::Value::Number(number)) => number.to_string(),
+            Some(serde_json::Value::String(text)) if !text.is_empty() => text.clone(),
+            _ => return None,
+        };
+        let (channel, kind) = match (
+            value.get("channel").and_then(serde_json::Value::as_str),
+            value.get("kind").and_then(serde_json::Value::as_str),
+        ) {
+            (Some(channel), Some(kind)) if !channel.is_empty() && !kind.is_empty() => {
+                (channel.to_owned(), kind.to_owned())
+            }
+            // Pre-plugin form: the closed enum was stored as one tag.
+            (None, Some(kind)) => {
+                let (channel, kind) = kind.split_once('_')?;
+                if channel.is_empty() || kind.is_empty() {
+                    return None;
+}
+                (channel.to_owned(), kind.to_owned())
+            }
+            _ => return None,
+        };
+        Some(Self {
+            schema_version: PUBLICATION_TARGET_SCHEMA_VERSION,
+            channel,
+            kind,
+            id,
+            account: String::new(),
+            tenant: None,
+            conversation: None,
+                })
     }
 }
 
@@ -43,37 +118,39 @@ impl<'de> Deserialize<'de> for PublicationTarget {
         D: serde::Deserializer<'de>,
     {
         #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Repr {
-            Current {
+        #[serde(deny_unknown_fields)]
+        struct Repr {
+            schema_version: u32,
                 channel: String,
                 kind: String,
-                id: u64,
-            },
-            /// Pre-plugin sealed form: `{"kind":"<channel>_<audience>","id":N}`.
-            Legacy { kind: String, id: u64 },
+            id: String,
+            account: String,
+            #[serde(default)]
+            tenant: Option<String>,
+            #[serde(default)]
+            conversation: Option<String>,
         }
-        match Repr::deserialize(deserializer)? {
-            Repr::Current { channel, kind, id }
-                if !channel.is_empty() && !kind.is_empty() =>
-            {
-                Ok(PublicationTarget { channel, kind, id })
-            }
-            Repr::Legacy { kind, id } => {
-                let (channel, kind) = kind
-                    .split_once('_')
-                    .filter(|(channel, kind)| !channel.is_empty() && !kind.is_empty())
-                    .ok_or_else(|| serde::de::Error::custom("unknown publication target"))?;
-                Ok(PublicationTarget {
-                    channel: channel.to_owned(),
-                    kind: kind.to_owned(),
-                    id,
-                })
-            }
-            _ => Err(serde::de::Error::custom(
-                "publication target needs channel and kind",
-            )),
+        let repr = Repr::deserialize(deserializer)?;
+        if repr.schema_version != PUBLICATION_TARGET_SCHEMA_VERSION {
+            return Err(serde::de::Error::custom(format!(
+                "unsupported publication target schema version {}",
+                repr.schema_version
+            )));
         }
+        if repr.channel.is_empty() || repr.kind.is_empty() || repr.id.is_empty() {
+            return Err(serde::de::Error::custom(
+                "publication target needs channel, kind and id",
+            ));
+        }
+        Ok(Self {
+            schema_version: repr.schema_version,
+            channel: repr.channel,
+            kind: repr.kind,
+            id: repr.id,
+            account: repr.account,
+            tenant: repr.tenant,
+            conversation: repr.conversation,
+        })
     }
 }
 
@@ -81,24 +158,26 @@ impl<'de> Deserialize<'de> for PublicationTarget {
 mod tests {
     use super::PublicationTarget;
 
-    /// Sealed pre-plugin records `{kind:"<channel>_<audience>",id}` still
-    /// deserialize; the channel id is recovered from the legacy tag.
+    /// The versioned target round-trips; older shapes are only readable
+    /// through the explicit legacy reader used by the Store migration.
     #[test]
-    fn legacy_and_current_publication_targets_round_trip() {
-        let legacy_room: PublicationTarget =
-            serde_json::from_str(r#"{"kind":"relay_room","id":7}"#).unwrap();
-        assert_eq!(legacy_room, PublicationTarget::new("relay", "room", 7));
-        let target = PublicationTarget::new("relay", "room", 9);
+    fn only_the_versioned_target_deserializes() {
+        let target = PublicationTarget::new("qq", "group", "12345", "qq:9");
         let bytes = serde_json::to_string(&target).unwrap();
         assert_eq!(
             serde_json::from_str::<PublicationTarget>(&bytes).unwrap(),
             target
         );
-        // Records that never matched either sealed shape still fail.
-        assert!(
-            serde_json::from_str::<PublicationTarget>(r#"{"kind":"tagged","id":1}"#).is_err()
-        );
-        assert!(serde_json::from_str::<PublicationTarget>(r#"{"id":1}"#).is_err());
+        assert!(serde_json::from_str::<PublicationTarget>(r#"{"channel":"qq","kind":"group","id":7}"#).is_err());
+        assert!(serde_json::from_str::<PublicationTarget>(r#"{"kind":"relay_room","id":7}"#).is_err());
+        let legacy = PublicationTarget::read_legacy(&serde_json::json!({"channel":"qq","kind":"group","id":7}))
+            .unwrap();
+        assert_eq!(legacy.id, "7");
+        assert!(legacy.account.is_empty());
+        let pre_plugin =
+            PublicationTarget::read_legacy(&serde_json::json!({"kind":"relay_room","id":7})).unwrap();
+        assert_eq!(pre_plugin.channel, "relay");
+        assert_eq!(pre_plugin.kind, "room");
     }
 }
 
