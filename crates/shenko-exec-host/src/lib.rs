@@ -23,3 +23,19 @@ pub use wasi_task::*;
 
 pub mod contact_task;
 pub use contact_task::*;
+
+pub mod desktop;
+pub use desktop::*;
+
+#[cfg(target_os = "windows")]
+pub mod desktop_windows;
+#[cfg(target_os = "windows")]
+pub use desktop_windows::*;
+
+#[cfg(target_os = "macos")]
+pub mod desktop_macos;
+#[cfg(target_os = "macos")]
+pub use desktop_macos::*;
+
+pub mod layerfs;
+pub use layerfs::*;
