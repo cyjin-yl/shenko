@@ -502,10 +502,7 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
 
 pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
     tokio::fs::create_dir_all(&data_dir).await?;
-    let store = Arc::new(Store::open(
-        data_dir.join("shenko.db"),
-        data_dir.join("cas"),
-    )?);
+    let store = Arc::new(crate::open_installation_store(&data_dir)?);
     let mut node = open_node(&data_dir, &store)?;
     match command {
         SyncCommand::Identity => println!(
@@ -721,7 +718,7 @@ pub fn observe(data_dir: &Path, store: &Store, runtime: EntityId, primary: bool)
 
 pub fn node_command(data_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(data_dir)?;
-    let store = Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+    let store = crate::open_installation_store(data_dir)?;
     let mut bytes = Vec::new();
     std::io::stdin()
         .take(shenko_node::MAX_NODE_REQUEST as u64 + 1)

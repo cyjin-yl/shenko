@@ -3,6 +3,7 @@
 //! Configures: journal_mode=WAL, synchronous=FULL, foreign_keys=ON
 pub mod migrations;
 pub mod store;
+pub mod activation;
 pub mod cas;
 pub mod ledger;
 pub mod memory;
@@ -19,6 +20,7 @@ pub mod runtime_boundary;
 pub mod web_input;
 
 pub use store::*;
+pub use activation::*;
 pub use cas::*;
 pub use ledger::*;
 pub use memory::*;

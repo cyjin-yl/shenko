@@ -2,6 +2,7 @@
 //! 所有跨模块协议类型定义于此，无业务逻辑。
 
 pub mod agent;
+pub mod activation;
 pub mod channel;
 pub mod commit;
 pub mod error;
@@ -16,6 +17,7 @@ pub mod subject;
 pub mod task;
 
 pub use agent::*;
+pub use activation::*;
 pub use commit::*;
 pub use error::*;
 pub use evidence::*;

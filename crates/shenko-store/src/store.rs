@@ -177,8 +177,25 @@ impl Store {
         head: &SubjectBranchHead,
         first_step: &SubjectStep,
     ) -> Result<CommitReceipt, ShenkoError> {
+        self.initialize_genesis_with_selector(genesis, head, first_step, None)
+    }
+
+    /// 同笔创建出生记录、初始 activation selector、head 与第一步。§44.6
+    ///
+    /// The first `ActivationSelector` is created in the *same* ledger
+    /// transaction as the genesis, the root task, the branch head and the
+    /// unique first step. It is the conditional "expected selector does not
+    /// exist" write: an installation that already has a selector is never
+    /// overwritten here.
+    pub fn initialize_genesis_with_selector(
+        &self,
+        genesis: &SubjectGenesis,
+        head: &SubjectBranchHead,
+        first_step: &SubjectStep,
+        selector: Option<&shenko_types::activation::ActivationSelector>,
+    ) -> Result<CommitReceipt, ShenkoError> {
         self.ledger.with_mutation(
-            || self.try_initialize_genesis(genesis, head, first_step),
+            || self.try_initialize_genesis(genesis, head, first_step, selector),
             |e| matches!(e, ShenkoError::Storage(_)),
         )
     }
@@ -188,6 +205,7 @@ impl Store {
         genesis: &SubjectGenesis,
         head: &SubjectBranchHead,
         first_step: &SubjectStep,
+        selector: Option<&shenko_types::activation::ActivationSelector>,
     ) -> Result<CommitReceipt, ShenkoError> {
         if genesis.subject_id != head.agent_id
             || head.genesis_ref.genesis_id != genesis.genesis_id
@@ -200,6 +218,25 @@ impl Store {
             || first_step.record_revision != RecordRevision(0)
         {
             return Err(ShenkoError::conflict("invalid genesis/head/first step"));
+        }
+        if let Some(selector) = selector {
+            let origin_matches = match &selector.origin {
+                shenko_types::activation::ActivationOrigin::Genesis { genesis_ref } => {
+                    genesis_ref.genesis_id == genesis.genesis_id
+                        && genesis_ref.ledger_id == self.ledger.ledger_id()
+                }
+                shenko_types::activation::ActivationOrigin::Activation { .. } => false,
+            };
+            if selector.agent_id != head.agent_id
+                || !origin_matches
+                || selector.generation != head.software_generation
+                || selector.selector_revision != 0
+                || selector.active_epoch == 0
+            {
+                return Err(ShenkoError::conflict(
+                    "initial activation selector does not bind this genesis/head",
+                ));
+            }
         }
         validate_step_binding(head, first_step)?;
         let mut conn = self.ledger.conn.lock();
@@ -223,7 +260,14 @@ impl Store {
             params![head.agent_id.to_string(), head.branch_id.0.to_string(), head.next_step_id.to_string(), serde_json::to_string(&head)?, seq.0 as i64],
         ).map_err(storage_error)?;
         insert_step(&tx, &first_step, seq.0)?;
-        self.record_subject_commit(&tx, commit_ref, 3)?;
+        let selector_written = match selector {
+            Some(selector) => {
+                crate::activation::write_initial_selector(&tx, selector)?;
+                true
+            }
+            None => false,
+        };
+        self.record_subject_commit(&tx, commit_ref, if selector_written { 4 } else { 3 })?;
         tx.commit().map_err(storage_error)?;
         Ok(self.subject_receipt(
             commit_ref,

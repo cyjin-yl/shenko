@@ -10,6 +10,7 @@ name = "shenko"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 cordis-core.workspace = true
 shenko-identity = { path = "../../crates/shenko-identity" }
 shenko-types = { path = "../../crates/shenko-types" }
@@ -27,6 +28,8 @@ shenko-compact-snap = { path = "../../crates/shenko-compact-snap" }
 shenko-memory = { path = "../../crates/shenko-memory" }
 shenko-ui = { path = "../../crates/shenko-ui" }
 shenko-seed = { path = "../../crates/shenko-seed" }
+shenko-update = { path = "../../crates/shenko-update" }
+shenko-repl = { path = "../../crates/shenko-repl" }
 shenko-wasm = { path = "../../crates/shenko-wasm" }
 shenko-channel-napcat = { path = "../../crates/shenko-channel-napcat" }
 shenko-media = { path = "../../crates/shenko-media" }
