@@ -2670,6 +2670,7 @@ dependencies = [
  "chrono",
  "futures",
  "png",
+ "rustix",
  "serde",
  "serde_json",
  "shenko-awareness-core",
@@ -2685,6 +2686,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "uuid",
+ "windows-sys 0.61.2",
  "x11rb",
 ]
 

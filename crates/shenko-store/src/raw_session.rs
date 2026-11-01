@@ -58,113 +58,166 @@ pub const RUNTIME_ERROR_EVENT_TYPE: &str = "runtime_error";
 const RUNTIME_ERROR_MESSAGE_MAX_CHARS: usize = 4096;
 const RUNTIME_ERROR_EXTRA_MAX_BYTES: usize = 4096;
 
-/// Redact credential-looking material before a message becomes a durable
-/// fact. This is a bounded best effort, not a parser: keyed assignments and
-/// bearer-style tokens are replaced; the rest of the message is kept verbatim.
+/// Mechanical, best-effort redaction of assignments and bearer tokens.
+/// Quoted keys and values honor escapes; unrelated text is retained.
 pub(crate) fn redact_journal_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for (index, line) in text.split('\n').enumerate() {
-        if index > 0 {
-            out.push('\n');
-        }
-        out.push_str(&redact_bearer(&redact_line(line)));
-    }
-    out
+    redact_bearer(redact_assignments(text))
 }
 
-fn redact_line(line: &str) -> String {
-    // `KEY=value`/`KEY: value` for credential-looking keys. `=` binds one
-    // token (`token=abc retry` keeps ` retry`); `:` binds the header/JSON
-    // value, which runs to `,`/`}`/`]` or end of line so
-    // `authorization: Bearer x` cannot leak `x`.
+fn credential_key(key: &str) -> bool {
     const KEYS: [&str; 10] = [
         "token", "secret", "password", "passwd", "apikey", "api_key", "api-key",
         "authorization", "auth", "credential",
     ];
-    let mut out = String::with_capacity(line.len());
-    let mut rest = line;
+    KEYS.iter().any(|key_part| key.as_bytes().windows(key_part.len())
+        .any(|part| part.eq_ignore_ascii_case(key_part.as_bytes())))
+}
+
+fn escaped_quote(text: &str, index: usize) -> bool {
+    text.as_bytes()[..index].iter().rev().take_while(|&&byte| byte == b'\\').count() % 2 != 0
+}
+
+fn credential_assignment(head: &str) -> bool {
+    let head = head.trim_end();
+    if let Some(quote @ ('"' | '\'')) = head.chars().next_back() {
+        let Some((start, _)) = head[..head.len() - 1].rmatch_indices(quote)
+            .find(|(index, _)| !escaped_quote(head, *index)) else { return false; };
+        let key = &head[start + 1..head.len() - 1];
+        if quote == '"' && key.contains('\\') {
+            return serde_json::from_str::<String>(&head[start..]).ok()
+                .is_some_and(|key| credential_key(&key));
+        }
+        return credential_key(key);
+    }
+    let start = head.rfind(|c: char| !c.is_ascii_alphanumeric() && !matches!(c, '_' | '-' | '.'))
+        .map_or(0, |index| index + head[index..].chars().next().unwrap().len_utf8());
+    credential_key(&head[start..])
+}
+
+fn redact_assignments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
     while let Some(index) = rest.find(['=', ':']) {
         let (head, tail) = rest.split_at(index);
-        let key_start = head
-            .rfind(|c: char| c.is_whitespace() || c == '"')
-            .map_or(0, |pos| pos + 1);
-        let key = &head[key_start..];
-        let lowered = key.to_ascii_lowercase();
-        if !key.is_empty() && KEYS.iter().any(|k| lowered.contains(k)) {
-            out.push_str(&head[..key_start]);
-            out.push_str(key);
-            out.push_str(&tail[..1]);
-            out.push_str("<redacted>");
+        out.push_str(&rest[..index + 1]);
+        if credential_assignment(head) {
             let after = &tail[1..];
-            let spaced = after.len() - after.trim_start().len();
+            let spaced = after.len() - after.trim_start_matches([' ', '\t']).len();
             let value = &after[spaced..];
-            let value_len = if tail.starts_with(':') {
-                if let Some(quoted) = value.strip_prefix('"') {
-                    quoted.find('"').map(|end| end + 2).unwrap_or(value.len())
-                } else {
-                    value
-                        .find([',', '}', ']'])
-                        .unwrap_or(value.len())
-                }
-            } else if let Some(quoted) = value.strip_prefix('"') {
-                quoted.find('"').map(|end| end + 2).unwrap_or(value.len())
-            } else {
-                value.find(char::is_whitespace).unwrap_or(value.len())
-            };
             out.push_str(&after[..spaced]);
+            let value_len = if let Some(quote @ ('"' | '\'')) = value.chars().next() {
+                let end = value.char_indices().skip(1)
+                    .find(|(index, c)| *c == quote && !escaped_quote(value, *index));
+                out.push(quote);
+                out.push_str("<redacted>");
+                if let Some((index, _)) = end {
+                    out.push(quote);
+                    index + 1
+                } else { value.len() }
+            } else {
+                out.push_str("<redacted>");
+                if tail.starts_with(':') {
+                    value.find([',', '}', ']', '\r', '\n']).unwrap_or(value.len())
+                } else {
+                    let first = value.find(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '}' | ']' | '"' | '\''))
+                        .unwrap_or(value.len());
+                    // An unquoted authorization assignment can still carry
+                    // a scheme and token, rather than just the first word.
+                    if value[..first].eq_ignore_ascii_case("bearer") || value[..first].eq_ignore_ascii_case("basic") {
+                        let token = value[first..].trim_start_matches([' ', '\t']);
+                        value.len() - token.len() + token.find(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '}' | ']' | '"' | '\''))
+                            .unwrap_or(token.len())
+                    } else { first }
+                }
+            };
             rest = &value[value_len..];
         } else {
-            out.push_str(&rest[..index + 1]);
             rest = &rest[index + 1..];
-        }
-        if rest.is_empty() {
-            break;
         }
     }
     out.push_str(rest);
     out
 }
 
-/// `bearer <token>` in any casing and position; ASCII lowercasing keeps byte
-/// length so the lowercased index maps back onto the original text.
-fn redact_bearer(text: &str) -> String {
-    const MARK: &str = "bearer ";
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
+fn redact_bearer(text: String) -> String {
+    let mut out = String::new();
+    let mut rest = text.as_str();
     loop {
-        let Some(pos) = rest.to_ascii_lowercase().find(MARK) else {
-            break;
-        };
+        let Some(pos) = rest.as_bytes().windows(7).position(|word|
+            word[..6].eq_ignore_ascii_case(b"bearer") && word[6].is_ascii_whitespace()) else { break; };
+        if out.capacity() == 0 { out.reserve(text.len()); }
         let word_boundary = pos == 0
             || !rest[..pos]
                 .chars()
                 .next_back()
                 .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
         if !word_boundary {
-            out.push_str(&rest[..pos + MARK.len()]);
-            rest = &rest[pos + MARK.len()..];
+            out.push_str(&rest[..pos + 7]);
+            rest = &rest[pos + 7..];
             continue;
         }
-        out.push_str(&rest[..pos + MARK.len()]);
-        let after = &rest[pos + MARK.len()..];
-        // `bearer  x` (extra spacing) must still lose the token, so measure
-        // the token inside the whitespace-trimmed tail.
+        let after = &rest[pos + 6..];
         let trimmed = after.trim_start();
-        let end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
+        out.push_str(&rest[..pos + 6 + after.len() - trimmed.len()]);
+        let end = trimmed.find(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '}' | ']' | '"' | '\''))
+            .unwrap_or(trimmed.len());
         out.push_str("<redacted>");
         rest = &trimmed[end..];
     }
+    if out.capacity() == 0 { return text; }
     out.push_str(rest);
     out
 }
 
 fn bound_chars(text: &str, max_chars: usize) -> (String, bool) {
-    if text.chars().count() <= max_chars {
+    let mut chars = text.char_indices();
+    let last = chars.nth(max_chars.saturating_sub(1));
+    if max_chars != 0 && chars.next().is_none() {
         return (text.to_owned(), false);
     }
-    let mut cut: String = text.chars().take(max_chars).collect();
+    if max_chars == 0 { return (String::new(), !text.is_empty()); }
+    let mut cut = text[..last.expect("truncated text has a final character").0].to_owned();
     cut.push('…');
     (cut, true)
+}
+
+fn journal_message(text: &str) -> (String, bool) {
+    // Bound work before redaction. An unfinished quoted secret consumes the
+    // remaining prefix; its unseen suffix is never copied into the journal.
+    let prefix_end = text.char_indices().nth(RUNTIME_ERROR_MESSAGE_MAX_CHARS)
+        .map_or(text.len(), |(index, _)| index);
+    let redacted = redact_journal_text(&text[..prefix_end]);
+    let (mut message, truncated) = bound_chars(&redacted, RUNTIME_ERROR_MESSAGE_MAX_CHARS);
+    if prefix_end != text.len() && !truncated {
+        if let Some((index, _)) = message.char_indices().nth(RUNTIME_ERROR_MESSAGE_MAX_CHARS - 1) {
+            message.truncate(index);
+        }
+        message.push('…');
+    }
+    (message, truncated || prefix_end != text.len())
+}
+
+fn redact_journal_value(value: &serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => redact_journal_text(text).into(),
+        serde_json::Value::Array(values) => values.iter().map(redact_journal_value).collect(),
+        serde_json::Value::Object(values) => values.iter().map(|(key, value)| (
+            key.clone(), if credential_key(key) { serde_json::Value::String("<redacted>".into()) }
+                else { redact_journal_value(value) },
+        )).collect(),
+        _ => value.clone(),
+    }
+}
+
+fn journal_extra(value: &serde_json::Value) -> serde_json::Value {
+    let mut buffer = [0u8; RUNTIME_ERROR_EXTRA_MAX_BYTES];
+    // Keep the original whole-object byte admission: redaction must not
+    // turn an oversized input into an apparently complete journal object.
+    if serde_json::to_writer(buffer.as_mut_slice(), value).is_ok() {
+        let redacted = redact_journal_value(value);
+        if serde_json::to_writer(buffer.as_mut_slice(), &redacted).is_ok() { return redacted; }
+    }
+    serde_json::json!({"journal_extra_dropped": "context extra exceeded 4096 bytes or was not serializable"})
 }
 
 /// Link rows from a subject step to the raw rows it staged.
@@ -961,24 +1014,18 @@ impl Store {
             agent_id,
             &raw_session_data(agent_id, &branch_id),
         )?;
-        let (message, message_truncated) =
-            bound_chars(&redact_journal_text(&context.message), RUNTIME_ERROR_MESSAGE_MAX_CHARS);
-        let extra = serde_json::to_vec(&context.extra)
-            .ok()
-            .filter(|bytes| bytes.len() <= RUNTIME_ERROR_EXTRA_MAX_BYTES)
-            .map(|_| context.extra.clone())
-            .unwrap_or(serde_json::json!({
-                "journal_extra_dropped": "context extra exceeded 4096 bytes or was not serializable"
-            }));
+        let (message, message_truncated) = journal_message(&context.message);
+        let error_digest = format!("blake3:{}", blake3::hash(context.message.as_bytes()).to_hex());
+        let extra = journal_extra(&context.extra);
         let data = serde_json::json!({
             "v": 1,
-            "kind": bound_chars(&context.kind, 128).0,
-            "source_module": bound_chars(&context.source_module, 256).0,
+            "kind": bound_chars(&redact_journal_text(&context.kind), 128).0,
+            "source_module": bound_chars(&redact_journal_text(&context.source_module), 256).0,
             "message": message,
             "message_truncated": message_truncated,
             "step_no": context.step_no,
             "task_id": context.task_id,
-            "error_digest": format!("blake3:{}", blake3::hash(context.message.as_bytes()).to_hex()),
+            "error_digest": error_digest,
             "occurred_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             "journal_dropped_total": self.error_journal_dropped.load(Ordering::Relaxed),
             "extra": extra,

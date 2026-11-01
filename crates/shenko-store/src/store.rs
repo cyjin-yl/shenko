@@ -139,7 +139,7 @@ impl Store {
 
         let conn = Arc::new(Mutex::new(conn));
         let ledger = Arc::new(Ledger::new(Arc::clone(&conn), incarnation)?);
-        let cas = Arc::new(ContentStore::new(cas_dir));
+        let cas = Arc::new(ContentStore::new(cas_dir)?);
         let mut import_lock_path = db_path.as_os_str().to_os_string();
         import_lock_path.push(".cognition-import.sqlite");
         let cognition_import_gate = Connection::open(PathBuf::from(import_lock_path))?;
