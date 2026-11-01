@@ -41,6 +41,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Versioned instance identity (SPEC §6): additive, never rewrites rows.
     conn.execute_batch(crate::identity::IDENTITY_SCHEMA)?;
 
+    // Configuration, owner claim and Playground business state (SPEC §43.1,
+    // §43.2, §44.4): additive, own tables only. These rows are ordinary
+    // ledger facts; nothing here rewrites an existing installation.
+    crate::config::ensure_config_schema(conn)?;
+    crate::artifacts::ensure_artifact_schema(conn)?;
+
     // Committed context windows (SPEC §12.3): additive, own tables only.
     conn.execute_batch(crate::context_windows::CONTEXT_WINDOWS_SCHEMA)?;
     ensure_column(conn, "context_window_scopes", "profile_digest", "TEXT")?;

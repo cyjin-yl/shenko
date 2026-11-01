@@ -8,7 +8,27 @@
 export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v1' as const;
 export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
 
-export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config';
+export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config' | 'playground';
+
+/// The Proto-UI playground surface — SPEC §43.2. Every fact below comes
+/// from the durable records; the view renders them, it does not invent a
+/// second artifact index.
+export interface PlaygroundView {
+  available?: boolean;
+  roots?: Array<{ artifact_id: string; root: string; identity: string }>;
+  artifacts?: Array<{
+    artifact_id: string;
+    title?: string;
+    mime?: string;
+    revision?: number;
+    parent_revision?: number | null;
+    updated_at?: string;
+    backend?: boolean;
+    lifecycle?: string;
+    record?: unknown;
+  }>;
+  namespaces?: Array<{ namespace: string; description?: string; logical_keys?: string[] }>;
+}
 export type ReadingState = 'following_latest' | 'reading_history' | 'selecting_or_interacting';
 export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
 // Durable admission stages — SPEC §41.18: accepted/selected/committed are
@@ -206,6 +226,8 @@ export interface UiState {
   tasks_error: boolean;
   memory?: { items?: Array<Record<string, unknown>>; note?: string };
   memory_error: boolean;
+  playground?: PlaygroundView;
+  playground_error: boolean;
   manifest?: BuildManifest;
   display: DisplayState;
 }
@@ -396,7 +418,7 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
 
 export function buildProjection(state: UiState, revision: number): UiProjection {
   const actions: Record<string, UiAction> = {};
-  const navNodes: UiNode[] = (['timeline', 'tasks', 'memory', 'config'] as ViewName[]).map((view) => {
+  const navNodes: UiNode[] = (['timeline', 'tasks', 'memory', 'config', 'playground'] as ViewName[]).map((view) => {
     const action = addAction(actions, `view.${view}`, 'view.select', 'view-v1', true, { view });
     return node(`nav.${view}`, 'navigation_item', { view, current: state.display.view === view }, [], {
       action_refs: [action],
@@ -565,6 +587,11 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
           committed_replay: state.committed_replay,
         },
       }, [], { layout: { hidden: state.display.view !== 'config' }, fallback: 'read_only_values' }),
+      node('playground', 'playground_surface', {
+        hidden: state.display.view !== 'playground',
+        playground: state.playground,
+        error: state.playground_error,
+      }, [], { layout: { hidden: state.display.view !== 'playground' }, fallback: 'read_only_list' }),
       composer,
       panel,
       node('notice', 'status_notice', { text: state.display.notice, source: state.source }, [], {

@@ -906,15 +906,13 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 db_path,
                 data_dir.join("cas"),
             )?);
-            anyhow::ensure!(
-                store.get_existing_agent_id()?.is_some(),
-                "no initialized subject in this data directory"
-            );
+            let agent_id = store.get_existing_agent_id()?
+                .context("no initialized subject in this data directory")?;
             let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
                 data_dir: data_dir.clone(),
                 ..Default::default()
             });
-            let prepared_home = bootstrap.prepare(store.ledger.ledger_id())?;
+            let prepared_home = bootstrap.prepare(store.installation_id_for_subject(agent_id)?)?;
             let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
             let installed = install_native_definitions(
@@ -1135,17 +1133,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 store.capabilities.wal_mode,
                 store.capabilities.fts5_available,
             );
-            let prepared = bootstrap.prepare(store.ledger.ledger_id())?;
+            let (installation_id, subject) = match store.get_existing_agent_id()? {
+                Some(agent_id) => (
+                    store.installation_id_for_subject(agent_id)?,
+                    shenko_seed::BootstrapSubjectState::ExistingGenesis,
+                ),
+                None => (
+                    store.ledger.ledger_id(),
+                    shenko_seed::BootstrapSubjectState::PendingGenesis,
+                ),
+            };
+            let prepared = bootstrap.prepare(installation_id)?;
             println!("Home manifest: {}", prepared.manifest_path.display());
             println!("Home: {}", serde_json::to_string_pretty(&prepared.manifest)?);
-            let subject = if store.get_existing_agent_id()?.is_some() {
-                shenko_seed::BootstrapSubjectState::ExistingGenesis
-            } else {
-                shenko_seed::BootstrapSubjectState::PendingGenesis
-            };
-            let owner_grant = store.get_bootstrap_owner_grant(store.ledger.ledger_id())?;
+            let owner_grant = store.get_bootstrap_owner_grant(installation_id)?;
             let view = bootstrap.view(
-                store.ledger.ledger_id(),
+                installation_id,
                 subject,
                 shenko_seed::ModelProfile::from_env(),
                 owner_grant,
@@ -1260,7 +1263,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 "store ready"
             );
 
-            let prepared_home = bootstrap.prepare(store.ledger.ledger_id())?;
+            let installation_id = match store.get_existing_agent_id()? {
+                Some(agent_id) => store.installation_id_for_subject(agent_id)?,
+                None => store.ledger.ledger_id(),
+            };
+            let prepared_home = bootstrap.prepare(installation_id)?;
             info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
 
             // 2. Bootstrap genesis if first run — SPEC §44.6. The genesis
@@ -1284,7 +1291,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // per-execution it reopens this installation's unit inventory so
             // installs made after startup are visible.
             let wasi_mounts = prepared_home.manifest.mounts.clone();
-            let installation_id = prepared_home.manifest.installation_id;
             drop(prepared_home);
             let identity = adopt_identity(&store, agent_id, name.as_deref(), &identity_service)?;
             info!(
@@ -1533,9 +1539,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     tracing::warn!("NapCat not started without a subject model; durable bootstrap remains available");
                 }
                 let owner_grant =
-                    store.get_bootstrap_owner_grant(store.ledger.ledger_id())?;
+                    store.get_bootstrap_owner_grant(installation_id)?;
                 let view = bootstrap.view(
-                    store.ledger.ledger_id(),
+                    installation_id,
                     shenko_seed::BootstrapSubjectState::ExistingGenesis,
                     model_profile.clone(),
                     owner_grant,
@@ -2142,7 +2148,31 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             info!("subject loop started");
 
 
-            // 6. Start WebUI
+            // 6. Ownership bootstrap — SPEC §44.4. The installation ships
+            // with a one-time claim capability provided through the install
+            // control channel (the data directory). The first recognized
+            // human who presents it is recorded as the owner; an HTTP visit
+            // is never proof.
+            if shenko_ui::owner::load_claim_capability(&data_dir).is_none()
+                && store.owner_grant(installation_id)?.is_none()
+            {
+                let (capability, secret) = shenko_ui::owner::issue_claim_capability(installation_id);
+                shenko_ui::owner::persist_claim_capability(&data_dir, &capability)?;
+                // The install control channel shows this exactly once; it is
+                // never written to the log or any replicated table.
+                eprintln!("SHENKO CLAIM CAPABILITY (present once to POST /api/owner/claim):\n{secret}");
+            }
+            let owner_state = shenko_ui::owner::OwnerState {
+                store: Arc::clone(&store),
+                installation_id,
+                data_dir: data_dir.clone(),
+            };
+            // The configuration service: discover/read/preview/apply over the
+            // durable config tables. Namespaces register their handlers on
+            // this service; without a handler a namespace is not advertised.
+            let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(Arc::clone(&store)));
+
+            // 7. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
                 .with_native(Arc::clone(&native_child))
                 .with_inbox(subject_inbox.sender())
@@ -2156,6 +2186,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 )
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
+                .with_owner(owner_state)
+                .with_config(config_service)
+                .with_artifact_services(Arc::clone(&installed.artifact_services))
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
             println!("Shenko UI: http://0.0.0.0:{port}");
             println!("  Subject task: supervised (durable boundary pause may be active)");

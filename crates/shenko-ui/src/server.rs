@@ -7,9 +7,12 @@ use tracing::info;
 
 use crate::api::{self, ApiState};
 use crate::input::WebInputService;
+use crate::config_service::ConfigService;
 use crate::media::{self, MediaRouteState};
+use crate::owner::OwnerState;
 use crate::playground::{self, PlaygroundState};
 use crate::presentation::{PresentationService, SurfaceCapabilityProvider};
+use crate::playground_backend::ArtifactServiceController;
 use crate::routes::*;
 use crate::stream::StreamSink;
 use crate::ws::{WsState, ws_handler};
@@ -37,6 +40,15 @@ pub struct UiServer {
     /// routes answering `available: false` instead of faking admission.
     media_ingress: Option<std::sync::Arc<shenko_media::MediaIngress>>,
     media_runtime: Option<std::sync::Arc<shenko_media::runtime::MediaRuntime>>,
+    /// The configuration service the API exposes. When omitted but a store
+    /// is present, `run` constructs one so `/api/config/*` is live.
+    config: Option<std::sync::Arc<ConfigService>>,
+    /// Ownership state for the claim and authenticated-actor routes.
+    owner: Option<OwnerState>,
+    /// Launcher/owner of long-lived artifact backend services. The runtime
+    /// reconciles it before admitting work; the UI and handoff seam share
+    /// that already-owned controller, never repeat boot recovery here.
+    artifact_services: Option<std::sync::Arc<ArtifactServiceController>>,
 }
 
 impl UiServer {
@@ -55,6 +67,9 @@ impl UiServer {
             stream_sink: None,
             media_ingress: None,
             media_runtime: None,
+            config: None,
+            owner: None,
+            artifact_services: None,
         }
     }
 
@@ -160,6 +175,27 @@ impl UiServer {
         self
     }
 
+    pub fn with_config(mut self, config: std::sync::Arc<ConfigService>) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn with_owner(mut self, owner: OwnerState) -> Self {
+        self.owner = Some(owner);
+        self
+    }
+
+    pub fn with_artifact_services(mut self, services: std::sync::Arc<ArtifactServiceController>) -> Self {
+        self.artifact_services = Some(services);
+        self
+    }
+
+    /// The handle the update seam uses to stop and restart long-lived
+    /// artifact services across a generation hand-off.
+    pub fn artifact_services(&self) -> Option<std::sync::Arc<ArtifactServiceController>> {
+        self.artifact_services.clone()
+    }
+
     pub async fn run(self) -> Result<()> {
         let mut state = self.state;
         // Build the durable input service when the real store, genesis
@@ -234,6 +270,16 @@ impl UiServer {
         }
         if let Some(context) = self.context.clone() {
             api_state = api_state.with_context(context);
+        }
+        if let Some(config) = self.config.clone() {
+            api_state = api_state.with_config(config);
+        } else if let Some(store) = self.store.clone() {
+            // A store without an explicit service still exposes discover/
+            // read of whatever namespaces were registered on this process.
+            api_state = api_state.with_config(std::sync::Arc::new(ConfigService::new(store)));
+        }
+        if let Some(owner) = self.owner.clone() {
+            api_state = api_state.with_owner(owner);
         }
         // Shared Arc registries: `/api/self` reports the same live objects the
         // Playground routes and WS handler use, not a second copy.

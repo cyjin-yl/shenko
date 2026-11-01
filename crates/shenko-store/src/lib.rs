@@ -26,6 +26,8 @@ pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };
 pub mod output_parts;
+pub mod config;
+pub mod artifacts;
 
 pub use store::*;
 pub use activation::*;
@@ -41,6 +43,8 @@ pub use cognition_archive::*;
 pub use contacts::*;
 pub use semantic_wait::*;
 pub use seat::*;
+pub use config::*;
+pub use artifacts::*;
 
 pub mod external;
 pub use external::{InboxAdmission, TaskInvocation};

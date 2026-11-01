@@ -1202,9 +1202,9 @@ const TABLES: &[TableSpec] = &[
         kind: RowKind::Verbatim,
     },
     // Playground artifacts (artifacts.rs): the artifact record, its
-    // version manifests and the runtime instances bound to it. Every record
-    // carries its own revision, so a peer advances the record by that
-    // revision and never by arrival order.
+    // version manifests and the runtime instances bound to it. Divergent
+    // peer revisions reconcile through the existing baseline/conflict-unit
+    // path; a larger revision alone does not authorize an overwrite.
     TableSpec {
         name: "artifact_records",
         key: &["artifact_id"],
@@ -1213,7 +1213,7 @@ const TABLES: &[TableSpec] = &[
             "record_revision", "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "artifact_manifests",
@@ -1222,7 +1222,7 @@ const TABLES: &[TableSpec] = &[
             "artifact_id", "version_digest", "record_revision", "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "artifact_runtime_instances",
@@ -1231,7 +1231,7 @@ const TABLES: &[TableSpec] = &[
             "instance_id", "artifact_id", "state", "record_revision", "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     // Owner grants and the versioned configuration (config.rs): the
     // credential digest table (`owner_admin_tokens`) stays local and is
@@ -1240,30 +1240,41 @@ const TABLES: &[TableSpec] = &[
         name: "owner_grants",
         key: &["installation_id"],
         columns: &[
-            "installation_id", "grant_id", "claim_id", "record_revision", "data",
+            "installation_id",
+            "grant_id",
+            "claim_id",
+            "record_revision",
+            "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "config_entries",
         key: &["namespace", "logical_key"],
         columns: &[
-            "namespace", "logical_key", "desired_revision", "record_revision",
+            "namespace",
+            "logical_key",
+            "desired_revision",
+            "record_revision",
             "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "config_changes",
         key: &["change_id"],
         columns: &[
-            "change_id", "origin_identity", "logical_key", "namespace",
-            "record_revision", "data",
+            "change_id",
+            "origin_identity",
+            "logical_key",
+            "namespace",
+            "record_revision",
+            "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     TableSpec {
         name: "config_adoptions",
@@ -1273,7 +1284,7 @@ const TABLES: &[TableSpec] = &[
             "record_revision", "data",
         ],
         local_seq: Some("updated_commit_seq"),
-        kind: RowKind::Revisioned,
+        kind: RowKind::Verbatim,
     },
     // Contacts person model: every claim revision, every merge or split
     // event and the admin grants referencing a person form ONE conflict
