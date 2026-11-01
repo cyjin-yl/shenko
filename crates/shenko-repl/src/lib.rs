@@ -9,10 +9,14 @@
 //! every cell for R0 recovery, and reports — never performs — interrupt,
 //! dependency installation and in-VM state persistence it cannot implement.
 
+pub mod adapters;
 pub mod contract;
+pub mod install;
 pub mod journal;
 pub mod kernel;
+pub mod live;
 pub mod session;
+pub mod task;
 mod state;
 
 pub use contract::*;

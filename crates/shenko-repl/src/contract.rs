@@ -1,9 +1,23 @@
 //! The §19/§19.1 REPL contract shared by every kernel backend.
 //!
-//! This crate ships one real backend (`session::WasiReplProvider`); the types
-//! here are runtime-neutral so a Pyodide profile, a boxed native kernel or an
-//! SSH kernel can implement the same session semantics without pretending to
-//! be the same runtime.
+//! Two real session models exist behind one contract:
+//!
+//! * `SessionModel::LiveProcess` — the session owns a real long-lived
+//!   interpreter process (a persistent WASI guest or a native host process).
+//!   While it lives, variables, functions, modules and loaded packages stay
+//!   in interpreter memory; cells are delivered on a framed stdin protocol
+//!   and per-cell streams land in guest-visible files. Interrupting a cell
+//!   kills the process: effects already committed stand, the session reports
+//!   recovery-required, and `restore()` rebuilds a fresh process from the
+//!   journaled work record. This is the model driver-bound kernels use.
+//! * `SessionModel::OneShot` — each cell runs as one independent process
+//!   (raw WASI kernels without a driver). Live variables do not survive
+//!   between cells; recovery replays journaled `Pure` cells to rebuild the
+//!   declared state file. This is an R0 work record, labeled as such.
+//!
+//! Recovery levels stay the §19 ladder and are claimed per kernel, never per
+//! wish: R0 work record, R1 explicitly serialized objects (driver state
+//! file), R2 full resumable VM state (not implemented by any kernel here).
 
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{EntityId, RuntimeGeneration};
@@ -38,12 +52,27 @@ pub enum ReplRuntime {
 pub enum BackendKind {
     /// WASI preview1 command module run by `shenko-wasm` (wasmtime).
     WasiPreview1,
-    /// A native host process kernel (not implemented by this crate).
+    /// A native host process kernel (the additional native route; it never
+    /// satisfies a WASM target).
     NativeHost,
     /// A kernel reached over an SSH seat (not implemented by this crate).
     RemoteSsh,
     /// Emscripten/JS-host runtime route (not implemented by this crate).
     EmscriptenHost,
+}
+
+/// How a session actually keeps interpreter state between cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionModel {
+    /// One process per cell; live variables do not survive between cells.
+    /// Recovery replays journaled `Pure` cells. R0 work record only.
+    OneShot,
+    /// The session owns one real long-lived interpreter process; variables,
+    /// closures and loaded modules persist in interpreter memory while it
+    /// lives, and recovery rebuilds a fresh process from the journal plus the
+    /// explicitly serialized state file.
+    LiveProcess,
 }
 
 /// Recovery level a backend actually guarantees for a session (§19 R0–R2).
@@ -53,7 +82,8 @@ pub enum RecoveryLevel {
     /// Cell source, outputs, outcomes, order and environment metadata are
     /// durable; nothing is claimed about live interpreter objects.
     R0WorkRecord,
-    /// Explicitly serialized objects can also be restored by the kernel.
+    /// Explicitly serialized objects can also be restored by the kernel
+    /// (the driver state file), plus journal replay for `Pure` cells.
     R1ObjectCheckpoint,
     /// Full resumable VM state for a specific engine/module/ABI, including
     /// external-resource rebinding. Copying linear memory does not reach R2.
@@ -76,18 +106,39 @@ pub enum CellKind {
     Unknown,
 }
 
-/// Declared resource limits. The WASI backend currently cannot enforce any
-/// of them; `inspect` returns them with `enforced: false` rather than
-/// pretending a guard exists.
+/// Which declared limits are backed by a real mechanism, per field. Fuel and
+/// memory reservation are declared but not enforced anywhere yet; the
+/// wall-clock bound is enforced per cell (epoch interrupt on WASI, host-side
+/// kill on native) whenever the caller sets it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LimitEnforcement {
+    pub wall_clock: bool,
+    pub fuel: bool,
+    pub memory: bool,
+}
+
+/// Declared resource limits.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceLimits {
     pub max_wall_clock_ms: Option<u64>,
     pub max_fuel: Option<u64>,
     pub max_memory_bytes: Option<u64>,
-    /// Always false until a real mechanism enforces the values above.
+    /// True only when every limit above is enforced. Never set today: fuel
+    /// and memory remain unenforced declarations.
     #[serde(default)]
     pub enforced: bool,
+}
+
+impl ResourceLimits {
+    /// Honest per-field enforcement report for `inspect`.
+    pub fn enforcement(&self) -> LimitEnforcement {
+        LimitEnforcement {
+            wall_clock: self.max_wall_clock_ms.is_some(),
+            fuel: false,
+            memory: false,
+        }
+    }
 }
 
 /// Binding of a session to its delegating context (§19: each REPL binds a
@@ -124,9 +175,35 @@ pub enum CellOutcome {
     /// The guest called `proc_exit(n)` with `n != 0`; a normal interpreter
     /// "cell raised" path, still a completed record.
     Exited { exit_code: i32 },
+    /// The guest was interrupted by a cancel request at an epoch checkpoint
+    /// (WASI) or killed (native) before the cell finished. Effects the cell
+    /// already committed stand; the cell has no complete record and the
+    /// session requires `restore()` before further execution.
+    Cancelled,
+    /// The per-cell wall-clock budget elapsed; the same effect-preservation
+    /// and recovery rules as `Cancelled` apply.
+    DeadlineExceeded,
     /// The guest trapped or the host failed to run it; `error` is the real
     /// failure text. Stream bytes written before the trap are still durable.
     Failed { error: String },
+}
+
+/// Structured trailer a driver writes as the last line of its report file
+/// after each cell. This is what makes the R1 claim auditable: whether the
+/// state file actually persisted, and which bindings were dropped because
+/// they are not serializable (the honest R1 boundary).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DriverReport {
+    pub ok: bool,
+    pub error: Option<String>,
+    /// Names the driver could not serialize into the state file.
+    pub dropped: Vec<String>,
+    pub state_bytes: u64,
+    /// True when the driver verified the state file round-trips (loaded the
+    /// just-written state back). False means the R1 claim is downgraded to
+    /// R0 for this cell even on a driver kernel.
+    pub state_verified: bool,
 }
 
 /// Durable record of one executed cell (the R0 journal line).
@@ -143,7 +220,7 @@ pub struct CellRecord {
     pub cell: EntityId,
     /// Replay boundary declared at execution time; never edited afterwards.
     pub cell_kind: CellKind,
-    /// BLAKE3 hex of the exact source bytes fed to stdin.
+    /// BLAKE3 hex of the exact source bytes delivered to the guest.
     pub source_blake3: String,
     pub source_bytes: u64,
     /// Session-relative path of the durable source file.
@@ -158,6 +235,8 @@ pub struct CellRecord {
     /// BLAKE3 of the interpreter module actually executed for this cell.
     pub module_blake3: String,
     pub environment_generation: RuntimeGeneration,
+    /// Driver trailer for this cell, when the kernel runs a driver.
+    pub driver_report: Option<DriverReport>,
     pub wall_clock_ms: u64,
     pub completed_unix_ms: i64,
 }
@@ -177,16 +256,23 @@ pub struct SessionInfo {
     pub kernel_id: String,
     pub runtime: ReplRuntime,
     pub backend: BackendKind,
+    pub session_model: SessionModel,
     pub state: SessionState,
     /// Highest recovery level this backend can deliver for this session.
     pub recovery_level: RecoveryLevel,
     /// True only when guest interpreter state outlives one cell process.
-    /// Always false for the process-per-cell WASI backend.
+    /// True for `LiveProcess` sessions while the owned process lives.
     pub interpreter_state_persists: bool,
+    /// Whether the owned live process is currently running (LiveProcess
+    /// model only).
+    pub live_process_running: bool,
     pub cells_executed: u64,
     pub environment_generation: RuntimeGeneration,
     pub bind: TaskBinding,
     pub limits: ResourceLimits,
+    pub enforcement: LimitEnforcement,
+    /// Driver identity (id@blake3) when the kernel runs an embedded driver.
+    pub driver: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,8 +285,9 @@ pub enum SessionState {
     Disposed,
 }
 
-/// An R0 checkpoint is a durable citation of the journal; nothing here claims
-/// interpreter objects survive.
+/// An R0/R1 checkpoint is a durable citation of the journal plus the
+/// declared state-file digests; nothing here claims interpreter objects
+/// survive beyond what the driver serialized.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplCheckpoint {
     pub checkpoint: EntityId,
@@ -249,12 +336,20 @@ pub struct RecoverReport {
     pub torn_tail_at: Option<u64>,
 }
 
-/// Honest answer to `cancel`: the WASI preview1 backend has no interrupt
-/// mechanism, so a running cell cannot be stopped through this interface.
+/// Honest answer to `cancel`. Interrupting a cell kills the session's live
+/// process (or traps the one-shot guest); it is a request honored at the
+/// next interrupt point, never proof that all work stopped — a guest blocked
+/// inside a blocking host call can outlive the request, and effects already
+/// committed stand.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CancelOutcome {
-    /// The named cell is executing and nothing can interrupt it.
+    /// The named cell is executing; an interrupt was requested at the next
+    /// epoch checkpoint (WASI) or a kill was delivered (native). Not proof
+    /// the cell's work fully stopped.
+    InterruptRequested { cell: EntityId },
+    /// The named cell is executing but this backend has no interrupt
+    /// mechanism at all.
     NotInterruptible { cell: EntityId },
     /// No cell is currently executing; nothing to cancel.
     NothingRunning,
@@ -262,19 +357,53 @@ pub enum CancelOutcome {
     Disposed,
 }
 
-/// Honest answer to `install_dependencies` (R083 surface): no package
-/// installer is bound, so the call fails instead of fabricating a lock.
+/// One dependency entry the caller asked to install (R083 surface).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstallRequest {
+    /// Host paths to pinned wheel files the caller already resolved. Wheel
+    /// filenames must follow `{dist}-{version}(-{build})?-{python}-{abi}-{platform}.whl`.
+    pub wheels: Vec<PathBuf>,
+    /// Registry packages for installers that have one (npm/bun); `pinned`
+    /// carries the exact version or dist-tag the caller resolved.
+    pub packages: Vec<crate::kernel::PackageSpec>,
+}
+
+/// A package the installer refused, with the real reason.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkippedPackage {
+    pub name: String,
+    pub pinned: String,
+    pub reason: String,
+}
+
+/// Honest answer to `install_dependencies` (R083 surface).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallOutcome {
-    /// The kernel backend has no installer; generation is unchanged.
+    /// Packages landed in a candidate environment that was verified and
+    /// committed: the session now runs on `environment_generation`, and the
+    /// journal carries an `env` record binding the transition to the cell
+    /// sequence. The previous environment directory stays on disk so a fork
+    /// of the old generation remains reproducible.
+    Installed {
+        installed: Vec<String>,
+        skipped: Vec<SkippedPackage>,
+        previous_generation: RuntimeGeneration,
+        environment_generation: RuntimeGeneration,
+    },
+    /// Nothing was installed; the candidate environment was discarded and
+    /// the session keeps running on its previous generation.
+    Refused { reason: String },
+    /// The kernel backend has no installer (e.g. raw QuickJS without a
+    /// package route); the generation is unchanged.
     Unsupported { reason: String },
 }
 
 /// One cell to execute.
 #[derive(Debug, Clone)]
 pub struct CellRequest {
-    /// Exact bytes delivered to the guest's stdin as the cell program.
+    /// Exact bytes delivered to the guest as the cell program.
     pub source: Vec<u8>,
     /// Replay boundary declared by the caller; `Unknown` is the honest
     /// default and is never silently upgraded to `Pure`.
@@ -301,7 +430,7 @@ pub trait ReplProvider {
     fn kernels(&self) -> Vec<crate::kernel::KernelTarget>;
     /// Create a session. Fails with a stable error when the kernel's module
     /// is not bound/readable — never falls back to a different runtime.
-    fn create(&self, request: CreateSession) -> anyhow::Result<Self::Session>;
+    fn create(&self, request: CreateSession) -> Result<Self::Session>;
     /// Reopen an existing session directory without replaying cells.
     fn reopen(&self, session_dir: &std::path::Path) -> anyhow::Result<Self::Session>;
 }
@@ -312,13 +441,15 @@ pub trait ReplSession {
     fn execute(&mut self, request: CellRequest) -> anyhow::Result<CellResult>;
     /// Current session state and honest capability report.
     fn inspect(&self) -> anyhow::Result<SessionInfo>;
-    /// Durable R0 citation of the journal plus declared state-file digests.
+    /// Durable R0/R1 citation of the journal plus declared state-file digests.
     fn checkpoint(&mut self) -> anyhow::Result<ReplCheckpoint>;
     /// Rebuild this session's interpreter state by re-executing journaled
-    /// Pure cells. Declared-effect cells keep their durable record as the
-    /// receipt; Unknown cells are reconciliation gaps. External effects are
-    /// never re-executed (§19 replay boundary, A15). Rebuild starts from the
-    /// session's immutable baseline (empty after reset), not surviving state.
+    /// Pure cells into a fresh owned process (LiveProcess) or fresh one-shot
+    /// runs (OneShot). Declared-effect cells keep their durable record as
+    /// the receipt; Unknown cells are reconciliation gaps. External effects
+    /// are never re-executed (§19 replay boundary, A15). Rebuild starts from
+    /// the session's immutable baseline (empty after reset), not surviving
+    /// state.
     fn restore(&mut self) -> anyhow::Result<RecoverReport>;
     /// Create a new session whose guest-visible state is a copy of this
     /// session's; the new session keeps its own journal from scratch.
@@ -329,12 +460,15 @@ pub trait ReplSession {
     /// work remains in the journal but is not resurrected by recovery. A failed
     /// state removal is retryable, including after reopen.
     fn reset(&mut self) -> anyhow::Result<()>;
-    /// R083 surface; currently always reports Unsupported.
+    /// R083 surface: install into a candidate environment, verify, and commit
+    /// a new `environment_generation`; on any failure the candidate is
+    /// discarded and the previous environment keeps serving the session.
     fn install_dependencies(
         &mut self,
-        packages: &[crate::kernel::PackageSpec],
+        request: InstallRequest,
     ) -> anyhow::Result<InstallOutcome>;
-    /// End the session; journal and outputs stay on disk for recovery.
+    /// End the session; the owned live process is terminated and the journal
+    /// and outputs stay on disk for recovery.
     fn dispose(&mut self) -> anyhow::Result<()>;
     fn session_dir(&self) -> &std::path::Path;
 }

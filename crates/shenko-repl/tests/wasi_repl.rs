@@ -102,6 +102,7 @@ fn kernel(module: PathBuf) -> KernelProfile {
         },
         extra_mounts: vec![],
         dependency_lock: vec![],
+        driver: KernelDriver::None,
     }
 }
 

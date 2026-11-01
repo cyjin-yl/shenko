@@ -512,6 +512,29 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _native_wasi_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
                 .await?;
+            // Stateful REPL sessions (§19/§19.1): repl.session manages real
+            // long-lived interpreter sessions; repl.cell executes journaled
+            // cells on them. Interpreter modules are admitted only from the
+            // canonical <data>/repl/kernels tree.
+            let repl_session_handler = shenko_repl::task::ReplSessionHandler::new(
+                Arc::clone(&store),
+                data_dir.join("repl"),
+            )?;
+            let repl_sessions = repl_session_handler.sessions();
+            let repl_cell_handler = shenko_repl::task::ReplCellHandler::new(
+                Arc::clone(&store),
+                repl_sessions,
+            );
+            let repl_session_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(repl_session_handler);
+            let repl_cell_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(repl_cell_handler);
+            let _repl_session_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, repl_session_handler)
+                .await?;
+            let _repl_cell_plugin = supervisor
+                .spawn(shenko_subject::NativeTaskHandlerPlugin, repl_cell_handler)
+                .await?;
             let native_child = supervisor
                 .context()
                 .try_service::<shenko_subject::NativeChildService>()?;

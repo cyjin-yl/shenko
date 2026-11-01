@@ -1,23 +1,38 @@
-//! WASI preview1 cell execution with host-only R0 work records. This is a
-//! process per cell, not a claim of interpreter or VM object persistence.
+//! Stateful REPL sessions over two real engine models.
+//!
+//! * Driver kernels ([`crate::kernel::KernelDriver`] != `None`) run a
+//!   **live process** ([`crate::live`]): one long-lived owned interpreter
+//!   process per session; variables, closures and imported modules persist in
+//!   interpreter memory while it lives; recovery kills and rebuilds it from
+//!   the durable journal.
+//! * Raw kernels run **one-shot**: one independent WASI process per cell;
+//!   the R0 journal plus replay of caller-declared `Pure` cells is the whole
+//!   recovery story, and `inspect` says so.
+//!
+//! Everything here is honest about what is not implemented: resource fuel
+//! and memory limits are declarations without a mechanism; R2 VM-state
+//! recovery exists nowhere; interrupt success is never stop-proof.
 
 use crate::contract::*;
 use crate::journal as jrn;
-use crate::kernel::{self, KernelProfile, ModuleSource, PackageSpec, StatePersistence};
+use crate::kernel::{self, KernelProfile, ModuleSource, StatePersistence};
+use crate::live::{self, CellHeader, LiveProcess};
 pub use crate::state::Baseline;
 use crate::state::StateFile;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
-use shenko_wasm::{HOME_GUEST_PATH, InputFile, MountMode, MountSpec, OutputFile, WasiCommand, WasmRuntime, WasiRunOutcome};
+use shenko_wasm::{HOME_GUEST_PATH, InputFile, MountMode, MountSpec, OutputFile, WasiCancellation, WasiCommand, WasiRunControl, WasiRunOutcome, WasmRuntime};
 use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const MANIFEST_SCHEMA: u32 = 2;
+const MANIFEST_SCHEMA: u32 = 3;
 const DEFAULT_PREVIEW_BYTES: usize = 4096;
+/// Guest-visible root of driver material, per-cell streams and environments.
+const SHENKO_GUEST_ROOT: &str = "/home/.shenko";
 
 /// Host-only session identity and immutable initial interpreter-state baseline.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +44,8 @@ pub struct SessionManifest {
     pub module_blake3: String,
     pub bind: TaskBinding,
     pub limits: ResourceLimits,
+    /// Advisory cache of the journal's current generation; the authoritative
+    /// value is recomputed from the kernel lock plus committed `env` records.
     pub environment_generation: shenko_types::ids::RuntimeGeneration,
     pub recovery_level: RecoveryLevel,
     pub forked_from: Option<EntityId>,
@@ -90,6 +107,11 @@ impl ReplProvider for WasiReplProvider {
         for sub in [jrn::GUEST_HOME_DIR, jrn::GUEST_WORK_DIR, jrn::CELLS_DIR, jrn::REPLAYS_DIR] {
             fs::create_dir(dir.join(sub))?;
         }
+        materialize_driver(&dir, &request.kernel)?;
+        let cell_ns = cell_namespace(&dir, session_id);
+        fs::create_dir_all(&cell_ns.host)?;
+        fs::create_dir_all(dir.join("home/.shenko/replays"))?;
+        fs::create_dir_all(env_dir_host(&dir, &generation_tag(&environment_generation)))?;
         File::create(dir.join(jrn::JOURNAL_FILE))?.sync_all()?;
         File::open(&dir)?.sync_all()?;
         File::open(&root)?.sync_all()?;
@@ -101,14 +123,14 @@ impl ReplProvider for WasiReplProvider {
         let manifest = SessionManifest {
             schema_version: MANIFEST_SCHEMA, session_id, kernel: request.kernel, module_blake3,
             bind: request.bind, limits, environment_generation,
-            recovery_level: RecoveryLevel::R0WorkRecord, forked_from: None, baseline,
+            recovery_level: request.kernel.recovery_level(), forked_from: None, baseline,
             created_unix_ms: unix_ms(), disposed_unix_ms: None,
         };
-        let runtime = build_runtime(preopens)?;
+        let engine = build_engine(&dir, &manifest.kernel, preopens)?;
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
-        Ok(WasiReplSession { dir, manifest, runtime, state, journal, busy: None,
-            disposed: false, preview_bytes: preview_len(request.preview_bytes) })
+        Ok(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
+            oneshot_cancel: None, disposed: false, preview_bytes: preview_len(request.preview_bytes) })
     }
 
     fn reopen(&self, session_dir: &Path) -> Result<WasiReplSession> {
@@ -116,12 +138,66 @@ impl ReplProvider for WasiReplProvider {
     }
 }
 
+/// Driver material under the session home tree (guest-visible, host-written).
+fn driver_host_dir(dir: &Path) -> PathBuf { dir.join("home/.shenko/drivers") }
+fn driver_guest_path(profile: &KernelProfile) -> Option<String> {
+    profile.driver.asset().map(|asset| format!("{SHENKO_GUEST_ROOT}/drivers/{}", asset.file_name))
+}
+fn driver_host_path(dir: &Path, profile: &KernelProfile) -> Option<PathBuf> {
+    profile.driver.asset().map(|asset| driver_host_dir(dir).join(asset.file_name))
+}
+
+fn materialize_driver(dir: &Path, profile: &KernelProfile) -> Result<()> {
+    let Some(asset) = profile.driver.asset() else { return Ok(()); };
+    let drivers = driver_host_dir(dir);
+    fs::create_dir_all(&drivers)?;
+    jrn::write_fresh_file(&drivers.join(asset.file_name), asset.bytes)?;
+    Ok(())
+}
+
+/// Verify the materialized driver still has the embedded bytes' digest.
+fn verify_driver(dir: &Path, profile: &KernelProfile) -> Result<()> {
+    let Some(asset) = profile.driver.asset() else { return Ok(()); };
+    let path = driver_host_dir(dir).join(asset.file_name);
+    let bytes = fs::read(&path).with_context(||
+        format!("REPL_SESSION_INVALID: driver {} missing", path.display()))?;
+    if jrn::hash_bytes(&bytes) != jrn::hash_bytes(asset.bytes) {
+        bail!("REPL_SESSION_INVALID: driver {} was modified", path.display());
+    }
+    Ok(())
+}
+
+/// Per-session namespace for live per-cell stream files, so a forked session
+/// never overwrites its parent's cell files.
+struct CellNamespace { host: PathBuf, guest: String }
+
+fn cell_namespace(dir: &Path, session_id: EntityId) -> CellNamespace {
+    let guest = format!("{SHENKO_GUEST_ROOT}/cells/{session_id}");
+    CellNamespace { host: dir.join("home/.shenko/cells").join(session_id.to_string()), guest }
+}
+
+/// Guest staging dir for live replay streams (under the mounted home tree).
+fn live_replay_guest_dir() -> String { format!("{SHENKO_GUEST_ROOT}/replays") }
+
+/// Environment directory for one generation tag (`g-<blake3-16>`).
+fn generation_tag(generation: &shenko_types::ids::RuntimeGeneration) -> String {
+    let hex = generation.0.rsplit(':').next().unwrap_or(&generation.0);
+    let short: String = hex.chars().filter(|c| c.is_ascii_hexdigit()).take(16).collect();
+    format!("g-{short}")
+}
+fn env_dir_guest(generation: &shenko_types::ids::RuntimeGeneration) -> String {
+    format!("{SHENKO_GUEST_ROOT}/envs/{}", generation_tag(generation))
+}
+fn env_dir_host(dir: &Path, tag: &str) -> PathBuf {
+    dir.join("home/.shenko/envs").join(tag)
+}
+
 fn validate_manifest(dir: &Path, manifest: &SessionManifest) -> Result<()> {
     if manifest.schema_version != MANIFEST_SCHEMA || manifest.session_id == EntityId::nil()
         || dir.file_name().and_then(|n| n.to_str()) != Some(manifest.session_id.to_string().as_str())
         || !jrn::valid_digest(&manifest.module_blake3)
-        || manifest.environment_generation != kernel::environment_generation(&manifest.kernel)
-        || manifest.recovery_level != RecoveryLevel::R0WorkRecord || manifest.limits.enforced
+        || manifest.recovery_level != manifest.kernel.recovery_level()
+        || manifest.limits.enforced
         || manifest.forked_from == Some(EntityId::nil())
         || manifest.forked_from == Some(manifest.session_id)
         || manifest.baseline.as_ref().is_some_and(|b| !jrn::valid_digest(&b.blake3))
@@ -131,8 +207,35 @@ fn validate_manifest(dir: &Path, manifest: &SessionManifest) -> Result<()> {
     Ok(())
 }
 
+/// True when the manifest carries the environment this session forked from or
+/// installed. `manifest.environment_generation` is advisory; the journal's
+/// generation is authoritative.
 fn load_journal(dir: &Path, manifest: &SessionManifest) -> Result<jrn::Journal> {
-    jrn::load(dir, manifest.session_id, &manifest.module_blake3, &manifest.environment_generation)
+    let journal = jrn::load(dir, manifest.session_id, &manifest.module_blake3, &manifest.environment_generation)?;
+    reconcile_manifest_generation(dir, manifest, &journal)?;
+    Ok(journal)
+}
+
+/// Crash window between committing an `env` journal record and persisting the
+/// updated manifest: adopt the journal's generation (recomputed from the
+/// kernel lock plus committed env packages) and rewrite the manifest. Both
+/// orders are idempotent, so a repeated crash re-heals to the same content.
+fn reconcile_manifest_generation(dir: &Path, manifest: &SessionManifest, journal: &jrn::Journal) -> Result<()> {
+    if journal.generation() == &kernel::environment_generation(&manifest.kernel) {
+        return Ok(());
+    }
+    let mut healed = manifest.kernel.clone();
+    for env in &journal.envs {
+        healed.dependency_lock.extend(env.packages.iter().cloned());
+    }
+    if kernel::environment_generation(&healed) != *journal.generation() {
+        bail!("REPL_JOURNAL_CORRUPT: environment generation does not match kernel lock plus env records");
+    }
+    let mut updated = manifest.clone();
+    updated.kernel = healed;
+    updated.environment_generation = journal.generation().clone();
+    jrn::write_manifest(dir, &updated)?;
+    Ok(())
 }
 
 fn read_manifest(dir: &Path) -> Result<SessionManifest> {
@@ -148,16 +251,21 @@ fn read_manifest(dir: &Path) -> Result<SessionManifest> {
     keys(&json, &["schema_version", "session_id", "kernel", "module_blake3", "bind", "limits",
         "environment_generation", "recovery_level", "forked_from", "baseline", "created_unix_ms", "disposed_unix_ms"])?;
     keys(&json["kernel"], &["kernel_id", "runtime", "runtime_label", "backend", "module", "argv", "env",
-        "workdir_guest", "persistence", "extra_mounts", "dependency_lock"])?;
+        "workdir_guest", "persistence", "extra_mounts", "dependency_lock", "driver"])?;
     keys(&json["bind"], &["task", "worker", "scope"])?;
     keys(&json["limits"], &["max_wall_clock_ms", "max_fuel", "max_memory_bytes", "enforced"])?;
     if !json["baseline"].is_null() { keys(&json["baseline"], &["bytes", "blake3"])?; }
     let mounts = json.pointer("/kernel/extra_mounts").and_then(|v| v.as_array())
         .context("REPL_SESSION_INVALID: missing extra mounts")?;
-    // MountSpec is shared with the WASM crate and intentionally permissive for
-    // other consumers; the session manifest has a strict, versioned schema.
+    // MountSpec is shared with the WASM crate and versioned there; the
+    // session manifest requires the stable base keys and delegates value
+    // admission to MountSpec's own strict serde + validate().
+    let base_keys = ["source", "guest_path", "mode", "persistent", "versioned"];
     for mount in mounts {
-        keys(mount, &["source", "guest_path", "mode", "persistent", "versioned"])?;
+        let object = mount.as_object().context("REPL_SESSION_INVALID: expected mount object")?;
+        if base_keys.iter().any(|key| !object.contains_key(*key)) {
+            bail!("REPL_SESSION_INVALID: missing mount base field");
+        }
     }
     serde_json::from_slice(&bytes).context("REPL_SESSION_INVALID: manifest schema")
 }
@@ -166,24 +274,34 @@ fn read_manifest(dir: &Path) -> Result<SessionManifest> {
 /// is returned; an interrupted restore fences execution until restore retries.
 pub fn open_session(dir: &Path, preview_bytes: usize) -> Result<WasiReplSession> {
     let dir = dir.canonicalize().with_context(|| format!("REPL_SESSION_INVALID: {}", dir.display()))?;
-    let manifest = read_manifest(&dir)?;
+    let mut manifest = read_manifest(&dir)?;
     validate_manifest(&dir, &manifest)?;
+    verify_driver(&dir, &manifest.kernel)?;
     let preopens = session_preopens(&dir, &manifest.kernel)?;
     let prepared_state = prepare_state(&preopens, &manifest.kernel.persistence)?;
     let journal = load_journal(&dir, &manifest)?;
+    reconcile_healed_manifest(&dir, &mut manifest)?;
     let state = prepared_state.map(|state| state.bind(&preopens)).transpose()?;
-    let runtime = build_runtime(preopens)?;
+    let engine = build_engine(&dir, &manifest.kernel, preopens)?;
     if journal.last_reset.is_some() && state.is_none() {
         bail!("REPL_JOURNAL_CORRUPT: reset boundary without declared state");
     }
     let mut session = WasiReplSession {
-        dir, busy: None, disposed: manifest.disposed_unix_ms.is_some(),
-        preview_bytes: preview_len(preview_bytes), manifest, runtime, state, journal,
+        dir, busy: None, oneshot_cancel: None, disposed: manifest.disposed_unix_ms.is_some(),
+        preview_bytes: preview_len(preview_bytes), manifest, engine, state, journal,
     };
     if session.journal.pending_reset.is_some() {
         session.finish_reset()?;
     }
     Ok(session)
+}
+
+/// `reconcile_manifest_generation` heals on disk during load; pick the healed
+/// manifest back up so the in-memory session matches what is durable.
+fn reconcile_healed_manifest(dir: &Path, manifest: &mut SessionManifest) -> Result<()> {
+    let bytes = fs::read(dir.join(jrn::SESSION_MANIFEST)).context("read healed manifest")?;
+    *manifest = serde_json::from_slice(&bytes).context("parse healed manifest")?;
+    Ok(())
 }
 
 /// Extra preopens must neither contain nor be contained by private storage.
@@ -229,6 +347,34 @@ fn session_preopens(dir: &Path, kernel: &KernelProfile) -> Result<Vec<SessionPre
     preopens.extend(kernel.extra_mounts.iter().cloned()
         .map(|spec| SessionPreopen { spec, private: false }));
     Ok(preopens)
+}
+
+/// One execution engine for this session: an independent runtime for
+/// one-shot raw kernels, or the owned live process for driver kernels.
+enum Engine {
+    OneShot { runtime: WasmRuntime },
+    Live(Option<LiveProcess>),
+}
+
+impl Engine {
+    fn session_model(&self) -> SessionModel {
+        match self {
+            Engine::OneShot { .. } => SessionModel::OneShot,
+            Engine::Live(_) => SessionModel::LiveProcess,
+        }
+    }
+}
+
+fn build_engine(dir: &Path, kernel: &KernelProfile, preopens: Vec<SessionPreopen>) -> Result<Engine> {
+    match kernel.session_model() {
+        SessionModel::OneShot => Ok(Engine::OneShot { runtime: build_runtime(preopens)? }),
+        SessionModel::LiveProcess => {
+            // Live processes start lazily on the first cell or restore: fork
+            // and reopen must not pay interpreter boot for an idle session.
+            let _ = (dir, kernel);
+            Ok(Engine::Live(None))
+        }
+    }
 }
 
 fn build_runtime(preopens: Vec<SessionPreopen>) -> Result<WasmRuntime> {
@@ -347,10 +493,11 @@ fn validate_fork_destination(source_session: &Path, destination: &Path) -> Resul
 pub struct WasiReplSession {
     dir: PathBuf,
     manifest: SessionManifest,
-    runtime: WasmRuntime,
+    engine: Engine,
     state: Option<StateBinding>,
     journal: jrn::Journal,
     busy: Option<EntityId>,
+    oneshot_cancel: Option<WasiCancellation>,
     /// An immediate execution fence; disposal may still need persistence retry.
     disposed: bool,
     preview_bytes: usize,
@@ -362,6 +509,11 @@ impl WasiReplSession {
         if self.journal.pending_reset.is_some() || self.journal.active_restore.is_some() {
             bail!("REPL_RECOVERY_REQUIRED: finish the interrupted reset or restore");
         }
+        if let Engine::Live(Some(process)) = &self.engine {
+            if process.is_dead() {
+                bail!("REPL_RECOVERY_REQUIRED: the live interpreter process is gone; run restore() before more cells");
+            }
+        }
         Ok(())
     }
 
@@ -370,6 +522,13 @@ impl WasiReplSession {
         state.verify_root()?;
         state.file.clear()?;
         state.verify_root()?;
+        if let Engine::Live(process) = &mut self.engine {
+            // Reset must also kill the owned process: variables living in
+            // interpreter memory would otherwise survive the reset.
+            if let Some(process) = process.take() {
+                process.shutdown();
+            }
+        }
         jrn::complete_reset(&mut self.journal)
     }
 
@@ -382,9 +541,103 @@ impl WasiReplSession {
         Ok(bytes)
     }
 
-    fn run_guest(&mut self, cell: EntityId, source: &[u8], file_stem: &str, file_dir: &str)
-        -> Result<(CellOutcome, PathBuf, PathBuf, u64)>
+    /// Current environment directory for the live protocol header.
+    fn current_env(&self) -> (String, PathBuf) {
+        let guest = env_dir_guest(self.journal.generation());
+        let host = env_dir_host(&self.dir, &generation_tag(self.journal.generation()));
+        (guest, host)
+    }
+
+    /// Materialized cell protocol paths for one live cell.
+    fn live_cell_paths(&self, seq: u64) -> LiveCellPaths {
+        let (env_guest, env_host) = self.current_env();
+        let guest = self.manifest.kernel.backend == BackendKind::WasiPreview1;
+        let cell_namespace = cell_namespace(&self.dir, self.manifest.session_id);
+        LiveCellPaths {
+            header: CellHeader {
+                seq,
+                cell_dir: if guest { cell_namespace.guest.clone() } else { cell_namespace.host.to_string_lossy().into_owned() },
+                state_path: self.state_guest_or_host(guest),
+                env_dir: if guest { env_guest } else { env_host.to_string_lossy().into_owned() },
+            },
+            out_host: cell_namespace.host.join(format!("{seq}.out")),
+            err_host: cell_namespace.host.join(format!("{seq}.err")),
+            report_host: cell_namespace.host.join(format!("{seq}.report.json")),
+        }
+    }
+
+    fn state_guest_or_host(&self, guest: bool) -> String {
+        match &self.manifest.kernel.persistence {
+            StatePersistence::GuestFile { guest_path } if guest => guest_path.clone(),
+            StatePersistence::GuestFile { guest_path } => {
+                // Host path: the state file's owning preopen is always the
+                // session home tree for driver kernels (validated).
+                self.dir.join(guest_path.trim_start_matches('/')).to_string_lossy().into_owned()
+            }
+            StatePersistence::None => String::new(),
+        }
+    }
+
+    fn start_live_process(&mut self) -> Result<()> {
+        if let Engine::Live(Some(process)) = &self.engine {
+            if !process.is_dead() {
+                return Ok(());
+            }
+        }
+        let module = self.bound_module()?;
+        verify_driver(&self.dir, &self.manifest.kernel)?;
+        let preopens = session_preopens(&self.dir, &self.manifest.kernel)?;
+        let Some(driver_guest) = driver_guest_path(&self.manifest.kernel) else {
+            bail!("REPL_KERNEL_INVALID: live session model requires a driver");
+        };
+        let driver_host = driver_host_path(&self.dir, &self.manifest.kernel)
+            .context("REPL_KERNEL_INVALID: live session model requires a driver")?;
+        let guest_stdout = live::open_guest_log(&self.dir.join("guest.log"))?;
+        let guest_stderr = live::open_guest_log(&self.dir.join("guest.err.log"))?;
+        let process = match self.manifest.kernel.backend {
+            BackendKind::WasiPreview1 => {
+                let mut argv = self.manifest.kernel.argv.clone();
+                if argv.is_empty() {
+                    argv.push("kernel.wasm".into());
+                }
+                argv.push(driver_guest);
+                let runtime = build_runtime(preopens)?;
+                LiveProcess::spawn_wasi(runtime, module, argv, self.manifest.kernel.env.clone(),
+                    guest_stdout, guest_stderr)?
+            }
+            BackendKind::NativeHost => {
+                let ModuleSource::ModulePath(executable) = &self.manifest.kernel.module;
+                let workdir_host = preopens.iter()
+                    .find(|preopen| preopen.spec.guest_path == self.manifest.kernel.workdir_guest)
+                    .map(|preopen| preopen.spec.source.clone())
+                    .context("REPL_KERNEL_INVALID: native workdir has no host preopen")?;
+                LiveProcess::spawn_native(executable.clone(), driver_host,
+                    self.manifest.kernel.argv.clone(), self.manifest.kernel.env.clone(),
+                    workdir_host, guest_stdout, guest_stderr)?
+            }
+            other => bail!("REPL_KERNEL_INVALID: backend {other:?} cannot host a live session"),
+        };
+        self.engine = Engine::Live(Some(process));
+        Ok(())
+    }
+
+    fn stop_live_process(&mut self) -> Option<live::ProcessOutcome> {
+        match &mut self.engine {
+            Engine::Live(process) => process.take().and_then(|process| process.shutdown()),
+            Engine::OneShot { .. } => None,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // One-shot raw-kernel execution (one real WASI process per cell).
+    // -----------------------------------------------------------------------
+
+    fn run_oneshot_cell(&mut self, cell: EntityId, source: &[u8], file_stem: &str, file_dir: &str)
+        -> Result<(CellOutcome, Option<DriverReport>, PathBuf, PathBuf, u64)>
     {
+        let Engine::OneShot { runtime } = &mut self.engine else {
+            bail!("REPL_KERNEL_INVALID: one-shot engine requested for a live kernel");
+        };
         // Recheck before every invocation: the runtime reopens pathnames.
         validate_extra_mounts(&self.dir, &self.manifest.kernel)?;
         if let Some(state) = &self.state { state.verify_root()?; }
@@ -401,10 +654,17 @@ impl WasiReplSession {
         let mut command = WasiCommand::new(stdin, stdout, stderr);
         command.arguments = self.manifest.kernel.argv.clone();
         command.environment = self.manifest.kernel.env.clone();
+        let cancel = WasiCancellation::default();
+        command.control = WasiRunControl {
+            deadline: self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis),
+            cancel: Some(cancel.clone()),
+        };
+        self.oneshot_cancel = Some(cancel);
         self.busy = Some(cell);
         let started = Instant::now();
-        let result = self.runtime.run_wasi_module(&module, command);
+        let result = runtime.run_wasi_module(&module, command);
         self.busy = None;
+        self.oneshot_cancel = None;
         // Output data and names must reach storage before any journal record.
         stdout_file.sync_all()?;
         stderr_file.sync_all()?;
@@ -413,11 +673,47 @@ impl WasiReplSession {
         let outcome = match result {
             Ok(WasiRunOutcome::Exited(0)) => CellOutcome::Completed { exit_code: 0 },
             Ok(WasiRunOutcome::Exited(code)) => CellOutcome::Exited { exit_code: code },
-            Ok(WasiRunOutcome::Cancelled) => CellOutcome::Failed { error: "guest run cancelled".to_string() },
-            Ok(WasiRunOutcome::DeadlineExceeded) => CellOutcome::Failed { error: "guest run deadline exceeded".to_string() },
+            Ok(WasiRunOutcome::Cancelled) => CellOutcome::Cancelled,
+            Ok(WasiRunOutcome::DeadlineExceeded) => CellOutcome::DeadlineExceeded,
             Err(e) => CellOutcome::Failed { error: e.to_string() },
         };
-        Ok((outcome, stdout_path, stderr_path, started.elapsed().as_millis() as u64))
+        Ok((outcome, None, stdout_path, stderr_path, started.elapsed().as_millis() as u64))
+    }
+
+    // -----------------------------------------------------------------------
+    // Live driver-kernel execution (one long-lived owned process).
+    // -----------------------------------------------------------------------
+
+    fn run_live_cell(&mut self, cell: EntityId, seq: u64, source: &[u8])
+        -> Result<(CellOutcome, Option<DriverReport>, u64)>
+    {
+        self.start_live_process()?;
+        let Engine::Live(Some(process)) = &mut self.engine else {
+            bail!("REPL_KERNEL_INVALID: live engine unavailable");
+        };
+        if let Some(state) = &self.state { state.verify_root()?; }
+        let paths = self.live_cell_paths(seq);
+        self.busy = Some(cell);
+        let started = Instant::now();
+        let run = process.run_cell(&paths.header, source, &paths.report_host,
+            self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis));
+        self.busy = None;
+        let wall_clock_ms = started.elapsed().as_millis() as u64;
+        let outcome = match run {
+            Ok(()) => {
+                let report = live::read_driver_report(&paths.report_host)?
+                    .context("REPL_KERNEL_UNAVAILABLE: driver report missing after completion")?;
+                if report.ok {
+                    CellOutcome::Completed { exit_code: 0 }
+                } else {
+                    CellOutcome::Exited { exit_code: 1 }
+                }
+            }
+            Err(live::CellInterrupt::CancelRequested) => CellOutcome::Cancelled,
+            Err(live::CellInterrupt::DeadlineExceeded) => CellOutcome::DeadlineExceeded,
+        };
+        if let Some(state) = &self.state { state.verify_root()?; }
+        Ok((outcome, report_of(&paths, outcome.clone()), wall_clock_ms))
     }
 
     fn stream_preview(&self, path: &Path, blake3: String, total_bytes: u64) -> Result<StreamPreview> {
@@ -430,21 +726,65 @@ impl WasiReplSession {
             truncated, blake3, path: path.strip_prefix(&self.dir)?.to_path_buf() })
     }
 
+    /// Re-execute one journaled Pure cell through the current engine during
+    /// restore, with a fresh artifact identity, and append the replay record.
     fn replay_cell(&mut self, record: &CellRecord, source: &[u8], attempt: EntityId) -> Result<u64> {
         // UUID is independent of journal seq: an orphan from a crash cannot
         // collide with the next attempt, even when the last line was torn.
         let artifact = EntityId::new();
-        let (outcome, stdout_path, stderr_path, _) =
-            self.run_guest(record.cell, source, &artifact.to_string(), jrn::REPLAYS_DIR)?;
-        let (exit_code, error) = match outcome {
-            CellOutcome::Completed { exit_code } | CellOutcome::Exited { exit_code } => (Some(exit_code), None),
-            CellOutcome::Failed { error } => (None, Some(error)),
+        let (exit_code, error) = match self.engine.session_model() {
+            SessionModel::OneShot => {
+                let (outcome, _, stdout_path, stderr_path, _) =
+                    self.run_oneshot_cell(record.cell, source, &artifact.to_string(), jrn::REPLAYS_DIR)?;
+                move_replay_streams(&stdout_path, &stderr_path, &self.dir, artifact)?;
+                match outcome {
+                    CellOutcome::Completed { exit_code } | CellOutcome::Exited { exit_code } => (Some(exit_code), None),
+                    CellOutcome::Cancelled => (None, Some("replay guest cancelled".into())),
+                    CellOutcome::DeadlineExceeded => (None, Some("replay guest deadline exceeded".into())),
+                    CellOutcome::Failed { error } => (None, Some(error)),
+                }
+            }
+            SessionModel::LiveProcess => {
+                self.start_live_process()?;
+                let Engine::Live(Some(process)) = &mut self.engine else {
+                    bail!("REPL_KERNEL_INVALID: live engine unavailable");
+                };
+                // Replay evidence goes to artifact-named files under the
+                // host replays/ dir, never over the original per-seq cell
+                // files. The guest only sees /home, so the driver writes
+                // per-seq streams to a guest staging dir the host renames.
+                let staging = self.dir.join("home/.shenko/replays");
+                let mut header = self.live_cell_paths(record.seq).header;
+                header.cell_dir = live_replay_guest_dir();
+                if self.manifest.kernel.backend == BackendKind::NativeHost {
+                    // Native drivers take host paths verbatim.
+                    header.cell_dir = staging.to_string_lossy().into_owned();
+                }
+                // The driver names the report <cell_dir>/<seq>.report.json;
+                // poll that exact path, then move it to the artifact-named
+                // audit location with the streams.
+                let report_host = staging.join(format!("{}.report.json", record.seq));
+                let run = process.run_cell(&header, source, &report_host,
+                    self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis));
+                let stdout_host = staging.join(format!("{}.out", record.seq));
+                let stderr_host = staging.join(format!("{}.err", record.seq));
+                move_replay_streams(&stdout_host, &stderr_host, &self.dir, artifact)?;
+                match run {
+                    Ok(()) => match live::read_driver_report(&report_host)? {
+                        Some(report) if report.ok => (Some(0), None),
+                        Some(report) => (None, report.error.or_else(|| Some("replayed cell raised".into()))),
+                        None => (None, Some("replay driver report missing".into())),
+                    },
+                    Err(live::CellInterrupt::CancelRequested) => (None, Some("replay interrupted".into())),
+                    Err(live::CellInterrupt::DeadlineExceeded) => (None, Some("replay deadline exceeded".into())),
+                }
+            }
         };
         jrn::append_replay(&mut self.journal, jrn::ReplayRecord {
             kind: String::new(), schema_version: 0, session_id: self.manifest.session_id, seq: 0,
             attempt, artifact, cell: record.cell, cell_seq: record.seq,
-            stdout_path: stdout_path.strip_prefix(&self.dir)?.to_path_buf(),
-            stderr_path: stderr_path.strip_prefix(&self.dir)?.to_path_buf(),
+            stdout_path: jrn::replay_path(artifact, "stdout"),
+            stderr_path: jrn::replay_path(artifact, "stderr"),
             exit_code, error, completed_unix_ms: unix_ms(),
         })
     }
@@ -469,42 +809,106 @@ impl WasiReplSession {
     }
 }
 
+struct LiveCellPaths {
+    header: CellHeader,
+    out_host: PathBuf,
+    err_host: PathBuf,
+    report_host: PathBuf,
+}
+
+fn report_of(paths: &LiveCellPaths, outcome: CellOutcome) -> Option<DriverReport> {
+    if matches!(outcome, CellOutcome::Cancelled | CellOutcome::DeadlineExceeded) {
+        return None;
+    }
+    live::read_driver_report(&paths.report_host).ok().flatten()
+}
+
+/// Move guest-written per-seq replay streams to artifact-named replay files
+/// and make the rename durable.
+fn move_replay_streams(stdout: &Path, stderr: &Path, dir: &Path, artifact: EntityId) -> Result<()> {
+    let target_out = dir.join(jrn::replay_path(artifact, "stdout"));
+    let target_err = dir.join(jrn::replay_path(artifact, "stderr"));
+    if stdout.exists() {
+        fs::rename(stdout, &target_out)?;
+    } else {
+        File::create_new(&target_out)?;
+    }
+    if stderr.exists() {
+        fs::rename(stderr, &target_err)?;
+    } else {
+        File::create_new(&target_err)?;
+    }
+    File::open(dir.join(jrn::REPLAYS_DIR))?.sync_all()?;
+    Ok(())
+}
+
 impl ReplSession for WasiReplSession {
     fn execute(&mut self, request: CellRequest) -> Result<CellResult> {
         self.ensure_ready()?;
         let cell = EntityId::new();
-        let stem = cell.to_string();
-        let (outcome, stdout_path, stderr_path, wall_clock_ms) =
-            self.run_guest(cell, &request.source, &stem, jrn::CELLS_DIR)?;
+        let (outcome, driver_report, stdout_path, stderr_path, wall_clock_ms);
+        match self.engine.session_model() {
+            SessionModel::OneShot => {
+                let stem = cell.to_string();
+                let (o, d, out, err, ms) =
+                    self.run_oneshot_cell(cell, &request.source, &stem, jrn::CELLS_DIR)?;
+                (o, d, out, err, ms)
+            }
+            SessionModel::LiveProcess => {
+                let seq = self.journal.next_cell_seq;
+                let stem = cell.to_string();
+                jrn::write_fresh_file(&self.dir.join(jrn::CELLS_DIR).join(format!("{stem}.source")),
+                    &request.source)?;
+                let (o, d, ms) = self.run_live_cell(cell, seq, &request.source)?;
+                let paths = self.live_cell_paths(seq);
+                (o, d, paths.out_host, paths.err_host, ms)
+            }
+        };
         let (stdout_blake3, stdout_bytes) = jrn::hash_reader(File::open(&stdout_path)?)?;
         let (stderr_blake3, stderr_bytes) = jrn::hash_reader(File::open(&stderr_path)?)?;
         let stdout = self.stream_preview(&stdout_path, stdout_blake3.clone(), stdout_bytes)?;
         let stderr = self.stream_preview(&stderr_path, stderr_blake3.clone(), stderr_bytes)?;
+        let stem = cell.to_string();
         let record = CellRecord {
             kind: String::new(), schema_version: 0, session_id: self.manifest.session_id,
             seq: self.journal.next_cell_seq, cell, cell_kind: request.cell_kind,
             source_blake3: jrn::hash_bytes(&request.source), source_bytes: request.source.len() as u64,
             source_path: PathBuf::from(jrn::CELLS_DIR).join(format!("{stem}.source")), outcome,
             stdout_blake3, stdout_bytes, stderr_blake3, stderr_bytes,
-            stdout_path: PathBuf::from(jrn::CELLS_DIR).join(format!("{stem}.stdout")),
-            stderr_path: PathBuf::from(jrn::CELLS_DIR).join(format!("{stem}.stderr")),
+            stdout_path: stdout_path.strip_prefix(&self.dir)?.to_path_buf(),
+            stderr_path: stderr_path.strip_prefix(&self.dir)?.to_path_buf(),
             module_blake3: self.manifest.module_blake3.clone(),
-            environment_generation: self.manifest.environment_generation.clone(), wall_clock_ms, completed_unix_ms: unix_ms(),
+            environment_generation: self.journal.generation().clone(),
+            driver_report,
+            wall_clock_ms, completed_unix_ms: unix_ms(),
         };
         let record = jrn::append_cell(&mut self.journal, record)?;
         Ok(CellResult { record, stdout, stderr })
     }
 
     fn inspect(&self) -> Result<SessionInfo> {
-        Ok(SessionInfo { session_id: self.manifest.session_id, kernel_id: self.manifest.kernel.kernel_id.clone(),
+        let live_running = match &self.engine {
+            Engine::Live(Some(process)) => !process.is_dead(),
+            _ => false,
+        };
+        Ok(SessionInfo {
+            session_id: self.manifest.session_id, kernel_id: self.manifest.kernel.kernel_id.clone(),
             runtime: self.manifest.kernel.runtime.clone(), backend: self.manifest.kernel.backend,
+            session_model: self.engine.session_model(),
             state: if self.disposed { SessionState::Disposed } else if self.busy.is_some() { SessionState::Busy }
-                else if self.journal.active_restore.is_some() || self.journal.pending_reset.is_some() { SessionState::RecoveryRequired }
+                else if self.journal.active_restore.is_some() || self.journal.pending_reset.is_some()
+                    || live_running == false && matches!(self.engine, Engine::Live(Some(_)))
+                { SessionState::RecoveryRequired }
                 else { SessionState::Ready },
-            recovery_level: self.manifest.recovery_level, interpreter_state_persists: false,
+            recovery_level: self.manifest.recovery_level,
+            interpreter_state_persists: matches!(self.engine, Engine::Live(Some(_)) if live_running),
+            live_process_running: live_running,
             cells_executed: self.journal.cells.len() as u64,
-            environment_generation: self.manifest.environment_generation.clone(), bind: self.manifest.bind.clone(),
-            limits: self.manifest.limits.clone() })
+            environment_generation: self.journal.generation().clone(), bind: self.manifest.bind.clone(),
+            limits: self.manifest.limits.clone(),
+            enforcement: self.manifest.limits.enforcement(),
+            driver: self.manifest.kernel.driver.identity(),
+        })
     }
 
     fn checkpoint(&mut self) -> Result<ReplCheckpoint> {
@@ -516,13 +920,17 @@ impl ReplSession for WasiReplSession {
             state.verify_root()?;
         }
         Ok(ReplCheckpoint { checkpoint: EntityId::new(), session_id: self.manifest.session_id,
-            level: RecoveryLevel::R0WorkRecord, journal_blake3: jrn::hash_file(&self.dir.join(jrn::JOURNAL_FILE))?,
+            level: self.manifest.recovery_level, journal_blake3: jrn::hash_file(&self.dir.join(jrn::JOURNAL_FILE))?,
             cells: self.journal.cells.len() as u64, state_files, created_unix_ms: unix_ms() })
     }
 
     fn restore(&mut self) -> Result<RecoverReport> {
         if self.disposed { bail!("REPL_SESSION_DISPOSED: session is closed"); }
         if self.journal.pending_reset.is_some() { self.finish_reset()?; }
+        // Recovery rebuilds from the immutable baseline, never from live
+        // process memory: the owned process is terminated first.
+        self.stop_live_process();
+        self.oneshot_cancel = None;
         let torn_tail_at = self.journal.torn_tail_at;
         let cells = self.journal.cells.clone();
         let last_reset = self.journal.last_reset.clone();
@@ -582,7 +990,7 @@ impl ReplSession for WasiReplSession {
         fs::create_dir(&dir)?;
         fs::create_dir(dir.join(jrn::CELLS_DIR))?;
         fs::create_dir(dir.join(jrn::REPLAYS_DIR))?;
-        jrn::copy_dir(&self.dir.join(jrn::GUEST_HOME_DIR), &dir.join(jrn::GUEST_HOME_DIR))?;
+        copy_fork_home(&self.dir.join(jrn::GUEST_HOME_DIR), &dir.join(jrn::GUEST_HOME_DIR))?;
         jrn::copy_dir(&self.dir.join(jrn::GUEST_WORK_DIR), &dir.join(jrn::GUEST_WORK_DIR))?;
         File::create(dir.join(jrn::JOURNAL_FILE))?.sync_all()?;
         File::open(&dir)?.sync_all()?;
@@ -592,16 +1000,31 @@ impl ReplSession for WasiReplSession {
         let baseline = match &state { Some(state) => state.file.snapshot(&dir)?, None => None };
         let manifest = SessionManifest { forked_from: Some(self.manifest.session_id), session_id: new_id,
             baseline, created_unix_ms: unix_ms(), disposed_unix_ms: None, ..self.manifest.clone() };
-        let runtime = build_runtime(preopens)?;
+        let engine = build_engine(&dir, &manifest.kernel, preopens)?;
         jrn::write_manifest(&dir, &manifest)?;
         let journal = load_journal(&dir, &manifest)?;
-        Ok(Box::new(WasiReplSession { dir, manifest, runtime, state, journal, busy: None,
-            disposed: false, preview_bytes: self.preview_bytes }))
+        Ok(Box::new(WasiReplSession { dir, manifest, engine, state, journal, busy: None,
+            oneshot_cancel: None, disposed: false, preview_bytes: self.preview_bytes }))
     }
 
     fn cancel(&self) -> Result<CancelOutcome> {
         if self.disposed { return Ok(CancelOutcome::Disposed); }
-        Ok(match self.busy { Some(cell) => CancelOutcome::NotInterruptible { cell }, None => CancelOutcome::NothingRunning })
+        Ok(match self.busy {
+            Some(cell) => {
+                match &self.engine {
+                    Engine::OneShot { .. } => {
+                        if let Some(cancel) = &self.oneshot_cancel { cancel.cancel(); }
+                        CancelOutcome::InterruptRequested { cell }
+                    }
+                    Engine::Live(Some(process)) => {
+                        process.cancel();
+                        CancelOutcome::InterruptRequested { cell }
+                    }
+                    Engine::Live(None) => CancelOutcome::NotInterruptible { cell },
+                }
+            }
+            None => CancelOutcome::NothingRunning,
+        })
     }
 
     fn reset(&mut self) -> Result<()> {
@@ -611,14 +1034,82 @@ impl ReplSession for WasiReplSession {
         self.finish_reset()
     }
 
-    fn install_dependencies(&mut self, _packages: &[PackageSpec]) -> Result<InstallOutcome> {
-        Ok(InstallOutcome::Unsupported { reason: format!("no package installer is bound for backend {:?}; environment_generation stays {}",
-            self.manifest.kernel.backend, self.manifest.environment_generation.0) })
+    fn install_dependencies(&mut self, request: InstallRequest) -> Result<InstallOutcome> {
+        if self.disposed { return Ok(InstallOutcome::Refused { reason: "REPL_SESSION_DISPOSED".into() }); }
+        if self.journal.pending_reset.is_some() || self.journal.active_restore.is_some() {
+            return Ok(InstallOutcome::Refused {
+                reason: "REPL_RECOVERY_REQUIRED: finish the interrupted reset or restore first".into(),
+            });
+        }
+        if self.manifest.kernel.driver == kernel::KernelDriver::None {
+            return Ok(crate::install::unsupported(&self.manifest.kernel));
+        }
+        if request.wheels.is_empty() && request.packages.is_empty() {
+            return Ok(InstallOutcome::Refused { reason: "REPL_INSTALL_INVALID: nothing requested".into() });
+        }
+        // QuickJS has no package route; JS drivers use npm/bun only.
+        if self.manifest.kernel.driver == kernel::KernelDriver::QuickJsCellV1 {
+            return Ok(crate::install::unsupported(&self.manifest.kernel));
+        }
+        let candidate_tag = format!(".candidate-{}", uuid::Uuid::new_v4());
+        let candidate = self.dir.join("home/.shenko/envs").join(&candidate_tag);
+        let log_dir = self.dir.join("home/.shenko/install-logs").join(candidate_tag.trim_start_matches('.').to_string());
+        fs::create_dir_all(&log_dir)?;
+        let attempt = match crate::install::install_into_candidate(
+            &self.manifest.kernel, &request, &candidate, &log_dir)
+        {
+            Ok(attempt) => attempt,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&candidate);
+                return Ok(InstallOutcome::Refused { reason: format!("{error:#}") });
+            }
+        };
+        if attempt.installed.is_empty() {
+            let _ = fs::remove_dir_all(&candidate);
+            let reasons = attempt.skipped.iter()
+                .map(|s| format!("{}: {}", s.name, s.reason))
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Ok(InstallOutcome::Refused {
+                reason: format!("REPL_INSTALL_FAILED: nothing installed; {reasons}"),
+            });
+        }
+        let previous_generation = self.journal.generation().clone();
+        let environment_generation =
+            crate::install::next_generation(&self.manifest.kernel, &attempt.installed);
+        // Durable transition first; the manifest follows. A crash between is
+        // healed by reconcile_manifest_generation on reopen.
+        jrn::append_env(&mut self.journal, attempt.installed.clone(), previous_generation.clone(),
+            environment_generation.clone(), unix_ms())?;
+        let tag = generation_tag(&environment_generation);
+        let committed = env_dir_host(&self.dir, &tag);
+        fs::rename(&candidate, &committed)?;
+        sync_directory_ancestors(&self.dir.join("home/.shenko/envs"))?;
+        File::open(&committed)?.sync_all()?;
+        self.manifest.kernel.dependency_lock.extend(attempt.installed.iter().cloned());
+        self.manifest.environment_generation = environment_generation.clone();
+        jrn::write_manifest(&self.dir, &self.manifest)?;
+        Ok(InstallOutcome::Installed {
+            installed: attempt.installed.iter()
+                .map(|package| format!("{}={}", package.name, package.pinned)).collect(),
+            skipped: attempt.skipped,
+            previous_generation,
+            environment_generation,
+        })
     }
 
     fn dispose(&mut self) -> Result<()> {
         // Fence immediately, but retry persistence until a write succeeds.
         self.disposed = true;
+        self.busy = None;
+        self.oneshot_cancel = None;
+        if let Some(outcome) = self.stop_live_process() {
+            if let Some(error) = outcome.transport_error {
+                // Isolation is already achieved (the process is gone); the
+                // durable close marker is retried below via the manifest.
+                eprintln!("shenko-repl: live process transport error at dispose: {error}");
+            }
+        }
         if self.manifest.disposed_unix_ms.is_none() {
             let mut updated = self.manifest.clone();
             updated.disposed_unix_ms = Some(unix_ms());
@@ -629,4 +1120,25 @@ impl ReplSession for WasiReplSession {
     }
 
     fn session_dir(&self) -> &Path { &self.dir }
+}
+
+/// Copy the session home for fork, skipping in-flight install candidates
+/// (they belong to the parent's unfinished transition, not to the fork).
+fn copy_fork_home(source: &Path, target: &Path) -> Result<()> {
+    if target.exists() { bail!("REPL_FORK_CONFLICT: {} already exists", target.display()); }
+    fs::create_dir(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name.to_string_lossy().starts_with(".candidate-") { continue; }
+        let ty = entry.file_type()?;
+        let dest = target.join(&name);
+        if ty.is_dir() { jrn::copy_dir(&entry.path(), &dest)?; }
+        else if ty.is_file() {
+            std::io::copy(&mut File::open(entry.path())?, &mut fs::File::create(&dest)?)?;
+            File::open(&dest)?.sync_all()?;
+        } else { bail!("REPL_FORK_UNSUPPORTED: {} is not a regular file or directory", entry.path().display()); }
+    }
+    File::open(target)?.sync_all()?;
+    Ok(())
 }

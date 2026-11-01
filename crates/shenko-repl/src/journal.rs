@@ -1,7 +1,11 @@
-//! Host-only, fsynced R0 work journal. Version 2 makes reset and interrupted
-//! restore durable facts; schema 1 cannot express those recovery boundaries.
+//! Host-only, fsynced R0 work journal. Schema 3 adds per-cell driver reports
+//! and durable environment-generation transitions (R083): an `env` record
+//! binds a committed `environment_generation` to the cell sequence, so
+//! replay and auditing can see exactly which dependency lock every cell ran
+//! against. Schemas 1 and 2 cannot express those facts and are rejected.
 
 use crate::contract::{CellKind, CellRecord};
+use crate::kernel::PackageSpec;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{EntityId, RuntimeGeneration};
@@ -10,7 +14,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
-pub const JOURNAL_SCHEMA: u32 = 2;
+pub const JOURNAL_SCHEMA: u32 = 3;
 pub const SESSION_MANIFEST: &str = "session.json";
 pub const JOURNAL_FILE: &str = "journal.jsonl";
 pub const CELLS_DIR: &str = "cells";
@@ -43,10 +47,32 @@ pub struct BoundaryRecord {
     pub schema_version: u32,
     pub session_id: EntityId,
     pub id: EntityId,
-    /// Reset sequence, or zero for a restore attempt.
+    /// Reset/environment sequence, or zero for a restore attempt.
     pub seq: u64,
     /// The last cell included when this boundary was written.
     pub after_cell_seq: u64,
+}
+
+/// A committed environment transition (R083). The candidate environment was
+/// installed and verified off to the side; this record makes the switch a
+/// durable fact bound to the cell sequence. Discarded candidates never reach
+/// the journal — the session simply keeps its previous generation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EnvRecord {
+    pub kind: String,
+    pub schema_version: u32,
+    pub session_id: EntityId,
+    pub id: EntityId,
+    /// 1-based environment-commit sequence.
+    pub seq: u64,
+    /// Packages added by this commit.
+    pub packages: Vec<PackageSpec>,
+    pub previous_generation: RuntimeGeneration,
+    pub environment_generation: RuntimeGeneration,
+    /// The last cell included under the previous generation.
+    pub after_cell_seq: u64,
+    pub completed_unix_ms: i64,
 }
 
 #[derive(Debug)]
@@ -55,6 +81,7 @@ pub struct Journal {
     pub session_id: EntityId,
     pub cells: Vec<CellRecord>,
     pub replays: Vec<ReplayRecord>,
+    pub envs: Vec<EnvRecord>,
     pub torn_tail_at: Option<u64>,
     pub next_cell_seq: u64,
     pub next_replay_seq: u64,
@@ -62,6 +89,7 @@ pub struct Journal {
     pub pending_reset: Option<BoundaryRecord>,
     pub active_restore: Option<BoundaryRecord>,
     next_reset_seq: u64,
+    next_env_seq: u64,
     ids: HashSet<EntityId>,
     last_replayed_cell_seq: u64,
     module_blake3: String,
@@ -77,7 +105,7 @@ pub fn valid_digest(digest: &str) -> bool {
 fn cell_path(cell: EntityId, extension: &str) -> PathBuf {
     PathBuf::from(CELLS_DIR).join(format!("{cell}.{extension}"))
 }
-fn replay_path(artifact: EntityId, extension: &str) -> PathBuf {
+pub fn replay_path(artifact: EntityId, extension: &str) -> PathBuf {
     PathBuf::from(REPLAYS_DIR).join(format!("{artifact}.{extension}"))
 }
 
@@ -95,8 +123,7 @@ impl Journal {
             || self.pending_reset.is_some() || self.active_restore.is_some()
             || self.ids.contains(&record.cell)
             || record.source_path != cell_path(record.cell, "source")
-            || record.stdout_path != cell_path(record.cell, "stdout")
-            || record.stderr_path != cell_path(record.cell, "stderr")
+            || !self.valid_stream_paths(record)
             || !valid_digest(&record.source_blake3) || !valid_digest(&record.stdout_blake3)
             || !valid_digest(&record.stderr_blake3)
             || record.module_blake3 != self.module_blake3
@@ -106,6 +133,20 @@ impl Journal {
         }
         self.next_cell_seq.checked_add(1).context("cell sequence overflow")?;
         Ok(())
+    }
+
+    /// Raw one-shot kernels write artifact-named streams under `cells/`; a
+    /// live driver process writes per-seq streams under its per-session
+    /// namespace. Both layouts are admitted; the digests below bind content.
+    fn valid_stream_paths(&self, record: &CellRecord) -> bool {
+        if record.stdout_path == cell_path(record.cell, "stdout")
+            && record.stderr_path == cell_path(record.cell, "stderr")
+        {
+            return true;
+        }
+        let namespace = PathBuf::from("home/.shenko/cells").join(self.session_id.to_string());
+        record.stdout_path == namespace.join(format!("{}.out", record.seq))
+            && record.stderr_path == namespace.join(format!("{}.err", record.seq))
     }
 
     fn admit_cell(&mut self, record: CellRecord) -> Result<()> {
@@ -142,6 +183,31 @@ impl Journal {
         self.last_replayed_cell_seq = record.cell_seq;
         self.next_replay_seq = self.next_replay_seq.checked_add(1).context("replay sequence overflow")?;
         self.replays.push(record);
+        Ok(())
+    }
+
+    fn check_env(&self, record: &EnvRecord) -> Result<()> {
+        self.validate_common(record.schema_version, record.session_id, record.id)?;
+        if record.kind != "env" || record.seq != self.next_env_seq
+            || self.pending_reset.is_some() || self.active_restore.is_some()
+            || self.ids.contains(&record.id)
+            || record.previous_generation != self.generation
+            || record.environment_generation == record.previous_generation
+            || record.after_cell_seq != self.next_cell_seq - 1
+            || record.packages.is_empty()
+        {
+            bail!("REPL_JOURNAL_CORRUPT: invalid environment transition");
+        }
+        self.next_env_seq.checked_add(1).context("environment sequence overflow")?;
+        Ok(())
+    }
+
+    fn admit_env(&mut self, record: EnvRecord) -> Result<()> {
+        self.check_env(&record)?;
+        self.ids.insert(record.id);
+        self.next_env_seq = self.next_env_seq.checked_add(1).context("environment sequence overflow")?;
+        self.generation = record.environment_generation.clone();
+        self.envs.push(record);
         Ok(())
     }
 
@@ -200,6 +266,9 @@ impl Journal {
         }
         Ok(())
     }
+
+    /// The generation cells must currently carry.
+    pub fn generation(&self) -> &RuntimeGeneration { &self.generation }
 }
 
 /// Admit every complete line before executing anything. Only an unterminated
@@ -208,9 +277,9 @@ pub fn load(dir: &Path, session_id: EntityId, module: &str, generation: &Runtime
     let file = File::open(journal_path(dir)).context("REPL_SESSION_INVALID: missing journal")?;
     let mut reader = BufReader::new(file);
     let mut journal = Journal {
-        dir: dir.to_path_buf(), session_id, cells: Vec::new(), replays: Vec::new(),
+        dir: dir.to_path_buf(), session_id, cells: Vec::new(), replays: Vec::new(), envs: Vec::new(),
         torn_tail_at: None, next_cell_seq: 1, next_replay_seq: 1, last_reset: None,
-        pending_reset: None, active_restore: None, next_reset_seq: 1, ids: HashSet::new(),
+        pending_reset: None, active_restore: None, next_reset_seq: 1, next_env_seq: 1, ids: HashSet::new(),
         last_replayed_cell_seq: 0, module_blake3: module.to_owned(), generation: generation.clone(),
     };
     let mut offset = 0u64;
@@ -230,8 +299,9 @@ pub fn load(dir: &Path, session_id: EntityId, module: &str, generation: &Runtime
                 if parsed.get("exit_code").is_none() || parsed.get("error").is_none() {
                     bail!("REPL_JOURNAL_CORRUPT: missing replay outcome fields");
                 }
-                journal.admit_replay(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid replay")?)?
+                journal.admit_replay(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid replay")?)?;
             }
+            Some("env") => journal.admit_env(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid env record")?)?,
             Some("reset" | "reset_complete" | "restore_begin" | "restore_complete") =>
                 journal.admit_boundary(serde_json::from_slice(&line).context("REPL_JOURNAL_CORRUPT: invalid boundary")?)?,
             _ => bail!("REPL_JOURNAL_CORRUPT: unknown record kind"),
@@ -280,6 +350,33 @@ pub fn append_replay(journal: &mut Journal, mut record: ReplayRecord) -> Result<
     let seq = record.seq;
     journal.admit_replay(record)?;
     Ok(seq)
+}
+
+/// Commit a verified environment transition. `packages` must be non-empty;
+/// the generation must differ from the current one.
+pub fn append_env(
+    journal: &mut Journal,
+    packages: Vec<PackageSpec>,
+    previous_generation: RuntimeGeneration,
+    environment_generation: RuntimeGeneration,
+    completed_unix_ms: i64,
+) -> Result<()> {
+    let record = EnvRecord {
+        kind: "env".into(),
+        schema_version: JOURNAL_SCHEMA,
+        session_id: journal.session_id,
+        id: EntityId::new(),
+        seq: journal.next_env_seq,
+        packages,
+        previous_generation,
+        environment_generation,
+        after_cell_seq: journal.next_cell_seq - 1,
+        completed_unix_ms,
+    };
+    journal.check_env(&record)?;
+    append_line(journal, &record)?;
+    journal.admit_env(record)?;
+    Ok(())
 }
 
 fn boundary(journal: &mut Journal, kind: &str, id: EntityId, seq: u64) -> Result<BoundaryRecord> {
