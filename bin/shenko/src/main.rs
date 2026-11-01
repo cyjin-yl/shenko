@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shenko_identity::IdentityService;
 use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
@@ -770,29 +770,116 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let media_ingress = supervisor
                 .context()
                 .try_service::<shenko_media::MediaIngress>()?;
-            // Awareness is installed capability, not kernel business logic:
-            // the shipped seeds plus any packages under data_dir/awareness
-            // become advisory perspectives for the model. Nothing here
-            // dispatches on keywords; every enabled unit travels as bounded
-            // advisory text.
-            let awareness = Arc::new(shenko_awareness_core::AwarenessRegistry::with_seeds());
-            let awareness_packages = data_dir.join("awareness");
-            if awareness_packages.is_dir() {
-                for unit in awareness.install_from_dir(&awareness_packages)? {
-                    info!(unit = %unit, "awareness unit installed");
+            // Cognition units are installed capability, not kernel business
+            // logic: perception, awareness, Skill and code share one
+            // installation authority — the Node's unit store (SPEC §45). The
+            // catalog is a read model over it; the shipped seeds plus any
+            // authored packages under data_dir/cognition install through it.
+            // Nothing here dispatches on keywords; every installed unit's
+            // short card travels as bounded advisory text and the model reads
+            // the body it actually wants at an exact version.
+            let cognition_node = Arc::new(parking_lot::Mutex::new(node_sync::open_node(
+                &data_dir,
+                &store,
+            )?));
+            let cognition = Arc::new(shenko_awareness_core::CognitionCatalog::new(
+                Arc::clone(&cognition_node),
+            ));
+            let cognition_root = shenko_awareness_core::cognition_package_root(&data_dir);
+            for package in shenko_awareness_core::seed_packages()? {
+                cognition.install(&package, &cognition_root)?;
+                info!(unit = %package.unit_id, revision = %package.revision, "cognition seed installed");
+            }
+            for unit in shenko_awareness_core::install_dir(&cognition, &cognition_root)? {
+                info!(unit = %unit, "cognition unit installed");
+            }
+            // Legacy location kept for one release: packages authored under
+            // data_dir/awareness install into the same authority.
+            let legacy_awareness = data_dir.join("awareness");
+            if legacy_awareness.is_dir() {
+                for unit in shenko_awareness_core::install_dir(&cognition, &legacy_awareness)? {
+                    info!(unit = %unit, "legacy awareness unit installed");
                 }
             }
+            // Exact-version unit reads and authored unit writes are native
+            // children on the same Cordis root: the subject can inspect what
+            // it has and write down what it actually learned, with the
+            // judgement and evidence recorded as its own durable facts.
+            let cognition_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionReadHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                ));
+            let _native_cognition_read_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_read_handler,
+                )
+                .await?;
+            let cognition_write_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionWriteHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                    cognition_root.clone(),
+                    Some(Arc::clone(&self_knowledge)),
+                ));
+            let _native_cognition_write_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_write_handler,
+                )
+                .await?;
+            // The discovery index and the registered evidence of one unit are
+            // reads over the same installation authority: the model pages
+            // through the cards and cites what this installation actually
+            // recorded.
+            let cognition_list_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionQueryHandler::list(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                ));
+            let _native_cognition_list_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_list_handler,
+                )
+                .await?;
+            let cognition_evidence_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionQueryHandler::evidence(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                ));
+            let _native_cognition_evidence_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_evidence_handler,
+                )
+                .await?;
             // Record what actually registered so self-knowledge answers from
             // the real registries instead of a stale product feature list.
             self_knowledge.install_runtime_capabilities(
                 &native_child.installed_definitions(),
-                &awareness.list(),
+                &cognition.units()?,
             );
             // The live agent-visible capability catalog names what this
             // process currently offers; the snapshot is a registry view, not
             // a product list. Providers that register later (e.g. the broker)
             // refresh the view with a second, idempotent call below.
             self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
+            // SPEC §38.6: the build manifest and the source index are runtime
+            // facts of this artifact, not of the repository's main branch.
+            self_knowledge.install_manifest_resource();
+            if let Ok(source_root) = std::env::var("SHENKO_SOURCE_ROOT") {
+                let revision = option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound");
+                match self_knowledge.install_source_index(Path::new(&source_root), revision) {
+                    Ok(indexed) => info!(indexed, source_root, "self-knowledge source index installed"),
+                    Err(error) => tracing::warn!(
+                        error = %error,
+                        source_root,
+                        "source index unavailable; self-knowledge reports the manifest only"
+                    ),
+                }
+            }
             let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
             let dispatch_native = Arc::clone(&native_child);
@@ -946,6 +1033,24 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             );
             let _model_child_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, model_child_handler)
+                .await?;
+            // The measurement path of a cognition unit: a finite comparison of
+            // the candidate against the same installation with the unit
+            // switched off. It runs in throwaway sandboxes and its inference
+            // goes through this broker, so the trial is metered like every
+            // other inference.
+            let cognition_trial_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionTrialHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                    broker_handle.clone(),
+                    data_dir.join("cognition-trials"),
+                ));
+            let _native_cognition_trial_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_trial_handler,
+                )
                 .await?;
             // ModelChildHandler reconstructed all outstanding original charges
             // before any subject/child inference can enter this broker.
@@ -1207,7 +1312,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             .with_broker(broker_handle)
             .with_model_capabilities(capabilities.clone())
             .with_native_capabilities(native_child.installed_prompt_sections())
-            .with_awareness(awareness)
+            .with_awareness(cognition)
             .with_hooks(Arc::clone(&hook_registry))
             .with_outbox(outbox_tx.clone());
 

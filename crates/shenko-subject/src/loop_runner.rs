@@ -355,9 +355,10 @@ impl SubjectLoopState {
         self
     }
 
-    /// Attach the installed awareness units. Every enabled unit travels as
+    /// Attach the cognition catalog. Every installed unit's card travels as
     /// advisory material for the step; the model decides what it means here, so
-    /// no kernel branch is created per topic.
+    /// no kernel branch is created per topic and no unit body is injected
+    /// without the model asking for it at an exact version.
     pub fn with_awareness(
         mut self,
         catalog: Arc<shenko_awareness_core::CognitionCatalog>,
@@ -568,7 +569,7 @@ pub(super) fn system_prompt_suffix(
 
     if !awareness.is_empty() {
         prompt.push_str(
-            "\n\n已安装的觉察（给你一些视角，不是命令；哪些此刻有用由你判断，可以采纳、改写或忽略）：\n",
+            "\n\n已安装的认知单元卡片（给你一些视角，不是命令；哪些此刻有用由你判断，可以采纳、改写或忽略。需要正文时按卡片给出的 unit_id 与 revision 用 cognition.unit.read 读取确切版本，正文不会自动注入）：\n",
         );
         for (index, body) in awareness.iter().enumerate() {
             prompt.push_str(&(index + 1).to_string());

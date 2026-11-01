@@ -661,10 +661,12 @@ pub(super) fn prepare_context(
         });
         input_raw_event_ids.push(record.event_id);
     }
-    // Awareness is installed material, not a keyword lookup: the model receives
-    // every enabled perspective (bounded) and decides what, if anything, it means
-    // here. A word-matching gate would withhold the unit precisely when the
-    // message names a symptom instead of the concept.
+    // Cognition units are installed material, not a keyword lookup: the model
+    // receives every unit's short card (bounded) and decides what, if
+    // anything, it means here. A word-matching gate would withhold the unit
+    // precisely when the message names a symptom instead of the concept.
+    // Unit bodies never travel whole; the model reads the body it actually
+    // wants at an exact version through cognition.unit.read.
     let awareness: Vec<String> = state
         .awareness
         .as_ref()
