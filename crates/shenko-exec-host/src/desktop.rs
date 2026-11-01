@@ -649,27 +649,36 @@ pub trait HumanInputObserver: Send + Sync {
 /// The registry the desktop backend dispatches human-input observations
 /// through. One truth: every provider reacts to the same domain event.
 pub struct HumanInputFanout {
-    observers: std::sync::Mutex<Vec<std::sync::Arc<dyn HumanInputObserver>>>,
+    observers: parking_lot::Mutex<Vec<std::sync::Weak<dyn HumanInputObserver>>>,
 }
 
 impl HumanInputFanout {
     pub fn new() -> Self {
         Self {
-            observers: std::sync::Mutex::new(Vec::new()),
+            observers: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
     pub fn register(&self, observer: std::sync::Arc<dyn HumanInputObserver>) {
-        if let Ok(mut observers) = self.observers.lock() {
-            observers.push(observer);
-        }
+        self.observers.lock().push(std::sync::Arc::downgrade(&observer));
     }
 
     /// Called at the desktop provider's external-input detection site only.
     pub fn dispatch(&self, domain_id: &str) {
-        let observers = match self.observers.lock() {
-            Ok(observers) => observers.clone(),
-            Err(_) => return,
+        // The observer's owning plugins retain it. This cross-provider link
+        // must not keep a retired browser provider and its sessions alive.
+        let observers = {
+            let mut registrations = self.observers.lock();
+            let mut live = Vec::with_capacity(registrations.len());
+            registrations.retain(|observer| {
+                if let Some(observer) = observer.upgrade() {
+                    live.push(observer);
+                    true
+                } else {
+                    false
+                }
+            });
+            live
         };
         for observer in observers {
             observer.on_human_input(domain_id);

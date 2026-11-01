@@ -34,15 +34,13 @@ async-trait = { workspace = true }
 parking_lot = { workspace = true }
 png = { workspace = true }
 x11rb = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures = { workspace = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))'.dependencies]
 rustix = { version = "=1.1.5", features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem"] }
-
-[dev-dependencies]
-futures = { workspace = true }
-tokio-tungstenite = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

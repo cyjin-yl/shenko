@@ -142,6 +142,15 @@ enum Command {
     Check,
     /// Print version info
     Version,
+    /// Drive the native browser provider directly (native proof / diagnostics):
+    /// read a JSON batch of steps from `--file` (or stdin) and print one JSON
+    /// result per step. Session handles returned by `session open` are valid
+    /// across steps of one batch.
+    Browser {
+        /// JSON batch file (default: stdin)
+        #[arg(long)]
+        file: Option<PathBuf>,
+    },
     /// Software-generation activation — SPEC §9/§10/§44. Build a candidate
     /// on a separate copy, smoke-launch it, swap through the durable
     /// selector, roll back while retaining new facts. Every step is
@@ -651,6 +660,33 @@ async fn install_native_definitions(
             .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
             .await?;
     }
+    let browser_provider = Arc::new(shenko_exec_host::BrowserProvider::new(
+        Arc::clone(store),
+        data_dir.join("browser"),
+    ));
+    computer_use_backend.register_human_input_observer(browser_provider.clone());
+    let browser_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 5] = [
+        Arc::new(shenko_exec_host::browser::handlers::BrowserSessionHandler::new(
+            Arc::clone(&browser_provider),
+        )),
+        Arc::new(shenko_exec_host::browser::handlers::BrowserPageHandler::new(
+            Arc::clone(&browser_provider),
+        )),
+        Arc::new(shenko_exec_host::browser::handlers::BrowserActionHandler::new(
+            Arc::clone(&browser_provider),
+        )),
+        Arc::new(shenko_exec_host::browser::handlers::BrowserControlHandler::new(
+            Arc::clone(&browser_provider),
+        )),
+        Arc::new(shenko_exec_host::browser::handlers::BrowserIdentityHandler::new(
+            Arc::clone(&browser_provider),
+        )),
+    ];
+    for handler in browser_handlers {
+        let _browser_plugin = supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await?;
+    }
     // Real named-WASM-tool execution: wasi.exec resolves this
     // installation's own unit inventory and runs their verified
     // artifact bytes in the real WasmRuntime under the home mounts.
@@ -1051,6 +1087,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             }
         }
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
+        Command::Browser { file } => browser_batch(&data_dir, file.as_deref()).await?,
         Command::Runtime { command } => {
             let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
                 .unwrap_or_else(|| data_dir.clone());
@@ -2188,6 +2225,192 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     }.await;
     supervisor.stop().await?;
     result
+}
+
+/// `shenko browser` — drive the native browser provider directly.
+///
+/// Reads a JSON array of steps (`--file` or stdin) and prints one JSON result
+/// per step. Steps share one provider, so `session open` handles stay valid
+/// for later steps of the same batch. This is a native proof/diagnostics
+/// surface; the agent-facing surface is the `browser.*` native task kinds.
+async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path>) -> Result<()> {
+    use shenko_exec_host::browser::{
+        ActionRequest, BrowserProvider, ControlRequest, IdentityRequest, ObserveOptions,
+        PageAction, SessionRequest,
+    };
+    let input = if let Some(path) = file {
+        tokio::fs::read_to_string(path).await?
+    } else {
+        use tokio::io::AsyncReadExt;
+        let mut buffer = String::new();
+        tokio::io::stdin().read_to_string(&mut buffer).await?;
+        buffer
+    };
+    let steps: Vec<serde_json::Value> = serde_json::from_str(&input)?;
+    tokio::fs::create_dir_all(data_dir).await?;
+    let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
+    let provider = Arc::new(BrowserProvider::new(Arc::new(store), data_dir.join("browser")));
+    let caller = shenko_types::ids::EntityId::new();
+    let node = "browser-cli".to_string();
+    for step in &steps {
+        let op = step
+            .get("op")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("session");
+        let result: serde_json::Value = match op {
+            "identity" => {
+                let request: IdentityRequest = serde_json::from_value(step.clone())?;
+                serde_json::to_value(provider.identity_op(request, caller, &node).await?)?
+            }
+            "session" => {
+                let action = step
+                    .get("action")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("open");
+                match action {
+                    "open" => {
+                        let request: SessionRequest = serde_json::from_value(step.clone())?;
+                        serde_json::to_value(provider.open_session(request, caller, &node).await?)?
+                    }
+                    "close" => {
+                        let session_id = session_id_of(step)?;
+                        serde_json::to_value(provider.close_session(session_id, caller).await?)?
+                    }
+                    "list" => serde_json::to_value(provider.list_sessions().await)?,
+                    "facts" => {
+                        let session_id = session_id_of(step)?;
+                        let facts = provider
+                            .list_sessions()
+                            .await
+                            .into_iter()
+                            .find(|facts| facts.session_id == session_id)
+                            .ok_or_else(|| anyhow::anyhow!("session {session_id} not found"))?;
+                        serde_json::to_value(&facts)?
+                    }
+                    other => anyhow::bail!("unknown browser session action {other}"),
+                }
+            }
+            "page" => {
+                let action = step
+                    .get("action")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("observe");
+                let session_id = session_id_of(step)?;
+                match action {
+                    "navigate" => {
+                        let url = step
+                            .get("url")
+                            .and_then(serde_json::Value::as_str)
+                            .ok_or_else(|| anyhow::anyhow!("page navigate requires a url"))?;
+                        let report = provider
+                            .act(
+                                ActionRequest {
+                                    session_id,
+                                    actions: vec![PageAction::Navigate {
+                                        url: url.to_string(),
+                                    }],
+                                },
+                                caller,
+                            )
+                            .await?;
+                        serde_json::to_value(&report)?
+                    }
+                    "observe" => {
+                        let options = ObserveOptions {
+                            screenshot: step
+                                .get("screenshot")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(true),
+                            accessibility: step
+                                .get("accessibility")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(true),
+                        };
+                        let tab_id = step
+                            .get("tab_id")
+                            .and_then(serde_json::Value::as_str);
+                        serde_json::to_value(provider.observe(session_id, tab_id, options).await?)?
+                    }
+                    other => anyhow::bail!("unknown browser page action {other}"),
+                }
+            }
+            "action" => {
+                let session_id = session_id_of(step)?;
+                let actions: Vec<PageAction> = serde_json::from_value(
+                    step.get("actions")
+                        .cloned()
+                        .ok_or_else(|| anyhow::anyhow!("action step requires an actions array"))?,
+                )?;
+                // Actions bind to an observation and a live lease. When the
+                // batch omits them, take a fresh observation and acquire an
+                // agent lease first (diagnostics convenience; the agent path
+                // always binds explicitly).
+                let (observation_id, lease_token) = match (
+                    step.get("observation_id").and_then(serde_json::Value::as_str),
+                    step.get("lease_token").and_then(serde_json::Value::as_str),
+                ) {
+                    (Some(observation), Some(token)) => {
+                        let token = token.parse::<shenko_types::ids::EntityId>().map_err(|error| {
+                            anyhow::anyhow!("invalid lease_token: {error}")
+                        })?;
+                        (observation.to_string(), token)
+                    }
+                    _ => {
+                        let observation = provider
+                            .observe(
+                                session_id,
+                                None,
+                                ObserveOptions {
+                                    screenshot: false,
+                                    accessibility: false,
+                                },
+                            )
+                            .await?;
+                        let control = provider
+                            .control(
+                                ControlRequest {
+                                    session_id,
+                                    op: "acquire".into(),
+                                    role: Some(shenko_exec_host::browser::ControllerRole::Agent),
+                                    lease_token: None,
+                                },
+                                caller,
+                            )
+                            .await?;
+                        let lease_token = control.lease_token.ok_or_else(|| {
+                            anyhow::anyhow!("acquire did not return a lease token")
+                        })?;
+                        (observation.observation_id, lease_token)
+                    }
+                };
+                let request = ActionRequest {
+                    session_id,
+                    tab_id: None,
+                    observation_id,
+                    lease_token,
+                    actions,
+                };
+                serde_json::to_value(provider.act(request, caller).await?)?
+            }
+            "control" => {
+                let request: ControlRequest = serde_json::from_value(step.clone())?;
+                serde_json::to_value(provider.control(request, caller).await?)?
+            }
+            other => anyhow::bail!("unknown browser op {other}"),
+        };
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    }
+    Ok(())
+}
+
+fn session_id_of(step: &serde_json::Value) -> Result<shenko_types::ids::EntityId> {
+    step.get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("step requires a session_id"))
+        .and_then(|text| {
+            text.parse::<shenko_types::ids::EntityId>()
+                .map_err(|error| anyhow::anyhow!("invalid session_id: {error}"))
+        })
 }
 
 /// `shenko tool …` — inspect and manage the seed's named WASM tool store.
