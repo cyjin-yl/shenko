@@ -147,14 +147,21 @@ impl Store {
             "CREATE TABLE IF NOT EXISTS import_gate(singleton INTEGER PRIMARY KEY);",
         )?;
 
-        Ok(Self {
+        let store = Self {
             ledger,
             cas,
             capabilities,
             cognition_import_gate: Mutex::new(cognition_import_gate),
             semantic_wait_clock: Mutex::new(WaitClock::new()),
             error_journal_dropped: AtomicU64::new(0),
-        })
+        };
+        // Explicit migration of the sealed publication targets. It never
+        // aborts the open: a record that cannot be converted stays
+        // unreadable and the subject keeps running.
+        if let Err(error) = crate::channel::migrate_publication_targets(&store) {
+            tracing::warn!(error = %error, "publication target migration did not complete");
+        }
+        Ok(store)
     }
 
     /// Journal writes dropped before commit in this process.
@@ -586,8 +593,8 @@ impl Store {
             .ok_or_else(|| ShenkoError::conflict("S1 missing decision"))?;
         let decision: shenko_types::subject::StepDecision =
             serde_json::from_slice(&self.cas.read_object(&decision_ref.digest)?)?;
-        if decision.schema_version != 7
-            || decision.output.schema_version != 4
+        if decision.schema_version != crate::channel::DECISION_SCHEMA_VERSION
+            || decision.output.schema_version != crate::channel::OUTPUT_SCHEMA_VERSION
             || decision.output.step_id != step.step_id
             || Some(&decision.output.raw_ref) != step.model_result_ref.as_ref()
             || decision.step_id != step.step_id

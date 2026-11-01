@@ -43,6 +43,31 @@ enum Command {
         /// Account bound to the persistent ingress database (not an admin grant).
         #[arg(long, env = "NAPCAT_BOT_QQ", requires = "napcat")]
         napcat_account: Option<u64>,
+        /// Transport token of the NapCat endpoint. Sensitive: it is sent as
+        /// an Authorization header and never appears in URLs, logs, receipts
+        /// or bindings. It proves nothing about who may talk to the agent.
+        #[arg(long, env = "NAPCAT_ACCESS_TOKEN", requires = "napcat")]
+        napcat_access_token: Option<String>,
+        /// Owner-set administrator QQ accounts (repeat the flag or use a
+        /// comma-separated NAPCAT_ADMIN_QQ). Administration is a separate
+        /// owner-set fact; it is never derived from a group role, the
+        /// transport token or familiarity.
+        #[arg(long = "napcat-admin", env = "NAPCAT_ADMIN_QQ", requires = "napcat")]
+        napcat_admin_qq: Vec<u64>,
+        /// Media root on the NapCat host that holds the attachment files the
+        /// platform reports. Locators resolve inside it and nowhere else.
+        #[arg(long, env = "NAPCAT_FILE_ROOT", requires = "napcat")]
+        napcat_file_root: Option<std::path::PathBuf>,
+        /// Name of the host that owns the attachment bytes. Defaults to
+        /// `local`; a remote NapCat host must name itself so a locator is
+        /// never mistaken for a local path.
+        #[arg(long, env = "NAPCAT_FILE_HOST", requires = "napcat")]
+        napcat_file_host: Option<String>,
+        /// Poll an external napcat-cli daemon's event feed as an additional
+        /// source of the same QQ channel: shared ingress spool, shared dedup,
+        /// one plugin personality. Requires --napcat-account.
+        #[arg(long, env = "NAPCAT_CLI_URL", requires = "napcat_account")]
+        napcat_cli_url: Option<String>,
     },
     /// Show or edit the instance's name, soul and personality — SPEC §6.
     /// Every edit is a new revision of the same agent; history is kept.
@@ -346,6 +371,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             name,
             napcat,
             napcat_account,
+            napcat_access_token,
+            napcat_admin_qq,
+            napcat_file_root,
+            napcat_file_host,
+            napcat_cli_url,
         } => {
             if napcat.is_some() {
                 anyhow::ensure!(
@@ -656,22 +686,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // The IM reply boundary ships as channel plugins: the live prompt
             // and parser advertise exactly the channels whose transport is
             // configured. With no NapCat endpoint no reply channel exists, so
-            // the contract cannot promise an undeliverable reply.
-            let channel_registry = if napcat.is_some() {
-                shenko_channel_napcat::qq_registry()
-            } else {
-                shenko_types::channel::ChannelRegistry::new()
-            };
+            // the contract cannot promise an undeliverable reply. Plugins
+            // register into this registry once their connector exists.
+            let mut channel_registry = shenko_types::channel::ChannelRegistry::new();
 
             // 5. Start NapCat if configured — SPEC §16, §35.6
-            if let Some(ws_url) = napcat {
-                use shenko_channel_napcat::outbound::{
-                    OutboundKind, OutboundLedger, OutboundOperation,
-                };
-
+            if napcat.is_some() || napcat_cli_url.is_some() {
                 let napcat_config = shenko_channel_napcat::config::NapCatConfig {
-                    ws_url,
+                    ws_url: napcat.clone().unwrap_or_default(),
+                    access_token: napcat_access_token,
                     bot_qq: napcat_account.expect("NapCat account validated before startup"),
+                    admin_qq: napcat_admin_qq.clone(),
+                    file_root: napcat_file_root.clone(),
+                    file_host: napcat_file_host.clone(),
                     ..Default::default()
                 };
                 // 独立接收域先落盘；打开失败停止启动，绝不降级到内存。
@@ -701,33 +728,119 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         .await?,
                 );
 
+                // The QQ plugin owns classification, reply resolution,
+                // description and dispatch; the Store owns the durable intent,
+                // attempt and receipt. Binding the Store also installs the
+                // host file capability: inbound attachment locators resolve
+                // inside the configured NapCat-host media root and are sealed
+                // by content digest.
+                let qq_plugin: Arc<shenko_channel_napcat::NapCatChannel> = Arc::new(
+                    shenko_channel_napcat::NapCatChannel::new(
+                        napcat_config.clone(),
+                        Arc::clone(&client),
+                    )
+                    .with_store(Arc::clone(&store)),
+                );
+                channel_registry.register(qq_plugin.clone()).context("register qq channel plugin")?;
+                // Administration is an owner-set fact, recorded at startup and
+                // never derived from a group role or the transport token.
+                for admin in &napcat_config.admin_qq {
+                    store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                        channel: shenko_channel_napcat::QQ_CHANNEL_ID.to_string(),
+                        account: napcat_config.account_scope(),
+                        kind: "admin_grant".to_string(),
+                        state: "active".to_string(),
+                        subject_ref: Some(format!("qq-admin:{admin}")),
+                        detail: serde_json::json!({"admin_qq": admin, "source": "owner_config"}),
+                    })?;
+                }
+                store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                    channel: shenko_channel_napcat::QQ_CHANNEL_ID.to_string(),
+                    account: napcat_config.account_scope(),
+                    kind: "health".to_string(),
+                    state: "starting".to_string(),
+                    subject_ref: None,
+                    detail: serde_json::json!({
+                        "ws_configured": napcat.is_some(),
+                        "cli_source_configured": napcat_cli_url.is_some(),
+                    }),
+                })?;
+
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
                 let connection_spool = Arc::clone(&spool);
                 let connection_config = napcat_config.clone();
                 let connection_cancel = cancel_napcat.clone();
-                tokio::spawn(async move {
-                    if let Err(error) =
-                        shenko_channel_napcat::client::NapCatClient::run_connection_loop(
-                            connection_config,
-                            event_tx,
-                            napcat_action_rx,
-                            pending_actions,
-                            connection_spool,
-                            connection_cancel.clone(),
+                let connection_store = Arc::clone(&store);
+                let connection_agent = agent_id;
+                if napcat.is_some() {
+                    tokio::spawn(async move {
+                        if let Err(error) =
+                            shenko_channel_napcat::client::NapCatClient::run_connection_loop(
+                                connection_config,
+                                event_tx,
+                                napcat_action_rx,
+                                pending_actions,
+                                connection_spool,
+                                connection_cancel.clone(),
+                            )
+                            .await
+                        {
+                            // The failure is a durable fact of the subject's
+                            // history, not just a stderr line: journal it with
+                            // the actual agent identity before stopping.
+                            journal_channel_error(
+                                &connection_store,
+                                connection_agent,
+                                "napcat_ingress_failed",
+                                "shenko_channel_napcat::client",
+                                error.to_string(),
+                                serde_json::json!({}),
+                            );
+                            tracing::error!(err=%error, "NapCat ingress failed — stopping runtime for recovery");
+                            connection_cancel.cancel();
+                        }
+                    });
+                }
+
+                // napcat-cli is a second SOURCE of the same QQ plugin: its
+                // events enter the same spool, dedup by the same source
+                // identity, and are classified by the same plugin.
+                if let Some(cli_url) = napcat_cli_url.clone() {
+                    let cli_spool = Arc::clone(&spool);
+                    let cli_events = client.event_sender();
+                    let cli_cancel = cancel_napcat.clone();
+                    let cli_store = Arc::clone(&store);
+                    let cli_agent = agent_id;
+                    tokio::spawn(async move {
+                        if let Err(error) = shenko_channel_napcat::NapCatCliSource::new(
+                            cli_url,
+                            napcat_config.bot_qq,
                         )
+                        .run(cli_spool, cli_events, cli_cancel.clone())
                         .await
-                    {
-                        tracing::error!(err=%error, "NapCat ingress failed — stopping runtime for recovery");
-                        connection_cancel.cancel();
-                    }
-                });
+                        {
+                            journal_channel_error(
+                                &cli_store,
+                                cli_agent,
+                                "napcat_cli_source_failed",
+                                "shenko_channel_napcat::napcat_cli",
+                                error.to_string(),
+                                serde_json::json!({}),
+                            );
+                            tracing::error!(err=%error, "napcat-cli source failed — stopping runtime for recovery");
+                            cli_cancel.cancel();
+                        }
+                    });
+                }
 
                 // Keep the ingress identity across replay. L's committed S1 receipt
                 // wins over a stale I acknowledgement mirror after a crash.
                 let inbox_tx = subject_inbox.sender();
                 let event_store = Arc::clone(&store);
                 let event_spool = Arc::clone(&spool);
+                let admission_plugin = Arc::clone(&qq_plugin);
+                let admission_facts = Arc::clone(&store);
                 let cancel_events = cancel_napcat.clone();
                 tokio::spawn(async move {
                     let result: Result<()> = async {
@@ -745,6 +858,51 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 continue;
                             }
                             let inbox_ev = napcat_inbox_event(ev)?;
+                            // Plugin-owned classification: the envelope, not
+                            // the raw wire payload, is what the subject sees.
+                            // A payload the plugin does not classify (notices,
+                            // meta events) keeps the raw payload; the staged
+                            // projection falls back to a plain header.
+                            if let Some(mut envelope) = admission_plugin.classify(
+                                shenko_channel_napcat::QQ_SOURCE,
+                                &inbox_ev.payload,
+                            ) {
+                                // Resolve attachment locators on the NapCat
+                                // host through the file capability: bytes are
+                                // sealed into the store and reachable by
+                                // digest. A locator that cannot be resolved
+                                // stays a locator and is recorded as a
+                                // subject-readable gap; the message itself
+                                // is never dropped.
+                                for index in 0..envelope.attachments.len() {
+                                    let attachment = envelope.attachments[index].clone();
+                                    match admission_plugin.resolve_attachment(&attachment) {
+                                        Ok(resolved) => {
+                                            if let Some(object) = resolved.object {
+                                                envelope.attachments[index].object =
+                                                    Some(object);
+                                            }
+                                        }
+                                        Err(detail) => {
+                                            admission_facts.record_channel_fact(
+                                                &shenko_store::channel::NewChannelFact {
+                                                    channel: shenko_channel_napcat::QQ_CHANNEL_ID
+                                                        .to_string(),
+                                                    account: envelope.account.clone(),
+                                                    kind: "attachment_locator".to_string(),
+                                                    state: "pending".to_string(),
+                                                    subject_ref: Some(event_id.to_string()),
+                                                    detail: serde_json::json!({
+                                                        "attachment_id": attachment.attachment_id,
+                                                        "detail": detail,
+                                                    }),
+                                                },
+                                            )?;
+                                        }
+                                    }
+                                }
+                                inbox_ev.payload = serde_json::to_value(&envelope)?;
+                            }
                             tokio::select! {
                                 sent = inbox_tx.send(inbox_ev) => sent.map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?,
                                 _ = cancel_events.cancelled() => break,
@@ -753,6 +911,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         Ok(())
                     }.await;
                     if let Err(error) = result {
+                        journal_channel_error(
+                            &event_store,
+                            agent_id,
+                            "napcat_admission_failed",
+                            "shenko::channel_admission",
+                            error.to_string(),
+                            serde_json::json!({}),
+                        );
                         tracing::error!(err=%error, "NapCat admission failed — ingress remains pending");
                         cancel_events.cancel();
                     }
@@ -762,6 +928,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 // are not recovery truth. No S1 receipt means no ACK, even if delivered.
                 let ack_store = Arc::clone(&store);
                 let cancel_acks = cancel_napcat.clone();
+                let ack_agent = agent_id;
                 tokio::spawn(async move {
                     let result: Result<()> = async {
                         let mut after = 0;
@@ -788,22 +955,30 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     }
                     .await;
                     if let Err(error) = result {
+                        journal_channel_error(
+                            &ack_store,
+                            ack_agent,
+                            "napcat_ack_mirror_failed",
+                            "shenko::channel_ack_mirror",
+                            error.to_string(),
+                            serde_json::json!({}),
+                        );
                         tracing::error!(err=%error, "NapCat acknowledgement mirror failed — reopen required");
                         cancel_acks.cancel();
                     }
                 });
 
-                // Outbound replies: the model emits an explicit target so we
-                // never guess who to answer. Every send is recorded in the
-                // durable operation ledger *before* it is written, and a
-                // missing echo is recorded as unknown for reconciliation.
-                // SPEC §35.6, §41.4 X03.
-                let ledger = Arc::new(
-                    OutboundLedger::with_store(Arc::clone(&store))
-                        .with_account(napcat_config.bot_qq),
-                );
-                let reply_client = Arc::clone(&client);
+                // Outbound publications across every registered channel: the
+                // model emits an explicit target so we never guess who to
+                // answer. T1 (arm_publication) claims the intent and arms the
+                // durable operation before the network is touched; the
+                // provider's answer is E1 evidence. A target no installed
+                // plugin serves is refused as never dispatched — durable,
+                // effect none, and it never cancels the runtime.
+                // SPEC §35.6, §41.4 X03, §41.6.
+                let reply_registry = channel_registry.clone();
                 let reply_store = Arc::clone(&store);
+                let reply_agent = agent_id;
                 let cancel_replies = consumer_cancel.clone();
                 let reply_failure = cancel.clone();
                 tokio::spawn(async move {
@@ -814,71 +989,98 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                             _ = cancel_replies.cancelled() => break,
                             _ = tick.tick() => {}
                         }
-                        // Ready index, not the broadcast buffer, owns the work.
-                        for work in reply_store.committed_intents(Some("publication"), Some("ready"), 32)? {
-                            let publication: shenko_types::subject::PublicationIntent = serde_json::from_value(work.payload)?;
-
-                            let Some((kind, target)) =
-                                shenko_channel_napcat::qq_outbound(&publication.target)
-                            else {
-                                anyhow::bail!(
-                                    "publication {} targets a channel/kind the napcat plugin does not serve",
-                                    publication.intent_id
-                                );
-                            };
-                            let mut op =
-                                OutboundOperation::new(kind, target, publication.content.clone());
-                            op.operation_id = publication.intent_id;
-                            op.echo_token = publication.intent_id.to_string();
-                            let op_id = op.operation_id;
-                            if !ledger.record_intent(&op)? { continue; }
-
-                            let send_result = match kind {
-                                OutboundKind::SendGroup => {
-                                    reply_client
-                                        .send_group_message_with_echo(
-                                            target,
-                                            &op.message,
-                                            op.echo_token.clone(),
-                                        )
-                                        .await
+                        // The ready index owns the work.
+                        for publication in reply_store.ready_publications(32)? {
+                            let intent_id = publication.intent_id;
+                            let Some(plugin) = reply_registry.for_channel(&publication.target.channel) else {
+                                // Never dispatched: durable refusal, runtime
+                                // keeps running.
+                                if let Err(error) = reply_store.refuse_publication(
+                                    intent_id,
+                                    "no installed channel serves target.channel",
+                                ) {
+                                    tracing::warn!(err=%error, %intent_id, "publication refusal not committed");
                                 }
-                                OutboundKind::SendPrivate => {
-                                    reply_client
-                                        .send_private_message_with_echo(
-                                            target,
-                                            &op.message,
-                                            op.echo_token.clone(),
-                                        )
-                                        .await
-                                }
+                                continue;
                             };
-
-                            match send_result {
-                                Ok(receipt) => {
-                                    ledger.record_response(op_id, &receipt)?;
-                                    if receipt.is_success() {
-                                        tracing::info!(op=%op_id, target, kind=kind.as_str(), "QQ reply sent");
-                                    } else {
-                                        tracing::warn!(
-                                            op=%op_id, status=%receipt.status, retcode=receipt.retcode,
-                                            "NapCat rejected QQ reply"
-                                        );
+                            let dispatch = match plugin.describe(&publication.target) {
+                                Ok(dispatch) => dispatch,
+                                Err(error) => {
+                                    if let Err(refusal_error) =
+                                        reply_store.refuse_publication(intent_id, &error.to_string())
+                                    {
+                                        tracing::warn!(err=%refusal_error, %intent_id, "publication refusal not committed");
                                     }
+                                    continue;
                                 }
-                                Err(e) => {
-                                    // The request may have been executed. Record the
-                                    // unknown effect and leave resolution to
-                                    // reconciliation; never blind-resend.
-                                    tracing::warn!(err=%e, op=%op_id, "QQ reply outcome unknown");
-                                    ledger.record_unknown(op_id, &e.to_string())?;
+                            };
+                            // T1: claim + arm before the network. None means
+                            // another dispatcher owns it — never a second send.
+                            let Some(armed) = reply_store.arm_publication(intent_id, &dispatch)? else {
+                                continue;
+                            };
+                            let mut dispatch = dispatch;
+                            dispatch.echo = Some(armed.operation_id.to_string());
+                            let outcome = match plugin.dispatch(&dispatch, &publication.content).await {
+                                Ok(receipt) => {
+                                    reply_store.record_publication_receipt(&armed, &receipt)?;
+                                    if receipt.accepted { "accepted" } else { "rejected" }
                                 }
-                            }
+                                Err(
+                                    error @ (shenko_types::channel::ChannelError::Transport { .. }
+                                    | shenko_types::channel::ChannelError::Unknown { .. }),
+                                ) => {
+                                    // The request may have been executed. The
+                                    // effect is unknown; reconciliation
+                                    // settles it and never blind-resends.
+                                    let detail = error.to_string();
+                                    reply_store.record_publication_unknown(&armed, &detail)?;
+                                    "unknown"
+                                }
+                                Err(error) => {
+                                    // Deterministic refusal after arming
+                                    // (unsupported/unresolved/rejected): the
+                                    // effect is none and the operation is
+                                    // resolved failed.
+                                    let receipt = shenko_types::channel::ChannelReceipt {
+                                        status: "rejected".to_string(),
+                                        retcode: -1,
+                                        accepted: false,
+                                        provider_message_id: None,
+                                        raw: serde_json::json!({"error": error.to_string()}),
+                                        observed_at: chrono::Utc::now(),
+                                    };
+                                    reply_store.record_publication_receipt(&armed, &receipt)?;
+                                    "refused"
+                                }
+                            };
+                            reply_store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                                channel: publication.target.channel.clone(),
+                                account: armed.account.clone(),
+                                kind: "publication_outcome".to_string(),
+                                state: outcome.to_string(),
+                                subject_ref: Some(intent_id.to_string()),
+                                detail: serde_json::json!({
+                                    "operation_id": armed.operation_id.to_string(),
+                                    "kind": publication.target.kind,
+                                }),
+                            })?;
                         }
                     }
                     Ok(())
                     }.await;
-                    if let Err(e)=result { tracing::error!(err=%e,"publication consumer stopped; reopen writer and reconcile"); reply_failure.cancel(); }
+                    if let Err(error) = result {
+                        journal_channel_error(
+                            &reply_store,
+                            reply_agent,
+                            "channel_publication_consumer_failed",
+                            "shenko::channel_publication_consumer",
+                            error.to_string(),
+                            serde_json::json!({}),
+                        );
+                        tracing::error!(err=%error, "publication consumer stopped; reopen writer and reconcile");
+                        reply_failure.cancel();
+                    }
                 });
                 info!("NapCat connector started");
             }
@@ -1332,6 +1534,120 @@ fn napcat_inbox_event(
     })
 }
 
+/// Resolve one classified envelope's attachment locators through the owning
+/// plugin's file capability. A locator that cannot be resolved stays a
+/// locator and is recorded as a subject-readable `attachment_locator` gap;
+/// the message itself is never dropped. Shared by the napcat spool admission
+/// and the adapter-source admission.
+fn prepare_channel_envelope(
+    plugin: &Arc<dyn shenko_types::channel::ChannelPlugin>,
+    store: &shenko_store::store::Store,
+    event_id: shenko_types::ids::EntityId,
+    mut envelope: shenko_types::channel::ChannelEnvelope,
+) -> Result<shenko_types::channel::ChannelEnvelope> {
+    for index in 0..envelope.attachments.len() {
+        let attachment = envelope.attachments[index].clone();
+        match plugin.resolve_attachment(&attachment) {
+            Ok(resolved) => envelope.attachments[index] = resolved,
+            Err(detail) => {
+                store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                    channel: envelope.provider.clone(),
+                    account: envelope.account.clone(),
+                    kind: "attachment_locator".to_string(),
+                    state: "pending".to_string(),
+                    subject_ref: Some(event_id.to_string()),
+                    detail: serde_json::json!({
+                        "attachment_id": attachment.attachment_id,
+                        "detail": detail,
+                    }),
+                })?;
+            }
+        }
+    }
+    Ok(envelope)
+}
+
+/// Admit one channel event from a plugin-owned source (napcat-cli poller or
+/// an adapter ingress). The event id is derived from the stable provider
+/// keys (source, provider, account, platform message id, revision), so an
+/// at-least-once redelivery of the same external event meets the committed
+/// disposition and is admitted exactly once.
+async fn admit_channel_event(
+    registry: &shenko_types::channel::ChannelRegistry,
+    store: &shenko_store::store::Store,
+    agent_id: shenko_types::ids::EntityId,
+    inbox_tx: &tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    source: &str,
+    mut envelope: shenko_types::channel::ChannelEnvelope,
+    raw: &serde_json::Value,
+) -> Result<()> {
+    let key = format!(
+        "{}|{}|{}|{}|{}",
+        source,
+        envelope.provider,
+        envelope.account,
+        envelope.message_id,
+        envelope.source_event_revision.as_deref().unwrap_or(""),
+    );
+    let digest = shenko_types::object::Digest::blake3(key.as_bytes());
+    let hex_text = digest.0.strip_prefix("blake3:").unwrap_or(&digest.0);
+    let mut bytes = [0u8; 16];
+    for (index, chunk) in hex_text.as_bytes().chunks(2).take(16).enumerate() {
+        let hex_pair = std::str::from_utf8(chunk).unwrap_or("00");
+        bytes[index] = u8::from_str_radix(hex_pair, 16).unwrap_or(0);
+    }
+    let event_id = shenko_types::ids::EntityId::from_digest(&bytes);
+    if store
+        .event_disposition_commit(agent_id, event_id)?
+        .is_some()
+    {
+        return Ok(());
+    }
+    let Some(plugin) = registry.channel_for_source(source) else {
+        anyhow::bail!("no registered channel plugin owns source {source}");
+    };
+    envelope = prepare_channel_envelope(plugin, store, event_id, envelope)?;
+    let inbox_ev = shenko_subject::inbox::InboxEvent {
+        event_id,
+        kind: shenko_subject::inbox::InboxEventKind::Message,
+        payload: serde_json::to_value(&envelope)?,
+        created_at: chrono::Utc::now(),
+        source: source.to_string(),
+    };
+    let _ = raw; // the raw frame stays in the plugin's own ingress ledger
+    inbox_tx
+        .send(inbox_ev)
+        .await
+        .map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?;
+    Ok(())
+}
+
+/// Journal one channel-runtime error as a durable fact of the subject's
+/// history (SPEC §45.14). The journal entry is NOT a delivery receipt: it
+/// never retries the operation and never opens an issue by itself.
+/// Independent operation unknown/conflict receipts stay on the operation
+/// ledger; this only makes the unable-to-continue boundary readable.
+fn journal_channel_error(
+    store: &shenko_store::store::Store,
+    agent_id: shenko_types::ids::EntityId,
+    kind: &str,
+    source_module: &str,
+    message: String,
+    extra: serde_json::Value,
+) {
+    store.journal_runtime_error(
+        agent_id,
+        shenko_store::raw_session::RuntimeErrorContext {
+            kind: kind.to_string(),
+            source_module: source_module.to_string(),
+            message,
+            step_no: None,
+            task_id: None,
+            extra,
+        },
+    );
+}
+
 /// Make sure the agent has an identity revision, and apply a user-given
 /// `--name` only for initialization. Existing edits require an explicit CAS. SPEC §6, R117.
 fn adopt_identity(
@@ -1687,8 +2003,8 @@ mod recovery_integration_tests {
             )),
         ))).unwrap();
         let decision = StepDecision {
-            schema_version: 7,
-            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, &shenko_channel_napcat::qq_registry(), None)
+            schema_version: 8,
+            output: shenko_subject::output::parse_output(step.step_id, object.clone(), "continue", &identity_service, &shenko_channel_napcat::qq_test_registry(), None)
             .unwrap(),
             identity_intent: None,
             step_id: step.step_id,
@@ -1716,7 +2032,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    7,
+                    8,
                 )
                 .unwrap()
                 .object,
@@ -1743,7 +2059,7 @@ mod recovery_integration_tests {
             Arc::new(shenko_subject::inbox::Inbox::new(8)),
             store.clone(),
             identity_context,
-            shenko_channel_napcat::qq_registry(),
+            shenko_channel_napcat::qq_test_registry(),
         )
         .unwrap();
         assert_eq!(restored.head.branch_id, head.branch_id);
@@ -1871,7 +2187,7 @@ mod recovery_integration_tests {
         store.upsert_step(&step, &head, RecordRevision(2)).unwrap();
 
         let identity = IdentityService::new(Arc::new(shenko_identity::DefaultIdentityPolicy));
-        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, &shenko_channel_napcat::qq_registry(), None)
+        let output = shenko_subject::output::parse_output(step.step_id, object.clone(), model_text, &identity, &shenko_channel_napcat::qq_test_registry(), None)
         .unwrap();
         let mut delegated_task_intents = vec![];
         for control in &output.controls {
@@ -1893,7 +2209,7 @@ mod recovery_integration_tests {
         assert_eq!(delegated_task_intents.len(), task_ids.len());
         let next = EntityId::new();
         let decision = StepDecision {
-            schema_version: 7,
+            schema_version: 8,
             output,
             identity_intent: None,
             step_id: step.step_id,
@@ -1918,7 +2234,7 @@ mod recovery_integration_tests {
                     "application/json",
                     "test",
                     "StepDecision",
-                    7,
+                    8,
                 )
                 .unwrap()
                 .object,
@@ -3196,14 +3512,18 @@ mod reply_directive_tests {
             shenko_identity::DefaultIdentityPolicy,
         ));
         let parsed =
-            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, &shenko_channel_napcat::qq_registry(), None)
+            shenko_subject::output::parse_output(EntityId::new(), raw.clone(), out, &identity, &shenko_channel_napcat::qq_test_registry(), None)
                 .unwrap();
         assert_eq!(parsed.controls.len(), 6); // two replies, two identity, one memory, one task
         let first = &parsed.controls[0];
         let OutputAction::Reply { target, text } = &first.action else {
             panic!("reply")
         };
-        assert_eq!(*target, PublicationTarget::new(shenko_channel_napcat::QQ_CHANNEL_ID, "group", 7));
+        assert_eq!(
+            *target,
+            PublicationTarget::new(shenko_channel_napcat::QQ_CHANNEL_ID, "group", "7", "qq:10000")
+                .with_scope(None, Some("7".to_string()))
+        );
         assert_eq!(
             text,
             " 你好\n继续说\n> [delegate] 引用，不执行\n[remember] 懒续行仍是引用\n\n[identity:personality] 这是链接旁的说明\n\n[identity:personality]: https://example.invalid/\n\n[delegate](https://example.invalid/)\n[1] 引用编号不是控制行\n```text\n[identity:name] 代码，不执行\n[remember] 代码例子\n```\n"
@@ -3229,7 +3549,7 @@ mod reply_directive_tests {
                 obsolete,
                 "[memory] obsolete",
                 &identity,
-                &shenko_channel_napcat::qq_registry(),
+                &shenko_channel_napcat::qq_test_registry(),
                 None,
             )
             .unwrap_err()
@@ -3258,7 +3578,7 @@ mod reply_directive_tests {
                 .seal_object(raw.as_bytes(), "text/plain", "test", "text", 1)
                 .unwrap()
                 .object;
-            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, &shenko_channel_napcat::qq_registry(), None)
+            shenko_subject::output::parse_output(EntityId::new(), raw_ref, raw, &identity, &shenko_channel_napcat::qq_test_registry(), None)
         };
 
         // A start names the condition and its cap, next to an ordinary action.

@@ -343,9 +343,9 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
-        schema_version: 7,
+        schema_version: 8,
         output: shenko_types::output::ParsedOutput {
-            schema_version: 4,
+            schema_version: 5,
             step_id: step.step_id,
             raw_ref: step.model_result_ref.clone().unwrap(),
             text: "继续先前关注".into(),
@@ -377,7 +377,7 @@ fn committed_candidate(
                 "application/json",
                 "test",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -428,7 +428,7 @@ fn attach_wait(
                 "application/json",
                 "decisions",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -581,7 +581,7 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
         intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
     }];
     step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
-        "application/json", "decisions", "StepDecision", 7).unwrap().object);
+        "application/json", "decisions", "StepDecision", 8).unwrap().object);
     store.commit_step_and_advance_head(&step, &head, next).unwrap();
     let history = StoreHistory::new(store.clone(), EntityId(head.branch_id.0), Arc::new(estimate_tokens));
     let pending = history.read_range(0, u64::MAX).unwrap();

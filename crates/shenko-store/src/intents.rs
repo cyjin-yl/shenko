@@ -171,7 +171,11 @@ impl Store {
             insert(
                 intent.intent_id,
                 "publication",
-                "shenko.napcat/onebot11-send/1",
+                // The Store keeps a channel-agnostic publication contract.
+                // The platform action, its parameters and its acceptance
+                // predicate belong to the channel plugin and travel with the
+                // operation it arms.
+                crate::channel::CHANNEL_PUBLISH_CONTRACT,
                 serde_json::to_value(intent)?,
             )?;
             if !historical {
@@ -428,7 +432,11 @@ impl Store {
     pub fn claim_subject_publication(&self, id: EntityId) -> Result<Option<TaskInvocation>> {
         self.ledger.with_mutation(|| {
             let mut c=self.ledger.conn.lock();let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;self.check_dispatch_owner(&tx)?;
-            let state:Option<String>=tx.query_row("SELECT state FROM subject_intents WHERE intent_id=?1 AND kind='publication' AND contract='shenko.napcat/onebot11-send/1'",[id.to_string()],|r|r.get(0)).optional()?;
+            // The claim gate is channel-agnostic: the Store admits a
+            // publication intent whatever platform it names. The plugin
+            // decides whether it can serve the target, and a target no
+            // installed plugin serves is refused as not dispatched.
+            let state:Option<String>=tx.query_row("SELECT state FROM subject_intents WHERE intent_id=?1 AND kind='publication'",[id.to_string()],|r|r.get(0)).optional()?;
             if state.as_deref()!=Some("ready"){return Ok(None)}
             let data:String=tx.query_row("SELECT data FROM tasks WHERE task_id=?1",[id.to_string()],|r|r.get(0))?;let mut task:TaskRecord=serde_json::from_str(&data)?;
             ensure!(task.abort_request.is_none()&&!task.is_terminal(),"publication_cancelled");
@@ -456,124 +464,6 @@ impl Store {
             "stale_subject_dispatcher"
         );
         Ok(())
-    }
-
-    /// E1 remains append-only and independent. A CURRENT dispatcher derives T2
-    /// progress from it; a late callback itself does not advance the task.
-    pub fn reconcile_subject_publications(&self) -> Result<()> {
-        // Seal terminal outcome objects before entering the write transaction.
-        // A process restart is local loss-of-control evidence, NOT proof that
-        // the remote send stopped or failed.
-        let mut outcomes = std::collections::HashMap::new();
-        let changed = {
-            let c = self.ledger.conn.lock();
-            let mut q=c.prepare("SELECT i.intent_id FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown') AND (i.result_ref IS NULL OR i.result_ref!=o.data) AND (json_extract(o.data,'$.state') IN ('resolved','reconciling') OR (i.state='unknown' AND i.owner IS NULL)) ORDER BY i.updated_seq LIMIT 32")?;
-            q.query_map([], |r| r.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        for id in changed {
-            let work = {
-                let c = self.ledger.conn.lock();
-                let (state, owner): (String, Option<String>) = c.query_row(
-                    "SELECT state,owner FROM subject_intents WHERE intent_id=?1",
-                    [&id],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )?;
-                CommittedIntent {
-                    intent_id: id.parse()?,
-                    step_id: EntityId::nil(),
-                    kind: "publication".into(),
-                    contract: String::new(),
-                    payload: serde_json::Value::Null,
-                    state,
-                    owner,
-                    revision: 0,
-                    result_ref: None,
-                }
-            };
-            if !matches!(work.state.as_str(), "claimed" | "unknown") {
-                continue;
-            }
-            if let Some(mut op) = self.get_operation(work.intent_id)? {
-                if work.state == "unknown"
-                    && work.owner.is_none()
-                    && op.state == shenko_types::operation::OperationState::InFlight
-                {
-                    let attempt = self.external_operation_attempt(work.intent_id)?;
-                    let raw=self.cas.seal_object(br#"{"observation":"dispatcher restarted; armed send outcome unknown","provider_stop_proven":false}"#,"application/json","recovery_evidence","json",1)?.object;
-                    let ev = shenko_types::evidence::EvidenceReceipt {
-                        record_schema_version: 1,
-                        receipt_id: EntityId::new(),
-                        operation_id: Some(work.intent_id),
-                        attempt_id: Some(attempt.attempt_id),
-                        source_id: "subject-dispatch-recovery".into(),
-                        source_instance_id: self.capabilities.incarnation.to_string(),
-                        source_event_key: None,
-                        producer_epoch: None,
-                        producer_schema_version: Some("1".into()),
-                        raw_ref: raw,
-                        decoder_ref: None,
-                        decode_status: shenko_types::evidence::DecodeStatus::Decoded,
-                        observation_level: None,
-                        normalized_ref: None,
-                        observed_at: Some(chrono::Utc::now()),
-                        received_commit: attempt.armed_commit,
-                    };
-                    op = self.record_external_evidence(
-                        work.intent_id,
-                        attempt.attempt_id,
-                        ev,
-                        None,
-                        shenko_types::operation::EffectStatus::Unknown,
-                    )?;
-                }
-                if op.state == shenko_types::operation::OperationState::Resolved {
-                    let bytes = serde_json::to_vec(&op)?;
-                    let object = self
-                        .cas
-                        .seal_object(
-                            &bytes,
-                            "application/json",
-                            "publication_outcomes",
-                            "OperationRecord",
-                            1,
-                        )?
-                        .object;
-                    outcomes.insert(work.intent_id, (op.record_revision, object));
-                }
-            }
-        }
-        self.ledger.with_mutation(|| {
-            let mut c=self.ledger.conn.lock();let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;self.check_dispatch_owner(&tx)?;
-            let rows={let mut q=tx.prepare("SELECT i.intent_id,o.data FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown') AND json_extract(o.data,'$.state') IN ('resolved','reconciling') AND (i.result_ref IS NULL OR i.result_ref!=o.data) LIMIT 32")?;
-                q.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<rusqlite::Result<Vec<_>>>()?};
-            if rows.is_empty(){return Ok(())}let seq=self.ledger.allocate_seq(&tx)?;let commit=CommitRef::new(self.ledger.ledger_id(),seq);
-            for (id,data) in rows {
-                let op:shenko_types::operation::OperationRecord=serde_json::from_str(&data)?;
-                let resolved=op.state==shenko_types::operation::OperationState::Resolved;
-                if resolved && !outcomes.get(&op.operation_id).is_some_and(|(revision,_)|*revision==op.record_revision) {continue;}
-                let result=serde_json::to_string(&op)?;
-                tx.execute("UPDATE subject_intents SET state=?2,owner=?3,revision=revision+1,updated_seq=?4,result_ref=?5 WHERE intent_id=?1",params![id,if resolved{"settled"}else{"unknown"},self.capabilities.incarnation.to_string(),seq.0 as i64,result])?;
-                if resolved {
-                    let data:Option<String>=tx.query_row("SELECT data FROM tasks WHERE task_id=?1",[&id],|r|r.get(0)).optional()?;
-                    if let Some(data)=data {let mut task:TaskRecord=serde_json::from_str(&data)?;
-                        if !task.is_terminal() && task.abort_request.is_none(){task.state=TaskState::Terminal{outcome_ref:outcomes.get(&op.operation_id).unwrap().1.clone()};task.record_revision=task.record_revision.next();task.updated_commit=commit;task.terminal_at=Some(chrono::Utc::now());
-                            tx.execute("UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE task_id=?1",params![id,task.record_revision.0 as i64,serde_json::to_string(&task)?,seq.0 as i64])?;}
-                    }
-                    let receipt: Option<(String, String)> = tx.query_row(
-                        "SELECT receipt_id,data FROM evidence_receipts WHERE operation_id=?1
-                         ORDER BY updated_commit_seq DESC LIMIT 1", [&id],
-                        |row| Ok((row.get(0)?, row.get(1)?)),
-                    ).optional()?;
-                    if let Some((receipt_id, receipt)) = receipt {
-                        self.append_intent_result_fact(&tx, op.operation_id, receipt_id.parse()?,
-                            &serde_json::json!({"kind":"publication_receipt", "operation":op,
-                                "receipt":serde_json::from_str::<serde_json::Value>(&receipt)?}))?;
-                    }
-                }
-            }
-            self.intent_log(&tx,commit)?;tx.commit()?;Ok(())
-        },storage_failure)
     }
 
     pub fn committed_decisions_after(
@@ -618,7 +508,7 @@ impl Store {
             .collect()
     }
 
-    fn intent_log(&self, tx: &Transaction<'_>, commit: CommitRef) -> Result<()> {
+    pub(crate) fn intent_log(&self, tx: &Transaction<'_>, commit: CommitRef) -> Result<()> {
         tx.execute(
             "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,1)",
             params![

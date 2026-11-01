@@ -96,6 +96,11 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
     // additive, own tables only; location history is never rewritten.
     conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
+    // Channel publication facts and the record migration ledger (SPEC §15.3,
+    // §35.6, §41.6): additive, own tables only. The sealed publication-target
+    // migration itself runs after the store is open, because it seals new
+    // objects into the CAS.
+    conn.execute_batch(crate::channel::CHANNEL_SCHEMA)?;
     Ok(())
 }
 

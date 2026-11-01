@@ -38,5 +38,10 @@ pub use child::{NativeTaskClaim, TaskCancellation};
 
 pub mod intents;
 
+/// Channel publication facts, the shared channel operation ledger and the
+/// explicit publication-target migration. SPEC §15.3, §35.6, §41.6.
+pub mod channel;
+pub use channel::{ArmedPublication, ChannelFact, NewChannelFact};
+
 pub mod media;
 pub mod quota;
