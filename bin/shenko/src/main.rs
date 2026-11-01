@@ -79,6 +79,12 @@ enum Command {
         #[command(subcommand)]
         command: ToolCommand,
     },
+    /// Show what this installation actually offers right now — SPEC §18.
+    ///
+    /// The runtime installs its real native definitions and answers from the
+    /// live registry, so the printed providers, capabilities, effect contracts
+    /// and hook contracts are the ones this process would use.
+    Capabilities,
     /// Validate configuration and exit
     Check,
     /// Print version info
@@ -164,6 +170,173 @@ enum RuntimeCommand {
     Resume { request_id: shenko_types::ids::EntityId },
 }
 
+/// The native definitions this runtime installs, and the self-knowledge
+/// provider they feed.
+struct InstalledDefinitions {
+    native_child: Arc<shenko_subject::NativeChildService>,
+    self_knowledge: Arc<shenko_awareness_core::SelfKnowledgeProvider>,
+}
+
+/// Install the native task definitions of this runtime.
+///
+/// Every definition is a real Cordis plugin with a real generation lifetime:
+/// it registers itself in the live plugin registry while it is installed and
+/// withdraws that registration in the same teardown. The function is the one
+/// installation path — the running agent and the discovery command install
+/// exactly the same definitions, so the advertised capabilities are the ones
+/// that actually exist.
+async fn install_native_definitions(
+    supervisor: &shenko_kernel::Supervisor,
+    store: &Arc<shenko_store::store::Store>,
+    data_dir: &std::path::Path,
+    wasi_mounts: Vec<shenko_wasm::MountSpec>,
+) -> Result<InstalledDefinitions> {
+    // Native finite children use the same Cordis root and persistent
+    // ledger. Fixed native definitions retain their original handlers;
+    // the finite model handler is installed with the shared broker below.
+    let _native_child_plugin = supervisor
+        .spawn(
+            shenko_subject::NativeChildPlugin,
+            (
+                Arc::clone(store),
+                shenko_types::ids::RuntimeGeneration::default(),
+            ),
+        )
+        .await?;
+    let printf_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::HostPrintfHandler::new(Arc::clone(store)));
+    let _native_printf_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, printf_handler)
+        .await?;
+    let history_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(store)));
+    let _native_history_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
+        .await?;
+    // Runtime-error awareness — SPEC §45.14: errors.read exposes the
+    // subject's own committed runtime_error facts; issue.submit writes
+    // subject-authored drafts into the local issues outbox only.
+    let errors_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::ErrorsReadHandler::new(Arc::clone(store)));
+    let _native_errors_read_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, errors_read_handler)
+        .await?;
+    let issue_submit_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+        shenko_exec_host::IssueSubmitHandler::new(
+            Arc::clone(store),
+            data_dir.join("issues"),
+        ),
+    );
+    let _native_issue_submit_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, issue_submit_handler)
+        .await?;
+    // Built-in, replaceable self-explanation — SPEC §38, R124. The
+    // provider is seeded from compiled-in material now; the real
+    // `self://runtime/capabilities` snapshot is installed below once
+    // the native and awareness registries are populated.
+    let self_knowledge = Arc::new(shenko_awareness_core::SelfKnowledgeProvider::new(
+        option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound"),
+        "0.6.2",
+    ));
+    let self_knowledge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::SelfKnowledgeHandler::new(
+            Arc::clone(store),
+            Arc::clone(&self_knowledge),
+        ));
+    let _native_self_knowledge_plugin = supervisor
+        .spawn(
+            shenko_subject::NativeTaskHandlerPlugin,
+            self_knowledge_handler,
+        )
+        .await?;
+    let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+        shenko_ui::PlaygroundBackendHandler::new(Arc::clone(store), data_dir.join("playground")),
+    );
+    let _native_playground_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
+        .await?;
+    // Real X11 Computer Use: four kinds share one live backend state
+    // so lease authority and session identity agree across tasks.
+    let computer_use_backend =
+        Arc::new(shenko_exec_host::ComputerUseBackend::new(Arc::clone(store)));
+    let computer_use_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
+        Arc::new(shenko_exec_host::ComputerUseSessionHandler::new(Arc::clone(
+            &computer_use_backend,
+        ))),
+        Arc::new(shenko_exec_host::ComputerUseObserveHandler::new(Arc::clone(
+            &computer_use_backend,
+        ))),
+        Arc::new(shenko_exec_host::ComputerUseLeaseHandler::new(Arc::clone(
+            &computer_use_backend,
+        ))),
+        Arc::new(shenko_exec_host::ComputerUseInputHandler::new(Arc::clone(
+            &computer_use_backend,
+        ))),
+    ];
+    for handler in computer_use_handlers {
+        let _computer_use_plugin = supervisor
+            .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
+            .await?;
+    }
+    // Real named-WASM-tool execution: wasi.exec resolves this
+    // installation's own unit inventory and runs their verified
+    // artifact bytes in the real WasmRuntime under the home mounts.
+    let wasi_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::WasiExecHandler::new(
+            Arc::clone(store),
+            wasi_mounts,
+            data_dir.to_path_buf(),
+        ));
+    let _native_wasi_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
+        .await?;
+    let native_child = supervisor
+        .context()
+        .try_service::<shenko_subject::NativeChildService>()?;
+    native_child.recover()?;
+    Ok(InstalledDefinitions {
+        native_child,
+        self_knowledge,
+    })
+}
+
+/// Dispatch the runtime's own changes into the live hook graph.
+///
+/// The registry publishes a revision whenever a provider, a capability or a
+/// help document appears or disappears. The graph dispatches those events at
+/// this boundary, so a plugin that subscribed to `runtime.capability_changed`
+/// observes the real installation instead of a startup snapshot. The task is
+/// event driven: it waits for a revision, it does not poll.
+fn spawn_runtime_hook_pump(
+    supervisor: &shenko_kernel::Supervisor,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let mut revisions = supervisor.runtime.changed();
+    let hooks = supervisor.hooks.clone();
+    let cancel = cancel.clone();
+    tokio::spawn(async move {
+        loop {
+            for dispatch in hooks.drain_pending().await {
+                tracing::debug!(
+                    point = %dispatch.point,
+                    results = dispatch.results.len(),
+                    "runtime change dispatched into the hook graph"
+                );
+            }
+            // Wait for the next registry revision or the shutdown signal;
+            // the pump never blocks teardown.
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                changed = revisions.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    })
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -214,6 +387,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
         shenko_kernel::supervisor::Supervisor::new(shenko_types::ids::RuntimeGeneration::default());
+    // The runtime's own services first: the live plugin registry and the
+    // hook graph. Every plugin below resolves them through the Cordis service
+    // lookup, so registration and withdrawal happen on the real lifecycle
+    // instead of on a startup snapshot.
+    let _runtime_services = supervisor.publish_services().await?;
     let policy: Arc<dyn shenko_identity::IdentityPolicy> =
         Arc::new(shenko_identity::DefaultIdentityPolicy);
     let _identity_plugin = supervisor
@@ -225,6 +403,85 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     match command {
         Command::Node => node_sync::node_command(&data_dir)?,
         Command::Tool { command } => tool_command(&data_dir, command)?,
+        Command::Capabilities => {
+            // Real discovery, not a static list: the same installation path
+            // the running agent uses is executed here, and the answer comes
+            // from the live registry the plugins registered into.
+            let db_path = data_dir.join("shenko.db");
+            anyhow::ensure!(
+                db_path.is_file(),
+                "no installed runtime in this data directory"
+            );
+            let store = Arc::new(shenko_store::store::Store::open(
+                db_path,
+                data_dir.join("cas"),
+            )?);
+            anyhow::ensure!(
+                store.get_existing_agent_id()?.is_some(),
+                "no initialized subject in this data directory"
+            );
+            let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+                data_dir: data_dir.clone(),
+                ..Default::default()
+            });
+            let prepared_home = bootstrap.prepare(store.ledger.ledger_id())?;
+            let wasi_mounts = prepared_home.manifest.mounts.clone();
+            drop(prepared_home);
+            let installed = install_native_definitions(
+                &supervisor,
+                &store,
+                &data_dir,
+                wasi_mounts,
+            )
+            .await?;
+            let view = supervisor.runtime.view();
+            let contracts = supervisor.hooks.contracts();
+            let binding = supervisor.hooks.binding();
+            // The capability changes the installation just produced are real
+            // hook events. Dispatch them here and report the receipts, so the
+            // discovery view and the graph agree about what happened.
+            let dispatches = supervisor.hooks.drain_pending().await;
+            let changes = supervisor.runtime.drain_changes();
+            let report = serde_json::json!({
+                "runtime_revision": view.revision,
+                "capability_revision": supervisor.runtime.capability_revision(),
+                "hook_graph": {
+                    "digest": binding.graph_digest.to_string(),
+                    "revision": binding.revision,
+                    "points": binding.point_ids,
+                    "live_leases": supervisor.hooks.live_leases(binding.revision),
+                },
+                "hook_points": contracts
+                    .iter()
+                    .map(|(point, contract)| serde_json::json!({
+                        "point": point.as_str(),
+                        "major": contract.major,
+                        "mode": contract.mode,
+                        "timeout_ms": contract.timeout_ms,
+                        "failure": contract.failure,
+                        "writable_paths": contract.writable_paths,
+                        "writable_slots": contract.writable_slots,
+                    }))
+                    .collect::<Vec<_>>(),
+                "providers": view.providers,
+                "capabilities": view.capabilities,
+                "help": view.help,
+                "runtime_changes": changes,
+                "hook_dispatches": dispatches
+                    .iter()
+                    .map(|dispatch| serde_json::json!({
+                        "dispatch_id": dispatch.dispatch_id,
+                        "point": dispatch.point.as_str(),
+                        "generation": dispatch.generation,
+                        "graph_digest": dispatch.graph_digest.to_string(),
+                        "results": dispatch.results.len(),
+                        "stopped_early": dispatch.stopped_early,
+                    }))
+                    .collect::<Vec<_>>(),
+                "native_definitions": installed.native_child.installed_definitions(),
+            });
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
         Command::Runtime { command } => {
             let db_path = data_dir.join("shenko.db");
@@ -390,6 +647,15 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &prepared_home.manifest,
                 &model_profile,
             )?;
+            // §45.14: kernel cordis-lifecycle and hook-graph failures journal
+            // into the SAME subject store journal. Genesis is the earliest
+            // truthful attach point — before it no branch exists, and the
+            // kernel keeps its stderr+counter record instead of manufacturing
+            // one.
+            supervisor.attach_error_sink(Arc::new(StoreErrorSink {
+                store: Arc::clone(&store),
+                agent_id,
+            }));
             // The wasi.exec handler keeps the mount closure and the data dir;
             // per-execution it reopens this installation's unit inventory so
             // installs made after startup are visible.
@@ -415,107 +681,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // Native finite children use the same Cordis root and persistent
             // ledger. Fixed native definitions retain their original handlers;
             // the finite model handler is installed with the shared broker below.
-            let _native_child_plugin = supervisor
-                .spawn(
-                    shenko_subject::NativeChildPlugin,
-                    (
-                        Arc::clone(&store),
-                        shenko_types::ids::RuntimeGeneration::default(),
-                    ),
-                )
-                .await?;
-            let printf_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
-                Arc::new(shenko_exec_host::HostPrintfHandler::new(Arc::clone(&store)));
-            let _native_printf_plugin = supervisor
-                .spawn(shenko_subject::NativeTaskHandlerPlugin, printf_handler)
-                .await?;
-            let history_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
-                Arc::new(shenko_exec_host::HistoryHandler::new(Arc::clone(&store)));
-            let _native_history_plugin = supervisor
-                .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
-                .await?;
-            // Runtime-error awareness — SPEC §45.14: errors.read exposes the
-            // subject's own committed runtime_error facts; issue.submit writes
-            // subject-authored drafts into the local issues outbox only.
-            let errors_read_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
-                Arc::new(shenko_exec_host::ErrorsReadHandler::new(Arc::clone(&store)));
-            let _native_errors_read_plugin = supervisor
-                .spawn(shenko_subject::NativeTaskHandlerPlugin, errors_read_handler)
-                .await?;
-            let issue_submit_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
-                shenko_exec_host::IssueSubmitHandler::new(
-                    Arc::clone(&store),
-                    data_dir.join("issues"),
-                ),
-            );
-            let _native_issue_submit_plugin = supervisor
-                .spawn(shenko_subject::NativeTaskHandlerPlugin, issue_submit_handler)
-                .await?;
-            // Built-in, replaceable self-explanation — SPEC §38, R124. The
-            // provider is seeded from compiled-in material now; the real
-            // `self://runtime/capabilities` snapshot is installed below once
-            // the native and awareness registries are populated.
-            let self_knowledge = Arc::new(shenko_awareness_core::SelfKnowledgeProvider::new(
-                option_env!("SHENKO_SOURCE_REVISION").unwrap_or("unbound"),
-                "0.6.2",
-            ));
-            let self_knowledge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
-                Arc::new(shenko_exec_host::SelfKnowledgeHandler::new(
-                    Arc::clone(&store),
-                    Arc::clone(&self_knowledge),
-                ));
-            let _native_self_knowledge_plugin = supervisor
-                .spawn(
-                    shenko_subject::NativeTaskHandlerPlugin,
-                    self_knowledge_handler,
-                )
-                .await?;
-            let playground_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
-                shenko_ui::PlaygroundBackendHandler::new(Arc::clone(&store), data_dir.join("playground")),
-            );
-            let _native_playground_plugin = supervisor
-                .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
-                .await?;
-            // Real X11 Computer Use: four kinds share one live backend state
-            // so lease authority and session identity agree across tasks.
-            let computer_use_backend = Arc::new(shenko_exec_host::ComputerUseBackend::new(
-                Arc::clone(&store),
-            ));
-            let computer_use_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
-                Arc::new(shenko_exec_host::ComputerUseSessionHandler::new(
-                    Arc::clone(&computer_use_backend),
-                )),
-                Arc::new(shenko_exec_host::ComputerUseObserveHandler::new(
-                    Arc::clone(&computer_use_backend),
-                )),
-                Arc::new(shenko_exec_host::ComputerUseLeaseHandler::new(
-                    Arc::clone(&computer_use_backend),
-                )),
-                Arc::new(shenko_exec_host::ComputerUseInputHandler::new(
-                    Arc::clone(&computer_use_backend),
-                )),
-            ];
-            for handler in computer_use_handlers {
-                let _computer_use_plugin = supervisor
-                    .spawn(shenko_subject::NativeTaskHandlerPlugin, handler)
-                    .await?;
-            }
-            // Real named-WASM-tool execution: wasi.exec resolves this
-            // installation's own unit inventory and runs their verified
-            // artifact bytes in the real WasmRuntime under the home mounts.
-            let wasi_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
-                Arc::new(shenko_exec_host::WasiExecHandler::new(
-                    Arc::clone(&store),
-                    wasi_mounts.clone(),
-                    data_dir.clone(),
-                ));
-            let _native_wasi_plugin = supervisor
-                .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
-                .await?;
-            let native_child = supervisor
-                .context()
-                .try_service::<shenko_subject::NativeChildService>()?;
-            native_child.recover()?;
+            let installed = install_native_definitions(
+                &supervisor,
+                &store,
+                &data_dir,
+                wasi_mounts.clone(),
+            )
+            .await?;
+            // The runtime's own changes become hook events from now on: the
+            // installation above and every later registration are observed
+            // through the live graph, not through a startup snapshot.
+            let _runtime_hook_pump = spawn_runtime_hook_pump(&supervisor, &cancel);
+            let native_child = installed.native_child.clone();
+            let self_knowledge = installed.self_knowledge.clone();
             // Typed continuous-media ingress: one durable revision admission +
             // the bound subject inbox event, published on the same Cordis root
             // so real providers inject it (and the /api/media routes share it).
@@ -547,6 +725,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &native_child.installed_definitions(),
                 &awareness.list(),
             );
+            // The live agent-visible capability catalog names what this
+            // process currently offers; the snapshot is a registry view, not
+            // a product list. Providers that register later (e.g. the broker)
+            // refresh the view with a second, idempotent call below.
+            self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
             let consumer_cancel = tokio_util::sync::CancellationToken::new();
             let dispatch_store = Arc::clone(&store);
             let dispatch_native = Arc::clone(&native_child);
@@ -645,7 +828,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // ModelChildHandler reconstructed all outstanding original charges
             // before any subject/child inference can enter this broker.
             tokio::spawn(broker.run());
-            let hook_registry = Arc::new(shenko_kernel::hooks::HookRegistry::new());
+            // The broker and model-child registrations above joined the live
+            // catalog; the self-knowledge snapshot is a registry view and the
+            // re-render is idempotent, so refresh it once more here.
+            self_knowledge.install_agent_capabilities(&supervisor.runtime.agent_capabilities());
+            // The hook graph is the runtime's own service: the subject and
+            // every plugin resolve the same live registry, so a handler a
+            // plugin registered is visible to the subject's next step.
+            let hook_registry = Arc::clone(&supervisor.hooks);
             // Outbound path: subject model output → UI timeline. SPEC §5.1, §21.12
             let (outbox_tx, _outbox_rx) =
                 tokio::sync::broadcast::channel::<shenko_subject::outbox::OutboxMessage>(64);
@@ -1348,6 +1538,39 @@ fn adopt_identity(
         current.revision
     );
     Ok(current)
+}
+
+/// §45.14 store-backed kernel error sink: plugin-runtime failures observed
+/// at kernel boundaries (Cordis lifecycle incidents, hook-graph admission
+/// refusals, publish revision conflicts) journal into the SAME subject store
+/// as every other runtime-error fact — no second DB, no autonomous action.
+/// `journal_runtime_error` is fail-soft (it counts a dropped journal write
+/// instead of propagating), so a journal failure can never recurse into the
+/// observation path that produced it.
+struct StoreErrorSink {
+    store: Arc<shenko_store::store::Store>,
+    agent_id: shenko_types::ids::EntityId,
+}
+
+impl shenko_kernel::ErrorSink for StoreErrorSink {
+    fn observe(
+        &self,
+        site: shenko_kernel::ErrorSite,
+        message: String,
+        extra: serde_json::Value,
+    ) {
+        self.store.journal_runtime_error(
+            self.agent_id,
+            shenko_store::RuntimeErrorContext {
+                kind: site.kind.to_string(),
+                source_module: site.module.to_string(),
+                message,
+                step_no: site.step_no,
+                task_id: site.task_id,
+                extra,
+            },
+        );
+    }
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6.
