@@ -1,0 +1,677 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 07d4f8b..bd12d6c 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -87,9 +87,9 @@ wasmtime = { version = "45", features = ["component-model", "async", "cache"] }
+ wasmtime-wasi = { version = "45", features = ["p1", "p2"] }
+ wit-component = "0.221"
+ 
+-# SSH
+-russh = "0.47"
+-russh-keys = "0.47"
++# SSH: reviewed v0.65.0 / 183a22e8, native in-process stream transport.
++# No default compression/AWS-LC or legacy DSA/3DES features.
++russh = { version = "=0.65.0", default-features = false, features = ["ring", "rsa"] }
+ 
+ # Crypto
+ ring = "0.17"
+diff --git a/crates/shenko-exec-ssh/Cargo.toml b/crates/shenko-exec-ssh/Cargo.toml
+index 3920aa9..d73b9a9 100644
+--- a/crates/shenko-exec-ssh/Cargo.toml
++++ b/crates/shenko-exec-ssh/Cargo.toml
+@@ -19,6 +19,7 @@ thiserror = { workspace = true }
+ uuid = { workspace = true }
+ chrono = { workspace = true }
+ async-trait = { workspace = true }
++russh = { workspace = true }
+ 
+ [dev-dependencies]
+ # Already locked transitively; used only for explicit persisted-generation fault injection.
+diff --git a/crates/shenko-exec-ssh/src/lib.rs b/crates/shenko-exec-ssh/src/lib.rs
+index 5185c09..ed9da3b 100644
+--- a/crates/shenko-exec-ssh/src/lib.rs
++++ b/crates/shenko-exec-ssh/src/lib.rs
+@@ -17,3 +17,6 @@ pub use permission_provider::*;
+ 
+ mod installed_binding;
+ pub use installed_binding::*;
++
++/// Native protocol adapter only; not installed task authority or a sandbox.
++pub mod native_transport;
+diff --git a/crates/shenko-exec-ssh/src/native_transport/mod.rs b/crates/shenko-exec-ssh/src/native_transport/mod.rs
+new file mode 100644
+index 0000000..ef5697c
+--- /dev/null
++++ b/crates/shenko-exec-ssh/src/native_transport/mod.rs
+@@ -0,0 +1,238 @@
++//! Shenko's single-command native SSH transport, not another generic SSH SDK.
++//!
++//! The trusted caller supplies a target from registered CAS trust and an owned,
++//! already-authorized stream. This module never creates sockets/processes,
++//! reads environment/config/key files, or discovers a signing identity. It
++//! does not grant policy/resource admission or install a task handler. T1,
++//! owner/generation fences and original-operation recovery remain caller duties.
++mod stream;
++mod trust;
++pub use trust::NativeSshTarget;
++
++use russh::{Channel, ChannelId, ChannelMsg, ChannelOpenFailure, client, keys::{
++    HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate,
++}};
++use serde::Serialize;
++use std::{sync::Arc, time::Duration};
++use tokio::{io::{AsyncRead, AsyncWrite}, time::{Instant, timeout, timeout_at}};
++
++#[derive(Debug, thiserror::Error, PartialEq, Eq)]
++pub enum NativeSshError {
++    #[error("invalid native SSH binding")] InvalidBinding,
++    #[error("sealed public trust unavailable")] TrustUnavailable,
++    #[error("unsupported sealed public trust syntax")] TrustUnsupported,
++    #[error("invalid native SSH limits")] InvalidLimits,
++    #[error("native SSH connection or host verification failed")] Connect,
++    #[error("native SSH authentication failed")] Authentication,
++    #[error("native SSH deadline elapsed")] Deadline,
++}
++
++/// Not serializable: a connected authenticated protocol session is not durable
++/// authority, a credential handle or a replayable task descriptor.
++pub struct NativeSshConnection {
++    handle: client::Handle<StrictPeer>,
++    close: stream::CloseGuard,
++    account: String,
++    auth_deadline: Instant,
++}
++pub struct NativeSshSession(NativeSshConnection);
++
++impl NativeSshConnection {
++    pub async fn connect_stream<R>(target: NativeSshTarget, io: R, deadline: Duration)
++        -> Result<Self, NativeSshError>
++    where R: AsyncRead + AsyncWrite + Unpin + Send + 'static {
++        let auth_deadline = Instant::now().checked_add(deadline)
++            .filter(|_| !deadline.is_zero()).ok_or(NativeSshError::InvalidLimits)?;
++        let account = target.account.clone();
++        let config = Arc::new(client::Config {
++            window_size: 64 * 1024, maximum_packet_size: 32 * 1024,
++            channel_buffer_size: 4, inactivity_timeout: Some(deadline),
++            keepalive_interval: None, ..Default::default()
++        });
++        // Guard exists before connect_stream can spawn its internal KEX task.
++        // Dropping/timing out this future wakes and closes the wrapped stream.
++        let (io, close) = stream::owned(io);
++        let handle = timeout_at(auth_deadline, client::connect_stream(config, io, StrictPeer(target)))
++            .await.map_err(|_| NativeSshError::Deadline)?
++            .map_err(|_| NativeSshError::Connect)?;
++        Ok(Self { handle, close, account, auth_deadline })
++    }
++
++    /// Public initial-KEX context for an explicitly selected agent's
++    /// bind_session call. No automatic agent discovery/forwarding is performed.
++    pub fn agent_session_binding(&self) -> Option<&russh::keys::agent::AgentSessionBinding> {
++        self.handle.agent_session_binding()
++    }
++
++    /// The installer resolves/decrypts the exact selected key locally. No
++    /// private bytes or passphrase is added to logs, policy scope or receipts.
++    pub async fn authenticate_private_key(mut self, key: PrivateKeyWithHashAlg)
++        -> Result<NativeSshSession, NativeSshError>
++    {
++        if key.algorithm().is_rsa() && key.hash_alg().is_none() {
++            return Err(NativeSshError::Authentication); // no RSA/SHA-1 fallback
++        }
++        let result = timeout_at(self.auth_deadline,
++            self.handle.authenticate_publickey(self.account.clone(), key)).await
++            .map_err(|_| NativeSshError::Deadline)?
++            .map_err(|_| NativeSshError::Authentication)?;
++        if !result.success() { return Err(NativeSshError::Authentication); }
++        Ok(NativeSshSession(self))
++    }
++
++    /// One exact public identity and signer; no enumeration/fallback. An agent
++    /// or hardware signer can implement russh's existing Signer directly.
++    pub async fn authenticate_signer<S>(mut self, key: PublicKey, hash: Option<HashAlg>, signer: &mut S)
++        -> Result<NativeSshSession, NativeSshError>
++    where S: russh::Signer + Send, S::Error: Send {
++        if key.algorithm().is_rsa() && hash.is_none() { return Err(NativeSshError::Authentication); }
++        let result = timeout_at(self.auth_deadline,
++            self.handle.authenticate_publickey_with(self.account.clone(), key, hash, signer)).await
++            .map_err(|_| NativeSshError::Deadline)?
++            .map_err(|_| NativeSshError::Authentication)?;
++        if !result.success() { return Err(NativeSshError::Authentication); }
++        Ok(NativeSshSession(self))
++    }
++}
++
++#[derive(Clone, Copy)]
++pub struct NativeCommandLimits {
++    pub deadline: Duration,
++    pub shutdown_grace: Duration,
++    pub stdout_bytes: usize,
++    pub stderr_bytes: usize,
++}
++#[derive(Debug, Serialize, PartialEq, Eq)]
++#[serde(tag = "kind", rename_all = "snake_case")]
++pub enum NativeExit { Status { code: u32 }, Signal { name: String, core_dumped: bool } }
++#[derive(Debug, Serialize, PartialEq, Eq)]
++#[serde(rename_all = "snake_case")]
++pub enum NativeInterruption { Deadline, Transport, Rejected, Protocol, OutputLimit, MissingExit }
++
++/// Transport observation, not a proof of application postconditions or grant.
++/// Remote exit255 is a real status here; legacy ssh-process255 is not retyped.
++#[derive(Debug, Serialize)]
++pub struct NativeCommandObservation {
++    pub schema: &'static str,
++    pub stdout: Vec<u8>,
++    pub stderr: Vec<u8>,
++    pub exit: Option<NativeExit>,
++    pub exec_request_queued: bool,
++    pub exec_accepted: bool,
++    pub channel_closed: bool,
++    pub interruption: Option<NativeInterruption>,
++    pub session_end_observed: bool,
++}
++
++impl NativeSshSession {
++    /// Consume a single-use session. Cancellation closes its owned stream, but
++    /// cannot prove the remote action stopped. Persist intent before calling;
++    /// any lost/unknown result must query the original operation, never resend.
++    pub async fn execute(mut self, command: &[u8], input: &[u8], limits: NativeCommandLimits)
++        -> Result<NativeCommandObservation, NativeSshError>
++    {
++        if command.is_empty() || command.len() > 64 * 1024 || command.contains(&0)
++            || input.len() > 1024 * 1024 || limits.stdout_bytes > 2 * 1024 * 1024
++            || limits.stderr_bytes > 2 * 1024 * 1024 || limits.deadline.is_zero()
++            || limits.shutdown_grace.is_zero() || limits.shutdown_grace > Duration::from_secs(2)
++        { return Err(NativeSshError::InvalidLimits); }
++        let deadline = Instant::now().checked_add(limits.deadline).ok_or(NativeSshError::InvalidLimits)?;
++        let mut observation = NativeCommandObservation {
++            schema: "ssh.native-transport.v1", stdout: vec![], stderr: vec![], exit: None,
++            exec_request_queued: false, exec_accepted: false, channel_closed: false,
++            interruption: None, session_end_observed: false,
++        };
++        match timeout_at(deadline, exchange(&self.0.handle, command, input, limits, &mut observation)).await {
++            Err(_) => observation.interruption = Some(NativeInterruption::Deadline),
++            Ok(Err(reason)) => observation.interruption = Some(reason),
++            Ok(Ok(())) => {}
++        }
++        // Do not rely on Handle::drop. Close the owned stream and explicitly
++        // observe the session's end within a separate finite cleanup allowance.
++        self.0.close.close();
++        observation.session_end_observed = timeout(limits.shutdown_grace, &mut self.0.handle).await.is_ok();
++        Ok(observation)
++    }
++}
++
++async fn exchange(handle: &client::Handle<StrictPeer>, command: &[u8], input: &[u8],
++    limits: NativeCommandLimits, result: &mut NativeCommandObservation) -> Result<(), NativeInterruption>
++{
++    let channel = handle.channel_open_session().await.map_err(|_| NativeInterruption::Transport)?;
++    channel.exec(true, command.to_vec()).await.map_err(|_| NativeInterruption::Transport)?;
++    result.exec_request_queued = true;
++    let (mut read, write) = channel.split();
++    let (confirmed, confirmation) = tokio::sync::oneshot::channel();
++    let send = async {
++        confirmation.await.map_err(|_| NativeInterruption::Rejected)?;
++        write.data(input).await.map_err(|_| NativeInterruption::Transport)?;
++        write.eof().await.map_err(|_| NativeInterruption::Transport)
++    };
++    let receive = async {
++        let mut confirmed = Some(confirmed);
++        let mut overflow = false;
++        while let Some(message) = read.wait().await {
++            match message {
++                ChannelMsg::Success if !result.exec_accepted => {
++                    result.exec_accepted = true;
++                    if let Some(ack) = confirmed.take() { let _ = ack.send(()); }
++                }
++                ChannelMsg::Failure => return Err(NativeInterruption::Rejected),
++                ChannelMsg::Data { data } => overflow |= append(&mut result.stdout, &data, limits.stdout_bytes),
++                ChannelMsg::ExtendedData { data, ext: 1 } => overflow |= append(&mut result.stderr, &data, limits.stderr_bytes),
++                ChannelMsg::ExtendedData { .. } => return Err(NativeInterruption::Protocol),
++                ChannelMsg::ExitStatus { exit_status } => {
++                    if result.exit.is_some() { return Err(NativeInterruption::Protocol); }
++                    result.exit = Some(NativeExit::Status { code: exit_status });
++                }
++                ChannelMsg::ExitSignal { signal_name, core_dumped, .. } => {
++                    if result.exit.is_some() { return Err(NativeInterruption::Protocol); }
++                    result.exit = Some(NativeExit::Signal { name: format!("{signal_name:?}"), core_dumped });
++                }
++                ChannelMsg::Eof => {} // continue draining; EOF alone is not an exit status
++                ChannelMsg::Close => { result.channel_closed = true; break; }
++                _ => {}
++            }
++        }
++        if !result.channel_closed { return Err(NativeInterruption::Transport); }
++        if !result.exec_accepted { return Err(NativeInterruption::Rejected); }
++        if overflow { return Err(NativeInterruption::OutputLimit); }
++        if result.exit.is_none() { return Err(NativeInterruption::MissingExit); }
++        Ok(())
++    };
++    // Independent input and output futures: no write-window await inside the
++    // receive pump, and no stderr starvation behind a separate output queue.
++    tokio::try_join!(receive, send)?;
++    Ok(())
++}
++
++fn append(output: &mut Vec<u8>, bytes: &[u8], maximum: usize) -> bool {
++    let remaining = maximum.saturating_sub(output.len());
++    output.extend_from_slice(&bytes[..bytes.len().min(remaining)]);
++    bytes.len() > remaining
++}
++
++struct StrictPeer(NativeSshTarget);
++impl client::Handler for StrictPeer {
++    type Error = russh::Error;
++    async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
++        Ok(self.0.accepts(key))
++    }
++    async fn should_accept_unknown_server_channel(&mut self, _: ChannelId, _: &str) -> bool { false }
++
++    async fn server_channel_open_session(&mut self, _: Channel<client::Msg>, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_agent_forward(&mut self, _: Channel<client::Msg>, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_unknown(&mut self, _: Channel<client::Msg>, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_x11(&mut self, _: Channel<client::Msg>, _: &str, _: u32, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_direct_tcpip(&mut self, _: Channel<client::Msg>, _: &str, _: u32, _: &str, _: u32, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_direct_streamlocal(&mut self, _: Channel<client::Msg>, _: &str, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_forwarded_tcpip(&mut self, _: Channel<client::Msg>, _: &str, _: u32, _: &str, _: u32, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++    async fn server_channel_open_forwarded_streamlocal(&mut self, _: Channel<client::Msg>, _: &str, reply: client::ChannelOpenHandle, _: &mut client::Session) -> Result<(), Self::Error> { reject(reply).await }
++}
++async fn reject(reply: client::ChannelOpenHandle) -> Result<(), russh::Error> {
++    reply.reject(ChannelOpenFailure::AdministrativelyProhibited).await;
++    Ok(())
++}
++
++#[cfg(test)]
++mod tests;
+diff --git a/crates/shenko-exec-ssh/src/native_transport/stream.rs b/crates/shenko-exec-ssh/src/native_transport/stream.rs
+new file mode 100644
+index 0000000..ce3cdc6
+--- /dev/null
++++ b/crates/shenko-exec-ssh/src/native_transport/stream.rs
+@@ -0,0 +1,63 @@
++//! Owned stream cancellation, including a connection future dropped during KEX.
++//! Closing this guard stops future I/O through this stream; it does NOT attest
++//! that a remote process stopped, or that a background session was joined.
++use std::{io, pin::Pin, sync::{Arc, Mutex}, task::{Context, Poll, Waker}};
++use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
++
++#[derive(Default)]
++struct State { closed: bool, reader: Option<Waker>, writer: Option<Waker> }
++pub(super) struct CloseGuard(Arc<Mutex<State>>);
++pub(super) struct OwnedStream<R> { inner: Option<R>, state: Arc<Mutex<State>> }
++
++pub(super) fn owned<R>(inner: R) -> (OwnedStream<R>, CloseGuard) {
++    let state = Arc::new(Mutex::new(State::default()));
++    (OwnedStream { inner: Some(inner), state: state.clone() }, CloseGuard(state))
++}
++impl CloseGuard {
++    pub(super) fn close(&self) {
++        let (read, write) = {
++            let mut s = self.0.lock().unwrap_or_else(|p| p.into_inner());
++            s.closed = true;
++            (s.reader.take(), s.writer.take())
++        };
++        if let Some(w) = read { w.wake(); }
++        if let Some(w) = write { w.wake(); }
++    }
++}
++impl Drop for CloseGuard { fn drop(&mut self) { self.close(); } }
++impl<R> OwnedStream<R> {
++    fn poll_io<T>(&mut self, cx: &mut Context<'_>, read: bool,
++        poll: impl FnOnce(&mut R, &mut Context<'_>) -> Poll<io::Result<T>>) -> Poll<io::Result<T>>
++    {
++        let state = self.state.clone();
++        let mut s = state.lock().unwrap_or_else(|p| p.into_inner());
++        if s.closed {
++            drop(s);
++            self.inner.take();
++            return Poll::Ready(Err(io::Error::new(io::ErrorKind::ConnectionAborted, "native SSH stream closed")));
++        }
++        if read { s.reader = Some(cx.waker().clone()); } else { s.writer = Some(cx.waker().clone()); }
++        // Serialize a single nonblocking poll with close(). No await while
++        // holding this lock: once close returns, no later inner I/O is polled.
++        match self.inner.as_mut() {
++            Some(inner) => poll(inner, cx),
++            None => Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into())),
++        }
++    }
++}
++impl<R: AsyncRead + Unpin> AsyncRead for OwnedStream<R> {
++    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
++        self.poll_io(cx, true, |r, cx| Pin::new(r).poll_read(cx, buf))
++    }
++}
++impl<R: AsyncWrite + Unpin> AsyncWrite for OwnedStream<R> {
++    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
++        self.poll_io(cx, false, |r, cx| Pin::new(r).poll_write(cx, buf))
++    }
++    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        self.poll_io(cx, false, |r, cx| Pin::new(r).poll_flush(cx))
++    }
++    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        self.poll_io(cx, false, |r, cx| Pin::new(r).poll_shutdown(cx))
++    }
++}
+diff --git a/crates/shenko-exec-ssh/src/native_transport/trust.rs b/crates/shenko-exec-ssh/src/native_transport/trust.rs
+new file mode 100644
+index 0000000..a7938dd
+--- /dev/null
++++ b/crates/shenko-exec-ssh/src/native_transport/trust.rs
+@@ -0,0 +1,86 @@
++//! Convert the exact registered public-trust CAS bytes into in-memory pins.
++//! This initial contract deliberately rejects unsupported known_hosts syntax;
++//! it never learns a host, discovers HOME or reduces a certificate to its key.
++use super::NativeSshError;
++use crate::SshBinding;
++use russh::keys::{PublicKey, PublicKeyOrCertificate};
++use shenko_store::Store;
++use shenko_types::object::Digest;
++
++pub struct NativeSshTarget {
++    pub(super) account: String,
++    pub(super) pins: Vec<PublicKey>,
++    pub(super) revoked: Vec<PublicKey>,
++    public_trust_digest: Digest,
++}
++
++impl NativeSshTarget {
++    /// Trusted native caller only: a binding and host pin are NOT a grant.
++    /// No key-path, password, agent socket or mutable known_hosts file is read.
++    pub fn from_binding(store: &Store, binding: &SshBinding) -> Result<Self, NativeSshError> {
++        let t = &binding.target;
++        let trust = &binding.known_hosts;
++        if t.password.is_some() || t.known_hosts_path.is_some()
++            || (t.key_path.is_none() && !t.use_agent)
++            || t.key_path.as_ref().is_some_and(|path| !path.is_absolute())
++            || t.host.is_empty() || t.host.starts_with('-') || t.port == 0
++            || !t.host.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_:[]%".contains(&b))
++            || t.user.is_empty() || t.user.starts_with('-')
++            || !t.user.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
++            || trust.bytes == 0 || trust.bytes > 1024 * 1024
++            || trust.store_namespace != "ssh-public-trust"
++            || trust.codec.name != "openssh-known-hosts" || trust.codec.major != 1
++            || !trust.digest.0.strip_prefix("blake3:").is_some_and(|s|
++                s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
++        { return Err(NativeSshError::InvalidBinding); }
++        // The existing Store read allocates the CAS file. Its allocation policy
++        // is not changed here. Verify the exact bytes used, not a path that a
++        // later SSH subprocess reopens; reject wrong length/hash before parsing.
++        let bytes = store.cas.read_object(&trust.digest)
++            .map_err(|_| NativeSshError::TrustUnavailable)?;
++        if bytes.len() as u64 != trust.bytes || Digest::blake3(&bytes) != trust.digest {
++            return Err(NativeSshError::TrustUnavailable);
++        }
++        Self::parse(&t.host, t.port, t.user.clone(), trust.digest.clone(), &bytes)
++    }
++
++    pub fn public_trust_digest(&self) -> &Digest { &self.public_trust_digest }
++
++    fn parse(host: &str, port: u16, account: String, digest: Digest, bytes: &[u8])
++        -> Result<Self, NativeSshError>
++    {
++        let text = std::str::from_utf8(bytes).map_err(|_| NativeSshError::TrustUnsupported)?;
++        let target = if port == 22 { host.to_owned() } else { format!("[{host}]:{port}") };
++        let mut this = Self { account, pins: vec![], revoked: vec![], public_trust_digest: digest };
++        for line in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
++            let mut fields = line.split_whitespace();
++            let mut hosts = fields.next().ok_or(NativeSshError::TrustUnsupported)?;
++            let revoked = hosts == "@revoked";
++            if revoked { hosts = fields.next().ok_or(NativeSshError::TrustUnsupported)?; }
++            // Explicit fail-closed subset, not a claim of full OpenSSH parsing.
++            // Includes unrelated unsupported lines: never miss a revocation/CA
++            // rule because a loose parser silently skipped its host expression.
++            if hosts.starts_with('@') || hosts.contains(['*', '?', '!', '|']) {
++                return Err(NativeSshError::TrustUnsupported);
++            }
++            let algorithm = fields.next().ok_or(NativeSshError::TrustUnsupported)?;
++            let encoded = fields.next().ok_or(NativeSshError::TrustUnsupported)?;
++            let key = PublicKey::from_openssh(&format!("{algorithm} {encoded}"))
++                .map_err(|_| NativeSshError::TrustUnsupported)?;
++            if hosts.split(',').any(|h| h == target) {
++                if revoked { this.revoked.push(key); } else { this.pins.push(key); }
++            }
++        }
++        if this.pins.is_empty() { return Err(NativeSshError::TrustUnavailable); }
++        Ok(this)
++    }
++
++    pub(super) fn accepts(&self, peer: &PublicKeyOrCertificate) -> bool {
++        match peer {
++            PublicKeyOrCertificate::PublicKey { key, .. } =>
++                self.pins.iter().any(|pin| pin.key_data() == key.key_data())
++                    && !self.revoked.iter().any(|pin| pin.key_data() == key.key_data()),
++            PublicKeyOrCertificate::Certificate(_) => false,
++        }
++    }
++}
+diff --git a/crates/shenko-exec-ssh/src/native_transport/tests.rs b/crates/shenko-exec-ssh/src/native_transport/tests.rs
+new file mode 100644
+index 0000000..5f832cb
+--- /dev/null
++++ b/crates/shenko-exec-ssh/src/native_transport/tests.rs
+@@ -0,0 +1,226 @@
++//! Self-owned deterministic keys and real SSH packets over bounded in-memory
++//! streams only. No socket, command process, key file, agent, model or account.
++use super::*;
++use crate::{SshBinding, SshTarget};
++use russh::{keys::{PrivateKey, ssh_key::private::Ed25519Keypair}, server};
++use shenko_store::Store;
++use std::sync::{Mutex, atomic::{AtomicUsize, Ordering}};
++use tokio::{io::{AsyncReadExt, duplex}, task::JoinHandle};
++
++fn key(seed: u8) -> PrivateKey {
++    // Deliberately public test-only seeds, never usable production credentials.
++    Ed25519Keypair::from_seed(&[seed; 32]).into()
++}
++fn target(public: &PublicKey, revoked: bool) -> NativeSshTarget {
++    let root = std::env::temp_dir().join(format!("shenko-native-fixture-{}", uuid::Uuid::new_v4()));
++    std::fs::create_dir_all(&root).unwrap();
++    let pin = format!("fixture.invalid {}\n", public.to_openssh().unwrap());
++    let trust = if revoked { format!("{pin}@revoked {pin}") } else { pin };
++    let path = root.join("public-known-hosts");
++    std::fs::write(&path, trust).unwrap();
++    let result = {
++        let store = Store::open(root.join("ledger.db"), root.join("cas")).unwrap();
++        let binding = SshBinding::register(&store, "native-fixture".into(), SshTarget {
++            host: "fixture.invalid".into(), user: "fixture".into(), port: 22,
++            key_path: Some(root.join("never-created-or-read-private-key")),
++            known_hosts_path: Some(path), ..SshTarget::default()
++        }, "/fixture-receipts".into()).unwrap();
++        NativeSshTarget::from_binding(&store, &binding).unwrap()
++    };
++    std::fs::remove_dir_all(root).unwrap();
++    result
++}
++fn limits() -> NativeCommandLimits {
++    NativeCommandLimits { deadline: Duration::from_secs(5),
++        shutdown_grace: Duration::from_secs(1), stdout_bytes: 256 * 1024, stderr_bytes: 1024 }
++}
++#[derive(Clone, Copy)]
++enum Mode { Duplex, Silent }
++struct Peer {
++    expected: PublicKey,
++    auths: Arc<AtomicUsize>,
++    mode: Mode,
++    channel: Option<Channel<server::Msg>>,
++    workers: Arc<Mutex<Vec<JoinHandle<()>>>>,
++}
++impl server::Handler for Peer {
++    type Error = russh::Error;
++    async fn auth_publickey(&mut self, user: &str, verified: server::VerifiedPublicKey<'_>)
++        -> Result<server::Auth, Self::Error>
++    {
++        self.auths.fetch_add(1, Ordering::SeqCst);
++        Ok(if user == "fixture" && verified.public_key.key_data() == self.expected.key_data() {
++            server::Auth::Accept
++        } else { server::Auth::reject() })
++    }
++    async fn channel_open_session(&mut self, channel: Channel<server::Msg>,
++        reply: server::ChannelOpenHandle, _: &mut server::Session) -> Result<(), Self::Error>
++    {
++        self.channel = Some(channel);
++        reply.accept().await;
++        Ok(())
++    }
++    async fn exec_request(&mut self, channel: ChannelId, command: &[u8], session: &mut server::Session)
++        -> Result<(), Self::Error>
++    {
++        assert_eq!(command, b"fixture-command"); // bytes observed, never interpreted
++        session.channel_success(channel)?;
++        if matches!(self.mode, Mode::Silent) { return Ok(()); }
++        let channel = self.channel.take().unwrap();
++        let worker = tokio::spawn(async move {
++            let (mut read, write) = channel.split();
++            // More than the 64 KiB SSH window and 1 KiB duplex buffer. A client
++            // that waits for all stdin to finish before draining stdout stalls.
++            write.data(&vec![b'o'; 128 * 1024][..]).await.unwrap();
++            let mut input = Vec::new();
++            while let Some(msg) = read.wait().await {
++                match msg {
++                    ChannelMsg::Data { data } => input.extend_from_slice(&data),
++                    ChannelMsg::Eof => break,
++                    ChannelMsg::Close => panic!("client closed before fixture input EOF"),
++                    _ => {}
++                }
++            }
++            assert_eq!(input, vec![b'i'; 128 * 1024]);
++            write.extended_data(1, &b"stderr-after-input"[..]).await.unwrap();
++            write.exit_status(255).await.unwrap();
++            write.eof().await.unwrap();
++            write.close().await.unwrap();
++        });
++        self.workers.lock().unwrap().push(worker);
++        Ok(())
++    }
++}
++struct Running {
++    server: JoinHandle<Result<(), russh::Error>>,
++    handle: server::Handle,
++    auths: Arc<AtomicUsize>,
++    workers: Arc<Mutex<Vec<JoinHandle<()>>>>,
++}
++impl Running {
++    async fn finish(self) {
++        // Stream closure may surface as EOF/IO error: neither is a remote
++        // process-stop guarantee. Require that the session actually terminates.
++        let _ = timeout(Duration::from_secs(2), self.server).await.unwrap().unwrap();
++        let workers = std::mem::take(&mut *self.workers.lock().unwrap());
++        for worker in workers { timeout(Duration::from_secs(2), worker).await.unwrap().unwrap(); }
++    }
++}
++async fn connect(target: NativeSshTarget, mode: Mode)
++    -> (Result<NativeSshConnection, NativeSshError>, Running)
++{
++    let (client_io, server_io) = duplex(1024);
++    let auths = Arc::new(AtomicUsize::new(0));
++    let workers = Arc::new(Mutex::new(vec![]));
++    let peer = Peer { expected: key(22).public_key().clone(), auths: auths.clone(),
++        mode, channel: None, workers: workers.clone() };
++    let config = Arc::new(server::Config {
++        keys: vec![key(11)], window_size: 64 * 1024, maximum_packet_size: 32 * 1024,
++        channel_buffer_size: 4, event_buffer_size: 4,
++        auth_rejection_time: Duration::ZERO, auth_rejection_time_initial: Some(Duration::ZERO),
++        inactivity_timeout: Some(Duration::from_secs(10)), ..Default::default()
++    });
++    let (sender, receiver) = tokio::sync::oneshot::channel();
++    let server = tokio::spawn(async move {
++        let running = server::run_stream(config, server_io, peer).await?;
++        let _ = sender.send(running.handle());
++        running.await
++    });
++    let connection = NativeSshConnection::connect_stream(target, client_io, Duration::from_secs(5)).await;
++    let handle = timeout(Duration::from_secs(2), receiver).await.unwrap().unwrap();
++    (connection, Running { server, handle, auths, workers })
++}
++async fn authenticate(connection: NativeSshConnection) -> NativeSshSession {
++    connection.authenticate_private_key(PrivateKeyWithHashAlg::new(Arc::new(key(22)), None)).await.unwrap()
++}
++
++#[tokio::test]
++async fn native_protocol_duplex_and_unambiguous_exit_255() {
++    let (connection, running) = connect(target(key(11).public_key(), false), Mode::Duplex).await;
++    let session = authenticate(connection.unwrap()).await;
++    let observation = session.execute(b"fixture-command", &vec![b'i'; 128 * 1024], limits()).await.unwrap();
++    assert_eq!(running.auths.load(Ordering::SeqCst), 1);
++    assert_eq!(observation.stdout, vec![b'o'; 128 * 1024]);
++    assert_eq!(observation.stderr, b"stderr-after-input");
++    assert_eq!(observation.exit, Some(NativeExit::Status { code: 255 }));
++    assert!(observation.exec_request_queued && observation.exec_accepted && observation.channel_closed);
++    assert!(observation.session_end_observed);
++    assert_eq!(observation.interruption, None);
++    running.finish().await;
++}
++
++#[tokio::test]
++async fn native_protocol_wrong_pin_stops_before_authentication() {
++    let (connection, running) = connect(target(key(33).public_key(), false), Mode::Duplex).await;
++    assert!(matches!(connection, Err(NativeSshError::Connect)));
++    assert_eq!(running.auths.load(Ordering::SeqCst), 0);
++    running.finish().await;
++}
++
++#[tokio::test]
++async fn native_protocol_revocation_overrides_matching_pin() {
++    let (connection, running) = connect(target(key(11).public_key(), true), Mode::Duplex).await;
++    assert!(matches!(connection, Err(NativeSshError::Connect)));
++    assert_eq!(running.auths.load(Ordering::SeqCst), 0);
++    running.finish().await;
++}
++
++#[tokio::test]
++async fn native_protocol_refuses_unsolicited_session_without_breaking_outbound_command() {
++    let (connection, running) = connect(target(key(11).public_key(), false), Mode::Duplex).await;
++    let session = authenticate(connection.unwrap()).await;
++    let inbound = timeout(Duration::from_secs(2), running.handle.channel_open_session()).await.unwrap();
++    assert!(inbound.is_err());
++    let observation = session.execute(b"fixture-command", &vec![b'i'; 128 * 1024], limits()).await.unwrap();
++    assert_eq!(observation.interruption, None);
++    assert_eq!(observation.exit, Some(NativeExit::Status { code: 255 }));
++    running.finish().await;
++}
++
++#[tokio::test]
++async fn native_protocol_deadline_preserves_unknown_and_observes_local_session_end() {
++    let (connection, running) = connect(target(key(11).public_key(), false), Mode::Silent).await;
++    let session = authenticate(connection.unwrap()).await;
++    let observation = session.execute(b"fixture-command", b"", NativeCommandLimits {
++        deadline: Duration::from_millis(100), ..limits()
++    }).await.unwrap();
++    assert!(observation.exec_accepted);
++    assert_eq!(observation.exit, None);
++    assert!(!observation.channel_closed);
++    assert_eq!(observation.interruption, Some(NativeInterruption::Deadline));
++    assert!(observation.session_end_observed); // local protocol end only
++    running.finish().await;
++}
++
++#[tokio::test]
++async fn native_protocol_output_cap_keeps_draining_and_retains_status() {
++    let (connection, running) = connect(target(key(11).public_key(), false), Mode::Duplex).await;
++    let session = authenticate(connection.unwrap()).await;
++    let observation = session.execute(b"fixture-command", &vec![b'i'; 128 * 1024],
++        NativeCommandLimits { stdout_bytes: 32, ..limits() }).await.unwrap();
++    assert_eq!(observation.stdout, vec![b'o'; 32]);
++    assert_eq!(observation.stderr, b"stderr-after-input");
++    assert_eq!(observation.exit, Some(NativeExit::Status { code: 255 }));
++    assert!(observation.channel_closed && observation.session_end_observed);
++    assert_eq!(observation.interruption, Some(NativeInterruption::OutputLimit));
++    running.finish().await;
++}
++
++#[tokio::test]
++async fn native_protocol_cancel_during_kex_closes_owned_stream() {
++    let (client_io, mut peer) = duplex(1024);
++    let pending = tokio::spawn(NativeSshConnection::connect_stream(
++        target(key(11).public_key(), false), client_io, Duration::from_secs(5)));
++    // Observe the real client identification, then cancel before any server
++    // identification/KEX is supplied. No timing-only sleep to infer startup.
++    let mut byte = [0u8; 1];
++    loop {
++        timeout(Duration::from_secs(2), peer.read_exact(&mut byte)).await.unwrap().unwrap();
++        if byte == [b'\n'] { break; }
++    }
++    pending.abort();
++    assert!(matches!(pending.await, Err(error) if error.is_cancelled()));
++    let mut remaining = vec![];
++    timeout(Duration::from_secs(2), peer.read_to_end(&mut remaining)).await.unwrap().unwrap();
++}
++

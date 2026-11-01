@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 shenko-store = { path = "../shenko-store" }
+shenko-node = { path = "../shenko-node" }
 base64 = { workspace = true }
 shenko-types = { path = "../shenko-types" }
 serde = { workspace = true }
@@ -18,5 +19,11 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
+russh = { workspace = true }
+
+[dev-dependencies]
+# Already locked transitively; used only for explicit persisted-generation fault injection.
+rusqlite = { workspace = true }
+
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

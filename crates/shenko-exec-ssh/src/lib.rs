@@ -5,3 +5,18 @@ pub use ssh_exec::*;
 
 pub mod task_runner;
 pub use task_runner::*;
+
+mod selected_task;
+pub use selected_task::*;
+
+mod target_resolution;
+pub use target_resolution::*;
+
+mod permission_provider;
+pub use permission_provider::*;
+
+mod installed_binding;
+pub use installed_binding::*;
+
+/// Native protocol adapter only; not installed task authority or a sandbox.
+pub mod native_transport;
