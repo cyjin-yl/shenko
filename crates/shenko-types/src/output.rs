@@ -102,8 +102,93 @@ mod tests {
     }
 }
 
+/// One tool the child may call. It names a registered native definition; the
+/// runtime binds the real handler, its authority and its own execution
+/// contract. An authored kind is not a capability until the registry has it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelChildTool {
+    pub kind: String,
+    pub definition_version: u32,
+}
+
+/// One authored context block. The child receives it with its own label, so
+/// the delegator can hand over material without editing the child's prompt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelChildContext {
+    pub label: String,
+    pub text: String,
+}
+
+/// The child's own finite budget. It is allocated by the delegator; a nested
+/// child may only receive what its parent has left (SPEC §14.5).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelChildBudget {
+    /// Output tokens the whole run may reserve across all of its steps.
+    pub max_total_tokens: u64,
+    /// Model steps the run may take.
+    pub max_steps: u32,
+    /// Tool calls the run may make.
+    pub max_tool_calls: u32,
+}
+
+/// The reply authority a delegator may hand to a model child. The runtime
+/// binds it to the child's own task identity at freeze time; the channel
+/// plugin interprets the target. Without such a grant the child cannot
+/// publish: an ordinary child has no outbound authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelChildReplyGrant {
+    /// The resolved destination. The channel plugin owns this namespace.
+    pub target: PublicationTarget,
+    /// The account this grant is bound to. Absent means the target's own
+    /// audience kind is the account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    /// Message types the child may send on this grant.
+    pub allowed_message_types: Vec<String>,
+    /// The event this grant answers, when the delegator names one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_event_id: Option<crate::ids::EntityId>,
+    /// The grant stops working at this instant.
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl ModelChildBudget {
+    /// Default step count of a child that did not author one.
+    pub const DEFAULT_MAX_STEPS: u32 = 8;
+
+    /// The effective budget of a spec. An authored budget is used as written;
+    /// otherwise the run gets the finite default derived from the child's own
+    /// per-step output budget. The resolution lives here so the subject that
+    /// freezes the contract and the store that admits it agree on one number.
+    pub fn resolve(spec: &ModelChildSpec) -> ModelChildBudget {
+        match &spec.budget {
+            Some(budget) => budget.clone(),
+            None => ModelChildBudget {
+                max_total_tokens: spec.max_tokens.saturating_mul(u64::from(Self::DEFAULT_MAX_STEPS)),
+                max_steps: Self::DEFAULT_MAX_STEPS,
+                max_tool_calls: Self::DEFAULT_MAX_STEPS,
+            },
+        }
+    }
+
+    /// Integer limits are finite; the author chooses their magnitude. Parent
+    /// allowance and actual resource admission remain separate constraints.
+    pub fn is_finite(&self) -> bool {
+        self.max_steps > 0 && self.max_total_tokens > 0
+    }
+}
+
 /// Authored semantic task, not an endpoint, authority grant or tool schema.
-/// The runtime binds the exact transport and enforces the sealed parent cap.
+/// The runtime binds the exact transport and enforces the child's own budget.
+///
+/// `max_tokens` is the child's per-step output budget. It is the child's own
+/// number: it is not mechanically capped by the delegating step's single-turn
+/// output cap (SPEC §6). Only real transport facts and the child's own
+/// budget bound it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelChildSpec {
@@ -111,6 +196,32 @@ pub struct ModelChildSpec {
     pub system_prompt: String,
     pub model: String,
     pub max_tokens: u64,
+    /// The tools this child may call. Empty means a text-only child.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<ModelChildTool>,
+    /// Authored context handed to the child next to its goal.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<ModelChildContext>,
+    /// The run's finite budget. Absent means the finite default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<ModelChildBudget>,
+    /// The outbound authority this child may use. Absent means the child
+    /// cannot publish at all.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_grant: Option<ModelChildReplyGrant>,
+    /// Continue an earlier finite child run instead of starting a new one.
+    ///
+    /// The named task must be a finished model child of the same subject.
+    /// Its recorded transcript is reused and its already executed tool calls
+    /// are read, never run again: a continuation is the same discussion, not
+    /// a second child.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continue_task_id: Option<crate::ids::EntityId>,
+    /// The owner's answer to the question the continued child asked. It is
+    /// the owner's own words, delivered as the next user turn of the same
+    /// discussion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_answer: Option<String>,
 }
 
 /// Authored disposition of one durable input event. The sealed decision binds
