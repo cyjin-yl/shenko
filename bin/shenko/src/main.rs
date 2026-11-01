@@ -11,6 +11,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 
 mod node_sync;
 mod runtime_owner;
+mod inference_runtime;
 
 #[derive(Parser, Debug)]
 #[command(
