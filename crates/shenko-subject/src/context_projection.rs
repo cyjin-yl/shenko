@@ -271,6 +271,56 @@ fn staged_media_text(payload: &serde_json::Value) -> Result<String, ShenkoError>
                 }
             }
         }
+        // ArchMedia: recording controls and priority inputs render as
+        // ordinary durable facts of the same event model (§20). ArchSubject
+        // owns this file; these arms are additive and mirror the style above.
+        shenko_types::media::MediaIngressEvent::Recording {
+            stream, recording, action, ..
+        } => {
+            let label = stream_label(&stream);
+            let action_text = match action {
+                shenko_types::media::MediaRecordingAction::Start => "开始",
+                shenko_types::media::MediaRecordingAction::Stop => "停止",
+            };
+            let retention = if recording.scope.retention.is_empty() {
+                String::new()
+            } else {
+                format!(" 保留{}", recording.scope.retention)
+            };
+            format!(
+                "[媒体 {label} 录音{}已{action_text}{retention}；状态{}]",
+                recording.recording_id,
+                match recording.state {
+                    shenko_types::media::MediaRecordingState::Recording => "录音中",
+                    shenko_types::media::MediaRecordingState::Stopped => "已停止",
+                    shenko_types::media::MediaRecordingState::Failed => "失败",
+                },
+            )
+        }
+        shenko_types::media::MediaIngressEvent::Priority { stream, input, .. } => {
+            let label = stream_label(&stream);
+            let kind_text = match input.kind {
+                shenko_types::media::MediaPriorityKind::BargeIn => "打断",
+                shenko_types::media::MediaPriorityKind::Interjection => "插话",
+                shenko_types::media::MediaPriorityKind::StopPlayback => "停止播音",
+                shenko_types::media::MediaPriorityKind::UrgentMessage => "紧急消息",
+            };
+            let text = input
+                .text
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(|text| format!("：{text}"))
+                .unwrap_or_default();
+            let reason = input
+                .reason
+                .as_deref()
+                .map(str::trim)
+                .filter(|reason| !reason.is_empty())
+                .map(|reason| format!("（{reason}）"))
+                .unwrap_or_default();
+            format!("[媒体 {label} 优先输入·{kind_text}{text}{reason}]")
+        }
     })
 }
 

@@ -101,6 +101,68 @@ CREATE INDEX IF NOT EXISTS idx_media_revisions_segment
     ON media_segment_revisions(segment_key, revision);
 CREATE INDEX IF NOT EXISTS idx_media_revisions_event
     ON media_segment_revisions(event_id);
+
+-- Recording control: `media_recordings` is the latest-state projection of
+-- one recording, `media_recording_controls` keeps every admitted control
+-- command as an immutable notice keyed by the provider's control identity.
+-- A replayed control returns its ORIGINAL event id and commit; a different
+-- fact under the same control identity is a typed conflict.
+CREATE TABLE IF NOT EXISTS media_recordings (
+    stream_key TEXT NOT NULL REFERENCES media_streams(stream_key),
+    recording_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    started_at_ms INTEGER NOT NULL,
+    stopped_at_ms INTEGER,
+    scope_json TEXT NOT NULL,
+    start_control_id TEXT NOT NULL,
+    stop_control_id TEXT,
+    reason TEXT,
+    event_id TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    admitted_commit_ref TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (stream_key, recording_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_recordings_event
+    ON media_recordings(event_id);
+
+CREATE TABLE IF NOT EXISTS media_recording_controls (
+    stream_key TEXT NOT NULL REFERENCES media_streams(stream_key),
+    control_id TEXT NOT NULL,
+    recording_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    state TEXT NOT NULL,
+    data TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    admitted_commit_ref TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (stream_key, control_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_recording_controls_event
+    ON media_recording_controls(event_id);
+
+-- Priority inputs (barge-in, interjection, stop playback, urgent message)
+-- are immutable notices: the same priority identity always replays its own
+-- event id and commit.
+CREATE TABLE IF NOT EXISTS media_priority_inputs (
+    stream_key TEXT NOT NULL REFERENCES media_streams(stream_key),
+    priority_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT,
+    occurred_at_ms INTEGER,
+    audio_json TEXT,
+    reason TEXT,
+    data TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    admitted_commit_ref TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (stream_key, priority_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_priority_event
+    ON media_priority_inputs(event_id);
 "#;
 
 fn media_error(code: &str, retry: RetryStrategy, message: impl Into<String>) -> ShenkoError {
@@ -401,6 +463,7 @@ fn read_stream_row(
     )
     .transpose()
 }
+
 
 fn insert_stream(
     conn: &Connection,
@@ -736,7 +799,8 @@ pub(crate) fn media_recovery_gaps(
         let mut bound = HashMap::new();
         let mut revisions = HashMap::new();
         for row in rows.iter().filter(|row| matches!(row.table.as_str(),
-            "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+            "media_streams" | "media_stream_ends" | "media_segment_revisions"
+            | "media_recordings" | "media_recording_controls" | "media_priority_inputs"))
         {
             let stream_key = required(row, "stream_key")?;
             let stream = streams.get(stream_key).context("media fact has no stream identity")?;
@@ -765,9 +829,17 @@ pub(crate) fn media_recovery_gaps(
                 receipt(row, "admitted_commit_ref")?;
                 required(row, "event_id")?
             };
-            ensure!(!bound.contains_key(event_id), "media facts share an inbox event identity");
             let original = inbox.get(event_id).context("media fact lacks its durable inbox original")?;
             let envelope: serde_json::Value = serde_json::from_str(required(original, "data")?)?;
+            if let Some(existing) = bound.get(event_id) {
+                // A recording projection row re-binds the event of its own
+                // control notice: the same fact legitimately appears once as
+                // an immutable notice and once as the latest-state
+                // projection, but never with a different envelope.
+                ensure!(&envelope == existing, "media facts share an inbox event identity");
+            } else {
+                bound.insert(event_id, envelope.clone());
+            }
             let event: MediaIngressEvent = serde_json::from_value(
                 envelope.get("payload").context("media inbox payload missing")?.clone())?;
             let source = format!("media/{}", descriptor.provider);
@@ -837,8 +909,12 @@ pub(crate) fn media_recovery_gaps(
                     };
                     ensure!(revisions.insert(key, retained).is_none(), "duplicate media segment/revision slot");
                 }
+                // Recording and priority facts validate in
+                // `match_extra_media_fact` below; the shared envelope identity
+                // checks above already bound them to this delivery event.
+                MediaIngressEvent::Recording { .. } | MediaIngressEvent::Priority { .. } => {}
             }
-            bound.insert(event_id, envelope);
+            match_extra_media_fact(row, &descriptor, &event)?;
         }
 
         // The original envelope is immutable and intentionally has no later
@@ -913,7 +989,8 @@ pub(crate) fn media_recovery_gaps(
         for row in rows.iter().filter(|row| row.table == "inbox_events" || row.table == "session_events") {
             let media_inbox = row.table == "inbox_events" &&
                 (row.value("source").is_some_and(|source| source.starts_with("media/"))
-                    || matches!(row.value("kind"), Some("media_revision" | "media_stream")));
+                    || matches!(row.value("kind"),
+                        Some("media_revision" | "media_stream" | "media_recording" | "media_priority")));
             let Some(data) = row.value("data") else {
                 ensure!(!media_inbox, "media inbox original missing");
                 continue;
@@ -930,7 +1007,7 @@ pub(crate) fn media_recovery_gaps(
                 original
             } else { &value };
             let media_kind = matches!(original.get("kind").and_then(serde_json::Value::as_str),
-                Some("media_revision" | "media_stream"));
+                Some("media_revision" | "media_stream" | "media_recording" | "media_priority"));
             let original_id = original.get("event_id").and_then(serde_json::Value::as_str);
             if media_kind || media_inbox || original_id.is_some_and(|id| bound.contains_key(id))
             {
@@ -958,6 +1035,57 @@ pub(crate) fn media_recovery_gaps(
         }
         ensure!(media_raw_sources.keys().all(|raw_id| staged_raw.contains(*raw_id)),
             "staged media original lacks its subject-input link");
+        Ok(())
+    }
+
+    /// Validate one recording or priority fact against its durable envelope
+    /// and its own committed columns. Recording projection rows carry no
+    /// `data` column; their consistency is checked column-wise against the
+    /// envelope of their latest control notice.
+    fn match_extra_media_fact(
+        row: &CognitionRow,
+        descriptor: &MediaStreamDescriptor,
+        event: &MediaIngressEvent,
+    ) -> Result<()> {
+        match event {
+            MediaIngressEvent::Recording { recording, action, .. } => {
+                if row.table == "media_recording_controls" {
+                    let control: MediaRecordingControl = serde_json::from_str(required(row, "data")?)?;
+                    validate_recording_control(&control)?;
+                    ensure!(control.stream == *descriptor
+                        && control.recording_id == recording.recording_id
+                        && control.action == *action
+                        && control.action.name() == required(row, "action")?
+                        && recording.state.name() == required(row, "state")?,
+                        "media recording control original mismatch");
+                } else {
+                    ensure!(row.table == "media_recordings"
+                        && recording.recording_id == required(row, "recording_id")?
+                        && recording.state.name() == required(row, "state")?
+                        && serde_json::to_string(&recording.scope).map_err(ShenkoError::Serde)? == required(row, "scope_json")?,
+                        "media recording projection disagrees with its original");
+                }
+            }
+            MediaIngressEvent::Priority { input, .. } => {
+                ensure!(row.table == "media_priority_inputs", "media priority binding mismatch");
+                let admitted: MediaPriorityInput = serde_json::from_str(required(row, "data")?)?;
+                validate_priority_input(&admitted)?;
+                ensure!(admitted.stream == *descriptor
+                    && admitted.priority_id == input.priority_id
+                    && admitted.kind == input.kind
+                    && admitted.kind.name() == required(row, "kind")?
+                    && row.value("text") == admitted.text.as_deref()
+                    && row.value("occurred_at_ms").map(str::parse::<i64>).transpose()? == admitted.occurred_at_ms
+                    && row.value("audio_json").map(serde_json::from_str::<MediaAudioRef>).transpose()? == admitted.audio
+                    && row.value("reason") == admitted.reason.as_deref(),
+                    "media priority original mismatch");
+                if let Some(MediaAudioRef::Sealed { object }) = &admitted.audio {
+                    ensure!(object.digest.canonical_blake3_hex().is_some(),
+                        "invalid sealed media audio identity");
+                }
+            }
+            _ => {}
+        }
         Ok(())
     }
 
@@ -1761,4 +1889,735 @@ impl Store {
             segments,
         }))
     }
+}
+
+// ---------------------------------------------------------------------------
+// Recording control and priority inputs
+// ---------------------------------------------------------------------------
+
+fn validate_recording_control(control: &MediaRecordingControl) -> Result<(), ShenkoError> {
+    identity_field(&control.control_id, "control_id")?;
+    identity_field(&control.recording_id, "recording_id")?;
+    validate_stream(&control.stream)?;
+    if control.action == MediaRecordingAction::Start && control.scope.is_none() {
+        return Err(invalid("recording start must declare the scope it stores"));
+    }
+    if let Some(scope) = &control.scope {
+        identity_field(&scope.kind, "scope kind")?;
+        identity_field(&scope.retention, "scope retention")?;
+    }
+    Ok(())
+}
+
+fn validate_priority_input(input: &MediaPriorityInput) -> Result<(), ShenkoError> {
+    identity_field(&input.priority_id, "priority_id")?;
+    validate_stream(&input.stream)?;
+    if let Some(text) = &input.text {
+        if text.trim().is_empty() {
+            return Err(invalid("priority input text is empty"));
+        }
+    }
+    if let Some(MediaAudioRef::Provider(provider)) = &input.audio {
+        if provider.locator.trim().is_empty() {
+            return Err(invalid("provider audio locator is empty"));
+        }
+    }
+    Ok(())
+}
+
+/// One admitted recording control notice, exactly as committed.
+struct StoredRecordingControl {
+    control_id: String,
+    recording_id: String,
+    action: MediaRecordingAction,
+    state: MediaRecordingState,
+    data: String,
+    event_id: EntityId,
+    admitted_commit: CommitRef,
+}
+
+fn read_recording_control(
+    conn: &Connection,
+    stream_key: &str,
+    control_id: &str,
+) -> Result<Option<StoredRecordingControl>, ShenkoError> {
+    conn.query_row(
+        "SELECT recording_id, action, state, data, event_id, admitted_commit_ref
+           FROM media_recording_controls
+          WHERE stream_key = ?1 AND control_id = ?2",
+        params![stream_key, control_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(storage_error)?
+    .map(|(recording_id, action, state, data, event_id, commit)| {
+        Ok(StoredRecordingControl {
+            control_id: control_id.to_owned(),
+            recording_id,
+            action: MediaRecordingAction::parse(&action).ok_or_else(|| {
+                ShenkoError::storage(format!("stored media recording action {action:?} is unknown"))
+            })?,
+            state: MediaRecordingState::parse(&state).ok_or_else(|| {
+                ShenkoError::storage(format!("stored media recording state {state:?} is unknown"))
+            })?,
+            data,
+            event_id: parse_entity(&event_id, "recording control event id")?,
+            admitted_commit: admitted_commit(Some(commit))?,
+        })
+    })
+    .transpose()
+}
+
+fn read_recording(
+    conn: &Connection,
+    stream_key: &str,
+    recording_id: &str,
+) -> Result<Option<StoredMediaRecording>, ShenkoError> {
+    conn.query_row(
+        "SELECT s.provider, s.account, s.stream_id, r.state, r.started_at_ms,
+                r.stopped_at_ms, r.scope_json, r.start_control_id,
+                r.stop_control_id, r.reason, r.event_id, r.admitted_at_ms,
+                r.admitted_commit_ref
+           FROM media_recordings r
+           JOIN media_streams s ON s.stream_key = r.stream_key
+          WHERE r.stream_key = ?1 AND r.recording_id = ?2",
+        params![stream_key, recording_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, i64>(11)?,
+                row.get::<_, String>(12)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(storage_error)?
+    .map(
+        |(
+            provider,
+            account,
+            stream_id,
+            state,
+            started_at_ms,
+            stopped_at_ms,
+            scope_json,
+            start_control_id,
+            stop_control_id,
+            reason,
+            event_id,
+            admitted_at_ms,
+            commit,
+        )| {
+            Ok(StoredMediaRecording {
+                recording_id: recording_id.to_owned(),
+                stream: MediaStreamDescriptor {
+                    provider,
+                    account,
+                    stream_id,
+                },
+                state: MediaRecordingState::parse(&state).ok_or_else(|| {
+                    ShenkoError::storage(format!("stored media recording state {state:?} is unknown"))
+                })?,
+                started_at_ms,
+                stopped_at_ms,
+                scope: serde_json::from_str(&scope_json).map_err(ShenkoError::Serde)?,
+                start_control_id,
+                stop_control_id,
+                reason,
+                event_id: parse_entity(&event_id, "recording event id")?,
+                admitted_at_ms,
+                admitted_commit: admitted_commit(Some(commit))?,
+            })
+        },
+    )
+    .transpose()
+}
+
+
+impl Store {
+    /// Admit one recording control command (start/stop).
+    ///
+    /// Atomically commits the immutable control notice, the recording
+    /// latest-state projection and the durable `inbox_events` original of
+    /// the bound subject event. A replayed `control_id` returns the ORIGINAL
+    /// receipt with the same bound event id; a different fact under the same
+    /// identity is a typed conflict, never a silent overwrite.
+    pub fn admit_media_recording(
+        &self,
+        agent_id: EntityId,
+        control: MediaRecordingControl,
+    ) -> Result<MediaRecordingAdmission, ShenkoError> {
+        validate_recording_control(&control)?;
+        self.ledger.with_mutation(
+            || self.try_admit_media_recording(agent_id, &control),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    fn try_admit_media_recording(
+        &self,
+        agent_id: EntityId,
+        control: &MediaRecordingControl,
+    ) -> Result<MediaRecordingAdmission, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let ledger_id = self.ledger.ledger_id();
+        let stream_key = media_stream_key(&control.stream);
+        let data = serde_json::to_string(control).map_err(ShenkoError::Serde)?;
+
+        if let Some(stored) = read_recording_control(&tx, &stream_key, &control.control_id)? {
+            if stored.data != data {
+                return Err(media_error(
+                    "media_recording_conflict",
+                    RetryStrategy::NeverAutomatically,
+                    "a different fact already holds this recording control identity",
+                ));
+            }
+            return Ok(MediaRecordingAdmission {
+                receipt: MediaRecordingReceipt {
+                    recording_id: stored.recording_id,
+                    state: stored.state,
+                    action: stored.action,
+                    replayed: true,
+                    event_id: stored.event_id,
+                    commit_ref: stored.admitted_commit,
+                },
+                notify: None,
+            });
+        }
+
+        let existing_stream = read_stream_row(&tx, &stream_key)?;
+        if existing_stream
+            .as_ref()
+            .is_some_and(|row| row.agent_id != agent_id)
+        {
+            return Err(media_error(
+                "media_stream_agent_mismatch",
+                RetryStrategy::NeverAutomatically,
+                "media stream belongs to a different subject",
+            ));
+        }
+
+        let existing_recording = read_recording(&tx, &stream_key, &control.recording_id)?;
+        let new_state = match (control.action, &existing_recording) {
+            (MediaRecordingAction::Start, None) => MediaRecordingState::Recording,
+            (MediaRecordingAction::Start, Some(_)) => {
+                return Err(media_error(
+                    "media_recording_conflict",
+                    RetryStrategy::NeverAutomatically,
+                    "this recording identity was already used on the stream",
+                ));
+            }
+            (MediaRecordingAction::Stop, Some(row)) if row.state.is_terminal() => {
+                return Err(media_error(
+                    "media_recording_conflict",
+                    RetryStrategy::NeverAutomatically,
+                    "this recording is already stopped or failed",
+                ));
+            }
+            (MediaRecordingAction::Stop, Some(_)) => MediaRecordingState::Stopped,
+            (MediaRecordingAction::Stop, None) => {
+                return Err(media_error(
+                    "media_recording_not_found",
+                    RetryStrategy::AfterReconcile,
+                    "stop requested for a recording this ledger never started",
+                ));
+            }
+        };
+
+        // One ledger sequence covers notice + projection + inbox original;
+        // a stream row created implicitly keeps a lost open an honest gap.
+        let seq = self.ledger.allocate_seq(&tx)?;
+        if existing_stream.is_none() {
+            insert_stream(
+                &tx,
+                &stream_key,
+                agent_id,
+                &control.stream,
+                MediaStreamState::Open,
+                chrono::Utc::now().timestamp_millis(),
+                None,
+                None,
+                None,
+                None,
+                true,
+                &serde_json::Map::new(),
+                None,
+                seq.0,
+            )?;
+        }
+
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let event_id = EntityId::new();
+        let commit = commit_ref(ledger_id, seq.0);
+        let scope = control
+            .scope
+            .clone()
+            .or_else(|| existing_recording.as_ref().map(|row| row.scope.clone()))
+            .ok_or_else(|| ShenkoError::storage("media recording scope missing"))?;
+        let started_at_ms = existing_recording
+            .as_ref()
+            .map(|row| row.started_at_ms)
+            .unwrap_or(now_ms);
+        let start_control_id = existing_recording
+            .as_ref()
+            .map(|row| row.start_control_id.clone())
+            .unwrap_or_else(|| control.control_id.clone());
+
+        tx.execute(
+            "INSERT INTO media_recording_controls
+                (stream_key, control_id, recording_id, action, state, data,
+                 event_id, admitted_at_ms, admitted_commit_ref, commit_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                stream_key,
+                control.control_id,
+                control.recording_id,
+                control.action.name(),
+                new_state.name(),
+                data,
+                event_id.to_string(),
+                now_ms,
+                serde_json::to_string(&commit).map_err(ShenkoError::Serde)?,
+                seq.0 as i64,
+            ],
+        )
+        .map_err(storage_error)?;
+
+        let stopped_at_ms = match new_state {
+            MediaRecordingState::Stopped => Some(now_ms),
+            _ => existing_recording
+                .as_ref()
+                .and_then(|row| row.stopped_at_ms),
+        };
+        let stop_control_id = match new_state {
+            MediaRecordingState::Stopped => Some(control.control_id.clone()),
+            _ => existing_recording
+                .as_ref()
+                .and_then(|row| row.stop_control_id.clone()),
+        };
+        let reason = control
+            .reason
+            .clone()
+            .or_else(|| existing_recording.as_ref().and_then(|row| row.reason.clone()));
+
+        tx.execute(
+            "INSERT INTO media_recordings
+                (stream_key, recording_id, agent_id, state, started_at_ms,
+                 stopped_at_ms, scope_json, start_control_id, stop_control_id,
+                 reason, event_id, admitted_at_ms, admitted_commit_ref,
+                 commit_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+             ON CONFLICT (stream_key, recording_id) DO UPDATE SET
+                state = excluded.state,
+                stopped_at_ms = excluded.stopped_at_ms,
+                stop_control_id = excluded.stop_control_id,
+                reason = excluded.reason,
+                event_id = excluded.event_id,
+                admitted_at_ms = excluded.admitted_at_ms,
+                admitted_commit_ref = excluded.admitted_commit_ref,
+                commit_seq = excluded.commit_seq",
+            params![
+                stream_key,
+                control.recording_id,
+                agent_id.to_string(),
+                new_state.name(),
+                started_at_ms,
+                stopped_at_ms,
+                serde_json::to_string(&scope).map_err(ShenkoError::Serde)?,
+                start_control_id,
+                stop_control_id,
+                reason,
+                event_id.to_string(),
+                now_ms,
+                serde_json::to_string(&commit).map_err(ShenkoError::Serde)?,
+                seq.0 as i64,
+            ],
+        )
+        .map_err(storage_error)?;
+
+        let recording = StoredMediaRecording {
+            recording_id: control.recording_id.clone(),
+            stream: control.stream.clone(),
+            state: new_state,
+            started_at_ms,
+            stopped_at_ms,
+            scope,
+            start_control_id,
+            stop_control_id,
+            reason,
+            event_id,
+            admitted_at_ms: now_ms,
+            admitted_commit: commit,
+        };
+        let notify = MediaIngressEvent::Recording {
+            event_id,
+            stream: control.stream.clone(),
+            recording: Box::new(recording),
+            action: control.action,
+        };
+        insert_media_inbox_event(&tx, agent_id, &notify)?;
+        self.ledger.record_commit(&tx, seq, 1)?;
+        tx.commit().map_err(storage_error)?;
+
+        Ok(MediaRecordingAdmission {
+            receipt: MediaRecordingReceipt {
+                recording_id: control.recording_id.clone(),
+                state: new_state,
+                action: control.action,
+                replayed: false,
+                event_id,
+                commit_ref: commit,
+            },
+            notify: Some(notify),
+        })
+    }
+
+    /// The committed recording row, or `None` when this ledger has no fact.
+    pub fn media_recording(
+        &self,
+        stream: &MediaStreamDescriptor,
+        recording_id: &str,
+    ) -> Result<Option<StoredMediaRecording>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        read_recording(&conn, &media_stream_key(stream), recording_id)
+    }
+
+    /// Storage cost actually sealed for one recording's stream: total sealed
+    /// audio bytes, revisions carrying sealed audio, and retained revision
+    /// count. Computed from the retained facts, never estimated.
+    pub fn media_recording_usage(
+        &self,
+        stream: &MediaStreamDescriptor,
+        recording_id: &str,
+    ) -> Result<MediaRecordingUsage, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let stream_key = media_stream_key(stream);
+        read_recording(&conn, &stream_key, recording_id)?
+            .ok_or_else(|| {
+                media_error(
+                    "media_recording_not_found",
+                    RetryStrategy::AfterReconcile,
+                    "recording unknown to this ledger",
+                )
+            })?;
+        let revisions: u64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM media_segment_revisions WHERE stream_key = ?1",
+                params![stream_key],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
+        let mut statement = conn
+            .prepare("SELECT audio_json FROM media_segment_revisions WHERE stream_key = ?1")
+            .map_err(storage_error)?;
+        let audio_refs = statement
+            .query_map(params![stream_key], |row| row.get::<_, Option<String>>(0))
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        let mut audio_bytes = 0u64;
+        let mut audio_segments = 0u64;
+        for audio_json in audio_refs.into_iter().flatten() {
+            let parsed: serde_json::Value =
+                serde_json::from_str(&audio_json).map_err(ShenkoError::Serde)?;
+            if parsed.get("kind").and_then(|kind| kind.as_str()) == Some("sealed") {
+                if let Some(bytes) = parsed.pointer("/object/bytes").and_then(|b| b.as_u64()) {
+                    audio_bytes += bytes;
+                    audio_segments += 1;
+                }
+            }
+        }
+        Ok(MediaRecordingUsage {
+            audio_bytes,
+            audio_segments,
+            revisions,
+        })
+    }
+
+    /// Admit one priority input of a media session (barge-in, interjection,
+    /// stop playback, urgent message). The notice is an immutable fact: a
+    /// replayed `priority_id` returns its ORIGINAL event id and commit, and
+    /// a different fact under the same identity is a typed conflict.
+    pub fn admit_media_priority(
+        &self,
+        agent_id: EntityId,
+        input: MediaPriorityInput,
+    ) -> Result<MediaPriorityAdmission, ShenkoError> {
+        validate_priority_input(&input)?;
+        self.ledger.with_mutation(
+            || self.try_admit_media_priority(agent_id, &input),
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
+    }
+
+    fn try_admit_media_priority(
+        &self,
+        agent_id: EntityId,
+        input: &MediaPriorityInput,
+    ) -> Result<MediaPriorityAdmission, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(storage_error)?;
+        let ledger_id = self.ledger.ledger_id();
+        let stream_key = media_stream_key(&input.stream);
+        let data = serde_json::to_string(input).map_err(ShenkoError::Serde)?;
+
+        if let Some(stored) = stored_priority(&tx, &stream_key, &input.priority_id)? {
+            let stored_data: String = tx
+                .query_row(
+                    "SELECT data FROM media_priority_inputs
+                      WHERE stream_key = ?1 AND priority_id = ?2",
+                    params![stream_key, input.priority_id],
+                    |row| row.get(0),
+                )
+                .map_err(storage_error)?;
+            if stored_data != data {
+                return Err(media_error(
+                    "media_priority_conflict",
+                    RetryStrategy::NeverAutomatically,
+                    "a different fact already holds this priority identity",
+                ));
+            }
+            return Ok(MediaPriorityAdmission {
+                receipt: MediaPriorityReceipt {
+                    priority_id: input.priority_id.clone(),
+                    kind: stored.kind,
+                    replayed: true,
+                    event_id: stored.event_id,
+                    commit_ref: stored.admitted_commit,
+                },
+                notify: None,
+            });
+        }
+
+        let existing_stream = read_stream_row(&tx, &stream_key)?;
+        if existing_stream
+            .as_ref()
+            .is_some_and(|row| row.agent_id != agent_id)
+        {
+            return Err(media_error(
+                "media_stream_agent_mismatch",
+                RetryStrategy::NeverAutomatically,
+                "media stream belongs to a different subject",
+            ));
+        }
+
+        let seq = self.ledger.allocate_seq(&tx)?;
+        if existing_stream.is_none() {
+            insert_stream(
+                &tx,
+                &stream_key,
+                agent_id,
+                &input.stream,
+                MediaStreamState::Open,
+                chrono::Utc::now().timestamp_millis(),
+                None,
+                None,
+                None,
+                None,
+                true,
+                &serde_json::Map::new(),
+                None,
+                seq.0,
+            )?;
+        }
+
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let event_id = EntityId::new();
+        let commit = commit_ref(ledger_id, seq.0);
+        let audio_json = input
+            .audio
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(ShenkoError::Serde)?;
+        tx.execute(
+            "INSERT INTO media_priority_inputs
+                (stream_key, priority_id, kind, text, occurred_at_ms, audio_json,
+                 reason, data, event_id, admitted_at_ms, admitted_commit_ref,
+                 commit_seq)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                stream_key,
+                input.priority_id,
+                input.kind.name(),
+                input.text,
+                input.occurred_at_ms,
+                audio_json,
+                input.reason,
+                data,
+                event_id.to_string(),
+                now_ms,
+                serde_json::to_string(&commit).map_err(ShenkoError::Serde)?,
+                seq.0 as i64,
+            ],
+        )
+        .map_err(storage_error)?;
+
+        let stored = StoredMediaPriorityInput {
+            priority_id: input.priority_id.clone(),
+            stream: input.stream.clone(),
+            kind: input.kind,
+            text: input.text.clone(),
+            occurred_at_ms: input.occurred_at_ms,
+            audio: input.audio.clone(),
+            reason: input.reason.clone(),
+            event_id,
+            admitted_at_ms: now_ms,
+            admitted_commit: commit,
+        };
+        let notify = MediaIngressEvent::Priority {
+            event_id,
+            stream: input.stream.clone(),
+            input: Box::new(stored),
+        };
+        insert_media_inbox_event(&tx, agent_id, &notify)?;
+        self.ledger.record_commit(&tx, seq, 1)?;
+        tx.commit().map_err(storage_error)?;
+
+        Ok(MediaPriorityAdmission {
+            receipt: MediaPriorityReceipt {
+                priority_id: input.priority_id.clone(),
+                kind: input.kind,
+                replayed: false,
+                event_id,
+                commit_ref: commit,
+            },
+            notify: Some(notify),
+        })
+    }
+
+    /// Every retained priority notice of one stream, in admission order.
+    pub fn media_priority_inputs(
+        &self,
+        stream: &MediaStreamDescriptor,
+    ) -> Result<Vec<StoredMediaPriorityInput>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let stream_key = media_stream_key(stream);
+        let mut statement = conn
+            .prepare(
+                "SELECT p.priority_id, p.kind, p.text, p.occurred_at_ms,
+                        p.audio_json, p.reason, p.event_id, p.admitted_at_ms,
+                        p.admitted_commit_ref
+                   FROM media_priority_inputs p
+                   JOIN media_streams s ON s.stream_key = p.stream_key
+                  WHERE p.stream_key = ?1
+                  ORDER BY p.admitted_at_ms, p.priority_id",
+            )
+            .map_err(storage_error)?;
+        let rows = statement
+            .query_map(params![stream_key], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i64>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, String>(8)?,
+                ))
+            })
+            .map_err(storage_error)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(storage_error)?;
+        rows.into_iter()
+            .map(
+                |(
+                    priority_id,
+                    kind,
+                    text,
+                    occurred_at_ms,
+                    audio_json,
+                    reason,
+                    event_id,
+                    admitted_at_ms,
+                    commit,
+                )| {
+                    Ok(StoredMediaPriorityInput {
+                        priority_id,
+                        stream: stream.clone(),
+                        kind: MediaPriorityKind::parse(&kind).ok_or_else(|| {
+                            ShenkoError::storage(format!(
+                                "stored media priority kind {kind:?} is unknown"
+                            ))
+                        })?,
+                        text,
+                        occurred_at_ms,
+                        audio: audio_json
+                            .map(|json| serde_json::from_str(&json))
+                            .transpose()
+                            .map_err(ShenkoError::Serde)?,
+                        reason,
+                        event_id: parse_entity(&event_id, "priority event id")?,
+                        admitted_at_ms,
+                        admitted_commit: admitted_commit(Some(commit))?,
+                    })
+                },
+            )
+            .collect()
+    }
+}
+
+/// One stored priority notice row for replay detection.
+struct StoredPriorityRow {
+    kind: MediaPriorityKind,
+    event_id: EntityId,
+    admitted_commit: CommitRef,
+}
+
+fn stored_priority(
+    conn: &Connection,
+    stream_key: &str,
+    priority_id: &str,
+) -> Result<Option<StoredPriorityRow>, ShenkoError> {
+    conn.query_row(
+        "SELECT kind, event_id, admitted_commit_ref
+           FROM media_priority_inputs
+          WHERE stream_key = ?1 AND priority_id = ?2",
+        params![stream_key, priority_id],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        },
+    )
+    .optional()
+    .map_err(storage_error)?
+    .map(|(kind, event_id, commit)| {
+        Ok(StoredPriorityRow {
+            kind: MediaPriorityKind::parse(&kind).ok_or_else(|| {
+                ShenkoError::storage(format!("stored media priority kind {kind:?} is unknown"))
+            })?,
+            event_id: parse_entity(&event_id, "priority event id")?,
+            admitted_commit: admitted_commit(Some(commit))?,
+        })
+    })
+    .transpose()
 }

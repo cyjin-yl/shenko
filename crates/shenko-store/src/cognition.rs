@@ -792,6 +792,67 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("commit_seq"),
         kind: RowKind::Verbatim,
     },
+    // Recording control and priority inputs travel with the same media
+    // conflict unit: control/notice rows are immutable like terminal
+    // notices; the recording row is a latest-state projection bound to the
+    // event of its latest control.
+    TableSpec {
+        name: "media_recordings",
+        key: &["stream_key", "recording_id"],
+        columns: &[
+            "stream_key",
+            "recording_id",
+            "agent_id",
+            "state",
+            "started_at_ms",
+            "stopped_at_ms",
+            "scope_json",
+            "start_control_id",
+            "stop_control_id",
+            "reason",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_recording_controls",
+        key: &["stream_key", "control_id"],
+        columns: &[
+            "stream_key",
+            "control_id",
+            "recording_id",
+            "action",
+            "state",
+            "data",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_priority_inputs",
+        key: &["stream_key", "priority_id"],
+        columns: &[
+            "stream_key",
+            "priority_id",
+            "kind",
+            "text",
+            "occurred_at_ms",
+            "audio_json",
+            "reason",
+            "data",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
     TableSpec {
         name: "task_results",
         key: &["result_id"],
@@ -1777,7 +1838,8 @@ impl Store {
                 let mut task_closure_applied = false;
                 let mut task_owned_rows = HashSet::new();
                 for row in &ordered {
-                    if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions")
+                    if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                        | "media_recordings" | "media_recording_controls" | "media_priority_inputs")
                         || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
                     {
                         continue;
@@ -1987,11 +2049,13 @@ impl Store {
                 // back admission but ordinary history imported its staged
                 // delivery, reject before commit and roll back every SQL row.
                 if ordered.iter().any(|row| matches!(row.table.as_str(),
-                    "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+                    "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                        | "media_recordings" | "media_recording_controls" | "media_priority_inputs"))
                 {
                     let mut media_rows = Vec::new();
                     for spec in TABLES.iter().filter(|spec| matches!(spec.name,
                         "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                            | "media_recordings" | "media_recording_controls" | "media_priority_inputs"
                             | "inbox_events" | "session_events" | "subject_raw_inputs"))
                     {
                         media_rows.extend(read_table(&tx, spec)?);
@@ -3008,6 +3072,13 @@ fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &Cognitio
         let immutable = match incoming.table.as_str() {
             "inbox_events" => column != "consumed",
             "media_stream_ends" => true,
+            "media_recording_controls" | "media_priority_inputs" => true,
+            "media_recordings" => matches!(column.as_str(),
+                "stream_key" | "agent_id" | "recording_id" | "started_at_ms"
+                    | "start_control_id" | "scope_json")
+                || (matches!(value("state"), Some("stopped" | "failed"))
+                    && matches!(column.as_str(),
+                        "state" | "stopped_at_ms" | "stop_control_id" | "reason")),
             "media_segment_revisions" => column != "superseded_by_revision" || local.is_some(),
             "media_streams" => matches!(column.as_str(),
                 "stream_key" | "agent_id" | "provider" | "account" | "stream_id" | "opened_at_ms")
@@ -3026,7 +3097,8 @@ fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
-    if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions" | "inbox_events")
+    if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions"
+        | "media_recordings" | "media_recording_controls" | "media_priority_inputs" | "inbox_events")
         && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))
     {
         return Ok(RecoveryFactOutcome::Conflict);
@@ -4634,11 +4706,18 @@ fn apply_media_streams<'a>(
     let mut groups: HashMap<&'a str, Vec<&'a CognitionRow>> = HashMap::new();
     let mut media_events: HashSet<&'a str> = HashSet::new();
     for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(),
-        "media_streams" | "media_stream_ends" | "media_segment_revisions"))
+        "media_streams" | "media_stream_ends" | "media_segment_revisions"
+        | "media_recordings" | "media_recording_controls" | "media_priority_inputs"))
     {
         let key = row.value("stream_key").context("media stream identity missing")?;
         let group = groups.entry(key).or_default();
         group.push(row);
+        if row.table == "media_recordings" {
+            // The latest-state projection re-binds the event of its latest
+            // control notice; the notice owns the delivery identity and its
+            // durable original.
+            continue;
+        }
         if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
             ensure!(media_events.insert(id), "media facts share a delivery identity");
             group.push(*inbox.get(id).context("media delivery original missing")?);

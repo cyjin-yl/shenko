@@ -29,6 +29,14 @@ use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::media::*;
 
+pub mod provider;
+pub mod query;
+pub mod recording;
+pub mod runtime;
+
+pub use query::MediaReadHandler;
+pub use runtime::{MediaProviders, MediaRuntime, MediaRuntimePlugin};
+
 /// How the bound durable event reached the subject after THIS admission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -160,6 +168,40 @@ impl MediaIngress {
         stream: &MediaStreamDescriptor,
     ) -> Result<Option<MediaTranscript>, ShenkoError> {
         self.store.media_transcript(stream)
+    }
+
+    /// Admit one recording control (start/stop/state) — SPEC §20. The
+    /// committed control notice carries the projection state so the subject
+    /// can read the recording lifecycle from its normal inbox.
+    pub async fn admit_recording(
+        &self,
+        control: MediaRecordingControl,
+    ) -> Result<MediaDelivery<MediaRecordingAdmission>, ShenkoError> {
+        let admission = self.store.admit_media_recording(self.agent_id, control)?;
+        let delivery = match &admission.notify {
+            Some(event) => self.deliver(event.event_id())?,
+            None => SubjectDelivery::Replay,
+        };
+        Ok(MediaDelivery {
+            admission,
+            delivery,
+        })
+    }
+
+    /// Admit one priority input (barge-in / stop-playback / correction).
+    pub async fn admit_priority(
+        &self,
+        input: MediaPriorityInput,
+    ) -> Result<MediaDelivery<MediaPriorityAdmission>, ShenkoError> {
+        let admission = self.store.admit_media_priority(self.agent_id, input)?;
+        let delivery = match &admission.notify {
+            Some(event) => self.deliver(event.event_id())?,
+            None => SubjectDelivery::Replay,
+        };
+        Ok(MediaDelivery {
+            admission,
+            delivery,
+        })
     }
 
     /// The committed stream row, or `None` when this ledger has no fact.
