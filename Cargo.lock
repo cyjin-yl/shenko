@@ -2526,6 +2526,7 @@ dependencies = [
  "shenko-memory",
  "shenko-node",
  "shenko-quota",
+ "shenko-repl",
  "shenko-seed",
  "shenko-store",
  "shenko-subject",
@@ -2810,12 +2811,22 @@ name = "shenko-repl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "base64",
  "blake3",
  "cap-std",
+ "chrono",
+ "crc32fast",
+ "flate2",
+ "libc",
+ "parking_lot",
  "serde",
  "serde_json",
+ "shenko-store",
+ "shenko-subject",
  "shenko-types",
  "shenko-wasm",
+ "tokio",
  "uuid",
 ]
 

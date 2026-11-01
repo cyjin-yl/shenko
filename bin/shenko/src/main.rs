@@ -547,6 +547,26 @@ async fn install_native_definitions(
     let _native_wasi_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, wasi_handler)
         .await?;
+    // Stateful sessions and journaled cells share one session owner and the
+    // same native registry used by runtime discovery.
+    let repl_session_handler = shenko_repl::task::ReplSessionHandler::new(
+        Arc::clone(store),
+        data_dir.join("repl"),
+    )?;
+    let repl_cell_handler = shenko_repl::task::ReplCellHandler::new(
+        Arc::clone(store),
+        repl_session_handler.sessions(),
+    );
+    let repl_session_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(repl_session_handler);
+    let repl_cell_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(repl_cell_handler);
+    let _repl_session_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, repl_session_handler)
+        .await?;
+    let _repl_cell_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, repl_cell_handler)
+        .await?;
     let native_child = supervisor
         .context()
         .try_service::<shenko_subject::NativeChildService>()?;

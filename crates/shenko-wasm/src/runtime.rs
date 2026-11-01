@@ -203,6 +203,9 @@ pub const HOME_GUEST_PATH: &str = "/home";
 pub struct WasiCommand<I, O, E> {
     pub arguments: Vec<String>,
     pub environment: Vec<(String, String)>,
+    /// Total guest instruction fuel and linear-memory ceiling for this store.
+    pub limits: WasiResourceLimits,
+    pub replay_io: Option<crate::replay_io::ReplayIo>,
     /// Optional execution controls; `WasiRunControl::default()` runs without
     /// a deadline or cancellation, exactly as before.
     pub control: WasiRunControl,
@@ -221,6 +224,8 @@ impl<I, O, E> WasiCommand<I, O, E> {
         Self {
             arguments: Vec::new(),
             environment: Vec::new(),
+            limits: WasiResourceLimits::default(),
+            replay_io: None,
             control: WasiRunControl::default(),
             stdin,
             stdout,
@@ -244,6 +249,12 @@ impl<I, O, E> WasiCommand<I, O, E> {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WasiResourceLimits {
+    pub max_fuel: Option<u64>,
+    pub max_memory_bytes: Option<usize>,
 }
 
 /// Real WASM runtime backed by wasmtime-45.
@@ -274,6 +285,9 @@ pub struct WasmRuntime {
 }
 
 impl WasmRuntime {
+    pub fn invocation_digest(&self, arguments: &[String], environment: &[(String, String)]) -> Result<String> {
+        crate::replay_io::invocation_digest(arguments, environment, &self.mounts, &self.home_dir)
+    }
     /// Create a runtime with a default-config engine and a fresh empty store.
     pub fn new() -> Result<Self> {
         info!("WASM runtime init (wasmtime-45)");
@@ -284,8 +298,10 @@ impl WasmRuntime {
         // masquerade as leaked invocation threads.
         let mut config = Config::new();
         config.parallel_compilation(false);
+        config.consume_fuel(true);
         let engine = Engine::new(&config)?;
-        let store = Store::new(&engine, ());
+        let mut store = Store::new(&engine, ());
+        store.set_fuel(u64::MAX).map_err(|e| anyhow!("initialize module fuel: {e}"))?;
         Ok(Self {
             engine,
             store: Some(store),
@@ -412,6 +428,7 @@ impl WasmRuntime {
                 let mut config = Config::new();
                 config.epoch_interruption(true);
                 config.parallel_compilation(false);
+                config.consume_fuel(true);
                 self.control_engine = Some(
                     Engine::new(&config)
                         .map_err(|e| anyhow!("create epoch-enabled engine: {e}"))?,
@@ -489,9 +506,18 @@ impl WasmRuntime {
 /// deliberate kill from an ordinary guest trap.
 struct ControlledCtx {
     host: P1Host,
+    limits: wasmtime::StoreLimits,
     cancel: Option<WasiCancellation>,
     deadline: Option<Instant>,
     stop: Option<WasiRunOutcome>,
+}
+
+fn store_limits(limits: WasiResourceLimits) -> wasmtime::StoreLimits {
+    let mut builder = wasmtime::StoreLimitsBuilder::new();
+    if let Some(bytes) = limits.max_memory_bytes {
+        builder = builder.memory_size(bytes).memories(1);
+    }
+    builder.trap_on_grow_failure(true).build()
 }
 
 /// Map a `_start` call result onto an exit code, preserving the preexisting
@@ -529,32 +555,33 @@ where
     E: StdoutStream + 'static,
 {
     let controlled = deadline_at.is_some() || command.control.cancel.is_some();
+    let resource_limits = command.limits;
     let cancel = command.control.cancel.clone();
+    if let Some(io) = &command.replay_io {
+        let invocation = crate::replay_io::invocation_digest(&command.arguments, &command.environment, mounts, home)?;
+        io.verify_execution(wasm_or_wat, &invocation)?;
+    }
     validate_mounts(mounts, home)?;
     let module =
         Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
 
-    // Admission (A08): one owned directory capability per mount, plus the
-    // managed COW branch overlay for copy-on-write mounts.
     let bindings = admit_mounts(mounts, home)?;
-    let stdio = StdioStreams::from_async(
-        command.stdin.async_stream(),
-        command.stdout.async_stream(),
-        command.stderr.async_stream(),
-    );
-    let host = P1Host::new(
-        bindings,
-        stdio,
-        command.arguments,
-        command.environment,
-    )?;
+    let stdio = StdioStreams::from_async(command.stdin.async_stream(),
+        command.stdout.async_stream(), command.stderr.async_stream());
+    let mut host = P1Host::new(bindings, stdio, command.arguments, command.environment)?;
+    host.set_replay_io(command.replay_io);
 
     if !controlled {
-        let mut linker: Linker<P1Host> = Linker::new(engine);
-        crate::p1::add_to_linker_sync(&mut linker, |host| host)
+        let mut linker: Linker<ControlledCtx> = Linker::new(engine);
+        crate::p1::add_to_linker_sync(&mut linker, |cx| &mut cx.host)
             .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
-        let mut store = Store::new(engine, host);
+        let mut store = Store::new(engine, ControlledCtx {
+            host, limits: store_limits(resource_limits), cancel: None, deadline: None, stop: None,
+        });
+        store.limiter(|cx| &mut cx.limits);
+        store.set_fuel(resource_limits.max_fuel.unwrap_or(u64::MAX))
+            .map_err(|e| anyhow!("set WASI fuel: {e}"))?;
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(|e| anyhow!("instantiate WASI module: {e}"))?;
@@ -569,11 +596,15 @@ where
         engine,
         ControlledCtx {
             host,
+            limits: store_limits(resource_limits),
             cancel,
             deadline: deadline_at,
             stop: None,
         },
     );
+    store.limiter(|cx| &mut cx.limits);
+    store.set_fuel(resource_limits.max_fuel.unwrap_or(u64::MAX))
+        .map_err(|e| anyhow!("set WASI fuel: {e}"))?;
     let mut linker: Linker<ControlledCtx> = Linker::new(engine);
     crate::p1::add_to_linker_sync(&mut linker, |cx| &mut cx.host)
         .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;

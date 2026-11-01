@@ -224,6 +224,9 @@ struct FileHandle {
 }
 
 enum FdEntry {
+    /// A replay descriptor has no fresh OS handle. Reads come exclusively
+    /// from the bound transcript; unsupported metadata/effects trap.
+    Recorded { identity: String, cursor: u64, directory: bool },
     Stdin(Box<dyn Read + Send + Sync>),
     Stdout(Box<dyn Write + Send + Sync>),
     Stderr(Box<dyn Write + Send + Sync>),
@@ -233,6 +236,7 @@ enum FdEntry {
 
 /// The complete preview1 host state for one run.
 pub struct P1Host {
+    replay_io: Option<crate::replay_io::ReplayIo>,
     args: Vec<Vec<u8>>,
     env: Vec<(Vec<u8>, Vec<u8>)>,
     fds: Vec<Option<FdEntry>>,
@@ -286,6 +290,7 @@ impl P1Host {
             })));
         }
         Ok(Self {
+            replay_io: None,
             args: args.into_iter().map(String::into_bytes).collect(),
             env: env
                 .into_iter()
@@ -304,6 +309,73 @@ impl P1Host {
             .ok_or_else(|| types::Error::trap(anyhow!("fd names unknown mount {mount}")))
     }
 
+    pub fn set_replay_io(&mut self, io: Option<crate::replay_io::ReplayIo>) {
+        self.replay_io = io;
+    }
+
+    fn replay_guard(&self, operation: &str) -> Result<(), types::Error> {
+        if let Some(io) = &self.replay_io {
+            io.reject_unrecorded(operation).map_err(|error|
+                types::Error::trap(anyhow!("{error:#}")))?;
+        }
+        Ok(())
+    }
+
+    fn record_open(&self, request: &[u8], fd: types::Fd) -> Result<(), types::Error> {
+        let Some(io) = &self.replay_io else { return Ok(()); };
+        let (identity, directory) = match self.fds.get(u32::from(fd) as usize).and_then(Option::as_ref) {
+            Some(FdEntry::File(file)) => (format!("{:?}:{:?}", file.mount, file.rel), false),
+            Some(FdEntry::Dir(dir)) => (format!("{:?}:{:?}", dir.mount, dir.rel), true),
+            _ => return Err(types::Errno::Badf.into()),
+        };
+        io.input("path_open", request, 64 * 1024,
+            || Ok(serde_json::to_vec(&(u32::from(fd), identity, directory))?))
+            .map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
+        Ok(())
+    }
+
+    fn read_input(&mut self, fd: types::Fd, size: usize, offset: Option<u64>) -> Result<Vec<u8>, types::Error> {
+        if size > MAX_IOV_BYTES { return Err(types::Errno::Inval.into()); }
+        let identity = match self.fds.get(u32::from(fd) as usize).and_then(Option::as_ref)
+            .ok_or(types::Errno::Badf)? {
+            FdEntry::File(file) => format!("{:?}:{:?}:{}", file.mount, file.rel, offset.unwrap_or(file.cursor)),
+            FdEntry::Recorded { identity, cursor, directory: false } => format!("{identity}:{}", offset.unwrap_or(*cursor)),
+            FdEntry::Stdin(_) => "stdin".into(),
+            _ => return Err(types::Errno::Badf.into()),
+        };
+        let request = format!("{fd:?}:{size}:{offset:?}:{identity}");
+        let io = self.replay_io.clone();
+        let replaying = io.as_ref().is_some_and(|io| io.is_replay());
+        let mut supply = || -> Result<Vec<u8>, types::Error> {
+            let mut bytes = vec![0; size];
+            let n = match self.fd_mut(fd)? {
+                FdEntry::Stdin(reader) if offset.is_none() => reader.read(&mut bytes).map_err(errno_from_io)?,
+                FdEntry::File(file) => {
+                    if !file.readable { return Err(types::Errno::Perm.into()); }
+                    let n = Self::read_file_at(&mut file.file, offset.unwrap_or(file.cursor), &mut bytes).map_err(errno_from_io)?;
+                    if offset.is_none() { file.cursor = file.cursor.saturating_add(n as u64); }
+                    n
+                },
+                _ => return Err(types::Errno::Spipe.into()),
+            };
+            bytes.truncate(n);
+            Ok(bytes)
+        };
+        let bytes = if let Some(io) = io {
+            io.input(if offset.is_some() { "fd_pread" } else { "fd_read" }, request.as_bytes(), size as u64,
+                || supply().map_err(|error| ::anyhow::anyhow!("{error:?}")))
+                .map_err(|error| types::Error::trap(anyhow!("{error:#}")))?
+        } else { supply()? };
+        if replaying && offset.is_none() {
+            if let Some(Some(FdEntry::File(file))) = self.fds.get_mut(u32::from(fd) as usize) {
+                file.cursor = file.cursor.saturating_add(bytes.len() as u64);
+            }
+            if let Some(Some(FdEntry::Recorded { cursor, .. })) = self.fds.get_mut(u32::from(fd) as usize) {
+                *cursor = cursor.saturating_add(bytes.len() as u64);
+            }
+        }
+        Ok(bytes)
+    }
     /// Mutable access to a COW mount's store (tombstone updates).
     fn cow_store(&mut self, mount: usize) -> Result<&mut crate::cow::CowMountStore, types::Error> {
         match &mut self
@@ -364,6 +436,7 @@ impl P1Host {
     }
 
     fn fd_mut(&mut self, fd: types::Fd) -> Result<&mut FdEntry, types::Error> {
+        self.replay_guard("descriptor_effect")?;
         let index = u32::from(fd) as usize;
         match self.fds.get_mut(index).and_then(Option::as_mut) {
             Some(entry) => Ok(entry),
@@ -383,6 +456,7 @@ impl P1Host {
     }
 
     fn dir_handle(&self, fd: types::Fd) -> Result<&DirHandle, types::Error> {
+        self.replay_guard("unrecorded_path_observation_or_effect")?;
         match self.fd(fd)? {
             FdEntry::Dir(handle) => Ok(handle),
             _ => Err(types::Errno::Notdir.into()),
@@ -1099,6 +1173,12 @@ impl P1Host {
             .union(types::Rights::FD_FILESTAT_SET_TIMES);
         match self.fd(fd)? {
             FdEntry::Stdin(_) => Ok(types::Rights::FD_READ),
+            FdEntry::Recorded { directory: false, .. } => Ok(types::Rights::FD_FILESTAT_GET
+                .union(types::Rights::FD_SYNC).union(types::Rights::FD_READ)),
+            FdEntry::Recorded { directory: true, .. } => {
+                self.replay_guard("fdstat: recorded directory rights")?;
+                Err(types::Error::trap(anyhow!("REPLAY_IO_UNOBSERVED: directory rights")))
+            },
             FdEntry::Stdout(_) | FdEntry::Stderr(_) => Ok(types::Rights::FD_WRITE),
             FdEntry::File(handle) => {
                 let mut rights = types::Rights::FD_FILESTAT_GET.union(types::Rights::FD_SYNC);
@@ -1363,7 +1443,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         id: types::Clockid,
         _precision: types::Timestamp,
     ) -> Result<types::Timestamp, types::Error> {
-        match id {
+        let supply = || match id {
             types::Clockid::Realtime => SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_nanos() as u64)
@@ -1372,7 +1452,16 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                 Ok(self.monotonic_epoch.elapsed().as_nanos() as u64)
             }
             _ => Err(types::Errno::Inval.into()),
-        }
+        };
+        if let Some(io) = &self.replay_io {
+            let request = format!("{id:?}:{_precision}");
+            let bytes = io.input("clock_time_get", request.as_bytes(), 8,
+                || supply().map(|value| value.to_le_bytes().to_vec())
+                    .map_err(|error| ::anyhow::anyhow!("{error:?}")))
+                .map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
+            let value: [u8; 8] = bytes.try_into().map_err(|_| types::Error::trap(anyhow!("REPLAY_IO_CORRUPT: clock length")))?;
+            Ok(u64::from_le_bytes(value))
+        } else { supply() }
     }
 
     fn fd_advise(
@@ -1436,7 +1525,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             FdEntry::Stdin(_) | FdEntry::Stdout(_) | FdEntry::Stderr(_) => {
                 types::Filetype::CharacterDevice
             }
-            FdEntry::File(_) => types::Filetype::RegularFile,
+            FdEntry::File(_) | FdEntry::Recorded { directory: false, .. } => types::Filetype::RegularFile,
+            FdEntry::Recorded { directory: true, .. } => types::Filetype::Directory,
             FdEntry::Dir(_) => types::Filetype::Directory,
         };
         let fs_flags = match self.fd(fd)? {
@@ -1485,7 +1575,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         _memory: &mut GuestMemory<'_>,
         fd: types::Fd,
     ) -> Result<types::Filestat, types::Error> {
+        self.replay_guard("fd_filestat_get")?;
         match self.fd(fd)? {
+            FdEntry::Recorded { .. } => Err(types::Error::trap(anyhow!("REPLAY_IO_UNOBSERVED: fd_filestat_get"))),
             FdEntry::File(handle) => {
                 let meta = fsx::file_metadata(&handle.file).map_err(|e| {
                     types::Error::trap(anyhow!("fd_filestat_get: {e}"))
@@ -1598,30 +1690,10 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             if iov.buf_len == 0 {
                 continue;
             }
-            let region = iov.buf.as_array(iov.buf_len);
-            // Borrow the fd entry once per iovec to keep the borrow simple.
-            let read_now: usize = match self.fd_mut(fd)? {
-                FdEntry::Stdin(reader) => {
-                    let mut buf = vec![0u8; iov.buf_len as usize];
-                    let n = reader.read(&mut buf).map_err(errno_from_io)?;
-                    let slice = region;
-                    memory
-                        .copy_from_slice(&buf[..n], slice)
-                        .map_err(|e| types::Error::trap(anyhow!("iov copy: {e}")))?;
-                    n
-                }
-                FdEntry::File(handle) => {
-                    let mut buf = vec![0u8; iov.buf_len as usize];
-                    let n = Self::read_file_at(&mut handle.file, handle.cursor, &mut buf)
-                        .map_err(errno_from_io)?;
-                    handle.cursor = handle.cursor.saturating_add(n as u64);
-                    memory
-                        .copy_from_slice(&buf[..n], region)
-                        .map_err(|e| types::Error::trap(anyhow!("iov copy: {e}")))?;
-                    n
-                }
-                _ => return Err(types::Errno::Badf.into()),
-            };
+            let bytes = self.read_input(fd, iov.buf_len as usize, None)?;
+            let read_now = bytes.len();
+            memory.copy_from_slice(&bytes, iov.buf.as_array(read_now as types::Size))
+                .map_err(|e| types::Error::trap(anyhow!("iov copy: {e}")))?;
             total += read_now;
             if read_now < iov.buf_len as usize {
                 break;
@@ -1646,22 +1718,10 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             if iov.buf_len == 0 {
                 continue;
             }
-            let region = iov.buf.as_array(iov.buf_len);
-            let n = match self.fd_mut(fd)? {
-                FdEntry::File(handle) => {
-                    if !handle.readable {
-                        return Err(types::Errno::Perm.into());
-                    }
-                    let mut buf = vec![0u8; iov.buf_len as usize];
-                    let n = Self::read_file_at(&mut handle.file, offset.saturating_add(total as u64), &mut buf)
-                        .map_err(errno_from_io)?;
-                    memory
-                        .copy_from_slice(&buf[..n], region)
-                        .map_err(|e| types::Error::trap(anyhow!("iov copy: {e}")))?;
-                    n
-                }
-                _ => return Err(types::Errno::Spipe.into()),
-            };
+            let bytes = self.read_input(fd, iov.buf_len as usize, Some(offset.saturating_add(total as u64)))?;
+            let n = bytes.len();
+            memory.copy_from_slice(&bytes, iov.buf.as_array(n as types::Size))
+                .map_err(|e| types::Error::trap(anyhow!("iov copy: {e}")))?;
             total += n;
             if n < iov.buf_len as usize {
                 break;
@@ -1679,6 +1739,38 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         let data = Self::write_ciovs(memory, ciovs)?;
         if data.is_empty() {
             return Ok(0);
+        }
+        if let Some(io) = self.replay_io.clone() {
+            let fd_number = u32::from(fd);
+            if fd_number > 2 {
+                io.reject_unrecorded("fd_write: filesystem effect")
+                    .map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
+            } else {
+                let request = format!("{fd_number}:{}", blake3::hash(&data).to_hex());
+                let count = io.input("fd_write_receipt", request.as_bytes(), 8, || {
+                    let entry = self.fds.get_mut(fd_number as usize).and_then(Option::as_mut)
+                        .ok_or_else(|| ::anyhow::anyhow!("bad output descriptor"))?;
+                    let n = match entry {
+                        FdEntry::Stdout(writer) | FdEntry::Stderr(writer) => writer.write(&data)?,
+                        _ => ::anyhow::bail!("bad output descriptor"),
+                    };
+                    Ok((n as u64).to_le_bytes().to_vec())
+                }).map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
+                let count: [u8; 8] = count.try_into().map_err(|_| types::Error::trap(anyhow!("REPLAY_IO_CORRUPT: write receipt")))?;
+                let n = usize::try_from(u64::from_le_bytes(count)).map_err(|_| types::Errno::Overflow)?;
+                if n > data.len() { return Err(types::Error::trap(anyhow!("REPLAY_IO_CORRUPT: write size"))); }
+                if io.is_replay() {
+                    // Only the new invocation's explicitly owned stdout/err
+                    // artifact is materialized; no original filesystem write
+                    // or arbitrary descriptor effect is repeated.
+                    match self.fds.get_mut(fd_number as usize).and_then(Option::as_mut) {
+                        Some(FdEntry::Stdout(writer)) | Some(FdEntry::Stderr(writer)) =>
+                            writer.write_all(&data[..n]).map_err(errno_from_io)?,
+                        _ => return Err(types::Errno::Badf.into()),
+                    }
+                }
+                return Ok(n as types::Size);
+            }
         }
         let n = match self.fd_mut(fd)? {
             FdEntry::Stdout(writer) | FdEntry::Stderr(writer) => {
@@ -2116,6 +2208,25 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         fdflags: types::Fdflags,
     ) -> Result<types::Fd, types::Error> {
         let path = read_path(memory, path)?;
+        let open_request = format!("{dirfd:?}:{dirflags:?}:{path:?}:{oflags:?}:{fs_rights_base:?}:{_fs_rights_inheriting:?}:{fdflags:?}");
+        if let Some(io) = self.replay_io.clone().filter(|io| io.is_replay()) {
+            if fs_rights_base.contains(types::Rights::FD_WRITE)
+                || oflags.contains(types::Oflags::CREAT) || oflags.contains(types::Oflags::TRUNC)
+                || fdflags.contains(types::Fdflags::APPEND) {
+                io.reject_unrecorded("path_open: writable descriptor")
+                    .map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
+            }
+            let bytes = io.input("path_open", open_request.as_bytes(), 64 * 1024,
+                || ::anyhow::bail!("REPLAY_IO_INVALID: replay invoked fresh open"))
+                .map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
+            let (expected_fd, identity, directory): (u32, String, bool) = serde_json::from_slice(&bytes)
+                .map_err(|error| types::Error::trap(anyhow!("REPLAY_IO_CORRUPT: {error}")))?;
+            let fd = self.alloc_fd(FdEntry::Recorded { identity, cursor: 0, directory });
+            if u32::from(fd) != expected_fd {
+                return Err(types::Error::trap(anyhow!("REPLAY_IO_ORDER_MISMATCH: opened descriptor")));
+            }
+            return Ok(fd);
+        }
         if fs_rights_base.contains(types::Rights::FD_WRITE)
             || oflags.contains(types::Oflags::CREAT)
             || oflags.contains(types::Oflags::TRUNC)
@@ -2145,6 +2256,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             }
             let handle = self.open_dir_child(&parent, &name)?;
             let fd = self.alloc_fd(FdEntry::Dir(handle));
+            self.record_open(open_request.as_bytes(), fd)?;
             return Ok(fd);
         }
 
@@ -2175,6 +2287,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             readable,
             writable,
         }));
+        self.record_open(open_request.as_bytes(), fd)?;
         Ok(fd)
     }
 
@@ -2506,6 +2619,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         events: GuestPtr<types::Event>,
         nsubscriptions: types::Size,
     ) -> Result<types::Size, types::Error> {
+        self.replay_guard("poll_oneoff")?;
         if nsubscriptions == 0 {
             return Err(types::Errno::Inval.into());
         }
@@ -2605,9 +2719,15 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         buf: GuestPtr<u8>,
         buf_len: types::Size,
     ) -> Result<(), types::Error> {
-        let mut bytes = vec![0u8; buf_len as usize];
-        getrandom::getrandom(&mut bytes)
-            .map_err(|e| types::Error::trap(anyhow!("random_get: {e}")))?;
+        if buf_len as usize > MAX_IOV_BYTES { return Err(types::Errno::Inval.into()); }
+        let supply = || -> ::anyhow::Result<Vec<u8>> {
+            let mut bytes = vec![0u8; buf_len as usize];
+            getrandom::getrandom(&mut bytes).map_err(|error| ::anyhow::anyhow!("random_get: {error}"))?;
+            Ok(bytes)
+        };
+        let bytes = if let Some(io) = &self.replay_io {
+            io.input("random_get", &buf_len.to_le_bytes(), buf_len as u64, supply)
+        } else { supply() }.map_err(|error| types::Error::trap(anyhow!("{error:#}")))?;
         let region = buf
             .as_array(buf_len);
         memory
