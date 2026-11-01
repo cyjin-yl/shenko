@@ -19,8 +19,13 @@ chrono = { workspace = true }
 async-trait = { workspace = true }
 # Standard base64 for image parts on both provider wires.
 base64 = { workspace = true }
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# "stream" is required for the provider event stream: a buffered body is not a
+# stream.
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
 parking_lot = { workspace = true }
 dashmap = { workspace = true }
+# The provider registry is published as a Cordis service, so an installed
+# provider plugin registers and withdraws itself through the normal lifecycle.
+cordis-core = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

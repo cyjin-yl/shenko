@@ -12,6 +12,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 mod node_sync;
 mod runtime_owner;
 mod context_policy;
+mod inference_runtime;
 
 #[derive(Parser, Debug)]
 #[command(
