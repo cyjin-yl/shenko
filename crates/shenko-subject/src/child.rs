@@ -20,6 +20,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use cordis_core::{Context, InjectSpec, Plugin, Service};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use shenko_store::{
     Store, TaskCancellation,
     child::{
@@ -124,6 +125,84 @@ pub struct NativeTaskInvocation {
     pub operation_id: EntityId,
     pub authority: AuthorityRef,
     pub input: serde_json::Value,
+    /// The shared native runtime as seen by a finite model child. It is
+    /// present only for handlers that may call other handlers; a tool
+    /// subtask receives the same runtime, so a nested child keeps working.
+    pub child_tools: Option<Arc<dyn ChildToolRuntime>>,
+}
+
+/// One tool call a finite model child asks the shared native runtime for.
+/// The call names a registered native definition; the runtime owns the
+/// authority, the execution and the receipts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildToolCall {
+    /// The child's own call identity, stable across a restart.
+    pub call_id: String,
+    /// The durable subtask identity this call runs as.
+    pub task_id: EntityId,
+    pub kind: String,
+    pub definition_version: u32,
+    pub input: serde_json::Value,
+}
+
+/// What the shared runtime actually did with one tool call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildToolOutcome {
+    pub call_id: String,
+    pub kind: String,
+    pub definition_version: u32,
+    pub task_id: EntityId,
+    pub operation_id: EntityId,
+    /// `succeeded`, `failed`, `cancelled`, `unknown` or `unavailable`.
+    pub outcome: String,
+    pub result: Option<serde_json::Value>,
+    pub evidence_ref: Option<shenko_types::object::ObjectRef>,
+}
+
+/// The shared native runtime as seen by a finite model child. A child may
+/// only call handlers that are actually registered: the runtime owns their
+/// authority and their durable effects.
+#[async_trait]
+pub trait ChildToolRuntime: Send + Sync + 'static {
+    /// The installed description of every allowed tool that is actually
+    /// registered. An allowed tool the registry does not have is not
+    /// offered: the child's catalog is the runtime's truth, not a wish.
+    fn describe_tools(
+        &self,
+        allowed: &[shenko_types::output::ModelChildTool],
+    ) -> Vec<(String, u32, String)>;
+
+    async fn call_tool(
+        &self,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+    ) -> anyhow::Result<ChildToolOutcome>;
+}
+
+/// The runtime handle handed to a child. It is the very service that owns
+/// the registry, so a child calls the same handlers the subject can call.
+pub struct NativeToolRuntime {
+    service: Arc<NativeChildService>,
+}
+
+#[async_trait]
+impl ChildToolRuntime for NativeToolRuntime {
+    fn describe_tools(
+        &self,
+        allowed: &[shenko_types::output::ModelChildTool],
+    ) -> Vec<(String, u32, String)> {
+        self.service.describe_tools(allowed)
+    }
+
+    async fn call_tool(
+        &self,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+    ) -> anyhow::Result<ChildToolOutcome> {
+        self.service.call_tool(call, parent, authority).await
+    }
 }
 
 #[async_trait]
@@ -579,6 +658,195 @@ impl NativeChildService {
             .collect()
     }
 
+    /// The runtime handle a finite model child receives. It is this very
+    /// service, so a child calls the same registered handlers the subject
+    /// can delegate to, with the same authority and the same ledger.
+    pub fn tool_runtime(self: &Arc<Self>) -> Arc<dyn ChildToolRuntime> {
+        Arc::new(NativeToolRuntime {
+            service: self.clone(),
+        })
+    }
+
+    /// The installed description of every allowed tool that is actually
+    /// registered. An allowed tool the registry does not have is not
+    /// offered: the child's catalog is the runtime's truth.
+    pub fn describe_tools(
+        &self,
+        allowed: &[shenko_types::output::ModelChildTool],
+    ) -> Vec<(String, u32, String)> {
+        allowed
+            .iter()
+            .filter_map(|tool| {
+                self.handler(&tool.kind, tool.definition_version)
+                    .map(|registered| {
+                        (
+                            tool.kind.clone(),
+                            tool.definition_version,
+                            registered.descriptor.prompt_section.unwrap_or_default(),
+                        )
+                    })
+            })
+            .collect()
+    }
+
+    /// Execute one tool call of a finite model child as a durable native
+    /// subtask.
+    ///
+    /// The tool runs the very handler the subject could delegate to; its own
+    /// operation, attempt, evidence and T2 land on the same ledger, and the
+    /// subtask is owned by the child task, so cancelling the child fences it.
+    /// The call is never executed twice: an existing subtask id is read, not
+    /// re-run.
+    pub async fn call_tool(
+        self: &Arc<Self>,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+    ) -> anyhow::Result<ChildToolOutcome> {
+        let unavailable = |reason: String, result: serde_json::Value| ChildToolOutcome {
+            call_id: call.call_id.clone(),
+            kind: call.kind.clone(),
+            definition_version: call.definition_version,
+            task_id: call.task_id,
+            operation_id: EntityId::nil(),
+            outcome: reason,
+            result: Some(result),
+            evidence_ref: None,
+        };
+        let Some(registered) = self.handler(&call.kind, call.definition_version) else {
+            return Ok(unavailable(
+                "unavailable".into(),
+                serde_json::json!({
+                    "reason": "no registered native definition for this tool",
+                    "kind": call.kind,
+                    "definition_version": call.definition_version,
+                }),
+            ));
+        };
+        // An existing subtask is read, never re-run.
+        if let Some(existing) = self.store.get_task(call.task_id)? {
+            let result = self.store.native_task_result(call.task_id)?;
+            let outcome = match &result {
+                Some(result) => match result.outcome {
+                    TaskOutcome::Succeeded => "succeeded",
+                    TaskOutcome::Cancelled => "cancelled",
+                    TaskOutcome::Failed { .. } => "failed",
+                    TaskOutcome::Interrupted => "unknown",
+                },
+                None => {
+                    if existing.abort_request.is_some() {
+                        "cancelled"
+                    } else {
+                        "unknown"
+                    }
+                }
+            };
+            return Ok(ChildToolOutcome {
+                call_id: call.call_id.clone(),
+                kind: call.kind.clone(),
+                definition_version: call.definition_version,
+                task_id: call.task_id,
+                operation_id: result
+                    .as_ref()
+                    .map(|result| result.operation_id)
+                    .unwrap_or_else(EntityId::nil),
+                outcome: outcome.into(),
+                result: result.and_then(|result| result.result),
+                evidence_ref: result.map(|result| result.evidence_ref),
+            });
+        }
+        // Freeze the tool input as the subtask's sealed input object.
+        let bytes = serde_json::to_vec(&call.input)?;
+        let sealed = self
+            .store
+            .cas
+            .seal_object(
+                &bytes,
+                "application/json",
+                "model-child-tool",
+                "model-child-tool-input",
+                1,
+            )
+            .map_err(|error| {
+                self.store.close_external_writer();
+                error
+            })?;
+        let Some(claim) = self.store.claim_child_tool_task(
+            parent,
+            call.task_id,
+            &call.kind,
+            call.definition_version,
+            sealed.object,
+            registered.descriptor.implementation_ref.clone(),
+        )?
+        else {
+            return Ok(unavailable(
+                "unknown".into(),
+                serde_json::json!({
+                    "reason": "the tool subtask already exists; read its durable result",
+                    "kind": call.kind,
+                }),
+            ));
+        };
+        let context = CallContext {
+            caller_instance_id: self.instance_id,
+            role_revision: registered.descriptor.role_revision.clone(),
+            task_id: Some(call.task_id),
+            expected_task_revision: Some(claim.invocation.task_revision.0),
+            invocation_id: Some(claim.invocation.invocation_id),
+            controller_epoch: claim.invocation.epoch,
+            software_generation: claim.software_generation.clone(),
+            authority_refs: registered.descriptor.authority_refs.clone(),
+            trace_id: EntityId::new(),
+        };
+        let invocation = NativeTaskInvocation {
+            context,
+            task_invocation: claim.invocation.clone(),
+            task: claim.task.clone(),
+            operation_id: claim.operation_id,
+            authority: authority.clone(),
+            input: call.input.clone(),
+            child_tools: Some(self.tool_runtime()),
+        };
+        let operation = match registered.handler.execute(invocation).await {
+            Ok(operation) => operation,
+            Err(error) => {
+                park_managed(
+                    &self.store,
+                    &claim.task,
+                    "handler_failed",
+                    &format!("tool handler did not produce a settled result: {error}"),
+                    true,
+                );
+                return Ok(unavailable(
+                    "failed".into(),
+                    serde_json::json!({
+                        "reason": format!("tool handler failed: {error}"),
+                        "kind": call.kind,
+                    }),
+                ));
+            }
+        };
+        let outcome = match operation.outcome {
+            Some(OperationOutcome::Succeeded) => "succeeded",
+            Some(OperationOutcome::Cancelled) => "cancelled",
+            Some(OperationOutcome::Failed) | Some(OperationOutcome::Interrupted) => "failed",
+            None => "unknown",
+        };
+        // T2 binds the resolved operation to the durable result entry.
+        let settled = self.store.complete_native_task(&claim, &operation)?;
+        Ok(ChildToolOutcome {
+            call_id: call.call_id.clone(),
+            kind: call.kind.clone(),
+            definition_version: call.definition_version,
+            task_id: call.task_id,
+            operation_id: operation.operation_id,
+            outcome: outcome.into(),
+            result: settled.as_ref().and_then(|result| result.result.clone()),
+            evidence_ref: settled.as_ref().map(|result| result.evidence_ref.clone()),
+        })
+    }
+
     /// Crate-visible view of the in-memory scan position for tests and
     /// diagnostics. It is scheduling state only — never a completion
     /// watermark and never consulted for durable truth.
@@ -597,7 +865,7 @@ impl NativeChildService {
     /// `NoCapacity` means the worker budget ran out BEFORE this candidate was
     /// touched — the caller must stop the scan without advancing the cursor
     /// past it, so it is retried first on the next pass.
-    fn process(&self, task: &TaskRecord) -> Result<Visit> {
+    fn process(self: &Arc<Self>, task: &TaskRecord) -> Result<Visit> {
         if task.memos.contains_key(COGNITION_IMPORTED) {
             // Do not even rewrite the import into an ordinary retryable park.
             // Only an explicit local continuation may remove this marker.
@@ -783,6 +1051,7 @@ impl NativeChildService {
             operation_id: claim.operation_id,
             authority,
             input,
+            child_tools: Some(self.tool_runtime()),
         };
         let task_id = claim.task.task_id;
         if !self.spawn_execution(
@@ -831,10 +1100,11 @@ impl NativeChildService {
             Some("subject_decision") => {
                 let decision: StepDecision = serde_json::from_slice(&bytes)?;
                 // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6 and model children schema 7;
-                // all bind the same native
-                // delegation field without rewriting the historical CAS object.
-                ensure!(matches!(decision.schema_version, 4 | 6 | 7), "unsupported_decision_schema");
+                // S1 decision. Waits use schema 6, model children schema 7 and
+                // the current committed decision schema 8; all bind the same
+                // native delegation field without rewriting the historical
+                // CAS object.
+                ensure!(matches!(decision.schema_version, 4 | 6 | 7 | 8), "unsupported_decision_schema");
                 let intent = decision
                     .delegated_task_intents
                     .iter()

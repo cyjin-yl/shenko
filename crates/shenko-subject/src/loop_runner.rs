@@ -981,7 +981,6 @@ async fn execute_step(
                         .ok_or_else(|| anyhow::anyhow!("model child requires a sealed provider transport"))
                         .and_then(|binding| crate::model_child::prepare_model_delegation(
                             control.action_id, step_id, spec, binding,
-                            input.payload.max_tokens.unwrap_or_else(|| binding.default_max_tokens()),
                             &step.software_generation,
                         ));
                     Some(prepared.map_err(|error| ShenkoError::Protocol(
