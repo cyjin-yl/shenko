@@ -1,6 +1,10 @@
 pub mod runtime;
 pub mod mount;
 pub mod tool;
+pub mod artifact;
+pub mod manifest;
 pub use runtime::*;
 pub use mount::*;
 pub use tool::*;
+pub use artifact::*;
+pub use manifest::*;
