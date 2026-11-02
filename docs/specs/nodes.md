@@ -121,6 +121,15 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   node reconciles peer experience (events deduped by identity, conflicts as
   parallel facts) and may `adopt_identity` to resume one self, retaining all
   experience.
+- Reconciliation retains each complete peer result receipt in the existing
+  receipt journal, in the same transaction as its reconciliation record.
+  `ExportReceipts` can read the original ticket, output digest and source
+  event after the peer is no longer accessible. Transport-peer provenance
+  does not confer settlement authority: fresh rows are `evidence_only`, and
+  receiving them never executes or settles a task. Replaying the same receipt
+  neither duplicates it nor downgrades an existing local settlement. Older
+  reconciliation summaries that dropped receipts cannot reconstruct them;
+  they are not retroactive proof that the original evidence was retained.
 - An interrupted vote solicitation leaves no partial claim: only `tally`
   commits, and only on quorum of the committed configuration.
 
