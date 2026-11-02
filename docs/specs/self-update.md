@@ -52,7 +52,10 @@ independently allocated commit sequences. Retained archive files provide exact
 source payloads. Blocking gaps/conflicts refuse selection. A narrow
 same-installation `copy_paused_activation_boundary` validates and installs the
 local clean pause request/head/successor before typed import; peer archive import
-cannot manufacture this authority.
+cannot manufacture this authority. The same handover's own snapshot is the
+only export admitted while that boundary is paused
+(`local_boundary_preserved`): a peer receiver has no boundary copy to anchor
+a paused head to, so peer exports still refuse.
 
 A future incompatible format requires its actual versioned reader/migrator;
 this code's same-reader archive path must not be advertised as a universal

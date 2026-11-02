@@ -497,6 +497,15 @@ impl Store {
             if old.genesis_ref != head.genesis_ref || old.agent_id != head.agent_id || old.branch_id != head.branch_id {
                 return Err(ShenkoError::conflict("migration boundary belongs to another installation/branch"));
             }
+            // The boundary's control receipt is local controller state, not
+            // a replicated fact. The receiving ledger re-issues it at its
+            // own commit coordinates — the request registration strictly
+            // before the boundary commit — so `validate_paused_head` binds
+            // request, head and this ledger's commit_log here instead of
+            // trusting the source's sequences.
+            let request_seq = self.ledger.allocate_seq(&tx)?;
+            let request_commit = CommitRef::new(self.ledger.ledger_id(), request_seq);
+            self.record_subject_commit(&tx, request_commit, requests.len() as i64)?;
             let seq = self.ledger.allocate_seq(&tx)?;
             let boundary_commit = CommitRef::new(self.ledger.ledger_id(), seq);
             let local_selector = read_selector(&tx, agent)?
@@ -538,16 +547,22 @@ impl Store {
                 tx.execute("UPDATE subject_quiesce_requests SET state='resumed',data=?2,updated_commit_seq=?3 WHERE request_id=?1",
                     params![request.request_id.to_string(), serde_json::to_string(&request).map_err(storage_error)?, seq.0 as i64]).map_err(storage_error)?;
             }
-            tx.execute("UPDATE subject_branch_heads SET committed_step_no=?2,committed_step_id=?3,next_step_id=?4,mode='paused',record_revision=?5,data=?6 WHERE agent_id=?1",
+            tx.execute("UPDATE subject_branch_heads SET committed_step_no=?2,committed_step_id=?3,next_step_id=?4,mode='paused',record_revision=?5,data=?6,updated_commit_seq=?7 WHERE agent_id=?1",
                 params![agent.to_string(), head.committed_step_no as i64, head.committed_step_id.map(|id| id.to_string()),
-                    head.next_step_id.to_string(), head.record_revision.0 as i64, serde_json::to_string(&head).map_err(storage_error)?]).map_err(storage_error)?;
-            tx.execute("INSERT INTO subject_steps(step_id,branch_id,step_no,state,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,'planned',?4,?5,0) ON CONFLICT(step_id) DO UPDATE SET state='planned',record_revision=excluded.record_revision,data=excluded.data",
+                    head.next_step_id.to_string(), head.record_revision.0 as i64, serde_json::to_string(&head).map_err(storage_error)?,
+                    seq.0 as i64]).map_err(storage_error)?;
+            tx.execute("INSERT INTO subject_steps(step_id,branch_id,step_no,state,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,'planned',?4,?5,?6) ON CONFLICT(step_id) DO UPDATE SET state='planned',record_revision=excluded.record_revision,data=excluded.data,updated_commit_seq=excluded.updated_commit_seq",
                 params![step.step_id.to_string(), step.branch_id.0.to_string(), step.step_no as i64,
-                    step.record_revision.0 as i64, serde_json::to_string(&step).map_err(storage_error)?]).map_err(storage_error)?;
+                    step.record_revision.0 as i64, serde_json::to_string(&step).map_err(storage_error)?,
+                    seq.0 as i64]).map_err(storage_error)?;
             for raw in &requests {
-                let request: crate::runtime_boundary::SubjectQuiesce = serde_json::from_str(raw).map_err(storage_error)?;
-                tx.execute("INSERT INTO subject_quiesce_requests(request_id,agent_id,state,data,updated_commit_seq) VALUES(?1,?2,'paused',?3,0) ON CONFLICT(request_id) DO UPDATE SET state='paused',data=excluded.data",
-                    params![request.request_id.to_string(), agent.to_string(), raw]).map_err(storage_error)?;
+                let mut request: crate::runtime_boundary::SubjectQuiesce = serde_json::from_str(raw).map_err(storage_error)?;
+                request.requested_at = request_commit;
+                request.boundary_at = Some(boundary_commit);
+                request.closed_at = None;
+                tx.execute("INSERT INTO subject_quiesce_requests(request_id,agent_id,state,data,updated_commit_seq) VALUES(?1,?2,'paused',?3,?4) ON CONFLICT(request_id) DO UPDATE SET state='paused',data=excluded.data,updated_commit_seq=excluded.updated_commit_seq",
+                    params![request.request_id.to_string(), agent.to_string(),
+                        serde_json::to_string(&request).map_err(storage_error)?, seq.0 as i64]).map_err(storage_error)?;
             }
             self.record_subject_commit(&tx, boundary_commit, 3)?;
             tx.commit().map_err(storage_error)?;

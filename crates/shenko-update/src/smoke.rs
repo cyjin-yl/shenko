@@ -54,13 +54,22 @@ pub enum SmokeError {
     Launch(#[source] std::io::Error),
     #[error("the candidate program reported a malformed smoke report: {0}")]
     Malformed(String),
+    /// The candidate's own outcome was not a pass: the report says so, the
+    /// program exited non-zero, or no readable report was printed at all.
+    /// The detail names the exit code, the failed checks and the captured
+    /// stderr tail; a missing report and a failed report are never called
+    /// a pass.
+    #[error("the candidate's smoke report did not pass: {0}")]
+    Failed(String),
 }
 
 /// Start the candidate against its own state copy and read its report.
 ///
 /// The candidate is asked for a bounded, read-only readiness check. A
 /// candidate that does not understand the command, exits non-zero or reports
-/// a failed check produces a failed report — never a passed one.
+/// a failed check is an error naming the failed outcome: `Ok` is returned
+/// only when the report actually passed, so a failed or absent report can
+/// never be sealed as activation evidence.
 pub async fn launch_smoke(
     artifact: &Path,
     slot_dir: &Path,
@@ -113,7 +122,33 @@ pub async fn launch_smoke(
     if exit_code != 0 {
         report.passed = false;
     }
+    if !report.passed {
+        return Err(SmokeError::Failed(describe_failure(&report)));
+    }
     Ok(report)
+}
+
+/// The refusal detail of a failed smoke report: its exit code, every failed
+/// check (including the synthesized "no readable report" check when the
+/// candidate printed nothing usable) and the bounded stderr tail.
+pub(crate) fn describe_failure(report: &SmokeReport) -> String {
+    let mut detail = format!("exit code {}", report.exit_code);
+    let failures: Vec<String> = report
+        .failures()
+        .map(|check| match &check.detail {
+            Some(detail) => format!("{}: {}", check.name, detail),
+            None => check.name.clone(),
+        })
+        .collect();
+    if failures.is_empty() {
+        detail.push_str("; no failed checks recorded");
+    } else {
+        detail.push_str(&format!("; failed checks: {}", failures.join(", ")));
+    }
+    if !report.stderr_tail.is_empty() {
+        detail.push_str(&format!("; stderr tail: {}", tail(&report.stderr_tail)));
+    }
+    detail
 }
 
 /// The JSON object the candidate prints on stdout.
