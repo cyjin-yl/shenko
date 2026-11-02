@@ -549,9 +549,9 @@ pub struct ResearchResetOutcome {
 pub enum BankSelection {
     /// Everything of the epoch that is not tombstoned.
     All,
-    /// Only the kinds a fresh worker inherits.
+    /// Only non-tombstoned entries of the kinds a fresh worker inherits.
     Carried,
-    /// Only the failure narrative, for an explicit audit.
+    /// Only the failure narrative, including tombstoned rows for an explicit audit.
     Failures,
 }
 
@@ -847,6 +847,92 @@ impl Store {
         Ok(candidates)
     }
 
+    fn epoch_candidate_pool(
+        &self,
+        epoch: &ResearchEpoch,
+    ) -> Result<Vec<CarriedCandidate>, ShenkoError> {
+        let read_brief = |source: &ResearchEpoch| -> Result<ResearchWorkerBrief, ShenkoError> {
+            let reference = source.brief_ref.as_ref()
+                .ok_or_else(|| ShenkoError::storage("research epoch lacks its sealed brief"))?;
+            let bytes = self.cas.read_object(&reference.digest)?;
+            if bytes.len() as u64 != reference.bytes || Digest::blake3(&bytes) != reference.digest {
+                return Err(ShenkoError::storage("research worker brief does not match its sealed digest"));
+            }
+            let brief: ResearchWorkerBrief = serde_json::from_slice(&bytes)?;
+            if brief.schema_version != 1 || brief.epoch_id != source.epoch_id
+                || brief.lineage_id != source.lineage_id || brief.epoch_no != source.epoch_no
+                || brief.archive_epoch_id != source.reset_from_epoch
+            {
+                return Err(ShenkoError::storage("research worker brief does not match its epoch"));
+            }
+            Ok(brief)
+        };
+        let brief = read_brief(epoch)?;
+        let own = self.research_candidates(epoch.epoch_id)?;
+        let mut pool = brief.carried_candidates;
+        let mut positions = std::collections::HashMap::with_capacity(pool.len() + own.len() + 1);
+        for (index, candidate) in pool.iter().enumerate() {
+            if positions.insert(candidate.candidate_id, (index, epoch.epoch_id)).is_some() {
+                return Err(ShenkoError::storage("research worker brief repeats a candidate identity"));
+            }
+        }
+        // The last snapshot identity detects repetition within one carried set
+        // without allocating a separate identity set for every ancestor.
+        let mut merge = |candidate: CarriedCandidate, source: EntityId, reject_repeat: bool| {
+            if let Some((index, last_source)) = positions.get_mut(&candidate.candidate_id) {
+                if reject_repeat && *last_source == source {
+                    return Err(ShenkoError::storage("research worker brief repeats a candidate identity"));
+                }
+                if pool[*index] != candidate {
+                    return Err(ShenkoError::storage("research candidate identity has conflicting inherited evidence"));
+                }
+                *last_source = source;
+            } else {
+                positions.insert(candidate.candidate_id, (pool.len(), source));
+                pool.push(candidate);
+            }
+            Ok(())
+        };
+        // Inheritance is a sealed projection, not a second candidate row.
+        for candidate in brief.best.into_iter().chain(own.into_iter().map(|candidate| CarriedCandidate {
+            candidate_id: candidate.candidate_id,
+            artifact_ref: candidate.artifact_ref,
+            score: candidate.score,
+            score_source: candidate.score_source,
+            environment_ref: candidate.environment_ref,
+        })) {
+            merge(candidate, epoch.epoch_id, false)?;
+        }
+        // Older resets could omit inherited candidates. Recover only their
+        // sealed ancestry, never mutable historical candidate or bank rows.
+        let mut ancestor: Option<ResearchEpoch> = None;
+        loop {
+            let current = ancestor.as_ref().unwrap_or(epoch);
+            let Some(previous_id) = current.reset_from_epoch else {
+                if current.epoch_no != 1 {
+                    return Err(ShenkoError::storage("research epoch ancestry ends before its root"));
+                }
+                break;
+            };
+            let previous = self.research_epoch(previous_id)?
+                .ok_or_else(|| ShenkoError::storage("research epoch ancestor is not retained"))?;
+            if previous.lineage_id != epoch.lineage_id
+                || previous.epoch_no.checked_add(1) != Some(current.epoch_no)
+            {
+                return Err(ShenkoError::storage("research epoch ancestry does not match its lineage and sequence"));
+            }
+            let brief = read_brief(&previous)?;
+            for candidate in brief.carried_candidates {
+                merge(candidate, previous.epoch_id, true)?;
+            }
+            if let Some(best) = brief.best {
+                merge(best, previous.epoch_id, false)?;
+            }
+            ancestor = Some(previous);
+        }
+        Ok(pool)
+    }
+
     /// Reset a lineage to its next epoch.
     ///
     /// The candidates of the running epoch are frozen, the best candidate is
@@ -885,19 +971,8 @@ impl Store {
                     valid: false,
                     problems: vec!["the original reset carried no validation receipt".to_string()],
                 });
-            let carried_candidates: Vec<CarriedCandidate> = self
-                .research_candidates(existing.reset_from_epoch.unwrap_or(existing.epoch_id))?
-                .iter()
-                .map(|candidate| CarriedCandidate {
-                    candidate_id: candidate.candidate_id,
-                    artifact_ref: candidate.artifact_ref.clone(),
-                    score: candidate.score,
-                    score_source: candidate.score_source.clone(),
-                    environment_ref: candidate.environment_ref.clone(),
-                })
-                .collect();
-            let carried_bank_entry_ids: Vec<EntityId> = self
-                .bank_entries(existing.epoch_id, BankSelection::Carried)?
+            let carried_candidates = brief.carried_candidates.clone();
+            let carried_bank_entry_ids: Vec<EntityId> = brief.carried_bank_entries
                 .iter()
                 .map(|entry| entry.entry_id)
                 .collect();
@@ -905,12 +980,7 @@ impl Store {
                 .ok_or_else(|| ShenkoError::storage("reset epoch lacks its origin"))?;
             let previous_epoch = self.research_epoch(previous_id)?
                 .ok_or_else(|| ShenkoError::storage("reset epoch origin is not retained"))?;
-            let excluded_failure_entries = match existing.reset_from_epoch {
-                Some(id) => {
-                    self.bank_entries(id, BankSelection::Failures)?.len()
-                }
-                None => 0,
-            };
+            let excluded_failure_entries = brief.excluded_failure_entries;
             return Ok(ResearchResetOutcome {
                 previous_epoch,
                 epoch: existing.clone(),
@@ -924,57 +994,51 @@ impl Store {
         let current = self
             .active_research_epoch(lineage_id)?
             .ok_or_else(|| ShenkoError::not_found("active research epoch"))?;
-        let candidates = self.research_candidates(current.epoch_id)?;
-        let validation = self.validate_best_candidate(&current, &candidates, best_candidate_id)?;
+        let carried_candidates = self.epoch_candidate_pool(&current)?;
+        let validation = self.validate_best_candidate(&current, &carried_candidates, best_candidate_id)?;
         if best_candidate_id.is_some() && !validation.valid {
             return Err(ShenkoError::conflict(format!(
                 "research best candidate is not validated: {}",
                 validation.problems.join("; ")
             )));
         }
-        let carried_candidates: Vec<CarriedCandidate> = candidates
-            .iter()
-            .filter(|candidate| candidate.frozen || true)
-            .map(|candidate| CarriedCandidate {
-                candidate_id: candidate.candidate_id,
-                artifact_ref: candidate.artifact_ref.clone(),
-                score: candidate.score,
-                score_source: candidate.score_source.clone(),
-                environment_ref: candidate.environment_ref.clone(),
-            })
-            .collect();
-        let best = validation
-            .candidate_id
-            .and_then(|id| carried_candidates.iter().find(|item| item.candidate_id == id))
-            .cloned();
+        let best = if validation.valid {
+            validation.candidate_id
+                .and_then(|id| carried_candidates.iter().find(|item| item.candidate_id == id))
+                .cloned()
+        } else {
+            None
+        };
+        let validated_best_id = best.as_ref().map(|candidate| candidate.candidate_id);
 
         // The bank of the running epoch: still-valid facts travel, the
         // failure narrative stays in the frozen archive.
-        let old_entries = self.bank_entries(current.epoch_id, BankSelection::All)?;
-        let excluded_failure_entries = old_entries
-            .iter()
-            .filter(|entry| !entry.kind.survives_reset())
-            .count();
-        let carried_entries: Vec<&InterventionBankEntry> = old_entries
-            .iter()
-            .filter(|entry| entry.kind.survives_reset() && entry.tombstoned_at_ms.is_none())
-            .collect();
-        let carried_bank_entries: Vec<CarriedBankEntry> = carried_entries
-            .iter()
-            .map(|entry| CarriedBankEntry {
-                entry_id: EntityId::new(),
-                carried_from: entry.entry_id,
-                kind: entry.kind,
-                content: entry.content.clone(),
-                source_refs: entry.source_refs.clone(),
-                scope: entry.scope.clone(),
-                confidence: entry.confidence,
-            })
-            .collect();
+        let excluded_failure_entries = {
+            let conn = self.ledger.conn.lock();
+            ensure_research_schema(&conn)?;
+            conn.query_row(
+                "SELECT COUNT(*) FROM intervention_bank_entries WHERE epoch_id=?1 AND kind IN (?2,?3)",
+                params![current.epoch_id.to_string(), BankEntryKind::Attempt.as_str(), BankEntryKind::Diagnosis.as_str()],
+                |row| row.get::<_, usize>(0),
+            ).map_err(|error| ShenkoError::storage(error.to_string()))?
+        };
+        let carried_entries = self.bank_entries(current.epoch_id, BankSelection::Carried)?;
         let open_goals: Vec<String> = carried_entries
             .iter()
             .filter(|entry| entry.kind == BankEntryKind::OpenGoal)
             .map(|entry| entry.content.clone())
+            .collect();
+        let carried_bank_entries: Vec<CarriedBankEntry> = carried_entries
+            .into_iter()
+            .map(|entry| CarriedBankEntry {
+                entry_id: EntityId::new(),
+                carried_from: entry.entry_id,
+                kind: entry.kind,
+                content: entry.content,
+                source_refs: entry.source_refs,
+                scope: entry.scope,
+                confidence: entry.confidence,
+            })
             .collect();
 
         let sealed = self.seal_closure(closure)?;
@@ -1011,7 +1075,7 @@ impl Store {
             budget_ref: Some(sealed.budget),
             effects_ref: Some(sealed.effects),
             environment_ref: Some(sealed.environment),
-            best_candidate_id: validation.candidate_id,
+            best_candidate_id: validated_best_id,
             brief_ref: Some(brief_ref),
             reset_from_epoch: Some(current.epoch_id),
             reset_reason: Some(reason.to_string()),
@@ -1132,7 +1196,7 @@ impl Store {
     fn validate_best_candidate(
         &self,
         epoch: &ResearchEpoch,
-        candidates: &[ResearchCandidate],
+        candidates: &[CarriedCandidate],
         requested: Option<EntityId>,
     ) -> Result<BestCandidateValidation, ShenkoError> {
         let selected = requested.or(epoch.best_candidate_id);
@@ -1309,70 +1373,80 @@ impl Store {
             .prepare(
                 "SELECT entry_id,epoch_id,kind,content,source_refs,scope,confidence,base_revision,
                         supersedes,superseded_by,carried_from,tombstoned_at_ms,created_at_ms
-                 FROM intervention_bank_entries WHERE epoch_id=?1 ORDER BY created_at_ms ASC, entry_id ASC",
+                 FROM intervention_bank_entries WHERE epoch_id=?1 AND (?2 OR tombstoned_at_ms IS NULL)
+                 ORDER BY created_at_ms ASC, entry_id ASC",
             )
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        let rows = statement
-            .query_map(params![epoch_id.to_string()], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                    row.get::<_, String>(5)?,
-                    row.get::<_, Option<f64>>(6)?,
-                    row.get::<_, i64>(7)?,
-                    row.get::<_, Option<String>>(8)?,
-                    row.get::<_, Option<String>>(9)?,
-                    row.get::<_, Option<String>>(10)?,
-                    row.get::<_, Option<i64>>(11)?,
-                    row.get::<_, i64>(12)?,
-                ))
-            })
+        let mut rows = statement
+            .query(params![epoch_id.to_string(), selection == BankSelection::Failures])
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         let mut entries = Vec::new();
-        for row in rows {
-            let (
-                entry_id,
-                epoch_id,
-                kind,
-                content,
-                source_refs,
-                scope,
-                confidence,
-                base_revision,
-                supersedes,
-                superseded_by,
-                carried_from,
-                tombstoned_at_ms,
-                created_at_ms,
-            ) = row.map_err(|error| ShenkoError::storage(error.to_string()))?;
-            let entry = InterventionBankEntry {
-                entry_id: parse_id(&entry_id)?,
-                epoch_id: parse_id(&epoch_id)?,
-                kind: BankEntryKind::parse(&kind)?,
-                content,
-                source_refs: decode_list::<String>(Some(&source_refs))?,
-                scope,
-                confidence,
-                base_revision: base_revision.max(0) as u64,
-                supersedes: optional_id(supersedes)?,
-                superseded_by: optional_id(superseded_by)?,
-                carried_from: optional_id(carried_from)?,
-                tombstoned_at_ms,
-                created_at_ms,
-            };
+        while let Some(row) = rows.next().map_err(|error| ShenkoError::storage(error.to_string()))? {
+            let kind = Self::bank_entry_kind(row)?;
             let visible = match selection {
                 BankSelection::All => true,
-                BankSelection::Carried => entry.kind.survives_reset(),
-                BankSelection::Failures => !entry.kind.survives_reset(),
+                BankSelection::Carried => kind.survives_reset(),
+                BankSelection::Failures => !kind.survives_reset(),
             };
             if visible {
-                entries.push(entry);
+                entries.push(Self::bank_entry_from_row(row, kind)?);
             }
         }
         Ok(entries)
+    }
+
+    /// Read one retained bank entry by identity, including tombstoned rows.
+    /// This explicit audit path does not make the entry eligible for injection.
+    pub fn bank_entry(&self, entry_id: EntityId) -> Result<Option<InterventionBankEntry>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn.prepare(
+            "SELECT entry_id,epoch_id,kind,content,source_refs,scope,confidence,base_revision,
+                    supersedes,superseded_by,carried_from,tombstoned_at_ms,created_at_ms
+             FROM intervention_bank_entries WHERE entry_id=?1",
+        ).map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let mut rows = statement.query(params![entry_id.to_string()])
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        rows.next().map_err(|error| ShenkoError::storage(error.to_string()))?
+            .map(|row| Self::bank_entry_from_row(row, Self::bank_entry_kind(row)?))
+            .transpose()
+    }
+
+    fn bank_entry_kind(row: &rusqlite::Row<'_>) -> Result<BankEntryKind, ShenkoError> {
+        BankEntryKind::parse(row.get_ref(2)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .as_str().map_err(|error| ShenkoError::storage(error.to_string()))?)
+    }
+
+    fn bank_entry_from_row(
+        row: &rusqlite::Row<'_>,
+        kind: BankEntryKind,
+    ) -> Result<InterventionBankEntry, ShenkoError> {
+        let fields = (|| -> rusqlite::Result<_> {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<f64>>(6)?,
+                row.get::<_, i64>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<i64>>(11)?,
+                row.get::<_, i64>(12)?,
+            ))
+        })().map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let (entry_id, epoch_id, content, source_refs, scope, confidence, base_revision,
+            supersedes, superseded_by, carried_from, tombstoned_at_ms, created_at_ms) = fields;
+        Ok(InterventionBankEntry {
+            entry_id: parse_id(&entry_id)?, epoch_id: parse_id(&epoch_id)?, kind, content,
+            source_refs: decode_list::<String>(Some(&source_refs))?, scope, confidence,
+            base_revision: base_revision.max(0) as u64,
+            supersedes: optional_id(supersedes)?, superseded_by: optional_id(superseded_by)?,
+            carried_from: optional_id(carried_from)?, tombstoned_at_ms, created_at_ms,
+        })
     }
 
     /// Link two retained bank entries as a correction. Both bodies remain
