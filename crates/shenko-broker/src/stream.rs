@@ -535,9 +535,12 @@ impl SseDecoder {
         Self::default()
     }
 
-    /// Feed one line. A frame is complete when a blank line arrives.
+    /// Feed one line. A frame is complete when a blank line arrives. The
+    /// callers split the body on `\n` and keep the terminator, so a line may
+    /// end in `\n` or `\r\n`; the line ending is stripped before the
+    /// boundary test. A separator that kept its `\n` is still blank.
     pub fn feed_line(&mut self, line: &str) -> Option<SseFrame> {
-        let line = line.trim_end_matches('\r');
+        let line = line.trim_end_matches(['\r', '\n']);
         if line.is_empty() {
             if self.data.is_empty() && self.event.is_none() {
                 return None;

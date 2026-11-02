@@ -973,8 +973,13 @@ mod tests {
     use crate::request::{
         InferenceMessage, InferencePayload, TokenUsage, WireErrorCode,
     };
+    use crate::stream::{
+        SseDecoder, SseFrame, StreamBatch, StreamEvent, StreamSinkError,
+        parse_anthropic_frame, parse_openai_frame,
+    };
     use shenko_types::ids::{ControllerEpoch, EntityId};
     use std::collections::BTreeMap;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1103,6 +1108,78 @@ mod tests {
 
         async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
             Err(anyhow!("the fixture does not probe"))
+        }
+    }
+
+    /// A durable journal that records exactly what the publisher wrote.
+    struct RecordingJournal {
+        opened: Mutex<Vec<ProviderBinding>>,
+        batches: Mutex<Vec<StreamBatch>>,
+        terminals: Mutex<Vec<TerminationEvidence>>,
+        closed: AtomicU64,
+    }
+
+    impl RecordingJournal {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                opened: Mutex::new(Vec::new()),
+                batches: Mutex::new(Vec::new()),
+                terminals: Mutex::new(Vec::new()),
+                closed: AtomicU64::new(0),
+            })
+        }
+
+        /// Every journaled event across all batches, in wire order.
+        fn journaled_events(&self) -> Vec<StreamEvent> {
+            self.batches
+                .lock()
+                .expect("journal batches poisoned")
+                .iter()
+                .flat_map(|batch| batch.events.clone())
+                .collect()
+        }
+    }
+
+    impl StreamJournalSink for RecordingJournal {
+        fn open_stream(
+            &self,
+            _request_id: EntityId,
+            binding: &ProviderBinding,
+        ) -> Result<(), StreamSinkError> {
+            self.opened
+                .lock()
+                .expect("journal opens poisoned")
+                .push(binding.clone());
+            Ok(())
+        }
+
+        fn append_batch(
+            &self,
+            _request_id: EntityId,
+            batch: &StreamBatch,
+        ) -> Result<(), StreamSinkError> {
+            self.batches
+                .lock()
+                .expect("journal batches poisoned")
+                .push(batch.clone());
+            Ok(())
+        }
+
+        fn append_terminal(
+            &self,
+            _request_id: EntityId,
+            terminal: &TerminationEvidence,
+        ) -> Result<(), StreamSinkError> {
+            self.terminals
+                .lock()
+                .expect("journal terminals poisoned")
+                .push(terminal.clone());
+            Ok(())
+        }
+
+        fn close_stream(&self, _request_id: EntityId) -> Result<(), StreamSinkError> {
+            self.closed.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -1399,6 +1476,307 @@ mod tests {
                 .await
                 .is_err()
         );
+        let observer = handle.clone();
+        drop(handle);
+        run.abort();
+        let _ = run.await;
+        assert_eq!(observer.active_count(), 1);
+    }
+
+    /// Feed one body exactly the way the provider readers do: split on `\n`,
+    /// keep the terminator on every line.
+    fn feed_body(decoder: &mut SseDecoder, body: &str) -> Vec<SseFrame> {
+        let mut frames = Vec::new();
+        let mut buffer: Vec<u8> = body.as_bytes().to_vec();
+        while let Some(position) = buffer.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = buffer.drain(..=position).collect();
+            frames.extend(
+                decoder.feed_line(&String::from_utf8_lossy(&line)),
+            );
+        }
+        if !buffer.is_empty() {
+            frames.extend(decoder.feed_line(&String::from_utf8_lossy(&buffer)));
+        }
+        frames
+    }
+
+    /// PR132 regression: the callers feed newline-retaining lines, so the
+    /// frame separator arrives as `"\n"` (LF) or `"\r\n"` (CRLF). A boundary
+    /// check that trimmed only `\r` never saw a blank line: no frame, no
+    /// event, no stop reason — a valid stream ended as an empty unknown
+    /// outcome that still held its admission charge. Both line endings must
+    /// decode, and a genuinely empty stream must stay honestly empty.
+    #[tokio::test(flavor = "current_thread")]
+    async fn sse_frame_boundary_decodes_newline_retained_provider_lines() {
+        // Decoder level: the real OpenAI wire shape, newline-retaining LF.
+        let openai_body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],",
+            "\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}\n",
+            "\n",
+            "data: [DONE]\n",
+            "\n",
+        );
+        let mut decoder = SseDecoder::new();
+        let frames = feed_body(&mut decoder, openai_body);
+        assert_eq!(frames.len(), 5, "newline-retained separators end frames");
+        assert_eq!(frames[4].data, "[DONE]");
+        let events: Vec<StreamEvent> = frames
+            .iter()
+            .map(parse_openai_frame)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::TextDelta { text: "Hel".into() },
+                StreamEvent::TextDelta { text: "lo".into() },
+                StreamEvent::Usage {
+                    usage: TokenUsage {
+                        input_tokens: Some(11),
+                        output_tokens: Some(7),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }
+                },
+                StreamEvent::MessageStop { stop_reason: "stop".into() },
+            ],
+            "events and stop reason decode from newline-retained lines"
+        );
+
+        // Decoder level: Anthropic event names over CRLF separators.
+        let anthropic_body = concat!(
+            "event: content_block_delta\r\n",
+            "data: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\r\n",
+            "\r\n",
+            "event: message_delta\r\n",
+            "data: {\"delta\":{\"stop_reason\":\"end_turn\"},",
+            "\"usage\":{\"output_tokens\":4}}\r\n",
+            "\r\n",
+        );
+        let mut decoder = SseDecoder::new();
+        let frames = feed_body(&mut decoder, anthropic_body);
+        assert_eq!(frames.len(), 2, "CRLF separators end frames");
+        assert_eq!(frames[0].event.as_deref(), Some("content_block_delta"));
+        assert_eq!(
+            frames[0].data,
+            "{\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}"
+        );
+        let events: Vec<StreamEvent> = frames
+            .iter()
+            .map(parse_anthropic_frame)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::TextDelta { text: "hi".into() },
+                StreamEvent::Usage {
+                    usage: TokenUsage {
+                        input_tokens: None,
+                        output_tokens: Some(4),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }
+                },
+                StreamEvent::MessageStop { stop_reason: "end_turn".into() },
+            ]
+        );
+
+        // A genuinely empty stream emits nothing; nothing is fabricated.
+        let mut decoder = SseDecoder::new();
+        assert_eq!(decoder.feed_line("\n"), None);
+        assert_eq!(decoder.feed_line("\r\n"), None);
+        assert_eq!(feed_body(&mut decoder, ": keepalive\n\n").len(), 0);
+
+        // Broker level: the same SSE body over a real socket. Before the fix
+        // this returned Success=false with an empty response, empty stop
+        // reason and TerminationKind::Unknown while the charge stayed held.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let bodies = [
+            openai_body.to_string(),
+            // Keepalive comments only: a valid stream with no events.
+            ": keepalive\n: keepalive\n\n".to_string(),
+        ];
+        let server = tokio::spawn(async move {
+            for body in bodies {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut body_start = None;
+                let mut body_length = 0_usize;
+                loop {
+                    let mut chunk = [0_u8; 1024];
+                    let read = socket.read(&mut chunk).await.unwrap();
+                    assert_ne!(read, 0, "request ended before complete headers/body");
+                    bytes.extend_from_slice(&chunk[..read]);
+                    if body_start.is_none() {
+                        if let Some(header_end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let start = header_end + 4;
+                            let headers = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+                            body_length = headers
+                                .lines()
+                                .find_map(|line| {
+                                    let (name, value) = line.split_once(':')?;
+                                    name.eq_ignore_ascii_case("content-length")
+                                        .then(|| value.trim().parse().ok())
+                                        .flatten()
+                                })
+                                .unwrap();
+                            body_start = Some(start);
+                        }
+                    }
+                    if body_start.is_some_and(|start| bytes.len() >= start + body_length) {
+                        break;
+                    }
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+                socket.shutdown().await.unwrap();
+            }
+        });
+
+        let provider = crate::local_provider::LocalModelProvider::new(
+            format!("http://{address}"),
+            "fixture-local".into(),
+        );
+        let (broker, handle) =
+            Broker::with_local_provider(provider, 1).expect("the local provider binds");
+        let binding = handle.binding().clone();
+        let journal = RecordingJournal::new();
+        let payload = InferencePayload {
+            system_prompt: "fixture system".into(),
+            messages: vec![InferenceMessage::text("user", "fixture input")],
+            max_tokens: Some(16),
+            tools: vec![],
+            native_options: BTreeMap::new(),
+        };
+        let submit_stream = |payload: InferencePayload| {
+            let request_id = EntityId::new();
+            let (result_tx, result_rx) = oneshot::channel();
+            handle
+                .submit_stream(
+                    BrokeredCall {
+                        purpose: RequestPurpose::Subject,
+                        request: InferenceRequest {
+                            request_id,
+                            agent_id: EntityId::new(),
+                            conversation_id: EntityId::new(),
+                            provider_binding: binding.clone(),
+                            priority: InferencePriority::Subject,
+                            epoch: ControllerEpoch(1),
+                            payload,
+                            result_tx,
+                        },
+                    },
+                    StreamIdentity::default(),
+                    Some(journal.clone()),
+                    None,
+                )
+                .unwrap();
+            (request_id, result_rx)
+        };
+        let run = tokio::spawn(broker.run());
+
+        let (request_id, result_rx) = submit_stream(payload.clone());
+        let result = tokio::time::timeout(Duration::from_secs(3), result_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.request_id, request_id);
+        assert_eq!(result.status, InferenceStatus::Success);
+        assert_eq!(result.termination.kind, TerminationKind::ProviderTerminal);
+        assert_eq!(result.termination.stop_reason.as_deref(), Some("stop"));
+        let response = result.response.expect("decoded frames assemble a response");
+        assert_eq!(response.content, "Hello");
+        assert_eq!(response.stop_reason, "stop");
+        assert_eq!(
+            response.usage,
+            Some(TokenUsage {
+                input_tokens: Some(11),
+                output_tokens: Some(7),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            })
+        );
+        let evidence = result.stream.expect("a streamed call keeps its evidence");
+        assert_eq!(evidence.events, 4);
+        assert_eq!(evidence.public_chunks, 2);
+        assert!(evidence.journaled);
+        assert_eq!(
+            journal.journaled_events(),
+            vec![
+                StreamEvent::TextDelta { text: "Hel".into() },
+                StreamEvent::TextDelta { text: "lo".into() },
+                StreamEvent::Usage {
+                    usage: TokenUsage {
+                        input_tokens: Some(11),
+                        output_tokens: Some(7),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }
+                },
+                StreamEvent::MessageStop { stop_reason: "stop".into() },
+            ],
+            "the durable journal records the decoded wire, nothing else"
+        );
+        assert_eq!(
+            journal.terminals.lock().expect("terminals poisoned").as_slice(),
+            &[TerminationEvidence {
+                kind: TerminationKind::ProviderTerminal,
+                stop_reason: Some("stop".into()),
+                max_tokens: Some(16),
+                output_tokens: Some(7),
+                length: false,
+            }]
+        );
+
+        // An empty stream is not rescued by the boundary fix: no frames, no
+        // events, an honest unknown outcome that keeps its charge.
+        let (_, result_rx) = submit_stream(payload.clone());
+        let result = tokio::time::timeout(Duration::from_secs(3), result_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.status, InferenceStatus::Failed);
+        assert_eq!(result.termination.kind, TerminationKind::Unknown);
+        let response = result.response.expect("an empty stream keeps an empty response");
+        assert!(response.content.is_empty(), "no fabricated content");
+        assert!(response.stop_reason.is_empty(), "no fabricated stop reason");
+        assert_eq!(response.usage, None);
+        let evidence = result.stream.expect("a streamed call keeps its evidence");
+        assert_eq!(evidence.events, 0);
+        assert_eq!(evidence.public_chunks, 0);
+        assert!(evidence.journaled);
+        assert_eq!(
+            journal.journaled_events().len(),
+            4,
+            "the empty stream journaled no event"
+        );
+        assert_eq!(journal.closed.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            handle.active_count(),
+            1,
+            "the unknown outcome still holds its admission charge"
+        );
+
+        server.await.unwrap();
+        drop(submit_stream);
         let observer = handle.clone();
         drop(handle);
         run.abort();
