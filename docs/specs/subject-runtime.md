@@ -83,14 +83,27 @@ A resumed step consults its OWN receipts. It never re-sends blindly:
 
 | Durable fact | What the step does |
 | --- | --- |
-| a terminal receipt whose result matches the sealed request | the result is adopted, the step becomes `result_recorded`, no send happens |
+| a terminal receipt whose result matches the sealed request AND carries provider-terminal text | the result is adopted, the step becomes `result_recorded`, no send happens |
+| a terminal receipt without provider text (provider rejection, unavailable, invalid request, cancelled fence) | the same typed policy the live path applies decides: a 429 persists `ProviderRejected` as a positive retry fact, every other refusal is a typed protocol error. A refusal is never adopted as model output |
 | a `dispatched` row without terminal evidence | the outcome is unknown: the step records `DispatchLost`, the spent send stays armed and unsettled, and the next attempt gets a NEW request identity |
-| an `armed` row only | the send boundary never passed: the same sealed step may arm a new attempt |
+| an `armed` row only | the send boundary never passed: the step persists `NeverDispatched` and arms a new attempt with a NEW request identity |
 
 The original request identity is restored with the broker
-(`register_recovered`) before any new admission, so a request that may still
-be in flight keeps its recoverable debt and a request whose receipt already
-landed is reconciled against that receipt.
+(`register_recovered`) only when the durable row proves the request may have
+dispatched (`dispatched`) or already carries terminal evidence. An `armed`
+row is positive proof that no send happened, so it is never registered as
+unknown debt: a request that never left the process cannot consume broker
+capacity. A request that may still be in flight keeps its recoverable debt
+and a request whose receipt already landed is reconciled against that
+receipt.
+
+Live delivery and restart share one admission policy for a provider result
+(`admit_model_result`). A recovered receipt is interpreted exactly like the
+live one: only provider-terminal text becomes model output, a 429 persists the
+same retry fact, and every other refusal raises the same typed error. The
+store's legal transition set is unchanged: `awaiting_model → awaiting_model`
+is not legal, so a recovered step always reaches a new attempt through
+`retry_pending → awaiting_model` with a new request identity.
 
 A retry is always a NEW attempt with a NEW request identity. The spent
 identity is never re-used: the store only allows the request identity to

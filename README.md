@@ -38,7 +38,7 @@ cargo build --release -p shenko
 ```bash
 shenko start --port 7860            # 启动主体、插件装配与 Web 时间线
 shenko identity --history           # 查看实例的名称、灵魂与人格修订历史
-shenko runtime status --request-id <id>   # 查询一次主体边界请求的持久结果
+shenko runtime status <id>          # 查询一次主体边界请求的持久结果
 shenko sync status                  # 本地持久事实、未确认变更与 peer watermark
 shenko tool list                    # 已安装 WASM 工具与具名目标的真实状态
 ```
@@ -66,7 +66,7 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 - **provider**：实现 broker 的 provider 合同接入推理；额度观测与 admission 是独立策略，不写死模型名单。
 - **渠道插件**：插件同时拥有入站分类、来源/账户命名空间与出站描述、派发与回执。目标标识是不透明字符串。
 - **意识与感知单元**：`shenko-awareness-core` 解析 awareness 文档，`shenko-node` 的单位库保存版本、依赖、启停与试用结果。纯文本单元不启动 daemon。
-- **WASM 工具**：`shenko tool install --file <artifact> --name <n> --version <v> --abi wasi_preview1` 安装真实二进制，`shenko tool exec <name>` 在受管 mount 下执行。声明了 ABI 但没有可核验工件的目标会被如实标记为未解析。
+- **WASM 工具**：`shenko tool install --file <artifact> --name <n> --version <v> --abi wasi_preview1` 安装真实二进制，`shenko tool exec --tool <name>` 在受管 mount 下执行。声明了 ABI 但没有可核验工件的目标会被如实标记为未解析。
 
 开发入口与协作规则见 [AGENTS.md](AGENTS.md)（`CLAUDE.md` 是指向它的符号链接）与 [shenko-dev Skill](.agents/skills/shenko-dev/SKILL.md)。
 

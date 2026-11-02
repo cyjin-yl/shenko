@@ -114,7 +114,11 @@ impl InferenceRecoverySource for SubjectReceiptSink {
         let Some(attempt) = self.store.subject_request_attempt(self.request_id)? else {
             return Ok(None);
         };
-        read_terminal_result(&self.store, &attempt)
+        // An Unknown receipt is retained evidence, not authority to release a
+        // broker slot. Keep the original recovery reader and unknown charge.
+        Ok(read_terminal_result(&self.store, &attempt)?.filter(|result| {
+            result.termination.kind != shenko_broker::request::TerminationKind::Unknown
+        }))
     }
 }
 
