@@ -61,11 +61,6 @@ pub(super) struct PreparedContextInput {
     pub contribution_omissions: Vec<serde_json::Value>,
     /// The token cost the contributions charge against this step's budget.
     pub contribution_tokens: u64,
-    /// The collected plan itself. It is carried to the seal because the
-    /// usage evidence is built from it (the reduced use records and the
-    /// omission reasons), and that evidence must name the request which
-    /// actually carried the material.
-    pub contribution_plan: Option<shenko_context_policy::ContributionPlan>,
 }
 
 fn storage(error: impl std::fmt::Display) -> ShenkoError {
@@ -80,7 +75,6 @@ pub(super) struct CollectedContributions {
     /// The model-facing text of every collected contribution, resolved from
     /// the sealed document each contribution's reference points at.
     pub material: Vec<String>,
-    pub plan: shenko_context_policy::ContributionPlan,
 }
 
 /// Collect the prepared contributions for this step.
@@ -95,10 +89,7 @@ fn collect_contributions(
     state: &SubjectLoopState,
     scope_id: EntityId,
 ) -> Result<Option<CollectedContributions>, ShenkoError> {
-    let Ok(registry) = state
-        .plugin_context
-        .try_service::<shenko_context_policy::ContributionRegistry>()
-    else {
+    let Some(registry) = &state.contribution_registry else {
         // No contribution runtime installed: there is nothing to collect.
         return Ok(None);
     };
@@ -150,7 +141,6 @@ fn collect_contributions(
         omissions,
         total_tokens: plan.total_tokens,
         material,
-        plan,
     }))
 }
 
@@ -521,6 +511,9 @@ pub(super) fn estimate_payload_tokens(payload: &InferencePayload, vision_tokens:
         match part {
             InferencePart::Text { text } => estimate = estimate.saturating_add(estimate_tokens(text)),
             InferencePart::Image { .. } => has_image = true,
+            InferencePart::Document { .. }
+            | InferencePart::Citation { .. }
+            | InferencePart::SearchResult { .. } => {}
         }
     }
     if has_image {
@@ -626,18 +619,11 @@ fn project_payload(
     Ok((payload, estimate, unfinished.into_iter().collect()))
 }
 
-fn budget_tokens(
-    state: &SubjectLoopState,
-    binding: Option<&shenko_broker::request::ProviderBinding>,
-    current: u32,
-) -> (u32, String) {
-    let anchored = binding.is_some() && state.previous_input_binding.as_ref() == binding;
-    match (anchored, state.previous_input_tokens, state.previous_estimated_input_tokens) {
-        (true, Some(actual), Some(previous)) => (
-            current.max(actual.saturating_add(current.saturating_sub(previous))),
-            format!("max(current heuristic, previous provider input {actual} + positive delta from previous heuristic {previous})"),
-        ),
-        _ => (current, "current heuristic; no matching previous provider/estimate anchor".into()),
+fn budget_tokens(current: u32, previous: Option<(u32, u32)>) -> u32 {
+    match previous {
+        Some((actual, estimate)) =>
+            current.max(actual.saturating_add(current.saturating_sub(estimate))),
+        None => current,
     }
 }
 
@@ -778,13 +764,13 @@ pub(super) fn prepare_context(
     let mut window = registry.ledger().current().map_err(storage)?;
     let observed_input_tokens = state.previous_input_tokens.filter(|_|
         binding.is_some() && state.previous_input_binding.as_ref() == binding);
+    let previous_anchor = observed_input_tokens.zip(state.previous_estimated_input_tokens);
     let (mut payload, mut estimated_input_tokens, mut unfinished_call_ids, mut source_commit_seq) = project_payload_stable(
         &state.store, &window, &history, system_prompt.clone(), caps.as_ref(), state.max_tokens, &input_raw_event_ids,
     )?;
     let current_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("current projection has no trustworthy token estimate"))?;
-    let (trigger_budget_input_tokens, mut budget_provenance) = budget_tokens(state, binding, current_estimate);
-    let mut selected_budget_input_tokens = trigger_budget_input_tokens;
+    let trigger_budget_input_tokens = budget_tokens(current_estimate, previous_anchor);
     // Record pressure every S0 so the durable window ledger sees the used/
     // available shape even when no strategy fires this step.
     if let Some(caps) = caps.as_ref() {
@@ -813,9 +799,6 @@ pub(super) fn prepare_context(
                         (payload, estimated_input_tokens, unfinished_call_ids, source_commit_seq) = project_payload_stable(
                             &state.store, &window, &history, system_prompt, Some(caps), state.max_tokens, &input_raw_event_ids,
                         )?;
-                        selected_budget_input_tokens = estimated_input_tokens
-                            .ok_or_else(|| ShenkoError::conflict("compacted projection has no trustworthy token estimate"))?;
-                        budget_provenance.push_str("; selected compacted heuristic");
                         ContextSelection::Compacted { attempts }
                     }
                     None => {
@@ -832,42 +815,59 @@ pub(super) fn prepare_context(
             }
         }
     };
-    let final_estimate = estimated_input_tokens
+    let selected_estimate = estimated_input_tokens
         .ok_or_else(|| ShenkoError::conflict("selected projection has no trustworthy token estimate"))?;
     // The prepared contributions are collected BEFORE the final budget
     // check, so their cost is charged together with the context and the
     // tool cost (SPEC §37.7) and can never be added after the check.
     let collected = collect_contributions(state, scope_id)?;
-    let (contributions, contribution_omissions, contribution_tokens, contribution_plan) =
-        match &collected {
+    let mut contribution_estimate = 0;
+    let (contributions, contribution_omissions, contribution_tokens) =
+        match collected {
         Some(collected) => {
             // The model-facing material of a contribution is the text of the
             // sealed document its reference points at. Its provenance
             // (producer, version, artifact digest) is NOT put in front of
             // the model: that reaches the raw call record through the seal.
             if !collected.material.is_empty() {
-                payload.messages.push(InferenceMessage::text(
-                    "user",
-                    format!(
-                        "[prepared contributions]\n{}",
-                        collected.material.join("\n")
-                    ),
-                ));
-                estimated_input_tokens =
-                    estimate_payload_tokens(&payload, 0).or(estimated_input_tokens);
+                const PREFIX: &str = "[prepared contributions]\n";
+                let bytes = collected.material.iter().map(String::len).sum::<usize>();
+                let mut text = String::with_capacity(PREFIX.len() + bytes + collected.material.len() - 1);
+                text.push_str(PREFIX);
+                for (index, part) in collected.material.into_iter().enumerate() {
+                    if index != 0 { text.push('\n'); }
+                    text.push_str(&part);
+                }
+                contribution_estimate = estimate_tokens(&text);
+                payload.messages.push(InferenceMessage::text("user", text));
             }
             (
-                collected.contributions.clone(),
-                collected.omissions.clone(),
+                collected.contributions,
+                collected.omissions,
                 collected.total_tokens,
-                Some(collected.plan.clone()),
             )
         }
-        None => (Vec::new(), Vec::new(), 0, None),
+        None => (Vec::new(), Vec::new(), 0),
     };
-    selected_budget_input_tokens = selected_budget_input_tokens.saturating_add(
+    // Only this new text part changed. Preserve the selected window's image
+    // estimate and count its body/envelope once, without rescanning history.
+    let final_estimate = selected_estimate.saturating_add(contribution_estimate);
+    estimated_input_tokens = Some(final_estimate);
+    let charged_estimate = selected_estimate.saturating_add(contribution_estimate.max(
         u32::try_from(contribution_tokens).unwrap_or(u32::MAX),
-    );
+    ));
+    // Calibrate the complete payload, not a prefix whose previous-use floor
+    // may already include contribution material. A new compacted window
+    // deliberately starts from its own estimate, as before.
+    let (selected_budget_input_tokens, budget_provenance) = match (&selection, previous_anchor) {
+        (ContextSelection::Compacted { .. }, _) =>
+            (charged_estimate, "selected compacted heuristic".into()),
+        (_, Some((actual, previous))) => (
+            budget_tokens(charged_estimate, previous_anchor),
+            format!("max(final charged estimate, previous provider input {actual} + positive delta from previous heuristic {previous})"),
+        ),
+        (_, None) => (charged_estimate, "final charged estimate; no matching previous provider/estimate anchor".into()),
+    };
     let has_image = payload.messages.iter().flat_map(|message| &message.parts)
         .any(InferencePart::is_image);
     let input_limit = caps.as_ref().and_then(|caps| if has_image {
@@ -886,7 +886,6 @@ pub(super) fn prepare_context(
         contributions,
         contribution_omissions,
         contribution_tokens,
-        contribution_plan,
         context: FrozenContextInput {
             source: SubjectContextRef { scope_id, source_commit_seq,
                 leaf_seq: history.leaf, input_raw_event_ids,
@@ -896,7 +895,7 @@ pub(super) fn prepare_context(
             estimated_input_tokens,
             budget_input_tokens: Some(selected_budget_input_tokens),
             trigger_budget_input_tokens: Some(trigger_budget_input_tokens),
-            budget_provenance: format!("{budget_provenance}; reserved output {reserved_output_tokens}"),
+            budget_provenance: format!("{budget_provenance}; contribution max(rendered {contribution_estimate}, declared {contribution_tokens}); reserved output {reserved_output_tokens}"),
             reserved_output_tokens,
             unfinished_call_ids,
             token_counter: "heuristic:cjk-1-other-4@1; not a provider tokenizer".into(),

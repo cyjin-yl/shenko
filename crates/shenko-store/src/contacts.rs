@@ -1500,7 +1500,7 @@ impl Store {
             )
             .optional()
             .map_err(db)?;
-        data.as_deref().map(decode::<LifeRankRecord>).transpose()
+        data.as_deref().map(|data| decode::<LifeRankRecord>(data, "life voiceprint rank")).transpose()
     }
 
     /// Every registry revision of one rank, oldest first.
@@ -1526,7 +1526,7 @@ impl Store {
             .map_err(db)?;
         let mut out = Vec::new();
         for row in rows {
-            out.push(decode::<LifeRankRecord>(&row.map_err(db)?)?);
+            out.push(decode::<LifeRankRecord>(&row.map_err(db)?, "life voiceprint rank")?);
         }
         Ok(out)
     }

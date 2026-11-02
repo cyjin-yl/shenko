@@ -3533,7 +3533,7 @@ fn migrate_legacy_rows(manifest: &mut CognitionManifest) -> Vec<CognitionGap> {
                 .values
                 .iter()
                 .find(|(name, _)| name == column)
-                .map(|(_, value)| value.clone());
+                .and_then(|(_, value)| value.clone());
             values.push((column.to_string(), incoming));
         }
         let dropped: Vec<String> = row
@@ -3817,7 +3817,7 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     }
     let mut entry_owners = HashMap::new();
     for (id, intent) in &intents {
-        let subject_owned = subject_memory_intents.contains(id.as_ref());
+        let subject_owned = subject_memory_intents.contains(*id);
         let library_pending = !subject_owned
             && intent.value("state") == Some("accepted")
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));

@@ -70,6 +70,12 @@ fn empty_batch_commit_returns_receipt() {
 }
 
 fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
+    initialized_subject_with_bootstrap_event(b"seed")
+}
+
+fn initialized_subject_with_bootstrap_event(
+    bootstrap_event: &[u8],
+) -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
     use shenko_types::subject::{
@@ -91,7 +97,7 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
 
     let dummy_ref = store
         .cas
-        .seal_object(b"seed", "application/json", "test", "raw", 1)
+        .seal_object(bootstrap_event, "application/json", "test", "raw", 1)
         .unwrap()
         .object;
     let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
@@ -155,14 +161,54 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
         dummy_ref,
         genesis_commit,
     );
-    let receipt = store
+    store
         .initialize_genesis(&genesis, &head, &first_step, &root_task)
         .unwrap();
-    assert_eq!(receipt.updated.len(), 3);
 
     (dir, store, agent_id)
 }
 
+#[test]
+fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() {
+    use shenko_types::{error::ShenkoError, ids::EntityId};
+    let installation = EntityId::new();
+    let event = serde_json::to_vec(&serde_json::json!({"installation_id": installation})).unwrap();
+    let (dir, store, agent) = initialized_subject_with_bootstrap_event(&event);
+    assert_ne!(installation, store.ledger.ledger_id());
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    assert_eq!(reopened.installation_id_for_subject(agent).unwrap(), installation);
+
+    let genesis = reopened.get_subject_genesis(agent).unwrap().unwrap();
+    let foreign = EntityId::new();
+    let conn = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    conn.execute(
+        "INSERT INTO bootstrap_records(bootstrap_id,installation_id,subject_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4,?5)",
+        rusqlite::params![genesis.bootstrap_id.to_string(), foreign.to_string(), agent.to_string(),
+            serde_json::json!({"installation_id": foreign}).to_string(), genesis.created_commit.seq.0 as i64],
+    ).unwrap();
+    assert!(matches!(reopened.installation_id_for_subject(agent), Err(ShenkoError::Conflict(_))));
+    assert_eq!(reopened.cas.read_object(&genesis.bootstrap_event_ref.digest).unwrap(), event);
+}
+
+#[test]
+fn bootstrap_owner_projection_resolves_the_committed_grant_after_reopen() {
+    use shenko_store::config::OwnerGrant;
+    use shenko_types::{ids::EntityId, object::Digest};
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("owner.db"), dir.join("cas")).unwrap();
+    let installation = EntityId::new();
+    let principal = store.seal_config_object(&serde_json::json!({"kind": "principal"}), "principal").unwrap();
+    let authority = store.seal_config_object(&serde_json::json!({"kind": "authority"}), "authority").unwrap();
+    let (_, granted) = store.claim_owner(installation, EntityId::new(), principal, authority,
+        Digest::blake3(b"owner-projection-test-token")).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("owner.db"), dir.join("cas")).unwrap();
+    let reference = reopened.get_bootstrap_owner_grant(installation).unwrap().unwrap();
+    let bytes = std::fs::read(reopened.cas.verified_object_path(&reference).unwrap()).unwrap();
+    let projected: OwnerGrant = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(serde_json::to_value(projected).unwrap(), serde_json::to_value(granted.unwrap()).unwrap());
+}
 
 #[test]
 fn boundary_waits_for_recorded_step_and_survives_reopen() {
@@ -365,6 +411,9 @@ fn committed_candidate(
         event_dispositions: vec![EventDisposition {
             event_id: step.step_id,
             disposition: Disposition::Acknowledged,
+            reason: None,
+            priority: None,
+            review_after: None,
         }],
         delegated_task_intents: vec![],
         child_dialogue_intents: vec![],
@@ -372,6 +421,7 @@ fn committed_candidate(
         policy_intents: vec![],
         publication_intents: vec![],
         pending_obligations: vec![],
+        attention_policy: None,
         evidence_refs: vec![],
         successor_step_id: next,
     };

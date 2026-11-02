@@ -1104,6 +1104,7 @@ mod tests {
             task,
             operation_id,
             input,
+            child_tools: None,
         }
     }
 

@@ -1,6 +1,7 @@
 :root {
     --pui-radius: 0.625rem;
     --pui-radius-2xl: calc(var(--pui-radius) + 8px);
+    --pui-radius-3xl: calc(var(--pui-radius) + 12px);
     --pui-radius-4xl: calc(var(--pui-radius) + 16px);
     --pui-radius-xl: calc(var(--pui-radius) + 4px);
     --pui-radius-lg: var(--pui-radius);
@@ -89,9 +90,9 @@
     --pui-code-highlight: lab(15.32% 0 0);
     --pui-code-number: lab(67.52% -0.0000298023 0);
     --pui-selection: lab(90.952% 0 -0.0000119209);
-    --pui-selection-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-selection-foreground: lab(7.78201% 0 0);
   }
-  /* Theme-owned default; component selection utilities keep precedence. */
+    /* Theme-owned default; component selection utilities keep precedence. */
   @layer theme {
     ::selection {
       background-color: var(--pui-selection);
@@ -140,6 +141,6 @@
     --pui-code-highlight: lab(15.32% 0 0);
     --pui-code-number: lab(67.52% -0.0000298023 0);
     --pui-selection: lab(90.952% 0 -0.0000119209);
-    --pui-selection-foreground: lab(7.78201% -0.0000149012 0);
+    --pui-selection-foreground: lab(7.78201% 0 0);
   }
 }

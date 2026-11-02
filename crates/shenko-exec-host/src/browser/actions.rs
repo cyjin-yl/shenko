@@ -7,6 +7,7 @@
 //! unknown — never as a success, and never replayed.
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use serde_json::Value;
+use shenko_types::ids::EntityId;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -14,7 +15,7 @@ use std::time::Duration;
 use super::protocol::TabHandle;
 use super::engine::EngineFamily;
 use super::{
-    ActionReceipt, ActionReport, BrowserProvider, BrowserSession, ControlFacts, ControlRequest,
+    ActionReceipt, ActionReport, ActionRequest, BrowserProvider, BrowserSession, ControlFacts, ControlRequest,
     ControllerRole, IdentityFacts, IdentityRequest, ObserveOptions, PageAction, StorageState,
     now_rfc3339,
 };
@@ -570,7 +571,7 @@ impl BrowserProvider {
                 let cookies = session.protocol.cookies().await?;
                 let local = session
                     .protocol
-                    .evaluate_json(tab, &super::scripts::local_storage_script())
+                    .evaluate_json(&tab.handle, &super::scripts::local_storage_script())
                     .await?;
                 let items = local
                     .get("items")
@@ -666,7 +667,7 @@ impl BrowserProvider {
                     .unwrap_or_default();
                 if !items.is_empty() {
                     let script = super::scripts::set_local_storage_script(&items);
-                    session.protocol.evaluate_json(tab, &script).await?;
+                    session.protocol.evaluate_json(&tab.handle, &script).await?;
                 }
                 let profile_id = session.profile_id.clone();
                 let mut facts = self

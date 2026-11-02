@@ -399,7 +399,7 @@ impl SelfKnowledgeProvider {
                 kind: SelfResourceKind::Source,
                 uri: "self://source/layout".into(),
                 title: "Source tree location".into(),
-                content: format!("This running instance has no source tree at {root}. A feature that exists in the repository main branch is not a capability of this instance."),
+                content: format!("This running instance has no source tree at {}. A feature that exists in the repository main branch is not a capability of this instance.", root.display()),
                 source_revision: Some(revision.to_string()),
                 artifact_digest: None,
                 doc_revision: None,

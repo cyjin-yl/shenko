@@ -105,7 +105,7 @@ pub async fn upload(
     };
     let filekey = hex::encode(entropy("filekey entropy")?);
     let aes_key = entropy("aes key entropy")?;
-    let aes_key_hex = hex::encode(aes_key);
+    let aes_key_hex = hex::encode(&aes_key);
 
     let ticket = api
         .get_upload_url(
@@ -175,7 +175,7 @@ pub async fn download(api: &ILinkApi, media: &EncryptedMedia) -> Result<Vec<u8>,
         None => api.download_url(&media.encrypt_query_param),
     };
     let ciphertext = api.download_cdn(&url).await?;
-    let key = decode_key(&media.aes_key)?;
+    let key = decode_key(&media.aes_key).map_err(ILinkError::Incomplete)?;
     aes::decrypt_ecb_pkcs7(&key, &ciphertext)
         .map_err(|error| ILinkError::Incomplete(format!("media decryption failed: {error}")))
 }
@@ -219,9 +219,7 @@ pub fn padded_size(plaintext_size: usize) -> usize {
 
 /// The MD5 of the bytes, lowercase hexadecimal.
 pub fn md5_hex(bytes: &[u8]) -> String {
-    use md5::Digest as _;
-    let digest = md5::Md5::digest(bytes);
-    hex::encode(digest)
+    format!("{:x}", md5::compute(bytes))
 }
 
 /// Standard base64 with padding.

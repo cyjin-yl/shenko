@@ -29,6 +29,10 @@ pub struct MemoryWorker {
     stop: CancellationToken,
 }
 
+impl cordis_core::Service for MemoryWorker {
+    const NAME: &'static str = "shenko/memory-worker";
+}
+
 impl MemoryWorker {
     pub fn new(
         agent_id: EntityId,

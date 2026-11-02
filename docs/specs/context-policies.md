@@ -111,7 +111,7 @@ PreparationBinding {
 
 ## 瞬态上下文贡献（§37.7 / §41.8.1）
 
-贡献是**请求之前**准备好的材料：一次性的记忆提醒、一个认知视角、一条任务状态说明、"这一段已被压缩"的告知。它标明生产者、适用范围、失效时机，并在请求结束后记录**实际发送了什么**。
+贡献是**请求之前**准备好的材料：一次性的记忆提醒、一个认知视角、一条任务状态说明、"这一段已被压缩"的告知。它标明生产者、适用范围、失效时机；已提交 S0 记录本次请求采用的材料，provider 收据另行证明是否实际发送、收到或完成，二者不能混同。
 
 类型定义在 `shenko-types::plugin_runtime`（协议数据，§41.3 的共用类型层），字段与 SPEC §41.8.1 的 `ContextContribution` 一致，并补齐了 SPEC 要求的**范围（scope）与过期（expiry）**：
 
@@ -136,16 +136,29 @@ ContextContribution { key, slot, source, scope, input_revision, lifetime,
 
 `ContributionRegistry::collect(scope, now_ms)` 是请求路径：它只读已经准备好的材料，合并、丢弃过期项（并记录原因）、遵守各自声明的预算、从不调用生产者。总 token 使用 checked addition；无法表示的新增项进入 `omitted`，不会回绕或导致主循环 panic。整个请求的模型容量仍由最终载荷检查负责，不能把生产者声明成本当作实际 tokenizer 计数。
 
-`record_usage(usage)` 记录请求采用的完整准备身份，并消费当前注册表中与其匹配的单次项（`ThisRequest`）。另一作用域或较新输入修订不会被旧请求一并消费。用量证据（`ContributionUsage`）带请求 id、请求修订、输入修订、封口摘要、发送项、遗漏项与总 token。持久证据仍然是主体封口的 S0 与原始调用记录；注册表里的这份只是当前进程的即时视图，不能单独证明重启后的消费状态，更不能代替 provider 发送收据证明模型已收到。
+最终载荷检查按**完整载荷**收费，而不是按追加贡献之前的前缀：追加的贡献正文用同一条启发式重新估算，与生产者声明成本取较大者，加到所选窗口的估算上；所选窗口的图像估算被保留，不因按 vision=0 重扫而丢失。上限比较同时看这项完整估算和被校准的预算输入——绑定一致时，上一次 provider 实测输入的增量基准以完整载荷的估算为基数。容量没有观测到时仍然是未知，不按模型名臆造上限。
+
+`record_usage(usage)` 投影已提交 S0 采用的完整准备身份，并消费与其匹配的单次项（`ThisRequest`）。消费身份在注销、重新注册、重新发布以及恢复先于发布时都保留；改变准备时间不会制造新材料。另一作用域或较新输入修订不会被旧请求一并消费。同一请求的相同记录是幂等重放，改变其封口或内容会返回 `UsageConflict`，不覆盖旧证据。
+
+用量证据（`ContributionUsage`）带请求 id、请求修订、输入修订、封口摘要、发送项、遗漏项与总 token。主体只在 Store 接受 `planned → preparing` 后登记消费；仅写完 CAS 对象、过期快照被拒或 S0 事务失败都不消费。恢复和服务实例替换从该分支**全部已有封口的步骤**重建，包括早于当前 head 的步骤与退役尝试，而不只读取最新一步。一次步骤固定同一个已恢复的注册表实例。
+
+持久真相仍然是现有 schema 12 的 S0 与原始调用记录；没有新增消费表、必需归档字段或第二份持久身份。注册表是可重建视图，其消费记录不是 provider 发送收据，也不能证明模型已收到。不能解码或校验的历史封口会明确阻止恢复，不默认为“尚未消费”。
 
 四条使生产者与消费者不会各写一套约定的固定事实：
 
 - **材料文档**：`ContributionPayload { v, text }` 是 `data` 引用所指文档的形状。生产者封 `ContributionPayload::seal(text)` 并把结果的对象引用放进 `data`；消费者解析引用后用 `ContributionPayload::read(bytes)` 取出正文。文档版本更新会被读取方拒绝，而不是猜测。
 - **用量记录**：`ContributionUsage.sent` 保存完整 `ContextContribution`，包括作用域与生产者输入修订，不再以缺失这些字段的精简记录决定消费。`omitted` 的元素是 `ContributionOmission { key, slot, source, reason }`，`reason` 形如 `理由: 细节`。`ContributionPlan::usage(request_id, request_revision, input_revision, seal_digest)` 直接产出这份记录，调用方不需要手工拼装。
 - **范围匹配是精确的**：按任务准备的贡献只有在请求用同一任务 id 收集时才可用。用 `task_id: None` 收集只会得到范围级材料；其他任务的材料会以 `scope_mismatch` 被报告，也不会成为本请求的必需项。必需身份按 `(slot, key)` 检查，另一 slot 的同名键不能补足它。`scope_wide(scope_id)` 是范围级作用域的唯一构造入口。
-- **两个 token 数字是两件事**：`ContributionPlan.total_tokens` 是被保留贡献的声明成本合计（被裁剪的不计），而请求封口里的估算 token 是按实际追加的正文重新计算的。两者都要记录，不能互相替代。
+- **两个 token 数字是两件事**：`ContributionPlan.total_tokens` 是被保留贡献的声明成本合计（被裁剪的不计），而请求封口里的估算 token 是按实际追加的正文重新计算的。两者都要记录，不能互相替代；准入时以两者的较大值参与完整载荷的收费。
 
-生产者通过 `ContributionProvider` 注册；`prepare` 是慢路径，必须在请求之外运行。注册表是 Cordis 服务（`shenko/context-contribution`），任何插件可以在同一 root 上注册提供者并在清理时注销。
+生产者通过 `register(provider)` 注册；自己执行异步准备的生产者用 `register_publisher(source)`。两者返回本次注册的 `EntityId`，不是可被后继复用的槽位。`prepare` 是慢路径，必须在请求之外运行。注册表是 Cordis 服务（`shenko/context-contribution`），插件在清理时用 `unregister(registration)` 注销自己这一实例。
+
+发布按注册实例与 scope 隔离：
+
+1. **开始准备前**调用 `begin_publication(registration, scope)` 取得不可复制的 ticket。新一轮准备使旧 ticket 失效，但保留最后成功发布的材料。
+2. `publish(ticket, items)` 校验注册仍存活、批次未被替代、每项 source 与注册身份一致、scope 与 ticket 一致。成功时只替换本注册在该 scope 的批次；空批次只撤回自己的材料，不清空其他生产者。
+3. `unregister` 撤回本注册的全部已发布批次并使在途 ticket 失效。旧实例迟到发布或清理不能影响后继注册。
+4. `refresh` 在调用生产者之前取得各自 ticket，锁外执行准备，再整体校验和发布；失败或迟到结果不部分覆盖现有批次。收集路径仍不调用生产者。
 
 ## 错误与恢复
 
@@ -172,7 +185,8 @@ ContextContribution { key, slot, source, scope, input_revision, lifetime,
 | `PolicyRegistry::{prepare_candidate, prepare_and_publish, publish}` | `shenko-context-policy` | 主体运行时后台准备任务（`loop_runner.rs`，ArchSubjectNext） |
 | `PolicyRegistry::adopt_prepared` | `shenko-context-policy` | 主体请求路径 |
 | `PolicyRegistry::{apply_preference, install, uninstall}` | `shenko-context-policy` | 组合根与配置服务处理器 |
-| `ContributionRegistry::{register, publish, refresh, collect, record_usage}` | `shenko-context-policy` | 生产者插件（PMA 等）与主体请求路径 |
+| `ContributionRegistry::{register, register_publisher, begin_publication, publish, unregister}` | `shenko-context-policy` | 生产者插件的准备与生命周期 |
+| `ContributionRegistry::{refresh, collect, record_usage}` | `shenko-context-policy` | 后台准备任务与主体 S0/恢复路径 |
 | `merge_contributions` | `shenko-kernel` | hook `collect` 合成与 `ContributionRegistry::merge` |
 | `ContextPolicyHost` / `ContributionHost` | `shenko-context-policy` | 组合根发布服务 |
 | `BudgetCompactPlugin` / `SnapCompactPlugin` | 各自 crate | 组合根按安装记录启停 |
@@ -182,9 +196,11 @@ ContextContribution { key, slot, source, scope, input_revision, lifetime,
 
 ## 当前证据状态
 
-本文描述的是**源码中已存在的接口与行为**。以下尚未取得运行证据，本文件不据此宣称验收通过：
+本文描述的是**源码中已存在的接口与行为**。集成原生消费者已验证独立发布共存、一次性身份重发仍消费、先恢复 usage 后发布仍消费、注销撤回，以及真实 Store/CAS/主体 S0 重开后恢复同一消费与封口。旧的四项注册表失败、三项重开失败及修复后的原始回执均保留。注册表回归与 S0 CAS 拒绝回归通过；这些是合成材料的运行时机制证据，不是模型行为验收。
 
-- 全部构建、lint、测试与格式化由集成的父流程串行执行；本轮只提交源码。
+以下边界仍开放，本文件不据此宣称全部验收通过：
+
+- 贡献恢复证据不代表真实 provider 发送、跨版本归档、物理断电或完整 C01/C03 验收。
 - 未做真实模型/真实视觉帧的端到端切窗：帧渲染、中文/数字/路径/代码的可读性、图像 token 实际消耗仍需按 SPEC §12.3.2 的实测口径（各策略在相同任务上的正确率、原文定位、未完成工作续接、cached/computed prefill、Replay、总完成时长）取得。
 - provider 侧的真实视觉信封尚未接入，因此 `ModelCaps.vision` 目前来自已通告能力；没有通告时 snapcompact 走 `Unavailable` 回退，这是设计中的诚实降级。
 - 偏好顺序的权威配置值由配置服务提供；当前运行时使用安装顺序并在报告里说明来源。

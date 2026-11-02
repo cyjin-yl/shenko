@@ -411,8 +411,7 @@ impl Store {
         if let Some(continued) = spec.continue_task_id {
             let previous = self
                 .external_task(continued)
-                .map_err(|_| invalid())?
-                .ok_or_else(invalid)?;
+                .map_err(|_| invalid())?;
             if previous.kind != crate::external::MODEL_CHILD_KIND
                 || previous.agent_id != head.agent_id
                 || !previous.is_terminal()
@@ -852,7 +851,8 @@ fn deliver_child_dialogue(
 ) -> Result<DialogueOutcome, shenko_types::error::ShenkoError> {
     use crate::child::{DIALOGUE_INBOX, DialogueDelivery, read_task, write_task};
     use shenko_types::error::ShenkoError;
-    let Some(mut target) = read_task(tx, intent.target_task_id)? else {
+    let Some(mut target) = read_task(tx, intent.target_task_id)
+        .map_err(crate::store::storage_error)? else {
         return Ok(DialogueOutcome::Late(
             "the dialogue endpoint does not exist".into(),
         ));
@@ -915,7 +915,7 @@ fn deliver_child_dialogue(
     }
     target.record_revision = target.record_revision.next();
     target.updated_commit = commit;
-    write_task(tx, &target)?;
+    write_task(tx, &target).map_err(crate::store::storage_error)?;
     Ok(DialogueOutcome::Delivered {
         target_task_id: target.task_id,
         target_revision: target.record_revision.0,

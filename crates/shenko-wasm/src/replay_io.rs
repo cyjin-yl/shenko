@@ -38,7 +38,6 @@ struct State {
     abi: String,
     invocation: String,
     file: File,
-    replay: bool,
     sequence: u64,
     chain: String,
     binding: String,
@@ -46,8 +45,13 @@ struct State {
     failed: bool,
 }
 
+struct Inner {
+    replay: bool,
+    state: Mutex<State>,
+}
+
 #[derive(Clone)]
-pub struct ReplayIo(Arc<Mutex<State>>);
+pub struct ReplayIo(Arc<Inner>);
 
 fn write_frame(file: &mut File, bytes: &[u8]) -> Result<()> {
     file.write_all(&(bytes.len() as u64).to_le_bytes())?;
@@ -81,16 +85,18 @@ impl ReplayIo {
         Ok(Self::new(file, true, blake3::hash(&bytes).to_hex().to_string(), binding))
     }
     fn new(file: File, replay: bool, binding: String, identity: &ReplayBinding) -> Self {
-        Self(Arc::new(Mutex::new(State { file, replay, sequence: 0,
+        Self(Arc::new(Inner { replay, state: Mutex::new(State { file, sequence: 0,
             module: identity.module_blake3.clone(), abi: identity.abi.clone(),
             invocation: identity.invocation_blake3.clone(),
-            chain: binding.clone(), binding, finished: false, failed: false })))
+            chain: binding.clone(), binding, finished: false, failed: false }) }))
     }
     pub fn is_replay(&self) -> bool {
-        self.0.lock().map(|state| state.replay).unwrap_or(true)
+        // A recording supplier can check its mode while input() holds the
+        // ordering lock. Mode is immutable; querying it must not re-lock.
+        self.0.replay || self.0.state.is_poisoned()
     }
     pub fn verify_execution(&self, module: &[u8], invocation: &str) -> Result<()> {
-        let state = self.0.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
+        let state = self.0.state.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
         if state.module != blake3::hash(module).to_hex().as_str() || state.abi != abi_identity()
             || state.invocation != invocation {
             bail!("REPLAY_IO_BINDING_MISMATCH: executing module or host ABI");
@@ -102,11 +108,11 @@ impl ReplayIo {
     /// later be sealed as a successful deterministic replay.
     pub fn input(&self, operation: &str, request: &[u8], maximum: u64,
         supply: impl FnOnce() -> Result<Vec<u8>>) -> Result<Vec<u8>> {
-        let mut state = self.0.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
+        let mut state = self.0.state.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
         if state.finished || state.failed { bail!("REPLAY_IO_CLOSED"); }
         let result = (|| -> Result<Vec<u8>> {
             let request_blake3 = blake3::hash(request).to_hex().to_string();
-            let (event, metadata, value) = if state.replay {
+            let (event, metadata, value) = if self.0.replay {
                 let metadata = read_frame(&mut state.file, 64 * 1024)?;
                 let event: Event = serde_json::from_slice(&metadata)?;
                 if event.sequence != state.sequence || event.previous != state.chain
@@ -143,9 +149,9 @@ impl ReplayIo {
         result
     }
     pub fn finish(&self) -> Result<IoReceipt> {
-        let mut state = self.0.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
+        let mut state = self.0.state.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
         if state.failed || state.finished { bail!("REPLAY_IO_INCOMPLETE"); }
-        if state.replay {
+        if self.0.replay {
             let mut extra = [0];
             if state.file.read(&mut extra)? != 0 { state.failed = true; bail!("REPLAY_IO_UNCONSUMED"); }
         } else { state.file.sync_all()?; }
@@ -155,7 +161,7 @@ impl ReplayIo {
     }
     pub fn reject_unrecorded(&self, operation: &str) -> Result<()> {
         if self.is_replay() {
-            let mut state = self.0.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
+            let mut state = self.0.state.lock().map_err(|_| anyhow::anyhow!("REPLAY_IO_POISONED"))?;
             state.failed = true;
             bail!("REPLAY_IO_UNOBSERVED: {operation}; no fresh input or effect is permitted");
         }

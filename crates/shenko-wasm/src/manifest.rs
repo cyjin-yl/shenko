@@ -289,7 +289,7 @@ pub fn validate_manifest_name(name: &str) -> Result<()> {
             && name.len() <= 64
             && name
                 .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c | '.' | '_' | '-' | '+')),
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | '+')),
         "TOOL_NAME_INVALID: {name:?} must be 1..64 chars of [A-Za-z0-9._+-]"
     );
     Ok(())
@@ -417,7 +417,7 @@ impl ToolSetManifest {
                     crate::artifact::ARTIFACT_STREAM_BUFFER,
                     handle,
                 );
-                let (digest, length, _provenance) =
+                let (digest, _provenance, length) =
                     crate::artifact::stream_identity(&mut reader)?;
                 ensure!(
                     length == bytes,
@@ -427,6 +427,7 @@ impl ToolSetManifest {
                 digest.to_string()
             };
             let name = format!("{}-{}", meta.name_prefix, applet);
+            let entrypoint = format!("/tools/{name}");
             tools.push(ToolSetEntry {
                 name,
                 applet,
@@ -434,7 +435,7 @@ impl ToolSetManifest {
                 bytes,
                 sha256: sha256.to_ascii_lowercase(),
                 identity: Some(identity),
-                entrypoint: format!("/tools/{}-{}", meta.name_prefix, applet),
+                entrypoint,
             });
         }
         let toolchain = receipt

@@ -26,7 +26,7 @@ use crate::common::{PlatformAnswer, PlatformHttp, text_field};
 use super::config::ILinkConfig;
 
 /// The credentials the provider issued.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ILinkCredentials {
     /// The bot token.
     pub bot_token: String,

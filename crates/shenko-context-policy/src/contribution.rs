@@ -103,13 +103,15 @@ impl ContributionPayload {
 
     /// The document bytes of a prepared text.
     pub fn seal(text: impl Into<String>) -> Result<Vec<u8>, serde_json::Error> {
-        serde_json::to_vec(&Self { v: Self::VERSION, text: text.into() })
+        serde_json::to_vec(&Self {
+            v: Self::VERSION,
+            text: text.into(),
+        })
     }
 
     /// The text of a sealed document.
     pub fn read(bytes: &[u8]) -> Result<String, String> {
-        let payload: Self =
-            serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        let payload: Self = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
         if payload.v > Self::VERSION {
             return Err(format!(
                 "contribution payload version {} is newer than the {} this reader understands",
@@ -141,18 +143,35 @@ pub fn omission_record(
 /// to one task — is prepared and collected under this scope. Task-bound
 /// material carries the task id on both the prepared and the collected side.
 pub fn scope_wide(scope_id: EntityId) -> ContributionScope {
-    ContributionScope { scope_id, task_id: None }
+    ContributionScope {
+        scope_id,
+        task_id: None,
+    }
 }
 
 /// A failure while preparing or merging contributions.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, Serialize, Deserialize)]
 pub enum ContributionError {
-    #[error("CONTRIBUTION_CONFLICT: slot {slot:?} key {key} was contributed differently by {producers:?}")]
-    Conflict { slot: ContributionSlot, key: String, producers: Vec<EntityId> },
+    #[error(
+        "CONTRIBUTION_CONFLICT: slot {slot:?} key {key} was contributed differently by {producers:?}"
+    )]
+    Conflict {
+        slot: ContributionSlot,
+        key: String,
+        producers: Vec<EntityId>,
+    },
     #[error("contribution {key} does not apply to this scope: {detail}")]
     ScopeMismatch { key: String, detail: String },
     #[error("contribution provider {provider} failed: {reason}")]
     Provider { provider: String, reason: String },
+    #[error("contribution registration {registration} is no longer live")]
+    RegistrationGone { registration: EntityId },
+    #[error("contribution preparation for registration {registration} has been superseded")]
+    StalePublication { registration: EntityId },
+    #[error("contribution {key} does not belong to registration {registration}")]
+    SourceMismatch { registration: EntityId, key: String },
+    #[error("contribution usage for request {request_id} conflicts with its recorded seal")]
+    UsageConflict { request_id: EntityId },
     #[error("contribution budget exceeded: {used} tokens > {budget} tokens")]
     BudgetExceeded { used: u64, budget: u64 },
 }
@@ -169,24 +188,111 @@ impl From<ContributionConflict> for ContributionError {
 
 /// A producer of prepared contributions.
 ///
-/// `prepare` is the slow path and must run off the request path. A producer
-/// that prepares asynchronously may instead publish its result directly with
-/// [`ContributionRegistry::publish`].
+/// `prepare` is the slow path and must run off the request path. An asynchronous
+/// producer registers a publisher and obtains a publication ticket BEFORE
+/// starting work; a late completion cannot publish after replacement or disposal.
 pub trait ContributionProvider: Send + Sync + 'static {
     /// The producer identity carried by every contribution it prepares.
     fn manifest(&self) -> ContributionSource;
     /// Prepare contributions for one scope.
-    fn prepare(&self, scope: &ContributionScope) -> Result<Vec<ContextContribution>, ContributionError>;
+    fn prepare(
+        &self,
+        scope: &ContributionScope,
+    ) -> Result<Vec<ContextContribution>, ContributionError>;
+}
+
+/// One preparation, bound to a live registration and its scope. Tickets cannot
+/// be cloned or constructed by a caller. Starting newer work supersedes an
+/// older ticket without withdrawing the last successfully published batch.
+#[derive(Debug)]
+pub struct ContributionPublication {
+    registration: EntityId,
+    scope: ContributionScope,
+    generation: EntityId,
+}
+
+struct PreparedPublication {
+    scope: ContributionScope,
+    generation: EntityId,
+    contributions: Vec<ContextContribution>,
+}
+
+struct ContributionRegistration {
+    id: EntityId,
+    source: ContributionSource,
+    provider: Option<Arc<dyn ContributionProvider>>,
+    prepared: Vec<PreparedPublication>,
 }
 
 #[derive(Default)]
 struct ContributionState {
-    providers: Vec<(u64, Arc<dyn ContributionProvider>)>,
-    next_provider_id: u64,
-    /// Prepared contributions, newest first, each bound to its scope.
-    prepared: Vec<(ContributionScope, Vec<ContextContribution>)>,
-    /// Usage evidence per request id, newest first.
+    providers: Vec<ContributionRegistration>,
+    /// Append-only positions also index consumed identities without copying
+    /// their strings, sources and object references into a second collection.
     usages: Vec<ContributionUsage>,
+    usage_positions: HashMap<EntityId, usize>,
+    consumed: HashMap<Digest, Vec<(usize, usize)>>,
+}
+
+impl ContributionState {
+    fn is_consumed(&self, item: &ContextContribution) -> bool {
+        item.single_use()
+            && self
+                .consumed
+                .get(&item.data.digest)
+                .is_some_and(|positions| {
+                    positions.iter().any(|&(usage, sent)| {
+                        same_contribution(item, &self.usages[usage].sent[sent])
+                    })
+                })
+    }
+}
+
+fn begin_publication(
+    provider: &mut ContributionRegistration,
+    scope: &ContributionScope,
+) -> ContributionPublication {
+    let generation = EntityId::new();
+    match provider
+        .prepared
+        .iter_mut()
+        .find(|prepared| &prepared.scope == scope)
+    {
+        Some(prepared) => prepared.generation = generation,
+        None => provider.prepared.push(PreparedPublication {
+            scope: scope.clone(),
+            generation,
+            contributions: Vec::new(),
+        }),
+    }
+    ContributionPublication {
+        registration: provider.id,
+        scope: scope.clone(),
+        generation,
+    }
+}
+
+fn publication_position(
+    state: &ContributionState,
+    publication: &ContributionPublication,
+) -> Result<(usize, usize), ContributionError> {
+    let provider = state
+        .providers
+        .iter()
+        .position(|provider| provider.id == publication.registration)
+        .ok_or(ContributionError::RegistrationGone {
+            registration: publication.registration,
+        })?;
+    let prepared = state.providers[provider]
+        .prepared
+        .iter()
+        .position(|prepared| {
+            prepared.scope == publication.scope && prepared.generation == publication.generation
+        })
+        .ok_or(ContributionError::StalePublication {
+            registration: publication.registration,
+        })?;
+    Ok((provider, prepared))
 }
 
 /// The installed producers, their prepared material and the usage evidence.
@@ -209,53 +315,105 @@ impl ContributionRegistry {
 
     /// Register a producer. The returned handle identifies this exact
     /// registration, so a late cleanup cannot remove a later replacement.
-    pub fn register(&self, provider: Arc<dyn ContributionProvider>) -> u64 {
+    pub fn register(&self, provider: Arc<dyn ContributionProvider>) -> EntityId {
+        self.register_source(provider.manifest(), Some(provider))
+    }
+
+    /// Register an asynchronous publisher. Its identity is fixed for this
+    /// lifetime; a new implementation/source needs a new registration.
+    pub fn register_publisher(&self, source: ContributionSource) -> EntityId {
+        self.register_source(source, None)
+    }
+
+    fn register_source(
+        &self,
+        source: ContributionSource,
+        provider: Option<Arc<dyn ContributionProvider>>,
+    ) -> EntityId {
         let mut state = self.state.lock();
-        state.next_provider_id += 1;
-        let id = state.next_provider_id;
-        state.providers.push((id, provider));
+        let id = EntityId::new();
+        state.providers.push(ContributionRegistration {
+            id,
+            source,
+            provider,
+            prepared: Vec::new(),
+        });
         id
     }
 
-    /// Remove exactly that registration.
-    pub fn unregister(&self, id: u64) -> bool {
+    /// Remove exactly that registration, its prepared material and every
+    /// outstanding publication ticket. Consumption evidence outlives it.
+    pub fn unregister(&self, id: EntityId) -> bool {
         let mut state = self.state.lock();
         let before = state.providers.len();
-        state.providers.retain(|(registered, _)| *registered != id);
+        state.providers.retain(|provider| provider.id != id);
         state.providers.len() != before
     }
 
     pub fn providers(&self) -> Vec<ContributionSource> {
-        self.state.lock().providers.iter().map(|(_, provider)| provider.manifest()).collect()
+        self.state
+            .lock()
+            .providers
+            .iter()
+            .map(|provider| provider.source.clone())
+            .collect()
     }
 
-    /// Publish material a producer prepared itself. The scope of every
-    /// contribution must match `scope`; a mismatch is refused rather than
-    /// filed under the wrong scope.
+    /// Acquire a ticket before preparing work, not after it completes.
+    pub fn begin_publication(
+        &self,
+        registration: EntityId,
+        scope: &ContributionScope,
+    ) -> Result<ContributionPublication, ContributionError> {
+        let mut state = self.state.lock();
+        let provider = state
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == registration)
+            .ok_or(ContributionError::RegistrationGone { registration })?;
+        Ok(begin_publication(provider, scope))
+    }
+
+    /// Replace only this registration's batch for this scope. Empty material
+    /// withdraws that batch; other registrations and scopes are untouched.
     pub fn publish(
         &self,
-        scope: &ContributionScope,
+        publication: ContributionPublication,
         contributions: Vec<ContextContribution>,
     ) -> Result<(), ContributionError> {
-        for contribution in &contributions {
-            if contribution.scope.scope_id != scope.scope_id
-                || contribution.scope.task_id != scope.task_id
-            {
-                return Err(ContributionError::ScopeMismatch {
-                    key: contribution.key.clone(),
-                    detail: format!(
-                        "prepared for scope {} / task {:?}, published under {} / {:?}",
-                        contribution.scope.scope_id,
-                        contribution.scope.task_id,
-                        scope.scope_id,
-                        scope.task_id
-                    ),
-                });
+        self.publish_batch(&mut [(publication, contributions)])
+    }
+
+    fn publish_batch(
+        &self,
+        batches: &mut [(ContributionPublication, Vec<ContextContribution>)],
+    ) -> Result<(), ContributionError> {
+        let mut state = self.state.lock();
+        // Verify the whole refresh before replacing anything. No callback is
+        // invoked while holding this lock.
+        for (publication, contributions) in batches.iter() {
+            let (provider, _) = publication_position(&state, publication)?;
+            for contribution in contributions {
+                if contribution.source != state.providers[provider].source {
+                    return Err(ContributionError::SourceMismatch {
+                        registration: publication.registration,
+                        key: contribution.key.clone(),
+                    });
+                }
+                if contribution.scope != publication.scope {
+                    return Err(ContributionError::ScopeMismatch {
+                        key: contribution.key.clone(),
+                        detail: "prepared scope differs from publication ticket".into(),
+                    });
+                }
             }
         }
-        let mut state = self.state.lock();
-        state.prepared.retain(|(prepared, _)| prepared != scope);
-        state.prepared.insert(0, (scope.clone(), contributions));
+        for (publication, contributions) in batches.iter_mut() {
+            contributions.retain(|item| !state.is_consumed(item));
+            let (provider, prepared) = publication_position(&state, publication)?;
+            state.providers[provider].prepared[prepared].contributions =
+                std::mem::take(contributions);
+        }
         Ok(())
     }
 
@@ -266,12 +424,20 @@ impl ContributionRegistry {
         scope: &ContributionScope,
         now_ms: i64,
     ) -> Result<ContributionPlan, ContributionError> {
-        let providers: Vec<Arc<dyn ContributionProvider>> =
-            self.state.lock().providers.iter().map(|(_, provider)| provider.clone()).collect();
-        let mut prepared = Vec::new();
-        for provider in providers {
+        let providers: Vec<_> = self
+            .state
+            .lock()
+            .providers
+            .iter_mut()
+            .filter_map(|registration| {
+                let provider = registration.provider.clone()?;
+                Some((begin_publication(registration, scope), provider))
+            })
+            .collect();
+        let mut prepared = Vec::with_capacity(providers.len());
+        for (publication, provider) in providers {
             match provider.prepare(scope) {
-                Ok(contributions) => prepared.extend(contributions),
+                Ok(contributions) => prepared.push((publication, contributions)),
                 Err(error) => {
                     return Err(ContributionError::Provider {
                         provider: provider.manifest().plugin_id.to_string(),
@@ -280,7 +446,7 @@ impl ContributionRegistry {
                 }
             }
         }
-        self.publish(scope, prepared)?;
+        self.publish_batch(&mut prepared)?;
         Ok(self.collect(scope, now_ms))
     }
 
@@ -316,10 +482,11 @@ impl ContributionRegistry {
         let prepared: Vec<ContextContribution> = {
             let state = self.state.lock();
             state
-                .prepared
+                .providers
                 .iter()
-                .filter(|(prepared_scope, _)| prepared_scope.scope_id == scope.scope_id)
-                .flat_map(|(_, contributions)| contributions.iter().cloned())
+                .flat_map(|provider| &provider.prepared)
+                .filter(|prepared| prepared.scope.scope_id == scope.scope_id)
+                .flat_map(|prepared| prepared.contributions.iter().cloned())
                 .collect()
         };
         let mut plan = ContributionPlan::default();
@@ -352,9 +519,9 @@ impl ContributionRegistry {
                 }
             }
             if contribution.required
-                && !required_keys.iter().any(|(slot, key)| {
-                    *slot == contribution.slot && key == &contribution.key
-                })
+                && !required_keys
+                    .iter()
+                    .any(|(slot, key)| *slot == contribution.slot && key == &contribution.key)
             {
                 required_keys.push((contribution.slot, contribution.key.clone()));
             }
@@ -362,7 +529,10 @@ impl ContributionRegistry {
                 plan.omitted.push(omission(
                     &contribution,
                     "expired",
-                    format!("lifetime {:?} ended before collection", contribution.lifetime),
+                    format!(
+                        "lifetime {:?} ended before collection",
+                        contribution.lifetime
+                    ),
                 ));
                 continue;
             }
@@ -392,7 +562,8 @@ impl ContributionRegistry {
                 groups.push((contribution, false));
             }
         }
-        plan.contributions = groups.into_iter()
+        plan.contributions = groups
+            .into_iter()
             .filter_map(|(contribution, conflicted)| (!conflicted).then_some(contribution))
             .collect();
         // Slot order is the assembly order; within a slot the producer order
@@ -433,7 +604,10 @@ impl ContributionRegistry {
         plan.contributions = kept;
         plan.total_tokens = used;
         for (slot, key) in required_keys {
-            if !plan.contributions.iter().any(|contribution| contribution.slot == slot && contribution.key == key)
+            if !plan
+                .contributions
+                .iter()
+                .any(|contribution| contribution.slot == slot && contribution.key == key)
                 && !plan.missing_required.contains(&key)
             {
                 plan.missing_required.push(key);
@@ -454,29 +628,60 @@ impl ContributionRegistry {
         merge_contributions(slot, key, contributions).map_err(ContributionError::from)
     }
 
-    /// Record what a request actually sent. The single-use contributions that
-    /// were sent are consumed here, so a transient reminder does not roll
-    /// into the next request.
-    pub fn record_usage(&self, usage: ContributionUsage) {
+    /// Project an accepted S0. This is reservation/consumption evidence, not
+    /// proof that a provider received the request. Replay is immutable and
+    /// restores consumption even before a producer republishes its material.
+    pub fn record_usage(&self, usage: ContributionUsage) -> Result<(), ContributionError> {
         let mut state = self.state.lock();
-        for (_, contributions) in state.prepared.iter_mut() {
-            contributions.retain(|contribution| {
-                !(contribution.single_use()
-                    && usage.sent.iter().any(|used| same_contribution(contribution, used)))
-            });
+        if let Some(&position) = state.usage_positions.get(&usage.request_id) {
+            return if state.usages[position] == usage {
+                Ok(())
+            } else {
+                Err(ContributionError::UsageConflict {
+                    request_id: usage.request_id,
+                })
+            };
         }
-        state.usages.retain(|recorded| recorded.request_id != usage.request_id);
-        state.usages.insert(0, usage);
+        for provider in &mut state.providers {
+            for prepared in &mut provider.prepared {
+                prepared.contributions.retain(|contribution| {
+                    !(contribution.single_use()
+                        && usage
+                            .sent
+                            .iter()
+                            .any(|used| same_contribution(contribution, used)))
+                });
+            }
+        }
+        let position = state.usages.len();
+        state.usage_positions.insert(usage.request_id, position);
+        state.usages.push(usage);
+        for sent in 0..state.usages[position].sent.len() {
+            let contribution = &state.usages[position].sent[sent];
+            if contribution.single_use() && !state.is_consumed(contribution) {
+                let digest = contribution.data.digest.clone();
+                state
+                    .consumed
+                    .entry(digest)
+                    .or_default()
+                    .push((position, sent));
+            }
+        }
+        Ok(())
     }
 
     /// The usage evidence of one request.
     pub fn usage(&self, request_id: &EntityId) -> Option<ContributionUsage> {
-        self.state.lock().usages.iter().find(|usage| usage.request_id == *request_id).cloned()
+        let state = self.state.lock();
+        state
+            .usage_positions
+            .get(request_id)
+            .map(|&position| state.usages[position].clone())
     }
 
     /// Every recorded usage, newest first.
     pub fn usages(&self) -> Vec<ContributionUsage> {
-        self.state.lock().usages.clone()
+        self.state.lock().usages.iter().rev().cloned().collect()
     }
 }
 

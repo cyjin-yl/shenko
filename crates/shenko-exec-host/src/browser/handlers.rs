@@ -7,7 +7,7 @@
 //! operation with fresh evidence. Nothing is ever replayed.
 use anyhow::{Context, Result, anyhow, ensure};
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use shenko_store::Store;
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
@@ -256,7 +256,7 @@ async fn drive(
     )
 }
 
-fn seal(store: &Store, value: &serde_json::Value, schema: &str) -> Result<ObjectRef> {
+fn seal<T: serde::Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
     match store
         .cas
         .seal_object(&serde_json::to_vec(value)?, "application/json", "browser-effects", schema, 1)
@@ -333,29 +333,26 @@ impl BrowserSessionHandler {
                 };
                 let frozen = serde_json::to_value(&request)?;
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.session",
-                    "browser-session-open",
-                    frozen.clone(),
-                    serde_json::json!({"op": "open"}),
-                    "a real browser process is bound to the persistent profile, its control \
-                     endpoint answers, and the session facts name the engine, the mode and the \
-                     restore coverage",
-                    async move {
-                        let facts = provider
-                            .open_session(request, caller, &node)
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::to_value(&facts)?,
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.session",
+                "browser-session-open",
+                frozen.clone(),
+                serde_json::json!({"op": "open"}),
+                "a real browser process is bound to the persistent profile, its control \
+                 endpoint answers, and the session facts name the engine, the mode and the \
+                 restore coverage",
+                async move {
+                    let facts = provider
+                        .open_session(request, caller, &node)
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::to_value(&facts)?,
+                    ))
+                },)
                 .await
             }
             "close" => {
@@ -364,51 +361,45 @@ impl BrowserSessionHandler {
                     .ok_or_else(|| anyhow!("close requires session_id"))?;
                 let frozen = serde_json::json!({"op":"close","session_id":session_id});
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.session",
-                    "browser-session-close",
-                    frozen.clone(),
-                    serde_json::json!({"op": "close"}),
-                    "the browser process is stopped, the virtual display is released and the \
-                     profile's single write ownership is given back",
-                    async move {
-                        let facts = provider
-                            .close_session(session_id, caller)
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::to_value(&facts)?,
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.session",
+                "browser-session-close",
+                frozen.clone(),
+                serde_json::json!({"op": "close"}),
+                "the browser process is stopped, the virtual display is released and the \
+                 profile's single write ownership is given back",
+                async move {
+                    let facts = provider
+                        .close_session(session_id, caller)
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::to_value(&facts)?,
+                    ))
+                },)
                 .await
             }
             "list" => {
                 let frozen = serde_json::json!({"op":"list"});
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.session",
-                    "browser-session-list",
-                    frozen.clone(),
-                    serde_json::json!({"op": "list"}),
-                    "every live session of this process is listed with its engine, mode and tabs",
-                    async move {
-                        let facts = provider.list_sessions().await;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::json!({"sessions": facts}),
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.session",
+                "browser-session-list",
+                frozen.clone(),
+                serde_json::json!({"op": "list"}),
+                "every live session of this process is listed with its engine, mode and tabs",
+                async move {
+                    let facts = provider.list_sessions().await?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::json!({"sessions": facts}),
+                    ))
+                },)
                 .await
             }
             other => Err(anyhow!("unknown browser.session op {other}")),
@@ -420,7 +411,7 @@ impl BrowserSessionHandler {
 // browser.page — observe / navigate / tab management (read path)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PageOpInput {
     op: Option<String>,
@@ -456,29 +447,26 @@ impl BrowserPageHandler {
                 };
                 let frozen = serde_json::to_value(&input)?;
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.page",
-                    "browser-page-observe",
-                    frozen.clone(),
-                    serde_json::json!({"op": "observe"}),
-                    "the observation is content-bound: its id is the digest of the page state it \
-                     actually captured, and its restore coverage says a reopened profile does not \
-                     restore live tabs or in-page memory",
-                    async move {
-                        let observation = provider
-                            .observe(session_id, input.tab_id.as_deref(), options)
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::to_value(&observation)?,
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.page",
+                "browser-page-observe",
+                frozen.clone(),
+                serde_json::json!({"op": "observe"}),
+                "the observation is content-bound: its id is the digest of the page state it \
+                 actually captured, and its restore coverage says a reopened profile does not \
+                 restore live tabs or in-page memory",
+                async move {
+                    let observation = provider
+                        .observe(session_id, input.tab_id.as_deref(), options)
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::to_value(&observation)?,
+                    ))
+                },)
                 .await
             }
             "navigate" => {
@@ -489,75 +477,69 @@ impl BrowserPageHandler {
                 ensure!(url.len() <= 4096, "url is too long");
                 let frozen = serde_json::json!({"op":"navigate","session_id":session_id,"tab_id":input.tab_id,"url":url});
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.page",
-                    "browser-page-navigate",
-                    frozen.clone(),
-                    serde_json::json!({"op": "navigate"}),
-                    "the engine accepted the navigation and reports the resulting URL, or names \
-                     its own refusal (e.g. net::ERR_NAME_NOT_RESOLVED)",
-                    async move {
-                        let session = provider
-                            .session(session_id)
-                            .map_err(|error| anyhow!(error))?;
-                        let tab = provider
-                            .resolve_tab(&session, input.tab_id.as_deref())
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        let outcome = session
-                            .protocol
-                            .navigate(&tab.handle, &url)
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        let (success, effect, detail) = match &outcome.error_text {
-                            Some(error) => (false, EffectStatus::None, error.clone()),
-                            None => (true, EffectStatus::None, outcome.url.clone()),
-                        };
-                        Ok(BrowserOutcome::done(
-                            if success {
-                                OperationOutcome::Succeeded
-                            } else {
-                                OperationOutcome::Failed
-                            },
-                            effect,
-                            ObservationLevel::RemoteCompleted,
-                            serde_json::to_value(&outcome)?,
-                        )
-                        .with_detail(detail))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.page",
+                "browser-page-navigate",
+                frozen.clone(),
+                serde_json::json!({"op": "navigate"}),
+                "the engine accepted the navigation and reports the resulting URL, or names \
+                 its own refusal (e.g. net::ERR_NAME_NOT_RESOLVED)",
+                async move {
+                    let session = provider
+                        .session(session_id)
+                        .map_err(|error| anyhow!(error))?;
+                    let tab = provider
+                        .resolve_tab(&session, input.tab_id.as_deref())
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    let outcome = session
+                        .protocol
+                        .navigate(&tab.handle, &url)
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    let (success, effect, detail) = match &outcome.error_text {
+                        Some(error) => (false, EffectStatus::None, error.clone()),
+                        None => (true, EffectStatus::None, outcome.url.clone()),
+                    };
+                    Ok(BrowserOutcome::done(
+                        if success {
+                            OperationOutcome::Succeeded
+                        } else {
+                            OperationOutcome::Failed
+                        },
+                        effect,
+                        ObservationLevel::RemoteCompleted,
+                        serde_json::to_value(&outcome)?,
+                    )
+                    .with_detail(detail))
+                },)
                 .await
             }
             "tabs" => {
                 let frozen = serde_json::json!({"op":"tabs","session_id":session_id});
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.page",
-                    "browser-page-tabs",
-                    frozen.clone(),
-                    serde_json::json!({"op": "tabs"}),
-                    "the engine lists its own open tabs",
-                    async move {
-                        let session = provider
-                            .session(session_id)
-                            .map_err(|error| anyhow!(error))?;
-                        let tabs = session
-                            .protocol
-                            .list_tabs()
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::json!({"tabs": tabs}),
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.page",
+                "browser-page-tabs",
+                frozen.clone(),
+                serde_json::json!({"op": "tabs"}),
+                "the engine lists its own open tabs",
+                async move {
+                    let session = provider
+                        .session(session_id)
+                        .map_err(|error| anyhow!(error))?;
+                    let tabs = session
+                        .protocol
+                        .list_tabs()
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::json!({"tabs": tabs}),
+                    ))
+                },)
                 .await
             }
             "open_tab" => {
@@ -565,31 +547,28 @@ impl BrowserPageHandler {
                 ensure!(url.len() <= 4096, "url is too long");
                 let frozen = serde_json::json!({"op":"open_tab","session_id":session_id,"url":url});
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.page",
-                    "browser-page-open-tab",
-                    frozen.clone(),
-                    serde_json::json!({"op": "open_tab"}),
-                    "the engine created a new tab and reports its own tab id",
-                    async move {
-                        let session = provider
-                            .session(session_id)
-                            .map_err(|error| anyhow!(error))?;
-                        let tab = session
-                            .protocol
-                            .create_tab(&url)
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::to_value(&tab)?,
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.page",
+                "browser-page-open-tab",
+                frozen.clone(),
+                serde_json::json!({"op": "open_tab"}),
+                "the engine created a new tab and reports its own tab id",
+                async move {
+                    let session = provider
+                        .session(session_id)
+                        .map_err(|error| anyhow!(error))?;
+                    let tab = session
+                        .protocol
+                        .create_tab(&url)
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::to_value(&tab)?,
+                    ))
+                },)
                 .await
             }
             "close_tab" => {
@@ -599,35 +578,32 @@ impl BrowserPageHandler {
                     .ok_or_else(|| anyhow!("close_tab requires tab_id"))?;
                 let frozen = serde_json::json!({"op":"close_tab","session_id":session_id,"tab_id":tab_id});
                 let provider = Arc::clone(&self.provider);
-                drive(
-                    &provider,
-                    invocation,
-                    "browser.page",
-                    "browser-page-close-tab",
-                    frozen.clone(),
-                    serde_json::json!({"op": "close_tab"}),
-                    "the engine closed the tab",
-                    async move {
-                        let session = provider
-                            .session(session_id)
-                            .map_err(|error| anyhow!(error))?;
-                        let tab = provider
-                            .resolve_tab(&session, Some(&tab_id))
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        session
-                            .protocol
-                            .close_tab(&tab.handle)
-                            .await
-                            .map_err(|error| anyhow!(error))?;
-                        Ok(BrowserOutcome::done(
-                            OperationOutcome::Succeeded,
-                            EffectStatus::None,
-                            ObservationLevel::PostconditionVerified,
-                            serde_json::json!({"closed": tab_id}),
-                        ))
-                    },
-                )
+                drive(&self.provider, invocation,
+                "browser.page",
+                "browser-page-close-tab",
+                frozen.clone(),
+                serde_json::json!({"op": "close_tab"}),
+                "the engine closed the tab",
+                async move {
+                    let session = provider
+                        .session(session_id)
+                        .map_err(|error| anyhow!(error))?;
+                    let tab = provider
+                        .resolve_tab(&session, Some(&tab_id))
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    session
+                        .protocol
+                        .close_tab(&tab.handle)
+                        .await
+                        .map_err(|error| anyhow!(error))?;
+                    Ok(BrowserOutcome::done(
+                        OperationOutcome::Succeeded,
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::json!({"closed": tab_id}),
+                    ))
+                },)
                 .await
             }
             other => Err(anyhow!("unknown browser.page op {other}")),
@@ -713,45 +689,42 @@ impl BrowserActionHandler {
             "actions": actions,
         });
         let provider = Arc::clone(&self.provider);
-        drive(
-            &provider,
-            invocation,
-            "browser.action",
-            "browser-action",
-            frozen.clone(),
-            serde_json::json!({"op": "action"}),
-            "every action ran only after the bound observation re-verified and the lease epoch \
-             was live; a delivered action without a visible effect is recorded unknown",
-            async move {
-                let report = provider
-                    .act(ActionRequest {
-                        session_id,
-                        tab_id: input.tab_id.clone(),
-                        observation_id,
-                        lease_token,
-                        actions,
-                    }, caller)
-                    .await
-                    .map_err(|error| anyhow!(error))?;
-                let effect = match report.effect.as_str() {
-                    "complete" => EffectStatus::Complete,
-                    "partial" => EffectStatus::Partial,
-                    "none" => EffectStatus::None,
-                    _ => EffectStatus::Unknown,
-                };
-                let level = if effect == EffectStatus::Complete {
-                    ObservationLevel::PostconditionVerified
-                } else {
-                    ObservationLevel::RemoteCompleted
-                };
-                Ok(BrowserOutcome::done(
-                    OperationOutcome::Succeeded,
-                    effect,
-                    level,
-                    serde_json::to_value(&report)?,
-                ))
-            },
-        )
+        drive(&self.provider, invocation,
+        "browser.action",
+        "browser-action",
+        frozen.clone(),
+        serde_json::json!({"op": "action"}),
+        "every action ran only after the bound observation re-verified and the lease epoch \
+         was live; a delivered action without a visible effect is recorded unknown",
+        async move {
+            let report = provider
+                .act(ActionRequest {
+                    session_id,
+                    tab_id: input.tab_id.clone(),
+                    observation_id,
+                    lease_token,
+                    actions,
+                }, caller)
+                .await
+                .map_err(|error| anyhow!(error))?;
+            let effect = match report.effect.as_str() {
+                "complete" => EffectStatus::Complete,
+                "partial" => EffectStatus::Partial,
+                "none" => EffectStatus::None,
+                _ => EffectStatus::Unknown,
+            };
+            let level = if effect == EffectStatus::Complete {
+                ObservationLevel::PostconditionVerified
+            } else {
+                ObservationLevel::RemoteCompleted
+            };
+            Ok(BrowserOutcome::done(
+                OperationOutcome::Succeeded,
+                effect,
+                level,
+                serde_json::to_value(&report)?,
+            ))
+        },)
         .await
     }
 }
@@ -794,36 +767,33 @@ impl BrowserControlHandler {
             "lease_token": input.lease_token,
         });
         let provider = Arc::clone(&self.provider);
-        drive(
-            &provider,
-            invocation,
-            "browser.control",
-            "browser-control",
-            frozen.clone(),
-            serde_json::json!({"op": op}),
-            "exactly one controller holds the session's input at any time; a takeover moves the \
-             controller epoch so the previous controller's late input is rejected",
-            async move {
-                let facts = provider
-                    .control(
-                        ControlRequest {
-                            session_id,
-                            op,
-                            role: input.role,
-                            lease_token: input.lease_token,
-                        },
-                        caller,
-                    )
-                    .await
-                    .map_err(|error| anyhow!(error))?;
-                Ok(BrowserOutcome::done(
-                    OperationOutcome::Succeeded,
-                    EffectStatus::None,
-                    ObservationLevel::PostconditionVerified,
-                    serde_json::to_value(&facts)?,
-                ))
-            },
-        )
+        drive(&self.provider, invocation,
+        "browser.control",
+        "browser-control",
+        frozen.clone(),
+        serde_json::json!({"op": op}),
+        "exactly one controller holds the session's input at any time; a takeover moves the \
+         controller epoch so the previous controller's late input is rejected",
+        async move {
+            let facts = provider
+                .control(
+                    ControlRequest {
+                        session_id,
+                        op,
+                        role: input.role,
+                        lease_token: input.lease_token,
+                    },
+                    caller,
+                )
+                .await
+                .map_err(|error| anyhow!(error))?;
+            Ok(BrowserOutcome::done(
+                OperationOutcome::Succeeded,
+                EffectStatus::None,
+                ObservationLevel::PostconditionVerified,
+                serde_json::to_value(&facts)?,
+            ))
+        },)
         .await
     }
 }
@@ -865,36 +835,33 @@ impl BrowserIdentityHandler {
             "engine": input.engine,
         });
         let provider = Arc::clone(&self.provider);
-        drive(
-            &provider,
-            invocation,
-            "browser.identity",
-            "browser-identity",
-            frozen.clone(),
-            serde_json::json!({"op": op}),
-            "the operation is bound to the real profile directory or the live session's own \
-             storage; storageState is reported as the weaker form it is, never as live page \
-             continuity",
-            async move {
-                let facts = provider
-                    .identity_op(IdentityRequest {
-                        op,
-                        profile_id: input.profile_id,
-                        engine: input.engine,
-                        session_id: input.session_id,
-                        tab_id: input.tab_id,
-                        state: input.state,
-                    }, caller, &node)
-                    .await
-                    .map_err(|error| anyhow!(error))?;
-                Ok(BrowserOutcome::done(
-                    OperationOutcome::Succeeded,
-                    EffectStatus::None,
-                    ObservationLevel::PostconditionVerified,
-                    serde_json::to_value(&facts)?,
-                ))
-            },
-        )
+        drive(&self.provider, invocation,
+        "browser.identity",
+        "browser-identity",
+        frozen.clone(),
+        serde_json::json!({"op": op}),
+        "the operation is bound to the real profile directory or the live session's own \
+         storage; storageState is reported as the weaker form it is, never as live page \
+         continuity",
+        async move {
+            let facts = provider
+                .identity_op(IdentityRequest {
+                    op,
+                    profile_id: input.profile_id,
+                    engine: input.engine,
+                    session_id: input.session_id,
+                    tab_id: input.tab_id,
+                    state: input.state,
+                }, caller, &node)
+                .await
+                .map_err(|error| anyhow!(error))?;
+            Ok(BrowserOutcome::done(
+                OperationOutcome::Succeeded,
+                EffectStatus::None,
+                ObservationLevel::PostconditionVerified,
+                serde_json::to_value(&facts)?,
+            ))
+        },)
         .await
     }
 }

@@ -607,7 +607,7 @@ pub struct MediaRecordingReceipt {
     pub commit_ref: CommitRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaRecordingAdmission {
     pub receipt: MediaRecordingReceipt,
     /// Present iff this commit admitted a NEW fact, for an optional live wake.
@@ -706,7 +706,7 @@ pub struct MediaPriorityReceipt {
     pub commit_ref: CommitRef,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaPriorityAdmission {
     pub receipt: MediaPriorityReceipt,
     pub notify: Option<MediaIngressEvent>,

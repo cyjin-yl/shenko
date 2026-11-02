@@ -34,9 +34,8 @@ use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
 use shenko_types::error::ShenkoError;
-use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
+use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
 
 use crate::store::Store;
@@ -735,12 +734,9 @@ impl Store {
     pub fn add_research_candidate(
         &self,
         candidate: &ResearchCandidate,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
-            || {
-                self.try_add_candidate(candidate)?;
-                Ok(())
-            },
+            || self.try_add_candidate(candidate),
             research_storage_failure,
         )
     }
@@ -905,10 +901,10 @@ impl Store {
                 .iter()
                 .map(|entry| entry.entry_id)
                 .collect();
-            let previous_epoch = match existing.reset_from_epoch {
-                Some(id) => Some(self.research_epoch(id)?),
-                None => None,
-            };
+            let previous_id = existing.reset_from_epoch
+                .ok_or_else(|| ShenkoError::storage("reset epoch lacks its origin"))?;
+            let previous_epoch = self.research_epoch(previous_id)?
+                .ok_or_else(|| ShenkoError::storage("reset epoch origin is not retained"))?;
             let excluded_failure_entries = match existing.reset_from_epoch {
                 Some(id) => {
                     self.bank_entries(id, BankSelection::Failures)?.len()
@@ -1234,12 +1230,9 @@ impl Store {
     pub fn put_bank_entry(
         &self,
         entry: &InterventionBankEntry,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
-            || {
-                self.try_put_bank_entry(entry)?;
-                Ok(())
-            },
+            || self.try_put_bank_entry(entry),
             research_storage_failure,
         )
     }
@@ -1382,16 +1375,61 @@ impl Store {
         Ok(entries)
     }
 
-    /// Correct one bank entry: the new entry supersedes the old one and both
-    /// stay readable with their relation (SPEC §12.2 correction).
+    /// Link two retained bank entries as a correction. Both bodies remain
+    /// readable, and the relation is committed atomically (SPEC §12.2).
     pub fn supersede_bank_entry(
         &self,
         superseded: EntityId,
-        replacement: &InterventionBankEntry,
-    ) -> Result<CommitReceipt, ShenkoError> {
+        replacement: EntityId,
+    ) -> Result<(), ShenkoError> {
+        if superseded == replacement {
+            return Err(ShenkoError::conflict("a bank entry cannot supersede itself"));
+        }
         self.ledger.with_mutation(
             || {
-                self.try_put_bank_entry(replacement)?;
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(crate::store::storage_error)?;
+                ensure_research_schema(&tx)?;
+                let old_id = superseded.to_string();
+                let new_id = replacement.to_string();
+                let old_link: Option<Option<String>> = tx.query_row(
+                    "SELECT superseded_by FROM intervention_bank_entries WHERE entry_id=?1",
+                    [&old_id], |row| row.get(0),
+                ).optional().map_err(crate::store::storage_error)?;
+                let new_link: Option<Option<String>> = tx.query_row(
+                    "SELECT supersedes FROM intervention_bank_entries WHERE entry_id=?1",
+                    [&new_id], |row| row.get(0),
+                ).optional().map_err(crate::store::storage_error)?;
+                let old_link = old_link.ok_or_else(|| ShenkoError::not_found("superseded bank entry"))?;
+                let new_link = new_link.ok_or_else(|| ShenkoError::not_found("replacement bank entry"))?;
+                if old_link.as_deref() == Some(new_id.as_str()) && new_link.as_deref() == Some(old_id.as_str()) {
+                    return Ok(());
+                }
+                if old_link.as_deref().is_some_and(|id| id != new_id.as_str())
+                    || new_link.as_deref().is_some_and(|id| id != old_id.as_str())
+                {
+                    return Err(ShenkoError::conflict("bank supersession relation already names another entry"));
+                }
+                let closes_cycle: bool = tx.query_row(
+                    "WITH RECURSIVE successors(entry_id) AS (
+                        SELECT ?1 UNION
+                        SELECT bank.superseded_by FROM intervention_bank_entries bank
+                        JOIN successors ON bank.entry_id=successors.entry_id
+                        WHERE bank.superseded_by IS NOT NULL
+                     ) SELECT EXISTS(SELECT 1 FROM successors WHERE entry_id=?2)",
+                    params![new_id, old_id], |row| row.get(0),
+                ).map_err(crate::store::storage_error)?;
+                if closes_cycle {
+                    return Err(ShenkoError::conflict("bank supersession would create a cycle"));
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                tx.execute("UPDATE intervention_bank_entries SET superseded_by=?2 WHERE entry_id=?1",
+                    params![old_id, new_id]).map_err(crate::store::storage_error)?;
+                tx.execute("UPDATE intervention_bank_entries SET supersedes=?2 WHERE entry_id=?1",
+                    params![new_id, old_id]).map_err(crate::store::storage_error)?;
+                self.write_commit_log(&tx, seq)?;
+                tx.commit().map_err(crate::store::storage_error)?;
                 Ok(())
             },
             research_storage_failure,
@@ -1404,12 +1442,9 @@ impl Store {
         &self,
         entry_id: EntityId,
         reason: &str,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
-            || {
-                self.try_tombstone_bank_entry(entry_id, reason)?;
-                Ok(())
-            },
+            || self.try_tombstone_bank_entry(entry_id, reason),
             research_storage_failure,
         )
     }
@@ -1424,7 +1459,7 @@ impl Store {
         // recovery may re-drive an Armed attempt whose original write already
         // landed. Read the current state first.
         {
-            let existing: Option<i64> = conn
+            let existing: Option<Option<i64>> = conn
                 .query_row(
                     "SELECT tombstoned_at_ms FROM intervention_bank_entries WHERE entry_id=?1",
                     params![entry_id.to_string()],
@@ -1463,12 +1498,9 @@ impl Store {
     pub fn record_intervention(
         &self,
         reminder: &InterventionReminder,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
-            || {
-                self.try_record_intervention(reminder)?;
-                Ok(())
-            },
+            || self.try_record_intervention(reminder),
             research_storage_failure,
         )
     }
@@ -1712,7 +1744,7 @@ impl Store {
         reminder_id: EntityId,
         step_id: Option<EntityId>,
         now_ms: i64,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -1750,7 +1782,7 @@ impl Store {
     pub fn record_tombstone(
         &self,
         tombstone: &RetentionTombstone,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -1825,32 +1857,20 @@ impl Store {
             ),
         };
         let mut statement = conn.prepare(&sql).map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let decode_row = |row: &rusqlite::Row<'_>| {
+            Ok((
+                row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?, row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        };
         let rows = match &parameter {
             Some(value) => statement
-                .query_map(params![value], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                })
+                .query_map(params![value], decode_row)
                 .map_err(|error| ShenkoError::storage(error.to_string()))?,
             None => statement
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, String>(5)?,
-                        row.get::<_, i64>(6)?,
-                    ))
-                })
+                .query_map([], decode_row)
                 .map_err(|error| ShenkoError::storage(error.to_string()))?,
         };
         let mut tombstones = Vec::new();
@@ -1881,7 +1901,7 @@ impl Store {
     pub fn record_archive_move(
         &self,
         record: &ArchiveMoveRecord,
-    ) -> Result<CommitReceipt, ShenkoError> {
+    ) -> Result<(), ShenkoError> {
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -2052,7 +2072,7 @@ fn read_epoch_by(
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(2)?,
                 row.get::<_, i64>(3)?,
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, String>(5)?,

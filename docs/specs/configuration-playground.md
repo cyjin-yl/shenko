@@ -1,28 +1,52 @@
 # Configuration Service & Playground — Functional Contract
 
 SPEC §21 (single subject timeline / Proto-UI app), §23, §41.9, §41.10, §43
-(configuration & playground), §44.4 (ownership). Implementation slice:
-`architecture-playground-20261101`.
+(configuration & playground), §44.4 (ownership). Runtime modules:
+`shenko-ui::{config_service,owner,playground,playground_backend}`; shared
+composition root: `bin/shenko/src/lib.rs`.
 
 ## Ownership — §44.4
 
-- The installation ships with a one-time claim capability under the install
-  control channel: `<data_dir>/bootstrap/claim-capability.json` (mode 0600,
-  digest only; the plaintext secret is shown once on first bootstrap stderr
-  and is never written to the log or any replicated table).
+- Before home setup, connectors or subject work, startup prepares the local
+  installation control channel. `<data_dir>/bootstrap/claim-secret.json`
+  delivers the capability to the installer; `claim-capability.json` in the
+  same directory contains only its verifier digest. On supported Unix native
+  targets the directory is 0700 and files are 0600, owned by the runtime user;
+  opens reject symlinks, hardlinks, unsafe permissions and special files
+  before reading. The native runtime does not fall back to unprotected
+  plaintext storage on unsupported platforms.
+- Plaintext never enters stdout/stderr, logs, model context, CAS or replicated
+  tables. Startup reports only the control-file path. Delivery publishes
+  atomically without replacement, before its verifier; restarting between
+  those publications completes the same claim. Corrupt or foreign-installation
+  records fail visibly without rotation. Existing digest-only installations
+  retain their previously delivered capability, rather than issuing another.
 - `POST /api/owner/claim` with the capability creates the durable owner grant
   (`owner_grants` table), issues the admin bearer (`sat_*`, stored as a
   digest in the local-only `owner_admin_tokens` table — never replicated),
-  and consumes the capability file. Replaying a consumed capability answers
-  `replayed` / `owner_already_claimed`, never a second grant.
+  and consumes the plaintext delivery file before committing the grant. The
+  digest-only verifier remains local to recognize retries; claim identity is
+  stable for that capability. Replaying it, including after restart, returns
+  the original grant (`replayed` / `owner_already_claimed`), never a second
+  grant or another bearer. A lost bearer requires explicit owner recovery;
+  replay does not silently rotate administrative credentials.
 - `human_principal_ref` is derived from the capability/grant, never from a
-  request body. An HTTP visit is never proof.
+  request body. An HTTP visit is never proof. The default HTTP listener is
+  `127.0.0.1:<port>`; remote access requires an explicitly authenticated
+  deployment path, not an implicit wildcard listener.
 - After the claim, administrative actions resolve the actor from
   `x-shenko-admin: <bearer>` (`OwnerState::actor` → `AuthenticatedActor`).
   Ordinary chat stays open: claiming installs an owner, it does not close
   the default conversation.
 - `GET /api/owner/state` reports `{claimed, claim_pending}` only — no
-  credential material.
+  credential material. A consumed verifier does not mean a pending claim;
+  storage errors are not reported as an unclaimed installation. The same
+  ownership service is installed in model-free and model-connected startup.
+- The CLI bootstrap view recognizes the committed `owner_grants` row, not
+  just a separately provisioned `bootstrap_records.owner_grant_ref`. Its CAS
+  reference contains the complete original grant, not the principal or
+  authority object. This view is derived from the existing replicated fact;
+  recovery does not require an additional grant record or any local token.
 
 ## Configuration service — §43.1
 
@@ -116,6 +140,11 @@ SPEC §21 (single subject timeline / Proto-UI app), §23, §41.9, §41.10, §43
   idempotent `request_id`, original-receipt-wins replay, and the same
   evidence semantics (stream overflow/failure ⇒ INCONCLUSIVE, never a
   verified success from exit code alone).
+- WASI completion retains the actual process exit code. A zero exit plus a
+  valid bounded result and verified state snapshot may succeed; a nonzero
+  exit remains failure even if stdout is valid JSON. A trap, cancellation,
+  or missing conclusive observation does not acquire an invented exit code.
+  A host-service JSON response is not a process-exit observation.
 - Generation hand-off: the update seam stops long-lived services through
   `ArtifactServiceController::quiesce_for_handoff()` (returns exactly the
   live processes it stopped; the handoff receipt must name those) and
@@ -137,11 +166,14 @@ SPEC §21 (single subject timeline / Proto-UI app), §23, §41.9, §41.10, §43
 
 ## Native proof recipe (for the integration owner)
 
-1. Boot `shenko start` in a scratch data dir; capture the claim capability
-   from first-bootstrap stderr; `POST /api/owner/claim`; keep the returned
-   bearer.
+1. Obtain the claim capability from the local private `claim-secret.json`
+   control file without copying it into command arguments or logs;
+   `POST /api/owner/claim` over the protected local/access channel; keep the
+   returned bearer out of transcripts and evidence archives. Startup stderr
+   is not an acceptable credential-delivery channel.
 2. `GET /api/owner/state` → `{claimed: true, claim_pending: false}`; a
-   second claim with the same capability → `owner_already_claimed`.
+   second claim with the same capability → `replayed` with the original
+   grant and no bearer. Restart and repeat; no new delivery file appears.
 3. Register one namespace handler; `discover` → read → `preview` (stale
    base check) → `apply` with and without `x-shenko-admin` (denied vs
    receipted); restart; read again — the entry and its change receipt

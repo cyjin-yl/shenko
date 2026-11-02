@@ -442,7 +442,7 @@ pub trait ReplProvider {
     fn kernels(&self) -> Vec<crate::kernel::KernelTarget>;
     /// Create a session. Fails with a stable error when the kernel's module
     /// is not bound/readable — never falls back to a different runtime.
-    fn create(&self, request: CreateSession) -> Result<Self::Session>;
+    fn create(&self, request: CreateSession) -> anyhow::Result<Self::Session>;
     /// Reopen an existing session directory without replaying cells.
     fn reopen(&self, session_dir: &std::path::Path) -> anyhow::Result<Self::Session>;
 }

@@ -222,6 +222,9 @@ impl FrozenModelChild {
             expires_at: grant.expires_at,
         });
         let reply_target = spec.reply_grant.as_ref().map(|grant| grant.target.clone());
+        let max_tokens = spec.max_tokens;
+        let prompt_fingerprint = Digest::blake3(spec.system_prompt.as_bytes());
+        let toolset_fingerprint = Digest::blake3(&serde_json::to_vec(&spec.tools)?);
         Ok(Self {
             schema_version: CONTRACT_SCHEMA,
             task_id,
@@ -231,12 +234,12 @@ impl FrozenModelChild {
             software_generation: generation,
             role_revision: ROLE.into(),
             budget,
-            max_tokens: spec.max_tokens,
+            max_tokens,
             reply_grant,
             reply_target,
             continued_from,
-            prompt_fingerprint: Digest::blake3(spec.system_prompt.as_bytes()),
-            toolset_fingerprint: Digest::blake3(&serde_json::to_vec(&spec.tools)?),
+            prompt_fingerprint,
+            toolset_fingerprint,
         })
     }
 
@@ -664,6 +667,9 @@ impl ModelChildHandler {
                     .map(|part| match part {
                         InferencePart::Text { text } => text.len(),
                         InferencePart::Image { .. } => 0,
+                        InferencePart::Document { .. }
+                        | InferencePart::Citation { .. }
+                        | InferencePart::SearchResult { .. } => 0,
                     })
                     .sum::<usize>()
             })
@@ -677,6 +683,9 @@ impl ModelChildHandler {
                     .map(|part| match part {
                         InferencePart::Text { text } => text.len(),
                         InferencePart::Image { .. } => 0,
+                        InferencePart::Document { .. }
+                        | InferencePart::Citation { .. }
+                        | InferencePart::SearchResult { .. } => 0,
                     })
                     .sum::<usize>(),
             );
@@ -710,7 +719,13 @@ impl ModelChildHandler {
             history.reserved_tokens = history.reserved_tokens.saturating_add(step.max_tokens);
             history.spent_tokens = history
                 .spent_tokens
-                .saturating_add(record.usage.as_ref().map(|usage| usage.output_tokens).unwrap_or(0));
+                .saturating_add(
+                    record
+                        .usage
+                        .as_ref()
+                        .and_then(|usage| usage.output_tokens)
+                        .unwrap_or(0),
+                );
             history.tool_calls = history.tool_calls.saturating_add(record.tool_calls.len() as u32);
             history.next_index = step.step_index + 1;
             history.own_steps = history.own_steps.saturating_add(1);
@@ -737,7 +752,15 @@ impl ModelChildHandler {
             previous.kind == MODEL_CHILD_KIND,
             "continued task is not a model child"
         );
-        let operation = self.store.external_operation(previous.operation_id)?;
+        // The continued run's result operation is named by the task itself:
+        // the task row carries no operation id, so the ledger is asked for
+        // the task's own result operation.
+        let operation = self
+            .store
+            .external_task_operations(previous_id, MODEL_CHILD_RESULT_OPERATION)?
+            .into_iter()
+            .next_back()
+            .context("continued model child has no result operation")?;
         ensure!(
             operation.operation_name == MODEL_CHILD_RESULT_OPERATION
                 && operation.state == OperationState::Resolved,
@@ -890,7 +913,7 @@ impl ModelChildHandler {
                 record
                     .usage
                     .as_ref()
-                    .map(|usage| usage.output_tokens)
+                    .and_then(|usage| usage.output_tokens)
                     .unwrap_or(0),
             );
             history.tool_calls = history.tool_calls.saturating_add(calls.len() as u32);
@@ -1403,7 +1426,9 @@ impl ModelChildHandler {
             input: serde_json::to_value(&nested)?,
             child_tools: invocation.child_tools.clone(),
         };
-        let operation = match self.run(nested_invocation).await {
+        // A nested child runs the same finite contract, so the recursive
+        // call is boxed: the future's own size cannot be computed otherwise.
+        let operation = match Box::pin(self.run(nested_invocation)).await {
             Ok(operation) => operation,
             Err(error) => {
                 self.store.park_native_task(
@@ -1466,7 +1491,7 @@ impl ModelChildHandler {
                 .map(|result| result.operation_id)
                 .unwrap_or_else(EntityId::nil),
             outcome: outcome.into(),
-            result: result.and_then(|result| result.result),
+            result: result.as_ref().and_then(|result| result.result.clone()),
             evidence_ref: result.map(|result| result.evidence_ref),
         }
     }
@@ -1626,7 +1651,7 @@ impl ModelChildHandler {
             worker_id: invocation.task_invocation.worker_id,
             node_id: invocation.task_invocation.node_id,
             epoch: invocation.task_invocation.epoch,
-            implementation_ref: version,
+            implementation_ref: version.clone(),
             dispatch_stage: AttemptDispatchStage::Armed,
             armed_commit: zero,
             provider_handle: None,

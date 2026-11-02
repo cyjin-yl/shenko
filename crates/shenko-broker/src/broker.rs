@@ -376,7 +376,8 @@ impl BrokerHandle {
     }
 
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
-        self.submit_inner(req, None, RequestPurpose::from_priority(req.priority), None)
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, None, purpose, None)
     }
 
     /// Install the durable runtime error journal of the owning subject.
@@ -573,7 +574,7 @@ impl Broker {
     pub fn with_local_provider(provider: crate::local_provider::LocalModelProvider, max: u64) -> Result<(Self, BrokerHandle)> {
         provider.binding().validate_endpoint()?;
         let domain = default_domain(AdmissionController::new(max))?;
-        Ok(Self::with_runtime(Arc::new(provider), domain))
+        Self::with_runtime(Arc::new(provider), domain)
     }
 
     /// Bind an explicitly configured real Anthropic provider without reading
@@ -585,7 +586,7 @@ impl Broker {
     ) -> Result<(Self, BrokerHandle)> {
         provider.binding().validate_endpoint()?;
         let domain = default_domain(AdmissionController::new(max))?;
-        Ok(Self::with_runtime(Arc::new(provider), domain))
+        Self::with_runtime(Arc::new(provider), domain)
     }
 
     /// Bind one installed provider runtime to one physical resource domain.
@@ -933,6 +934,7 @@ impl ProviderRuntime for OfflineRuntime {
             default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
             serializer_revision: 2,
         });
+        &PROFILE
     }
 
     fn binding(&self) -> ProviderBinding {
@@ -1050,6 +1052,7 @@ mod tests {
                 default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
                 serializer_revision: crate::local_provider::SERIALIZER_REVISION,
             });
+            &PROFILE
         }
 
         fn binding(&self) -> ProviderBinding {
@@ -1134,7 +1137,7 @@ mod tests {
 
         // C=1: continuous Subject work cannot starve Low children.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1)).unwrap());
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1)).unwrap()).unwrap();
         let (subject_one, subject_one_rx) = submit(&handle, InferencePriority::Subject);
         let (low_one, low_one_rx) = submit(&handle, InferencePriority::Low);
         let (subject_two, subject_two_rx) = submit(&handle, InferencePriority::Subject);
@@ -1167,7 +1170,7 @@ mod tests {
 
         // C=2: two same-tier futures really overlap and start in FIFO order.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2)).unwrap());
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2)).unwrap()).unwrap();
         assert_eq!(handle.capacity().pool, CapacityPool::Compute);
         assert_eq!(handle.capacity().value, Some(2));
         assert_eq!(handle.capacity().provenance, CapacityProvenance::Configured);
@@ -1203,7 +1206,7 @@ mod tests {
 
         // C=0: work stays pending instead of receiving synthetic capacity failure.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(0)).unwrap());
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(0)).unwrap()).unwrap();
         let (_, mut pending_rx) = submit(&handle, InferencePriority::Subject);
         let run = tokio::spawn(broker.run());
         assert!(

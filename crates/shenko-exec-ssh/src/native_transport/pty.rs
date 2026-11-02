@@ -263,7 +263,7 @@ impl NativePtySession {
             pty_accepted: self.pty_accepted,
             program_accepted: self.program_accepted,
             channel_closed: self.closed,
-            exit: self.exit,
+            exit: self.exit.clone(),
             output_bytes: self.output_bytes,
             error_bytes: self.error_bytes,
             post_close_frames: self.post_close_frames,

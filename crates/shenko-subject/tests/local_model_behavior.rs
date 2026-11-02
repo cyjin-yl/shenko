@@ -159,10 +159,11 @@ fn messages_for(scenario: &Scenario) -> Vec<InferenceMessage> {
     if scenario.events.is_empty() {
         return vec![InferenceMessage::text("user", IDLE_CONTINUATION_PROMPT)];
     }
+    let channels = shenko_channel_napcat::qq_test_registry();
     scenario
         .events
         .iter()
-        .map(|event| InferenceMessage::text("user", staged_message_text(event, "napcat", &shenko_channel_napcat::qq_registry())))
+        .map(|event| InferenceMessage::text("user", staged_message_text(event, "napcat", &channels)))
         .collect()
 }
 

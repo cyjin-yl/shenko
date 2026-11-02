@@ -500,6 +500,6 @@ pub fn register(
 
 /// The reply kinds of the Feishu plugin, for callers that build their own
 /// registry.
-pub fn reply_kinds() -> &[ReplyKind] {
+pub fn reply_kinds() -> &'static [ReplyKind] {
     FEISHU_REPLY_KINDS
 }

@@ -27,7 +27,7 @@ use crate::object::{DataRef, Digest, ObjectRef, VersionedRef};
 ///
 /// The wire arrangement is the provider template adapter's business; the slot
 /// only says which semantic region the material belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ContributionSlot {
     /// Stable system/tool contract. Not replaceable by a transient contribution.

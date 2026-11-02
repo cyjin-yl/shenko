@@ -276,7 +276,7 @@ impl PlaygroundState {
     /// real closure is source refs, build lock, runtime binding, state
     /// bindings, action schemas, operation contracts and the recovery
     /// closure. The manifest digest binds to its canonical encoding.
-    fn build_manifest(&self, version: &ArtifactVersion) -> anyhow::Result<(ArtifactManifest, ObjectRef)> {
+    fn build_manifest(&self, version: &ArtifactVersion) -> anyhow::Result<(ArtifactManifest, ObjectRef, ObjectRef)> {
         let state_dir = self.artifact_dir(version.artifact_id).join("state");
         let build_lock = self.seal_playground_object(&json!({
             "artifact_schema": ARTIFACT_SCHEMA, "mime": version.mime,
@@ -347,14 +347,14 @@ impl PlaygroundState {
             Ok(sealed) => sealed.object,
             Err(error) => { self.store.close_external_writer(); return Err(error.into()); }
         };
-        Ok((manifest, manifest_ref))
+        Ok((manifest, manifest_ref, version_record_ref))
     }
 
     /// Store the manifest and the durable artifact record for one committed
     /// content version. Called on every content write so the record is never
     /// behind the committed head.
     fn sync_durable(&self, version: &ArtifactVersion) -> anyhow::Result<ArtifactRecord> {
-        let (manifest, manifest_ref) = self.build_manifest(version)?;
+        let (manifest, manifest_ref, version_record_ref) = self.build_manifest(version)?;
         self.store.put_artifact_manifest(&manifest)?;
         let root = self.artifact_dir(version.artifact_id);
         let root_identity = directory_identity(&root);
@@ -365,14 +365,14 @@ impl PlaygroundState {
             creator_task_id: None,
             title: version.title.clone(),
             record_revision: 0,
-            active_manifest_ref: Some(manifest_ref),
+            active_manifest_ref: Some(manifest_ref.clone()),
             candidate_manifest_refs: Vec::new(),
             state_revision: format!("{}:{}", version.revision, &manifest.version_digest.0[..16.min(manifest.version_digest.0.len())]),
-            state_ref: version_record_ref,
+            state_ref: version_record_ref.clone(),
             lifecycle: "draft".into(),
             runtime_instance_refs: Vec::new(),
             desired_lifecycle_ref: manifest_ref.clone(),
-            provenance_and_causation_ref: version_record_ref.clone(),
+            provenance_and_causation_ref: version_record_ref,
             artifact_root: root,
             root_identity,
             updated_commit: shenko_types::commit::CommitRef::new(EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO),
@@ -384,7 +384,7 @@ impl PlaygroundState {
     /// active one. Staging is durable and replicated; nothing here executes.
     pub fn stage_artifact(&self, id: EntityId) -> anyhow::Result<ArtifactRecord> {
         let version = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
-        let (manifest, manifest_ref) = self.build_manifest(&version)?;
+        let (manifest, manifest_ref, _) = self.build_manifest(&version)?;
         self.store.put_artifact_manifest(&manifest)?;
         let mut record = self.store.artifact_record(id)?
             .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;

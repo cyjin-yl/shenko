@@ -9,14 +9,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 
 use shenko_store::Store;
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
-use shenko_types::commit::{CommitRef, LedgerSeq};
+use shenko_types::commit::CommitRef;
 use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
-use shenko_types::ids::EntityId;
+use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionRef};
 use shenko_types::operation::{
     AttemptDispatchStage, AttemptRecord, EffectStatus, OperationContractRef,
@@ -301,7 +301,7 @@ impl UpdateControlHandler {
                     operation,
                     attempt,
                     &serde_json::json!({"status": status}),
-                    OperationOutcome::Succeeded,
+                    Some(OperationOutcome::Succeeded),
                     EffectStatus::None,
                 )
             }
@@ -349,7 +349,7 @@ impl UpdateControlHandler {
                         "imported_through": record.imported_through,
                         "smoke_evidence_ref": record.smoke_evidence_ref,
                     }),
-                    OperationOutcome::Succeeded,
+                    Some(OperationOutcome::Succeeded),
                     EffectStatus::Complete,
                 )
             }
@@ -364,8 +364,8 @@ impl UpdateControlHandler {
                     activation: activation_id, expected_selector_revision: expected,
                 }).await;
                 return match accepted {
-                    Ok(value) => self.observe(operation, attempt, &value, OperationOutcome::Unknown, EffectStatus::Unknown),
-                    Err(error) => self.observe(operation, attempt, &serde_json::json!({"control_request_error": format!("{error:#}")}), OperationOutcome::Unknown, EffectStatus::Unknown),
+                    Ok(value) => self.observe(operation, attempt, &value, None, EffectStatus::Unknown),
+                    Err(error) => self.observe(operation, attempt, &serde_json::json!({"control_request_error": format!("{error:#}")}), None, EffectStatus::Unknown),
                 };
             }
             UpdateOp::Rollback => {
@@ -379,8 +379,8 @@ impl UpdateControlHandler {
                     activation: activation_id, expected_selector_revision: expected,
                 }).await;
                 return match accepted {
-                    Ok(value) => self.observe(operation, attempt, &value, OperationOutcome::Unknown, EffectStatus::Unknown),
-                    Err(error) => self.observe(operation, attempt, &serde_json::json!({"control_request_error": format!("{error:#}")}), OperationOutcome::Unknown, EffectStatus::Unknown),
+                    Ok(value) => self.observe(operation, attempt, &value, None, EffectStatus::Unknown),
+                    Err(error) => self.observe(operation, attempt, &serde_json::json!({"control_request_error": format!("{error:#}")}), None, EffectStatus::Unknown),
                 };
             }
         }
@@ -391,7 +391,7 @@ impl UpdateControlHandler {
         operation: &OperationRecord,
         attempt: &AttemptRecord,
         result: &serde_json::Value,
-        outcome: OperationOutcome,
+        outcome: Option<OperationOutcome>,
         effect_status: EffectStatus,
     ) -> Result<OperationRecord> {
         let raw = self.seal(result, "update-control-result")?;
@@ -423,7 +423,7 @@ impl UpdateControlHandler {
             operation.operation_id,
             attempt.attempt_id,
             evidence,
-            if outcome == OperationOutcome::Unknown { None } else { Some(outcome) },
+            outcome,
             effect_status,
         )
     }
@@ -509,7 +509,7 @@ impl NativeTaskHandler for UpdateControlHandler {
                 if matches {
                     if let Some(launch) = self.store.activation_launch_for_selector(frozen.agent_id, selected.selector_revision)? {
                         return self.observe(&operation, &attempt, &serde_json::json!({"selector": selected, "launch_receipt": launch}),
-                            OperationOutcome::Succeeded, EffectStatus::Complete);
+                            Some(OperationOutcome::Succeeded), EffectStatus::Complete);
                     }
                     return Ok(operation);
                 }
@@ -532,7 +532,7 @@ impl NativeTaskHandler for UpdateControlHandler {
                     &operation,
                     &attempt,
                     &serde_json::json!({"recovery": report}),
-                    OperationOutcome::Unknown,
+                    None,
                     operation.effect_status,
                 )
             }
@@ -567,7 +567,7 @@ impl UpdateControlHandler {
                     if let Err(receipt_error) = controller.observe(
                         &operation, &attempt,
                         &serde_json::json!({"control_error": format!("{error:#}")}),
-                        OperationOutcome::Unknown, EffectStatus::Unknown,
+                        None, EffectStatus::Unknown,
                     ) {
                         tracing::error!(%receipt_error, %error, "update control outcome could not be recorded");
                     }

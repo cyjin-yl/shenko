@@ -131,10 +131,7 @@ pub fn classify(config: &QqOfficialConfig, raw: &Value) -> Option<ChannelEnvelop
             kind: attachment.kind.clone(),
             text: attachment.name.clone(),
             attachment_id: Some(attachment.attachment_id.clone()),
-            url: attachment
-            .locator
-            .as_ref()
-            .and_then(|locator| locator.url.clone()),
+            url: attachment.locator.url.clone(),
         });
     }
     let mentions = data
@@ -220,14 +217,16 @@ pub fn parse_attachments(data: &Value) -> Vec<ChannelAttachment> {
                 kind,
                 name: text_field(entry, "filename"),
                 mime: (!content_type.is_empty()).then_some(content_type),
-                size: integer_field(entry, "size").map(|size| size as u64),
-                locator: Some(shenko_types::channel::AttachmentLocator {
+                bytes: integer_field(entry, "size").and_then(|size| u64::try_from(size).ok()),
+                hash: None,
+                locator: shenko_types::channel::AttachmentLocator {
                     kind: "url".to_string(),
                     host: Some("qq-platform".to_string()),
                     path: None,
                     url: text_field(entry, "url"),
-                }),
+                },
                 object: None,
+                expires_at: None,
             }
         })
         .collect()

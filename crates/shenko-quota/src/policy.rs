@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 /// Which readings of one observation source may feed a forecast, and how.
 /// A source absent from this list is never admitted as evidence; missing
 /// TTL or an unstated stale policy is never guessed as "always fresh".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceObservationPolicy {
     pub source_kind: crate::model::SourceKind,
     /// The exact source contract this admission covers, when the policy

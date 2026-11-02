@@ -2,7 +2,7 @@
 
 Shenko 是面向 personal agent 的最小框架：一条持续存在的主思考流、一个持久 WASM 家园，以及一组可安装、可替换、可自我演进的能力。编码、聊天、研究、远程控制和电脑操作不是它的分区功能，而是同一主体按需安装的能力包。
 
-当前仓库是**实现中的源码树**：Rust 2024 / cordis-rs 主干、24 个 workspace crate 与 `shenko` 可执行文件都在这里，运行时装配集中在 `bin/shenko/src/main.rs`。已实现的范围、尚未闭合的部分和真实运行证据分别记录在 [文档索引](docs/INDEX.md) 与 [证据目录](docs/evidence/README.md)——这里不重复进度板。
+源码采用 Rust 2024 workspace 与 cordis-rs 插件主干。CLI 与 Android 宿主共享 `bin/shenko/src/lib.rs` 的运行时装配，`bin/shenko/src/main.rs` 只承担 CLI 入口。功能合同见 [文档索引](docs/INDEX.md)，实际运行的候选、结果与限制见 [证据目录](docs/evidence/README.md)；源码存在不等于运行验收。
 
 ## 产品是什么
 
@@ -14,7 +14,7 @@ Shenko 是面向 personal agent 的最小框架：一条持续存在的主思考
 
 ## 安装
 
-仓库是 Rust workspace，需要 Rust 2024 edition（`rust-version = 1.85`）与 Cargo。
+仓库需要 Rust 1.93 或更高版本与 Cargo，使用 Rust 2024 edition。1.93 是当前锁定的 Wasmtime/Wiggle 依赖声明的最低工具链要求；具体已验证工具链以运行证据为准。
 
 ```bash
 git clone https://github.com/cyjin-yl/shenko
@@ -60,7 +60,7 @@ Web 界面默认在 `http://127.0.0.1:<port>/`，提供同一条主体时间线�
 
 ## 扩展
 
-能力通过插件进入运行时，运行时装配在 `bin/shenko/src/main.rs` 中可见：
+能力通过插件进入运行时，运行时装配在 `bin/shenko/src/lib.rs` 中可见：
 
 - **原生任务处理**：实现 `NativeTaskHandler`（`descriptor` / `execute` / `reconcile`）并用 `NativeTaskHandlerPlugin` 注册，即可成为主体可委派的能力。已有的例子是 WASI 工具执行、Computer Use、Playground 后端、错误读取、issue 草稿与自解释。
 - **provider**：实现 broker 的 provider 合同接入推理；额度观测与 admission 是独立策略，不写死模型名单。

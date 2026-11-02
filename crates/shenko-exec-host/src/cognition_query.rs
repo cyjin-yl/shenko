@@ -107,7 +107,7 @@ impl CognitionQueryHandler {
         }
     }
 
-    fn seal<T: Serialize>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
+    fn seal<T: Serialize + ?Sized>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
         self.seal_bytes(&serde_json::to_vec(value)?, schema)
     }
 

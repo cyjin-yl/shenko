@@ -40,7 +40,7 @@ pub async fn spawn_builtin_runtime(
     model_child: BrokerHandle,
     generation: RuntimeGeneration,
 ) -> Result<BuiltinNativeRuntime> {
-    let supervisor = Supervisor::new(generation);
+    let supervisor = Supervisor::new(generation.clone());
     let _child = supervisor
         .spawn(NativeChildPlugin, (store.clone(), generation))
         .await?;

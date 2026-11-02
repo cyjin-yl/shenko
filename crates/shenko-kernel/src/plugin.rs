@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context as _, Result};
 use cordis_core::logger::{Exporter, Level, LogRecord};
-use cordis_core::lifecycle::{UpdateError, UpdateOutcome};
+use cordis_core::lifecycle::UpdateOutcome;
 use cordis_core::{Context, FiberHandle, Plugin, PreparedChange, PreparedPlugin};
 use parking_lot::Mutex;
 use tokio::sync::oneshot;
@@ -173,10 +173,10 @@ impl PluginRegistry {
         &self,
         fiber: &FiberHandle,
         input: P::Input,
-    ) -> Result<UpdateOutcome, UpdateError> {
+    ) -> Result<UpdateOutcome> {
         anyhow::ensure!(!self.shutdown.is_cancelled(), "plugin host is shut down");
         self.check_outcomes()?;
-        let outcome = fiber.update(PreparedChange::from_input(input)).await?;
+        let outcome = fiber.update(PreparedChange::from_input::<P>(input)).await?;
         self.check_outcomes()?;
         Ok(outcome)
     }

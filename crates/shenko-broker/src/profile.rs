@@ -203,7 +203,7 @@ pub struct ProviderProfile {
     pub beta_features: Vec<String>,
     #[serde(default)]
     pub sampling: SamplingCapabilities,
-    #[serde(default)]
+    #[serde(default = "AuthBinding::none")]
     pub auth: AuthBinding,
     #[serde(default)]
     pub usage: UsageFieldMapping,

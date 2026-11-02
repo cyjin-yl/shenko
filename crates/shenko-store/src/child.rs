@@ -132,13 +132,11 @@ impl Store {
     /// The messages delivered to this endpoint that it has not taken yet.
     /// They are durable facts on the task row, not an in-memory queue.
     pub fn pending_child_dialogue(&self, task_id: EntityId) -> Result<Vec<DialogueDelivery>> {
-        let Some(task) = self.external_task(task_id)? else {
-            return Ok(vec![]);
-        };
+        let task = self.external_task(task_id)?;
         let Some(value) = task.memos.get(DIALOGUE_INBOX) else {
             return Ok(vec![]);
         };
-        Ok(serde_json::from_value(value.clone()).unwrap_or_default())
+        Ok(serde_json::from_value(value.clone())?)
     }
 
     /// The endpoint took the delivered messages. The intent rows become

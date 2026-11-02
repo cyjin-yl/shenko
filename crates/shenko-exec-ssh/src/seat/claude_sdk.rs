@@ -65,7 +65,6 @@ pub struct ClaudeSdkSeat {
 struct Inner {
     stdin: Mutex<Option<tokio::process::ChildStdin>>,
     state: Mutex<State>,
-    session_hint: Option<String>,
     command: Vec<String>,
 }
 
@@ -113,7 +112,6 @@ impl ClaudeSdkSeat {
         let inner = Arc::new(Inner {
             stdin: Mutex::new(Some(stdin)),
             state: Mutex::new(State::default()),
-            session_hint: None,
             command: command.clone(),
         });
         let reader_inner = Arc::clone(&inner);
@@ -143,12 +141,6 @@ impl ClaudeSdkSeat {
         let seat = Self { inner };
         seat.send_initialize().await?;
         Ok(seat)
-    }
-
-    /// Resume an existing Claude session instead of starting fresh.
-    pub fn with_session(mut self, session_id: &str) -> Self {
-        self.inner.session_hint = Some(session_id.to_string());
-        self
     }
 
     async fn send_frame(&self, frame: &Value) -> Result<()> {
@@ -584,7 +576,7 @@ fn build_control_response(
             "question": question.text,
             "header": "",
             "options": question.options.iter().map(|option| {
-                serde_json::json!({"label": option.label, "description": option.meaning.unwrap_or_default()})
+                serde_json::json!({"label": option.label, "description": option.meaning.as_deref().unwrap_or_default()})
             }).collect::<Vec<_>>(),
             "multiSelect": false
                 }])
@@ -610,6 +602,7 @@ fn build_control_response(
                     .unwrap_or_else(|| question.text.clone());
                 serde_json::json!({ key: text })
             }
+            (None, None) => anyhow::bail!("answer contains neither a selected option nor text"),
         };
         json!({
             "behavior": "allow",

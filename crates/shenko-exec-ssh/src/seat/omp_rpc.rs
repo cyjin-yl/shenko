@@ -573,6 +573,7 @@ impl SeatAdapter for OmpRpcSeat {
                     value: frame
                         .get("value")
                         .and_then(Value::as_str)
+                        .map(str::to_owned)
                         .or_else(|| {
                             frame
                                 .get("confirmed")

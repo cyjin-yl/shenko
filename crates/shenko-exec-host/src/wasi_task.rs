@@ -982,6 +982,7 @@ mod tests {
     fn invocation(input: serde_json::Value) -> NativeTaskInvocation {
         let task_id = EntityId::new();
         NativeTaskInvocation {
+            child_tools: None,
             context: CallContext {
                 caller_instance_id: EntityId::new(),
                 role_revision: "native-wasi-exec/2".into(),

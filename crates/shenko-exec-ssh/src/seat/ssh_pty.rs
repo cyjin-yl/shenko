@@ -159,7 +159,10 @@ impl SshPtySeat {
             None
         };
         let _ = pump.await;
-        reply.or_else(|| self.close_observation.lock().await.take())
+        match reply {
+            Some(observation) => Some(observation),
+            None => self.close_observation.lock().await.take(),
+        }
     }
 }
 

@@ -190,7 +190,7 @@ fn run_smoke(data_dir: PathBuf, json: bool) -> Result<()> {
 fn local_checks(data_dir: &std::path::Path, cas_dir: &std::path::Path) -> Vec<SmokeCheckOutcome> {
     let mut checks = Vec::new();
 
-    let store = match shenko_store::Store::open(data_dir.join(slots::SLOT_DB_FILENAME), cas_dir) {
+    let store = match shenko_store::Store::open(data_dir.join(slots::SLOT_DB_FILENAME), cas_dir.to_path_buf()) {
         Ok(store) => {
             checks.push(SmokeCheckOutcome {
                 name: "store_opens".into(),

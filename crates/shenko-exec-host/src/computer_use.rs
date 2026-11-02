@@ -989,7 +989,7 @@ impl X11Provider {
         let parsed = match x11rb::reexports::x11rb_protocol::parse_display::parse_display(
             Some(display.as_str()),
         ) {
-            Some(p) => p,
+            Ok(p) => p,
             Err(_) => {
                 return Err(DesktopError::unavailable(
                     "display_address_invalid",
@@ -2463,10 +2463,6 @@ fn socket_endpoint_key(conn: &RustConnection) -> std::io::Result<String> {
             "peer endpoint inspection unsupported on this platform",
         ))
     }
-}
-
-fn hex_digest(data: &[u8]) -> String {
-    blake3::hash(data).to_hex().to_string()
 }
 
 fn find_visual(screen: &xproto::Screen, id: u32) -> Option<xproto::Visualtype> {

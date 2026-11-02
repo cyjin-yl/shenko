@@ -20,6 +20,7 @@ import {
   type ConnectionState,
   type DegradedDocument,
   type Dispatch,
+  type PlaygroundView,
   type Submission,
   type TimelinePart,
   type UiNode,
@@ -167,9 +168,9 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
 
         <div className="surface-stack">
           <TimelineSurface node={timeline} projection={projection} emit={emit} />
-          <TasksSurface node={nodes.tasks} />
-          <MemorySurface node={nodes.memory} />
-          <ConfigSurface node={nodes.config} projection={projection} />
+          <TasksSurface node={nodes.tasks_surface} />
+          <MemorySurface node={nodes.memory_surface} />
+          <ConfigSurface node={nodes.config_surface} projection={projection} />
           <PlaygroundSurface node={nodes.playground_surface} />
         </div>
         <Composer node={composer} emit={emit} />
@@ -822,7 +823,7 @@ function ConfigItem({ label, value, wide = false }: { label: string; value: stri
 
 function PlaygroundSurface({ node }: { node?: UiNode }) {
   if (!node) return null;
-  const playground = node.props.playground;
+  const playground: PlaygroundView | undefined = node.props.playground;
   const roots = Array.isArray(playground?.roots) ? playground.roots : [];
   const artifacts = Array.isArray(playground?.artifacts) ? playground.artifacts : [];
   const namespaces = Array.isArray(playground?.namespaces) ? playground.namespaces : [];

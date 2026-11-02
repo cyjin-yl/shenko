@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 /// Colour of one cell, as the terminal's SGR state described it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum TerminalColor {
     /// The terminal's own default foreground/background.
     Default,
@@ -1022,7 +1022,7 @@ impl TerminalScreen {
                 0
             });
         }
-        out
+        (private, out)
     }
 
     fn set_alternate(&mut self, on: bool) {

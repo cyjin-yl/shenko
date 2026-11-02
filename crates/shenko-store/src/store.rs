@@ -10,7 +10,7 @@ use tracing::info;
 use shenko_types::commit::{CommitReceipt, CommitRef, DurabilityProfile, UpdatedEntity};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
-use shenko_types::ids::{BranchId, RecordRevision};
+use shenko_types::ids::{BranchId, ControllerEpoch, RecordRevision};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::store::{StoreCapabilities, WriteBatch};
 use shenko_types::task::{TaskOwner, TaskRecord};
@@ -196,7 +196,7 @@ impl Store {
                         &raw.media_type,
                         &raw.namespace,
                         &raw.codec_name,
-                        &raw.codec_major,
+                        raw.codec_major,
                     )?
                     .object,
             );
@@ -348,7 +348,7 @@ impl Store {
         &self,
         head: &SubjectBranchHead,
         expected_revision: RecordRevision,
-        reason_ref: ObjectRef,
+        reason_ref: &ObjectRef,
     ) -> Result<SubjectBranchHead, ShenkoError> {
         self.ledger.with_mutation(
             || {
@@ -359,8 +359,9 @@ impl Store {
                 let fresh = checked_head(&tx, head)?;
                 let mut fenced = fresh.clone();
                 fenced.mode = SubjectMode::Handoff;
-                fenced.controller_epoch = fresh.controller_epoch + 1;
-                fenced.mode_reason_ref = Some(reason_ref);
+                fenced.controller_epoch = ControllerEpoch(fresh.controller_epoch.0.checked_add(1)
+                    .ok_or_else(|| ShenkoError::conflict("controller epoch exhausted"))?);
+                fenced.mode_reason_ref = Some(reason_ref.clone());
                 fenced.record_revision = RecordRevision(fresh.record_revision.0 + 1);
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
@@ -492,7 +493,7 @@ impl Store {
                     || step.context_revision != previous.context_revision))
             || (previous.active_request_id.is_some()
                 && step.active_request_id != previous.active_request_id
-                && !self.retry_may_replace_request(&tx, previous, step)?)
+                && !self.retry_may_replace_request(&tx, &previous, step)?)
             || (previous.active_attempt_id.is_some()
                 && step.active_attempt_id != previous.active_attempt_id)
             || step.input_plan_ref.is_none()
@@ -571,7 +572,7 @@ impl Store {
             // that admits it.
             let mut armed = attempt.clone();
             armed.created_commit = commit_ref;
-            self.insert_subject_request_tx(&tx, &armed, seq.0)?;
+            self.insert_subject_request_tx(&tx, &armed, seq)?;
         }
         self.record_subject_commit(&tx, commit_ref, 1)?;
         tx.commit().map_err(storage_error)?;
@@ -1300,6 +1301,35 @@ impl Store {
         read_step(&self.ledger.conn.lock(), branch_id, step_id)
     }
 
+    /// Accepted S0 records, including retired attempts and steps preceding
+    /// the current head. A CAS object without a committed step is not an S0.
+    /// These existing records are the recovery source for transient usage;
+    /// no second consumption table or new replicated fact is introduced.
+    pub fn sealed_subject_steps(
+        &self,
+        branch_id: &BranchId,
+    ) -> Result<Vec<SubjectStep>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        let mut query = conn.prepare(
+            "SELECT step_id,step_no,data FROM subject_steps
+             WHERE branch_id=?1 AND json_extract(data,'$.input_plan_ref') IS NOT NULL
+             ORDER BY step_no,step_id",
+        ).map_err(storage_error)?;
+        let mut rows = query.query([branch_id.0.to_string()]).map_err(storage_error)?;
+        let mut steps = Vec::new();
+        while let Some(row) = rows.next().map_err(storage_error)? {
+            let data = row.get_ref(2).map_err(storage_error)?.as_str().map_err(storage_error)?;
+            let step: SubjectStep = serde_json::from_str(data)?;
+            let id = row.get_ref(0).map_err(storage_error)?.as_str().map_err(storage_error)?;
+            let number: u64 = row.get(1).map_err(storage_error)?;
+            if step.branch_id != *branch_id || step.step_id.to_string() != id || step.step_no != number {
+                return Err(ShenkoError::conflict("sealed subject step/index identity mismatch"));
+            }
+            steps.push(step);
+        }
+        Ok(steps)
+    }
+
     /// Read the immutable genesis so bootstrap can prove that the reopened
     /// home manifest is the same object bound to this subject.
     pub fn get_subject_genesis(
@@ -1324,12 +1354,22 @@ impl Store {
         .map(|value| value.flatten())
     }
 
-    /// Read only an explicit persisted owner/provisioning grant for this
-    /// installation. A genesis or an HTTP visit is not administrative proof.
+    /// Project an explicit committed owner/provisioning grant for bootstrap.
+    /// The owner row is authoritative; its CAS view is derived, so recovery
+    /// needs no new fact or credential. A genesis or HTTP visit is not proof.
     pub fn get_bootstrap_owner_grant(
         &self,
         installation_id: EntityId,
     ) -> Result<Option<ObjectRef>, ShenkoError> {
+        if let Some(grant) = self.owner_grant(installation_id).map_err(storage_error)? {
+            let bytes = serde_json::to_vec(&grant).map_err(storage_error)?;
+            let sealed = self.cas.seal_object(&bytes, "application/json", "config", "owner_grant", 1)
+                .map_err(|error| {
+                    self.close_external_writer();
+                    storage_error(error)
+                })?;
+            return Ok(Some(sealed.object));
+        }
         let conn = self.ledger.conn.lock();
         let data: Option<String> = conn
             .query_row(
@@ -1467,7 +1507,7 @@ pub fn configure_sqlite(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn storage_error(error: rusqlite::Error) -> ShenkoError {
+pub(crate) fn storage_error(error: impl std::fmt::Display) -> ShenkoError {
     ShenkoError::storage(error.to_string())
 }
 

@@ -808,6 +808,7 @@ mod tests {
                 decision_ref: EntityId::new(),
             },
             input,
+            child_tools: None,
         }
     }
 

@@ -607,14 +607,14 @@ impl WebInputService {
         if request.schema_version != 2 || request.kind != "withdraw" {
             return SubmissionView {
                 result: "invalid",
-                detail_note: Some("不支持的撤回协议版本。"),
+                detail_note: Some("不支持的撤回协议版本。".into()),
                 ..base
             };
         }
         if request.submission_id.is_empty() || request.cancel_id.is_empty() {
             return SubmissionView {
                 result: "invalid",
-                detail_note: Some("撤回身份字段为空。"),
+                detail_note: Some("撤回身份字段为空。".into()),
                 ..base
             };
         }

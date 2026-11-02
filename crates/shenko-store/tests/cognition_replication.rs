@@ -425,7 +425,15 @@ fn seeded_store() -> Seeded {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first_step).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        input.clone(),
+        genesis_commit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first_step, &root_task)
+        .unwrap();
     store
         .initialize_identity(&IdentityProfile {
             agent_id,

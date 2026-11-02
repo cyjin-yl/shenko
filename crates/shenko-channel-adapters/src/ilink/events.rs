@@ -102,14 +102,15 @@ pub fn classify(config: &ILinkConfig, raw: &Value) -> Option<ChannelEnvelope> {
                 let size = integer_field(&payload, "len")
                     .or_else(|| integer_field(&payload, "mid_size"))
                     .or_else(|| integer_field(&payload, "video_size"))
-                    .map(|size| size as u64);
+                    .and_then(|size| u64::try_from(size).ok());
                 let attachment = ChannelAttachment {
                     attachment_id: format!("ilink-{index}"),
                     kind: kind.to_string(),
                     name: name.clone(),
                     mime: None,
-                    size,
-                    locator: Some(shenko_types::channel::AttachmentLocator {
+                    bytes: size,
+                    hash: None,
+                    locator: shenko_types::channel::AttachmentLocator {
                         kind: "remote_path".to_string(),
                         host: Some("ilink-cdn".to_string()),
                         path: media
@@ -121,17 +122,15 @@ pub fn classify(config: &ILinkConfig, raw: &Value) -> Option<ChannelEnvelope> {
                             .and_then(Value::as_str)
                             .filter(|url| !url.is_empty())
                             .map(str::to_owned),
-                    }),
+                    },
                     object: None,
+                    expires_at: None,
                 };
                 segments.push(ChannelSegment {
                     kind: kind.to_string(),
                     text: name.clone(),
                     attachment_id: Some(attachment.attachment_id.clone()),
-                    url: attachment
-                        .locator
-                        .as_ref()
-                        .and_then(|locator| locator.url.clone()),
+                    url: attachment.locator.url.clone(),
                 });
                 attachments.push(attachment);
             }

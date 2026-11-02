@@ -84,7 +84,7 @@ impl GitKnowledgeStore {
             "--",
             &path,
         ])?;
-        let commit = self.head_commit()?.context("memory knowledge commit")?;
+        let commit = self.head_commit()?;
         Ok((commit, path))
     }
 
@@ -157,9 +157,9 @@ impl GitKnowledgeStore {
         format!("knowledge/{scope}/{kind}/{}.md", entry.entry_id)
     }
 
-    fn head_commit(&self) -> Result<Option<String>> {
+    fn head_commit(&self) -> Result<String> {
         let output = self.run_git(&["rev-parse", "HEAD"])?;
-        Ok(Some(output.trim().to_string()))
+        Ok(output.trim().to_string())
     }
 
     fn run_git(&self, args: &[&str]) -> Result<String> {

@@ -260,7 +260,7 @@ impl LocalModelProvider {
         let mut body = local_body(&req.payload, model)?;
         body["stream"] = serde_json::Value::Bool(true);
         body["stream_options"] = serde_json::json!({ "include_usage": true });
-        let resp = self
+        let mut resp = self
             .apply_auth(client.post(format!(
                 "{}/v1/chat/completions",
                 base_url.trim_end_matches('/')

@@ -54,7 +54,7 @@ pub struct UiServer {
 impl UiServer {
     pub fn new(port: u16) -> Self {
         Self {
-            bind: SocketAddr::from(([0, 0, 0, 0], port)),
+            bind: SocketAddr::from(([127, 0, 0, 1], port)),
             state: WsState::new(),
             playground_root: default_playground_root(),
             data_dir: None,

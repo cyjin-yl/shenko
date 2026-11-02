@@ -486,7 +486,10 @@ mod tests {
             decision_ref: None, commit_ref: None, retry_reason_ref: None,
             record_revision: RecordRevision(0), created_by_step_id: None,
         };
-        f.store.initialize_genesis(&genesis, &head, &step).unwrap();
+        let root_task = shenko_types::task::TaskRecord::subject_root(
+            head.subject_root_task_id, head.agent_id, task.input_ref.clone(), zero,
+        );
+        f.store.initialize_genesis(&genesis, &head, &step, &root_task).unwrap();
         f.store.start_subject_dispatcher().unwrap();
         task.state = TaskState::Pending { checkpoint_ref: None };
         task.memos.remove(NATIVE_ASSIGNMENT);

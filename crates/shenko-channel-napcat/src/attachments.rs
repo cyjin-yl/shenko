@@ -203,17 +203,18 @@ fn attachment_for(
         .next()
         .filter(|name| !name.is_empty())
         .map(str::to_owned);
+    let mime = data
+        .get("mime")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| name.as_deref().and_then(mime_for_name));
     Some(ChannelAttachment {
         attachment_id: file_id
             .map(str::to_owned)
             .unwrap_or_else(|| format!("attachment-{index}")),
         kind: kind.to_string(),
         name,
-        mime: data
-            .get("mime")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| name.as_deref().and_then(mime_for_name)),
+        mime,
         bytes: data.get("size").and_then(Value::as_u64),
         hash: None,
         locator,
@@ -344,5 +345,6 @@ pub fn resolve_attachment(
         attachment_id: attachment.attachment_id.clone(),
         bytes,
         mime: attachment.mime.clone(),
+        object: None,
     })
 }

@@ -332,7 +332,7 @@ async fn describe_display(display: &str) -> Result<String> {
     use x11rb::rust_connection::RustConnection;
     let (conn, screen_index) = RustConnection::connect(Some(display))?;
     let root = conn.setup().roots[screen_index].root;
-    let endpoint = display_endpoint_key(&conn).unwrap_or_else(|| display.to_string());
+    let endpoint = display_endpoint_key(&conn)?;
     Ok(format!("x11/{endpoint}/root{root:08x}"))
 }
 
@@ -488,13 +488,13 @@ async fn reattach_chromium(profile_dir: &Path) -> Result<Option<Launched>> {
         Some(url) => url.to_string(),
         None => return Ok(None),
     };
-    let protocol = match CdpClient::connect(&browser_ws, "chromium (reattached)").await {
+    let protocol = match CdpClient::connect(browser_ws, "chromium (reattached)".into()).await {
         Ok(protocol) => protocol,
         Err(_) => return Ok(None),
     };
-    let targets = protocol.targets().await.unwrap_or_default();
-    if !targets.iter().any(|target| target.kind == "page") {
-        let _ = protocol.create_tab("about:blank").await;
+    let targets = protocol.list_tabs().await?;
+    if targets.is_empty() {
+        protocol.create_tab("about:blank").await?;
     }
     tracing::info!(%port, "reattached to an existing chromium instance for this profile");
     Ok(Some(Launched {
@@ -547,9 +547,12 @@ async fn launch_firefox(
             return;
         };
         let mut lines = BufReader::new(stderr).lines();
+        let mut tx = Some(tx);
         while let Ok(Some(line)) = lines.next_line().await {
             if let Some(url) = extract_bidi_url(&line) {
-                let _ = tx.send(url);
+                if let Some(tx) = tx.take() {
+                    let _ = tx.send(url);
+                }
             }
         }
     });

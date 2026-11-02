@@ -16,6 +16,7 @@
 //! a silent park. A recovered InFlight operation is settled as E1 unknown —
 //! a controller restart is not proof a live interpreter process stopped.
 
+use crate::contract::{ReplProvider, ReplSession};
 use anyhow::{Context, Result, ensure};
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
@@ -93,7 +94,7 @@ struct CreateInput {
     preview_bytes: usize,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LimitInput {
     #[serde(default)]
@@ -393,12 +394,6 @@ impl SessionStore {
 // ---------------------------------------------------------------------------
 // Shared handler machinery (mirror of the wasi.exec ledger pattern).
 // ---------------------------------------------------------------------------
-
-#[derive(Debug)]
-enum PrepareError {
-    Refusal(String),
-    Fault(anyhow::Error),
-}
 
 struct HandlerCore {
     store: Arc<Store>,
@@ -1032,29 +1027,27 @@ fn run_session_op(
 
 /// Kernel construction for `create`, shared by the blocking op runner.
 fn build_kernel(sessions: &SessionStore, create: &CreateInput)
-    -> std::result::Result<(crate::kernel::KernelProfile, String), PrepareError>
+    -> Result<(crate::kernel::KernelProfile, String)>
 {
     ensure!(!create.kernel_id.is_empty() && create.kernel_id.len() <= MAX_NAME_BYTES,
         "REPL_KERNEL_INVALID: kernel_id");
-    let module = sessions.admit_module(&create.module).map_err(PrepareError::Refusal)?;
-    let digest = crate::journal::hash_bytes(&fs::read(&module).map_err(PrepareError::Fault)?);
+    let module = sessions.admit_module(&create.module)?;
+    let digest = crate::journal::hash_bytes(&fs::read(&module)?);
     let stdlib = match &create.stdlib {
-        Some(path) => Some(sessions.admit_module(path).map_err(PrepareError::Refusal)?),
+        Some(path) => Some(sessions.admit_module(path)?),
         None => None,
     };
     let profile = match create.kernel_id.as_str() {
         "python-wasi" => crate::adapters::python_wasi(create.kernel_id.clone(), module, stdlib),
         "quickjs-wasm" => {
             if stdlib.is_some() {
-                return Err(PrepareError::Fault(anyhow::anyhow!(
-                    "REPL_KERNEL_INVALID: stdlib is a python-wasi-only field")));
+                anyhow::bail!("REPL_KERNEL_INVALID: stdlib is a python-wasi-only field");
             }
             crate::adapters::quickjs_wasi(create.kernel_id.clone(), module)
         }
         "python-native-host" | "node-native-host" | "bun-native-host" => {
             if stdlib.is_some() {
-                return Err(PrepareError::Fault(anyhow::anyhow!(
-                    "REPL_KERNEL_INVALID: stdlib is a python-wasi-only field")));
+                anyhow::bail!("REPL_KERNEL_INVALID: stdlib is a python-wasi-only field");
             }
             match create.kernel_id.as_str() {
                 "python-native-host" =>
@@ -1064,10 +1057,10 @@ fn build_kernel(sessions: &SessionStore, create: &CreateInput)
                 _ => crate::adapters::bun_native(create.kernel_id.clone(), module),
             }
         }
-        other => return Err(PrepareError::Refusal(format!(
-            "REPL_KERNEL_UNAVAILABLE: named target {other:?} is not bound in this installation"))),
+        other => anyhow::bail!(
+            "REPL_KERNEL_UNAVAILABLE: named target {other:?} is not bound in this installation"),
     };
-    crate::kernel::validate_profile(&profile).map_err(PrepareError::Fault)?;
+    crate::kernel::validate_profile(&profile)?;
     Ok((profile, digest))
 }
 
@@ -1120,7 +1113,7 @@ impl ReplCellHandler {
     }
 
     fn prepare(&self, invocation: &NativeTaskInvocation)
-        -> std::result::Result<(CellFrozenInput, Vec<u8>, CellKindInput), PrepareError>
+        -> Result<(CellFrozenInput, Vec<u8>, CellKindInput)>
     {
         let parsed = (|| -> Result<(CellInput, Vec<u8>)> {
             let input: CellInput = serde_json::from_value(invocation.input.clone())?;
@@ -1131,7 +1124,7 @@ impl ReplCellHandler {
             ensure!(!source.contains(&0), "REPL_CELL_INVALID: NUL in cell source");
             Ok((input, source))
         })();
-        let (input, source) = parsed.map_err(PrepareError::Fault)?;
+        let (input, source) = parsed?;
         let frozen = CellFrozenInput {
             op: "execute".into(),
             session_id: input.session_id,
@@ -1143,11 +1136,7 @@ impl ReplCellHandler {
     }
 
     async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let (frozen, source, cell_kind) = match self.prepare(&invocation) {
-            Ok(parts) => parts,
-            Err(PrepareError::Fault(error)) => return Err(error),
-            Err(PrepareError::Refusal(detail)) => return self.record_refusal(&invocation, detail).await,
-        };
+        let (frozen, source, cell_kind) = self.prepare(&invocation)?;
         let cell_kind_contract = match cell_kind {
             CellKindInput::Pure => crate::contract::CellKind::Pure,
             CellKindInput::DeclaredEffect => crate::contract::CellKind::DeclaredEffect,
@@ -1248,7 +1237,7 @@ impl ReplCellHandler {
             "operation_id": invocation.operation_id,
             "session_id": session_id,
             "seq": cell.record.seq,
-            "outcome": outcome_str,
+            "outcome": result_view.outcome,
         }), "repl-cell-observation")?;
         let normalized = self.core.seal(&result_view, "repl-cell-result")?;
         self.core.evidence(&invocation, &operation, &attempt, raw, Some(normalized),

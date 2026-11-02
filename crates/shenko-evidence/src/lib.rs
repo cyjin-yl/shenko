@@ -15,22 +15,22 @@
 //!   older one.
 //!
 //! Nothing here decides that a requirement is satisfied because words match.
-//! A requirement is met only when an evidence record that names it also
-//! declares the relevant acceptance cases as fully passed, and that record
-//! is bound to the candidate under review. Everything else is reported as
-//! unmet, with its reason.
+//! Mechanical coverage requires original hash-bound receipts for every case
+//! and scope, a current candidate, and a complete specification mapping and
+//! inventory. This is not independent validation of an observer's judgment.
 
 pub mod coverage;
 pub mod inventory;
+mod receipt;
 pub mod scopes;
 pub mod spec_index;
 
 pub use coverage::{
-    build_report, classify_case_scopes, scope_declarations, CoverageReport, EvidenceRecord,
-    RequirementObligation, Scope, UnmetReason,
+    CoverageReport, EvidenceRecord, RequirementObligation, Scope, UnmetReason, build_report,
+    classify_case_scopes, scope_declarations,
 };
-pub use inventory::{Binding, EvidenceInventory, InventoryEntry};
-pub use scopes::{scopes_for_case, ScopeDeclaration};
+pub use inventory::{Binding, EvidenceInventory, InventoryEntry, InventoryIssue};
+pub use scopes::{ScopeDeclaration, scopes_for_case};
 pub use spec_index::{AcceptanceCase, Behavior, IndexCounts, IndexError, Requirement, SpecIndex};
 
 use std::path::Path;
@@ -50,7 +50,18 @@ pub struct ReportInputs<'a> {
 pub fn analyze(inputs: &ReportInputs<'_>) -> Result<Analysis, IndexError> {
     let index = SpecIndex::parse(inputs.spec_text)?;
     let inventory = EvidenceInventory::read_dir(inputs.evidence_dir, inputs.candidate_commit);
-    let report = build_report(&index, &inventory.records(), inputs.candidate_commit);
+    let mut report = coverage::build_report_from_records(
+        &index,
+        inventory.entries.iter().map(|entry| &entry.record),
+        inputs.candidate_commit,
+    );
+    if !inventory.issues.is_empty() {
+        for obligation in &mut report.requirements {
+            obligation
+                .unmet_reasons
+                .push(UnmetReason::InventoryIncomplete);
+        }
+    }
     Ok(Analysis {
         index,
         inventory,
@@ -72,10 +83,7 @@ impl Analysis {
     pub fn to_json(&self) -> serde_json::Value {
         let mut value = self.report.to_json();
         if let Some(object) = value.as_object_mut() {
-            object.insert(
-                "evidence_inventory".to_string(),
-                self.inventory.to_json(),
-            );
+            object.insert("evidence_inventory".to_string(), self.inventory.to_json());
             object.insert(
                 "spec_index_counts".to_string(),
                 serde_json::json!({
@@ -83,6 +91,10 @@ impl Analysis {
                     "behaviors": self.index.counts().behaviors,
                     "acceptance_cases": self.index.counts().acceptance_cases,
                 }),
+            );
+            object.insert(
+                "spec_index".to_string(),
+                spec_index::index_to_json(&self.index),
             );
         }
         value
@@ -106,8 +118,13 @@ impl Analysis {
         for (binding, count) in counts {
             lines.push(format!("evidence {binding}: {count}"));
         }
+        lines.push(format!(
+            "inventory errors: {} ({} non-evidence JSON files)",
+            self.inventory.issues.len(),
+            self.inventory.non_evidence_files.len()
+        ));
         for obligation in unmet.iter().take(20) {
-            let reasons: Vec<&str> = obligation
+            let reasons: Vec<String> = obligation
                 .unmet_reasons
                 .iter()
                 .map(|reason| reason.as_str())

@@ -16,7 +16,7 @@ use shenko_store::research::{ArchiveMoveRecord, RetentionTombstone};
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::ids::*;
 use shenko_types::object::*;
-use shenko_types::operation::OperationOutcome;
+use shenko_types::operation::{OperationOutcome, OperationRecord};
 use shenko_types::task::{ImplementationRef, TaskRecord};
 use std::sync::Arc;
 
@@ -42,7 +42,7 @@ struct RetentionInput {
     verified: Option<ArchiveVerificationInput>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchiveTargetInput {
     provider: String,
@@ -50,7 +50,7 @@ struct ArchiveTargetInput {
     locator: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ArchiveVerificationInput {
     hash_verified: bool,
@@ -62,7 +62,7 @@ struct ArchiveVerificationInput {
     local_release_note: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum MechanismInput {
     SemanticForget,
@@ -98,8 +98,8 @@ impl RetentionApplyHandler {
             .expect("fixed built-in retention plugin UUID")
     }
 
-    fn freeze(&self, input: serde_json::Value) -> Result<FrozenRetention> {
-        let input: RetentionInput = serde_json::from_value(input)?;
+    fn freeze(&self, input: &serde_json::Value) -> Result<FrozenRetention> {
+        let input = RetentionInput::deserialize(input)?;
         ensure!(
             !input.target_refs.is_empty(),
             "retention request must name at least one target object"
@@ -319,7 +319,7 @@ impl NativeTaskHandler for RetentionApplyHandler {
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let frozen = self.freeze(invocation.input)?;
+        let frozen = self.freeze(&invocation.input)?;
         run_recorded(
             &self.store,
             &invocation,

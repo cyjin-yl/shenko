@@ -40,8 +40,8 @@ use shenko_store::{
     SeatConfidenceFact, SeatDecisionExpectation, SeatOptionFact, SeatQuestionFact,
     SeatQuestionRecord, SeatQuestionState, Store,
 };
-use shenko_types::commit::{CommitRef, LedgerSeq};
-use shenko_types::ids::{EntityId, RecordRevision};
+use shenko_types::commit::CommitRef;
+use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -214,7 +214,7 @@ impl SeatRuntime {
                 lease_id: attachment.lease_id,
                 lease_epoch: 0,
                 question_revision: 0,
-                question: fact_from_candidate(question),
+                question: fact_from_candidate(question)?,
                 state: SeatQuestionState::Open,
                 record_revision: RecordRevision(0),
                 created_commit: CommitRef::new(EntityId::nil(), LedgerSeq::ZERO),
@@ -295,7 +295,7 @@ impl SeatRuntime {
             .store
             .get_task(attachment.task_id)?
             .with_context(|| format!("持久 task 记录不存在：{}", attachment.task_id))?;
-        let candidate = candidate_from_fact(&request.semantic_question_id, &question.question);
+        let candidate = candidate_from_fact(&request.semantic_question_id, &question.question)?;
         let expectation = SeatDecisionExpectation {
             question_revision: question.question_revision,
             question_record_revision: question.record_revision,
@@ -604,9 +604,7 @@ impl SeatRuntime {
     pub async fn detach(&self, location_id: &str) -> Result<()> {
         let seat = self.seats.lock().await.remove(location_id);
         if let Some(seat) = seat {
-            if let Some(pty) = seat
-                .adapter
-                .as_any()
+            if let Some(pty) = (seat.adapter.as_ref() as &dyn std::any::Any)
                 .downcast_ref::<crate::seat::ssh_pty::SshPtySeat>()
             {
                 pty.close().await;
@@ -616,8 +614,8 @@ impl SeatRuntime {
     }
 }
 
-fn fact_from_candidate(question: &SeatQuestionCandidate) -> SeatQuestionFact {
-    SeatQuestionFact {
+fn fact_from_candidate(question: &SeatQuestionCandidate) -> Result<SeatQuestionFact> {
+    Ok(SeatQuestionFact {
         source_kind: question.source_kind.as_str().to_string(),
         question_kind: question.question_kind.as_str().to_string(),
         native_request_id: question.native_request_id.clone(),
@@ -642,16 +640,17 @@ fn fact_from_candidate(question: &SeatQuestionCandidate) -> SeatQuestionFact {
         },
         unknown: question.unknown.clone(),
         observed_screen_revision: question.observed_screen_revision,
-        expires_at_ms: question.expires_at_ms,
+        expires_at_ms: question.expires_at_ms.map(u64::try_from).transpose()
+            .context("seat expiry precedes Unix epoch")?,
         fingerprint: question_fingerprint(question),
-    }
+    })
 }
 
 fn candidate_from_fact(
     semantic_id: &str,
     fact: &SeatQuestionFact,
-) -> SeatQuestionCandidate {
-    SeatQuestionCandidate {
+) -> Result<SeatQuestionCandidate> {
+    Ok(SeatQuestionCandidate {
         question_id: semantic_id.to_string(),
         source_kind: crate::seat::QuestionSourceKind::parse(&fact.source_kind)
             .unwrap_or(crate::seat::QuestionSourceKind::TerminalInference),
@@ -680,6 +679,7 @@ fn candidate_from_fact(
         },
         unknown: fact.unknown.clone(),
         observed_screen_revision: fact.observed_screen_revision,
-        expires_at_ms: fact.expires_at_ms,
-    }
+        expires_at_ms: fact.expires_at_ms.map(i64::try_from).transpose()
+            .context("seat expiry exceeds adapter timestamp range")?,
+    })
 }

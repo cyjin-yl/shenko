@@ -42,7 +42,7 @@ const MAX_MEMORY_PREVIEW_CHARS: usize = 300;
 const MAX_DISPLAY_NAME_CHARS: usize = 64;
 const MAX_NORMALIZED_BYTES: u64 = 480 * 1024;
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum PersonOp {
     /// Resolve one person by id, platform account or alias.

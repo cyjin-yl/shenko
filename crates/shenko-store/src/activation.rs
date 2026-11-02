@@ -408,22 +408,54 @@ impl Store {
         }, |error| matches!(error, ShenkoError::Storage(_)))
     }
 
-    /// Installation identity comes from the subject's persisted bootstrap,
-    /// not the current ledger writer identity (which changes across copies).
+    /// Installation identity comes from the immutable bootstrap event or an
+    /// explicit provisioning record, never the current ledger writer identity.
+    /// If both representations exist, their installation bindings must agree.
     pub fn installation_id_for_subject(&self, agent: EntityId) -> Result<EntityId, ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        let raw: String = conn.query_row("SELECT data FROM subject_genesis WHERE subject_id=?1",
-            [agent.to_string()], |row| row.get(0)).map_err(storage_error)?;
-        let genesis: shenko_types::subject::SubjectGenesis = serde_json::from_str(&raw).map_err(storage_error)?;
-        let (installation, data): (String, String) = conn.query_row(
-            "SELECT installation_id,data FROM bootstrap_records WHERE bootstrap_id=?1",
-            [genesis.bootstrap_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?))).map_err(storage_error)?;
-        let installation = installation.parse::<EntityId>().map_err(storage_error)?;
-        let value: serde_json::Value = serde_json::from_str(&data).map_err(storage_error)?;
-        if value.get("installation_id").and_then(|value| value.as_str()) != Some(installation.to_string().as_str()) {
-            return Err(ShenkoError::conflict("bootstrap installation identity differs from indexed binding"));
+        let (genesis, indexed) = {
+            let conn = self.ledger.conn.lock();
+            let raw: String = conn.query_row("SELECT data FROM subject_genesis WHERE subject_id=?1",
+                [agent.to_string()], |row| row.get(0)).map_err(storage_error)?;
+            let genesis: shenko_types::subject::SubjectGenesis = serde_json::from_str(&raw).map_err(storage_error)?;
+            if genesis.subject_id != agent {
+                return Err(ShenkoError::conflict("bootstrap genesis subject binding mismatch"));
+            }
+            let indexed: Option<(String, String, String)> = conn.query_row(
+                "SELECT installation_id,subject_id,data FROM bootstrap_records WHERE bootstrap_id=?1",
+                [genesis.bootstrap_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                .optional().map_err(storage_error)?;
+            (genesis, indexed)
+        };
+        let parse_identity = |value: &serde_json::Value| -> Result<EntityId, ShenkoError> {
+            value.as_str()
+                .ok_or_else(|| ShenkoError::storage("invalid bootstrap installation_id"))?
+                .parse::<EntityId>().map_err(storage_error)
+        };
+        let path = self.cas.verified_object_path(&genesis.bootstrap_event_ref).map_err(storage_error)?;
+        let event: serde_json::Value = serde_json::from_slice(&std::fs::read(path).map_err(storage_error)?)
+            .map_err(storage_error)?;
+        let event_installation = event.get("installation_id").map(parse_identity).transpose()?;
+        let indexed_installation = if let Some((installation, subject, data)) = indexed {
+            let installation = installation.parse::<EntityId>().map_err(storage_error)?;
+            let value: serde_json::Value = serde_json::from_str(&data).map_err(storage_error)?;
+            let recorded = value.get("installation_id")
+                .ok_or_else(|| ShenkoError::storage("bootstrap record has no installation_id"))?;
+            if subject.parse::<EntityId>().map_err(storage_error)? != agent
+                || parse_identity(recorded)? != installation
+            {
+                return Err(ShenkoError::conflict("bootstrap installation identity differs from indexed binding"));
+            }
+            Some(installation)
+        } else {
+            None
+        };
+        match (event_installation, indexed_installation) {
+            (Some(event), Some(indexed)) if event != indexed => Err(ShenkoError::conflict(
+                "bootstrap event and provisioning installation identities differ",
+            )),
+            (Some(installation), _) | (_, Some(installation)) => Ok(installation),
+            (None, None) => Err(ShenkoError::storage("bootstrap has no persisted installation identity")),
         }
-        Ok(installation)
     }
 
     /// Explicit same-installation migration, NOT peer election authority.
@@ -737,57 +769,4 @@ impl Store {
         )
     }
 
-    /// Fence the retired generation's writer.
-    ///
-    /// The head moves to `Handoff`, its controller epoch increases and the
-    /// sealed reason (activation id and new epoch) is attached. Every step
-    /// write validates the epoch and the mode against the registered head,
-    /// so the retired generation can no longer commit a decision or admit a
-    /// dispatch. The epoch is never reused: the successor starts from the
-    /// fenced epoch.
-    pub fn fence_head_for_handoff(
-        &self,
-        head: &SubjectBranchHead,
-        expected_revision: RecordRevision,
-        reason_ref: &ObjectRef,
-    ) -> Result<SubjectBranchHead, ShenkoError> {
-        self.ledger.with_mutation(
-            || {
-                let mut conn = self.ledger.conn.lock();
-                let tx = conn
-                    .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(storage_error)?;
-                let seq = self.ledger.allocate_seq(&tx)?;
-                let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
-                let mut fenced = head.clone();
-                fenced.mode = SubjectMode::Handoff;
-                fenced.controller_epoch = ControllerEpoch(head.controller_epoch.0 + 1);
-                fenced.mode_reason_ref = Some(reason_ref.clone());
-                fenced.record_revision = expected_revision.next();
-                let changed = tx.execute(
-                    "UPDATE subject_branch_heads SET mode='handoff', record_revision=?2, data=?3, updated_commit_seq=?4
-                      WHERE agent_id=?5 AND branch_id=?6 AND record_revision=?7 AND next_step_id=?8",
-                    params![
-                        fenced.record_revision.0 as i64,
-                        serde_json::to_string(&fenced).map_err(storage_error)?,
-                        seq.0 as i64,
-                        fenced.agent_id.to_string(),
-                        fenced.branch_id.0.to_string(),
-                        expected_revision.0 as i64,
-                        fenced.next_step_id.to_string(),
-                    ],
-                )
-                .map_err(storage_error)?;
-                if changed != 1 {
-                    return Err(ShenkoError::conflict(
-                        "stale subject head; the fence was not applied",
-                    ));
-                }
-                self.record_subject_commit(&tx, commit_ref, 1)?;
-                tx.commit().map_err(storage_error)?;
-                Ok(fenced)
-            },
-            |e| matches!(e, ShenkoError::Storage(_)),
-        )
-    }
 }

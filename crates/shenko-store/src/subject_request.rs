@@ -14,7 +14,7 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use shenko_types::commit::CommitRef;
 use shenko_types::error::ShenkoError;
-use shenko_types::ids::EntityId;
+use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
 
 use crate::store::{Store, storage_error};
@@ -152,7 +152,7 @@ impl Store {
         &self,
         tx: &rusqlite::Transaction<'_>,
         attempt: &SubjectRequestAttempt,
-        seq: u64,
+        seq: LedgerSeq,
     ) -> Result<(), ShenkoError> {
         if let Some(existing) = self.read_subject_request_tx(tx, attempt.request_id)? {
             // Re-arming the SAME request identity is idempotent. Different

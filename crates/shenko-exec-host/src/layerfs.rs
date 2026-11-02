@@ -194,22 +194,16 @@ impl LayerFsCompanion {
                                 continue;
                             };
                             let seq = response.seq;
-                            let routed = if let Ok(mut pending) = pending.lock() {
-                                pending
-                                    .remove(&seq)
-                                    .map(|slot| {
-                                        if let Ok(mut guard) = slot.lock() {
-                                            *guard = Some(response);
-                                        }
-                                    })
-                                    .is_some()
-                            } else {
-                                false
-                            };
-                            if !routed {
-                                if let Ok(mut queue) = inbox.lock() {
-                                    queue.push_back(response);
+                            if let Ok(mut pending) = pending.lock() {
+                                if let Some(slot) = pending.remove(&seq) {
+                                    if let Ok(mut guard) = slot.lock() {
+                                        *guard = Some(response);
+                                        continue;
+                                    }
                                 }
+                            }
+                            if let Ok(mut queue) = inbox.lock() {
+                                queue.push_back(response);
                             }
                         }
                         Err(_) => break,

@@ -88,6 +88,11 @@ async fn judge(
             OutputAction::Reply { target, .. } => format!("reply to {target:?}"),
             OutputAction::Identity { .. } => "identity change".to_string(),
             OutputAction::SemanticWait { change } => format!("semantic wait: {change:?}"),
+            OutputAction::Dispose { spec } => format!("dispose: {spec:?}"),
+            OutputAction::Obligation { spec } => format!("obligation: {spec:?}"),
+            OutputAction::Dialogue { spec } => format!("dialogue: {spec:?}"),
+            OutputAction::Dnd { spec } => format!("attention: {spec:?}"),
+            OutputAction::Steer { spec } => format!("steer: {spec:?}"),
         }).collect::<Vec<_>>(),
     });
     let (result_tx, _result_rx) = oneshot::channel();

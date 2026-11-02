@@ -806,21 +806,22 @@ impl WasiReplSession {
         self.busy = None;
         *self.cancellation.lock() = None;
         let wall_clock_ms = started.elapsed().as_millis() as u64;
-        let outcome = match run {
+        let (outcome, report) = match run {
             Ok(()) => {
                 let report = live::read_driver_report(&paths.report_host)?
                     .context("REPL_KERNEL_UNAVAILABLE: driver report missing after completion")?;
-                if report.ok {
+                let outcome = if report.ok {
                     CellOutcome::Completed { exit_code: 0 }
                 } else {
                     CellOutcome::Exited { exit_code: 1 }
-                }
+                };
+                (outcome, Some(report))
             }
-            Err(live::CellInterrupt::CancelRequested) => CellOutcome::Cancelled,
-            Err(live::CellInterrupt::DeadlineExceeded) => CellOutcome::DeadlineExceeded,
+            Err(live::CellInterrupt::CancelRequested) => (CellOutcome::Cancelled, None),
+            Err(live::CellInterrupt::DeadlineExceeded) => (CellOutcome::DeadlineExceeded, None),
         };
         if let Some(state) = &self.state { state.verify_root()?; }
-        Ok((outcome, report_of(&paths, outcome.clone()), wall_clock_ms))
+        Ok((outcome, report, wall_clock_ms))
     }
 
     fn stream_preview(&self, path: &Path, blake3: String, total_bytes: u64) -> Result<StreamPreview> {
@@ -889,13 +890,6 @@ struct LiveCellPaths {
     out_host: PathBuf,
     err_host: PathBuf,
     report_host: PathBuf,
-}
-
-fn report_of(paths: &LiveCellPaths, outcome: CellOutcome) -> Option<DriverReport> {
-    if matches!(outcome, CellOutcome::Cancelled | CellOutcome::DeadlineExceeded) {
-        return None;
-    }
-    live::read_driver_report(&paths.report_host).ok().flatten()
 }
 
 /// Move guest-written per-seq replay streams to artifact-named replay files

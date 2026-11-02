@@ -29,6 +29,14 @@ model tool schema: the subject reaches these through the standard
 "lineage_id", "trigger", "reason", "constraints", "budget", "effects",
 "environment", "best_candidate_id"}`.
 
+The closure uses the Store's structured facts without an alternate handler
+schema: constraints carry `id`, `statement`, and optional `source`; effects
+carry `effect_id`, `description`, `external`, and `recorded_at_ms`. Budget
+fields are `max_tokens`, `max_duration_secs`, `max_cost_units`, and `notes`
+(each optional). The environment records `environment_id`, `facts`,
+`toolchain`, `dataset_versions`, and `reproducible`; a software-generation
+label alone is not a reproducible environment.
+
 - **open** creates epoch 1 of a lineage with a sealed worker brief.
 - **reset** freezes the active epoch as an archive and opens the next one:
   candidates are frozen; the best candidate is **validated** (artifact present
@@ -49,14 +57,23 @@ model tool schema: the subject reaches these through the standard
 where the score came from (evaluation / baseline / human). Candidates are the
 raw material of reset-to-best. Idempotent on `candidate_id`.
 
+The handler seals the complete environment body as a CAS object and stores
+its `environment_ref` on the candidate. Its creation timestamp belongs to
+the frozen input, so reconciliation does not invent a later creation time.
+
 ## Durable bank (research.bank)
 
 Ops: `put | list | supersede | tombstone`. Entries have `kind`
-(`durable_fact|tool_knowledge|interface_contract|pitfall|preference`),
-`scope` (`interface|external|internal`), `confidence`, `source_refs`,
+(`requirement|environment_fact|attempt|diagnosis|open_goal`),
+`scope` (an exact free-form string), `confidence`, `source_refs`,
 `supersedes/superseded_by`, `carried_from`, `tombstoned_at_ms`. A tombstone
 keeps the content readable — it only stops injection. On reset, entries whose
 kind does not survive reset and tombstoned entries are not carried.
+
+`list` accepts `selection=all|carried|failures` and an optional exact scope
+filter. `all` returns non-tombstoned entries; `carried` selects requirements,
+environment facts and open goals; `failures` selects attempts and diagnoses.
+Bank-entry creation time is frozen once, independently of reconciliation.
 
 ## PMA intervention worker (pma.evaluate)
 

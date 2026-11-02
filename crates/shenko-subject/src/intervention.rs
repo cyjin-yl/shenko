@@ -42,7 +42,7 @@ use shenko_types::evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel};
 use shenko_types::ids::*;
 use shenko_types::object::*;
 use shenko_types::operation::*;
-use shenko_types::task::TaskRecord;
+use shenko_types::task::{ImplementationRef, TaskRecord};
 use std::sync::Arc;
 
 use crate::quota_gate::{QuotaGate, observe_quota_response, quota_dispatch_gate, settle_quota_terminal};
@@ -282,7 +282,12 @@ impl PmaEvaluateHandler {
                 provenance.clone(),
                 Some(relevance.clone()),
                 scope.clone(),
-                Some(now + expires_in_secs.unwrap_or(DEFAULT_REMINDER_TTL_SECS) * 1000),
+                Some(
+                    now + i64::try_from(
+                        expires_in_secs.unwrap_or(DEFAULT_REMINDER_TTL_SECS) * 1000,
+                    )
+                    .map_err(|_| anyhow::anyhow!("reminder expiry overflows the durable clock"))?,
+                ),
                 None,
             ),
         };
@@ -357,7 +362,7 @@ impl PmaEvaluateHandler {
     ) -> Result<EntityId> {
         if scope == shenko_memory::SUBJECT_SCOPE {
             let (head, _step) = self.store.load_subject(agent_id)?;
-            return Ok(head.branch_id);
+            return Ok(head.agent_id);
         }
         if let Some(rest) = scope.strip_prefix("epoch:") {
             let parsed: EntityId = rest

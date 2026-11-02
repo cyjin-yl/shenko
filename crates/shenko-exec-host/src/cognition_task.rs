@@ -213,7 +213,7 @@ impl CognitionReadHandler {
         }
     }
 
-    fn seal<T: Serialize>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
+    fn seal<T: Serialize + ?Sized>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
         self.seal_bytes(&serde_json::to_vec(value)?, schema)
     }
 
@@ -548,7 +548,7 @@ impl CognitionWriteHandler {
         }
     }
 
-    fn seal<T: Serialize>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
+    fn seal<T: Serialize + ?Sized>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
         self.seal_bytes(&serde_json::to_vec(value)?, schema)
     }
 
@@ -619,7 +619,8 @@ impl CognitionWriteHandler {
         let digest = derived
             .digest
             .as_ref()
-            .and_then(|digest| digest.parse::<Digest>().ok());
+            .map(|digest| Digest(digest.clone()))
+            .filter(|digest| digest.canonical_blake3_hex().is_some());
         let (verified, verified_by) = match derived.kind.trim() {
             "cas_object" => (
                 digest
@@ -859,7 +860,7 @@ impl CognitionWriteHandler {
     fn write(&self, frozen: &FrozenWrite) -> Result<serde_json::Value> {
         let (package, digest) = self.package(frozen)?;
         let installed = self.catalog.install(&package, &self.package_root)?;
-        let mut judgement = None;
+        let mut recorded_judgement = None;
         if let Some(judgement) = frozen.judgement.as_ref() {
             let decision = match judgement.decision.as_deref().unwrap_or("").trim() {
                 "adopt" | "adopted" => AdoptionDecision::Adopted,
@@ -878,7 +879,7 @@ impl CognitionWriteHandler {
             let evidence: Vec<AdoptionEvidence> = judgement
                 .evidence
                 .iter()
-                .map(|item| match item {
+                .map(|item| Ok(match item {
                     JudgementEvidence::TrialAttempt { attempt_id } => {
                         AdoptionEvidence::TrialAttempt {
                             attempt_id: attempt_id.trim().to_string(),
@@ -886,13 +887,13 @@ impl CognitionWriteHandler {
                     }
                     JudgementEvidence::Observation { digest } => {
                         let text = digest.trim();
-                        let parsed = text.parse::<Digest>().map_err(|_| {
-                            anyhow::anyhow!("the observation digest '{text}' is not a blake3 digest")
-                        })?;
+                        let parsed = Digest(text.to_string());
+                        ensure!(parsed.canonical_blake3_hex().is_some(),
+                            "the observation digest '{text}' is not a canonical blake3 digest");
                         AdoptionEvidence::StoredObservation { digest: parsed }
                     }
-                })
-                .collect();
+                }))
+                .collect::<Result<_>>()?;
             let enable = match judgement.enable {
                 Some(enable) if decision == AdoptionDecision::Adopted => Some(enable),
                 Some(true) => anyhow::bail!("only an adopted unit can be enabled"),
@@ -908,7 +909,7 @@ impl CognitionWriteHandler {
                 judgement.notes.as_deref(),
                 enable,
             )?;
-            judgement = Some(recorded);
+            recorded_judgement = Some(recorded);
         }
         let units: Vec<CognitionUnit> = self.catalog.units()?;
         if let Some(self_knowledge) = self.self_knowledge.as_ref() {
@@ -922,7 +923,7 @@ impl CognitionWriteHandler {
             "revision": frozen.revision,
             "artifact_digest": digest,
             "installed": installed,
-            "judgement": judgement,
+            "judgement": recorded_judgement,
             "units": units,
         }))
     }

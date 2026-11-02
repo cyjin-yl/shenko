@@ -1,8 +1,8 @@
 # 浏览器能力功能合同（docs/specs/browser.md）
 
-绑定：SPEC §24.6（原生浏览器能力、持久身份与人类接管）、§19.1（多 kernel 与统一会话生命周期）、§41（插件效果声明、重试/取消/补偿与恢复边界）、§24.3（显示域接管语义）。实现位于 `crates/shenko-exec-host/src/browser/`，运行注册位于 `bin/shenko/src/main.rs`。
+绑定：SPEC §24.6（原生浏览器能力、持久身份与人类接管）、§19.1（多 kernel 与统一会话生命周期）、§41（插件效果声明、重试/取消/补偿与恢复边界）、§24.3（显示域接管语义）。实现位于 `crates/shenko-exec-host/src/browser/`，共享运行装配位于 `bin/shenko/src/lib.rs`。
 
-本文件是已实现代码的功能合同，不是设计草案。身份/会话/接管/恢复语义以 SPEC §24.6 为准；本文只记录实现如何兑现每一条。
+本文件定义浏览器能力的功能、接口与恢复合同。身份/会话/接管/恢复语义以 SPEC §24.6 为准；源码存在或编译通过不替代真实引擎运行证据。
 
 ## 1 能力定位
 
@@ -18,6 +18,8 @@
 - `protocol_bidi.rs` — WebDriver BiDi（Firefox，`session.new` + browsingContext/script/storage/input 模块），ws URL 从引擎 stderr 解析。
 
 两者共用 `WsClient`：请求/响应按 id 配对、事件进广播 channel、协议级错误文本进 `error_text`（导航失败、JS 异常都不静默为成功）。HTTP helper 支持 chunked 解码用于 CDP 发现。不支持的观察维度如实上报（如 BiDi 的 `ax_available=false, ax_note`），不伪造。
+
+会话枚举保留原生查询错误：某个会话的事实读取失败时返回错误，不把该会话静默删出结果并报告成功。Firefox 发布首个 BiDi 地址后继续排空 stderr；一次性地址通知不重复消费 sender。
 
 ## 3 身份与会话（SPEC §24.6.1）
 

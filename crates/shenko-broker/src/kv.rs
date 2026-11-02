@@ -96,7 +96,7 @@ pub struct Retention {
 }
 
 /// One context lease inside the residency pool.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContextLease {
     pub context_id: String,
     #[serde(default)]
@@ -144,7 +144,7 @@ impl ContextLease {
 }
 
 /// The residency pool of one physical domain.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KvPoolState {
     /// The observed pool capacity. `None` means it was never observed.
     pub capacity_units: Option<u64>,
@@ -477,14 +477,16 @@ impl KvAllocator {
                     });
                 }
                 return Ok(LeaseAdmission {
-                    lease: pool.leases.get(&demand.context_id).cloned().unwrap_or_default(),
+                    lease: pool.leases.get(&demand.context_id).cloned()
+                        .ok_or_else(|| KvError::UnknownLease(demand.context_id.clone()))?,
                     plan,
                     waited_for_reclaim: reclaimed,
                 });
             }
         }
         Ok(LeaseAdmission {
-            lease: pool.leases.get(&demand.context_id).cloned().unwrap_or_default(),
+            lease: pool.leases.get(&demand.context_id).cloned()
+                .ok_or_else(|| KvError::UnknownLease(demand.context_id.clone()))?,
             plan,
             waited_for_reclaim: false,
         })

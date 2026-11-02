@@ -21,12 +21,17 @@ use shenko_store::store::Store;
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
-/// The file that carries the claim capability for the installer.
-pub const CLAIM_CAPABILITY_FILE: &str = "bootstrap/claim-capability.json";
+#[path = "owner_control.rs"]
+mod control;
+use control::ClaimControl;
 
-/// The secret capability issued at install time. It is shown once to the
-/// installer and never leaves the install control channel in the clear.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Local-only verifier, retained after consumption to recognize retries.
+pub const CLAIM_CAPABILITY_FILE: &str = "bootstrap/claim-capability.json";
+/// Plaintext delivery, accessible only through the installation control channel.
+pub const CLAIM_SECRET_FILE: &str = "bootstrap/claim-secret.json";
+
+/// The persisted verifier contains a digest, never the plaintext capability.
+#[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimCapability {
     pub schema_version: u32,
@@ -34,66 +39,109 @@ pub struct ClaimCapability {
     pub capability: String,
 }
 
-/// Issue a new claim capability. Called by the installer/bootstrap before the
-/// first launch; the returned secret must be given to the installer and is
-/// not stored anywhere else by this module.
-pub fn issue_claim_capability(installation_id: EntityId) -> (ClaimCapability, String) {
-    let capability = format!("sc_{}", hex_encode(&EntityId::new().as_uuid().to_bytes()));
-    (
+// Deliberately no Debug implementation: this is credential material, not a
+// runtime fact, model input, CAS object, or replicated installation record.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaimDelivery {
+    schema_version: u32,
+    installation_id: EntityId,
+    capability: String,
+}
+
+impl ClaimDelivery {
+    fn verifier(&self) -> ClaimCapability {
         ClaimCapability {
             schema_version: 1,
-            installation_id,
-            capability: Digest::blake3(capability.as_bytes()).0,
-        },
-        capability,
-    )
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-/// Store the claim capability so the install control channel can present it.
-/// The file is written 0600 and is consumed by the claim.
-pub fn persist_claim_capability(data_dir: &std::path::Path, file: &ClaimCapability) -> Result<()> {
-    let path = data_dir.join(CLAIM_CAPABILITY_FILE);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+            installation_id: self.installation_id,
+            capability: Digest::blake3(self.capability.as_bytes()).0,
+        }
     }
-    let bytes = serde_json::to_vec(file)?;
-    write_private(&path, &bytes)?;
-    Ok(())
 }
 
-#[cfg(unix)]
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(path)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
-    Ok(())
+fn load_verifier(control: &ClaimControl, installation_id: EntityId) -> Result<Option<ClaimCapability>> {
+    let Some(bytes) = control.read(c"claim-capability.json")? else { return Ok(None) };
+    let record: ClaimCapability = serde_json::from_slice(&bytes)
+        .map_err(|_| anyhow::anyhow!("invalid owner claim verifier JSON"))?;
+    ensure!(record.schema_version == 1 && record.installation_id == installation_id,
+        "owner claim verifier schema or installation binding mismatch");
+    ensure!(record.capability.strip_prefix("blake3:")
+        .is_some_and(|digest| digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())),
+        "owner claim verifier must contain a BLAKE3 digest");
+    Ok(Some(record))
 }
 
-#[cfg(not(unix))]
-fn write_private(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
-    std::fs::write(path, bytes)?;
-    Ok(())
+fn load_delivery(control: &ClaimControl, installation_id: EntityId) -> Result<Option<ClaimDelivery>> {
+    let Some(bytes) = control.read(c"claim-secret.json")? else { return Ok(None) };
+    let record: ClaimDelivery = serde_json::from_slice(&bytes)
+        .map_err(|_| anyhow::anyhow!("invalid owner claim delivery JSON"))?;
+    ensure!(record.schema_version == 1 && record.installation_id == installation_id,
+        "owner claim delivery schema or installation binding mismatch");
+    ensure!(record.capability.strip_prefix("sc_")
+        .is_some_and(|secret| secret.len() == 32 && secret.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())),
+        "invalid owner claim delivery capability");
+    Ok(Some(record))
 }
 
-/// Load the persisted claim capability, if it exists.
-pub fn load_claim_capability(data_dir: &std::path::Path) -> Option<ClaimCapability> {
-    let path = data_dir.join(CLAIM_CAPABILITY_FILE);
-    let bytes = std::fs::read(path).ok()?;
-    serde_json::from_slice(&bytes).ok()
+/// Prepare local delivery before exposing the runtime. Interrupted publication
+/// resumes from the already-published secret; it never rotates a pending claim.
+/// An older digest-only installation retains its previously delivered secret.
+pub fn prepare_owner_claim(
+    store: &Store,
+    data_dir: &std::path::Path,
+    installation_id: EntityId,
+) -> Result<Option<PathBuf>> {
+    let claimed = store.owner_grant(installation_id)?.is_some();
+    let Some(control) = ClaimControl::open(data_dir, !claimed)? else { return Ok(None) };
+    let verifier = load_verifier(&control, installation_id)?;
+    let delivery = load_delivery(&control, installation_id)?;
+    if let (Some(verifier), Some(delivery)) = (&verifier, &delivery) {
+        ensure!(verifier.capability == delivery.verifier().capability,
+            "owner claim delivery does not match the retained verifier");
+    }
+    if claimed {
+        control.remove(c"claim-secret.json")?;
+        return Ok(None);
+    }
+    if verifier.is_some() {
+        return Ok(delivery.map(|_| data_dir.join(CLAIM_SECRET_FILE)));
+    }
+    let delivery = match delivery {
+        Some(delivery) => delivery,
+        None => {
+            let delivery = ClaimDelivery {
+                schema_version: 1,
+                installation_id,
+                capability: format!("sc_{}", EntityId::new().as_uuid().simple()),
+            };
+            control.write_new(c"claim-secret.json", &serde_json::to_vec(&delivery)?)?;
+            delivery
+        }
+    };
+    control.write_new(c"claim-capability.json", &serde_json::to_vec(&delivery.verifier())?)?;
+    Ok(Some(data_dir.join(CLAIM_SECRET_FILE)))
+}
+
+/// Missing is distinct from corrupt, unsafe, or foreign-installation state.
+pub fn load_claim_capability(
+    data_dir: &std::path::Path,
+    installation_id: EntityId,
+) -> Result<Option<ClaimCapability>> {
+    let Some(control) = ClaimControl::open(data_dir, false)? else { return Ok(None) };
+    load_verifier(&control, installation_id)
+}
+
+fn consume_delivery(control: &ClaimControl, verifier: &ClaimCapability) -> Result<()> {
+    if let Some(delivery) = load_delivery(control, verifier.installation_id)? {
+        ensure!(delivery.verifier().capability == verifier.capability,
+            "owner claim delivery does not match the retained verifier");
+        control.remove(c"claim-secret.json")?;
+    }
+    Ok(())
 }
 
 /// The authenticated actor resolved from a request. Extracted by
-/// [`OwnerAuthLayer`] from the admin bearer or a valid claim capability.
+/// [`OwnerState::actor`] from the admin bearer.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AuthenticatedActor {
@@ -134,7 +182,7 @@ fn principal_ref_for(store: &Store, installation_id: EntityId) -> Result<shenko_
 }
 
 /// Result of a claim attempt — SPEC §44.4 error contract.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClaimResponse {
     pub outcome: String,
@@ -150,9 +198,15 @@ pub struct ClaimResponse {
 pub fn claim_installation(
     store: &Store,
     data_dir: &std::path::Path,
+    installation_id: EntityId,
     presented: &str,
 ) -> Result<ClaimResponse> {
-    let capability = match load_claim_capability(data_dir) {
+    let control = ClaimControl::open(data_dir, false)?;
+    let capability = match &control {
+        Some(control) => load_verifier(control, installation_id)?,
+        None => None,
+    };
+    let capability = match capability {
         Some(capability) => capability,
         None => {
             return Ok(ClaimResponse {
@@ -171,7 +225,19 @@ pub fn claim_installation(
             error: Some("CLAIM_INVALID: the presented capability is not this installation's claim".into()),
         });
     }
-    let installation_id = capability.installation_id;
+    let control = control.context("owner control directory missing after verifier admission")?;
+    // Retire plaintext before the durable grant. A cleanup failure cannot
+    // commit ownership and then lose the only response carrying its bearer.
+    consume_delivery(&control, &capability)?;
+    let claim_id = EntityId::derived("shenko.owner.claim.v1", capability.capability.as_bytes());
+    if let Some(grant) = store.owner_grant(installation_id)? {
+        return Ok(ClaimResponse {
+            outcome: if grant.claim_id == claim_id { "replayed" } else { "owner_already_claimed" }.into(),
+            grant_id: Some(grant.grant_id),
+            admin_bearer: None,
+            error: None,
+        });
+    }
     let principal_ref = store.seal_config_object(
         &serde_json::json!({
             "kind": "human_owner",
@@ -188,20 +254,17 @@ pub fn claim_installation(
         "owner-authority",
     )?;
     // The admin bearer is the owner's secret; its digest is what persists.
-    let bearer = format!("sat_{}", hex_encode(&EntityId::new().as_uuid().to_bytes()));
+    let bearer = format!("sat_{}", EntityId::new().as_uuid().simple());
     let token_hash = Digest::blake3(bearer.as_bytes());
     let (outcome, grant) = store.claim_owner(
         installation_id,
-        EntityId::new(),
+        claim_id,
         principal_ref,
         authority_ref,
         token_hash,
     )?;
     match outcome {
         ClaimOutcome::Granted => {
-            // The one-time capability is consumed by a successful claim.
-            let path = data_dir.join(CLAIM_CAPABILITY_FILE);
-            let _ = std::fs::remove_file(&path);
             Ok(ClaimResponse {
                 outcome: "granted".into(),
                 grant_id: Some(grant.expect("granted claim returns a grant").grant_id),
@@ -251,20 +314,58 @@ impl OwnerState {
     }
 }
 
-/// Ensure a directory is present. Used by the bootstrap path before the
-/// capability file is written.
-pub fn ensure_data_dir(data_dir: &std::path::Path) -> Result<()> {
-    std::fs::create_dir_all(data_dir)?;
-    Ok(())
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{fs, os::unix::fs::{DirBuilderExt, PermissionsExt}, path::Path};
+
+    fn private_fixture(run: impl FnOnce(&Path) -> Result<()>) -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-owner-test-{}", EntityId::new()));
+        fs::DirBuilder::new().mode(0o700).create(&root)?;
+        let result = run(&root);
+        let cleanup = fs::remove_dir_all(&root);
+        result?;
+        cleanup?;
+        Ok(())
+    }
+
+    #[test]
+    fn consumed_claim_reopens_with_the_original_grant_and_bearer() -> Result<()> {
+        private_fixture(|root| {
+            let store = Store::open(root.join("state.db"), root.join("cas"))?;
+            let installation_id = store.ledger.ledger_id();
+            let path = prepare_owner_claim(&store, root, installation_id)?
+                .context("new installation did not deliver a claim")?;
+            let delivery: ClaimDelivery = serde_json::from_slice(&fs::read(&path)?)?;
+            let granted = claim_installation(&store, root, installation_id, &delivery.capability)?;
+            ensure!(granted.outcome == "granted" && !path.exists(), "claim did not consume delivery");
+            let bearer = granted.admin_bearer.context("grant did not deliver an admin bearer")?;
+            drop(store);
+
+            let reopened = Store::open(root.join("state.db"), root.join("cas"))?;
+            ensure!(prepare_owner_claim(&reopened, root, installation_id)?.is_none(), "claimed installation reissued a capability");
+            let replay = claim_installation(&reopened, root, installation_id, &delivery.capability)?;
+            ensure!(replay.outcome == "replayed" && replay.grant_id == granted.grant_id
+                && replay.admin_bearer.is_none(), "replay lost the original grant or issued another bearer");
+            ensure!(reopened.verify_admin_token(installation_id, &bearer)?, "original admin bearer stopped authenticating");
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn malformed_pending_verifier_is_not_replaced_on_startup() -> Result<()> {
+        private_fixture(|root| {
+            let store = Store::open(root.join("state.db"), root.join("cas"))?;
+            let installation_id = store.ledger.ledger_id();
+            fs::DirBuilder::new().mode(0o700).create(root.join("bootstrap"))?;
+            let path = root.join(CLAIM_CAPABILITY_FILE);
+            fs::write(&path, b"{not-json}")?;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+            ensure!(prepare_owner_claim(&store, root, installation_id).is_err(), "corruption was treated as absence");
+            ensure!(fs::read(&path)? == b"{not-json}" && !root.join(CLAIM_SECRET_FILE).exists(),
+                "startup replaced a corrupt pending claim");
+            Ok(())
+        })
+    }
 }
 
-/// Check the state for an internal invariant (no silent credential leaks).
-pub fn validate_capability_file(data_dir: &std::path::Path) -> Result<()> {
-    let capability = load_claim_capability(data_dir)
-        .context("no claim capability present")?;
-    ensure!(
-        capability.capability.starts_with("blake3:"),
-        "claim capability must store only a digest"
-    );
-    Ok(())
-}

@@ -24,6 +24,7 @@ use async_trait::async_trait;
 use cordis_core::{Context, Plugin, Service};
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
+use shenko_types::ids::EntityId;
 use shenko_types::media::*;
 
 use crate::provider::{
@@ -356,6 +357,7 @@ impl MediaRuntime {
             .ok_or_else(|| ShenkoError::not_found("no speech output binding configured"))?;
         let audio = speech.synthesize(&request).await?;
         if play {
+            let speech = Arc::clone(speech);
             let object = audio.object.clone();
             let stream = request.stream.clone();
             let runtime = self.clone();
@@ -434,7 +436,7 @@ impl MediaRuntime {
                 return Ok(());
             };
             let (segment, revision) = active.next_revision();
-            let revision_id = format!("{}:s{segment}:r{revision}");
+            let revision_id = format!("{}:s{segment}:r{revision}", stream.stream_id);
             let (audio, truncated) = if event.partial {
                 (None, false)
             } else {

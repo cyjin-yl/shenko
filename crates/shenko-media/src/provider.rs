@@ -144,11 +144,11 @@ async fn run_funasr_engine(
                     }
                     let mode = value.get("mode").and_then(serde_json::Value::as_str).unwrap_or("");
                     let speaker = funasr_speaker_claim(&value, &tag);
-                    let provider_facts = serde_json::json!({
-                        "mode": mode,
-                        "is_final": value.get("is_final").copied().unwrap_or(serde_json::Value::Null),
-                        "wav_name": value.get("wav_name").copied().unwrap_or(serde_json::Value::Null),
-                    });
+                    let provider_facts = serde_json::Map::from_iter([
+                        ("mode".into(), mode.into()),
+                        ("is_final".into(), value.get("is_final").cloned().unwrap_or(serde_json::Value::Null)),
+                        ("wav_name".into(), value.get("wav_name").cloned().unwrap_or(serde_json::Value::Null)),
+                    ]);
                     sink.on_transcript(&descriptor, MediaTranscriptEvent {
                         text: text_out.to_owned(),
                         partial: !matches!(mode, "offline" | "2pass-offline"),

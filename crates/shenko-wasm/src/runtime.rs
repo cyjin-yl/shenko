@@ -861,11 +861,9 @@ mod tests {
         Ok(())
     }
 
-    /// One focused mount-semantics scenario: a real guest cannot create a file
-    /// through a RO preopen, and requesting unimplemented COW fails instead of
-    /// silently becoming direct RW.
+    /// A real guest cannot create a file through a read-only preopen.
     #[test]
-    fn read_only_and_cow_mounts_keep_their_semantics() -> Result<()> {
+    fn read_only_mount_rejects_guest_writes() -> Result<()> {
         let home = temp_home("modes-home");
         let read_only = temp_home("modes-ro");
         let mut rt = WasmRuntime::with_mounts(vec![
@@ -908,19 +906,6 @@ mod tests {
             WasiRunOutcome::Exited(0)
         );
         assert!(!read_only.join("blocked.txt").exists());
-
-        let error = WasmRuntime::with_mounts(vec![MountSpec::new(
-            home,
-            HOME_GUEST_PATH,
-            MountMode::CopyOnWrite,
-            true,
-            true,
-        )])
-        .err()
-        .map(|error| error.to_string())
-        .unwrap_or_default();
-        assert!(error.contains("MOUNT_MODE_UNSUPPORTED"), "{error}");
-        assert!(error.contains("no direct-RW fallback"), "{error}");
         Ok(())
     }
 

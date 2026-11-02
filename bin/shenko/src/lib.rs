@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use shenko_identity::IdentityService;
+use shenko_types::channel::ChannelPlugin as _;
 use shenko_types::identity::{IdentityChange, IdentityProfile, IdentitySource};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -763,7 +764,7 @@ async fn install_native_definitions(
     )
     .await?;
     // SSH PTY and seat question/answer operations share one live seat owner.
-    let seat_runtime = Arc::new(shenko_exec_ssh::SeatRuntime::new(Arc::clone(store)));
+    let seat_runtime = Arc::new(shenko_exec_ssh::seat::runtime::SeatRuntime::new(Arc::clone(store)));
     let seat_ssh_handlers: [Arc<dyn shenko_subject::NativeTaskHandler>; 4] = [
         Arc::new(shenko_exec_ssh::SshExecHandler::new(Arc::clone(store))),
         Arc::new(shenko_exec_ssh::SshPtyHandler::new(
@@ -1300,6 +1301,21 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Some(agent_id) => store.installation_id_for_subject(agent_id)?,
                 None => store.ledger.ledger_id(),
             };
+            // Prepare the protected installation control channel before home
+            // setup, connectors, or subject work can publish runtime effects.
+            // Claiming is not a prerequisite for ordinary conversation.
+            if let Some(path) = shenko_ui::owner::prepare_owner_claim(
+                &store,
+                &data_dir,
+                installation_id,
+            )? {
+                info!(control_file=%path.display(), "owner claim available through the private installation control file");
+            }
+            let owner_state = shenko_ui::owner::OwnerState {
+                store: Arc::clone(&store),
+                installation_id,
+                data_dir: data_dir.clone(),
+            };
             let prepared_home = bootstrap.prepare(installation_id)?;
             info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
 
@@ -1409,8 +1425,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .spawn(
                     shenko_memory::MemoryWorkerPlugin,
                     (
-                        Arc::clone(&store),
                         agent_id,
+                        Arc::clone(&store),
                         Some(memory_knowledge),
                     ),
                 )
@@ -1581,7 +1597,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 );
                 println!("Bootstrap: {}", serde_json::to_string_pretty(&view)?);
                 let runtime_result =
-                    run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child).await;
+                    run_deterministic_ui(port, store, data_dir, model_profile, cancel, native_child, owner_state).await;
                 consumer_cancel.cancel();
                 match tokio::time::timeout(std::time::Duration::from_secs(2), dispatcher_task).await {
                     Ok(result) => result??,
@@ -1912,7 +1928,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 event_spool.ack(event_id, &commit.to_string())?;
                                 continue;
                             }
-                            let inbox_ev = napcat_inbox_event(ev)?;
+                            let mut inbox_ev = napcat_inbox_event(ev)?;
                             // Plugin-owned classification: the envelope, not
                             // the raw wire payload, is what the subject sees.
                             // A payload the plugin does not classify (notices,
@@ -2047,7 +2063,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         // The ready index owns the work.
                         for publication in reply_store.ready_publications(32)? {
                             let intent_id = publication.intent_id;
-                            let Some(plugin) = reply_registry.for_channel(&publication.target.channel) else {
+                            let Some(plugin) = reply_registry.channel(&publication.target.channel) else {
                                 // Never dispatched: durable refusal, runtime
                                 // keeps running.
                                 if let Err(error) = reply_store.refuse_publication(
@@ -2180,26 +2196,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
             info!("subject loop started");
 
-
-            // 6. Ownership bootstrap — SPEC §44.4. The installation ships
-            // with a one-time claim capability provided through the install
-            // control channel (the data directory). The first recognized
-            // human who presents it is recorded as the owner; an HTTP visit
-            // is never proof.
-            if shenko_ui::owner::load_claim_capability(&data_dir).is_none()
-                && store.owner_grant(installation_id)?.is_none()
-            {
-                let (capability, secret) = shenko_ui::owner::issue_claim_capability(installation_id);
-                shenko_ui::owner::persist_claim_capability(&data_dir, &capability)?;
-                // The install control channel shows this exactly once; it is
-                // never written to the log or any replicated table.
-                eprintln!("SHENKO CLAIM CAPABILITY (present once to POST /api/owner/claim):\n{secret}");
-            }
-            let owner_state = shenko_ui::owner::OwnerState {
-                store: Arc::clone(&store),
-                installation_id,
-                data_dir: data_dir.clone(),
-            };
             // The configuration service: discover/read/preview/apply over the
             // durable config tables. Namespaces register their handlers on
             // this service; without a handler a namespace is not advertised.
@@ -2223,7 +2219,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_config(config_service)
                 .with_artifact_services(Arc::clone(&installed.artifact_services))
                 .with_inference_status(model_profile.model.clone(), model_profile.configured);
-            println!("Shenko UI: http://0.0.0.0:{port}");
+            println!("Shenko UI: http://{}", ui.bind);
             println!("  Subject task: supervised (durable boundary pause may be active)");
             println!(
                 "  Inference: {} (configured; probe/capability evidence separate)",
@@ -2304,6 +2300,33 @@ async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path
         ActionRequest, BrowserProvider, ControlRequest, IdentityRequest, ObserveOptions,
         PageAction, SessionRequest,
     };
+    async fn action_request(
+        provider: &BrowserProvider,
+        step: &serde_json::Value,
+        caller: shenko_types::ids::EntityId,
+        actions: Vec<PageAction>,
+    ) -> Result<ActionRequest> {
+        let session_id = session_id_of(step)?;
+        let tab_id = step.get("tab_id").and_then(serde_json::Value::as_str).map(str::to_owned);
+        // Both CLI action routes use the same live observation/lease binding.
+        let (observation_id, lease_token) = match (
+            step.get("observation_id").and_then(serde_json::Value::as_str),
+            step.get("lease_token").and_then(serde_json::Value::as_str),
+        ) {
+            (Some(observation), Some(token)) => (observation.to_owned(), token.parse()?),
+            _ => {
+                let observation = provider.observe(session_id, tab_id.as_deref(), ObserveOptions {
+                    screenshot: false, accessibility: false,
+                }).await?;
+                let control = provider.control(ControlRequest {
+                    session_id, op: "acquire".into(),
+                    role: Some(shenko_exec_host::browser::ControllerRole::Agent), lease_token: None,
+                }, caller).await?;
+                (observation.observation_id, control.lease_token.context("acquire did not return a lease token")?)
+            }
+        };
+        Ok(ActionRequest { session_id, tab_id, observation_id, lease_token, actions })
+    }
     let input = if let Some(path) = file {
         tokio::fs::read_to_string(path).await?
     } else {
@@ -2342,12 +2365,12 @@ async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path
                         let session_id = session_id_of(step)?;
                         serde_json::to_value(provider.close_session(session_id, caller).await?)?
                     }
-                    "list" => serde_json::to_value(provider.list_sessions().await)?,
+                    "list" => serde_json::to_value(provider.list_sessions().await?)?,
                     "facts" => {
                         let session_id = session_id_of(step)?;
                         let facts = provider
                             .list_sessions()
-                            .await
+                            .await?
                             .into_iter()
                             .find(|facts| facts.session_id == session_id)
                             .ok_or_else(|| anyhow::anyhow!("session {session_id} not found"))?;
@@ -2368,17 +2391,9 @@ async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path
                             .get("url")
                             .and_then(serde_json::Value::as_str)
                             .ok_or_else(|| anyhow::anyhow!("page navigate requires a url"))?;
-                        let report = provider
-                            .act(
-                                ActionRequest {
-                                    session_id,
-                                    actions: vec![PageAction::Navigate {
-                                        url: url.to_string(),
-                                    }],
-                                },
-                                caller,
-                            )
-                            .await?;
+                        let request = action_request(&provider, step, caller,
+                            vec![PageAction::Navigate { url: url.to_string() }]).await?;
+                        let report = provider.act(request, caller).await?;
                         serde_json::to_value(&report)?
                     }
                     "observe" => {
@@ -2401,61 +2416,12 @@ async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path
                 }
             }
             "action" => {
-                let session_id = session_id_of(step)?;
                 let actions: Vec<PageAction> = serde_json::from_value(
                     step.get("actions")
                         .cloned()
                         .ok_or_else(|| anyhow::anyhow!("action step requires an actions array"))?,
                 )?;
-                // Actions bind to an observation and a live lease. When the
-                // batch omits them, take a fresh observation and acquire an
-                // agent lease first (diagnostics convenience; the agent path
-                // always binds explicitly).
-                let (observation_id, lease_token) = match (
-                    step.get("observation_id").and_then(serde_json::Value::as_str),
-                    step.get("lease_token").and_then(serde_json::Value::as_str),
-                ) {
-                    (Some(observation), Some(token)) => {
-                        let token = token.parse::<shenko_types::ids::EntityId>().map_err(|error| {
-                            anyhow::anyhow!("invalid lease_token: {error}")
-                        })?;
-                        (observation.to_string(), token)
-                    }
-                    _ => {
-                        let observation = provider
-                            .observe(
-                                session_id,
-                                None,
-                                ObserveOptions {
-                                    screenshot: false,
-                                    accessibility: false,
-                                },
-                            )
-                            .await?;
-                        let control = provider
-                            .control(
-                                ControlRequest {
-                                    session_id,
-                                    op: "acquire".into(),
-                                    role: Some(shenko_exec_host::browser::ControllerRole::Agent),
-                                    lease_token: None,
-                                },
-                                caller,
-                            )
-                            .await?;
-                        let lease_token = control.lease_token.ok_or_else(|| {
-                            anyhow::anyhow!("acquire did not return a lease token")
-                        })?;
-                        (observation.observation_id, lease_token)
-                    }
-                };
-                let request = ActionRequest {
-                    session_id,
-                    tab_id: None,
-                    observation_id,
-                    lease_token,
-                    actions,
-                };
+                let request = action_request(&provider, step, caller, actions).await?;
                 serde_json::to_value(provider.act(request, caller).await?)?
             }
             "control" => {
@@ -2823,13 +2789,15 @@ async fn run_deterministic_ui(
     model_profile: shenko_seed::ModelProfile,
     failure: tokio_util::sync::CancellationToken,
     native: Arc<shenko_subject::NativeChildService>,
+    owner: shenko_ui::owner::OwnerState,
 ) -> Result<()> {
     let ui = shenko_ui::server::UiServer::new(port)
         .with_native(native)
         .with_store(store)
         .with_data_dir(data_dir)
+        .with_owner(owner)
         .with_inference_status(model_profile.model, model_profile.configured);
-    println!("Shenko UI: http://0.0.0.0:{port}");
+    println!("Shenko UI: http://{}", ui.bind);
     println!("  Subject loop: not started (model_binding needed)");
     println!("  Inference: not_connected; capacity blocked");
     let result = tokio::select! {
@@ -2917,8 +2885,8 @@ async fn admit_channel_event(
     );
     let digest = shenko_types::object::Digest::blake3(key.as_bytes());
     let hex_text = digest.0.strip_prefix("blake3:").unwrap_or(&digest.0);
-    let mut bytes = [0u8; 16];
-    for (index, chunk) in hex_text.as_bytes().chunks(2).take(16).enumerate() {
+    let mut bytes = [0u8; 32];
+    for (index, chunk) in hex_text.as_bytes().chunks(2).take(32).enumerate() {
         let hex_pair = std::str::from_utf8(chunk).unwrap_or("00");
         bytes[index] = u8::from_str_radix(hex_pair, 16).unwrap_or(0);
     }
@@ -3561,6 +3529,9 @@ mod recovery_integration_tests {
             event_dispositions: vec![EventDisposition {
                 event_id: inbox_event.event_id,
                 disposition: Disposition::Acknowledged,
+                reason: None,
+                review_after: None,
+                priority: None,
             }],
             delegated_task_intents: vec![],
             child_dialogue_intents: vec![],
@@ -3569,6 +3540,7 @@ mod recovery_integration_tests {
             publication_intents: vec![],
             pending_obligations: vec![],
             evidence_refs: vec![],
+            attention_policy: None,
             successor_step_id: next,
         };
         step.decision_ref = Some(
@@ -3771,6 +3743,7 @@ mod recovery_integration_tests {
             publication_intents: vec![],
             pending_obligations: vec![],
             evidence_refs: vec![],
+            attention_policy: None,
             successor_step_id: next,
         };
         step.decision_ref = Some(
@@ -4008,6 +3981,9 @@ mod recovery_integration_tests {
             vec![EventDisposition {
                 event_id: events[0].event_id,
                 disposition: Disposition::Acknowledged,
+                reason: None,
+                review_after: None,
+                priority: None,
             }],
         );
         assert!(store.ready_native_results(agent, 8).unwrap().is_empty());
@@ -4600,6 +4576,7 @@ mod recovery_integration_tests {
             .unwrap()
             .expect("pending task claimable");
         let invocation = shenko_subject::NativeTaskInvocation {
+            child_tools: None,
             context: shenko_types::agent::CallContext {
                 caller_instance_id,
                 role_revision: handler.descriptor().role_revision,

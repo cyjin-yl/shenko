@@ -853,6 +853,7 @@ pub(crate) fn media_recovery_gaps(
                 "media fact and durable delivery identity disagree");
             let _: chrono::DateTime<chrono::Utc> = serde_json::from_value(
                 envelope.get("created_at").context("media original timestamp missing")?.clone())?;
+            match_extra_media_fact(row, &descriptor, &event)?;
             match event {
                 MediaIngressEvent::StreamOpened { descriptor, opened_at_ms, .. } => {
                     ensure!(is_open && required(row, "opened_at_ms")? == opened_at_ms.to_string()
@@ -914,7 +915,6 @@ pub(crate) fn media_recovery_gaps(
                 // checks above already bound them to this delivery event.
                 MediaIngressEvent::Recording { .. } | MediaIngressEvent::Priority { .. } => {}
             }
-            match_extra_media_fact(row, &descriptor, &event)?;
         }
 
         // The original envelope is immutable and intentionally has no later

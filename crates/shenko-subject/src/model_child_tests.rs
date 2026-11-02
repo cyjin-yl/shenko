@@ -287,9 +287,15 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
         socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
         socket.shutdown().await.unwrap();
     });
-    let (broker, handle) = Broker::with_anthropic_provider(AnthropicProvider {
-        api_key: "scripted-loopback-not-a-credential".into(), base_url: endpoint, model: "subject-cloud".into(),
-    }, 1).unwrap();
+    let (broker, handle) = Broker::with_anthropic_provider(
+        AnthropicProvider::with_endpoint(
+            "scripted-loopback-not-a-credential".into(),
+            endpoint,
+            "subject-cloud",
+        ),
+        1,
+    )
+    .unwrap();
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
     commit_output(&store, &mut subject, 1, &[], &delegation("cloud-child", "Independent finite reviewer.", "Review the supplied evidence.", 64)).await;
     let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;

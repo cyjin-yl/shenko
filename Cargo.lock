@@ -3728,6 +3728,8 @@ name = "shenko-evidence"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]
@@ -4042,6 +4044,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
+ "libc",
  "parking_lot",
  "pulldown-cmark",
  "serde",
@@ -4097,6 +4100,7 @@ dependencies = [
  "cap-std",
  "chrono",
  "getrandom 0.2.17",
+ "libc",
  "parking_lot",
  "serde",
  "serde_json",

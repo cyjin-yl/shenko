@@ -337,7 +337,7 @@ impl TargetMatch {
     /// Whether an installed tool's name satisfies this target.
     pub fn accepts(&self, tool_name: &str) -> bool {
         match self {
-            Self::Exact(name) => tool_name == name,
+            Self::Exact(name) => tool_name == *name,
             Self::Set(prefix) => tool_name.starts_with(prefix),
         }
     }
@@ -554,14 +554,17 @@ pub fn named_target_report(records: &[ToolRecord]) -> BTreeMap<String, String> {
             let detail = if status.state == "installed" {
                 format!("installed: {}", status.installed.join(", "))
             } else {
+                let joined;
+                let needed = if status.required_capabilities.is_empty() {
+                    "nothing beyond wasi preview1"
+                } else {
+                    joined = status.required_capabilities.join(", ");
+                    &joined
+                };
                 format!(
                     "unresolved [{}, needs {}]: {}",
                     status.compatibility,
-                    if status.required_capabilities.is_empty() {
-                        "nothing beyond wasi preview1"
-                    } else {
-                        &status.required_capabilities.join(", ")
-                    },
+                    needed,
                     status.reason
                 )
             };

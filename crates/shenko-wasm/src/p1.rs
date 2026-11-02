@@ -21,7 +21,7 @@ use anyhow::{Context, Result};
 use std::ffi::OsString;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::pin::Pin;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use wiggle::{GuestError, GuestMemory, GuestPtr, GuestType};
 
@@ -78,7 +78,7 @@ pub(crate) mod sync {
 
 /// Add the Shenko preview1 host functions to a linker whose store data is
 /// carried by the store (the controlled store wraps [`P1Host`]).
-pub fn add_to_linker_sync<T>(
+pub fn add_to_linker_sync<T: 'static>(
     linker: &mut wasmtime::Linker<T>,
     get_cx: impl Fn(&mut T) -> &mut P1Host + Send + Sync + Copy + 'static,
 ) -> wasmtime::Result<()> {
@@ -86,7 +86,11 @@ pub fn add_to_linker_sync<T>(
 }
 
 /// Convert a host I/O error into the preview1 errno with the same meaning.
-fn errno_from_io(error: &std::io::Error) -> types::Errno {
+fn errno_from_io(error: std::io::Error) -> types::Errno {
+    #[cfg(unix)]
+    if error.raw_os_error() == Some(libc::ELOOP) {
+        return types::Errno::Loop;
+    }
     // The capability layer reports a final symlink and a raced entry with
     // sentinel messages; they keep their POSIX meaning here.
     match error.to_string().as_str() {
@@ -103,13 +107,12 @@ fn errno_from_io(error: &std::io::Error) -> types::Errno {
         ErrorKind::NotADirectory => types::Errno::Notdir,
         ErrorKind::IsADirectory => types::Errno::Isdir,
         ErrorKind::DirectoryNotEmpty => types::Errno::Notempty,
-        ErrorKind::FilesystemLoop => types::Errno::Loop,
         _ => types::Errno::Io,
     }
 }
 
 fn io_err<T>(error: std::io::Error) -> Result<T, types::Error> {
-    Err(errno_from_io(&error).into())
+    Err(errno_from_io(error).into())
 }
 
 fn fault<T>(message: impl std::fmt::Display) -> Result<T, types::Error> {
@@ -153,16 +156,16 @@ impl StdioStreams {
         stderr: Box<dyn tokio::io::AsyncWrite + Send + Sync>,
     ) -> Self {
         Self {
-            stdin: Box::new(StreamReader { stream: stdin }),
-            stdout: Box::new(StreamWriter { stream: stdout }),
-            stderr: Box::new(StreamWriter { stream: stderr }),
+            stdin: Box::new(StreamReader { stream: Box::into_pin(stdin) }),
+            stdout: Box::new(StreamWriter { stream: Box::into_pin(stdout) }),
+            stderr: Box::new(StreamWriter { stream: Box::into_pin(stderr) }),
         }
     }
 }
 
 /// Blocking reader over an upstream asynchronous WASI input stream.
 struct StreamReader {
-    stream: Box<dyn tokio::io::AsyncRead + Send + Sync>,
+    stream: Pin<Box<dyn tokio::io::AsyncRead + Send + Sync>>,
 }
 
 impl Read for StreamReader {
@@ -176,7 +179,7 @@ impl Read for StreamReader {
 
 /// Blocking writer over an upstream asynchronous WASI output stream.
 struct StreamWriter {
-    stream: Box<dyn tokio::io::AsyncWrite + Send + Sync>,
+    stream: Pin<Box<dyn tokio::io::AsyncWrite + Send + Sync>>,
 }
 
 impl Write for StreamWriter {
@@ -536,7 +539,7 @@ impl P1Host {
         match fsx::open_component(dir, Path::new(name)) {
             Ok(Some(file)) => Ok(Some(cap_std::fs::Dir::from_std_file(file))),
             Ok(None) => Ok(None),
-            Err(error) => Err(errno_from_io(&error).into()),
+            Err(error) => Err(errno_from_io(error).into()),
         }
     }
 
@@ -549,7 +552,7 @@ impl P1Host {
         match fsx::open_component_with(dir, Path::new(name), options) {
             Ok(Some(file)) => Ok(Some(file)),
             Ok(None) => Ok(None),
-            Err(error) => Err(errno_from_io(&error).into()),
+            Err(error) => Err(errno_from_io(error).into()),
         }
     }
 
@@ -671,7 +674,7 @@ impl P1Host {
                 let file = match fsx::open_component(&dir, Path::new(name)) {
                     Ok(Some(file)) => file,
                     Ok(None) => return Ok(None),
-                    Err(error) => return Err(errno_from_io(&error).into()),
+                    Err(error) => return Err(errno_from_io(error).into()),
                 };
                 dir = cap_std::fs::Dir::from_std_file(file);
             }
@@ -706,7 +709,8 @@ impl P1Host {
     fn open_dir_child(&self, parent: &DirHandle, name: &OsString) -> Result<DirHandle, types::Error> {
         let child_rel = parent.rel.join(name);
         let binding = self.binding(parent.mount)?;
-        let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+        let (overlay_dir, base_dir) = parent.layer_dirs();
+        let tombstones = mount_tombstones(binding);
         let base_hidden = tombstones
             .map(|ts| ts.is_removed(&child_rel))
             .unwrap_or(false);
@@ -754,7 +758,8 @@ impl P1Host {
     ) -> Result<(DirHandle, Option<Vec<OsString>>), types::Error> {
         let child_rel = handle.rel.join(name);
         let binding = self.binding(handle.mount)?;
-        let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+        let (overlay_dir, base_dir) = handle.layer_dirs();
+        let tombstones = mount_tombstones(binding);
         let base_hidden = tombstones
             .map(|ts| ts.is_removed(&child_rel))
             .unwrap_or(false);
@@ -831,7 +836,8 @@ impl P1Host {
         // borrow of `self` alive across the mutable operations below.
         let (overlay_has, base_has, base_is_dir) = {
             let binding = self.binding(mount)?;
-            let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+            let (overlay_dir, base_dir) = parent.layer_dirs();
+            let tombstones = mount_tombstones(binding);
             let overlay_meta = overlay_dir.and_then(|d| d.symlink_metadata(name).ok());
             let base_meta = base_dir.and_then(|d| d.symlink_metadata(name).ok());
             let hidden = tombstones.map(|ts| ts.is_removed(&rel)).unwrap_or(false);
@@ -864,67 +870,38 @@ impl P1Host {
         }
 
         if !is_cow {
-            // Direct mount: one layer, opened in place.
-            let dir = {
-                let binding = self.binding(mount)?;
-                match &binding.backing {
-                    MountBacking::Direct { root, .. } => root
-                        .dir()
-                        .try_clone()
-                        .map_err(|e| types::Error::trap(anyhow!("clone mount layer: {e}")))?,
-                    MountBacking::CopyOnWrite { .. } => unreachable!("checked above"),
-                }
-            };
-            return Self::open_layer_file(&dir, name, &options)?
+            // `name` is relative to the resolved parent, not the mount root.
+            let dir = parent.overlay.as_ref().ok_or(types::Errno::Noent)?;
+            return Self::open_layer_file(dir, name, &options)?
                 .ok_or_else(|| types::Error::trap(anyhow!("open vanished mid-resolution")));
         }
 
         if !overlay_has {
             if !write && !append && !create {
                 // Pure read of a base file: no copy-up.
-                let base = {
-                    let binding = self.binding(mount)?;
-                    match &binding.backing {
-                        MountBacking::CopyOnWrite { base, .. } => base
-                            .dir()
-                            .try_clone()
-                            .map_err(|e| types::Error::trap(anyhow!("clone base layer: {e}")))?,
-                        MountBacking::Direct { .. } => unreachable!("checked above"),
-                    }
-                };
-                return Self::open_layer_file(&base, name, &options)?.ok_or_else(|| {
+                let base = parent.base.as_ref().ok_or(types::Errno::Noent)?;
+                return Self::open_layer_file(base, name, &options)?.ok_or_else(|| {
                     types::Error::trap(anyhow!("open vanished mid-resolution"))
                 });
             }
             // Materialize the parent chain and copy the base bytes up.
             self.materialize_dirs(mount, &rel)?;
-            if base_has {
-                let (base, overlay) = {
-                    let binding = self.binding(mount)?;
-                    match &binding.backing {
-                        MountBacking::CopyOnWrite { base, store, .. } => (
-                            base.dir()
-                                .try_clone()
-                                .map_err(|e| types::Error::trap(anyhow!("clone base layer: {e}")))?,
-                            store
-                                .overlay_dir()
-                                .try_clone()
-                                .map_err(|e| types::Error::trap(anyhow!("clone overlay layer: {e}")))?,
-                        ),
-                        MountBacking::Direct { .. } => unreachable!("checked above"),
-                    }
-                };
-                Self::copy_up(&base, &overlay, name)?;
-            }
         }
-        let overlay = {
-            let store = self.cow_store(mount)?;
-            store
-                .overlay_dir()
-                .try_clone()
-                .map_err(|e| types::Error::trap(anyhow!("clone overlay layer: {e}")))?
+        // Reuse the pinned parent when it already has an overlay. Otherwise
+        // open the newly materialized parent through the mount capability.
+        let materialized_parent = if parent.overlay.is_none() {
+            Some(self.dir_handle_at(mount, &parent.rel)?)
+        } else {
+            None
         };
-        Self::open_layer_file(&overlay, name, &options)?
+        let overlay = parent.overlay.as_ref()
+            .or_else(|| materialized_parent.as_ref().and_then(|parent| parent.overlay.as_ref()))
+            .ok_or(types::Errno::Noent)?;
+        if !overlay_has && base_has {
+            let base = parent.base.as_ref().ok_or(types::Errno::Noent)?;
+            Self::copy_up(base, overlay, name)?;
+        }
+        Self::open_layer_file(overlay, name, &options)?
             .ok_or_else(|| types::Error::trap(anyhow!("open vanished mid-resolution")))
     }
 
@@ -934,13 +911,15 @@ impl P1Host {
     fn materialize_dirs(&mut self, mount: usize, rel: &Path) -> Result<(), types::Error> {
         let ancestors: Vec<PathBuf> = rel
             .parent()
-            .map(|mut p| {
+            .map(|parent| {
                 let mut v = Vec::new();
+                let mut p = parent;
                 while !p.as_os_str().is_empty() {
                     v.push(p.to_path_buf());
-                    if !p.pop() {
+                    let Some(parent) = p.parent() else {
                         break;
-                    }
+                    };
+                    p = parent;
                 }
                 v.reverse();
                 v
@@ -1051,9 +1030,9 @@ impl P1Host {
                     true,
                     false,
                 )?;
-                self.cow_store(mount)?
-                    .overlay_dir()
-                    .rename(&child_src_rel, &child_dest_rel)
+                let overlay = self.cow_store(mount)?.overlay_dir();
+                overlay
+                    .rename(&child_src_rel, overlay, &child_dest_rel)
                     .map_err(errno_from_io)?;
             }
         }
@@ -1130,7 +1109,8 @@ impl P1Host {
             }
             let slice = iov.buf.as_array(iov.buf_len);
             let bytes = memory.to_vec(slice).map_err(|e| {
-                types::Error::trap(anyhow!("ciov buffer: {e}")))?;
+                types::Error::trap(anyhow!("ciov buffer: {e}"))
+            })?;
             out.extend_from_slice(&bytes);
         }
         Ok(out)
@@ -1237,6 +1217,54 @@ impl P1Host {
         seconds
             .saturating_mul(1_000_000_000)
             .saturating_add(nanos)
+    }
+
+    /// Create a directory below an already-resolved parent. Shared by
+    /// path_create_directory and CREAT|DIRECTORY path_open.
+    fn create_directory_at(
+        &mut self,
+        parent: &DirHandle,
+        name: &OsString,
+        may_exist: bool,
+    ) -> Result<(), types::Error> {
+        self.ensure_writable(parent.mount)?;
+        let rel = parent.rel.join(name);
+        if self.is_cow(parent.mount)? {
+            if let Some(meta) = self.effective_symlink_metadata(parent.mount, &rel)? {
+                return if may_exist && meta.is_dir() {
+                    Ok(())
+                } else {
+                    Err(types::Errno::Exist.into())
+                };
+            }
+            self.materialize_dirs(parent.mount, &rel)?;
+            {
+                let store = self.cow_store(parent.mount)?;
+                let result = store.overlay_dir().create_dir(&rel);
+                let already = result.as_ref().err().map(|e| e.kind())
+                    == Some(std::io::ErrorKind::AlreadyExists);
+                if !(may_exist && already) {
+                    result.map_err(errno_from_io)?;
+                }
+                store.tombstones.clear_below(&rel);
+            }
+            self.cow_store(parent.mount)?
+                .persist_tombstones()
+                .map_err(|e| types::Error::trap(anyhow!("persist tombstones: {e}")))?;
+            return Ok(());
+        }
+        let root = self
+            .direct_layer(parent.mount)?
+            .ok_or_else(|| types::Error::trap(anyhow!("direct layer missing")))?;
+        let result = root.create_dir(&rel);
+        if may_exist
+            && result.as_ref().err().map(|e| e.kind())
+                == Some(std::io::ErrorKind::AlreadyExists)
+        {
+            return Ok(());
+        }
+        result.map_err(errno_from_io)?;
+        Ok(())
     }
 }
 
@@ -1353,9 +1381,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                     types::Error::trap(anyhow!("argv slot: {e}"))
                 })?, ptr)
                 .map_err(|e| types::Error::trap(anyhow!("argv slot write: {e}")))?;
-            let region = ptr
-                .as_array(arg.len() as u32 + 1)
-                .map_err(|e| types::Error::trap(anyhow!("argv region: {e}")))?;
+            let region = ptr.as_array(arg.len() as u32 + 1);
             let mut bytes = arg.clone();
             bytes.push(0);
             memory
@@ -1400,9 +1426,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                     types::Error::trap(anyhow!("environ slot: {e}"))
                 })?, ptr)
                 .map_err(|e| types::Error::trap(anyhow!("environ slot write: {e}")))?;
-            let region = ptr
-                .as_array(bytes.len() as u32)
-                .map_err(|e| types::Error::trap(anyhow!("environ region: {e}")))?;
+            let region = ptr.as_array(bytes.len() as u32);
             memory
                 .copy_from_slice(&bytes, region)
                 .map_err(|e| types::Error::trap(anyhow!("environ copy: {e}")))?;
@@ -1585,14 +1609,12 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                 Ok(Self::filestat_of(&meta))
             }
             FdEntry::Dir(handle) => {
-                let layer = |handle: &DirHandle| {
-                    handle
-                        .overlay
-                        .as_ref()
-                        .or(handle.base.as_ref())
-                        .expect("dir handle has a layer")
-                };
-                let meta = fsx::dir_cap_metadata(layer(handle))
+                let layer = handle
+                    .overlay
+                    .as_ref()
+                    .or(handle.base.as_ref())
+                    .expect("dir handle has a layer");
+                let meta = fsx::dir_cap_metadata(layer)
                     .map_err(|e| types::Error::trap(anyhow!("dir metadata: {e}")))?;
                 Ok(Self::filestat_of(&meta))
             }
@@ -1978,8 +2000,17 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             let head = buf.add(written as u32).map_err(|e| {
                 types::Error::trap(anyhow!("dirent ptr: {e}"))
             })?;
+            // Preview1 directory entries are packed byte records. A name
+            // can leave the next header unaligned, so typed guest writes
+            // would impose an invalid alignment restriction.
+            let mut header = [0u8; 24];
+            debug_assert_eq!(header.len(), dirent_size);
+            header[0..8].copy_from_slice(&dirent.d_next.to_le_bytes());
+            header[8..16].copy_from_slice(&dirent.d_ino.to_le_bytes());
+            header[16..20].copy_from_slice(&dirent.d_namlen.to_le_bytes());
+            header[20] = dirent.d_type.into();
             memory
-                .write(head, dirent)
+                .copy_from_slice(&header, head.as_array(header.len() as u32))
                 .map_err(|e| types::Error::trap(anyhow!("dirent write: {e}")))?;
             let name_region = buf
                 .add(written as u32 + dirent_size as u32)
@@ -1992,50 +2023,6 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             index += 1;
         }
         Ok(written as types::Size)
-    }
-
-    /// Create the directory named `name` below an already-resolved parent
-    /// (shared by `path_create_directory` and CREAT|DIRECTORY `path_open`).
-    /// Existence is an error (`Exist`) unless `may_exist`.
-    fn create_directory_at(
-        &mut self,
-        parent: &DirHandle,
-        name: &OsString,
-        may_exist: bool,
-    ) -> Result<(), types::Error> {
-        self.ensure_writable(parent.mount)?;
-        let rel = parent.rel.join(name);
-        if self.is_cow(parent.mount)? {
-            // The parent chain is materialized first so the new directory
-            // lands in the overlay and never in the readonly base.
-            self.materialize_dirs(parent.mount, &rel.join("x"))?;
-            {
-                let store = self.cow_store(parent.mount)?;
-                let result = store.overlay_dir().create_dir(&rel);
-                let already = result.as_ref().err().map(|e| e.kind())
-                    == Some(std::io::ErrorKind::AlreadyExists);
-                if !(may_exist && already) {
-                    result.map_err(errno_from_io)?;
-                }
-                store.tombstones.clear_below(&rel);
-            }
-            self.cow_store(parent.mount)?
-                .persist_tombstones()
-                .map_err(|e| types::Error::trap(anyhow!("persist tombstones: {e}")))?;
-            return Ok(());
-        }
-        let root = self
-            .direct_layer(parent.mount)?
-            .ok_or_else(|| types::Error::trap(anyhow!("direct layer missing")))?;
-        let result = root.create_dir(&rel);
-        if may_exist
-            && result.as_ref().err().map(|e| e.kind())
-                == Some(std::io::ErrorKind::AlreadyExists)
-        {
-            return Ok(());
-        }
-        result.map_err(errno_from_io)?;
-        Ok(())
     }
 
     fn path_create_directory(
@@ -2061,7 +2048,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         let (parent, name) = self.resolve_parent(dirfd, &path, follow)?;
         let rel = parent.rel.join(&name);
         let binding = self.binding(parent.mount)?;
-        let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+        let (overlay_dir, base_dir) = parent.layer_dirs();
+        let tombstones = mount_tombstones(binding);
         if !follow {
             let meta = overlay_dir
                 .and_then(|d| d.symlink_metadata(&name).ok())
@@ -2178,9 +2166,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
             }
             {
                 let store = self.cow_store(target_parent.mount)?;
-                store
-                    .overlay_dir()
-                    .hard_link(&src_rel, &rel)
+                let overlay = store.overlay_dir();
+                overlay
+                    .hard_link(&src_rel, overlay, &rel)
                     .map_err(errno_from_io)?;
             }
             self.cow_store(target_parent.mount)?
@@ -2191,7 +2179,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         let root = self
             .direct_layer(target_parent.mount)?
             .ok_or_else(|| types::Error::trap(anyhow!("direct layer missing")))?;
-        root.hard_link(src_parent.rel.join(&src_name), &rel)
+        root.hard_link(src_parent.rel.join(&src_name), &root, &rel)
             .map_err(errno_from_io)?;
         Ok(())
     }
@@ -2302,7 +2290,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         let path = read_path(memory, path)?;
         let (parent, name) = self.resolve_parent(dirfd, &path, false)?;
         let binding = self.binding(parent.mount)?;
-        let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+        let (overlay_dir, base_dir) = parent.layer_dirs();
+        let tombstones = mount_tombstones(binding);
         let rel = parent.rel.join(&name);
         let target = overlay_dir
             .and_then(|d| d.read_link(&name).ok())
@@ -2334,7 +2323,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         self.ensure_writable(parent.mount)?;
         let rel = parent.rel.join(&name);
         let binding = self.binding(parent.mount)?;
-        let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+        let (overlay_dir, base_dir) = parent.layer_dirs();
+        let tombstones = mount_tombstones(binding);
         let in_overlay = overlay_dir
             .map(|d| d.symlink_metadata(&name).map(|m| m.is_dir()).unwrap_or(false))
             .unwrap_or(false);
@@ -2469,9 +2459,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                 }
             } else if file_type.is_symlink() {
                 if src_in_overlay {
-                    self.cow_store(mount)?
-                        .overlay_dir()
-                        .rename(&src_rel, &dest_rel)
+                    let overlay = self.cow_store(mount)?.overlay_dir();
+                    overlay
+                        .rename(&src_rel, overlay, &dest_rel)
                         .map_err(errno_from_io)?;
                 } else {
                     // Base symlink: recreate the link at the destination.
@@ -2500,9 +2490,9 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
                         false,
                     )?;
                 }
-                self.cow_store(mount)?
-                    .overlay_dir()
-                    .rename(&src_rel, &dest_rel)
+                let overlay = self.cow_store(mount)?.overlay_dir();
+                overlay
+                    .rename(&src_rel, overlay, &dest_rel)
                     .map_err(errno_from_io)?;
             }
             if src_in_base {
@@ -2516,7 +2506,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         let root = self
             .direct_layer(mount)?
             .ok_or_else(|| types::Error::trap(anyhow!("direct layer missing")))?;
-        root.rename(&src_rel, &dest_rel).map_err(errno_from_io)?;
+        root.rename(&src_rel, &root, &dest_rel).map_err(errno_from_io)?;
         Ok(())
     }
 
@@ -2568,7 +2558,8 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for P1Host {
         self.ensure_writable(parent.mount)?;
         let rel = parent.rel.join(&name);
         let binding = self.binding(parent.mount)?;
-        let (overlay_dir, base_dir, _, tombstones) = layers(binding);
+        let (overlay_dir, base_dir) = parent.layer_dirs();
+        let tombstones = mount_tombstones(binding);
         let meta = overlay_dir
             .and_then(|d| d.symlink_metadata(&name).ok())
             .or_else(|| {

@@ -96,7 +96,7 @@ pub struct WebWithdrawalRecord {
     pub event_id: EntityId,
     pub result: WebWithdrawResultKind,
     /// the ledger commit that recorded this withdrawal
-    pub commit: crate::commit::CommitRef,
+    pub commit: CommitRef,
 }
 
 /// Why a withdrawal control could not be recorded. Distinct from a store
@@ -253,7 +253,7 @@ impl Store {
             return Ok(Ok(WebWithdrawalRecord {
                 submission_id: submission_id.to_owned(),
                 cancel_id: cancel_id.to_owned(),
-                event_id: EntityId(event),
+                event_id: event.parse::<EntityId>().map_err(storage_error)?,
                 result,
                 commit: CommitRef::new(
                     self.ledger.ledger_id(),
@@ -367,7 +367,7 @@ impl Store {
             Ok(WebWithdrawalRecord {
                 submission_id: submission_id.to_owned(),
                 cancel_id: cancel,
-                event_id: EntityId(event),
+                event_id: event.parse::<EntityId>().map_err(storage_error)?,
                 result,
                 commit: CommitRef::new(
                     self.ledger.ledger_id(),
@@ -427,7 +427,8 @@ impl Store {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
                 ))
             })
             .map_err(storage_error)?
@@ -439,7 +440,7 @@ impl Store {
                 Ok(WebWithdrawalRecord {
                     submission_id: submission,
                     cancel_id: cancel,
-                    event_id: EntityId(event),
+                    event_id: event.parse::<EntityId>().map_err(storage_error)?,
                     result,
                     commit: CommitRef::new(
                         self.ledger.ledger_id(),

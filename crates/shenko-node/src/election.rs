@@ -520,7 +520,7 @@ impl Node {
                 |r| r.get(0),
             )
             .optional()?;
-        let Some(config) = raw else {
+        let Some(raw) = raw else {
             return Ok(None);
         };
         let config: MemberConfiguration = serde_json::from_str(&raw)?;
@@ -620,16 +620,18 @@ impl Node {
 
     /// The fencing token of the currently committed primary.
     pub fn fencing_token(&self) -> Result<Option<FencingToken>> {
-        Ok(self.committed_primary_claim()?.map(|claim| FencingToken {
-            term: claim.term,
-            epoch: claim.epoch,
-            leader_id: claim
-                .leader_node_id
-                .parse::<EntityId>()
-                .context("committed primary leader is not a node identity")?,
-            config_revision: claim.config_revision,
-            committed_seq: claim.committed_seq,
-        }))
+        self.committed_primary_claim()?.map(|claim| {
+            Ok(FencingToken {
+                term: claim.term,
+                epoch: claim.epoch,
+                leader_id: claim
+                    .leader_node_id
+                    .parse::<EntityId>()
+                    .context("committed primary leader is not a node identity")?,
+                config_revision: claim.config_revision,
+                committed_seq: claim.committed_seq,
+            })
+        }).transpose()
     }
 
     /// Resource-side fence: a token is accepted only when it is exactly the
@@ -1267,14 +1269,15 @@ impl Node {
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let node_id = Self::stored_node_id(&tx)?.context("node not initialized")?;
+        Self::stored_node_id(&tx)?.context("node not initialized")?;
+        let mut commit_index = state_number(&tx, "commit_index")?;
         if request.prev_index > 0 {
             let previous = Self::control_entry(&tx, request.prev_index)?;
             let Some(previous) = previous else {
                 tx.commit()?;
                 return Ok(AppendOutcome {
                     accepted: 0,
-                    commit_index: state_number(&tx, "commit_index")?,
+                    commit_index,
                     reason: "log_mismatch: predecessor entry is missing".into(),
                 });
             };
@@ -1282,12 +1285,12 @@ impl Node {
                 tx.commit()?;
                 return Ok(AppendOutcome {
                     accepted: 0,
-                    commit_index: state_number(&tx, "commit_index")?,
+                    commit_index,
                     reason: "log_mismatch: predecessor term differs".into(),
                 });
             }
         }
-        let current_term = state_number(&tx, "term")?;
+        let mut current_term = state_number(&tx, "term")?;
         let mut accepted = 0usize;
         let mut reason = "accepted".to_string();
         for entry in &request.entries {
@@ -1318,27 +1321,17 @@ impl Node {
             )?;
             accepted += 1;
             Self::apply_control_entry(&tx, entry)?;
+            commit_index = commit_index.max(entry.index);
+            current_term = current_term.max(entry.term);
         }
         if accepted > 0 {
-            let index = request
-                .entries
-                .iter()
-                .map(|entry| entry.index)
-                .max()
-                .unwrap_or(0);
-            let commit = state_number(&tx, "commit_index")?;
-            if index > commit {
-                set_state(&tx, "commit_index", &index.to_string())?;
-            }
+            set_state(&tx, "commit_index", &commit_index.to_string())?;
+            set_state(&tx, "term", &current_term.to_string())?;
         }
-        if request.term > current_term {
-            set_state(&tx, "term", &request.term.to_string())?;
-        }
-        let _ = node_id;
         tx.commit()?;
         Ok(AppendOutcome {
             accepted,
-            commit_index: state_number(&self.conn, "commit_index")?,
+            commit_index,
             reason,
         })
     }
@@ -1972,7 +1965,7 @@ impl Node {
 
     /// The election, membership and authority facts of this node.
     pub fn election_status(&self) -> Result<Value> {
-        let config = self.committed_config()?;
+        let config = self.member_configuration()?;
         let claim = self.committed_primary_claim()?;
         let token = self.fencing_token()?;
         let role = self.election_role()?;

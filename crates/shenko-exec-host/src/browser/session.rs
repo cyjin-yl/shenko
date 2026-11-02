@@ -260,18 +260,16 @@ impl BrowserProvider {
     }
 
     /// Every live session of this provider.
-    pub async fn list_sessions(&self) -> Vec<SessionFacts> {
+    pub async fn list_sessions(&self) -> Result<Vec<SessionFacts>> {
         let sessions: Vec<Arc<BrowserSession>> = {
             let state = self.state();
             state.sessions.values().cloned().collect()
         };
-        let mut facts = Vec::new();
+        let mut facts = Vec::with_capacity(sessions.len());
         for session in sessions {
-            if let Ok(facts) = self.session_facts(&session).await {
-                facts.push(facts);
-            }
+            facts.push(self.session_facts(&session).await?);
         }
-        facts
+        Ok(facts)
     }
 
     pub(crate) fn session(&self, session_id: EntityId) -> Result<Arc<BrowserSession>> {

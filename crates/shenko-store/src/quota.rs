@@ -714,7 +714,9 @@ impl Store {
                     .optional()
                     .map_err(storage_error)?;
                 let previous_profile = previous
-                    .and_then(|data| serde_json::from_str::<PolicyDecision>(&data).ok())
+                    .as_deref()
+                    .map(serde_json::from_str::<PolicyDecision>)
+                    .transpose()?
                     .and_then(|previous| chosen_profile(&previous.choice));
                 let current_profile = chosen_profile(&decision.choice);
                 if previous.is_some() && previous_profile != current_profile {

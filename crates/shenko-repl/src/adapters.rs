@@ -55,6 +55,7 @@ pub fn python_wasi(
     module: impl Into<PathBuf>,
     stdlib: Option<PathBuf>,
 ) -> KernelProfile {
+    let module = module.into();
     let state_guest_path = "/home/state.pkl".to_string();
     let argv = vec![guest_module_argv0(&module)];
     let mut env = vec![
@@ -77,7 +78,7 @@ pub fn python_wasi(
         runtime: ReplRuntime::CPythonWasi,
         runtime_label: "cpython wasi-preview1 (driver python-cell-v1)".into(),
         backend: BackendKind::WasiPreview1,
-        module: ModuleSource::ModulePath(module.into()),
+        module: ModuleSource::ModulePath(module),
         argv,
         env,
         workdir_guest: "/home".into(),
@@ -91,14 +92,16 @@ pub fn python_wasi(
 /// Kernel that runs a QuickJS-for-WASI build (JS-in-WASM, explicitly *not*
 /// Node or Bun). Requires the bound module to provide the qjs `std` module.
 pub fn quickjs_wasi(kernel_id: impl Into<String>, module: impl Into<PathBuf>) -> KernelProfile {
+    let module = module.into();
     let state_guest_path = "/home/state.json".to_string();
+    let argv = vec![guest_module_argv0(&module)];
     KernelProfile {
         kernel_id: kernel_id.into(),
         runtime: ReplRuntime::JsWasm,
         runtime_label: "quickjs wasi-preview1 std-module (driver quickjs-cell-v1)".into(),
         backend: BackendKind::WasiPreview1,
-        module: ModuleSource::ModulePath(module.into()),
-        argv: vec![guest_module_argv0(&module)],
+        module: ModuleSource::ModulePath(module),
+        argv,
         env: Vec::new(),
         workdir_guest: "/home".into(),
         persistence: StatePersistence::GuestFile { guest_path: state_guest_path },

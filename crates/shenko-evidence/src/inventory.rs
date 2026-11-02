@@ -2,20 +2,15 @@
 //!
 //! The repository keeps evidence records from earlier slices. Those records
 //! are real, but each is bound to the candidate it was produced against.
-//! This module inventories them and states, per record, whether it can be
-//! re-bound to the current candidate or whether it is history that a new
-//! candidate has to reproduce.
-//!
-//! "Re-bindable" is a fact about the record, not an opinion about the
-//! product: a record whose `product_commit` equals the current candidate
-//! commit, or which declares no commit at all but names a receipt, can be
-//! carried forward; a record bound to a different commit cannot.
+//! Candidate equality is a metadata classification, not receipt admission.
+//! Missing identities remain unbound; read failures stay visible.
 
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::coverage::EvidenceRecord;
+use crate::coverage::{EvidenceRecord, looks_like_evidence};
+use crate::receipt::{read_json, receipt_path};
 
 /// How a retained evidence record relates to the current candidate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -52,73 +47,100 @@ pub struct InventoryEntry {
 #[derive(Debug, Clone, Default)]
 pub struct EvidenceInventory {
     pub entries: Vec<InventoryEntry>,
+    pub issues: Vec<InventoryIssue>,
+    pub non_evidence_files: Vec<String>,
+}
+
+/// An input that could not be inventoried; never silently treated as absent.
+#[derive(Debug, Clone)]
+pub struct InventoryIssue {
+    pub source_path: String,
+    pub kind: &'static str,
+    pub detail: String,
 }
 
 impl EvidenceInventory {
     /// Read every `*.json` in `evidence_dir` and inventory the records.
     ///
-    /// Files that are not evidence records (documentation-integrity reports
-    /// and similar) are kept in the inventory as unbound entries rather than
-    /// dropped, so the denominator of "what evidence exists" stays visible.
+    /// Non-evidence JSON is listed separately; unreadable or malformed inputs
+    /// make the inventory explicitly incomplete.
     pub fn read_dir(evidence_dir: &Path, candidate_commit: Option<&str>) -> EvidenceInventory {
-        let mut entries = Vec::new();
-        let Ok(dir) = std::fs::read_dir(evidence_dir) else {
-            return EvidenceInventory { entries };
+        let mut inventory = EvidenceInventory::default();
+        let directory = match std::fs::canonicalize(evidence_dir) {
+            Ok(path) => path,
+            Err(error) => {
+                inventory.issue(evidence_dir, "directory_io", error.to_string());
+                return inventory;
+            }
         };
-        let mut paths: Vec<PathBuf> = dir
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-            .collect();
+        let dir = match std::fs::read_dir(&directory) {
+            Ok(dir) => dir,
+            Err(error) => {
+                inventory.issue(&directory, "directory_io", error.to_string());
+                return inventory;
+            }
+        };
+        let mut paths = Vec::new();
+        for entry in dir {
+            match entry {
+                Ok(entry) if entry.path().extension().is_some_and(|ext| ext == "json") => {
+                    paths.push(entry.path())
+                }
+                Ok(_) => {}
+                Err(error) => inventory.issue(&directory, "directory_entry_io", error.to_string()),
+            }
+        }
         paths.sort();
         for path in paths {
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
+            let value = match read_json(&path) {
+                Ok(value) => value,
+                Err(error) => {
+                    inventory.issue(&path, "unreadable_or_malformed_json", error);
+                    continue;
+                }
             };
-            let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            if !looks_like_evidence(&value) {
+                inventory
+                    .non_evidence_files
+                    .push(path.to_string_lossy().into_owned());
                 continue;
-            };
+            }
             let Some(record) = EvidenceRecord::from_json(&value, &path.to_string_lossy()) else {
+                inventory.issue(
+                    &path,
+                    "malformed_record",
+                    "invalid evidence fields or conflicting candidate aliases".to_string(),
+                );
                 continue;
             };
             let binding = match (candidate_commit, record.candidate_commit.as_deref()) {
-                (Some(candidate), Some(record_commit)) => {
+                (Some(candidate), Some(record_commit))
+                    if !candidate.is_empty() && !record_commit.is_empty() =>
+                {
                     if candidate == record_commit {
                         Binding::CurrentCandidate
                     } else {
                         Binding::OldCandidate
                     }
                 }
-                (None, Some(_)) => Binding::OldCandidate,
                 _ => Binding::Unbound,
             };
-            let receipt_present = record
-                .native_receipt
-                .as_deref()
-                .map(|receipt| {
-                    let candidate = Path::new(receipt);
-                    candidate.exists()
-                        || evidence_dir
-                            .parent()
-                            .map(|root| root.join(receipt).exists())
-                            .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            entries.push(InventoryEntry {
+            let receipt_present = receipt_path(&record).is_some_and(|path| path.is_file());
+            inventory.entries.push(InventoryEntry {
                 record,
                 binding,
                 receipt_present,
             });
         }
-        EvidenceInventory { entries }
+        inventory
     }
 
-    /// The records only, for obligation building.
-    pub fn records(&self) -> Vec<EvidenceRecord> {
-        self.entries
-            .iter()
-            .map(|entry| entry.record.clone())
-            .collect()
+    fn issue(&mut self, path: &Path, kind: &'static str, detail: String) {
+        self.issues.push(InventoryIssue {
+            source_path: path.to_string_lossy().into_owned(),
+            kind,
+            detail,
+        });
     }
 
     /// Counts per binding, for the machine-readable report.
@@ -157,9 +179,16 @@ impl EvidenceInventory {
             .collect();
         serde_json::json!({
             "kind": "shenko_evidence_inventory",
-            "schema_version": 1,
+            "schema_version": 2,
+            "complete": self.issues.is_empty(),
             "counts": counts,
             "entries": entries,
+            "non_evidence_files": self.non_evidence_files,
+            "issues": self.issues.iter().map(|issue| serde_json::json!({
+                "source_path": issue.source_path,
+                "kind": issue.kind,
+                "detail": issue.detail,
+            })).collect::<Vec<_>>(),
         })
     }
 }

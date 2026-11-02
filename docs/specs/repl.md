@@ -25,7 +25,11 @@ The driver writes `<cell_dir>/<seq>.out`, `<seq>.err`, and renames
 appearance as cell completion. The report (`{ok, error, dropped, state_bytes,
 state_verified}`) is what makes the R1 claim auditable: which bindings were
 dropped because they are not serializable, and whether the state file
-round-tripped. Interrupting a cell kills the process (epoch interrupt under
+round-tripped. The host reads that report once and retains the same value
+beside the recorded outcome; a later reread cannot silently erase it. A
+Python cell exception is an unsuccessful cell with its traceback in the
+cell's stderr; the report may refer to that file rather than copy its body.
+Interrupting a cell kills the process (epoch interrupt under
 WASI, host kill natively); the partial streams and a `Cancelled` /
 `DeadlineExceeded` outcome are journaled, and the session reports
 recovery-required until `restore()` restores its explicit checkpoint. Interrupt success is never

@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
-    routing::get,
+    extract::{Path as AxumPath, Query, State},
+    routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -260,8 +260,16 @@ async fn owner_state_handler(State(state): State<ApiState>) -> Json<Value> {
     let Some(owner) = state.owner.as_ref() else {
         return Json(json!({ "available": false }));
     };
-    let claimed = matches!(owner.store.owner_grant(owner.installation_id), Ok(Some(_)));
-    let claim_pending = crate::owner::load_claim_capability(&owner.data_dir).is_some();
+    let status = (|| -> anyhow::Result<(bool, bool)> {
+        let claimed = owner.store.owner_grant(owner.installation_id)?.is_some();
+        let claim_pending = !claimed
+            && crate::owner::load_claim_capability(&owner.data_dir, owner.installation_id)?.is_some();
+        Ok((claimed, claim_pending))
+    })();
+    let (claimed, claim_pending) = match status {
+        Ok(status) => status,
+        Err(error) => return Json(json!({ "available": true, "error": error.to_string() })),
+    };
     Json(json!({
         "available": true,
         "installation_id": owner.installation_id,
@@ -270,7 +278,7 @@ async fn owner_state_handler(State(state): State<ApiState>) -> Json<Value> {
     }))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClaimRequest {
     capability: String,
@@ -282,7 +290,7 @@ async fn owner_claim_handler(State(state): State<ApiState>, Json(request): Json<
     let Some(owner) = state.owner.as_ref() else {
         return Json(json!({ "available": false, "error": "ownership is not installed" }));
     };
-    match claim_installation(&owner.store, &owner.data_dir, &request.capability) {
+    match claim_installation(&owner.store, &owner.data_dir, owner.installation_id, &request.capability) {
         Ok(response) => {
             let status = if response.outcome == "granted" { "granted" } else { &response.outcome };
             Json(json!({ "available": true, "outcome": status, "response": response }))

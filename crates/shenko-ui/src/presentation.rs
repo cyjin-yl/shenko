@@ -252,7 +252,7 @@ pub fn extract_documents(
     source_step_id: EntityId,
     source_commit: shenko_types::commit::CommitRef,
 ) -> (Vec<ExtractedDocument>, Vec<DocumentExtractionError>) {
-    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
+    use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
     let parser = Parser::new_ext(text, Options::empty());
     let mut documents = Vec::new();
     let mut errors = Vec::new();
@@ -267,7 +267,7 @@ pub fn extract_documents(
                 body.clear();
             }
             Event::Text(chunk) if in_block => body.push_str(&chunk),
-            Event::End(Tag::CodeBlock(_)) if in_block => {
+            Event::End(TagEnd::CodeBlock) if in_block => {
                 in_block = false;
                 match serde_json::from_str::<SemanticDocument>(&body) {
                     Ok(document) => match validate_document(&document) {
@@ -376,7 +376,7 @@ impl SurfaceCapabilityProvider {
         let low_bandwidth = facts.low_bandwidth == Some(true);
         SurfaceCapabilities {
             revision,
-            valid_until: chrono::Utc::now() + chrono::Duration::from_secs(3600),
+            valid_until: chrono::Utc::now() + chrono::Duration::seconds(3600),
             streaming: self.streaming_wired && !low_bandwidth,
             // The Web surface genuinely supports these; degradation only
             // kicks in for explicit client constraints.

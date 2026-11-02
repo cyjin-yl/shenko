@@ -640,7 +640,7 @@ impl UpdateService {
         // 3. Migrate the candidate copy by opening it: the store runs its own
         //    schema migration on the copy, never on the live database.
         let candidate_store =
-            Store::open(slot.db_path.clone(), self.cas_dir.clone()).map_err(UpdateError::CandidateStore)?;
+            Store::open(slot.db_path.clone(), self.cas_dir.clone()).map_err(UpdateError::Other)?;
         drop(candidate_store);
 
         // 4. Import the facts committed after the copy.
@@ -865,7 +865,7 @@ impl UpdateService {
         //    point. Before this commit the candidate has no authority.
         let candidate_store =
             Store::open(slot.parent().unwrap().join(SLOT_DB_FILENAME), self.cas_dir.clone())
-                .map_err(UpdateError::CandidateStore)?;
+                .map_err(UpdateError::Other)?;
         let mut candidate_record = self
             .store
             .activation_record(record.activation_id)?
@@ -1106,7 +1106,7 @@ impl UpdateService {
             previous_slot.join(SLOT_DB_FILENAME),
             self.cas_dir.clone(),
         )
-        .map_err(UpdateError::CandidateStore)?;
+        .map_err(UpdateError::Other)?;
         let rollback_route = RouteAuthority {
             schema_version: RouteAuthority::SCHEMA_VERSION,
             agent_id: record.agent_id, generation: record.from_generation.clone(),

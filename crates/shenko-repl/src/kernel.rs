@@ -35,10 +35,11 @@ pub enum StatePersistence {
 /// `/home/.shenko/` tree at create/fork, and re-verified on reopen and before
 /// every cell. A driver is what turns the raw one-shot cell protocol into a
 /// real long-lived interpreter session with serialized state (R1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KernelDriver {
     /// No driver: raw one-shot protocol, one process per cell, R0 only.
+    #[default]
     None,
     /// Python cell driver v1 (CPython WASI or native CPython). Pickle state.
     PythonCellV1,

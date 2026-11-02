@@ -7,7 +7,7 @@
 /// The observation script: location, title, visible text and the structured
 /// targets a worker can act on.
 pub fn snapshot_script() -> String {
-    r#"(function () {
+    r##"(function () {
   const MAX_TEXT = 65536;
   const MAX_TARGETS = 256;
   const text = (document.body && document.body.innerText) || "";
@@ -56,7 +56,7 @@ pub fn snapshot_script() -> String {
     inputs: inputs,
     buttons: buttons
   });
-})()"#
+})()"##
     .to_string()
 }
 

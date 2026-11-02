@@ -216,46 +216,6 @@ fn migrate_seat_v2(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-/// Memory-v3 entry columns: supersession, confidence and Git knowledge refs
-/// (ArchMemory). Additive; the operation kind moves to the intent row.
-fn ensure_memory_knowledge_columns(conn: &Connection) -> Result<()> {
-    ensure_column(conn, "memory_entries", "confidence", "REAL")?;
-    ensure_column(conn, "memory_entries", "superseded_by", "TEXT")?;
-    ensure_column(conn, "memory_entries", "supersedes", "TEXT")?;
-    ensure_column(conn, "memory_entries", "git_commit", "TEXT")?;
-    ensure_column(conn, "memory_entries", "git_path", "TEXT")?;
-    // Unify operation kind and knowledge kind without losing facts: the
-    // operation stays on the memory_intents row that produced the entry, and
-    // the entry's knowledge kind becomes the open "note" vocabulary.
-    conn.execute_batch(
-        "UPDATE memory_entries SET kind='note' WHERE kind IN ('save','correct','recall','forget');",
-    )?;
-    Ok(())
-}
-
-/// Memory-v3 intent envelope: the request's knowledge kind, applicability,
-/// confidence, base revision, idempotency identity, provenance and the
-/// supersession target (ArchMemory). Additive.
-fn ensure_memory_intent_envelope(conn: &Connection) -> Result<()> {
-    ensure_column(conn, "memory_intents", "knowledge_kind", "TEXT NOT NULL DEFAULT 'note'")?;
-    ensure_column(conn, "memory_intents", "applicability", "TEXT")?;
-    ensure_column(conn, "memory_intents", "confidence", "REAL")?;
-    ensure_column(conn, "memory_intents", "base_revision", "INTEGER")?;
-    ensure_column(conn, "memory_intents", "idempotency_key", "TEXT")?;
-    ensure_column(conn, "memory_intents", "sources", "TEXT NOT NULL DEFAULT '[]'")?;
-    ensure_column(conn, "memory_intents", "supersedes_entry_id", "TEXT")?;
-    // Subject-owned memory facts recorded the knowledge kind 'note' in the
-    // operation column; the operation is 'save' and the knowledge kind stays
-    // 'note'. A missing binding sidecar is that representation's intentional
-    // shape, never a corruption signal.
-    conn.execute_batch(
-        "UPDATE memory_intents SET kind='save', knowledge_kind='note'
-          WHERE kind='note' AND intent_id IN
-                (SELECT intent_id FROM subject_intents WHERE kind='memory');",
-    )?;
-    Ok(())
-}
-
 /// Every domain's additive tables, applied unconditionally on open so the
 /// archive's fact classes exist wherever the store does. The module that
 /// owns a domain applies the same CREATE IF NOT EXISTS statements; running

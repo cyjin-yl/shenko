@@ -189,7 +189,7 @@ impl crate::registry::ProviderRuntime for NativeBackendProvider {
         self.validate_binding(request)?;
         let body = self.body(&request.payload, request.provider_binding.model(), true)?;
         let client = self.client()?;
-        let response = self
+        let mut response = self
             .apply_auth(client.post(format!("{}/v1/chat/completions", self.base_url())))
             .header("content-type", "application/json")
             .json(&body)

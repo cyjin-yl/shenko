@@ -173,7 +173,7 @@ pub enum DependencyStrength {
 /// pins at least one of revision or artifact digest; an abstract selector
 /// names a capability or topic and is only satisfied by a unit that actually
 /// declares providing it.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "match", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DependencySelector {
     Exact {
@@ -188,7 +188,7 @@ pub enum DependencySelector {
 }
 
 /// One declared dependency edge of a unit.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DependencySpec {
     pub edge_id: String,
@@ -2679,7 +2679,7 @@ impl Node {
                         !attempt_id.is_empty() && attempt_id.len() <= MAX_TEXT_BYTES,
                         "adoption trial attempt id is empty or too long"
                     );
-                    let facts = self.trial_attempt_facts(attempt_id)?;
+                    let facts = Self::trial_attempt_facts(&tx, attempt_id)?;
                     let Some(facts) = facts else {
                         bail!("adoption evidence names a trial attempt this node never opened");
                     };
@@ -2710,7 +2710,7 @@ impl Node {
                 }
                 AdoptionEvidence::StoredObservation { digest } => {
                     ensure!(
-                        self.observation_bound(unit_id, revision, artifact_digest, digest),
+                        Self::observation_bound(&tx, &stored.unit, digest)?,
                         "adoption evidence names an observation this node does not hold for this unit version"
                     );
                     resolved.push(json!({
@@ -2776,9 +2776,8 @@ impl Node {
     /// started and closes it with the receipts the run produced. A caller
     /// cannot write an attempt row directly, so a report cannot promote
     /// itself into a measurement.
-    fn trial_attempt_facts(&self, attempt_id: &str) -> Result<Option<TrialAttemptFacts>> {
-        let row: Option<(String, String, String, String, String, String)> = self
-            .conn
+    fn trial_attempt_facts(conn: &Connection, attempt_id: &str) -> Result<Option<TrialAttemptFacts>> {
+        let row: Option<(String, String, String, String, String, String)> = conn
             .prepare(
                 "SELECT unit_id,revision,artifact_digest,state,started_at,data FROM unit_attempts WHERE attempt_id=?1",
             )?
@@ -2814,23 +2813,11 @@ impl Node {
     /// Whether this node holds the observation bytes and binds them to this
     /// exact unit version.
     fn observation_bound(
-        &self,
-        unit_id: &str,
-        revision: &str,
-        artifact_digest: &Digest,
+        conn: &Connection,
+        unit: &UnitDescriptor,
         digest: &Digest,
-    ) -> bool {
-        let Ok(bytes) = self.object_bytes(digest) else {
-            return false;
-        };
-        if Digest::blake3(&bytes) != *digest {
-            return false;
-        }
-        let Ok(Some(unit)) = self.installed_unit_version(unit_id, revision, artifact_digest) else {
-            return false;
-        };
-        unit
-            .descriptor
+    ) -> Result<bool> {
+        let bound = unit
             .config
             .pointer("/cognition/observations")
             .and_then(Value::as_array)
@@ -2838,7 +2825,16 @@ impl Node {
                 entries.iter().any(|entry| {
                     entry.get("digest").and_then(Value::as_str) == Some(digest.0.as_str())
                 })
-            })
+            });
+        if !bound {
+            return Ok(false);
+        }
+        let bytes: Option<Vec<u8>> = conn.query_row(
+            "SELECT bytes FROM objects WHERE digest=?1",
+            [&digest.0],
+            |r| r.get(0),
+        ).optional()?;
+        Ok(bytes.is_some_and(|bytes| Digest::blake3(&bytes) == *digest))
     }
 
     /// Open a durable trial attempt for one unit version.
@@ -2937,8 +2933,7 @@ impl Node {
                 "a trial receipt must name the digest of the fact it carries"
             );
         }
-        let facts = self
-            .trial_attempt_facts(attempt_id)?
+        let facts = Self::trial_attempt_facts(&self.conn, attempt_id)?
             .context("this node never opened that trial attempt")?;
         ensure!(
             facts.state == "trial_open",

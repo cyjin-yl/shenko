@@ -29,6 +29,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::{EntityId, RecordRevision, SeatIncarnation, TaskRevision};
 use shenko_types::Digest;
+use std::hash::Hash;
 
 pub mod claude_sdk;
 pub mod omp_rpc;
@@ -518,6 +519,7 @@ pub enum SeatPreflight {
     /// The live state no longer matches. Nothing may be written, and the
     /// caller must re-observe instead of sending the old answer.
     Refused {
+        #[serde(rename = "refusal_kind")]
         kind: PreflightRefusalKind,
         reason: String,
     },
@@ -538,7 +540,7 @@ pub enum PreflightRefusalKind {
 /// One seat adapter. The trait is the plugin surface; the three concrete
 /// adapters implement it against their real protocols.
 #[async_trait]
-pub trait SeatAdapter: Send + Sync + 'static {
+pub trait SeatAdapter: Send + Sync + std::any::Any {
     fn adapter_id(&self) -> SeatAdapterId;
     /// The adapter implementation version, bound into durable records.
     fn adapter_version(&self) -> &str;
@@ -593,14 +595,6 @@ pub trait SeatAdapter: Send + Sync + 'static {
         fence: &SeatWriteFence,
     ) -> Result<SeatResponse>;
 
-    /// Concrete-type access for the runtime's typed operations (e.g.
-    /// closing a PTY seat). The default returns `self`.
-    fn as_any(&self) -> &dyn std::any::Any
-    where
-        Self: Sized,
-    {
-        self
-    }
 }
 
 /// Stable identity of an inferred question.

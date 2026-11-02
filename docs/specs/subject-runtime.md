@@ -136,15 +136,33 @@ accident:
    document reader (a newer document version is an error, not a guess). The
    provenance — producer id, version, artifact digest — is **not** put in
    front of the model; it reaches the raw call record through the seal.
-4. Collection happens **before** the final budget check. The appended text
-   is re-estimated over the new payload, and the contributions' declared
-   cost is charged together with the context and tool cost (SPEC §37.7). The
-   recomputed estimate and the declared contribution cost are two different
-   facts and both are recorded.
-5. After the plan is sealed, the usage evidence is handed back to the
-   registry, built from the collected plan, so a single-use contribution is
-   consumed by this request and a transient reminder does not roll into the
-   next one.
+4. Collection happens **before** the final budget check. The appended body is
+   re-estimated with the same heuristic and charged together with the context
+   and tool cost (SPEC §37.7); the rendered estimate and the declared
+   contribution cost are two different facts and both are recorded. The limit
+   is compared against the **complete** payload — the selected window's
+   estimate plus the appended body — never against the prefix that existed
+   before the body was appended. A contribution that understates its own cost
+   therefore cannot be admitted into a payload that exceeds the observed
+   context limit. The selected window's image estimate is preserved instead
+   of being recomputed without it, and an unobserved capacity stays unknown.
+5. Only after Store accepts S0 is usage projected from that exact frozen
+   input into the registry. A CAS object alone, a rejected source snapshot
+   or a failed S0 transaction does not consume material. The durable step is
+   adopted before updating the in-memory view, so a projection failure cannot
+   make an accepted preparation look like a new `planned` step.
+6. Startup and contribution-service replacement reconstruct usage from all
+   sealed steps in the branch, including retired attempts and older committed
+   steps. The registry instance is then pinned for the step. A producer that
+   republishes before or after recovery cannot resurrect a consumed identity.
+   No new archive field or consumption table is needed: schema 12 already
+   contains the full contribution identities, omissions, tokens and request id.
+
+Publication tickets bind prepared material to a registration, scope and
+preparation generation. Disposing a producer withdraws its prepared batches;
+late completions cannot publish into a replacement. An accepted S0 remains
+immutable after disposal. Consumption means reservation by the sealed request,
+not proof that a provider received it; delivery still requires its own receipt.
 
 ## Authored input controls
 

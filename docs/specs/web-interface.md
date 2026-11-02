@@ -4,6 +4,11 @@
 流式 part、能力协商，以及浏览器客户端的诚实边界。原始 SPEC 前缀保持不变；
 实现以 ledger 事实为准，传输成功永不冒充主体接纳。
 
+原生默认入口为 `http://127.0.0.1:<port>`，不自动监听外网。远程部署应提供
+明确的认证访问路径。无模型首启与有模型运行装配同一 owner claim 服务；
+安装控制凭据不通过页面访问先后、启动日志或模型上下文交付，见
+[安装认领与配置契约](configuration-playground.md#ownership--444)。
+
 ## 1. WS 协议（`/ws`，全部 JSON，`schema_version` 逐消息校验）
 
 ### 1.1 服务器 → 客户端
@@ -85,7 +90,13 @@
   pending buffer，绝不拼接；`sendWithMode`/`sendWithdraw`/`sendAction`。
 - `react-renderer.tsx`：SemanticDocumentView（summary + 编号选项按钮，Rich 显示
   节点树 JSON）、ReceiptView 增 placement/撤回按钮/撤回标记、Composer 增
-  Steer 按钮与流式事实文案、day 分组兼容 document 节点。
+  Steer 按钮与流式事实文案、day 分组兼容 document 节点。详情页按投影的
+  `kind` 读取 `tasks_surface`、`memory_surface`、`config_surface` 和
+  `playground_surface`；导航后呈现接口的实际数据、空状态或错误，不能只改变
+  当前导航项而留下空白页面。
+- 已提交消息与流消息共享同一条消息校验和类型边界；只有校验后的消息可进入
+  拼接与待补读缓冲区。流消息允许 `step=0`，已提交消息仍要求正数步骤与
+  `step_id`；类型检查不能靠转换、占位步骤或放宽消息校验通过。
 - `demo-controller.ts`：补齐新 UiState 字段（demo 全 false/空）。
 
 ## 6. Proto-UI pin
@@ -93,7 +104,21 @@
 `web/upstream-pin.json`：`971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e`
 （migrated_from `7181a93…`）。上游 `pnpm-lock.yaml` sha256 不变
 （`3ac437fd…`）；adapter-react 签名、shadcn 导出、compiler seam_only 状态经
-比对一致。父代负责实际重建与发布前新鲜度复查。
+比对一致。
+
+构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
+`adapter-react`、`prototypes-shadcn`、`cli` 三个入口的依赖闭包，而不是调用
+另一份源码或使用旧提交的 `dist`。本 pin 的闭包为 42 个包；这不代表全部
+上游适配器均已构建或运行。`PROTO_UI_SOURCE` 必须通过真实 Git HEAD 和 lock
+摘要校验，`PROTO_UI_BUILD_RECEIPT` 绑定这次上游构建。使用 Node 24 与锁定的
+依赖运行类型检查和 `web/build.mjs`，由真实 adapter、esbuild 和官方 CLI
+生成资源、样式、许可及带资源摘要的 manifest。Rust 将这些资源嵌入二进制，
+因此资源重建之后还必须重新编译并启动 UI；修改 manifest 或只打开旧二进制
+不能证明升级生效。
+
+界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
+或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
+主体、provider、持久输入和流式接线验收。
 
 ## 7. 依赖与集成注记
 

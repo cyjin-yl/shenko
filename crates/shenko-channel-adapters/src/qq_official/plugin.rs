@@ -477,7 +477,8 @@ impl ChannelPlugin for QqOfficialChannel {
                             });
                         }
                     };
-                    Ok(receipt_of(dispatch, answer?))
+                    let answer = answer.map_err(|error| map_api_error(&dispatch.channel, error))?;
+                    Ok(receipt_of(dispatch, answer))
                 }
                 ChannelAction::Edit => {
                     let message_id = dispatch
@@ -495,7 +496,8 @@ impl ChannelPlugin for QqOfficialChannel {
                                 .and_then(Value::as_u64)
                                 .unwrap_or(1) as u32,
                         )
-                        .await?;
+                        .await
+                        .map_err(|error| map_api_error(&dispatch.channel, error))?;
                     Ok(receipt_of(dispatch, answer))
                 }
                 ChannelAction::Retract => {
@@ -516,7 +518,7 @@ impl ChannelPlugin for QqOfficialChannel {
                                 .get("group_openid")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default();
-                            api.retract_group(group, message_id).await?
+                            api.retract_group(group, message_id).await
                         }
                         _ => {
                             let openid = dispatch
@@ -524,9 +526,9 @@ impl ChannelPlugin for QqOfficialChannel {
                                 .get("user_openid")
                                 .and_then(Value::as_str)
                                 .unwrap_or_default();
-                            api.retract_private(openid, message_id).await?
+                            api.retract_private(openid, message_id).await
                         }
-                    };
+                    }.map_err(|error| map_api_error(&dispatch.channel, error))?;
                     Ok(receipt_of(dispatch, answer))
                 }
                 ChannelAction::Typing => {
@@ -535,7 +537,8 @@ impl ChannelPlugin for QqOfficialChannel {
                         .get("channel_id")
                         .and_then(Value::as_str)
                         .unwrap_or_default();
-                    let answer = api.typing(channel).await?;
+                    let answer = api.typing(channel).await
+                        .map_err(|error| map_api_error(&dispatch.channel, error))?;
                     Ok(receipt_of(dispatch, answer))
                 }
             }
@@ -595,6 +598,6 @@ pub fn register(
 
 /// The reply kinds of the official QQ plugin, for callers that build their
 /// own registry.
-pub fn reply_kinds() -> &[ReplyKind] {
+pub fn reply_kinds() -> &'static [ReplyKind] {
     QQ_OFFICIAL_REPLY_KINDS
 }

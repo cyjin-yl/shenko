@@ -15,7 +15,7 @@ pub use attachments::{
     AttachmentError, ParsedMessage, ResolvedAttachment, MAX_ATTACHMENT_BYTES,
 };
 pub use channel::{
-    qq_registry, NapCatChannel, QQ_CHANNEL_ID, QQ_REPLY_KINDS, QQ_SOURCE,
+    qq_registry, qq_test_registry, NapCatChannel, QQ_CHANNEL_ID, QQ_REPLY_KINDS, QQ_SOURCE,
     QQ_TRANSPORT_IDENTITY_DOMAIN,
 };
 pub use client::{

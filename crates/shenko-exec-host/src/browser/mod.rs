@@ -25,12 +25,14 @@
 //! - Nothing is ever replayed after a crash. Recovery re-opens the profile
 //!   (a NEW run identity) and reconciles the original operation as unknown
 //!   unless the live session can still prove the outcome.
+mod actions;
 pub mod engine;
 pub mod handlers;
 pub mod protocol;
 pub mod protocol_bidi;
 pub mod protocol_cdp;
 pub mod scripts;
+mod session;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use serde::{Deserialize, Serialize};
@@ -325,6 +327,7 @@ impl PageAction {
 // Internal state
 // ---------------------------------------------------------------------------
 
+#[derive(Serialize, Deserialize)]
 struct WriterRecord {
     instance: EntityId,
     node: String,

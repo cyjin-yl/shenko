@@ -29,6 +29,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::panic::AssertUnwindSafe;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
@@ -216,11 +217,12 @@ pub enum HookFailurePolicy {
 }
 
 /// How a transform merges its replacement into the point's current value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TransformMerge {
     /// The returned object is a patch: named fields are overwritten, other
     /// fields keep their previous value.
+    #[default]
     PatchFields,
     /// The returned object replaces the whole value. Only meaningful when the
     /// point declares every field as writable.
@@ -1579,7 +1581,7 @@ struct Chain {
 }
 
 /// Run the handlers of one point from `index` onwards.
-async fn run_chain(chain: &Chain, index: usize) -> AroundOutcome {
+async fn run_chain(chain: &Chain, mut index: usize) -> AroundOutcome {
     let mut local = AroundOutcome::default();
     while index < chain.members.len() {
         if chain.state.lock().stopped_early {
@@ -1591,14 +1593,7 @@ async fn run_chain(chain: &Chain, index: usize) -> AroundOutcome {
         let outcome = match &entry.handler {
             HandlerKind::Plain(handler) => run_plain(chain, &entry, handler.as_ref()).await,
             HandlerKind::Around(handler) => {
-                let inner = Chain {
-                    members: chain.members.clone(),
-                    contract: chain.contract.clone(),
-                    payload: chain.payload.clone(),
-                    state: Arc::clone(&chain.state),
-                };
-                let next =
-                    AroundNext::new(Box::pin(async move { run_chain(&inner, index + 1).await }));
+                let next = AroundNext::new(run_chain_continuation(chain, index + 1));
                 run_around(chain, &entry, handler.as_ref(), next).await
             }
         };
@@ -1646,6 +1641,13 @@ async fn run_chain(chain: &Chain, index: usize) -> AroundOutcome {
     local.value = state.value.clone();
     local.decision = state.decision.clone();
     local
+}
+
+fn run_chain_continuation(
+    chain: &Chain,
+    index: usize,
+) -> Pin<Box<dyn Future<Output = AroundOutcome> + Send + '_>> {
+    Box::pin(run_chain(chain, index))
 }
 
 /// Run one plain handler under the point's budget.

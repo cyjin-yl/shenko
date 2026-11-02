@@ -480,7 +480,7 @@ fn snapshot(store: &Store, root: &Path) -> Result<Snapshot> {
             } else if kind.is_file() {
                 let mut file = fs::File::open(&path)?;
                 let mut bytes = Vec::new();
-                file.by_ref().take(budget.saturating_add(1)).read_to_end(&mut bytes)?;
+                Read::by_ref(&mut file).take(budget.saturating_add(1)).read_to_end(&mut bytes)?;
                 ensure!(bytes.len() as u64 <= *budget, "artifact state exceeds 16MiB");
                 *budget -= bytes.len() as u64;
                 file.sync_all()?;
@@ -973,7 +973,6 @@ impl PlaygroundBackendHandler {
         // facts from copies taken before the move.
         let action = input.request.action.clone();
         let request_id = input.request.request_id.clone();
-        let artifact_id = input.artifact_id.to_string();
         let frozen_artifact_id = input.artifact_id;
         let frozen_artifact_revision = input.artifact_revision;
         let frozen_backend_digest = input.binding.module_digest.clone();
@@ -992,34 +991,36 @@ impl PlaygroundBackendHandler {
                             MountSpec::new(run_dir.canonicalize()?, "/artifact", MountMode::ReadOnly, true, true),
                         ])?;
                         let mut command = WasiCommand::new(MemoryInputPipe::new(serde_json::to_vec(&request_input)?), stdout.clone(), stderr.clone());
-                        command.arguments = vec!["playground-backend".into(), action];
-                        command.environment = vec![("SHENKO_ARTIFACT_ID".into(), artifact_id), ("SHENKO_REQUEST_ID".into(), request_id)];
+                        command.arguments = vec!["playground-backend".into(), input.request.action.clone()];
+                        command.environment = vec![("SHENKO_ARTIFACT_ID".into(), input.artifact_id.to_string()), ("SHENKO_REQUEST_ID".into(), input.request.request_id.clone())];
                         match runtime.run_wasi_module(&module, command)? {
                             WasiRunOutcome::Exited(code) => Ok(code),
                             WasiRunOutcome::Cancelled => Err(anyhow!("playground guest run cancelled")),
                             WasiRunOutcome::DeadlineExceeded => Err(anyhow!("playground guest run deadline exceeded")),
                         }
                     })();
-                    let conclusive = execution.is_ok();
-                    let runtime_error = execution.err().map(|error| format!("{error:#}"));
+                    let (exit_code, runtime_error) = match execution {
+                        Ok(code) => (Some(code), None),
+                        Err(error) => (None, Some(format!("{error:#}"))),
+                    };
                     BackendRun {
-                        output: None,
+                        exit_code,
                         runtime_error,
                         stdout: stdout.contents(),
                         stderr: stderr.contents(),
                         stdout_overflowed: stdout.did_overflow(),
                         stderr_overflowed: stderr.did_overflow(),
                         stream_failed: stdout.did_fail() || stderr.did_fail(),
-                        conclusive,
+                        conclusive: exit_code.is_some(),
                         service_response: None,
                     }
                 }
                 RuntimeBinding::HostProcess { .. } => {
                     let controller = match services {
-                        None => BackendRun::unavailable("host-process services are not attached"),
+                        None => BackendRun::unavailable("host-process services are not attached".into()),
                         Some(controller) => match controller.invoke(&input, &request_input) {
                             Ok(response) => BackendRun {
-                                output: None, runtime_error: None,
+                                exit_code: None, runtime_error: None,
                                 stdout: bytes::Bytes::from(serde_json::to_vec(&response).unwrap_or_default()),
                                 stderr: bytes::Bytes::new(),
                                 stdout_overflowed: false, stderr_overflowed: false, stream_failed: false,
@@ -1048,7 +1049,7 @@ impl PlaygroundBackendHandler {
         };
         let output_error = output.as_ref().err().map(|e| e.to_string());
         let (change_count, delta) = after.as_ref().map(|after| changes(&before, after)).unwrap_or_default();
-        let exit_code = if run.service_response.is_some() { Some(0) } else { None };
+        let exit_code = run.exit_code;
         let runtime_error = run.runtime_error;
         // Stream rejection/failure is independently recorded: a guest may
         // ignore the write error, emit a small valid JSON and exit 0. Retained
@@ -1077,7 +1078,7 @@ impl PlaygroundBackendHandler {
         let evidence = EvidenceReceipt {
             record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(operation.operation_id), attempt_id: Some(attempt.attempt_id),
             source_id: "playground.runtime/1".into(), source_instance_id: invocation.task_invocation.node_id.to_string(),
-            source_event_key: Some(input.request.request_id.clone()), producer_epoch: Some(invocation.task_invocation.epoch.0),
+            source_event_key: Some(request_id), producer_epoch: Some(invocation.task_invocation.epoch.0),
             producer_schema_version: Some("1".into()), raw_ref: raw, decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
             decode_status: DecodeStatus::Decoded,
             observation_level: conclusive.then_some(if succeeded { ObservationLevel::PostconditionVerified } else { ObservationLevel::RemoteCompleted }),
@@ -1109,7 +1110,7 @@ impl PlaygroundBackendHandler {
 
 /// The bounded result of one backend execution attempt, shared by both runtimes.
 struct BackendRun {
-    output: Option<String>,
+    exit_code: Option<i32>,
     runtime_error: Option<String>,
     stdout: bytes::Bytes,
     stderr: bytes::Bytes,
@@ -1123,7 +1124,7 @@ struct BackendRun {
 impl BackendRun {
     fn unavailable(detail: String) -> Self {
         Self {
-            output: None,
+            exit_code: None,
             runtime_error: Some(detail),
             stdout: bytes::Bytes::new(),
             stderr: bytes::Bytes::new(),

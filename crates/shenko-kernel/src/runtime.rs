@@ -166,7 +166,7 @@ struct ProviderEntry {
 pub enum RuntimeChange {
     ProviderRegistered {
         provider_id: String,
-        kind: String,
+        provider_kind: String,
         version: String,
     },
     ProviderWithdrawn {
@@ -329,7 +329,7 @@ impl PluginRuntime {
             .insert(registration.provider_id.clone(), ProviderEntry { view, epoch });
         state.changes.push(RuntimeChange::ProviderRegistered {
             provider_id: registration.provider_id.clone(),
-            kind,
+            provider_kind: kind,
             version,
         });
         self.publish_revision(state.revision);

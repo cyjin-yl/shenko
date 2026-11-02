@@ -418,7 +418,7 @@ pub fn register(
 
 /// The reply kinds of the iLink plugin, for callers that build their own
 /// registry.
-pub fn reply_kinds() -> &[ReplyKind] {
+pub fn reply_kinds() -> &'static [ReplyKind] {
     ILINK_REPLY_KINDS
 }
 

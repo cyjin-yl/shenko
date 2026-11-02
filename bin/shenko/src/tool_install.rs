@@ -26,14 +26,14 @@ use shenko_node::{
 use shenko_store::store::Store;
 use shenko_types::{
     commit::CommitRef,
-    ids::{EntityId, LedgerSeq, RecordRevision},
+    ids::{EntityId, LedgerSeq, RecordRevision, TaskRevision},
     object::{Digest, ObjectRef},
     operation::{
         AuthorityRef, EffectStatus, OperationContractRef, OperationOutcome, OperationRecord,
         OperationState,
     },
     store::WriteBatch,
-    task::{ImplementationRef, TaskOwner, TaskRecord, TaskRevision, TaskState},
+    task::{ImplementationRef, TaskOwner, TaskRecord, TaskState},
 };
 use shenko_wasm::{
     BuildReceipt, CasToolContentStore, ToolAbi, ToolArtifactRef, ToolDescriptor, ToolSetManifest,

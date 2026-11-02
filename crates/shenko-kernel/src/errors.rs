@@ -10,8 +10,9 @@
 //! observation path.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
+use parking_lot::RwLock;
 use serde_json::Value;
 use shenko_types::ids::EntityId;
 

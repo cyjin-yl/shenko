@@ -336,9 +336,9 @@ impl AnthropicProvider {
             .map(|entry| {
                 let mut params = self.body(&entry.payload, req.provider_binding.model(), false)?;
                 params.as_object_mut().expect("provider request body is a JSON object").remove("stream");
-                serde_json::json!({ "custom_id": entry.custom_id, "params": params })
+                Ok(serde_json::json!({ "custom_id": entry.custom_id, "params": params }))
             })
-            .collect();
+            .collect::<Result<_>>()?;
         let body = serde_json::json!({ "requests": requests });
         let client = self.client()?;
         let resp = self
@@ -372,7 +372,7 @@ impl AnthropicProvider {
         self.validate_binding(req)?;
         let body = self.body(&req.payload, req.provider_binding.model(), true)?;
         let client = self.client()?;
-        let resp = self
+        let mut resp = self
             .apply_auth(client.post(format!(
                 "{}/v1/messages",
                 self.profile.endpoint_origin.trim_end_matches('/')

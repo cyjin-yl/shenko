@@ -33,9 +33,9 @@ use serde::{Deserialize, Serialize};
 use shenko_awareness_core::{CognitionCatalog, parse_cognition_entry};
 use shenko_broker::broker::BrokerHandle;
 use shenko_broker::request::{
-    InferenceMessage, InferencePayload, InferencePriority, InferenceRequest,
+    InferenceMessage, InferencePayload, InferencePriority, InferenceRequest, InferenceStatus,
 };
-use shenko_channel_napcat::qq_registry;
+use shenko_channel_napcat::{NapCatClient, NapCatConfig, qq_registry};
 use shenko_context_policy::{PolicyRegistry, StoreWindowLog, WindowLedger};
 use shenko_identity::{DefaultIdentityPolicy, IdentityService};
 use shenko_kernel::Supervisor;
@@ -45,12 +45,13 @@ use shenko_subject::dispatch::run_committed_dispatcher;
 use shenko_subject::inbox::{Inbox, InboxEvent, InboxEventKind};
 use shenko_subject::loop_runner::{SubjectLoopState, run_subject_loop};
 use shenko_subject::{
-    NativeChildPlugin, NativeChildService, NativeTaskHandler, NativeTaskHandlerPlugin,
+    NativeChildPlugin, NativeChildService, NativeTaskDescriptor, NativeTaskHandler,
+    NativeTaskHandlerPlugin, NativeTaskInvocation,
 };
 use shenko_types::commit::CommitRef;
 use shenko_types::evidence::{DecodeStatus, EvidenceReceipt};
 use shenko_types::ids::*;
-use shenko_types::object::{Digest, ObjectRef};
+use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionRef};
 use shenko_types::operation::*;
 use shenko_types::output::{OutputAction, ParsedOutput};
 use shenko_types::subject::*;
@@ -218,14 +219,7 @@ async fn judge(
 ) -> Result<JudgeVerdict> {
     let rendered = serde_json::json!({
         "reply_text": output.text,
-        "controls": output.controls.iter().map(|control| match &control.action {
-            OutputAction::Delegate { text, .. } => format!("delegate: {text}"),
-            OutputAction::DelegateModel { spec } => format!("delegate: {}", spec.goal),
-            OutputAction::Remember { text } => format!("remember: {text}"),
-            OutputAction::Reply { target, .. } => format!("reply to {target:?}"),
-            OutputAction::Identity { .. } => "identity change".to_string(),
-            OutputAction::SemanticWait { change } => format!("semantic wait: {change:?}"),
-        }).collect::<Vec<_>>(),
+        "controls": output.controls.iter().map(|control| &control.action).collect::<Vec<_>>(),
     });
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request = InferenceRequest {
@@ -254,10 +248,11 @@ async fn judge(
     broker
         .submit(request)
         .map_err(|error| anyhow!("judge admission failed: {error}"))?;
-    let response = rx
+    let result = rx
         .await
-        .map_err(|_| anyhow!("judge produced no result"))?
-        .map_err(|error| anyhow!("judge call failed: {error}"))?;
+        .map_err(|_| anyhow!("judge produced no result"))?;
+    ensure!(result.status == InferenceStatus::Success, "judge call failed: {:?}", result.status);
+    let response = result.response.context("judge succeeded without a response")?;
     let text = response.content.trim().to_string();
     if text.is_empty() {
         bail!("judge returned an empty verdict");
@@ -331,7 +326,10 @@ fn sandbox(label: &str, root: &Path) -> Result<(PathBuf, Arc<Store>, EntityId)> 
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first)?;
+    let root_task = TaskRecord::subject_root(
+        head.subject_root_task_id, agent, genesis.seed_manifest_ref.clone(), precommit,
+    );
+    store.initialize_genesis(&genesis, &head, &first, &root_task)?;
     Ok((dir, store, agent))
 }
 
@@ -350,7 +348,11 @@ async fn committed_output(
     message: &str,
     deadline: Duration,
 ) -> Result<ParsedOutput> {
-    let (_dir, store, agent) = sandbox(label, root)?;
+    let (dir, store, agent) = sandbox(label, root)?;
+    let channel_config = NapCatConfig { bot_qq: 10000, ..Default::default() };
+    let (channel_client, _events, _actions) = NapCatClient::open_persistent(
+        channel_config.clone(), dir.join("napcat-ingress.db"),
+    )?;
     let inbox = Arc::new(Inbox::new(8));
     let generation = RuntimeGeneration("cognition-trial".into());
     let supervisor = Supervisor::new(generation.clone());
@@ -379,7 +381,7 @@ async fn committed_output(
         Arc::clone(&inbox),
         Arc::clone(&store),
         ctx,
-        qq_registry(),
+        qq_registry(channel_config, Arc::new(channel_client)),
     )?
     .with_broker(broker.clone())
     .with_awareness(catalog)
@@ -723,7 +725,7 @@ pub async fn run_sandbox_trial(
         schema_version: 1,
         unit_id,
         revision,
-        artifact_digest: artifact_digest.0,
+        artifact_digest,
         model: binding.model().to_string(),
         binding_digest,
         started_at,
@@ -780,7 +782,7 @@ impl CognitionTrialHandler {
         }
     }
 
-    fn seal<T: Serialize>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
+    fn seal<T: Serialize + ?Sized>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
         self.seal_bytes(&serde_json::to_vec(value)?, schema)
     }
 

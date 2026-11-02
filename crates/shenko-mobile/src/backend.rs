@@ -1201,7 +1201,7 @@ pub(crate) fn decode_png_rgb(png: &[u8]) -> Result<(Vec<u8>, u32, u32), &'static
     let decoder = png::Decoder::new(std::io::Cursor::new(png));
     let mut reader = decoder.read_info().map_err(|_| "png_header")?;
     let (color_type, _bit_depth) = reader.output_color_type();
-    let mut buf = vec![0u8; reader.output_buffer_size().map_err(|_| "png_size")?];
+    let mut buf = vec![0u8; reader.output_buffer_size()];
     let info = reader.next_frame(&mut buf).map_err(|_| "png_frame")?;
     let (w, h) = (info.width, info.height);
     let rgb = match color_type {

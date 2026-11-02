@@ -641,7 +641,7 @@ impl CognitionCatalog {
             used += line.len();
             lines.push(line);
         }
-        let shown = lines.len();
+        let mut shown = lines.len();
         let footer = match (shown < total).then_some(shown) {
             Some(next_start) => format!(
                 "（共 {total} 个单元，此处显示 {shown} 个；目录修订 {revision}；其余按需分页读取：{}）\n",
@@ -819,7 +819,7 @@ impl CognitionCatalog {
 
     /// The observations registered for one unit version.
     pub fn observations(&self, unit_id: &str) -> Result<Vec<CognitionObservation>> {
-        let node = self.node.lock();
+        let mut node = self.node.lock();
         let value = node.handle_unit_request(UnitRequest::Observations {
             unit_id: unit_id.to_string(),
         })?;
@@ -902,7 +902,7 @@ impl CognitionCatalog {
 
     /// The retained versions of one unit and their supersession relations.
     pub fn lineage(&self, unit_id: &str) -> Result<Value> {
-        let node = self.node.lock();
+        let mut node = self.node.lock();
         node.handle_unit_request(UnitRequest::Lineage {
             unit_id: unit_id.to_string(),
         })

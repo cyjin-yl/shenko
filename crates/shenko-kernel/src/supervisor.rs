@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use cordis_core::lifecycle::{UpdateError, UpdateOutcome};
+use cordis_core::lifecycle::UpdateOutcome;
 use cordis_core::{Context, FiberHandle, Plugin};
 
 use crate::lifecycle::LifecycleState;
@@ -97,8 +97,8 @@ impl Supervisor {
         &self,
         fiber: &FiberHandle,
         input: P::Input,
-    ) -> Result<UpdateOutcome, UpdateError> {
-        self.plugins.update(fiber, input).await
+    ) -> Result<UpdateOutcome> {
+        self.plugins.update::<P>(fiber, input).await
     }
 
     pub async fn stop(&self) -> Result<()> {

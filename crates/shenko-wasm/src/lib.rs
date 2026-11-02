@@ -3,7 +3,6 @@ pub mod replay_io;
 pub mod p1;
 pub mod mount;
 pub mod cow;
-pub mod p1;
 pub mod fsx;
 pub mod tool;
 pub mod artifact;

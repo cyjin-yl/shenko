@@ -33,7 +33,7 @@ use shenko_types::{
     effect::EffectContract,
     ids::{EntityId, RecordRevision, RuntimeGeneration},
     object::Digest,
-    operation::{AuthorityRef, OperationRecord, OperationState},
+    operation::{AuthorityRef, OperationOutcome, OperationRecord, OperationState},
     plugin_runtime::NativeCapabilityDeclaration,
     subject::{DelegationIntent, StepDecision},
     task::*,
@@ -873,7 +873,7 @@ impl NativeChildService {
                     .map(|result| result.operation_id)
                     .unwrap_or_else(EntityId::nil),
                 outcome: outcome.into(),
-                result: result.and_then(|result| result.result),
+                result: result.as_ref().and_then(|result| result.result.clone()),
                 evidence_ref: result.map(|result| result.evidence_ref),
             });
         }

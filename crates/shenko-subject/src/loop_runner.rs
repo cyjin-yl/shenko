@@ -224,6 +224,9 @@ pub struct SubjectLoopState {
     pub(super) previous_input_binding: Option<shenko_broker::request::ProviderBinding>,
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
+    /// Pinned for one step, after replaying all accepted S0 usage into this
+    /// service instance. A hot replacement must replay before collection.
+    pub(super) contribution_registry: Option<Arc<shenko_context_policy::ContributionRegistry>>,
     native_capability_sections: Vec<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
@@ -305,7 +308,7 @@ impl SubjectLoopState {
             .map(|id| store.semantic_wait_receipt(id))
             .transpose()?
             .flatten();
-        Ok(Self {
+        let mut state = Self {
             agent_id,
             head,
             step,
@@ -322,6 +325,7 @@ impl SubjectLoopState {
             previous_estimated_input_tokens,
             model_capabilities: None,
             context_registry,
+            contribution_registry: None,
             native_capability_sections: vec![],
             goals: vec![],
             outbox_tx: None,
@@ -330,7 +334,28 @@ impl SubjectLoopState {
             plugin_context,
             identity_service,
             awareness: None,
-        })
+        };
+        state.refresh_contributions()?;
+        Ok(state)
+    }
+
+    fn refresh_contributions(&mut self) -> Result<(), ShenkoError> {
+        let current = self.plugin_context
+            .try_service::<shenko_context_policy::ContributionRegistry>().ok();
+        if let Some(registry) = &current {
+            if self.contribution_registry.as_ref().is_some_and(|old| Arc::ptr_eq(old, registry)) {
+                return Ok(());
+            }
+            for step in self.store.sealed_subject_steps(&self.head.branch_id)? {
+                let input = frozen_input(&self.store, &step)?;
+                let seal = step.input_plan_ref.as_ref().expect("sealed step selected");
+                if let Some(usage) = contribution_usage(&input, seal)? {
+                    registry.record_usage(usage).map_err(|error| ShenkoError::conflict(error.to_string()))?;
+                }
+            }
+        }
+        self.contribution_registry = current;
+        Ok(())
     }
 
     pub fn with_broker(mut self, broker: shenko_broker::broker::BrokerHandle) -> Self {
@@ -658,6 +683,10 @@ fn observed_input_tokens(
         ProviderBinding::Anthropic { .. } => serde_json::from_str::<Response<AnthropicUsage>>(&outcome.raw_response)
             .ok()?.usage?.input_tokens?,
         ProviderBinding::Stub { .. } => return None,
+        // An installed profile names its own usage fields; this projection
+        // only reads the historical local/Anthropic shapes, so a profile
+        // binding stays unknown here instead of guessing a field.
+        ProviderBinding::Profile { .. } => return None,
     };
     if raw != normalized { return None; }
     u32::try_from(raw).ok()
@@ -713,6 +742,7 @@ async fn execute_step(
     state: &mut SubjectLoopState,
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<Option<CommitRef>, ShenkoError> {
+    state.refresh_contributions()?;
     let store = Arc::clone(&state.store);
     // Pin one graph through all phases of this invocation. A hot swap must not
     // combine an old BeforeInference with a new AfterInference handler set.
@@ -734,10 +764,11 @@ async fn execute_step(
     }
     let resumed_input = validate_resume(&store, &step)?;
     let input = if step.state == SubjectStepState::Planned {
-        state.identity_service = state
+        let identity_service = state
             .plugin_context
             .try_service::<IdentityService>()
             .map_err(|e| ShenkoError::other(format!("IDENTITY_PROVIDER_UNAVAILABLE: {e}")))?;
+        state.identity_service = identity_service;
         state.identity = store.latest_identity(state.agent_id)?;
         // The hook graph this step dispatches under is sealed together with
         // the request. An absent hook runtime is a typed refusal: an empty
@@ -747,7 +778,8 @@ async fn execute_step(
         // states the exact account/profile/model it will use, and the
         // dispatch still compares the sealed binding with the live broker
         // binding, so a post-seal change is refused instead of applied.
-        let input_binding = state.broker.as_ref().map(|broker| broker.binding());
+        let input_binding = state.broker.as_ref().map(|broker| broker.binding().clone());
+        let input_provider_selection = provider_selection(input_binding.as_ref());
         // Durable obligations and the attention decision travel with the
         // request: a commitment the subject already took is part of what it
         // is thinking about, not a note in a later prompt.
@@ -763,16 +795,12 @@ async fn execute_step(
             }
             Err(error) => return Err(error),
         };
-        // The collected plan travels to the seal: the usage evidence is
-        // built from it, and it must name the request that actually carried
-        // the material.
-        let contribution_plan = prepared.contribution_plan.clone();
         let input = FrozenStepInput {
             schema_version: 12,
             step_id,
             step_no: seq,
             events: prepared.events,
-            provider_binding: input_binding.cloned(),
+            provider_binding: input_binding,
             payload: prepared.payload,
             context: prepared.context,
             semantic_wait: prepared.semantic_wait,
@@ -780,7 +808,7 @@ async fn execute_step(
             identity_provider_revision: state.identity_service.revision().into(),
             request_id: EntityId::new(),
             hook_graph_ref: Some(hook_graph_ref),
-            provider_selection: provider_selection(input_binding),
+            provider_selection: input_provider_selection,
             contributions: prepared.contributions,
             contribution_omissions: prepared.contribution_omissions,
             contribution_tokens: prepared.contribution_tokens,
@@ -796,24 +824,11 @@ async fn execute_step(
             "subject_step_input",
             12,
         )?);
-        // Hand the usage evidence back to the registry: a single-use
-        // contribution is consumed by THIS request and a transient reminder
-        // does not roll into the next one. The evidence is bound to the
-        // sealed plan, so it can only be recorded against the request that
-        // actually carried the material.
-        record_contribution_usage(
-            state,
-            contribution_plan.as_ref(),
-            input.request_id,
-            seq,
-            state.head.branch_id.0.to_string(),
-            step.input_plan_ref.as_ref().expect("plan sealed").digest.clone(),
-        );
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
         let expected = step.record_revision;
         step.record_revision = RecordRevision(expected.0 + 1);
-        match store.upsert_step(&step, &state.head, expected) {
+        match commit_s0(state, step.clone(), &input) {
             Ok(_) => {}
             Err(ShenkoError::ResnapshotRequired { reason }) => {
                 tracing::debug!(seq, %reason, "S0 CAS rejected stale source; reprojecting planned step");
@@ -821,7 +836,6 @@ async fn execute_step(
             }
             Err(error) => return Err(error),
         }
-        state.step = step.clone();
         input
     } else {
         resumed_input.ok_or_else(|| ShenkoError::conflict("missing validated S0"))?
@@ -1029,7 +1043,7 @@ async fn execute_step(
                 &step,
                 &state.head,
                 expected,
-                send_id,
+                Some(send_id),
                 &attempt,
             )?,
             None => store.upsert_step_arming_request(
@@ -1693,6 +1707,12 @@ fn replace_rejected_output(
     let (head, step) = store.load_subject(state.agent_id)?;
     state.head = head;
     state.step = step;
+    if let Some(registry) = &state.contribution_registry {
+        let seal = state.step.input_plan_ref.as_ref().expect("correction S0 committed");
+        if let Some(usage) = contribution_usage(&input, seal)? {
+            registry.record_usage(usage).map_err(|error| ShenkoError::conflict(error.to_string()))?;
+        }
+    }
     warn!(step_id=%retired.step_id, replacement_step_id=%replacement_id,
         commit=%receipt.commit_ref, error=%rejection.error, "control result rejected; correction registered");
     Ok(())
@@ -1722,37 +1742,49 @@ fn record_retry(state: &mut SubjectLoopState, fact: InferenceRetryFact) -> Resul
     Ok(())
 }
 
-/// Report the contribution usage of this sealed request to the registry.
-/// The evidence is bound to the sealed plan, so it can only be recorded
-/// against the request that actually carried the material. A usage record
-/// that does not match the registry's contract is reported loudly instead
-/// of being dropped: an unrecorded single-use item would be offered again
-/// to the next step.
-fn record_contribution_usage(
-    state: &SubjectLoopState,
-    plan: Option<&shenko_context_policy::ContributionPlan>,
-    request_id: EntityId,
-    request_revision: u64,
-    input_revision: String,
-    seal_digest: Digest,
-) {
-    let Ok(registry) = state
-        .plugin_context
-        .try_service::<shenko_context_policy::ContributionRegistry>()
-    else {
-        return;
-    };
-    let Some(plan) = plan else {
-        return;
-    };
-    if plan.contributions.is_empty() && plan.omitted.is_empty() {
-        return;
+/// One projection for both live admission and restart. The existing frozen
+/// request, not a second copy of the preparer's plan, owns these identities.
+fn contribution_usage(
+    input: &FrozenStepInput,
+    seal: &ObjectRef,
+) -> Result<Option<shenko_context_policy::ContributionUsage>, ShenkoError> {
+    let sent: Vec<shenko_context_policy::ContextContribution> = input.contributions.iter()
+        .map(serde::Deserialize::deserialize).collect::<Result<_, _>>()?;
+    let omitted: Vec<shenko_context_policy::ContributionOmission> = input.contribution_omissions.iter()
+        .map(serde::Deserialize::deserialize).collect::<Result<_, _>>()?;
+    let total = sent.iter().try_fold(0u64, |total, item| total.checked_add(item.tokens));
+    if total != Some(input.contribution_tokens)
+        || sent.iter().any(|item| item.scope.scope_id != input.context.source.scope_id || item.scope.task_id.is_some())
+    {
+        return Err(ShenkoError::conflict("sealed contribution scope/token evidence mismatch"));
     }
-    // The registry builds the reduced use records and the omission reasons
-    // from the plan itself, so the evidence can never drift from what was
-    // actually sent.
-    let usage = plan.usage(request_id, request_revision, input_revision, seal_digest);
-    registry.record_usage(usage);
+    if sent.is_empty() && omitted.is_empty() { return Ok(None); }
+    Ok(Some(shenko_context_policy::ContributionUsage {
+        request_id: input.request_id,
+        request_revision: input.step_no,
+        input_revision: input.context.source.scope_id.to_string(),
+        seal_digest: seal.digest.clone(),
+        sent, omitted, total_tokens: input.contribution_tokens,
+    }))
+}
+
+/// A rejected S0 owns no consumption. Once Store accepts the step, adopting
+/// its in-memory state precedes projection so a projection error cannot make
+/// the caller treat a durable preparation as a fresh Planned step.
+fn commit_s0(
+    state: &mut SubjectLoopState,
+    step: SubjectStep,
+    input: &FrozenStepInput,
+) -> Result<(), ShenkoError> {
+    let seal = step.input_plan_ref.as_ref()
+        .ok_or_else(|| ShenkoError::conflict("S0 contribution projection requires a sealed input"))?;
+    let usage = contribution_usage(input, seal)?;
+    state.store.upsert_step(&step, &state.head, state.step.record_revision)?;
+    state.step = step;
+    if let (Some(registry), Some(usage)) = (&state.contribution_registry, usage) {
+        registry.record_usage(usage).map_err(|error| ShenkoError::conflict(error.to_string()))?;
+    }
+    Ok(())
 }
 
 /// Seal the exact hook graph this step dispatches under. The binding is the
@@ -1863,7 +1895,9 @@ fn recover_awaiting_model(
         if attempt.state != SubjectRequestState::Terminal {
             continue;
         }
-        let Some(result) = crate::subject_receipt::read_terminal_result(&store, attempt)? else {
+        let Some(result) = crate::subject_receipt::read_terminal_result(&store, attempt)
+            .map_err(|error| ShenkoError::storage(format!("{error:#}")))?
+        else {
             continue;
         };
         if result.termination.kind == shenko_broker::request::TerminationKind::Unknown {

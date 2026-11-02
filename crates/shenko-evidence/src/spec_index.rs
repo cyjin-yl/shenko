@@ -54,6 +54,8 @@ pub struct Behavior {
     pub verification: String,
     /// Acceptance case IDs referenced by this behavior's verification cell.
     pub acceptance_cases: Vec<String>,
+    /// Explicit IDs or ranges that cannot be resolved completely.
+    pub unresolved_case_refs: Vec<String>,
     pub spec_line: usize,
     pub source_row: String,
 }
@@ -83,21 +85,36 @@ impl SpecIndex {
     pub fn parse(spec_text: &str) -> Result<SpecIndex, IndexError> {
         let mut index = SpecIndex::default();
         let mut in_fence = false;
+        let mut previous_table_row = None;
+        let mut acceptance_table = None;
         for (offset, line) in spec_text.lines().enumerate() {
             let line_no = offset + 1;
             if line.trim_start().starts_with("```") {
                 in_fence = !in_fence;
+                previous_table_row = None;
+                acceptance_table = None;
                 continue;
             }
             if in_fence {
                 continue;
             }
             let Some(cells) = split_table_row(line) else {
+                previous_table_row = None;
+                acceptance_table = None;
                 continue;
             };
             if cells.is_empty() {
                 continue;
             }
+            if cells.iter().all(|cell| {
+                !cell.is_empty() && cell.bytes().all(|byte| matches!(byte, b'-' | b':'))
+            }) {
+                acceptance_table = previous_table_row
+                    .and_then(split_table_row)
+                    .map(|header| is_acceptance_table(&header));
+                continue;
+            }
+            previous_table_row = Some(line);
             let head = cells[0].trim();
             if head.starts_with('R') && is_requirement_id(head) {
                 if cells.len() < 4 {
@@ -115,7 +132,9 @@ impl SpecIndex {
                     spec_line: line_no,
                     source_row: line.to_string(),
                 };
-                index.requirements.insert(requirement.id.clone(), requirement);
+                index
+                    .requirements
+                    .insert(requirement.id.clone(), requirement);
                 continue;
             }
             if let Some((behavior_id, title)) = split_behavior_id(head) {
@@ -131,7 +150,8 @@ impl SpecIndex {
                     title,
                     refs: cells[1].trim().to_string(),
                     contract: cells[2].trim().to_string(),
-                    acceptance_cases: acceptance_case_refs(&verification),
+                    acceptance_cases: Vec::new(),
+                    unresolved_case_refs: Vec::new(),
                     verification,
                     spec_line: line_no,
                     source_row: line.to_string(),
@@ -139,25 +159,20 @@ impl SpecIndex {
                 index.behaviors.insert(behavior.id.clone(), behavior);
                 continue;
             }
-            if let Some(case) = parse_acceptance_case_row(&cells) {
+            if acceptance_table != Some(false)
+                && let Some(case) = parse_acceptance_case_row(&cells)
+            {
                 let case = AcceptanceCase {
                     source_row: line.to_string(),
                     spec_line: line_no,
                     ..case
                 };
-                index
-                    .acceptance_cases
-                    .insert(case.case_id.clone(), case);
+                index.acceptance_cases.insert(case.case_id.clone(), case);
             }
         }
-        // A behavior's verification cell may name a case that the SPEC does
-        // not define (a loose phrase such as "V1 对应项"). Only IDs that the
-        // SPEC actually defines are kept.
-        let universe: BTreeSet<String> = index.acceptance_cases.keys().cloned().collect();
         for behavior in index.behaviors.values_mut() {
-            behavior
-                .acceptance_cases
-                .retain(|case_id| universe.contains(case_id));
+            (behavior.acceptance_cases, behavior.unresolved_case_refs) =
+                acceptance_case_refs(&behavior.verification, &index.acceptance_cases);
         }
         Ok(index)
     }
@@ -218,18 +233,42 @@ fn split_table_row(line: &str) -> Option<Vec<String>> {
     Some(inner.split('|').map(|c| c.trim().to_string()).collect())
 }
 
+/// Column roles distinguish acceptance definitions from decision/reference
+/// tables. Unknown case families in these tables are retained, not guessed.
+fn is_acceptance_table(header: &[String]) -> bool {
+    match header.first().map(String::as_str) {
+        Some("Case") => true,
+        Some("ID" | "编号") => header.last().is_some_and(|cell| {
+            matches!(
+                cell.as_str(),
+                "通过条件"
+                    | "可判定结果"
+                    | "必须观察到的行为"
+                    | "场景与通过条件"
+                    | "成立条件"
+                    | "必须可观察的结果"
+                    | "必须观察到的结果"
+                    | "必须出现的真实证据"
+            )
+        }),
+        _ => false,
+    }
+}
+
 fn is_requirement_id(cell: &str) -> bool {
     let bytes = cell.as_bytes();
-    bytes.len() == 4
-        && bytes[0] == b'R'
-        && bytes[1..].iter().all(|b| b.is_ascii_digit())
+    bytes.len() == 4 && bytes[0] == b'R' && bytes[1..].iter().all(|b| b.is_ascii_digit())
 }
 
 fn is_behavior_id(cell: &str) -> bool {
     let bytes = cell.as_bytes();
-    bytes.len() == 3
-        && bytes[0] == b'B'
-        && bytes[1..].iter().all(|b| b.is_ascii_digit())
+    bytes.len() == 3 && bytes[0] == b'B' && bytes[1..].iter().all(|b| b.is_ascii_digit())
+}
+
+fn split_behavior_id(head: &str) -> Option<(String, String)> {
+    let end = head.find(char::is_whitespace).unwrap_or(head.len());
+    let id = &head[..end];
+    is_behavior_id(id).then(|| (id.to_string(), head[end..].trim().to_string()))
 }
 
 /// An acceptance case row is `| <ID> | <scenario> | <pass condition> |`.
@@ -268,16 +307,7 @@ fn parse_acceptance_case_row(cells: &[String]) -> Option<AcceptanceCase> {
 /// Split `QA01 指标隔离` into ("QA01", Some(title)) and `A01` into
 /// ("A01", None).
 fn split_case_id_with_title(head: &str) -> (String, Option<String>) {
-    let mut end = 0;
-    let bytes = head.as_bytes();
-    while end < bytes.len() {
-        let c = bytes[end];
-        if c.is_ascii_alphanumeric() || c == b'-' {
-            end += 1;
-        } else {
-            break;
-        }
-    }
+    let end = head.find(char::is_whitespace).unwrap_or(head.len());
     let id = head[..end].to_string();
     let title = head[end..].trim();
     if !is_case_id(&id) {
@@ -293,14 +323,18 @@ fn split_case_id_with_title(head: &str) -> (String, Option<String>) {
 /// An acceptance case ID is a letter prefix plus digits, e.g. `A01`,
 /// `UI-S01`, `V1-01`, `P41-01`.
 fn is_case_id(id: &str) -> bool {
-    let Some(position) = id.rfind(|c: char| c.is_ascii_digit()) else {
-        return false;
-    };
-    let (prefix, digits) = id.split_at(position);
-    if prefix.is_empty() || digits.is_empty() {
+    let prefix = id.trim_end_matches(|c: char| c.is_ascii_digit());
+    // R/B/U belong to the requirement/behavior/source tables, not the
+    // acceptance universe. A bare version/phase such as V1 or S0 is not
+    // a zero-padded acceptance identifier either.
+    if matches!(prefix, "R" | "B" | "U") || id.len() - prefix.len() < 2 {
         return false;
     }
-    if !prefix.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
+    if !prefix
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase())
+    {
         return false;
     }
     if !prefix
@@ -309,7 +343,7 @@ fn is_case_id(id: &str) -> bool {
     {
         return false;
     }
-    digits.chars().all(|c| c.is_ascii_digit())
+    true
 }
 
 /// Behavior IDs named in a requirement row's reference cell (`U01；B01/B22`).
@@ -319,11 +353,11 @@ fn behavior_refs(cell: &str) -> Vec<String> {
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'B' && index + 2 < bytes.len() {
-            let digits = &cell[index + 1..index + 3];
-            if digits.chars().all(|c| c.is_ascii_digit()) {
+            let digits = &bytes[index + 1..index + 3];
+            if digits.iter().all(u8::is_ascii_digit) {
                 let after = bytes.get(index + 3).copied();
                 if !after.is_some_and(|c| c.is_ascii_digit()) {
-                    found.insert(format!("B{}", digits));
+                    found.insert(cell[index..index + 3].to_string());
                     index += 3;
                     continue;
                 }
@@ -341,85 +375,89 @@ fn behavior_refs(cell: &str) -> Vec<String> {
 /// `UI-S01–10/UI01–04`, `V1-01–V1-15`, `AW01–09`). Ranges are expanded
 /// against the universe of case IDs the SPEC actually defines, so a range
 /// never invents an ID that does not exist.
-fn acceptance_case_refs(cell: &str) -> Vec<String> {
+fn acceptance_case_refs(
+    cell: &str,
+    universe: &BTreeMap<String, AcceptanceCase>,
+) -> (Vec<String>, Vec<String>) {
     let mut found = BTreeSet::new();
-    let tokens = split_ref_tokens(cell);
-    for token in tokens {
-        if is_case_id(&token) {
-            found.insert(token);
+    let mut unresolved = BTreeSet::new();
+    let mut cursor = 0;
+    while cursor < cell.len() {
+        let rest = &cell[cursor..];
+        let Some(offset) = rest.find(|c: char| c.is_ascii_uppercase()) else {
+            break;
+        };
+        let start = cursor + offset;
+        let token_end = start + id_token_len(&cell[start..]);
+        let first = &cell[start..token_end];
+        cursor = token_end;
+        if !is_case_id(first) {
             continue;
         }
-        if let Some((prefix, start, end)) = parse_range(&token) {
-            for number in start..=end {
-                found.insert(format!("{}{:02}", prefix, number));
-            }
-        }
-    }
-    found.into_iter().collect()
-}
-
-/// Split a cell into ID-ish tokens. Separators are `/`, `；`, `、`, `,`, `,`,
-/// spaces and the en dash used inside ranges.
-fn split_ref_tokens(cell: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let mut range_pending = false;
-    for ch in cell.chars() {
-        match ch {
-            '–' | '—' => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-                range_pending = true;
-                continue;
-            }
-            '/' | '；' | ';' | '、' | ',' | ' ' | '\t' | '（' | '）' | '(' | ')' => {
-                if !current.is_empty() {
-                    tokens.push(std::mem::take(&mut current));
-                }
-                range_pending = false;
-                continue;
-            }
-            _ => {}
-        }
-        if range_pending && ch.is_ascii_digit() {
-            // A range's upper bound continues the previous prefix.
-            if let Some(last) = tokens.last_mut() {
-                if let Some(prefix) = strip_trailing_digits(last) {
-                    let digits: String = current.chars().chain(std::iter::once(ch)).collect();
-                    if let Ok(number) = digits.parse::<u32>() {
-                        tokens.push(format!("{prefix}{number:02}"));
-                        current.clear();
-                        range_pending = false;
-                        continue;
+        let after = cell[token_end..].trim_start();
+        if after.starts_with(['–', '—']) {
+            let upper = after[3..].trim_start();
+            let upper_len = id_token_len(upper);
+            cursor = cell.len() - upper.len() + upper_len;
+            let token = &cell[start..cursor];
+            if let Some((prefix, low, high)) = parse_range(first, &upper[..upper_len]) {
+                let mut count = 0u64;
+                for id in universe.keys() {
+                    if let Some((family, number)) = strip_trailing_digits(id) {
+                        if family == prefix && (low..=high).contains(&number) {
+                            found.insert(id.clone());
+                            count += 1;
+                        }
                     }
                 }
+                if high.checked_sub(low).and_then(|n| n.checked_add(1)) != Some(count) {
+                    unresolved.insert(token.to_string());
+                }
+            } else {
+                unresolved.insert(token.to_string());
             }
+        } else if universe.contains_key(first) {
+            found.insert(first.to_string());
+        } else {
+            unresolved.insert(first.to_string());
         }
-        range_pending = false;
-        current.push(ch);
     }
-    if !current.is_empty() {
-        tokens.push(current);
-    }
-    tokens
+    (
+        found.into_iter().collect(),
+        unresolved.into_iter().collect(),
+    )
+}
+
+fn id_token_len(text: &str) -> usize {
+    text.bytes()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == b'-')
+        .count()
 }
 
 /// `A01` → `("A", 1)`, `E10` → `("E", 10)`.
-fn strip_trailing_digits(token: &str) -> Option<(&str, u32)> {
-    let position = token.rfind(|c: char| c.is_ascii_digit())?;
+fn strip_trailing_digits(token: &str) -> Option<(&str, u64)> {
+    let position = token.trim_end_matches(|c: char| c.is_ascii_digit()).len();
     let (prefix, digits) = token.split_at(position);
-    if prefix.is_empty() {
+    if prefix.is_empty() || digits.is_empty() {
         return None;
     }
-    let number = digits.parse::<u32>().ok()?;
+    let number = digits.parse().ok()?;
     Some((prefix, number))
 }
 
 /// Parse `A03–A05` or `AW01–09` style ranges into prefix and bounds.
-fn parse_range(token: &str) -> Option<(String, u32, u32)> {
-    let (prefix, number) = strip_trailing_digits(token)?;
-    Some((prefix.to_string(), number, number))
+fn parse_range<'a>(first: &'a str, upper: &str) -> Option<(&'a str, u64, u64)> {
+    let (prefix, low) = strip_trailing_digits(first)?;
+    let high = if upper.bytes().all(|c| c.is_ascii_digit()) {
+        upper.parse().ok()?
+    } else {
+        let (end_prefix, high) = strip_trailing_digits(upper)?;
+        if prefix != end_prefix {
+            return None;
+        }
+        high
+    };
+    (low <= high).then_some((prefix, low, high))
 }
 
 /// Build a JSON view of the parsed index, for machine-readable reports.
@@ -453,5 +491,11 @@ pub fn index_to_json(index: &SpecIndex) -> Value {
     serde_json::json!({
         "requirements": requirements,
         "acceptance_cases": cases,
+        "behaviors": index.behaviors.values().map(|behavior| serde_json::json!({
+            "behavior_id": behavior.id,
+            "acceptance_cases": behavior.acceptance_cases,
+            "unresolved_case_refs": behavior.unresolved_case_refs,
+            "spec_line": behavior.spec_line,
+        })).collect::<Vec<_>>(),
     })
 }

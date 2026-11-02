@@ -110,9 +110,18 @@ impl Tombstones {
 /// One entry of a commit manifest.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitEntry {
-    pub kind: &'static str,
+    pub kind: CommitEntryKind,
     pub bytes: u64,
     pub digest: Digest,
+}
+
+/// Entry kinds retain the existing manifest strings without allocating.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CommitEntryKind {
+    #[serde(rename = "dir")]
+    Directory,
+    #[serde(rename = "file")]
+    File,
 }
 
 /// A content-addressed commit over the branch's effective view.
@@ -328,16 +337,16 @@ impl BranchStore {
                 let meta = fs::metadata(&path)
                     .map_err(|e| anyhow!("stat committed {}: {e}", path.display()))?;
                 if meta.is_dir() {
-                    entries.insert(rel_slash(rel), Some(CommitEntry {
-                        kind: "dir",
+                    entries.insert(rel.clone(), Some(CommitEntry {
+                        kind: CommitEntryKind::Directory,
                         bytes: 0,
                         digest: Digest::blake3(&[]),
                     }));
                 } else {
                     let bytes = fs::read(&path)
                         .map_err(|e| anyhow!("read committed {}: {e}", path.display()))?;
-                    entries.insert(rel_slash(rel), Some(CommitEntry {
-                        kind: "file",
+                    entries.insert(rel.clone(), Some(CommitEntry {
+                        kind: CommitEntryKind::File,
                         bytes: bytes.len() as u64,
                         digest: Digest::blake3(&bytes),
                     }));
@@ -507,7 +516,7 @@ impl CowMountStore {
         }
         self.home
             .dir()
-            .rename(&tmp, &self.rel_tombstones)
+            .rename(&tmp, self.home.dir(), &self.rel_tombstones)
             .map_err(|e| anyhow!("persist tombstones: {e}"))?;
         Ok(())
     }
@@ -546,7 +555,7 @@ fn diff_trees(base: &Path, overlay: &Path, tombstones: &Tombstones) -> Result<Co
                         diff.modified.insert(key);
                     }
                 }
-                _ => diff.removed.insert(key),
+                _ => { diff.removed.insert(key); }
             }
         }
         Ok(())

@@ -111,6 +111,7 @@ pub enum BuildError {
 }
 
 /// A source of candidate artifacts.
+#[async_trait::async_trait]
 pub trait BuildProvider: Send + Sync {
     /// Build the candidate and return its identity. A failed build is an
     /// error, never an artifact without a digest.
@@ -154,6 +155,7 @@ impl CargoBuildProvider {
     }
 }
 
+#[async_trait::async_trait]
 impl BuildProvider for CargoBuildProvider {
     async fn build(&self, request: &BuildRequest) -> Result<BuildOutcome, BuildError> {
         let toolchain = self.toolchain().await.unwrap_or_else(|_| "unknown".to_string());

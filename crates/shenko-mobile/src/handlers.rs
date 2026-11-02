@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
+    evidence::ObservationLevel,
     ids::EntityId,
     object::*,
     operation::*,
@@ -88,8 +89,8 @@ impl AndroidDeviceProbeHandler {
                 "the bridge answered with real OS/adapter facts, or a typed-unavailable result names the exact missing mechanism",
                 move |backend, _ctx| match backend.probe_cached(refresh) {
                     Ok(probe) => DriveOutcome::done(
-                        crate::types::effect_none(),
-                        crate::types::level_postcondition(),
+                        types::effect_none(),
+                        types::level_postcondition(),
                         serde_json::json!({
                             "result": "probed",
                             "probe": probe,
@@ -223,7 +224,8 @@ impl NativeTaskHandler for AndroidScreenObserveHandler {
             "android.screen.observe",
             "mobile.screen.observe/v1",
             OBSERVE_PROMPT,
-    )
+        )
+    }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         self.exec(invocation).await
@@ -773,7 +775,7 @@ fn appdb_work(
         "facts": facts,
         "key_material_note": key_material_note(&facts.key_material),
         "missing_and_uncertainty": notes,
-        "collected_at_ms": crate::backend::now_unix_ms(),
+        "collected_at_ms": chrono::Utc::now().timestamp_millis(),
     });
     // Read-only snapshot: no external effect; missing fact dimensions are
     // data, not failure.
@@ -880,9 +882,7 @@ fn analyze_copied_set(main_path: &std::path::Path, result: &serde_json::Value) -
 /// Open the copied database read-only and prove the schema is queryable.
 /// Never runs against a live source path — only against our own copy.
 fn structure_probe(path: &std::path::Path) -> std::result::Result<(), ()> {
-    use std::str::FromStr as _;
-    let flags = rusqlite::OpenFlags::from_str("SQLITE_OPEN_READ_ONLY | SQLITE_OPEN_NO_MUTEX")
-        .map_err(|_| ())?;
+    let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = rusqlite::Connection::open_with_flags(path, flags).map_err(|_| ())?;
     connection
         .query_row("SELECT count(*) FROM sqlite_master", [], |row| {

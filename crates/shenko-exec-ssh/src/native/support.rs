@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 
-const B64: base64::engine::general_purpose::Standard = base64::engine::general_purpose::Standard;
+const B64: base64::engine::general_purpose::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
 pub fn encode_b64(bytes: &[u8]) -> String {
     B64.encode(bytes)
@@ -305,11 +305,9 @@ pub async fn connect_session(
 }
 
 pub async fn tcp_connect(host: &str, port: u16, deadline: Duration) -> Result<TcpStream> {
-    use tokio::net::ToSocketAddrs;
     let connect = async {
         let mut last_error = None;
-        let addresses = (host, port)
-            .to_socket_addrs()
+        let addresses = tokio::net::lookup_host((host, port))
             .await
             .with_context(|| format!("resolving {host}:{port} failed"))?;
         for address in addresses {
@@ -318,7 +316,9 @@ pub async fn tcp_connect(host: &str, port: u16, deadline: Duration) -> Result<Tc
                 Err(error) => last_error = Some(error),
             }
         }
-        Err(last_error.unwrap_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no address")))
+        Err(anyhow::Error::from(last_error.unwrap_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "no address")
+        })))
     };
     tokio::time::timeout(deadline, connect)
         .await

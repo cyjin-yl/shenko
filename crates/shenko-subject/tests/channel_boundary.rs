@@ -115,6 +115,7 @@ impl ChannelPlugin for StubChannel {
                 alias: None,
                 person_ref: None,
                 role_grant_ref: None,
+                group_role: None,
             },
             content: shenko_types::channel::ChannelContent {
                 text,

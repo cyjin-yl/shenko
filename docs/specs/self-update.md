@@ -26,8 +26,12 @@ snapshot is retained in the recovery closure and re-read before selection.
 Node election epoch, selector epoch and subject controller epoch are distinct.
 
 After genesis, `Store::installation_id_for_subject` obtains stable installation
-identity through persisted genesis → bootstrap, not the current ledger writer
-ID. A staged copy acquires a distinct current ledger writer ID before its first
+identity from the verified immutable `genesis.bootstrap_event_ref` or an explicit
+provisioning record, not the current ledger writer ID. Fresh CLI genesis already
+seals that identity in the event; a separate `bootstrap_records` projection is
+not required for restart. When both representations exist, their installation
+and subject bindings must agree; missing or conflicting identity is an error,
+not a new installation. A staged copy acquires a distinct current ledger writer ID before its first
 local mutation; historical `commit_log.ledger_id` values and embedded source
 CommitRefs are not rewritten. The installation, owner, subject and genesis do
 not become new identities.

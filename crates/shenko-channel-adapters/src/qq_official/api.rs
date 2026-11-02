@@ -548,9 +548,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
 
 /// The MD5 of the bytes, lowercase hexadecimal.
 pub fn md5_hex(bytes: &[u8]) -> String {
-    use md5::Digest as _;
-    let digest = md5::Md5::digest(bytes);
-    hex::encode(digest)
+    format!("{:x}", md5::compute(bytes))
 }
 
 /// The SHA-1 of the bytes, lowercase hexadecimal.

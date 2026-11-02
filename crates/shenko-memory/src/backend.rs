@@ -219,6 +219,10 @@ pub trait MemoryBackend: Send + Sync {
     /// revision mismatch is a conflict, not a silent overwrite.
     fn correct(&self, request: &MemoryRequest) -> Result<RetainOutcome, anyhow::Error>;
 
+    /// Retire a fact. Semantic forget is monotonic: the entry keeps its text
+    /// and gains a tombstone; nothing physically disappears.
+    fn forget(&self, request: &MemoryRequest) -> Result<ForgetOutcome, anyhow::Error>;
+
     /// Search memory with match-centred excerpts.
     fn recall(&self, query: &RecallQuery) -> Result<Vec<MemoryHit>, anyhow::Error>;
 
@@ -372,7 +376,7 @@ impl MemoryBackend for StoreMemoryBackend {
                 },
                 target,
             )
-            .map_err(anyhow::Error::new)?;
+            ?;
         if accepted.status != "accepted" {
             // Replay of a settled request: read the durable outcome.
             return match self.worker.read(target)? {
@@ -395,7 +399,7 @@ impl MemoryBackend for StoreMemoryBackend {
     }
 
     fn read(&self, entry_id: EntityId) -> Result<Option<MemoryEntry>, anyhow::Error> {
-        self.worker.read(entry_id).map_err(anyhow::Error::new)
+        Ok(self.worker.read(entry_id)?)
     }
 
     fn lineage(&self, entry_id: EntityId) -> Result<Vec<MemoryEntry>, anyhow::Error> {

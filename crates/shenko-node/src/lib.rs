@@ -118,7 +118,7 @@ pub struct ResultReceipt {
 
 /// Restricted to an OS/SSH account with installation control. A future registry
 /// adapter must derive this from authenticated IPC, never model tool arguments.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Initialize {

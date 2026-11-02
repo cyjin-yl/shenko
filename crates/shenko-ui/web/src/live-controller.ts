@@ -195,6 +195,28 @@ function validRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
+interface TimelineChunk extends Record<string, unknown> {
+  message_id: string;
+  part_id: string;
+  part_revision: string;
+  commit_ref: string;
+  content: string;
+  step: number;
+  chunk_seq: number;
+}
+
+function isTimelineChunk(data: Record<string, unknown>): data is TimelineChunk {
+  return data.schema_version === 2 &&
+    data.committed_only === true &&
+    data.role === 'subject' &&
+    typeof data.message_id === 'string' &&
+    typeof data.part_id === 'string' &&
+    typeof data.part_revision === 'string' &&
+    typeof data.commit_ref === 'string' &&
+    typeof data.content === 'string' &&
+    validRevision(data.step) && validRevision(data.chunk_seq);
+}
+
 function wsUrl(): string {
   if (!location.host) return '';
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -221,7 +243,7 @@ class LiveController implements ProjectionController {
   private selfSeq = 0;
   private selfApplied = 0;
   private abort = new AbortController();
-  private pendingChunks = new Map<string, Map<number, Record<string, unknown>>>();
+  private pendingChunks = new Map<string, Map<number, TimelineChunk>>();
 
   constructor() {
     document.documentElement.dataset.theme = this.state.display.theme;
@@ -933,18 +955,9 @@ class LiveController implements ProjectionController {
 
   private handleTimelinePart(data: Record<string, unknown>): void {
     if (
-      data.schema_version !== 2 ||
-      data.committed_only !== true ||
-      data.role !== 'subject' ||
-      typeof data.message_id !== 'string' ||
-      typeof data.part_id !== 'string' ||
-      typeof data.part_revision !== 'string' ||
-      typeof data.commit_ref !== 'string' ||
-      typeof data.content !== 'string' ||
+      !isTimelineChunk(data) ||
       typeof data.step_id !== 'string' ||
-      !validRevision(data.step) ||
-      data.step < 1 ||
-      !validRevision(data.chunk_seq)
+      data.step < 1
     ) {
       return;
     }
@@ -956,7 +969,7 @@ class LiveController implements ProjectionController {
   // attempt_id). A committed chunk carries no stream facts: it either binds
   // S1 identity onto an already-streamed part (absorption, idempotent in
   // both delivery orders) or starts the part with the full committed text.
-  private applyChunk(data: Record<string, unknown>, isStream: boolean): void {
+  private applyChunk(data: TimelineChunk, isStream: boolean): void {
     if (!isStream && (this.state.step === null || data.step > this.state.step)) {
       this.state.step = data.step;
     }
@@ -1026,7 +1039,7 @@ class LiveController implements ProjectionController {
       return;
     }
     if (chunkSeq > (existing?.next_chunk_seq ?? 0)) {
-      const pending = this.pendingChunks.get(key) ?? new Map<number, Record<string, unknown>>();
+      const pending = this.pendingChunks.get(key) ?? new Map<number, TimelineChunk>();
       pending.set(chunkSeq, data);
       this.pendingChunks.set(key, pending);
       if (existing) existing.gap = true;
@@ -1080,9 +1093,9 @@ class LiveController implements ProjectionController {
     if (!pending) return;
     while (pending.has(part.next_chunk_seq)) {
       const next = pending.get(part.next_chunk_seq)!;
-      part.content += String(next.content ?? '');
+      part.content += next.content;
       part.next_chunk_seq += 1;
-      part.part_revision = String(next.part_revision ?? part.part_revision);
+      part.part_revision = next.part_revision;
       pending.delete(part.next_chunk_seq - 1);
     }
     part.gap = pending.size > 0;
@@ -1113,21 +1126,7 @@ class LiveController implements ProjectionController {
   // part when the server projected exactly the streamed prefix. A chunk that
   // does not fit is buffered as a gap, never patched over.
   private handleStreamPart(data: Record<string, unknown>): void {
-    if (!this.state.streaming) return;
-    if (
-      data.schema_version !== 2 ||
-      data.committed_only !== true ||
-      data.role !== 'subject' ||
-      typeof data.message_id !== 'string' ||
-      typeof data.part_id !== 'string' ||
-      typeof data.part_revision !== 'string' ||
-      typeof data.commit_ref !== 'string' ||
-      typeof data.content !== 'string' ||
-      !validRevision(data.step) ||
-      !validRevision(data.chunk_seq)
-    ) {
-      return;
-    }
+    if (!this.state.streaming || !isTimelineChunk(data)) return;
     this.applyChunk(data, true);
   }
 

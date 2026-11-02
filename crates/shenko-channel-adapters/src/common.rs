@@ -114,7 +114,7 @@ impl ChannelHealth {
 }
 
 /// A live health observation a connector keeps up to date.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct HealthState {
     inner: Arc<Mutex<ChannelHealth>>,
 }
@@ -588,12 +588,12 @@ impl ReplyContextCache {
     /// The remembered context of one conversation, if it is still fresh.
     pub fn get(&self, conversation: &str) -> Option<ReplyContext> {
         let mut guard = self.inner.lock();
-        let context = guard.get(conversation)?.clone();
-        if Utc::now() - context.at > self.window {
+        let context = guard.get(conversation)?;
+        if (Utc::now() - context.at).to_std().is_ok_and(|age| age > self.window) {
             guard.remove(conversation);
             return None;
         }
-        Some(context)
+        Some(context.clone())
     }
 
     /// Forget every remembered context.
@@ -612,16 +612,14 @@ pub async fn read_attachment_bytes(
     http: &PlatformHttp,
     attachment: &shenko_types::channel::ChannelAttachment,
 ) -> Result<Vec<u8>, String> {
-    let Some(locator) = &attachment.locator else {
-        return Err("attachment carries no locator".to_string());
-    };
+    let locator = &attachment.locator;
     if let Some(url) = locator.url.as_deref().filter(|url| !url.is_empty()) {
         let response = http
             .client()
             .get(url)
             .send()
             .await
-            .map_err(|error| format!("attachment fetch failed: {}", error.status()))?;
+            .map_err(|error| format!("attachment fetch failed: {}", error.without_url()))?;
         if !response.status().is_success() {
             return Err(format!(
                 "attachment fetch refused with http {}",
@@ -631,7 +629,7 @@ pub async fn read_attachment_bytes(
         let bytes = response
             .bytes()
             .await
-            .map_err(|error| format!("attachment body failed: {error}"))?;
+            .map_err(|error| format!("attachment body failed: {}", error.without_url()))?;
         return Ok(bytes.to_vec());
     }
     if let Some(path) = locator.path.as_deref().filter(|path| !path.is_empty()) {

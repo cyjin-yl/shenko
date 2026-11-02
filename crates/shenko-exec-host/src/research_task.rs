@@ -13,7 +13,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use shenko_store::Store;
 use shenko_store::research::{
-    BankEntryKind, BankSelection, InterventionBankEntry, ResearchCandidate, ResearchClosure,
+    BankEntryKind, BankSelection, InterventionBankEntry, ResearchBudget, ResearchCandidate,
+    ResearchClosure, ResearchConstraint, ResearchEffect, ResearchEnvironment,
     ResearchEpochStatus, ResearchResetTrigger,
 };
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
@@ -314,46 +315,20 @@ struct ResetInput {
     request_id: EntityId,
     lineage_id: Option<EntityId>,
     op: ResetOp,
-    trigger: Option<ResetTriggerInput>,
+    trigger: Option<ResearchResetTrigger>,
     reason: String,
-    constraints: Vec<String>,
-    budget: ResetBudgetInput,
-    effects: Vec<String>,
-    environment: ResetEnvironmentInput,
+    constraints: Vec<ResearchConstraint>,
+    budget: ResearchBudget,
+    effects: Vec<ResearchEffect>,
+    environment: ResearchEnvironment,
     best_candidate_id: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ResetOp {
     Open,
     Reset,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ResetTriggerInput {
-    Stagnation,
-    IsomorphicProposal,
-    EvidenceDirectionChanged,
-    PlannedRound,
-    SubjectRequest,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ResetBudgetInput {
-    max_steps: Option<u64>,
-    wall_clock_ms: Option<u64>,
-    tokens: Option<u64>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ResetEnvironmentInput {
-    software_generation: u64,
-    image_ref: Option<String>,
-    seed_manifest_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,12 +337,12 @@ struct FrozenReset {
     request_id: EntityId,
     lineage_id: Option<EntityId>,
     op: ResetOp,
-    trigger: Option<ResetTriggerInput>,
+    trigger: Option<ResearchResetTrigger>,
     reason: String,
-    constraints: Vec<String>,
-    budget: ResetBudgetInput,
-    effects: Vec<String>,
-    environment: ResetEnvironmentInput,
+    constraints: Vec<ResearchConstraint>,
+    budget: ResearchBudget,
+    effects: Vec<ResearchEffect>,
+    environment: ResearchEnvironment,
     best_candidate_id: Option<EntityId>,
 }
 
@@ -386,8 +361,8 @@ impl ResearchResetHandler {
             .expect("fixed built-in research plugin UUID")
     }
 
-    fn freeze(&self, input: serde_json::Value) -> Result<FrozenReset> {
-        let input: ResetInput = serde_json::from_value(input)?;
+    fn freeze(&self, input: &serde_json::Value) -> Result<FrozenReset> {
+        let input = ResetInput::deserialize(input)?;
         ensure!(!input.reason.is_empty(), "reset reason must not be empty");
         ensure!(
             input.reason.len() <= 4096,
@@ -399,13 +374,13 @@ impl ResearchResetHandler {
         );
         for constraint in &input.constraints {
             ensure!(
-                !constraint.trim().is_empty() && constraint.len() <= 1024,
+                !constraint.statement.trim().is_empty() && constraint.statement.len() <= 1024,
                 "each reset constraint must be non-empty and at most 1024 bytes"
             );
         }
         for effect in &input.effects {
             ensure!(
-                !effect.trim().is_empty() && effect.len() <= 1024,
+                !effect.description.trim().is_empty() && effect.description.len() <= 1024,
                 "each carried effect must be non-empty and at most 1024 bytes"
             );
         }
@@ -426,34 +401,15 @@ impl ResearchResetHandler {
 
     fn closure_of(frozen: &FrozenReset) -> ResearchClosure {
         ResearchClosure {
-            schema_version: 1,
             constraints: frozen.constraints.clone(),
-            budget: shenko_store::research::ResearchBudget {
-                schema_version: 1,
-                max_steps: frozen.budget.max_steps,
-                wall_clock_ms: frozen.budget.wall_clock_ms,
-                tokens: frozen.budget.tokens,
-            },
+            budget: frozen.budget.clone(),
             effects: frozen.effects.clone(),
-            environment: shenko_store::research::ResearchEnvironment {
-                schema_version: 1,
-                software_generation: frozen.environment.software_generation,
-                image_ref: frozen.environment.image_ref.clone(),
-                seed_manifest_ref: frozen.environment.seed_manifest_ref.clone(),
-            },
+            environment: frozen.environment.clone(),
         }
     }
 
     fn trigger_of(frozen: &FrozenReset) -> ResearchResetTrigger {
-        match frozen.trigger.unwrap_or(ResetTriggerInput::SubjectRequest) {
-            ResetTriggerInput::Stagnation => ResearchResetTrigger::Stagnation,
-            ResetTriggerInput::IsomorphicProposal => ResearchResetTrigger::IsomorphicProposal,
-            ResetTriggerInput::EvidenceDirectionChanged => {
-                ResearchResetTrigger::EvidenceDirectionChanged
-            }
-            ResetTriggerInput::PlannedRound => ResearchResetTrigger::PlannedRound,
-            ResetTriggerInput::SubjectRequest => ResearchResetTrigger::SubjectRequest,
-        }
+        frozen.trigger.unwrap_or(ResearchResetTrigger::SubjectRequest)
     }
 
     fn write(&self, frozen: &FrozenReset) -> Result<(serde_json::Value, OperationOutcome)> {
@@ -492,10 +448,7 @@ impl ResearchResetHandler {
                     serde_json::json!({
                         "schema_version": 1,
                         "status": "reset",
-                        "previous_epoch": outcome
-                            .previous_epoch
-                            .as_ref()
-                            .map(|epoch| epoch_json(epoch, &None)),
+                        "previous_epoch": epoch_json(&outcome.previous_epoch, &None),
                         "epoch": epoch_json(&outcome.epoch, &Some(outcome.brief)),
                         "validation": serde_json::to_value(&outcome.validation)?,
                         "carried_candidate_ids": outcome
@@ -531,14 +484,14 @@ impl NativeTaskHandler for ResearchResetHandler {
             role_revision: "native-research-reset/1".into(),
             authority_refs: vec!["store.research.reset.own_subject/v1".into()],
             prompt_section: Some(
-                "research.reset/v1 打开或重置一条研究 lineage。[delegate:research.reset:1] {\"op\":\"open\",\"request_id\":\"…\",\"reason\":\"…\",\"constraints\":[],\"budget\":{},\"effects\":[],\"environment\":{\"software_generation\":0}} 打开 epoch 1；{\"op\":\"reset\",\"lineage_id\":\"…\",…} 把当前 epoch 冻结为档案并打开下一 epoch。返回新 epoch、其密封简报、最佳候选校验（工件是否存在、摘要是否匹配、评分来源、环境是否记录）与随新 session 保留的约束/预算/效果。旧 epoch 保持可读；不删除任何用户数据。"
+                "research.reset/v1 打开或重置研究 lineage。输入 op=open|reset、request_id、lineage_id、reason、constraints:[{id,statement,source?}]、budget:{max_tokens?,max_duration_secs?,max_cost_units?,notes?}、effects:[{effect_id,description,external,recorded_at_ms}]、environment:{environment_id,facts,toolchain,dataset_versions,reproducible}；reset 可指定 trigger 与 best_candidate_id。环境与效果必须来自实际事实，不以版本标签代替。返回新 epoch、密封简报、最佳候选校验和保留的约束/预算/效果。旧 epoch 冻结后保持可读，不删除用户数据。"
                     .into(),
             ),
         }
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let frozen = self.freeze(invocation.input)?;
+        let frozen = self.freeze(&invocation.input)?;
         run_recorded(
             &self.store,
             &invocation,
@@ -604,7 +557,7 @@ struct CandidateInput {
     artifact_ref: ObjectRef,
     score: Option<f64>,
     score_source: Option<String>,
-    environment: ResetEnvironmentInput,
+    environment: ResearchEnvironment,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -615,7 +568,8 @@ struct FrozenCandidate {
     artifact_ref: ObjectRef,
     score: Option<f64>,
     score_source: Option<String>,
-    environment: ResetEnvironmentInput,
+    environment: ResearchEnvironment,
+    created_at_ms: i64,
 }
 
 pub struct ResearchCandidateHandler {
@@ -633,8 +587,8 @@ impl ResearchCandidateHandler {
             .expect("fixed built-in research-candidate plugin UUID")
     }
 
-    fn freeze(&self, input: serde_json::Value) -> Result<FrozenCandidate> {
-        let input: CandidateInput = serde_json::from_value(input)?;
+    fn freeze(&self, input: &serde_json::Value) -> Result<FrozenCandidate> {
+        let input = CandidateInput::deserialize(input)?;
         if let Some(score) = input.score {
             ensure!(score.is_finite(), "candidate score must be finite");
         }
@@ -652,29 +606,27 @@ impl ResearchCandidateHandler {
             score: input.score,
             score_source: input.score_source,
             environment: input.environment,
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
         })
     }
 
-    fn candidate_of(frozen: &FrozenCandidate) -> ResearchCandidate {
-        ResearchCandidate {
-            schema_version: 1,
+    fn candidate_of(&self, frozen: &FrozenCandidate) -> Result<ResearchCandidate> {
+        let environment_ref = seal(&self.store, &frozen.environment, "research-candidate-environment")?;
+        Ok(ResearchCandidate {
             candidate_id: frozen.candidate_id,
             epoch_id: frozen.epoch_id,
             artifact_ref: frozen.artifact_ref.clone(),
             score: frozen.score,
             score_source: frozen.score_source.clone(),
-            environment: shenko_store::research::ResearchEnvironment {
-                schema_version: 1,
-                software_generation: frozen.environment.software_generation,
-                image_ref: frozen.environment.image_ref.clone(),
-                seed_manifest_ref: frozen.environment.seed_manifest_ref.clone(),
-            },
-            created_at_ms: chrono::Utc::now().timestamp_millis(),
-        }
+            environment_ref: Some(environment_ref),
+            notes: None,
+            frozen: false,
+            created_at_ms: frozen.created_at_ms,
+        })
     }
 
     fn write(&self, frozen: &FrozenCandidate) -> Result<(serde_json::Value, OperationOutcome)> {
-        let candidate = Self::candidate_of(frozen);
+        let candidate = self.candidate_of(frozen)?;
         self.store.add_research_candidate(&candidate)?;
         Ok((
             serde_json::json!({
@@ -705,14 +657,14 @@ impl NativeTaskHandler for ResearchCandidateHandler {
             role_revision: "native-research-candidate/1".into(),
             authority_refs: vec!["store.research.candidate.own_subject/v1".into()],
             prompt_section: Some(
-                "research.candidate/v1 为当前 epoch 记录一个候选。[delegate:research.candidate:1] {\"candidate_id\":\"…\",\"epoch_id\":\"…\",\"artifact_ref\":{…},\"score\":0.0,\"score_source\":\"…\",\"environment\":{…}}。artifact_ref 是内容寻址对象；score_source 说明评分来自哪里（评测、对照、人工）。候选是 reset-to-best 的素材。"
+                "research.candidate/v1 为当前 epoch 记录候选。输入 candidate_id、epoch_id、artifact_ref、score?、score_source?、environment:{environment_id,facts,toolchain,dataset_versions,reproducible}。artifact_ref 是内容寻址对象；score_source 说明评分来源。环境正文独立密封为 CAS 对象，与候选一起供 reset-to-best 校验。"
                     .into(),
             ),
         }
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let frozen = self.freeze(invocation.input)?;
+        let frozen = self.freeze(&invocation.input)?;
         run_recorded(
             &self.store,
             &invocation,
@@ -755,11 +707,11 @@ struct BankInput {
     entry_id: Option<EntityId>,
     reason: Option<String>,
     selection: Option<BankSelectionInput>,
-    scope: Option<ContributionScopeInput>,
+    scope: Option<String>,
     superseded_by: Option<EntityId>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum BankOp {
     Put,
@@ -768,45 +720,27 @@ enum BankOp {
     Tombstone,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum BankSelectionInput {
-    Active,
     Carried,
     Failures,
     All,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ContributionScopeInput {
-    Interface,
-    External,
-    Internal,
-}
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct BankEntryInput {
     entry_id: EntityId,
     epoch_id: EntityId,
-    kind: BankEntryKindInput,
+    kind: BankEntryKind,
     content: String,
     source_refs: Vec<String>,
-    scope: ContributionScopeInput,
+    scope: String,
     confidence: Option<f64>,
-    base_revision: Option<u64>,
+    #[serde(default)]
+    base_revision: u64,
     supersedes: Option<EntityId>,
-}
-
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum BankEntryKindInput {
-    DurableFact,
-    ToolKnowledge,
-    InterfaceContract,
-    Pitfall,
-    Preference,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -818,8 +752,9 @@ struct FrozenBank {
     entry_id: Option<EntityId>,
     reason: Option<String>,
     selection: BankSelectionInput,
-    scope: Option<ContributionScopeInput>,
+    scope: Option<String>,
     superseded_by: Option<EntityId>,
+    created_at_ms: i64,
 }
 
 pub struct ResearchBankHandler {
@@ -837,8 +772,8 @@ impl ResearchBankHandler {
             .expect("fixed built-in research-bank plugin UUID")
     }
 
-    fn freeze(&self, input: serde_json::Value) -> Result<FrozenBank> {
-        let input: BankInput = serde_json::from_value(input)?;
+    fn freeze(&self, input: &serde_json::Value) -> Result<FrozenBank> {
+        let input = BankInput::deserialize(input)?;
         if let Some(entry) = &input.entry {
             ensure!(
                 !entry.content.trim().is_empty(),
@@ -887,32 +822,18 @@ impl ResearchBankHandler {
             epoch_id: input.epoch_id,
             entry_id: input.entry_id,
             reason: input.reason,
-            selection: input.selection.unwrap_or(BankSelectionInput::Active),
+            selection: input.selection.unwrap_or(BankSelectionInput::All),
             scope: input.scope,
             superseded_by: input.superseded_by,
+            created_at_ms: chrono::Utc::now().timestamp_millis(),
         })
     }
 
     fn selection_of(frozen: &FrozenBank) -> BankSelection {
         match frozen.selection {
-            BankSelectionInput::Active => BankSelection::Active,
             BankSelectionInput::Carried => BankSelection::Carried,
             BankSelectionInput::Failures => BankSelection::Failures,
             BankSelectionInput::All => BankSelection::All,
-        }
-    }
-
-    fn scope_of(scope: ContributionScopeInput) -> shenko_store::research::ContributionScope {
-        match scope {
-            ContributionScopeInput::Interface => {
-                shenko_store::research::ContributionScope::Interface
-            }
-            ContributionScopeInput::External => {
-                shenko_store::research::ContributionScope::External
-            }
-            ContributionScopeInput::Internal => {
-                shenko_store::research::ContributionScope::Internal
-            }
         }
     }
 
@@ -924,26 +845,19 @@ impl ResearchBankHandler {
                     .as_ref()
                     .context("bank put requires an entry")?;
                 let entry = InterventionBankEntry {
-                    schema_version: 1,
                     entry_id: entry_input.entry_id,
                     epoch_id: entry_input.epoch_id,
-                    kind: match entry_input.kind {
-                        BankEntryKindInput::DurableFact => BankEntryKind::DurableFact,
-                        BankEntryKindInput::ToolKnowledge => BankEntryKind::ToolKnowledge,
-                        BankEntryKindInput::InterfaceContract => BankEntryKind::InterfaceContract,
-                        BankEntryKindInput::Pitfall => BankEntryKind::Pitfall,
-                        BankEntryKindInput::Preference => BankEntryKind::Preference,
-                    },
+                    kind: entry_input.kind,
                     content: entry_input.content.clone(),
                     source_refs: entry_input.source_refs.clone(),
-                    scope: Self::scope_of(entry_input.scope),
+                    scope: entry_input.scope.clone(),
                     confidence: entry_input.confidence,
                     base_revision: entry_input.base_revision,
                     supersedes: entry_input.supersedes,
                     superseded_by: None,
                     carried_from: None,
                     tombstoned_at_ms: None,
-                    created_at_ms: chrono::Utc::now().timestamp_millis(),
+                    created_at_ms: frozen.created_at_ms,
                 };
                 self.store.put_bank_entry(&entry)?;
                 Ok((
@@ -951,7 +865,7 @@ impl ResearchBankHandler {
                         "schema_version": 1,
                         "status": "recorded",
                         "entry_id": entry.entry_id.to_string(),
-                        "kind": format!("{:?}", entry.kind),
+                        "kind": entry.kind.as_str(),
                         "supersedes": entry.supersedes.map(|id| id.to_string()),
                     }),
                     OperationOutcome::Succeeded,
@@ -959,14 +873,14 @@ impl ResearchBankHandler {
             }
             BankOp::List => {
                 let epoch_id = frozen.epoch_id.context("bank list requires an epoch_id")?;
-                let scope = frozen.scope.map(Self::scope_of);
+                let scope = frozen.scope.as_deref();
                 let entries = self
                     .store
                     .bank_entries(epoch_id, Self::selection_of(frozen))?;
                 let entries: Vec<_> = entries
                     .iter()
                     .filter(|entry| {
-                        scope.as_ref().is_none_or(|scope| *scope == entry.scope)
+                        scope.is_none_or(|scope| scope == entry.scope)
                     })
                     .collect();
                 Ok((
@@ -978,8 +892,8 @@ impl ResearchBankHandler {
                             .iter()
                             .map(|entry| serde_json::json!({
                                 "entry_id": entry.entry_id.to_string(),
-                                "kind": format!("{:?}", entry.kind),
-                                "scope": format!("{:?}", entry.scope),
+                                "kind": entry.kind.as_str(),
+                                "scope": entry.scope,
                                 "superseded_by": entry.superseded_by.map(|id| id.to_string()),
                                 "tombstoned": entry.tombstoned_at_ms.is_some(),
                                 "content": entry.content,
@@ -1038,14 +952,14 @@ impl NativeTaskHandler for ResearchBankHandler {
             role_revision: "native-research-bank/1".into(),
             authority_refs: vec!["store.research.bank.own_subject/v1".into()],
             prompt_section: Some(
-                "research.bank/v1 维护跨 epoch 的持久银行。[delegate:research.bank:1] {\"op\":\"put\",\"entry\":{…}} 存入；{\"op\":\"list\",\"epoch_id\":\"…\"} 列出；{\"op\":\"supersede\",\"entry_id\":\"…\",\"superseded_by\":\"…\"} 标记被取代；{\"op\":\"tombstone\",\"entry_id\":\"…\",\"reason\":\"…\"} 立墓碑（内容仍可读，只是不再注入）。reset 时失败条目不带入新 epoch，其余保留。"
+                "research.bank/v1 维护研究 epoch 的持久事实。put 的 entry 包含 entry_id、epoch_id、kind=requirement|environment_fact|attempt|diagnosis|open_goal、content、source_refs、scope（原样保存的自由字符串）、confidence?、base_revision?、supersedes?。list 指定 epoch_id，可按 selection=all|carried|failures 与精确 scope 过滤；all 返回未立墓碑条目。supersede 指定 entry_id 和 superseded_by；tombstone 指定 entry_id 和 reason。reset 只带入 requirement、environment_fact、open_goal，attempt/diagnosis 保留在旧 epoch 中供审计。"
                     .into(),
             ),
         }
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
-        let frozen = self.freeze(invocation.input)?;
+        let frozen = self.freeze(&invocation.input)?;
         run_recorded(
             &self.store,
             &invocation,

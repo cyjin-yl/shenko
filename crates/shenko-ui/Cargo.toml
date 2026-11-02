@@ -32,5 +32,6 @@ futures = { workspace = true }
 parking_lot = { workspace = true }
 bytes = { workspace = true }
 pulldown-cmark = { version = "0.13", default-features = false }
+libc = "0.2"
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

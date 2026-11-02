@@ -92,7 +92,7 @@ pub enum ILinkError {
 pub struct ILinkApi {
     config: Arc<ILinkConfig>,
     http: PlatformHttp,
-    client_nonce: AtomicU32,
+    client_nonce: Arc<AtomicU32>,
 }
 
 impl ILinkApi {
@@ -101,7 +101,7 @@ impl ILinkApi {
         Self {
             config,
             http,
-            client_nonce: AtomicU32::new(0),
+            client_nonce: Arc::new(AtomicU32::new(0)),
         }
     }
 

@@ -652,7 +652,7 @@ impl TerminationEvidence {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InferenceResponse {
     pub content: String,
     pub stop_reason: String,
@@ -668,7 +668,7 @@ pub struct InferenceResponse {
     pub citations: Vec<ProviderCitation>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TokenUsage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,

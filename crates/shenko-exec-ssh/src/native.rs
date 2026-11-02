@@ -25,8 +25,8 @@ use crate::native_transport::{
     NativeCommandLimits, NativeCommandObservation, NativeInterruption, NativePtyProgram,
     NativePtyRequest, NativeSshTarget,
 };
-use crate::seat::runtime::{SeatAttachment, SeatRespondRequest};
-use crate::seat::{SeatAdapterId, SeatAnswer, SeatHandle, SeatRuntime};
+use crate::seat::runtime::{SeatAttachment, SeatRespondRequest, SeatRuntime};
+use crate::seat::{SeatAdapterId, SeatAnswer, SeatHandle};
 use crate::SshBinding;
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
@@ -199,6 +199,7 @@ impl NativeTaskHandler for SshExecHandler {
             "ssh.exec",
             1,
             plugin_id(EXEC_PLUGIN),
+            "ssh.exec.v1",
             Digest::blake3(EXEC_CONTRACT),
             "ssh-exec-recovery",
             "controller recovered without a conclusive remote result; the command may or may not have run — query only the original observation, never resend",
@@ -521,6 +522,7 @@ impl NativeTaskHandler for SshPtyHandler {
             "ssh.pty",
             1,
             plugin_id(PTY_PLUGIN),
+            "ssh.pty.v1",
             Digest::blake3(PTY_CONTRACT),
             "ssh-pty-recovery",
             "controller recovered; the durable seat/lease facts are the only authority — a live PTY is never re-opened by reconcile",
@@ -715,6 +717,7 @@ impl NativeTaskHandler for SeatObserveHandler {
             "seat.observe",
             1,
             plugin_id(OBSERVE_PLUGIN),
+            "seat.observe.v1",
             Digest::blake3(OBSERVE_CONTRACT),
             "seat-observe-recovery",
             "controller recovered; re-observation is a new explicit operation, recovery only re-reads the original receipt",
@@ -931,6 +934,7 @@ impl NativeTaskHandler for SeatRespondHandler {
             "seat.respond",
             1,
             plugin_id(RESPOND_PLUGIN),
+            "seat.respond.v1",
             Digest::blake3(RESPOND_CONTRACT),
             "seat-respond-recovery",
             "controller recovered; the typed input effect is not provably undone — read the durable seat decision facts (decision_state / question_state), never re-answer automatically",

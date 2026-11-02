@@ -141,13 +141,11 @@ impl MountSpec {
     }
 }
 
-/// Stable per-mount key under a branch overlay/tombstone set: the guest path
-/// with separators collapsed ("/module/main" style keys are unambiguous
-/// because validate_mounts rejects duplicate guest paths).
+/// Stable per-mount key under a branch overlay/tombstone set. Hash the exact
+/// canonical guest path so separators and literal underscores stay distinct;
+/// the fixed-size key also fits a single host directory component.
 pub fn mount_key(guest_path: &str) -> String {
-    guest_path
-        .trim_start_matches('/')
-        .replace(['/', '\\'], "_")
+    format!("mount-{}", blake3::hash(guest_path.as_bytes()).to_hex())
 }
 
 fn validate_binding_name(name: &str, what: &str) -> Result<()> {

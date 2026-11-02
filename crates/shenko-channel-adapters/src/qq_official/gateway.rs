@@ -222,6 +222,7 @@ impl QqGatewaySession {
                     let Some(message) = message else {
                         return Err(GatewayError::Closed("gateway closed the connection".into()));
                     };
+                    let message = message.map_err(|error| GatewayError::Transport(error.to_string()))?;
                     let Message::Text(text) = message else {
                         continue;
                     };
@@ -266,7 +267,8 @@ impl QqGatewaySession {
         let hello = socket
             .next()
             .await
-            .ok_or_else(|| "gateway closed before the hello frame".to_string())?;
+            .ok_or_else(|| "gateway closed before the hello frame".to_string())?
+            .map_err(|error| format!("gateway hello receive failed: {error}"))?;
         let Message::Text(text) = hello else {
             return Err("gateway did not send a text hello frame".to_string());
         };
@@ -311,7 +313,8 @@ impl QqGatewaySession {
         let ready = socket
             .next()
             .await
-            .ok_or_else(|| "gateway closed before the ready frame".to_string())?;
+            .ok_or_else(|| "gateway closed before the ready frame".to_string())?
+            .map_err(|error| format!("gateway ready receive failed: {error}"))?;
         let Message::Text(text) = ready else {
             return Err("gateway did not send a text ready frame".to_string());
         };

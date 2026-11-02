@@ -10,7 +10,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;

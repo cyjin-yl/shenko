@@ -81,9 +81,9 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
         .and_then(|id| text_field(id, "open_id"))
         .unwrap_or_default();
 
-    let (kind, audience_id) = match thread_id {
+    let (kind, audience_id) = match thread_id.as_deref() {
         Some(thread) => (FEISHU_KIND_THREAD, thread),
-        None => (FEISHU_KIND_CHAT, chat_id.clone()),
+        None => (FEISHU_KIND_CHAT, chat_id.as_str()),
     };
     let label = match kind {
         FEISHU_KIND_THREAD => format!("话题 {audience_id}"),
@@ -95,11 +95,11 @@ pub fn classify(config: &FeishuConfig, raw: &Value) -> Option<ChannelEnvelope> {
     } else {
         Some(ChannelReplyTarget {
             kind: kind.to_string(),
-            id: audience_id.clone(),
+            id: audience_id.to_string(),
             label,
             account: account.clone(),
             tenant: None,
-            conversation: Some(audience_id),
+            conversation: Some(audience_id.to_string()),
         })
     };
 
@@ -197,14 +197,16 @@ fn parse_content(
                     kind: kind.to_string(),
                     name: text_field(content, "file_name"),
                     mime: None,
-                    size: integer_field(content, "size").map(|size| size as u64),
-                    locator: Some(shenko_types::channel::AttachmentLocator {
+                    bytes: integer_field(content, "size").and_then(|size| u64::try_from(size).ok()),
+                    hash: None,
+                    locator: shenko_types::channel::AttachmentLocator {
                         kind: "remote_path".to_string(),
                         host: Some("feishu-drive".to_string()),
                         path: Some(file_key),
                         url: None,
-                    }),
+                    },
                     object: None,
+                    expires_at: None,
                 }],
             )
         }

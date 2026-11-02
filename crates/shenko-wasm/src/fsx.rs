@@ -116,7 +116,7 @@ pub fn open_component(dir: &Dir, name: &Path) -> io::Result<Option<File>> {
     }
     let expected = FileIdentity::from_metadata(&inspected);
     let actual = FileIdentity::of_file(&opened)?;
-    if let (Some(expected), Some(actual)) = (expected, actual) {
+    if let Some(expected) = expected {
         if expected != actual {
             return Err(io::Error::other(EAGAIN));
         }
@@ -153,7 +153,7 @@ pub fn open_component_with(
     if let Some(inspected) = &inspected {
         let expected = FileIdentity::from_metadata(inspected);
         let actual = FileIdentity::of_file(&opened)?;
-        if let (Some(expected), Some(actual)) = (expected, actual) {
+        if let Some(expected) = expected {
             if expected != actual {
                 return Err(io::Error::other(EAGAIN));
             }

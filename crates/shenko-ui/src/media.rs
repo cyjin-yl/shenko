@@ -16,7 +16,8 @@
 use std::sync::Arc;
 
 use axum::{
-    Body, Json, Router,
+    Json, Router,
+    body::Body,
     extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,

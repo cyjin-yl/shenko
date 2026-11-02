@@ -73,7 +73,7 @@ pub struct BudgetHint {
 
 /// Reply grant — allows a child to publish directly.
 /// Bound to task/generation, target provider/account/conversation/thread.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplyGrant {
     pub grant_id: EntityId,
     pub task_id: EntityId,
@@ -236,7 +236,7 @@ pub struct SubjectGenesis {
     pub created_commit: CommitRef,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenesisRef {
     pub ledger_id: EntityId,
     pub genesis_id: EntityId,

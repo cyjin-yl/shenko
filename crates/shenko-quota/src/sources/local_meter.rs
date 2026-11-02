@@ -10,9 +10,10 @@
 
 use crate::forecast::{AttemptBilling, LocalAttempt};
 use crate::model::{
-    Basis, CoveredThrough, Enforcement, Measurement, ObservationContext, ObservationError,
+    Basis, CoveredThrough, Enforcement, Measurement, ObservationError,
     ObservationStatus, QuotaSnapshot, QuotaWindow, SourceKind, WindowKind,
 };
+use crate::observe::ObservationContext;
 use crate::plugin::{ObserveError, ObservationInput, ObserverDescriptor, QuotaObserver};
 use crate::scope::{QuotaScope, ScopeIdentity};
 

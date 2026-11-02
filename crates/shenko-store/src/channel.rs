@@ -16,7 +16,7 @@
 //! * a publication whose request may have reached the platform is `unknown`.
 //!   It stays unknown until a receipt or a reconciliation settles it, and it
 //!   is never repeated automatically.
-use anyhow::{Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::channel::{ChannelDispatch, ChannelReceipt};
@@ -127,7 +127,7 @@ impl Store {
         let fact_id = EntityId::new();
         self.ledger.with_mutation(
             || {
-                let conn = self.ledger.conn.lock();
+                let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 tx.execute(
@@ -147,7 +147,7 @@ impl Store {
                 tx.commit()?;
                 Ok(fact_id)
             },
-            |error| {
+            |error: &anyhow::Error| {
                 error.is::<rusqlite::Error>()
                     || error
                         .downcast_ref::<shenko_types::error::ShenkoError>()
@@ -356,7 +356,7 @@ impl Store {
             .object;
         self.ledger.with_mutation(
             || {
-                let conn = self.ledger.conn.lock();
+                let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 self.check_dispatch_owner(&tx)?;
                 let state: Option<String> = tx
@@ -393,7 +393,7 @@ impl Store {
                     let mut task: shenko_types::task::TaskRecord = serde_json::from_str(&data)?;
                     if !task.is_terminal() && task.abort_request.is_none() {
                         task.state = shenko_types::task::TaskState::Terminal {
-                            outcome_ref: Some(object.clone()),
+                            outcome_ref: object.clone(),
                         };
                         task.record_revision = task.record_revision.next();
                         task.updated_commit = commit;
@@ -488,11 +488,11 @@ impl Store {
             input_digest: input.digest.clone(),
             contract_ref: OperationContractRef {
                 plugin_id: EntityId::nil(),
-                artifact_digest: dispatch.contract_digest,
-                contract_digest: dispatch.contract_digest,
+                artifact_digest: dispatch.contract_digest.clone(),
+                contract_digest: dispatch.contract_digest.clone(),
                 receipt_reader_ref: VersionedRef {
                     artifact: ArtifactRef {
-                        digest: dispatch.contract_digest,
+                        digest: dispatch.contract_digest.clone(),
                         locator: format!("channel:{}", dispatch.channel),
                     },
                     symbol: "ChannelReceipt".to_string(),
@@ -655,7 +655,7 @@ impl Store {
                         }
         self.ledger.with_mutation(
             || {
-                let conn = self.ledger.conn.lock();
+                let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 self.check_dispatch_owner(&tx)?;
                 let rows: Vec<(String, String)> = {
@@ -703,12 +703,10 @@ impl Store {
                                 serde_json::from_str(&data)?;
                             if !task.is_terminal() && task.abort_request.is_none() {
                                 task.state = shenko_types::task::TaskState::Terminal {
-                                    outcome_ref: Some(
-                                        outcomes
-                                            .get(&operation.operation_id)
-                                            .map(|(_, object)| object.clone())
-                                            .unwrap_or_default(),
-                                   ),
+                                    outcome_ref: outcomes
+                                        .get(&operation.operation_id)
+                                        .context("resolved publication lacks its sealed outcome")?
+                                        .1.clone(),
                                };
                                 task.record_revision = task.record_revision.next();
                                 task.updated_commit = commit;
@@ -744,7 +742,7 @@ impl Store {
                 tx.commit()?;
                 Ok(())
             },
-            |error| {
+            |error: &anyhow::Error| {
                 error.is::<rusqlite::Error>()
                     || error
                         .downcast_ref::<shenko_types::error::ShenkoError>()
@@ -816,7 +814,7 @@ pub fn migrate_publication_targets(store: &Store) -> Result<usize> {
         let id = EntityId::new();
         store.ledger.with_mutation(
             || {
-                let conn = store.ledger.conn.lock();
+                let mut conn = store.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 let seq = store.ledger.allocate_seq(&tx)?;
                 tx.execute(
@@ -831,7 +829,7 @@ pub fn migrate_publication_targets(store: &Store) -> Result<usize> {
                 tx.commit()?;
                 Ok(())
             },
-            |error| error.is::<rusqlite::Error>(),
+            |error: &anyhow::Error| error.is::<rusqlite::Error>(),
         )?;
         migrated += 1;
         let _ = id;
@@ -878,7 +876,7 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
         )?;
         store.ledger.with_mutation(
             || {
-                let conn = store.ledger.conn.lock();
+                let mut conn = store.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 let seq = store.ledger.allocate_seq(&tx)?;
                 let mut step: shenko_types::subject::SubjectStep = serde_json::from_str(&data)?;
@@ -891,10 +889,10 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                 // must follow, or the child could no longer read its own
                 // decision.
                 tx.execute(
-                    "UPDATE tasks SET data=json_set(data,'$.input_ref',?2)
+                    "UPDATE tasks SET data=json_set(data,'$.input_ref',json(?2))
                      WHERE json_extract(data,'$.input_ref.digest')=?1
                        AND json_extract(data,'$.state.status') IS NOT 'terminal'",
-                    params![decision_ref.digest.to_string(), sealed.object.to_string()],
+                    params![decision_ref.digest.to_string(), serde_json::to_string(&sealed.object)?],
                 )?;
                 tx.execute(
                     "INSERT OR REPLACE INTO channel_record_migrations(record_kind,record_id,from_version,to_version,source_digest,target_digest,migrated_seq)
@@ -910,7 +908,7 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                 tx.commit()?;
                 Ok(())
             },
-            |error| error.is::<rusqlite::Error>(),
+            |error: &anyhow::Error| error.is::<rusqlite::Error>(),
         )?;
         migrated += 1;
     }
