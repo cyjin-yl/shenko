@@ -276,7 +276,13 @@ fn stage_input(state: &SubjectLoopState, event: &InboxEvent) -> Result<SubjectHi
             }
             "tool_result"
         }
-        (InboxEventKind::MediaRevision | InboxEventKind::MediaStream, _) => {
+        (
+            InboxEventKind::MediaRevision
+            | InboxEventKind::MediaStream
+            | InboxEventKind::MediaRecording
+            | InboxEventKind::MediaPriority,
+            _,
+        ) => {
             // Typed media facts render through their own honest contract: the
             // stored effective observation and disposition, never the generic
             // message fallback that would paste raw JSON as chat text.

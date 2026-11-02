@@ -28,6 +28,12 @@ pub enum InboxEventKind {
     /// A media stream opened or reached a terminal state (cancelled,
     /// disconnected, ended). SPEC §20.
     MediaStream,
+    /// An admitted recording control (start/stop) with the recording's
+    /// projection state. SPEC §20.
+    MediaRecording,
+    /// A media session priority input (barge-in, interjection, stop
+    /// playback, urgent message). SPEC §20.
+    MediaPriority,
 }
 
 /// Subject inbox — uses tokio::sync::Mutex so the guard is Send across .await.
