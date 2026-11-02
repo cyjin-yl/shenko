@@ -481,7 +481,10 @@ fn state_number(conn: &Connection, key: &str) -> Result<u64> {
         )
         .optional()?;
     match raw {
-        Some(value) => number(&value),
+        // The state table stores JSON, so a numeric state is a JSON string of
+        // its canonical decimal form. Reading it as a bare decimal made every
+        // election term and commit index unreadable.
+        Some(value) => number(&serde_json::from_str::<String>(&value).unwrap_or(value)),
         None => Ok(0),
     }
 }

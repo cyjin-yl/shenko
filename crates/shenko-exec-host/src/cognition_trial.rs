@@ -565,6 +565,20 @@ pub async fn run_sandbox_trial(
     let revision = spec.revision.trim().to_string();
     ensure!(!unit_id.is_empty(), "the trial needs a unit id");
     ensure!(!revision.is_empty(), "the trial needs a revision");
+    // A trial measures exactly one version. The requested revision must be
+    // the installed current revision, so the executed bytes, the attempt and
+    // the recorded observation can never name different versions.
+    let current = catalog
+        .units()?
+        .into_iter()
+        .find(|unit| unit.unit_id == unit_id)
+        .ok_or_else(|| anyhow!("the unit '{}' is not installed here", unit_id))?;
+    ensure!(
+        current.revision == revision,
+        "the trial asked for revision '{}' but the installed current revision is '{}'; read the catalog again and trial the current version",
+        revision,
+        current.revision
+    );
     ensure!(
         spec.scenarios.len() <= MAX_SCENARIOS,
         "a trial carries at most {MAX_SCENARIOS} scenarios"
@@ -582,6 +596,14 @@ pub async fn run_sandbox_trial(
     let entry = installed.entry_text.clone();
     let package = parse_cognition_entry(&entry, Path::new(&unit_id))?;
     let artifact_digest = installed.artifact_digest.clone();
+    // The executed bytes must be the retained artifact. A truncated or
+    // BOM-normalized read would otherwise be measured under the retained
+    // digest, and the report would name bytes the sandbox never saw.
+    let (_, exported_digest) = package.export()?;
+    ensure!(
+        exported_digest.0 == artifact_digest,
+        "the sandbox package is not the retained artifact bytes; the trial would measure different content"
+    );
 
     let binding = broker.binding().clone();
     let binding_digest = Digest::blake3(&serde_json::to_vec(&binding)?).0;
@@ -944,6 +966,15 @@ impl CognitionTrialHandler {
             .into_iter()
             .find(|unit| unit.unit_id == spec.unit_id.trim())
             .ok_or_else(|| anyhow!("the unit '{}' is not installed here", spec.unit_id))?;
+        // The attempt, the executed artifact and the recorded observation
+        // must name one revision. Measuring a retained older revision while
+        // certifying the current one lets untested content pass as evidence.
+        ensure!(
+            spec.revision.trim() == unit.revision,
+            "the trial asked for revision '{}' but the installed current revision is '{}'; read the catalog again and trial the current version",
+            spec.revision.trim(),
+            unit.revision
+        );
         let artifact = Digest(unit.artifact_digest.clone());
         // The attempt is opened before anything runs and closed with the
         // receipts of the run, so the measurement is owned by the runner and
