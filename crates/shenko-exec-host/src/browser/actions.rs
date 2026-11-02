@@ -46,29 +46,7 @@ impl BrowserProvider {
         );
         // The lease is checked before anything is sent: a human takeover
         // moves the epoch, and the agent's late input is rejected.
-        {
-            let lease = session.lease.lock().await;
-            let Some(lease) = lease.as_ref() else {
-                bail!("no input lease is held for this browser session; acquire control first");
-            };
-            ensure!(
-                lease.token == request.lease_token,
-                "lease token does not match the current input lease"
-            );
-            ensure!(
-                lease.holder == caller,
-                "the input lease belongs to a different controller instance"
-            );
-            ensure!(
-                lease.epoch == session.epoch.load(Ordering::Relaxed),
-                "the controller epoch moved (a human took over this session); \
-                 take a fresh observation and acquire a new lease before acting"
-            );
-            ensure!(
-                lease.role == ControllerRole::Agent,
-                "a human currently holds control of this browser session"
-            );
-        }
+        self.check_input_lease(&session, &request, caller).await?;
         let tab = self.resolve_tab(&session, request.tab_id.as_deref()).await?;
 
         // The observation the caller bound to must be one this session
@@ -95,8 +73,31 @@ impl BrowserProvider {
             current.identity_digest
         );
 
+        // The lease and the controller epoch are re-validated before every
+        // dispatch, not only before the batch: a takeover may land while an
+        // earlier action (for example a wait_for) is still running, and every
+        // later action must then be refused instead of reaching the human's
+        // session.
         let mut receipts = Vec::new();
         for (index, action) in request.actions.iter().enumerate() {
+            if let Err(error) = self.check_input_lease(&session, &request, caller).await {
+                for (skipped, remaining) in
+                    request.actions.iter().enumerate().skip(receipts.len())
+                {
+                    receipts.push(ActionReceipt {
+                        index: skipped,
+                        kind: remaining.kind().to_string(),
+                        transport: "refused".into(),
+                        effect: "none".into(),
+                        detail: Some(format!(
+                            "control of this session changed while the batch was running; \
+                             the action was never dispatched: {error}"
+                        )),
+                        observed_effect: None,
+                    });
+                }
+                break;
+            }
             let receipt = self
                 .run_action(&session, &tab.handle, action, index)
                 .await;
@@ -120,6 +121,40 @@ impl BrowserProvider {
             after,
             effect,
         })
+    }
+
+    /// Verify the caller still holds this session's input lease at the
+    /// current controller epoch. A human takeover moves the epoch and drops
+    /// the agent's lease, so late input is rejected instead of racing the
+    /// human (SPEC §24.3, §24.6.2).
+    async fn check_input_lease(
+        &self,
+        session: &Arc<BrowserSession>,
+        request: &ActionRequest,
+        caller: EntityId,
+    ) -> Result<()> {
+        let lease = session.lease.lock().await;
+        let Some(lease) = lease.as_ref() else {
+            bail!("no input lease is held for this browser session; acquire control first");
+        };
+        ensure!(
+            lease.token == request.lease_token,
+            "lease token does not match the current input lease"
+        );
+        ensure!(
+            lease.holder == caller,
+            "the input lease belongs to a different controller instance"
+        );
+        ensure!(
+            lease.epoch == session.epoch.load(Ordering::Relaxed),
+            "the controller epoch moved (a human took over this session); \
+             take a fresh observation and acquire a new lease before acting"
+        );
+        ensure!(
+            lease.role == ControllerRole::Agent,
+            "a human currently holds control of this browser session"
+        );
+        Ok(())
     }
 
     /// Run one action and describe what actually happened.
@@ -735,5 +770,307 @@ fn truncate_json(value: &Value, limit: usize) -> String {
         end -= 1;
     }
     format!("{}…", &text[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::browser::engine::{EngineFamily, EngineSpec, SessionMode};
+    use crate::browser::protocol::{
+        AxNode, BrowserProtocol, Cookie, NavOutcome, TabInfo,
+    };
+    use crate::desktop::HumanInputObserver;
+    use shenko_store::Store;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use std::sync::Mutex as StdMutex;
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    use tokio::sync::Mutex as AsyncMutex;
+
+    /// A protocol boundary that stands in for the real browser: the page
+    /// itself is synthetic, but every lease/epoch/observer/refusal decision
+    /// runs through the production `act` path, and every input dispatch is
+    /// recorded so refused actions can be proven never to have been sent.
+    struct RecordingProtocol {
+        wait_found: bool,
+        wait_selector: String,
+        wait_started: Arc<tokio::sync::Notify>,
+        pressed: StdMutex<Vec<String>>,
+        typed: StdMutex<Vec<String>>,
+    }
+
+    impl RecordingProtocol {
+        fn snapshot(&self) -> Value {
+            serde_json::json!({
+                "url": "https://example.test/",
+                "title": "fixture",
+                "readyState": "complete",
+                "text": "fixture",
+                "textTruncated": false,
+                "viewport": {"width": 1280, "height": 720, "deviceScaleFactor": 1.0},
+                "links": [],
+                "inputs": [],
+                "buttons": []
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BrowserProtocol for RecordingProtocol {
+        fn kind(&self) -> &'static str {
+            "test"
+        }
+        fn endpoint(&self) -> String {
+            "test://fixture".into()
+        }
+        fn product(&self) -> String {
+            "fixture".into()
+        }
+        async fn create_tab(&self, _url: &str) -> Result<TabHandle> {
+            Ok(TabHandle {
+                id: "tab-1".into(),
+                kind: "page".into(),
+            })
+        }
+        async fn list_tabs(&self) -> Result<Vec<TabInfo>> {
+            Ok(vec![])
+        }
+        async fn close_tab(&self, _tab: &TabHandle) -> Result<()> {
+            Ok(())
+        }
+        async fn navigate(&self, _tab: &TabHandle, url: &str) -> Result<NavOutcome> {
+            Ok(NavOutcome {
+                url: url.into(),
+                loader: None,
+                error_text: None,
+                ready_state: Some("complete".into()),
+            })
+        }
+        async fn evaluate_json(&self, _tab: &TabHandle, script: &str) -> Result<Value> {
+            if script == super::super::scripts::exists_script(&self.wait_selector) {
+                self.wait_started.notify_one();
+                return Ok(serde_json::json!({"found": self.wait_found}));
+            }
+            if script.contains("MAX_TARGETS = 256") {
+                return Ok(self.snapshot());
+            }
+            if script == ACTIVE_VALUE_SCRIPT {
+                return Ok(serde_json::json!({"ok": true, "length": 5, "tag": "input"}));
+            }
+            Ok(serde_json::json!({"found": true, "tag": "button"}))
+        }
+        async fn screenshot(&self, _tab: &TabHandle) -> Result<Vec<u8>> {
+            Ok(b"png".to_vec())
+        }
+        async fn ax_nodes(&self, _tab: &TabHandle) -> Result<Option<Vec<AxNode>>> {
+            Ok(None)
+        }
+        async fn cookies(&self) -> Result<Vec<Cookie>> {
+            Ok(vec![])
+        }
+        async fn set_cookies(&self, _cookies: &[Cookie]) -> Result<()> {
+            Ok(())
+        }
+        async fn insert_text(&self, _tab: &TabHandle, text: &str) -> Result<()> {
+            self.typed.lock().unwrap().push(text.into());
+            Ok(())
+        }
+        async fn press_key(&self, _tab: &TabHandle, key: &str) -> Result<()> {
+            self.pressed.lock().unwrap().push(key.into());
+            Ok(())
+        }
+        async fn scroll(&self, _tab: &TabHandle, _delta_y: f64) -> Result<()> {
+            Ok(())
+        }
+        async fn shutdown(&self) {}
+    }
+
+    /// A live session registered with the provider exactly like an open one,
+    /// bound to the shared display domain the human-input observer watches.
+    fn test_provider(wait_found: bool) -> (Arc<BrowserProvider>, Arc<RecordingProtocol>, EntityId) {
+        let dir = std::env::temp_dir().join(format!("shenko-browser-act-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
+        let provider = Arc::new(BrowserProvider::new(store, dir));
+        let protocol = Arc::new(RecordingProtocol {
+            wait_found,
+            wait_selector: "#ready".into(),
+            wait_started: Arc::new(tokio::sync::Notify::new()),
+            pressed: StdMutex::new(vec![]),
+            typed: StdMutex::new(vec![]),
+        });
+        let session_id = EntityId::new();
+        let handle = TabHandle {
+            id: "tab-1".into(),
+            kind: "page".into(),
+        };
+        let mut tabs = BTreeMap::new();
+        tabs.insert(
+            "tab-1".to_string(),
+            crate::browser::TabEntry {
+                handle,
+                group: "default".into(),
+                url: "https://example.test/".into(),
+                title: "fixture".into(),
+                revision: 1,
+            },
+        );
+        let session = Arc::new(BrowserSession {
+            session_id,
+            profile_id: "default".into(),
+            run_id: "run-1".into(),
+            engine: EngineSpec {
+                path: PathBuf::from("/fixture/browser"),
+                name: "fixture".into(),
+                family: EngineFamily::Chromium,
+                version: "1".into(),
+            },
+            mode_requested: "headless".into(),
+            mode_effective: SessionMode::Headless,
+            mode_degradation: None,
+            display: None,
+            domain_id: Some("test-domain".into()),
+            endpoint: "test://fixture".into(),
+            product: "fixture".into(),
+            protocol: protocol.clone(),
+            process: AsyncMutex::new(None),
+            display_handle: AsyncMutex::new(None),
+            epoch: AtomicU64::new(1),
+            lease: AsyncMutex::new(None),
+            tabs: AsyncMutex::new(tabs),
+            observations: AsyncMutex::new(BTreeMap::new()),
+            closed: AtomicBool::new(false),
+        });
+        provider.state().sessions.insert(session_id, session);
+        (provider, protocol, session_id)
+    }
+
+    fn action_request(
+        session_id: EntityId,
+        observation_id: String,
+        lease_token: EntityId,
+    ) -> ActionRequest {
+        ActionRequest {
+            session_id,
+            tab_id: None,
+            observation_id,
+            lease_token,
+            actions: vec![
+                PageAction::WaitFor {
+                    selector: "#ready".into(),
+                    timeout_ms: Some(2_000),
+                },
+                PageAction::Press {
+                    key: "Enter".into(),
+                },
+                PageAction::Type {
+                    text: "hello".into(),
+                },
+            ],
+        }
+    }
+
+    /// A human takeover lands while the first action is still waiting. The
+    /// real human-input observer moves the epoch and revokes the lease, so
+    /// every later action must be refused and must never reach the page.
+    #[tokio::test]
+    async fn takeover_during_a_running_action_refuses_the_rest_of_the_batch() {
+        let (provider, protocol, session_id) = test_provider(false);
+        let caller = EntityId::new();
+        let facts = provider
+            .control(
+                ControlRequest {
+                    session_id,
+                    op: "acquire".into(),
+                    role: None,
+                    lease_token: None,
+                },
+                caller,
+            )
+            .await
+            .unwrap();
+        let observation = provider
+            .observe(session_id, None, ObserveOptions::default())
+            .await
+            .unwrap();
+
+        let acting = Arc::clone(&provider);
+        let request = action_request(
+            session_id,
+            observation.observation_id,
+            facts.lease_token.unwrap(),
+        );
+        let batch = tokio::spawn(async move { acting.act(request, caller).await });
+        // Deterministic rendezvous: the first wait_for poll was dispatched
+        // and the action keeps waiting for its bounded deadline, so the
+        // takeover provably lands while the batch is mid-run.
+        protocol.wait_started.notified().await;
+        // The real observer path: same display domain, synchronous epoch
+        // move plus the leased-agent revocation it schedules.
+        HumanInputObserver::on_human_input(provider.as_ref(), "test-domain");
+
+        let report = batch.await.unwrap().unwrap();
+        assert_eq!(report.receipts.len(), 3);
+        assert_eq!(report.receipts[0].kind, "wait_for");
+        assert_eq!(report.receipts[0].transport, "acked");
+        assert_eq!(report.receipts[1].kind, "press");
+        assert_eq!(report.receipts[1].transport, "refused");
+        assert_eq!(report.receipts[1].effect, "none");
+        assert!(
+            report.receipts[1]
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("control"))
+        );
+        assert_eq!(report.receipts[2].kind, "type");
+        assert_eq!(report.receipts[2].transport, "refused");
+        // Nothing reached the human-controlled page after the takeover.
+        assert!(protocol.pressed.lock().unwrap().is_empty());
+        assert!(protocol.typed.lock().unwrap().is_empty());
+        assert_eq!(report.controller_epoch, 2);
+        assert_eq!(report.effect, "unknown");
+    }
+
+    /// Without a takeover the batch is unchanged: every action dispatches in
+    /// order and the report carries no refusal.
+    #[tokio::test]
+    async fn batch_without_takeover_runs_every_action() {
+        let (provider, protocol, session_id) = test_provider(true);
+        let caller = EntityId::new();
+        let facts = provider
+            .control(
+                ControlRequest {
+                    session_id,
+                    op: "acquire".into(),
+                    role: None,
+                    lease_token: None,
+                },
+                caller,
+            )
+            .await
+            .unwrap();
+        let observation = provider
+            .observe(session_id, None, ObserveOptions::default())
+            .await
+            .unwrap();
+        let request = action_request(
+            session_id,
+            observation.observation_id,
+            facts.lease_token.unwrap(),
+        );
+        let report = provider.act(request, caller).await.unwrap();
+
+        assert_eq!(report.receipts.len(), 3);
+        assert!(
+            report
+                .receipts
+                .iter()
+                .all(|receipt| receipt.transport == "acked")
+        );
+        assert_eq!(report.receipts[0].effect, "complete");
+        assert_eq!(protocol.pressed.lock().unwrap().clone(), vec!["Enter"]);
+        assert_eq!(protocol.typed.lock().unwrap().clone(), vec!["hello"]);
+        assert_eq!(report.controller_epoch, 1);
+    }
 }
 
