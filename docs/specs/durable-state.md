@@ -167,6 +167,13 @@ Every other class keeps the delivered-baseline rule: the peer may update a
 record only while this store still holds the value the peer last delivered,
 and any other divergence is a reported conflict, not an overwrite.
 
+Legacy archives may migrate columns by name, but migration is not permission
+to accept contradictory subject-head facts. Before publishing rows or files,
+the importer compares the head's identity, branch, step, revision and mode
+index columns with the typed serialized head. A mismatch rejects the import
+without advancing the receiving ledger or publishing a subject. Current
+schemas additionally retain the canonical column-layout check.
+
 **The closure collector.** A JSON map that names a digest is still a
 container: the collector records the digest as an alias AND descends into
 the map's other values, so a manifest that names its artifact inline does

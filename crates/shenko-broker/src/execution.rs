@@ -14,7 +14,7 @@ use crate::kv::{KvAllocator, LeaseDemand, LeaseSide};
 use crate::registry::{ProviderRegistry, ProviderRuntime};
 use crate::request::{
     EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
-    ProviderBinding, ProviderRejection, ProviderWireError, RequestPurpose, StreamEvidence,
+    ProviderRejection, ProviderWireError, RequestPurpose, StreamEvidence,
     TerminationEvidence, TerminationKind,
 };
 use crate::resource::ResourceDomain;
@@ -122,7 +122,8 @@ async fn execute_complete(
     match runtime.complete(request).await {
         Ok(response) => {
             let terminal = terminal_stop_reason(&runtime, &response.stop_reason);
-            let termination = termination_evidence(&response, terminal, &request.provider_binding);
+            let termination = termination_evidence(&response, terminal,
+                request.payload.max_tokens.unwrap_or_else(|| request.provider_binding.default_max_tokens()));
             observe_kv(domain, kv, request, purpose, response.usage.as_ref());
             let quota_headers = response.ratelimit_headers.clone();
             InferenceResult {
@@ -173,8 +174,8 @@ async fn execute_stream(
     let (response, termination, status, events, batches) = match outcome {
         Ok(outcome) => {
             let terminal = terminal_stop_reason(&runtime, &outcome.response.stop_reason);
-            let termination =
-                termination_evidence(&outcome.response, terminal, &request.provider_binding);
+            let termination = termination_evidence(&outcome.response, terminal,
+                request.payload.max_tokens.unwrap_or_else(|| request.provider_binding.default_max_tokens()));
             let status = if terminal { InferenceStatus::Success } else { InferenceStatus::Failed };
             (
                 Some(outcome.response),
@@ -228,18 +229,22 @@ pub(crate) fn terminal_stop_reason(
     }
 }
 
-/// The terminal evidence of one provider response.
+/// The terminal evidence of one provider response. `max_tokens` is the
+/// effective limit of the sealed request: the payload's own reservation, or
+/// the bound provider default when the payload leaves it open. Reporting the
+/// binding default while the wire carried a smaller reservation would
+/// contradict the request this evidence belongs to.
 pub(crate) fn termination_evidence(
     response: &InferenceResponse,
     terminal: bool,
-    binding: &ProviderBinding,
+    max_tokens: u64,
 ) -> TerminationEvidence {
     let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
     if terminal {
         TerminationEvidence {
             kind: TerminationKind::ProviderTerminal,
             stop_reason: Some(response.stop_reason.clone()),
-            max_tokens: Some(binding.default_max_tokens()),
+            max_tokens: Some(max_tokens),
             output_tokens,
             length: matches!(response.stop_reason.as_str(), "max_tokens" | "length"),
         }
@@ -247,7 +252,7 @@ pub(crate) fn termination_evidence(
         TerminationEvidence {
             kind: TerminationKind::Unknown,
             stop_reason: (!response.stop_reason.is_empty()).then(|| response.stop_reason.clone()),
-            max_tokens: Some(binding.default_max_tokens()),
+            max_tokens: Some(max_tokens),
             output_tokens,
             length: false,
         }

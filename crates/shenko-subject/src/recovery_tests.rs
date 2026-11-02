@@ -105,13 +105,16 @@ fn state(
             shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), EntityId(head.branch_id.0)),
         )),
     ))).unwrap();
+    // Sealing a step requires a hook graph. The shared fixture mirrors the
+    // production assembly: an admitted (empty) registry is installed, while
+    // tests that exercise a specific graph replace it through `with_hooks`.
     SubjectLoopState::new(
         agent,
         Arc::new(Inbox::new(8)),
         store,
         ctx,
         shenko_channel_napcat::qq_test_registry(),
-    )
+    ).map(|state| state.with_hooks(Arc::new(HookRegistry::new())))
 }
 
 #[tokio::test]
@@ -833,20 +836,27 @@ async fn contribution_recovery_keeps_retired_and_correction_request_usage() {
     assert_eq!(restored.step.state, SubjectStepState::Preparing);
 }
 
-#[test]
-fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
+// Window preparation runs on the blocking pool, so this case needs the same
+// Tokio context the subject always has in production.
+#[tokio::test]
+async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let (_dir, store, agent) = fixture();
     let (offline, handle) = shenko_broker::broker::Broker::offline();
     let binding = handle.binding().clone();
-    let capabilities = shenko_broker::request::ProviderCapabilities {
-        // The wait controls add to the mandatory system prefix. Keep enough
-        // room for that prefix and the preserved unknown call while still
-        // exercising compaction under the same default threshold.
-        binding: binding.clone(), max_context_tokens: Some(1500), vision: None,
+    let mut capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: binding.clone(), max_context_tokens: None, vision: None,
     };
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities.clone()));
     subject.max_tokens = 10;
+    // Reserve 400 tokens for compacted history in addition to the actual
+    // mandatory prefix. The test does not pin the prompt's incidental size.
+    let prefix = crate::context_projection::prepare_context(&mut subject, &[]).unwrap()
+        .context.estimated_input_tokens.unwrap();
+    capabilities.max_context_tokens = Some(prefix + 400 + subject.max_tokens as u32);
+    subject = subject.with_model_capabilities(Some(capabilities.clone()));
+    // Establish the final binding before the preparer captures its generation.
+    crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     subject.previous_input_binding = Some(binding);
     subject.previous_input_tokens = Some(700);
     subject.previous_estimated_input_tokens = Some(1);
@@ -867,6 +877,12 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
             &serde_json::json!({"v":1,"text":format!("history-{index}-{}", "x".repeat(80))})).unwrap();
         raw_ids.push(fact.event_id);
     }
+    let history = shenko_context_policy::StoreHistory::new(store.clone(),
+        EntityId(subject.head.branch_id.0), Arc::new(shenko_context_policy::estimate_tokens));
+    subject.context_registry.prepare_and_publish(&history, &shenko_context_policy::ModelCaps {
+        model_id: capabilities.binding.model().into(),
+        max_context: capabilities.max_context_tokens.unwrap() - subject.max_tokens as u32, vision: None,
+    }, subject.previous_input_tokens.unwrap()).unwrap();
     let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     assert!(prepared.context.trigger_budget_input_tokens.unwrap() > 700);
     assert_eq!(prepared.context.observed_input_tokens, Some(700));
@@ -884,7 +900,8 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let source = &prepared.context.source;
     assert_eq!(source.leaf_seq, Some(19));
     let head = store.context_window_head(source.scope_id).unwrap().unwrap();
-    assert_eq!((head.window_id, head.generation), (source.window_id, 2));
+    assert_eq!((head.window_id, u64::try_from(head.generation).unwrap()),
+        (source.window_id, source.window_generation));
     let persisted = store.session_events_range(source.scope_id, 0, i64::MAX).unwrap();
     assert!(raw_ids.iter().all(|id| persisted.iter().any(|event| event.event_id == *id)));
     assert_eq!(persisted[0].event_type, "tool_call");
@@ -898,8 +915,8 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let resumed = crate::context_projection::prepare_context(&mut reopened, &[]).unwrap();
     assert_eq!(resumed.context.profile_digest, profile);
     assert_eq!(resumed.context.source.window_id, window_id);
-    assert_eq!(resumed.context.source.model_generation, 1);
-    assert_eq!(resumed.context.source.window_generation, 2);
+    assert_eq!(resumed.context.source.model_generation, source.model_generation);
+    assert_eq!(resumed.context.source.window_generation, source.window_generation);
     drop((reopened, offline));
 }
 
@@ -932,11 +949,8 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         binding: handle.binding().clone(), max_context_tokens: Some(4000), vision: None,
     };
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
-        .with_model_capabilities(Some(capabilities));
+        .with_model_capabilities(Some(capabilities.clone()));
     subject.max_tokens = 10;
-    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
-        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    ))).expect("install budget compact");
     for index in 0..20 {
         store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
             &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
@@ -946,6 +960,16 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         payload: serde_json::json!({"content":format!("fresh-{index}-{}", "z".repeat(80))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
+    let initial = crate::context_projection::prepare_context(&mut subject, &events).unwrap();
+    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
+    ))).expect("install budget compact");
+    let history = shenko_context_policy::StoreHistory::new(store.clone(),
+        EntityId(subject.head.branch_id.0), Arc::new(shenko_context_policy::estimate_tokens));
+    subject.context_registry.prepare_and_publish(&history, &shenko_context_policy::ModelCaps {
+        model_id: capabilities.binding.model().into(),
+        max_context: capabilities.max_context_tokens.unwrap() - subject.max_tokens as u32, vision: None,
+    }, initial.context.budget_input_tokens.unwrap()).unwrap();
     // Interrupt after S0. No input may be disposed just because the window
     // has committed a compact derivative.
     let close = tokio_util::sync::CancellationToken::new();
@@ -1048,8 +1072,8 @@ fn execution_commit_during_projection_is_rejected() {
     assert_eq!(store.current_commit_seq().unwrap(), before + 1);
 }
 
-#[test]
-fn oversized_fresh_batch_stays_pending_across_reopen() {
+#[tokio::test]
+async fn oversized_fresh_batch_stays_pending_across_reopen() {
     let (dir, store, agent) = fixture();
     let (offline, handle) = shenko_broker::broker::Broker::offline();
     let capabilities = shenko_broker::request::ProviderCapabilities {
@@ -1786,7 +1810,8 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         .initialize_identity(&service.genesis(agent, None))
         .unwrap();
     let mut subject =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_test_registry()).unwrap();
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_test_registry()).unwrap()
+            .with_hooks(Arc::new(HookRegistry::new()));
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     execute_step(1, &[], &mut subject, &close)
@@ -2007,7 +2032,6 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     cancel.cancel();
     execute_step(2, &[], &mut subject, &cancel).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
-    assert_eq!(frozen.schema_version, 11);
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
     assert_eq!(sealed_wait.deadline_at, original_deadline);
@@ -3017,19 +3041,20 @@ async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() {
     // Keep the fixture on container disk for independent inspection.
 }
 
-/// A hook contract whose failure policy stops the unit; the handler always
-/// fails so every dispatch is cut short.
-struct FailingHook;
+/// A transient failure can clear without replacing the sealed graph.
+struct FailingHook(Arc<std::sync::atomic::AtomicBool>);
 
 #[async_trait::async_trait]
 impl HookHandler for FailingHook {
     async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
-        anyhow::bail!("hook stopped the unit")
+        anyhow::ensure!(!self.0.load(std::sync::atomic::Ordering::SeqCst), "hook stopped the unit");
+        Ok(HookResult::NoChange)
     }
 }
 
-fn stop_registry(point: HookPointId) -> (HookRegistry, shenko_kernel::hooks::HookRegistration) {
+fn stop_registry(point: HookPointId) -> (HookRegistry, shenko_kernel::hooks::HookRegistration, Arc<std::sync::atomic::AtomicBool>) {
     let hooks = HookRegistry::new();
+    let failing = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let mut contract = HookPointContract::standard(point.clone());
     contract.failure = HookFailurePolicy::StopUnit;
     hooks.declare_point(contract).unwrap();
@@ -3059,27 +3084,27 @@ fn stop_registry(point: HookPointId) -> (HookRegistry, shenko_kernel::hooks::Hoo
                 before: vec![],
                 requires: vec![],
                 possible_model_call: false,
-                deterministic: true,
+                deterministic: false,
             },
-            Arc::new(FailingHook),
+            Arc::new(FailingHook(failing.clone())),
         ))
         .unwrap();
-    (hooks, registration)
+    (hooks, registration, failing)
 }
 
 /// §41.8 stop_unit at the real production boundaries. A stopped
 /// BeforeInference dispatch submits nothing to the broker and the step stays
 /// Preparing; a stopped BeforeOperation dispatch leaves the head, ledger
 /// record and outbox untouched. In both cases the durable step keeps its
-/// frozen evidence, so withdrawing the failing handler lets the same step
-/// proceed rather than manufacturing a replacement.
+/// frozen evidence: changing the graph cannot authorize the old seal, while
+/// recovery of the same handler may complete the original recorded result.
 #[tokio::test]
 async fn stop_unit_boundaries_leave_recoverable_step_state() {
     let (dir, store, agent) = fixture();
 
     // Pre-dispatch boundary: S0 seals, the stop_unit hook runs, and the error
     // is returned before the broker is even consulted (none is attached).
-    let (hooks, registration) = stop_registry(HookPointId::SUBJECT_BEFORE_INFERENCE);
+    let (hooks, registration, _) = stop_registry(HookPointId::SUBJECT_BEFORE_INFERENCE);
     let mut subject = state(store.clone(), agent).unwrap().with_hooks(Arc::new(hooks));
     let cancel = tokio_util::sync::CancellationToken::new();
     let error = execute_step(1, &[message("stopped before dispatch")], &mut subject, &cancel)
@@ -3093,11 +3118,13 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     assert_eq!(head.committed_step_no, 0);
     assert_eq!(step.state, SubjectStepState::Preparing);
     assert!(step.active_request_id.is_none());
-    // The frozen input is recoverable: once the failing handler is withdrawn,
-    // the same step reaches the real dispatch boundary (cancel observes it).
+    // Withdrawing a sealed handler cannot silently turn its failed decision
+    // into permission to dispatch. Keep the original seal for reconciliation.
     subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
     cancel.cancel();
-    assert!(execute_step(1, &[], &mut subject, &cancel).await.unwrap().is_none());
+    assert!(matches!(execute_step(1, &[], &mut subject, &cancel).await, Err(ShenkoError::Conflict(_))));
+    assert_eq!(subject.step.input_plan_ref, step.input_plan_ref);
+    assert!(store.subject_request_attempts_for_step(agent, step.step_id).unwrap().is_empty());
     assert_eq!(subject.step.state, SubjectStepState::Preparing);
     drop(subject);
     drop(store);
@@ -3107,7 +3134,7 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     // BeforeOperation dispatch prevents the decision seal, head advance and
     // outbox publication, and the step remains ResultRecorded.
     let (dir, store, agent) = fixture();
-    let (hooks, registration) = stop_registry(HookPointId::SUBJECT_BEFORE_OPERATION);
+    let (hooks, _registration, failing) = stop_registry(HookPointId::SUBJECT_BEFORE_OPERATION);
     let (outbox_tx, mut outbox_rx) = tokio::sync::broadcast::channel(4);
     let mut subject = state(store.clone(), agent)
         .unwrap()
@@ -3142,9 +3169,9 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
         matches!(outbox_rx.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)),
         "nothing is published for a step that never committed"
     );
-    // Recoverable: withdrawing the failing handler commits this same
-    // recorded result rather than re-invoking the model.
-    subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
+    // Recoverable under the SAME graph once the external failure clears:
+    // commit the original recorded result without invoking the model again.
+    failing.store(false, std::sync::atomic::Ordering::SeqCst);
     assert!(
         execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
             .await

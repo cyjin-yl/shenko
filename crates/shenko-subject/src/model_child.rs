@@ -804,7 +804,26 @@ impl ModelChildHandler {
         Ok((records, budget, reserved, tool_calls))
     }
 
-    async fn run(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+    // T1 and send-boundary commits advance the mutable record revision even
+    // though this worker still owns the same invocation. Read that revision
+    // before its next operation, never adopt a replacement task or authority.
+    // The Store still rechecks this snapshot atomically at the next T1.
+    fn refresh_invocation(&self, invocation: &mut NativeTaskInvocation) -> Result<()> {
+        let current = self.store.external_task(invocation.task.task_id)?;
+        let bound = &mut invocation.task_invocation;
+        ensure!(current.task_revision == bound.task_revision
+            && current.abort_request.is_none()
+            && current.input_ref == invocation.task.input_ref
+            && current.implementation_ref == invocation.task.implementation_ref
+            && matches!(current.state, TaskState::Running { invocation_id, epoch, mode: RunMode::Run, .. }
+                if invocation_id == bound.invocation_id && epoch == bound.epoch),
+            "model child invocation superseded before next operation");
+        bound.record_revision = current.record_revision;
+        invocation.task.record_revision = current.record_revision;
+        Ok(())
+    }
+
+    async fn run(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         let contract: FrozenModelChild = serde_json::from_value(invocation.input.clone())?;
         contract.validate()?;
         ensure!(
@@ -890,6 +909,7 @@ impl ModelChildHandler {
                 tools: vec![],
                 native_options: Default::default(),
             };
+            self.refresh_invocation(&mut invocation)?;
             let step = self
                 .run_step(&invocation, &contract, &broker, &history, step_index, payload)
                 .await?;
@@ -925,6 +945,7 @@ impl ModelChildHandler {
                 // Execute the requested tools as durable child subtasks. Their
                 // results are durable facts read back into the next step.
                 for call in calls.iter() {
+                    self.refresh_invocation(&mut invocation)?;
                     let _ = self
                         .call_tool(&tools, &invocation, &contract, call)
                         .await?;
@@ -942,6 +963,7 @@ impl ModelChildHandler {
             termination = ModelChildTermination::Completed;
             break;
         }
+        self.refresh_invocation(&mut invocation)?;
         self.finish(&invocation, &contract, &history, termination, answer, publications)
     }
 

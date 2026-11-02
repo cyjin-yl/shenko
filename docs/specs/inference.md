@@ -70,6 +70,7 @@ NInfer、Strata、vLLM、1Cat-vLLM 各自有 profile 构造器（`profile::nativ
 ## 错误与未知结果
 
 - 失败分类：`InferenceStatus`（Success、Failed、Cancelled、QueuedCapacityWait、Unavailable、Rejected{status}、InvalidRequest{code}）与 `TerminationKind`（ProviderTerminal、TransportRejected、NeverDispatched、Unknown）。
+- 普通与流式结果的 `TerminationEvidence.max_tokens` 绑定本次封口请求实际采用的输出预算：优先使用 payload 的显式值，仅在未指定时使用绑定的默认值。它不是 provider 上限，也不能以默认值覆盖已发送的显式预算；`output_tokens` 仍只取 provider 回报。
 - `WireErrorCode` 增加了 `MessageRuleViolation`（`PROVIDER_MESSAGE_RULE_VIOLATION`），承载版本化消息规则的拒绝。
 - broker 无法继续或必须降级的错误会进入**拥有该请求的主体**的运行时错误日志：`RuntimeErrorSink::journal_runtime_error` + `RuntimeErrorReport { request_id, agent_id, conversation_id, purpose, code, message, occurred_at_ms }`。写日志是 fail-soft：写失败只计数告警，不替换原错误，也不再触发 issue 或自动重试。
 - provider 的终局回执仍是"后端做了什么"的唯一权威；错误日志不是结算路径。

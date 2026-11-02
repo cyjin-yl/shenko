@@ -16,6 +16,11 @@ A step is the unit of the subject's life. `SubjectStep` moves through
 `planned → preparing → awaiting_model → result_recorded → committed`, with
 `retry_pending` and `retired` as the two exits that do not advance the head.
 
+The continuous subject's `subject_root` task is not a finite native child.
+Both the candidate page and its scan upper bound exclude that root; native
+parking refuses it as well. Scanning for a missing child handler must never
+park or mutate the subject's own root task.
+
 | Phase | What commits | What may still fail |
 | --- | --- | --- |
 | S0 (`planned → preparing`) | the sealed input plan (schema 12) | the plan CAS may reject a moved source; the step stays `planned` and is re-projected |

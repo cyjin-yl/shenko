@@ -3278,6 +3278,20 @@ fn validate_subject_boundaries(
         let data_mode = value.get("mode").and_then(serde_json::Value::as_str)
             .context("imported subject head has no serialized mode")?;
         let column_mode = incoming.value("mode").context("imported subject head has no mode column")?;
+        // Legacy migration maps columns by name. It must not turn contradictory
+        // index columns and serialized head data into an admitted archive.
+        let head: SubjectBranchHead = serde::Deserialize::deserialize(&value)?;
+        let entity = |name: &str| incoming.value(name).and_then(|value| value.parse::<EntityId>().ok());
+        let number = |name: &str| incoming.value(name).and_then(|value| value.parse::<u64>().ok());
+        ensure!(entity("agent_id") == Some(head.agent_id)
+            && entity("branch_id") == Some(EntityId(head.branch_id.0))
+            && entity("next_step_id") == Some(head.next_step_id)
+            && number("committed_step_no") == Some(head.committed_step_no)
+            && number("record_revision") == Some(head.record_revision.0)
+            && incoming.value("committed_step_id").is_some() == head.committed_step_id.is_some()
+            && entity("committed_step_id") == head.committed_step_id
+            && column_mode == data_mode,
+            "imported subject head column/value mismatch");
         if column_mode == "paused" || data_mode == "paused" {
             ensure!(column_mode == "paused" && data_mode == "paused",
                 "imported paused subject head has inconsistent mode fields");
@@ -3285,7 +3299,6 @@ fn validate_subject_boundaries(
                 .context("imported paused subject head has no local boundary")?;
             ensure!(rows_equivalent(head_spec, &local, &incoming.values),
                 "imported paused subject head differs from the locally retained boundary");
-            let head: SubjectBranchHead = serde_json::from_value(value)?;
             validate_local_paused_successor(conn, &head)?;
         }
     }
@@ -5876,6 +5889,12 @@ mod archive_admission_tests {
 
     #[test]
     fn reordered_labels_cannot_publish_a_paused_head_or_files() {
+        for schema in [2, crate::cognition_archive::ARCHIVE_SCHEMA] {
+            reject_reordered_head(schema);
+        }
+    }
+
+    fn reject_reordered_head(schema: u32) {
         use shenko_types::commit::CommitRef;
         use shenko_types::ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
         use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep};
@@ -5925,10 +5944,9 @@ mod archive_admission_tests {
         let mut export = source.export_cognition(&CognitionSnapshotOptions {
             memory_root: Some(memory), include_git_history: false, ..Default::default()
         }).unwrap();
-        // Schema 2 takes the same admission path. The named fields look active
-        // to a label-based guard, while positional SQL would insert a paused
-        // column and paused serialized head without a local boundary record.
-        export.manifest.schema = 2;
+        // Current schemas reject the noncanonical layout; legacy migration
+        // must still reject the contradictory named columns and head data.
+        export.manifest.schema = schema;
         let row = export.manifest.rows.iter_mut().find(|row| row.table == "subject_branch_heads").unwrap();
         let active = row.value("data").unwrap().to_string();
         let mut paused: serde_json::Value = serde_json::from_str(&active).unwrap();
@@ -5952,7 +5970,11 @@ mod archive_admission_tests {
         let error = receiver.import_cognition_archive(&archive[..], &CognitionImportOptions {
             memory_root: Some(receiver_memory.clone()), ..Default::default()
         }).unwrap_err();
-        assert!(error.to_string().contains("invalid cognition column layout"));
+        assert!(error.to_string().contains(if schema == crate::cognition_archive::ARCHIVE_SCHEMA {
+            "invalid cognition column layout"
+        } else {
+            "imported subject head column/value mismatch"
+        }));
         assert_eq!(receiver.current_commit_seq().unwrap(), before);
         assert!(receiver.get_existing_agent_id().unwrap().is_none());
         assert!(!receiver_memory.join("remote.txt").exists());

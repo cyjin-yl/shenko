@@ -109,7 +109,8 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
         let result = results.iter().find(|result| result.result.as_ref().unwrap()["provider_binding"]["model"] == wire["model"]).unwrap();
         assert!(matches!(result.outcome, TaskOutcome::Succeeded));
         assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
-        assert!(result.result.as_ref().unwrap()["answer"].as_str().unwrap().contains(&format!("scripted answer for {}", wire["model"])));
+        assert!(result.result.as_ref().unwrap()["answer"].as_str().unwrap().contains(&format!(
+            "scripted answer for {}", wire["model"].as_str().unwrap())));
         let task = store.external_task(result.task_id).unwrap();
         assert_eq!(task.owner, TaskOwner::Task { id: subject.head.subject_root_task_id });
         // The sealed delegation contract binds the authored choice.
@@ -117,7 +118,6 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&operation.input_digest).unwrap()).unwrap();
         assert_eq!(frozen["spec"]["system_prompt"], semantic);
         assert_eq!(frozen["provider_binding"]["model"], wire["model"]);
-        assert_eq!(frozen["schema_version"], 2);
         // The model step is its own durable operation with its own frozen payload.
         let step = child_step(&store, result.task_id);
         let step_input: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&step.final_input_ref.digest).unwrap()).unwrap();

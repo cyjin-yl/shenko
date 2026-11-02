@@ -192,6 +192,12 @@ owner 链上（不是 child 任务上），因此 child 自己的完成**不会*
 语言目标已达成。截断、拒绝、Unknown 分开记录（`ModelChildStepRecord.complete` 与
 `stop_reason`）。
 
+同一个 invocation 的 T1 与发送记录会推进任务的 `record_revision`。下一模型步、工具
+调用或最终 run-result 操作必须读取新的记录版本，不能继续用最初 claim 的旧版本。
+刷新只更新记录版本，不采用新任务或新权限：任务版本、输入、实现、invocation id、epoch
+必须保持一致，已取消或已替换的运行拒绝继续。Store 在下一次 T1 内仍原子检查 CAS、
+owner、controller generation 与可执行状态；晚到的模型 E1 不因此获得 T2 权限。
+
 ---
 
 ## 8. 接口清单（父代理集成时需要知道的）

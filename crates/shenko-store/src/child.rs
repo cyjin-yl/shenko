@@ -296,7 +296,10 @@ impl Store {
                 let Some(mut task) = read_task(&tx, task_id)? else {
                     return Ok(false);
                 };
-                if task.is_terminal()
+                // The continuous subject owns its own root lifecycle. A
+                // finite-child scan or a stale caller cannot park that root.
+                if task.kind == "subject_root"
+                    || task.is_terminal()
                     || matches!(task.state, TaskState::Completing { .. })
                     || task.record_revision != expected_revision
                 {
@@ -1259,7 +1262,7 @@ fn read_candidates_tx(
         .unwrap_or_default();
     let mut query = conn.prepare(
         "SELECT data, created_at FROM tasks
-         WHERE json_extract(data,'$.kind')!='subject_publication'
+         WHERE json_extract(data,'$.kind') NOT IN ('subject_publication','subject_root')
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
            AND (?1='' OR created_at>?1 OR (created_at=?1 AND task_id>?2))
@@ -1280,7 +1283,7 @@ fn read_candidates_tx(
 fn read_scan_upper_tx(conn: &rusqlite::Connection) -> Result<Option<(String, EntityId)>> {
     let row = conn.query_row(
         "SELECT data, created_at FROM tasks
-         WHERE json_extract(data,'$.kind')!='subject_publication'
+         WHERE json_extract(data,'$.kind') NOT IN ('subject_publication','subject_root')
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
          ORDER BY created_at DESC, task_id DESC LIMIT 1",
