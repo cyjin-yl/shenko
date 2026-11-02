@@ -198,9 +198,19 @@ impl ContentStore {
     }
 }
 
-fn sync_directory(directory: &Path) -> io::Result<()> {
+/// Make a directory entry change durable. On Unix this fsyncs the directory
+/// itself. Windows cannot open a directory as a plain file (access denied),
+/// and NTFS journals directory metadata, so there is nothing equivalent to
+/// flush; the call is a no-op there rather than an error that blocks open.
+#[cfg(unix)]
+pub(crate) fn sync_directory(directory: &Path) -> io::Result<()> {
     let directory = if directory.as_os_str().is_empty() { Path::new(".") } else { directory };
     fs::File::open(directory)?.sync_all()
+}
+
+#[cfg(not(unix))]
+pub(crate) fn sync_directory(_directory: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 fn verify_file(file: &mut fs::File, digest: &Digest, expected_bytes: u64) -> io::Result<()> {
