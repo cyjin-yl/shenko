@@ -1,0 +1,93 @@
+{
+  "schema": "shenko.native-ssh.static-candidate.v1",
+  "as_of_utc": "2026-10-31T23:30:00Z",
+  "base_commit": "2b91e0a0adb5714a1115f9b5f82a8855709b2e66",
+  "base_tree": "004b4e209a079a6fc74f6577c36b2d05b2a1fe8a",
+  "status": "STATIC_ONLY_UNCOMPILED_UNRUN_LOCK_UNRESOLVED",
+  "patch_sha256": "7cd071777aec4174d924d3bb0cabb889b80cde49e72c80d01bd5f376556d5f6c",
+  "files": [
+    {
+      "path": "Cargo.toml",
+      "bytes": 3447,
+      "sha256": "02f56116aae0204b25bf8ab952c30fce8989343c3e395bb4ae452349897bb5e4"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/Cargo.toml",
+      "bytes": 824,
+      "sha256": "2fcef8b07edf9d2912109590fdd183d50f7c852a81e34ced5e6b71e6764ee217"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/lib.rs",
+      "bytes": 475,
+      "sha256": "717444e2c2e16179fea2bbfc2674ca81140b5edc60bb0029862e9360da0f0d79"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/mod.rs",
+      "bytes": 13068,
+      "sha256": "90881c3939bbdc672be919ed522bdff8a39f292a04c4baa4cf3324522ba5b1b7"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/stream.rs",
+      "bytes": 2973,
+      "sha256": "f14dd0b3a67d4ed4c20ff178215032dc66fb44512d30d0bface1a163f86a3ae0"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/trust.rs",
+      "bytes": 4725,
+      "sha256": "1208f5f6caa2c5c426e9318e1ac2af912c0ba7d3be2a2c92f4143dbbd28fc831"
+    },
+    {
+      "path": "crates/shenko-exec-ssh/src/native_transport/tests.rs",
+      "bytes": 10823,
+      "sha256": "5b79883d3205839b6a2c19db5c7cbc5cc54b58e740eda04def348b8f1befa638"
+    }
+  ],
+  "base_lock_sha256": "7dabe6834599cf5b194bbdc0b726cd2b62ffe96046163e0281f5fbb4f6df5699",
+  "new_scenarios": 7,
+  "actual_native_tests_run": 0,
+  "dependency_candidate": {
+    "russh": "=0.65.0",
+    "default_features": false,
+    "features": [
+      "ring",
+      "rsa"
+    ],
+    "upstream_tag_commit": "183a22e8f8f490fa09b6eb7bd044ef99d8c4414f",
+    "ssh_key_declared": "=0.7.0-rc.11",
+    "rsa_declared": "=0.10.0-rc.18",
+    "resolved_package_set": "UNAVAILABLE"
+  },
+  "preparation_attempts": [
+    {
+      "action": "cargo update -p shenko-exec-ssh --offline",
+      "exit": 101,
+      "outcome": "russh not present in cached index; lock unchanged; no project compiled"
+    },
+    {
+      "action": "same Cargo online metadata resolution, escalated exec",
+      "started": false,
+      "outcome": "bwrap filesystem setup failed before shell/Cargo; no online logs created; denied path not read or modified"
+    },
+    {
+      "action": "same Cargo/same crates.io route, ordinary sandbox metadata resolution",
+      "exit": 101,
+      "outcome": "index.crates.io DNS resolution failed; no registry package downloaded; lock unchanged"
+    }
+  ],
+  "limits": [
+    "Native adapter not wired into SshTaskRunner or installed startup",
+    "Existing host ssh and node_sync paths remain",
+    "PolicyObserved is not grant; production authority/resource admission remains missing",
+    "No real host, agent, credential, model, deployment, merge or new-source execution",
+    "Only exact public-key pins and exact-key @revoked subset; no CA/host certificates/hashed/wildcard trust",
+    "Signer API is static only; hardware, certificates, encrypted formats and platform matrix not runtime-tested",
+    "CAS file-read allocation policy unchanged",
+    "Session closure is not remote-process termination and cannot trigger replay"
+  ],
+  "previous_evidence": {
+    "source": "2b91e0a0adb5714a1115f9b5f82a8855709b2e66",
+    "passed": 53,
+    "comment": "https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6550361285",
+    "not_applicable_to_candidate": true
+  }
+}

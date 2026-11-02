@@ -1,9 +1,16 @@
-//! Inference broker — fair asynchronous dispatch over one compute budget.
-//! SPEC §13, §22.1, §41.8–41.10, §47.
+//! Inference broker — fair asynchronous dispatch over one physical resource
+//! domain. SPEC §13, §22.1, §41.8–41.10, §47.
 //!
-//! Transport selection is fixed at construction; selected models share its
-//! queue and compute budget. No provider is a typed
-//! unavailable binding, never a synthetic successful model response.
+//! Every controlled call — the subject, a child, memory work, compaction,
+//! diagnostics — enters this broker. The provider is resolved from the open
+//! registry against the *sealed* binding, so a request keeps the transport,
+//! model and credential identity it was sent with. A provider that changed
+//! after the seal cannot silently reinterpret the request.
+//!
+//! Compute permits and context residency are separate resources: the compute
+//! budget belongs to the physical domain, the residency pool is described in
+//! [`crate::kv`]. A request whose remote outcome is unknown keeps its
+//! capacity and is quarantined as debt until it is reconciled.
 use anyhow::{Result, anyhow, ensure};
 use serde::Deserialize;
 use std::collections::{HashMap, VecDeque};
@@ -13,13 +20,18 @@ use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
 use crate::admission::{AdmissionController, AdmissionGuard, CapacitySnapshot};
-use crate::local_provider::LocalModelProvider;
-use crate::provider::AnthropicProvider;
+use crate::capability::BackendCapabilitySnapshot;
+use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
+use crate::execution::{execute_request, now_ms};
+use crate::kv::{AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState};
+use crate::registry::{ProviderRegistry, ProviderRuntime, TokenCount};
 use crate::request::{
-    EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
-    ProviderBinding, ProviderCapabilities, ProviderRejection, ProviderVisionCaps,
-    ProviderWireError, TerminationEvidence, TerminationKind,
+    BrokeredCall, InferencePriority, InferenceRequest, InferenceResponse, InferenceResult,
+    InferenceStatus, ProviderBinding, ProviderCapabilities, ProviderVisionCaps, RequestPurpose,
+    TerminationEvidence, TerminationKind,
 };
+use crate::resource::{CapacitySnapshot as DomainCapacity, ResourceDomain, ResourceDomainIdentity, ResourceDomainRegistry};
+use crate::stream::{BoundedStreamPublisher, PublicStreamSink, StreamIdentity, StreamJournalSink};
 
 #[derive(Deserialize)]
 struct ModelMetadata {
@@ -63,197 +75,6 @@ impl ProviderCapabilities {
     }
 }
 
-async fn metadata_response(request: reqwest::RequestBuilder) -> Result<ModelMetadataList> {
-    let response = request.send().await?;
-    let status = response.status();
-    ensure!(status.is_success(), "model metadata request failed with HTTP {status}");
-    Ok(response.json().await?)
-}
-
-#[cfg(test)]
-#[async_trait::async_trait]
-trait FixtureProvider: Send + Sync {
-    fn binding(&self) -> ProviderBinding;
-    async fn complete(&self, req: &InferenceRequest) -> Result<InferenceResponse>;
-}
-
-#[derive(Clone)]
-enum ActiveProvider {
-    Anthropic(AnthropicProvider),
-    Local(LocalModelProvider),
-    Stub,
-    #[cfg(test)]
-    Fixture(Arc<dyn FixtureProvider>),
-}
-
-impl ActiveProvider {
-    fn binding(&self) -> ProviderBinding {
-        match self {
-            Self::Stub => ProviderBinding::Stub { codec: 2 },
-            Self::Local(provider) => provider.binding(),
-            Self::Anthropic(provider) => provider.binding(),
-            #[cfg(test)]
-            Self::Fixture(provider) => provider.binding(),
-        }
-    }
-
-    fn from_env() -> Result<Self> {
-        if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
-            let provider = LocalModelProvider::from_env()?;
-            info!(model=%provider.model, "local model provider selected (§22.1)");
-            return Ok(Self::Local(provider));
-        }
-        if let Some(provider) = AnthropicProvider::from_env() {
-            info!("Anthropic API key found — real inference enabled");
-            return Ok(Self::Anthropic(provider));
-        }
-        info!("no inference provider configured — typed unavailable mode");
-        Ok(Self::Stub)
-    }
-
-    fn terminal_stop_reason(&self, stop_reason: &str) -> bool {
-        match self {
-            Self::Anthropic(_) => matches!(
-                stop_reason,
-                "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | "pause_turn" | "refusal"
-            ),
-            Self::Local(_) => matches!(
-                stop_reason,
-                "stop" | "length" | "tool_calls" | "function_call" | "content_filter"
-            ),
-            #[cfg(test)]
-            Self::Fixture(_) => matches!(stop_reason, "end_turn" | "stop" | "length"),
-            Self::Stub => false,
-        }
-    }
-
-    async fn complete(mut self, req: &InferenceRequest) -> InferenceResult {
-        if matches!(self, Self::Stub) {
-            return InferenceResult {
-                request_id: req.request_id,
-                status: InferenceStatus::Unavailable,
-                response: None,
-                effective: EffectiveInference::for_request(req),
-                termination: TerminationEvidence::never_dispatched(),
-                quota_headers: Vec::new(),
-            };
-        }
-
-        // A selected-model handle can change only the model. Validate the
-        // rest of the binding before using the already configured provider;
-        // never construct an endpoint or credential from child input.
-        let selected = self.binding().with_model(req.provider_binding.model());
-        if selected.as_ref().ok() != Some(&req.provider_binding) {
-            return failure_result(req, &ProviderWireError::BindingMismatch.into());
-        }
-        match &mut self {
-            Self::Local(provider) => req.provider_binding.model().clone_into(&mut provider.model),
-            Self::Anthropic(provider) => req.provider_binding.model().clone_into(&mut provider.model),
-            Self::Stub => unreachable!("unavailable returned above"),
-            #[cfg(test)]
-            Self::Fixture(_) => {}
-        }
-
-        let outcome = match &self {
-            Self::Anthropic(provider) => provider.complete(req).await,
-            Self::Local(provider) => provider.complete(req).await,
-            #[cfg(test)]
-            Self::Fixture(provider) => provider.complete(req).await,
-            Self::Stub => unreachable!("unavailable returned above"),
-        };
-        match outcome {
-            Ok(response) => {
-                let terminal = self.terminal_stop_reason(&response.stop_reason);
-                provider_response(req, response, terminal)
-            }
-            Err(error) => failure_result(req, &error),
-        }
-    }
-}
-
-fn provider_response(
-    req: &InferenceRequest,
-    response: InferenceResponse,
-    terminal: bool,
-) -> InferenceResult {
-    let effective = EffectiveInference::for_request(req);
-    let quota_headers = response.ratelimit_headers.clone();
-    let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
-    let termination = if terminal {
-        TerminationEvidence {
-            kind: TerminationKind::ProviderTerminal,
-            stop_reason: Some(response.stop_reason.clone()),
-            max_tokens: Some(effective.max_tokens),
-            output_tokens,
-            length: matches!(response.stop_reason.as_str(), "max_tokens" | "length"),
-        }
-    } else {
-        TerminationEvidence {
-            kind: TerminationKind::Unknown,
-            stop_reason: (!response.stop_reason.is_empty()).then(|| response.stop_reason.clone()),
-            max_tokens: Some(effective.max_tokens),
-            output_tokens,
-            length: false,
-        }
-    };
-    InferenceResult {
-        request_id: req.request_id,
-        status: if terminal {
-            InferenceStatus::Success
-        } else {
-            InferenceStatus::Failed
-        },
-        response: Some(response),
-        effective,
-        termination,
-        quota_headers,
-    }
-}
-
-fn failure_status(error: &anyhow::Error) -> InferenceStatus {
-    if let Some(rejection) = error.downcast_ref::<ProviderRejection>() {
-        return InferenceStatus::Rejected {
-            http_status: rejection.http_status,
-        };
-    }
-    if let Some(wire_error) = error.downcast_ref::<ProviderWireError>() {
-        return InferenceStatus::InvalidRequest {
-            code: wire_error.code(),
-        };
-    }
-    InferenceStatus::Failed
-}
-
-fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceResult {
-    let status = failure_status(error);
-    let termination = match status {
-        InferenceStatus::Rejected { .. } => TerminationEvidence {
-            kind: TerminationKind::TransportRejected,
-            stop_reason: None,
-            max_tokens: None,
-            output_tokens: None,
-            length: false,
-        },
-        InferenceStatus::InvalidRequest { .. } => TerminationEvidence::never_dispatched(),
-        _ => TerminationEvidence::unknown(),
-    };
-    warn!(
-        ?status,
-        "provider inference did not produce a successful terminal result"
-    );
-    InferenceResult {
-        request_id: req.request_id,
-        status,
-        response: None,
-        effective: EffectiveInference::for_request(req),
-        termination,
-        quota_headers: error
-            .downcast_ref::<ProviderRejection>()
-            .map(|rejection| rejection.ratelimit_headers.clone())
-            .unwrap_or_default(),
-    }
-}
-
 /// The ledger owner of a request, independent of the caller waiting for it.
 /// It admits no effects itself: T1 must already exist before submission. Late
 /// completion is still recorded when a managed child was stopped/cancelled.
@@ -290,9 +111,37 @@ pub trait InferenceRecoverySource: Send + Sync + 'static {
     fn read_terminal_result(&self) -> Result<Option<InferenceResult>>;
 }
 
+/// The streaming sinks of one request.
+pub(crate) struct StreamSubmission {
+    pub(crate) identity: StreamIdentity,
+    pub(crate) journal: Option<Arc<dyn StreamJournalSink>>,
+    pub(crate) public: Option<Arc<dyn PublicStreamSink>>,
+}
+
 struct Submission {
     request: InferenceRequest,
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
+    purpose: RequestPurpose,
+    stream: Option<StreamSubmission>,
+}
+
+/// One provider/model pair this broker can really run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AvailableProvider {
+    /// The model this entry serves.
+    pub model: String,
+    /// The profile that describes the binding.
+    pub profile_id: String,
+    pub backend_family: crate::profile::BackendFamily,
+    pub transport: crate::profile::TransportKind,
+    /// The endpoint the binding reaches. It never carries credentials.
+    pub endpoint_origin: String,
+    /// The physical resource domain this binding belongs to.
+    pub resource_domain_id: String,
+    /// Whether this binding is the local OpenAI-compatible transport.
+    pub local: bool,
+    /// The binding itself.
+    pub binding: ProviderBinding,
 }
 
 // None: queued or live, with a guard owned by the broker. Some: an uncertain
@@ -304,10 +153,17 @@ type RecoverySources = Arc<Mutex<HashMap<EntityId, Arc<dyn InferenceRecoverySour
 pub struct BrokerHandle {
     tx: mpsc::UnboundedSender<Submission>,
     binding: ProviderBinding,
-    admission: AdmissionController,
+    /// The compute budget of this handle's physical domain.
+    pub admission: AdmissionController,
+    domain: Arc<ResourceDomain>,
+    domains: Arc<ResourceDomainRegistry>,
+    registry: Arc<ProviderRegistry>,
     accounting: Accounting,
     recovery_sources: RecoverySources,
     accounting_changed: Arc<Notify>,
+    kv: Arc<KvAllocator>,
+    error_sink: ErrorSinkCell,
+    handoff_closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl BrokerHandle {
@@ -322,11 +178,72 @@ impl BrokerHandle {
         Ok(Self { binding: self.binding.with_model(model)?, ..self.clone() })
     }
 
+    /// The physical domain this handle dispatches into.
+    pub fn domain(&self) -> &Arc<ResourceDomain> {
+        &self.domain
+    }
+
+    /// The domain registry: the deployment's binding of endpoints, aliases and
+    /// engines to physical resource domains.
+    pub fn domains(&self) -> &Arc<ResourceDomainRegistry> {
+        &self.domains
+    }
+
+    /// The provider bindings this broker can really run. Availability is
+    /// decided by what is installed, never by a catalog of model names.
+    pub fn installed_bindings(&self) -> Vec<ProviderBinding> {
+        self.registry.installed_bindings()
+    }
+
+    /// The installed provider profiles.
+    pub fn profiles(&self) -> Vec<crate::profile::ProviderProfile> {
+        self.registry.profiles()
+    }
+
+    /// The provider/model pairs this broker can really run right now.
+    ///
+    /// This is the live view a routing or quota decision uses. It is decided
+    /// by what is installed and reachable, never by a catalog of model names:
+    /// a model that is not installed here simply does not appear.
+    pub fn available_providers(&self) -> Vec<AvailableProvider> {
+        self.registry
+            .profiles()
+            .into_iter()
+            .map(|profile| {
+                let binding = self.registry.primary_binding_for(&profile).unwrap_or_else(|| profile.binding());
+                AvailableProvider {
+                    model: profile.model_id.clone(),
+                    profile_id: profile.profile_id.clone(),
+                    backend_family: profile.backend_family.clone(),
+                    transport: profile.transport,
+                    endpoint_origin: profile.endpoint_origin.clone(),
+                    resource_domain_id: profile.resource_domain_id.clone(),
+                    local: matches!(binding, ProviderBinding::Local { .. }),
+                    binding,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether this handle can really serve one model on its own transport.
+    ///
+    /// A routing decision resolves the model before the request is sealed, so
+    /// the sealed binding is one the broker can execute. The sealed
+    /// comparison itself stays exact.
+    pub fn serves_model(&self, model: &str) -> bool {
+        self.binding
+            .with_model(model)
+            .ok()
+            .is_some_and(|binding| self.registry.runtime_for(&binding).is_some())
+    }
+
     /// Restore an original armed request before admitting any new inference.
     /// Repeated recovery and live requests cannot count the same identity twice.
     pub fn recover_unknown(&self, request_id: EntityId) {
         self.accounting.lock().expect("broker accounting poisoned")
             .entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
+        self.domain
+            .quarantine(request_id, now_ms(), "recovered without terminal evidence");
     }
 
     /// Register the original ledger reader while restoring a request. A known
@@ -377,6 +294,7 @@ impl BrokerHandle {
                 TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => guard.release_terminal(),
                 TerminationKind::Unknown => unreachable!("terminal evidence checked above"),
             }
+            self.domain.reconcile_debt(request_id);
             self.accounting_changed.notify_one();
         }
         if !accounting.contains_key(&request_id) {
@@ -389,24 +307,152 @@ impl BrokerHandle {
         self.admission.active_count()
     }
 
+    /// Close local submission at the accounting lock, then await every
+    /// enqueued/running provider reader and its durable receipt write.
+    /// Unknown remote outcomes stay charged; this is not remote termination.
+    pub async fn quiesce_for_handoff(&self) -> Result<serde_json::Value> {
+        {
+            let _accounting = self.accounting.lock().expect("broker accounting poisoned");
+            self.handoff_closed.store(true, std::sync::atomic::Ordering::Release);
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            let snapshot = {
+                let accounting = self.accounting.lock().expect("broker accounting poisoned");
+                if accounting.values().any(Option::is_none) { None } else {
+                    let sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+                    let requests = accounting.iter().map(|(id, charge)| {
+                        let source = sources.get(id);
+                        serde_json::json!({
+                            "request_id": id, "state": "unknown", "charged": charge.is_some(),
+                            "binding": source.map(|source| source.binding()),
+                            "sealed_payload": source.map(|source| source.payload()),
+                            "reader_available": source.is_some(),
+                        })
+                    }).collect::<Vec<_>>();
+                    Some(serde_json::json!({
+                        "schema_version": 1, "local_admission_closed": true,
+                        "local_provider_readers_drained": true,
+                        "remote_termination_claimed": false,
+                        "requests": requests,
+                        "domains": self.domains.domains().iter()
+                            .map(|domain| domain.handoff_snapshot()).collect::<Vec<_>>(),
+                    }))
+                }
+            };
+            if let Some(snapshot) = snapshot { return Ok(snapshot); }
+            ensure!(tokio::time::Instant::now() < deadline,
+                "BROKER_HANDOFF_INCOMPLETE: local provider/receipt readers remain; remote debt not released");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+
+    pub fn resume_after_handoff_abort(&self) {
+        let _accounting = self.accounting.lock().expect("broker accounting poisoned");
+        self.handoff_closed.store(false, std::sync::atomic::Ordering::Release);
+        self.accounting_changed.notify_one();
+    }
+
     pub fn capacity(&self) -> CapacitySnapshot {
         self.admission.capacity()
     }
 
+    /// The capacity that is actually available now: the configured budget
+    /// minus the quarantined unknown debt and the enforceable external
+    /// reservations of this domain.
+    pub fn effective_capacity(&self) -> DomainCapacity {
+        self.domain.effective_compute_capacity()
+    }
+
+    /// The residency pool of this domain.
+    pub fn kv_snapshot(&self) -> KvPoolState {
+        self.domain.kv().clone()
+    }
+
+    /// Recompute the main/children share of the residency pool.
+    pub fn rebalance_kv(&self) -> Result<AllocationPlan, KvError> {
+        let mut pool = self.domain.kv_mut();
+        self.kv.rebalance(&mut pool)
+    }
+
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
-        self.submit_inner(req, None)
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, None, purpose, None)
+    }
+
+    /// Install the durable runtime error journal of the owning subject.
+    ///
+    /// The broker journals the errors it cannot continue from, or that force a
+    /// degradation, against the agent and conversation of the actual request.
+    /// The write is fail-soft and never replaces the error it reports.
+    pub fn set_runtime_error_sink(&self, sink: Arc<dyn RuntimeErrorSink>) {
+        if let Ok(mut guard) = self.error_sink.lock() {
+            *guard = Some(sink);
+        }
     }
 
     pub fn submit_recorded(&self, req: InferenceRequest, sink: Arc<dyn InferenceReceiptSink>) -> Result<()> {
-        self.submit_inner(req, Some(sink))
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, Some(sink), purpose, None)
     }
 
-    fn submit_inner(&self, req: InferenceRequest, receipt_sink: Option<Arc<dyn InferenceReceiptSink>>) -> Result<()> {
+    /// Submit a controlled call with its declared purpose.
+    pub fn submit_purpose(&self, call: BrokeredCall) -> Result<()> {
+        self.submit_inner(call.request, None, call.purpose, None)
+    }
+
+    /// Submit a controlled call with its declared purpose and a durable
+    /// receipt owner.
+    pub fn submit_recorded_purpose(
+        &self,
+        call: BrokeredCall,
+        sink: Arc<dyn InferenceReceiptSink>,
+    ) -> Result<()> {
+        self.submit_inner(call.request, Some(sink), call.purpose, None)
+    }
+
+    /// Submit a streamed controlled call.
+    ///
+    /// The stream starts at the provider. Without a durable journal the call
+    /// is refused instead of dropping content silently; the public sink is
+    /// optional, the durable one is not.
+    pub fn submit_stream(
+        &self,
+        call: BrokeredCall,
+        identity: StreamIdentity,
+        journal: Option<Arc<dyn StreamJournalSink>>,
+        public: Option<Arc<dyn PublicStreamSink>>,
+    ) -> Result<()> {
+        ensure!(
+            journal.is_some(),
+            "streamed inference needs a durable journal sink; content is never dropped silently"
+        );
+        self.submit_inner(
+            call.request,
+            None,
+            call.purpose,
+            Some(StreamSubmission { identity, journal, public }),
+        )
+    }
+
+    fn submit_inner(
+        &self,
+        req: InferenceRequest,
+        receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
+        purpose: RequestPurpose,
+        stream: Option<StreamSubmission>,
+    ) -> Result<()> {
         anyhow::ensure!(
             req.provider_binding == self.binding,
             "MODEL_PROVIDER_BINDING_MISMATCH: request not admitted; seal a new revision"
         );
+        ensure!(
+            self.registry.runtime_for(&req.provider_binding).is_some(),
+            "no installed provider runtime can serve this binding"
+        );
         let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
+        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire),
+            "BROKER_HANDOFF_CLOSED: request rejected before enqueue/send");
         ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
         let id = req.request_id;
         if let Some(sink) = &receipt_sink {
@@ -418,7 +464,7 @@ impl BrokerHandle {
             sources.insert(id, source);
         }
         accounting.insert(id, None);
-        if self.tx.send(Submission { request: req, receipt_sink }).is_err() {
+        if self.tx.send(Submission { request: req, receipt_sink, purpose, stream }).is_err() {
             accounting.remove(&id);
             self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&id);
             return Err(anyhow!("broker admission closed; request was not enqueued"));
@@ -496,18 +542,22 @@ impl FairQueue {
 }
 
 struct CompletedRequest {
-    submission: Submission,
+    request: InferenceRequest,
+    receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
     guard: AdmissionGuard,
 }
 
 pub struct Broker {
     rx: mpsc::UnboundedReceiver<Submission>,
-    admission: AdmissionController,
-    provider: ActiveProvider,
+    domain: Arc<ResourceDomain>,
+    domains: Arc<ResourceDomainRegistry>,
+    registry: Arc<ProviderRegistry>,
     accounting: Accounting,
     recovery_sources: RecoverySources,
     accounting_changed: Arc<Notify>,
+    kv: Arc<KvAllocator>,
+    error_sink: ErrorSinkCell,
 }
 
 impl Broker {
@@ -521,125 +571,171 @@ impl Broker {
         Self::from_env_with_admission(AdmissionController::new(max))
     }
 
-    pub fn with_local_provider(provider: LocalModelProvider, max: u64) -> Result<(Self, BrokerHandle)> {
+    pub fn with_local_provider(provider: crate::local_provider::LocalModelProvider, max: u64) -> Result<(Self, BrokerHandle)> {
         provider.binding().validate_endpoint()?;
-        Ok(Self::with_provider(ActiveProvider::Local(provider), AdmissionController::new(max)))
+        let domain = default_domain(AdmissionController::new(max))?;
+        Self::with_runtime(Arc::new(provider), domain)
     }
 
     /// Bind an explicitly configured real Anthropic provider without reading
     /// ambient credentials. Credentials stay separate from the validated
     /// endpoint; dispatch shares the ordinary broker queue and compute budget.
     pub fn with_anthropic_provider(
-        provider: AnthropicProvider,
+        provider: crate::provider::AnthropicProvider,
         max: u64,
     ) -> Result<(Self, BrokerHandle)> {
-        let provider = ActiveProvider::Anthropic(provider);
         provider.binding().validate_endpoint()?;
-        Ok(Self::with_provider(provider, AdmissionController::new(max)))
+        let domain = default_domain(AdmissionController::new(max))?;
+        Self::with_runtime(Arc::new(provider), domain)
+    }
+
+    /// Bind one installed provider runtime to one physical resource domain.
+    ///
+    /// This is the open path: the runtime may be any installed provider, and
+    /// the domain is the deployment's explicit binding of that endpoint to the
+    /// engine it really reaches.
+    pub fn with_runtime(
+        runtime: Arc<dyn ProviderRuntime>,
+        domain: Arc<ResourceDomain>,
+    ) -> Result<(Self, BrokerHandle)> {
+        runtime.binding().validate_endpoint()?;
+        let registry = Arc::new(ProviderRegistry::new());
+        registry.install(Arc::clone(&runtime));
+        Ok(Self::with_registry(registry, domain))
+    }
+
+    /// Bind a whole registry of installed provider runtimes to one physical
+    /// resource domain. The broker serves the bindings the registry can run.
+    pub fn with_registry(
+        registry: Arc<ProviderRegistry>,
+        domain: Arc<ResourceDomain>,
+    ) -> (Self, BrokerHandle) {
+        let domains = Arc::new(ResourceDomainRegistry::new());
+        let _ = domains.register(Arc::clone(&domain));
+        Self::assemble(registry, domain, domains)
     }
 
     fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
-        let provider = ActiveProvider::from_env()?;
-        provider.binding().validate_endpoint()?;
-        Ok(Self::with_provider(provider, admission))
+        let runtime = env_runtime()?;
+        let domain = default_domain(admission.clone())?;
+        let registry = Arc::new(ProviderRegistry::new());
+        registry.install(Arc::clone(&runtime));
+        Ok(Self::assemble(registry, domain, Arc::new(ResourceDomainRegistry::new())))
     }
 
-    /// Explicit offline construction; does not inspect ambient credentials and
-    /// returns typed Unavailable rather than a fabricated successful completion.
-    pub fn offline() -> (Self, BrokerHandle) {
-        Self::with_provider(ActiveProvider::Stub, AdmissionController::nominal())
-    }
-
-    /// Read one bounded native metadata response before dispatch. The model
-    /// must match exactly; no first-card fallback or capability name table.
-    pub async fn discover_capabilities(&self) -> Result<ProviderCapabilities> {
-        let binding = self.provider.binding();
-        let metadata = match &self.provider {
-            ActiveProvider::Local(provider) => {
-                let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10));
-                if provider.allow_invalid_certs {
-                    builder = builder.danger_accept_invalid_certs(true);
-                }
-                builder = builder.redirect(reqwest::redirect::Policy::none());
-                let client = builder.build()?;
-                let models = metadata_response(client.get(format!(
-                    "{}/v1/models", provider.base_url.trim_end_matches('/'),
-                ))).await?;
-                (models, None)
-            }
-            ActiveProvider::Anthropic(provider) => {
-                let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(10))
-                    // `x-api-key` survives reqwest redirects; never re-send to a
-                    // host the configured binding did not name.
-                    .redirect(reqwest::redirect::Policy::none())
-                    .build()?;
-                let models = metadata_response(client.get(format!(
-                    "{}/v1/models", provider.base_url.trim_end_matches('/'),
-                ))
-                    .header("x-api-key", &provider.api_key)
-                    .header("anthropic-version", crate::provider::ANTHROPIC_API_VERSION)
-                    .query(&[("limit", "1000")])).await?;
-                (models, Some("incomplete metadata page; refusing an inexact match"))
-            }
-            ActiveProvider::Stub => return Err(anyhow!("offline binding has no model metadata")),
-            #[cfg(test)]
-            ActiveProvider::Fixture(_) => return Err(anyhow!("fixture binding has no model metadata")),
-        };
-        let (models, incomplete) = metadata;
-        let mut matches = models.data.into_iter().filter(|model| model.id == binding.model());
-        let metadata = matches.next().ok_or_else(|| anyhow!(
-            "bound model metadata not found{}", incomplete.filter(|_| models.has_more == Some(true)).unwrap_or(""),
-        ))?;
-        ensure!(matches.next().is_none(), "duplicate metadata for bound model");
-        ProviderCapabilities::from_metadata(binding, metadata)
-    }
-
-    fn with_provider(
-        provider: ActiveProvider,
-        admission: AdmissionController,
+    fn assemble(
+        registry: Arc<ProviderRegistry>,
+        domain: Arc<ResourceDomain>,
+        domains: Arc<ResourceDomainRegistry>,
     ) -> (Self, BrokerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let binding = provider.binding();
+        // The binding comes from the installed runtime, not from a profile
+        // table: the runtime is what actually executes the request.
+        let binding = registry
+            .primary_binding()
+            .unwrap_or(ProviderBinding::Stub { codec: 2 });
+        // The compute budget belongs to the physical domain; the handle and
+        // the broker must observe the same counter.
+        let admission = domain.admission().clone();
         let accounting = Arc::new(Mutex::new(HashMap::new()));
         let recovery_sources = Arc::new(Mutex::new(HashMap::new()));
         let accounting_changed = Arc::new(Notify::new());
+        let kv = Arc::new(KvAllocator::new(
+            Box::new(AutomaticKvPolicy::default()),
+            KvCapabilities::default(),
+        ));
+        let error_sink = new_error_sink_cell();
         (
             Self {
                 rx,
-                admission: admission.clone(),
-                provider,
+                domain: Arc::clone(&domain),
+                domains: Arc::clone(&domains),
+                registry: Arc::clone(&registry),
                 accounting: Arc::clone(&accounting),
                 recovery_sources: Arc::clone(&recovery_sources),
                 accounting_changed: Arc::clone(&accounting_changed),
+                kv: Arc::clone(&kv),
+                error_sink: Arc::clone(&error_sink),
             },
             BrokerHandle {
                 tx,
                 binding,
                 admission,
+                domain,
+                domains,
+                registry,
                 accounting,
                 recovery_sources,
                 accounting_changed,
+                kv,
+                error_sink,
+                handoff_closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
         )
     }
 
-    #[cfg(test)]
-    fn with_fixture_provider(provider: Arc<dyn FixtureProvider>, max: u64) -> (Self, BrokerHandle) {
-        Self::with_provider(
-            ActiveProvider::Fixture(provider),
-            AdmissionController::new(max),
-        )
+    /// Explicit offline construction; does not inspect ambient credentials and
+    /// returns typed Unavailable rather than a fabricated successful completion.
+    pub fn offline() -> (Self, BrokerHandle) {
+        let registry = Arc::new(ProviderRegistry::new());
+        registry.install(Arc::new(OfflineRuntime));
+        let domain = default_domain(AdmissionController::nominal())
+            .expect("the default domain is constructible");
+        let domains = Arc::new(ResourceDomainRegistry::new());
+        let _ = domains.register(Arc::clone(&domain));
+        Self::assemble(registry, domain, domains)
+    }
+
+    /// Observe what the bound backend actually offers.
+    pub async fn probe_capabilities(&self) -> Result<BackendCapabilitySnapshot> {
+        let binding = self
+            .registry
+            .primary_binding()
+            .ok_or_else(|| anyhow!("no provider runtime is installed"))?;
+        let runtime = self.runtime_for(&binding)?;
+        runtime.probe().await
+    }
+
+    /// Read one bounded native metadata response before dispatch. The model
+    /// must match exactly; no first-card fallback or capability name table.
+    pub async fn discover_capabilities(&self) -> Result<ProviderCapabilities> {
+        let binding = self
+            .registry
+            .primary_binding()
+            .ok_or_else(|| anyhow!("no provider runtime is installed"))?;
+        let runtime = self.runtime_for(&binding)?;
+        let snapshot = runtime.probe().await?;
+        let binding = runtime.binding();
+        let metadata = snapshot
+            .raw_evidence
+            .iter()
+            .filter_map(|document| serde_json::from_value::<ModelMetadataList>(document.clone()).ok())
+            .flat_map(|list| list.data)
+            .find(|model| model.id == binding.model())
+            .ok_or_else(|| anyhow!("bound model metadata not found"))?;
+        ProviderCapabilities::from_metadata(binding, metadata)
+    }
+
+    /// Count the tokens one request would send, when the binding supports it.
+    pub async fn count_tokens(&self, request: &InferenceRequest) -> Result<TokenCount> {
+        let runtime = self.runtime_for(&request.provider_binding)?;
+        runtime.count_tokens(request).await
+    }
+
+    fn runtime_for(&self, binding: &ProviderBinding) -> Result<Arc<dyn ProviderRuntime>> {
+        self.registry
+            .runtime_for(binding)
+            .ok_or_else(|| anyhow!("no installed provider runtime can serve this binding"))
     }
 
     fn finish(&self, completed: CompletedRequest) {
-        let CompletedRequest { submission, result, guard } = completed;
-        let Submission { request: req, receipt_sink } = submission;
+        let CompletedRequest { request, receipt_sink, result, guard } = completed;
+        let request_id = request.request_id;
         if let Some(sink) = receipt_sink {
             if let Err(error) = sink.record(&result) {
-                warn!(request_id=%req.request_id, %error, "model receipt not durably recorded; retaining unknown charge");
+                warn!(request_id=%request_id, %error, "model receipt not durably recorded; retaining unknown charge");
                 self.accounting.lock().expect("broker accounting poisoned")
-                    .insert(req.request_id, Some(guard));
+                    .insert(request_id, Some(guard));
                 return;
             }
         }
@@ -649,19 +745,34 @@ impl Broker {
         let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
         match termination {
             TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => {
-                accounting.remove(&req.request_id);
-                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&req.request_id);
+                accounting.remove(&request_id);
+                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
+                self.domain.reconcile_debt(request_id);
                 guard.release_terminal();
             }
             TerminationKind::NeverDispatched => {
-                accounting.remove(&req.request_id);
-                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&req.request_id);
+                accounting.remove(&request_id);
+                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
+                self.domain.reconcile_debt(request_id);
                 guard.release_never_dispatched();
             }
-            TerminationKind::Unknown => { accounting.insert(req.request_id, Some(guard)); }
+            TerminationKind::Unknown => {
+                accounting.insert(request_id, Some(guard));
+                crate::error_sink::journal_runtime_error(
+                    &self.error_sink,
+                    &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
+                );
+                self.domain.quarantine(
+                    request_id,
+                    now_ms(),
+                    "the provider outcome could not be determined",
+                );
+            }
         }
         drop(accounting);
-        let _ = req.result_tx.send(result);
+        // The caller may have disappeared; the durable receipt above does not
+        // depend on it.
+        let _ = request.result_tx.send(result);
     }
 
     pub async fn run(mut self) {
@@ -681,47 +792,34 @@ impl Broker {
             // Fill only currently available slots. A full budget leaves the
             // request in FairQueue instead of losing it or failing it spuriously.
             while !queue.is_empty() {
-                let Some(guard) = self.admission.try_admit() else {
+                let Some(guard) = self.domain.admission().try_admit() else {
                     break;
                 };
                 let submission = queue.pop().expect("queue checked non-empty");
-                let provider = self.provider.clone();
+                let registry = Arc::clone(&self.registry);
+                let domain = Arc::clone(&self.domain);
+                let kv = Arc::clone(&self.kv);
+                let error_sink = Arc::clone(&self.error_sink);
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
-                    let req = &submission.request;
-                    let admitted = submission.receipt_sink.as_ref().map_or(Ok(DispatchFence::Send), |sink| sink.may_dispatch());
-                    let result = match admitted {
-                        Ok(DispatchFence::Send) => provider.complete(req).await,
-                        otherwise => {
-                            let status = match otherwise {
-                                Ok(DispatchFence::Fenced) => InferenceStatus::Cancelled,
-                                Err(error) => {
-                                warn!(request_id=%req.request_id, %error, "model dispatch fence could not be checked");
-                                    InferenceStatus::Failed
-                                }
-                                Ok(DispatchFence::Unknown) => InferenceStatus::Failed,
-                                Ok(DispatchFence::Send) => unreachable!("dispatched above"),
-                            };
-                            // A fenced request provably never sent; an unknown
-                            // verdict means a dispatch may already exist, so
-                            // its terminal evidence stays recoverable instead
-                            // of a false never-sent claim.
-                            let termination = if status == InferenceStatus::Cancelled {
-                                TerminationEvidence::never_dispatched()
-                            } else {
-                                TerminationEvidence::unknown()
-                            };
-                            InferenceResult {
-                                request_id: req.request_id,
-                                status,
-                                response: None,
-                                effective: EffectiveInference::for_request(req),
-                                termination,
-                                quota_headers: Vec::new(),
-                            }
-                        }
-                    };
-                    let _ = completed_tx.send(CompletedRequest { submission, result, guard });
+                    let Submission { request, receipt_sink, purpose, stream } = submission;
+                    let result = execute_request(
+                        &request,
+                        receipt_sink.as_ref(),
+                        purpose,
+                        stream,
+                        &registry,
+                        &domain,
+                        &kv,
+                        &error_sink,
+                    )
+                    .await;
+                    let _ = completed_tx.send(CompletedRequest {
+                        request,
+                        receipt_sink,
+                        result,
+                        guard,
+                    });
                 });
                 inflight += 1;
             }
@@ -772,12 +870,108 @@ impl Broker {
     }
 }
 
+/// The provider runtime selected from the environment.
+fn env_runtime() -> Result<Arc<dyn ProviderRuntime>> {
+    if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
+        let provider = crate::local_provider::LocalModelProvider::from_env()?;
+        info!(model=%provider.model, "local model provider selected (§22.1)");
+        return Ok(Arc::new(provider));
+    }
+    if let Some(provider) = crate::provider::AnthropicProvider::from_env() {
+        info!("Anthropic API key found — real inference enabled");
+        return Ok(Arc::new(provider));
+    }
+    info!("no inference provider configured — typed unavailable mode");
+    Ok(Arc::new(OfflineRuntime))
+}
+
+/// The default physical domain of an unclassified deployment.
+///
+/// The engine identity is unknown, so the domain offers no hard guarantee; it
+/// only keeps one conservative budget for everything this deployment runs. A
+/// deployment that knows its engines binds them explicitly.
+fn default_domain(admission: AdmissionController) -> Result<Arc<ResourceDomain>> {
+    let capacity = admission.capacity();
+    Ok(ResourceDomain::new(
+        ResourceDomainIdentity {
+            domain_id: "default.unclassified".into(),
+            engine_identity: "unclassified".into(),
+            engine_incarnation: None,
+            epoch: 1,
+        },
+        capacity.value.unwrap_or(1),
+        capacity.provenance,
+        None,
+        crate::admission::CapacityProvenance::Unknown,
+    ))
+}
+
+/// The typed unavailable runtime.
+struct OfflineRuntime;
+
+#[async_trait::async_trait]
+impl ProviderRuntime for OfflineRuntime {
+    fn profile(&self) -> &crate::profile::ProviderProfile {
+        static PROFILE: std::sync::LazyLock<crate::profile::ProviderProfile> = std::sync::LazyLock::new(|| crate::profile::ProviderProfile {
+            profile_id: "provider.unavailable".into(),
+            revision: 2,
+            backend_family: crate::profile::BackendFamily::Other("unavailable".into()),
+            transport: crate::profile::TransportKind::HttpJson,
+            endpoint_origin: "http://127.0.0.1:0".into(),
+            model_id: "stub".into(),
+            api_version: None,
+            sdk: None,
+            request_schema_revision: 2,
+            response_schema_revision: 2,
+            gateway_profile: None,
+            beta_features: Vec::new(),
+            sampling: crate::profile::SamplingCapabilities::default(),
+            auth: crate::profile::AuthBinding::none(),
+            usage: crate::profile::UsageFieldMapping::default(),
+            native_namespaces: Vec::new(),
+            resource_domain_id: "default.unclassified".into(),
+            engine_incarnation: None,
+            default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+            serializer_revision: 2,
+        });
+        &PROFILE
+    }
+
+    fn binding(&self) -> ProviderBinding {
+        ProviderBinding::Stub { codec: 2 }
+    }
+
+    fn available(&self) -> bool {
+        false
+    }
+
+    async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
+        Err(anyhow!("no provider is configured"))
+    }
+
+    async fn stream(
+        &self,
+        _request: &InferenceRequest,
+        _publisher: &BoundedStreamPublisher,
+    ) -> Result<crate::stream::StreamOutcome> {
+        Err(anyhow!("no provider is configured"))
+    }
+
+    async fn count_tokens(&self, _request: &InferenceRequest) -> Result<TokenCount> {
+        Err(anyhow!("no provider is configured"))
+    }
+
+    async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
+        Err(anyhow!("no provider is configured"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::admission::{CapacityPool, CapacityProvenance};
     use crate::request::{
-        InferenceMessage, InferencePayload, InferencePriority, TokenUsage, WireErrorCode,
+        InferenceMessage, InferencePayload, TokenUsage, WireErrorCode,
     };
     use shenko_types::ids::{ControllerEpoch, EntityId};
     use std::collections::BTreeMap;
@@ -829,7 +1023,38 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl FixtureProvider for ControlledProvider {
+    impl ProviderRuntime for ControlledProvider {
+        fn profile(&self) -> &crate::profile::ProviderProfile {
+            static PROFILE: std::sync::LazyLock<crate::profile::ProviderProfile> = std::sync::LazyLock::new(|| crate::profile::ProviderProfile {
+                profile_id: "local.openai.chat_completions".into(),
+                revision: crate::local_provider::SERIALIZER_REVISION,
+                backend_family: crate::profile::BackendFamily::OpenAiCompatible,
+                transport: crate::profile::TransportKind::HttpJson,
+                endpoint_origin: "http://127.0.0.1".into(),
+                model_id: "controlled-fixture".into(),
+                api_version: None,
+                sdk: None,
+                request_schema_revision: crate::local_provider::SERIALIZER_REVISION,
+                response_schema_revision: crate::local_provider::SERIALIZER_REVISION,
+                gateway_profile: None,
+                beta_features: Vec::new(),
+                sampling: crate::profile::SamplingCapabilities::default(),
+                auth: crate::profile::AuthBinding::none(),
+                usage: crate::profile::UsageFieldMapping {
+                    input_tokens_path: Some("usage.prompt_tokens".into()),
+                    output_tokens_path: Some("usage.completion_tokens".into()),
+                    cache_read_tokens_path: None,
+                    cache_write_tokens_path: None,
+                },
+                native_namespaces: Vec::new(),
+                resource_domain_id: "default.unclassified".into(),
+                engine_incarnation: None,
+                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+                serializer_revision: crate::local_provider::SERIALIZER_REVISION,
+            });
+            &PROFILE
+        }
+
         fn binding(&self) -> ProviderBinding {
             self.binding.clone()
         }
@@ -860,7 +1085,24 @@ mod tests {
                     cache_write_tokens: None,
                 }),
                 ratelimit_headers: Vec::new(),
+                citations: Vec::new(),
             })
+        }
+
+        async fn stream(
+            &self,
+            _request: &InferenceRequest,
+            _publisher: &BoundedStreamPublisher,
+        ) -> Result<crate::stream::StreamOutcome> {
+            Err(anyhow!("the fixture does not stream"))
+        }
+
+        async fn count_tokens(&self, _request: &InferenceRequest) -> Result<TokenCount> {
+            Err(anyhow!("the fixture does not count tokens"))
+        }
+
+        async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
+            Err(anyhow!("the fixture does not probe"))
         }
     }
 
@@ -895,7 +1137,7 @@ mod tests {
 
         // C=1: continuous Subject work cannot starve Low children.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_fixture_provider(provider.clone(), 1);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1)).unwrap()).unwrap();
         let (subject_one, subject_one_rx) = submit(&handle, InferencePriority::Subject);
         let (low_one, low_one_rx) = submit(&handle, InferencePriority::Low);
         let (subject_two, subject_two_rx) = submit(&handle, InferencePriority::Subject);
@@ -928,7 +1170,7 @@ mod tests {
 
         // C=2: two same-tier futures really overlap and start in FIFO order.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_fixture_provider(provider.clone(), 2);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2)).unwrap()).unwrap();
         assert_eq!(handle.capacity().pool, CapacityPool::Compute);
         assert_eq!(handle.capacity().value, Some(2));
         assert_eq!(handle.capacity().provenance, CapacityProvenance::Configured);
@@ -964,7 +1206,7 @@ mod tests {
 
         // C=0: work stays pending instead of receiving synthetic capacity failure.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_fixture_provider(provider.clone(), 0);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(0)).unwrap()).unwrap();
         let (_, mut pending_rx) = submit(&handle, InferencePriority::Subject);
         let run = tokio::spawn(broker.run());
         assert!(
@@ -1027,9 +1269,9 @@ mod tests {
             socket.shutdown().await.unwrap();
         });
 
-        let provider = LocalModelProvider::new(format!("http://{address}"), "fixture-local".into());
+        let provider = crate::local_provider::LocalModelProvider::new(format!("http://{address}"), "fixture-local".into());
         let (broker, handle) =
-            Broker::with_provider(ActiveProvider::Local(provider), AdmissionController::new(1));
+            Broker::with_local_provider(provider, 1).expect("the local provider binds");
         let binding = handle.binding().clone();
         let payload = InferencePayload {
             system_prompt: "fixture system".into(),

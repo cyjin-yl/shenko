@@ -635,6 +635,7 @@ mod tests {
                 decision_ref: EntityId::new(),
             },
             input: serde_json::Value::Null,
+            child_tools: None,
         };
         let (mut operation, mut attempt) =
             handler.operation_parts(&invocation, input_ref).unwrap();

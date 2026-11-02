@@ -320,6 +320,24 @@ pub enum MediaIngressEvent {
         /// Number of segments holding at least one admitted revision.
         segments: u64,
     },
+    /// A recording started or stopped (§20 录音状态、正在存储的范围和停止
+    /// 控制必须真实可见). The row states what is actually stored, so the
+    /// subject sees the scope instead of guessing it.
+    Recording {
+        event_id: EntityId,
+        stream: MediaStreamDescriptor,
+        recording: Box<StoredMediaRecording>,
+        action: MediaRecordingAction,
+    },
+    /// A priority input of the media session: barge-in, interjection, stop
+    /// playback or an urgent message (§20 打断、插话、停止播音与紧急消息是
+    /// 同一事件模型中的优先输入). It is an ordinary durable input of the
+    /// same subject, never a second main loop.
+    Priority {
+        event_id: EntityId,
+        stream: MediaStreamDescriptor,
+        input: Box<StoredMediaPriorityInput>,
+    },
 }
 
 impl MediaIngressEvent {
@@ -327,7 +345,9 @@ impl MediaIngressEvent {
         match self {
             Self::StreamOpened { event_id, .. }
             | Self::Revision { event_id, .. }
-            | Self::StreamState { event_id, .. } => *event_id,
+            | Self::StreamState { event_id, .. }
+            | Self::Recording { event_id, .. }
+            | Self::Priority { event_id, .. } => *event_id,
         }
     }
 
@@ -338,6 +358,8 @@ impl MediaIngressEvent {
         match self {
             Self::Revision { .. } => "media_revision",
             Self::StreamOpened { .. } | Self::StreamState { .. } => "media_stream",
+            Self::Recording { .. } => "media_recording",
+            Self::Priority { .. } => "media_priority",
         }
     }
 
@@ -345,7 +367,9 @@ impl MediaIngressEvent {
         match self {
             Self::StreamOpened { stream, .. }
             | Self::Revision { stream, .. }
-            | Self::StreamState { stream, .. } => stream,
+            | Self::StreamState { stream, .. }
+            | Self::Recording { stream, .. }
+            | Self::Priority { stream, .. } => stream,
         }
     }
 }
@@ -419,4 +443,401 @@ pub struct MediaTranscript {
     /// segments.
     pub gaps: Vec<(u64, u64)>,
     pub segments: Vec<EffectiveSegment>,
+}
+
+// ---------------------------------------------------------------------------
+// Recording control - SPEC 20 (recording state, stored scope, stop control)
+// ---------------------------------------------------------------------------
+
+/// Durable state of one recording.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaRecordingState {
+    /// Audio is being captured; admitted revisions may reference sealed
+    /// original audio.
+    Recording,
+    /// Capture stopped on purpose. The retained audio and transcript stay
+    /// queryable; stopping erases nothing.
+    Stopped,
+    /// Capture failed. The reason is retained with the recording row.
+    Failed,
+}
+
+impl MediaRecordingState {
+    pub fn is_terminal(self) -> bool {
+        matches!(self, Self::Stopped | Self::Failed)
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Recording => "recording",
+            Self::Stopped => "stopped",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "recording" => Some(Self::Recording),
+            "stopped" => Some(Self::Stopped),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// What a recording actually stores, declared before capture starts.
+///
+/// The scope is a fact about storage, not a promise about the future: the
+/// provider states whether original audio is sealed into this ledger's CAS
+/// and which retention it applies. The kernel never widens the scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaRecordingScope {
+    /// Provider label of what is being recorded ("call", "classroom",
+    /// "meeting", "device").
+    pub kind: String,
+    /// True when the original audio bytes are sealed into this ledger's CAS
+    /// and referenced by the admitted transcript revisions.
+    pub store_audio: bool,
+    /// Provider retention claim, recorded verbatim ("session", "archive", ...).
+    pub retention: String,
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub provider_facts: serde_json::Map<String, serde_json::Value>,
+}
+
+/// The action a recording control asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaRecordingAction {
+    Start,
+    Stop,
+}
+
+impl MediaRecordingAction {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Start => "start",
+            Self::Stop => "stop",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "start" => Some(Self::Start),
+            "stop" => Some(Self::Stop),
+            _ => None,
+        }
+    }
+}
+
+/// One recording control command with its own idempotency identity.
+///
+/// `control_id` is the durable identity of THIS command: a replay returns
+/// the original receipt, and a different fact under the same identity is a
+/// typed conflict instead of a silent overwrite.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaRecordingControl {
+    /// Provider-scoped idempotency identity of this control command.
+    pub control_id: String,
+    /// Provider-scoped recording identity inside the stream.
+    pub recording_id: String,
+    pub stream: MediaStreamDescriptor,
+    pub action: MediaRecordingAction,
+    /// The scope being stored. Required for `Start`; a `Stop` keeps the
+    /// committed scope of the start it ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<MediaRecordingScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// The committed recording row, exactly as stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredMediaRecording {
+    pub recording_id: String,
+    pub stream: MediaStreamDescriptor,
+    pub state: MediaRecordingState,
+    pub started_at_ms: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_at_ms: Option<i64>,
+    pub scope: MediaRecordingScope,
+    /// The control identity that started this recording.
+    pub start_control_id: String,
+    /// The control identity that stopped it, when it was stopped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_control_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The durable subject inbox event bound to the LATEST control.
+    pub event_id: EntityId,
+    pub admitted_at_ms: i64,
+    pub admitted_commit: CommitRef,
+}
+
+/// Storage cost of one recording, computed from the retained facts.
+///
+/// The numbers answer "media source and storage cost are queryable": how
+/// much original audio this ledger actually sealed for the recording, how
+/// many revisions carry a sealed audio reference, and how many transcript
+/// revisions were retained.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaRecordingUsage {
+    /// Bytes of original audio sealed in this ledger's CAS for this
+    /// recording's revisions.
+    pub audio_bytes: u64,
+    /// Number of retained revisions that carry a sealed audio reference.
+    pub audio_segments: u64,
+    /// Number of retained transcript revisions of this recording's stream.
+    pub revisions: u64,
+}
+
+/// Durable receipt of one recording control admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaRecordingReceipt {
+    pub recording_id: String,
+    /// State reported by THIS admission, not the recording's later state.
+    pub state: MediaRecordingState,
+    pub action: MediaRecordingAction,
+    /// True when the same control identity was already admitted.
+    pub replayed: bool,
+    /// Bound subject event id; stable across replays.
+    pub event_id: EntityId,
+    pub commit_ref: CommitRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaRecordingAdmission {
+    pub receipt: MediaRecordingReceipt,
+    /// Present iff this commit admitted a NEW fact, for an optional live wake.
+    pub notify: Option<MediaIngressEvent>,
+}
+
+// ---------------------------------------------------------------------------
+// Priority inputs - SPEC 20 (barge-in, interjection, stop playback, urgent)
+// ---------------------------------------------------------------------------
+
+/// The kind of priority input a media session raises.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaPriorityKind {
+    /// The far side started speaking over the agent's own playback.
+    BargeIn,
+    /// A short interjection that is not addressed to the agent.
+    Interjection,
+    /// Stop the agent's playback now.
+    StopPlayback,
+    /// An urgent message that must reach the subject ahead of routine input.
+    UrgentMessage,
+}
+
+impl MediaPriorityKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::BargeIn => "barge_in",
+            Self::Interjection => "interjection",
+            Self::StopPlayback => "stop_playback",
+            Self::UrgentMessage => "urgent_message",
+        }
+    }
+
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "barge_in" => Some(Self::BargeIn),
+            "interjection" => Some(Self::Interjection),
+            "stop_playback" => Some(Self::StopPlayback),
+            "urgent_message" => Some(Self::UrgentMessage),
+            _ => None,
+        }
+    }
+}
+
+/// One priority input notice of a media session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaPriorityInput {
+    /// Provider-scoped idempotency identity of this notice.
+    pub priority_id: String,
+    pub stream: MediaStreamDescriptor,
+    pub kind: MediaPriorityKind,
+    /// The provider's own words, when the provider reported any. Never
+    /// synthesized by the kernel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Provider occurrence time, epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occurred_at_ms: Option<i64>,
+    /// Original audio behind this notice, when the provider sealed or
+    /// referenced it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<MediaAudioRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// One retained priority notice, exactly as committed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoredMediaPriorityInput {
+    pub priority_id: String,
+    pub stream: MediaStreamDescriptor,
+    pub kind: MediaPriorityKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occurred_at_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<MediaAudioRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The durable subject inbox event bound to this notice.
+    pub event_id: EntityId,
+    pub admitted_at_ms: i64,
+    pub admitted_commit: CommitRef,
+}
+
+/// Durable receipt of one priority input admission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaPriorityReceipt {
+    pub priority_id: String,
+    pub kind: MediaPriorityKind,
+    pub replayed: bool,
+    pub event_id: EntityId,
+    pub commit_ref: CommitRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaPriorityAdmission {
+    pub receipt: MediaPriorityReceipt,
+    pub notify: Option<MediaIngressEvent>,
+}
+
+// ---------------------------------------------------------------------------
+// Speech output - SPEC 20 AudioOutput
+// ---------------------------------------------------------------------------
+
+/// One text-to-speech request bound to a speech provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaSpeechRequest {
+    /// Provider-scoped idempotency identity of this request.
+    pub request_id: String,
+    /// The text to speak. The kernel never rewrites it.
+    pub text: String,
+    /// The session this speech belongs to, when it answers a live session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<MediaStreamDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Response container requested from the provider ("wav", "mp3", ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speed: Option<f64>,
+}
+
+/// The audio a speech provider actually produced.
+///
+/// The bytes are sealed in this ledger's CAS, so the words that were spoken
+/// and the audio behind them stay linked after the provider call.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MediaSpeechAudio {
+    pub request_id: String,
+    /// The produced audio, sealed in this ledger's CAS.
+    pub object: ObjectRef,
+    pub media_type: String,
+    /// Provider identity that produced the audio.
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Provider bindings - the real bindings behind the reserved media slots
+// ---------------------------------------------------------------------------
+
+/// Which media capability one binding provides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaProviderCapability {
+    /// A live session: audio in, transcript (and speaker claim) out.
+    RealtimeSession,
+    /// Speech synthesis producing audio bytes.
+    SpeechOutput,
+    /// Speaker identity claims from a real voiceprint model.
+    SpeakerIdentity,
+}
+
+/// A configured media engine endpoint.
+///
+/// The binding names the endpoint and the environment variable that holds
+/// its credential; the secret itself never enters the binding, the store or
+/// any admitted fact. Model, sample rate and options stay open where the
+/// engine supports them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaProviderBinding {
+    /// Provider identity used in stream descriptors, e.g. "funasr".
+    pub provider: String,
+    /// Provider account/tenant scope.
+    pub account: String,
+    pub capability: MediaProviderCapability,
+    /// Engine endpoint, e.g. "ws://127.0.0.1:10095" or
+    /// "http://127.0.0.1:8000".
+    pub endpoint: String,
+    /// Name of the environment variable holding the credential, when the
+    /// endpoint needs one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_env: Option<String>,
+    /// Engine/model identity reported with every claim this binding makes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Sample rate the engine expects, in Hz.
+    pub sample_rate: u32,
+    /// Engine-specific options, recorded verbatim with the facts they shape.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub options: serde_json::Map<String, serde_json::Value>,
+}
+
+/// A request to open one realtime media session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaSessionRequest {
+    /// The durable stream identity this session writes under.
+    pub stream: MediaStreamDescriptor,
+    /// Session facts bound at open (call id, class label, direction, remote
+    /// party claims...). Retained verbatim; never interpreted by the kernel.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub descriptor: serde_json::Map<String, serde_json::Value>,
+    /// When the session is also recorded, the scope of that recording.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<MediaRecordingScope>,
+}
+
+/// One transcript event as the engine reported it.
+///
+/// The provider owns the text: Shenko never synthesizes a transcript, and a
+/// partial revision is a real interim claim of the recognizer, not a
+/// placeholder.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaTranscriptEvent {
+    /// The engine's text for this event.
+    pub text: String,
+    /// True for an interim/partial claim, false for the engine's final text.
+    pub partial: bool,
+    /// The engine's speaker claim, when it reported one. It keeps the
+    /// engine's confidence and stays a claim, never an identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<MediaSpeakerClaim>,
+    /// Engine capture time, epoch milliseconds, when reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captured_at_ms: Option<i64>,
+    /// Engine facts recorded verbatim with this revision.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub provider_facts: serde_json::Map<String, serde_json::Value>,
 }

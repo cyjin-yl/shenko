@@ -70,6 +70,12 @@ fn empty_batch_commit_returns_receipt() {
 }
 
 fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
+    initialized_subject_with_bootstrap_event(b"seed")
+}
+
+fn initialized_subject_with_bootstrap_event(
+    bootstrap_event: &[u8],
+) -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
     use shenko_types::subject::{
@@ -91,7 +97,7 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
 
     let dummy_ref = store
         .cas
-        .seal_object(b"seed", "application/json", "test", "raw", 1)
+        .seal_object(bootstrap_event, "application/json", "test", "raw", 1)
         .unwrap()
         .object;
     let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
@@ -149,14 +155,60 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     };
 
     // Initialize genesis atomically
-    let receipt = store
-        .initialize_genesis(&genesis, &head, &first_step)
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        dummy_ref,
+        genesis_commit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first_step, &root_task)
         .unwrap();
-    assert_eq!(receipt.updated.len(), 3);
 
     (dir, store, agent_id)
 }
 
+#[test]
+fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() {
+    use shenko_types::{error::ShenkoError, ids::EntityId};
+    let installation = EntityId::new();
+    let event = serde_json::to_vec(&serde_json::json!({"installation_id": installation})).unwrap();
+    let (dir, store, agent) = initialized_subject_with_bootstrap_event(&event);
+    assert_ne!(installation, store.ledger.ledger_id());
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    assert_eq!(reopened.installation_id_for_subject(agent).unwrap(), installation);
+
+    let genesis = reopened.get_subject_genesis(agent).unwrap().unwrap();
+    let foreign = EntityId::new();
+    let conn = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    conn.execute(
+        "INSERT INTO bootstrap_records(bootstrap_id,installation_id,subject_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4,?5)",
+        rusqlite::params![genesis.bootstrap_id.to_string(), foreign.to_string(), agent.to_string(),
+            serde_json::json!({"installation_id": foreign}).to_string(), genesis.created_commit.seq.0 as i64],
+    ).unwrap();
+    assert!(matches!(reopened.installation_id_for_subject(agent), Err(ShenkoError::Conflict(_))));
+    assert_eq!(reopened.cas.read_object(&genesis.bootstrap_event_ref.digest).unwrap(), event);
+}
+
+#[test]
+fn bootstrap_owner_projection_resolves_the_committed_grant_after_reopen() {
+    use shenko_store::config::OwnerGrant;
+    use shenko_types::{ids::EntityId, object::Digest};
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("owner.db"), dir.join("cas")).unwrap();
+    let installation = EntityId::new();
+    let principal = store.seal_config_object(&serde_json::json!({"kind": "principal"}), "principal").unwrap();
+    let authority = store.seal_config_object(&serde_json::json!({"kind": "authority"}), "authority").unwrap();
+    let (_, granted) = store.claim_owner(installation, EntityId::new(), principal, authority,
+        Digest::blake3(b"owner-projection-test-token")).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("owner.db"), dir.join("cas")).unwrap();
+    let reference = reopened.get_bootstrap_owner_grant(installation).unwrap().unwrap();
+    let bytes = std::fs::read(reopened.cas.verified_object_path(&reference).unwrap()).unwrap();
+    let projected: OwnerGrant = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(serde_json::to_value(projected).unwrap(), serde_json::to_value(granted.unwrap()).unwrap());
+}
 
 #[test]
 fn boundary_waits_for_recorded_step_and_survives_reopen() {
@@ -271,7 +323,7 @@ fn recorded_result_with_wait(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "events":[], "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
@@ -296,7 +348,7 @@ fn recorded_result_with_wait(
     step.record_revision = RecordRevision(1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 11).unwrap().object);
+        "subject_step_input", 12).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);
@@ -343,9 +395,9 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
-        schema_version: 7,
+        schema_version: 8,
         output: shenko_types::output::ParsedOutput {
-            schema_version: 4,
+            schema_version: 5,
             step_id: step.step_id,
             raw_ref: step.model_result_ref.clone().unwrap(),
             text: "继续先前关注".into(),
@@ -359,6 +411,9 @@ fn committed_candidate(
         event_dispositions: vec![EventDisposition {
             event_id: step.step_id,
             disposition: Disposition::Acknowledged,
+            reason: None,
+            priority: None,
+            review_after: None,
         }],
         delegated_task_intents: vec![],
         child_dialogue_intents: vec![],
@@ -366,6 +421,7 @@ fn committed_candidate(
         policy_intents: vec![],
         publication_intents: vec![],
         pending_obligations: vec![],
+        attention_policy: None,
         evidence_refs: vec![],
         successor_step_id: next,
     };
@@ -377,7 +433,7 @@ fn committed_candidate(
                 "application/json",
                 "test",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -428,7 +484,7 @@ fn attach_wait(
                 "application/json",
                 "decisions",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -581,7 +637,7 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
         intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
     }];
     step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
-        "application/json", "decisions", "StepDecision", 7).unwrap().object);
+        "application/json", "decisions", "StepDecision", 8).unwrap().object);
     store.commit_step_and_advance_head(&step, &head, next).unwrap();
     let history = StoreHistory::new(store.clone(), EntityId(head.branch_id.0), Arc::new(estimate_tokens));
     let pending = history.read_range(0, u64::MAX).unwrap();

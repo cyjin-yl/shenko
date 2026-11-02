@@ -21,7 +21,7 @@
 //! Sandboxes under `SHENKO_SANDBOX_ROOT` (default `build/awareness-efficacy`)
 //! keep the real commits, decisions and CAS objects as evidence.
 
-use shenko_awareness_core::AwarenessRegistry;
+use shenko_awareness_core::CognitionCatalog;
 use shenko_broker::broker::{Broker, BrokerHandle};
 use shenko_broker::local_provider::LocalModelProvider;
 use shenko_broker::request::{
@@ -88,6 +88,11 @@ async fn judge(
             OutputAction::Reply { target, .. } => format!("reply to {target:?}"),
             OutputAction::Identity { .. } => "identity change".to_string(),
             OutputAction::SemanticWait { change } => format!("semantic wait: {change:?}"),
+            OutputAction::Dispose { spec } => format!("dispose: {spec:?}"),
+            OutputAction::Obligation { spec } => format!("obligation: {spec:?}"),
+            OutputAction::Dialogue { spec } => format!("dialogue: {spec:?}"),
+            OutputAction::Dnd { spec } => format!("attention: {spec:?}"),
+            OutputAction::Steer { spec } => format!("steer: {spec:?}"),
         }).collect::<Vec<_>>(),
     });
     let (result_tx, _result_rx) = oneshot::channel();
@@ -187,7 +192,7 @@ fn sandbox(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         seed_manifest_ref: object.clone(),
         initial_profile_ref: object.clone(),
         home_manifest_ref: object.clone(),
-        bootstrap_event_ref: object,
+        bootstrap_event_ref: object.clone(),
         created_commit: precommit,
     };
     let head = SubjectBranchHead {
@@ -228,7 +233,15 @@ fn sandbox(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent,
+        object,
+        precommit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first, &root_task)
+        .unwrap();
     (dir, store, agent)
 }
 
@@ -237,7 +250,7 @@ fn sandbox(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
 async fn committed_output(
     label: &str,
     handle: &BrokerHandle,
-    awareness: Arc<AwarenessRegistry>,
+    awareness: Arc<CognitionCatalog>,
     message: &str,
 ) -> Result<ParsedOutput, String> {
     let (_dir, store, agent) = sandbox(label);
@@ -259,7 +272,7 @@ async fn committed_output(
             )),
         )))
         .map_err(|error| format!("context policy: {error}"))?;
-    let state = SubjectLoopState::new(agent, Arc::clone(&inbox), store.clone(), ctx, shenko_channel_napcat::qq_registry())
+    let state = SubjectLoopState::new(agent, Arc::clone(&inbox), store.clone(), ctx, shenko_channel_napcat::qq_test_registry())
         .map_err(|e| e.to_string())?
         .with_broker(handle.clone())
         .with_awareness(awareness);
@@ -355,8 +368,21 @@ async fn awareness_units_earn_their_place_in_the_sandbox() {
         let mut judge_errors: Vec<String> = Vec::new();
         let mut observed: Vec<serde_json::Value> = Vec::new();
         for trial in 0..trials {
-            let registry = Arc::new(AwarenessRegistry::with_seeds());
-            registry.enable(scenario.unit_id).unwrap();
+            // Seeds install enabled by default; the card of the scenario unit
+            // travels with the prompt and the body is read on demand.
+            let root = std::env::temp_dir()
+                .join(format!("shenko-efficacy-{}-{trial}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(&root).unwrap();
+            let node = Arc::new(parking_lot::Mutex::new(
+                shenko_node::Node::open(&root.join("node")).unwrap(),
+            ));
+            let registry = Arc::new(CognitionCatalog::new(node));
+            for package in shenko_awareness_core::seed_packages().unwrap() {
+                registry
+                    .install(&package, &root.join("cognition"))
+                    .unwrap();
+            }
             let label = format!("{}-{trial}-on", scenario.name);
             match committed_output(&label, &handle, Arc::clone(&registry), scenario.message).await {
                 Ok(output) => match judge(&judge_provider, scenario.rubric, scenario.message, &output).await {
@@ -377,7 +403,7 @@ async fn awareness_units_earn_their_place_in_the_sandbox() {
                 },
                 Err(error) => enabled_failures.push(error),
             }
-            registry.disable(scenario.unit_id).unwrap();
+            registry.set_enabled(scenario.unit_id, false).unwrap();
             let label = format!("{}-{trial}-off", scenario.name);
             match committed_output(&label, &handle, Arc::clone(&registry), scenario.message).await {
                 Ok(output) => match judge(&judge_provider, scenario.rubric, scenario.message, &output).await {

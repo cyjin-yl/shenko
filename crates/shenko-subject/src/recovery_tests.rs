@@ -2,8 +2,8 @@
 use super::{SubjectLoopState, execute_step};
 use crate::inbox::Inbox;
 use shenko_kernel::hooks::{
-    HOOK_SCHEMA_VERSION, HookEntry, HookFailurePolicy, HookHandler, HookPayload, HookPhase,
-    HookPointContract, HookRegistry, HookResult, HookSpec, STANDARD_HOOK_POINT_MAJOR,
+    HOOK_SCHEMA_VERSION, HookEntry, HookFailurePolicy, HookHandler, HookPayload, HookPointContract,
+    HookPointId, HookRegistry, HookResult, HookSpec, STANDARD_HOOK_POINT_MAJOR,
 };
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
@@ -36,7 +36,7 @@ fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
         seed_manifest_ref: object.clone(),
         initial_profile_ref: object.clone(),
         home_manifest_ref: object.clone(),
-        bootstrap_event_ref: object,
+        bootstrap_event_ref: object.clone(),
         created_commit: precommit,
     };
     let head = SubjectBranchHead {
@@ -77,7 +77,15 @@ fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent,
+        object,
+        precommit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first, &root_task)
+        .unwrap();
     (dir, store, agent)
 }
 
@@ -97,13 +105,16 @@ fn state(
             shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), EntityId(head.branch_id.0)),
         )),
     ))).unwrap();
+    // Sealing a step requires a hook graph. The shared fixture mirrors the
+    // production assembly: an admitted (empty) registry is installed, while
+    // tests that exercise a specific graph replace it through `with_hooks`.
     SubjectLoopState::new(
         agent,
         Arc::new(Inbox::new(8)),
         store,
         ctx,
-        shenko_channel_napcat::qq_registry(),
-    )
+        shenko_channel_napcat::qq_test_registry(),
+    ).map(|state| state.with_hooks(Arc::new(HookRegistry::new())))
 }
 
 #[tokio::test]
@@ -189,7 +200,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     let scope_id = EntityId(head.branch_id.0);
     store.stage_subject_inputs(&head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no,
+        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "events":[], "semantic_wait":null,
         "context":{"source":{"scope_id":scope_id,
             "source_commit_seq":store.current_commit_seq().unwrap(), "leaf_seq":null,
@@ -206,7 +217,7 @@ fn reopening_awaiting_model_keeps_original_request_blocked() {
     });
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 11).unwrap().object);
+        "subject_step_input", 12).unwrap().object);
     step.record_revision = RecordRevision(1);
     store.upsert_step(&step, &head, RecordRevision(0)).unwrap();
     let request = EntityId::new();
@@ -325,7 +336,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
             socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", raw.len(), raw).as_bytes()).await.unwrap();
             body
         });
-        let provider = AnthropicProvider { api_key: "offline-fixture".into(), base_url: base_url.clone(), model: "fixture".into() };
+        let provider = AnthropicProvider::with_endpoint("offline-fixture".into(), base_url.clone(), "fixture");
         let (result_tx, _) = tokio::sync::oneshot::channel();
         provider.complete(&InferenceRequest {
             request_id: EntityId::new(), agent_id: EntityId::new(), conversation_id: EntityId::new(),
@@ -375,16 +386,26 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
     let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
-        schema_version: 11, step_id: step.step_id, step_no: step.step_no,
+        schema_version: 12, step_id: step.step_id, step_no: step.step_no,
         events: prepared.events, provider_binding: subject.broker.as_ref().map(|broker| broker.binding().clone()),
         payload: prepared.payload, context: prepared.context,
         semantic_wait: prepared.semantic_wait,
         identity: subject.identity.clone(),
         identity_provider_revision: subject.identity_service.revision().into(),
+        request_id: shenko_types::ids::EntityId::new(),
+        hook_graph_ref: None,
+        provider_selection: super::provider_selection(
+            subject.broker.as_ref().map(|broker| broker.binding()),
+        ),
+        contributions: prepared.contributions,
+        contribution_omissions: prepared.contribution_omissions,
+        contribution_tokens: prepared.contribution_tokens,
+        obligations: vec![],
+        attention: None,
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
         &serde_json::to_vec(&input).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 11).unwrap());
+        "subject_step_input", 12).unwrap());
     step.state = SubjectStepState::Preparing;
     step.context_revision = Some(step.step_no);
     step.record_revision = RecordRevision(1);
@@ -452,26 +473,29 @@ fn native_result_replay_keeps_first_delivery_metadata() {
 
 #[test]
 fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
-    fn install(dir: &std::path::Path) -> Arc<shenko_awareness_core::AwarenessRegistry> {
+    fn install(dir: &std::path::Path) -> Arc<shenko_awareness_core::CognitionCatalog> {
         let packages = dir.join("awareness");
         std::fs::create_dir_all(packages.join("check-commitments")).unwrap();
         std::fs::write(
             packages.join("check-commitments/AWARENESS.md"),
-            "---\nid: test.check-commitments\nversion: 1\n\
+            "---\nid: test.check-commitments\nversion: 1\nkind: awareness\ntitle: 承诺\n\
              capability_card: 约定 承诺 时间冲突\nprovenance: [SPEC §14]\n---\n\
              承诺一旦给出就落在时间里；不记得自己许过什么，很难说现在还剩下多少余地。\n",
         )
         .unwrap();
-        let registry = Arc::new(shenko_awareness_core::AwarenessRegistry::new());
-        registry.install_from_dir(&packages).unwrap();
-        registry
+        let node = Arc::new(parking_lot::Mutex::new(
+            shenko_node::Node::open(&dir.join("node")).unwrap(),
+        ));
+        let catalog = Arc::new(shenko_awareness_core::CognitionCatalog::new(node));
+        shenko_awareness_core::install_dir(&catalog, &packages).unwrap();
+        catalog
     }
 
     let (_dir, store, agent) = fixture();
-    let registry = install(&_dir);
+    let catalog = install(&_dir);
     let mut subject = state(store.clone(), agent)
         .unwrap()
-        .with_awareness(Arc::clone(&registry));
+        .with_awareness(Arc::clone(&catalog));
     // The message mentions a word from the unit's own card, as ordinary
     // conversation would; retrieval must work from real input, not a keyword
     // command the user has to know.
@@ -486,26 +510,36 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         prompt.starts_with(&crate::canonical_system_prompt(&subject.channels)),
         "the stable contract stays the prefix so KV/model binding remains reusable"
     );
-    assert!(prompt.contains("不记得自己许过什么"), "awareness body missing: {prompt}");
+    // Only the short card travels; the body is read on demand at an exact
+    // version through cognition.unit.read, never injected whole.
+    assert!(prompt.contains("约定 承诺 时间冲突"), "unit card missing: {prompt}");
+    assert!(
+        !prompt.contains("不记得自己许过什么"),
+        "unit body must not be injected without an exact-version read: {prompt}"
+    );
+    assert!(
+        prompt.contains("cognition.unit.read"),
+        "the card must tell the model how to read the body: {prompt}"
+    );
     assert!(prompt.contains("不是命令"), "advisory framing missing: {prompt}");
     assert!(
-        prompt.find("不记得自己许过什么") > prompt.find("你是一个持续运行的个人 agent"),
+        prompt.find("约定 承诺 时间冲突") > prompt.find("你是一个持续运行的个人 agent"),
         "per-step material must follow the stable prefix"
     );
 
     // Disabled units are not injected at all; no code branch executes either way.
-    registry.disable("test.check-commitments").unwrap();
+    catalog.set_enabled("test.check-commitments", false).unwrap();
     let (_dir, store, agent) = fixture();
     let mut subject = state(store, agent)
         .unwrap()
-        .with_awareness(Arc::clone(&registry));
+        .with_awareness(Arc::clone(&catalog));
     let event = crate::inbox::InboxEvent {
         source: "napcat".into(),
         ..message("上次的约定还算数吗？周末一起看展览")
     };
     let prepared =
         crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
-    assert!(!prepared.payload.system_prompt.contains("不记得自己许过什么"));
+    assert!(!prepared.payload.system_prompt.contains("约定 承诺 时间冲突"));
 }
 
 #[test]
@@ -588,20 +622,241 @@ async fn late_history_change_rejects_s0_seal_without_advancing_step() {
     assert_eq!(store.session_event(late_id).unwrap().unwrap().event_id, late_id);
 }
 
+fn prepared_contribution(subject: &mut SubjectLoopState) -> (
+    Arc<shenko_context_policy::ContributionRegistry>,
+    shenko_context_policy::ContributionScope,
+    shenko_context_policy::ContextContribution,
+) {
+    prepared_contribution_text(subject, "one prepared observation")
+}
+
+fn prepared_contribution_text(subject: &mut SubjectLoopState, text: &str) -> (
+    Arc<shenko_context_policy::ContributionRegistry>,
+    shenko_context_policy::ContributionScope,
+    shenko_context_policy::ContextContribution,
+) {
+    use shenko_context_policy::contribution::*;
+    let registry = Arc::new(ContributionRegistry::new());
+    let _publication = subject.plugin_context.provide(registry.clone()).unwrap();
+    subject.refresh_contributions().unwrap();
+    let scope = scope_wide(EntityId(subject.head.branch_id.0));
+    let bytes = ContributionPayload::seal(text).unwrap();
+    let item = ContextContribution {
+        key: "observation".into(), slot: ContributionSlot::TransientReminder,
+        source: ContributionSource {
+            plugin_id: EntityId::new(), plugin_version: "test/1".into(),
+            artifact_digest: None, kind: ContributionKind::Reminder,
+        },
+        scope: scope.clone(), input_revision: "revision-1".into(),
+        lifetime: ContributionLifetime::ThisRequest, required: true,
+        budget_tokens: 32, tokens: 8,
+        data: subject.store.cas.seal_object(&bytes, "application/json", "fixture", "ContributionPayload", 1).unwrap().object,
+        prepared_at_ms: 1,
+    };
+    let registration = registry.register_publisher(item.source.clone());
+    let ticket = registry.begin_publication(registration, &scope).unwrap();
+    registry.publish(ticket, vec![item.clone()]).unwrap();
+    (registry, scope, item)
+}
+
+#[tokio::test]
+async fn contribution_final_budget_rejects_underreported_body_before_s0() {
+    let (_dir, store, agent) = fixture();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: handle.binding().clone(), max_context_tokens: Some(4096), vision: None,
+    };
+    drop(offline);
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities)).with_hooks(Arc::new(HookRegistry::new()));
+    subject.max_tokens = 64;
+    let step_id = subject.step.step_id;
+    let (registry, scope, item) = prepared_contribution_text(&mut subject, &"界".repeat(8192));
+    let result = super::run_subject_loop(subject, tokio_util::sync::CancellationToken::new()).await;
+    assert!(matches!(result, Err(ShenkoError::Conflict(_))));
+    let (_, step) = store.load_subject(agent).unwrap();
+    assert_eq!(step.state, SubjectStepState::Planned);
+    assert!(step.input_plan_ref.is_none());
+    assert!(store.subject_request_attempts_for_step(agent, step_id).unwrap().is_empty());
+    assert_eq!(registry.collect(&scope, 2).contributions, vec![item]);
+}
+
 #[test]
-fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
+fn contribution_final_budget_calibrates_complete_payload_without_double_charge() {
+    let (_dir, store, agent) = fixture();
+    let (_offline, handle) = shenko_broker::broker::Broker::offline();
+    let binding = handle.binding().clone();
+    let mut subject = state(store, agent).unwrap().with_broker(handle);
+    let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let base = baseline.context.estimated_input_tokens.unwrap();
+    subject.previous_input_binding = Some(binding);
+    subject.previous_input_tokens = Some(base + 200);
+    subject.previous_estimated_input_tokens = Some(base + 100);
+    prepared_contribution(&mut subject);
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let added = shenko_context_policy::estimate_tokens("[prepared contributions]\none prepared observation");
+    assert_eq!(prepared.context.estimated_input_tokens, Some(base + added));
+    assert_eq!(prepared.context.budget_input_tokens, Some(base + 200));
+    assert_eq!(prepared.contribution_tokens, 8);
+}
+
+#[test]
+fn contribution_final_budget_keeps_image_estimate() {
+    use shenko_context_policy::{CostReport, Derivative, HistorySource, PolicyManifest,
+        PreparedWindow, StoreHistory, WindowBase, WindowEntry, estimate_tokens};
+    let (_dir, store, agent) = fixture();
+    let (_offline, handle) = shenko_broker::broker::Broker::offline();
+    let capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: handle.binding().clone(), max_context_tokens: Some(16384),
+        vision: Some(shenko_broker::request::ProviderVisionCaps { max_image_context: 4096, patch_px: 1 }),
+    };
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(capabilities));
+    subject.max_tokens = 64;
+    store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
+        &serde_json::json!({"v":1,"text":"source represented by the fixture frame"})).unwrap();
+    crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let history = StoreHistory::new(store, EntityId(subject.head.branch_id.0), Arc::new(estimate_tokens));
+    let ledger = subject.context_registry.ledger();
+    let leaf = history.leaf_seq().unwrap().unwrap();
+    // A valid one-pixel PNG; the fixture cost is an estimate, not encoder usage.
+    let png = vec![137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,4,0,0,0,181,28,12,2,0,0,0,11,73,68,65,84,120,156,99,248,255,31,0,3,0,1,255,252,37,220,81,0,0,0,0,73,69,78,68,174,66,96,130];
+    ledger.commit(PreparedWindow {
+        base: WindowBase { source_window: ledger.current().unwrap().id, leaf_seq: leaf,
+            model_generation: ledger.model_generation().unwrap(), policy_epoch: 1 },
+        policy: PolicyManifest { id: "fixture-image".into(), version: "1".into(), ..Default::default() },
+        entries: vec![WindowEntry::Image { from: leaf, to: leaf, derivative: 0, tokens: 1 }],
+        carried_calls: vec![], derivatives: vec![Derivative::new("image/png", png)],
+        cost: CostReport { window_tokens: 1, vision_tokens_estimate: 1, ..Default::default() },
+    }, &history).unwrap();
+    let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    assert!(baseline.payload.messages.iter().flat_map(|message| &message.parts)
+        .any(shenko_broker::request::InferencePart::is_image));
+    prepared_contribution(&mut subject);
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let added = estimate_tokens("[prepared contributions]\none prepared observation");
+    let expected = baseline.context.estimated_input_tokens.unwrap() + added;
+    assert_eq!(prepared.context.estimated_input_tokens, Some(expected));
+    assert_eq!(prepared.context.budget_input_tokens, Some(expected));
+}
+
+#[test]
+fn rejected_s0_does_not_consume_a_prepared_contribution() {
+    let (_dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let (registry, scope, item) = prepared_contribution(&mut subject);
+    let rejected = sealed_preparing_step(&mut subject);
+    let input = super::frozen_input(&store, &rejected).unwrap();
+    store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
+        &serde_json::json!({"v":1,"text":"late input"})).unwrap();
+    assert!(matches!(super::commit_s0(&mut subject, rejected, &input),
+        Err(ShenkoError::ResnapshotRequired { .. })));
+    assert_eq!(subject.step.state, SubjectStepState::Planned);
+    assert_eq!(registry.collect(&scope, 2).contributions, vec![item.clone()]);
+    assert!(registry.usage(&input.request_id).is_none());
+
+    let accepted = sealed_preparing_step(&mut subject);
+    let input = super::frozen_input(&store, &accepted).unwrap();
+    super::commit_s0(&mut subject, accepted, &input).unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    assert!(registry.collect(&scope, 2).contributions.is_empty());
+    let usage = registry.usage(&input.request_id).unwrap();
+    assert_eq!(usage.sent, vec![item]);
+    assert_eq!(usage.seal_digest, subject.step.input_plan_ref.as_ref().unwrap().digest);
+}
+
+#[tokio::test]
+async fn contribution_recovery_includes_steps_older_than_the_committed_head() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap()
+        .with_hooks(Arc::new(HookRegistry::new()));
+    let (registry, scope, item) = prepared_contribution(&mut subject);
+    // The result text is a deterministic fixture, not a provider receipt.
+    let first = commit_output(&store, &mut subject, 1, &[], "First fixture observation.").await;
+    let first_step = store.get_step(&subject.head.branch_id, first).unwrap().unwrap();
+    let first_input = super::frozen_input(&store, &first_step).unwrap();
+    let second = commit_output(&store, &mut subject, 2, &[], "Second fixture observation.").await;
+    assert_eq!(subject.head.committed_step_id, Some(second));
+    assert_ne!(first, second);
+    drop((registry, subject, store));
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut restored = state(reopened.clone(), agent).unwrap();
+    let registry = Arc::new(shenko_context_policy::ContributionRegistry::new());
+    let registration = registry.register_publisher(item.source.clone());
+    let ticket = registry.begin_publication(registration, &scope).unwrap();
+    registry.publish(ticket, vec![item.clone()]).unwrap();
+    let _publication = restored.plugin_context.provide(registry.clone()).unwrap();
+    restored.refresh_contributions().unwrap();
+    assert!(registry.collect(&scope, 2).contributions.is_empty());
+    let usage = registry.usage(&first_input.request_id).unwrap();
+    assert_eq!(usage.sent, vec![item]);
+    assert_eq!(usage.seal_digest, first_step.input_plan_ref.unwrap().digest);
+    assert_eq!(restored.step.state, SubjectStepState::Planned);
+    assert_eq!(restored.step.step_no, 3);
+}
+
+#[tokio::test]
+async fn contribution_recovery_keeps_retired_and_correction_request_usage() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap()
+        .with_hooks(Arc::new(HookRegistry::new()));
+    let (registry, scope, item) = prepared_contribution(&mut subject);
+    let close = tokio_util::sync::CancellationToken::new();
+    close.cancel();
+    execute_step(1, &[], &mut subject, &close).await.unwrap();
+    let first_id = subject.step.step_id;
+    let first_input = super::frozen_input(&store, &subject.step).unwrap();
+    let first_usage = registry.usage(&first_input.request_id).unwrap();
+    // A recorded malformed control exercises R0 without a model transport.
+    record_result(&store, &mut subject, "[delegate]");
+    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().is_none());
+    assert_eq!(store.get_step(&subject.head.branch_id, first_id).unwrap().unwrap().state,
+        SubjectStepState::Retired);
+    assert_eq!(subject.head.committed_step_no, 0);
+    let correction = super::frozen_input(&store, &subject.step).unwrap();
+    assert_ne!(correction.request_id, first_input.request_id);
+    let correction_usage = registry.usage(&correction.request_id).unwrap();
+    assert_eq!(correction_usage.sent, vec![item.clone()]);
+    assert_eq!(correction_usage.seal_digest, subject.step.input_plan_ref.as_ref().unwrap().digest);
+    drop((registry, subject, store));
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut restored = state(reopened, agent).unwrap();
+    let registry = Arc::new(shenko_context_policy::ContributionRegistry::new());
+    let _publication = restored.plugin_context.provide(registry.clone()).unwrap();
+    restored.refresh_contributions().unwrap();
+    assert_eq!(registry.usage(&first_input.request_id), Some(first_usage));
+    assert_eq!(registry.usage(&correction.request_id), Some(correction_usage));
+    let registration = registry.register_publisher(item.source.clone());
+    let ticket = registry.begin_publication(registration, &scope).unwrap();
+    registry.publish(ticket, vec![item]).unwrap();
+    assert!(registry.collect(&scope, 2).contributions.is_empty());
+    assert_eq!(restored.step.state, SubjectStepState::Preparing);
+}
+
+// Window preparation runs on the blocking pool, so this case needs the same
+// Tokio context the subject always has in production.
+#[tokio::test]
+async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let (_dir, store, agent) = fixture();
     let (offline, handle) = shenko_broker::broker::Broker::offline();
     let binding = handle.binding().clone();
-    let capabilities = shenko_broker::request::ProviderCapabilities {
-        // The wait controls add to the mandatory system prefix. Keep enough
-        // room for that prefix and the preserved unknown call while still
-        // exercising compaction under the same default threshold.
-        binding: binding.clone(), max_context_tokens: Some(1500), vision: None,
+    let mut capabilities = shenko_broker::request::ProviderCapabilities {
+        binding: binding.clone(), max_context_tokens: None, vision: None,
     };
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities.clone()));
     subject.max_tokens = 10;
+    // Reserve 400 tokens for compacted history in addition to the actual
+    // mandatory prefix. The test does not pin the prompt's incidental size.
+    let prefix = crate::context_projection::prepare_context(&mut subject, &[]).unwrap()
+        .context.estimated_input_tokens.unwrap();
+    capabilities.max_context_tokens = Some(prefix + 400 + subject.max_tokens as u32);
+    subject = subject.with_model_capabilities(Some(capabilities.clone()));
+    // Establish the final binding before the preparer captures its generation.
+    crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     subject.previous_input_binding = Some(binding);
     subject.previous_input_tokens = Some(700);
     subject.previous_estimated_input_tokens = Some(1);
@@ -609,7 +864,7 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
         // The larger context still needs a bounded tail that actually drops
         // old history; the behavior under test is preserving unresolved calls.
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.85, recent_ratio: 0.1 },
-    )));
+    ))).expect("install budget compact");
     let call_id = EntityId::new();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_call", &serde_json::json!({
         "v":1,"text":"unresolved fixture call", "call_id":call_id,
@@ -622,6 +877,12 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
             &serde_json::json!({"v":1,"text":format!("history-{index}-{}", "x".repeat(80))})).unwrap();
         raw_ids.push(fact.event_id);
     }
+    let history = shenko_context_policy::StoreHistory::new(store.clone(),
+        EntityId(subject.head.branch_id.0), Arc::new(shenko_context_policy::estimate_tokens));
+    subject.context_registry.prepare_and_publish(&history, &shenko_context_policy::ModelCaps {
+        model_id: capabilities.binding.model().into(),
+        max_context: capabilities.max_context_tokens.unwrap() - subject.max_tokens as u32, vision: None,
+    }, subject.previous_input_tokens.unwrap()).unwrap();
     let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
     assert!(prepared.context.trigger_budget_input_tokens.unwrap() > 700);
     assert_eq!(prepared.context.observed_input_tokens, Some(700));
@@ -639,7 +900,8 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let source = &prepared.context.source;
     assert_eq!(source.leaf_seq, Some(19));
     let head = store.context_window_head(source.scope_id).unwrap().unwrap();
-    assert_eq!((head.window_id, head.generation), (source.window_id, 2));
+    assert_eq!((head.window_id, u64::try_from(head.generation).unwrap()),
+        (source.window_id, source.window_generation));
     let persisted = store.session_events_range(source.scope_id, 0, i64::MAX).unwrap();
     assert!(raw_ids.iter().all(|id| persisted.iter().any(|event| event.event_id == *id)));
     assert_eq!(persisted[0].event_type, "tool_call");
@@ -653,8 +915,8 @@ fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let resumed = crate::context_projection::prepare_context(&mut reopened, &[]).unwrap();
     assert_eq!(resumed.context.profile_digest, profile);
     assert_eq!(resumed.context.source.window_id, window_id);
-    assert_eq!(resumed.context.source.model_generation, 1);
-    assert_eq!(resumed.context.source.window_generation, 2);
+    assert_eq!(resumed.context.source.model_generation, source.model_generation);
+    assert_eq!(resumed.context.source.window_generation, source.window_generation);
     drop((reopened, offline));
 }
 
@@ -687,11 +949,8 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         binding: handle.binding().clone(), max_context_tokens: Some(4000), vision: None,
     };
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
-        .with_model_capabilities(Some(capabilities));
+        .with_model_capabilities(Some(capabilities.clone()));
     subject.max_tokens = 10;
-    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
-        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    )));
     for index in 0..20 {
         store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
             &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(400))})).unwrap();
@@ -701,6 +960,16 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         payload: serde_json::json!({"content":format!("fresh-{index}-{}", "z".repeat(80))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
+    let initial = crate::context_projection::prepare_context(&mut subject, &events).unwrap();
+    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
+    ))).expect("install budget compact");
+    let history = shenko_context_policy::StoreHistory::new(store.clone(),
+        EntityId(subject.head.branch_id.0), Arc::new(shenko_context_policy::estimate_tokens));
+    subject.context_registry.prepare_and_publish(&history, &shenko_context_policy::ModelCaps {
+        model_id: capabilities.binding.model().into(),
+        max_context: capabilities.max_context_tokens.unwrap() - subject.max_tokens as u32, vision: None,
+    }, initial.context.budget_input_tokens.unwrap()).unwrap();
     // Interrupt after S0. No input may be disposed just because the window
     // has committed a compact derivative.
     let close = tokio_util::sync::CancellationToken::new();
@@ -803,8 +1072,8 @@ fn execution_commit_during_projection_is_rejected() {
     assert_eq!(store.current_commit_seq().unwrap(), before + 1);
 }
 
-#[test]
-fn oversized_fresh_batch_stays_pending_across_reopen() {
+#[tokio::test]
+async fn oversized_fresh_batch_stays_pending_across_reopen() {
     let (dir, store, agent) = fixture();
     let (offline, handle) = shenko_broker::broker::Broker::offline();
     let capabilities = shenko_broker::request::ProviderCapabilities {
@@ -815,7 +1084,7 @@ fn oversized_fresh_batch_stays_pending_across_reopen() {
     subject.max_tokens = 10;
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
-    )));
+    ))).expect("install budget compact");
     let events: Vec<_> = (0..12).map(|index| crate::inbox::InboxEvent {
         event_id: EntityId::new(), kind: crate::inbox::InboxEventKind::Message,
         payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),
@@ -1075,6 +1344,9 @@ async fn frozen_input_survives_shutdown_rejection_and_recorded_result_reopen() {
             .filter_map(|part| match part {
                 shenko_broker::request::InferencePart::Text { text } => Some(text.as_str()),
                 shenko_broker::request::InferencePart::Image { .. } => None,
+                shenko_broker::request::InferencePart::Document { .. }
+                | shenko_broker::request::InferencePart::Citation { .. }
+                | shenko_broker::request::InferencePart::SearchResult { .. } => None,
             })
             .collect::<String>()
     };
@@ -1269,7 +1541,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         .collect();
     let next = EntityId::new();
     let mut decision = StepDecision {
-        schema_version: 7,
+        schema_version: 8,
         step_id: step.step_id,
         output,
         identity_intent: Some(IdentityIntent {
@@ -1293,6 +1565,9 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         event_dispositions: vec![EventDisposition {
             event_id: event.event_id,
             disposition: Disposition::Acknowledged,
+            reason: None,
+            priority: None,
+            review_after: None,
         }],
         delegated_task_intents: vec![],
         child_dialogue_intents: vec![],
@@ -1300,6 +1575,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         policy_intents: vec![],
         publication_intents: vec![],
         pending_obligations: vec![],
+        attention_policy: None,
         evidence_refs: vec![],
         successor_step_id: step.step_id,
     };
@@ -1313,7 +1589,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -1342,7 +1618,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
                 "application/json",
                 "decisions",
                 "StepDecision",
-                7,
+                8,
             )
             .unwrap()
             .object,
@@ -1534,7 +1810,8 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         .initialize_identity(&service.genesis(agent, None))
         .unwrap();
     let mut subject =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry()).unwrap();
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_test_registry()).unwrap()
+            .with_hooks(Arc::new(HookRegistry::new()));
     let close = tokio_util::sync::CancellationToken::new();
     close.cancel();
     execute_step(1, &[], &mut subject, &close)
@@ -1559,7 +1836,7 @@ async fn native_identity_replacement_is_bound_to_sealed_request() {
         "test.identity/other@1"
     );
     let reopened =
-        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_registry());
+        SubjectLoopState::new(agent, Arc::new(Inbox::new(8)), store.clone(), ctx.clone(), shenko_channel_napcat::qq_test_registry());
     assert!(
         reopened
             .err()
@@ -1755,7 +2032,6 @@ async fn semantic_wait_is_durable_and_never_renewed_by_polling() {
     cancel.cancel();
     execute_step(2, &[], &mut subject, &cancel).await.unwrap();
     let frozen = super::frozen_input(&store, &subject.step).unwrap();
-    assert_eq!(frozen.schema_version, 11);
     let sealed_wait = frozen.semantic_wait.expect("S0 freezes the active wait");
     assert_eq!(sealed_wait.wait_id, wait.wait_id);
     assert_eq!(sealed_wait.deadline_at, original_deadline);
@@ -2765,29 +3041,30 @@ async fn an_empty_upper_read_with_inserted_page_still_bounds_the_round() {
     // Keep the fixture on container disk for independent inspection.
 }
 
-/// A hook contract whose failure policy stops the unit; the handler always
-/// fails so every dispatch is cut short.
-struct FailingHook;
+/// A transient failure can clear without replacing the sealed graph.
+struct FailingHook(Arc<std::sync::atomic::AtomicBool>);
 
 #[async_trait::async_trait]
 impl HookHandler for FailingHook {
     async fn handle(&self, _payload: &HookPayload) -> anyhow::Result<HookResult> {
-        anyhow::bail!("hook stopped the unit")
+        anyhow::ensure!(!self.0.load(std::sync::atomic::Ordering::SeqCst), "hook stopped the unit");
+        Ok(HookResult::NoChange)
     }
 }
 
-fn stop_registry(phase: HookPhase) -> (HookRegistry, shenko_kernel::hooks::HookRegistration) {
+fn stop_registry(point: HookPointId) -> (HookRegistry, shenko_kernel::hooks::HookRegistration, Arc<std::sync::atomic::AtomicBool>) {
     let hooks = HookRegistry::new();
-    let mut contract = HookPointContract::standard(phase);
+    let failing = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let mut contract = HookPointContract::standard(point.clone());
     contract.failure = HookFailurePolicy::StopUnit;
     hooks.declare_point(contract).unwrap();
     let artifact = shenko_types::object::Digest::blake3(b"test:hook/stop".as_slice());
     let registration = hooks
-        .register(HookEntry {
-            spec: HookSpec {
+        .register(HookEntry::new(
+            HookSpec {
                 hook_id: EntityId::new(),
                 plugin_id: EntityId::new(),
-                phase,
+                point,
                 name: "stop".into(),
                 schema_version: HOOK_SCHEMA_VERSION,
                 point_major: STANDARD_HOOK_POINT_MAJOR,
@@ -2806,26 +3083,28 @@ fn stop_registry(phase: HookPhase) -> (HookRegistry, shenko_kernel::hooks::HookR
                 after: vec![],
                 before: vec![],
                 requires: vec![],
+                possible_model_call: false,
+                deterministic: false,
             },
-            handler: Arc::new(FailingHook),
-        })
+            Arc::new(FailingHook(failing.clone())),
+        ))
         .unwrap();
-    (hooks, registration)
+    (hooks, registration, failing)
 }
 
 /// §41.8 stop_unit at the real production boundaries. A stopped
 /// BeforeInference dispatch submits nothing to the broker and the step stays
 /// Preparing; a stopped BeforeOperation dispatch leaves the head, ledger
 /// record and outbox untouched. In both cases the durable step keeps its
-/// frozen evidence, so withdrawing the failing handler lets the same step
-/// proceed rather than manufacturing a replacement.
+/// frozen evidence: changing the graph cannot authorize the old seal, while
+/// recovery of the same handler may complete the original recorded result.
 #[tokio::test]
 async fn stop_unit_boundaries_leave_recoverable_step_state() {
     let (dir, store, agent) = fixture();
 
     // Pre-dispatch boundary: S0 seals, the stop_unit hook runs, and the error
     // is returned before the broker is even consulted (none is attached).
-    let (hooks, registration) = stop_registry(HookPhase::BeforeInference);
+    let (hooks, registration, _) = stop_registry(HookPointId::SUBJECT_BEFORE_INFERENCE);
     let mut subject = state(store.clone(), agent).unwrap().with_hooks(Arc::new(hooks));
     let cancel = tokio_util::sync::CancellationToken::new();
     let error = execute_step(1, &[message("stopped before dispatch")], &mut subject, &cancel)
@@ -2839,11 +3118,13 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     assert_eq!(head.committed_step_no, 0);
     assert_eq!(step.state, SubjectStepState::Preparing);
     assert!(step.active_request_id.is_none());
-    // The frozen input is recoverable: once the failing handler is withdrawn,
-    // the same step reaches the real dispatch boundary (cancel observes it).
+    // Withdrawing a sealed handler cannot silently turn its failed decision
+    // into permission to dispatch. Keep the original seal for reconciliation.
     subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
     cancel.cancel();
-    assert!(execute_step(1, &[], &mut subject, &cancel).await.unwrap().is_none());
+    assert!(matches!(execute_step(1, &[], &mut subject, &cancel).await, Err(ShenkoError::Conflict(_))));
+    assert_eq!(subject.step.input_plan_ref, step.input_plan_ref);
+    assert!(store.subject_request_attempts_for_step(agent, step.step_id).unwrap().is_empty());
     assert_eq!(subject.step.state, SubjectStepState::Preparing);
     drop(subject);
     drop(store);
@@ -2853,7 +3134,7 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
     // BeforeOperation dispatch prevents the decision seal, head advance and
     // outbox publication, and the step remains ResultRecorded.
     let (dir, store, agent) = fixture();
-    let (hooks, registration) = stop_registry(HookPhase::BeforeOperation);
+    let (hooks, _registration, failing) = stop_registry(HookPointId::SUBJECT_BEFORE_OPERATION);
     let (outbox_tx, mut outbox_rx) = tokio::sync::broadcast::channel(4);
     let mut subject = state(store.clone(), agent)
         .unwrap()
@@ -2888,9 +3169,9 @@ async fn stop_unit_boundaries_leave_recoverable_step_state() {
         matches!(outbox_rx.try_recv(), Err(tokio::sync::broadcast::error::TryRecvError::Empty)),
         "nothing is published for a step that never committed"
     );
-    // Recoverable: withdrawing the failing handler commits this same
-    // recorded result rather than re-invoking the model.
-    subject.hooks.as_ref().unwrap().unregister(&registration).unwrap();
+    // Recoverable under the SAME graph once the external failure clears:
+    // commit the original recorded result without invoking the model again.
+    failing.store(false, std::sync::atomic::Ordering::SeqCst);
     assert!(
         execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
             .await

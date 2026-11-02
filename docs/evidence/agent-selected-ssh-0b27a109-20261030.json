@@ -1,0 +1,273 @@
+{
+  "schema": "shenko.fixed-verification.v1",
+  "recordedAtUTC": "2026-10-30T11:28:49Z",
+  "candidate": "0b27a109c819f365e4fb7422499deabaf997bc83",
+  "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+  "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87",
+  "authority": "Owner separately authorized only the three exact public registry archives/index records for static preparation and fixed 0b27a109 execution of the original 8 selected SSH tests plus node regression under Rust 1.98.1, locked/offline/socket-denied, no account credentials or real remote/model/deployment.",
+  "result": "Both approved commands were attempted once and exited 101 during offline dependency resolution. Zero Rust compilation and zero tests executed. This is an environment prerequisite blocker, not eight failing tests or a passing suite.",
+  "observationWindowUTC": [
+    "2026-10-30T11:28:06Z",
+    "2026-10-30T11:28:34Z"
+  ],
+  "clockNote": "Current raw executor times match the authoritative 11:28 UTC observation window at second precision. Historical 7c evidence retains its separately recorded clock skew.",
+  "downloadPreparation": {
+    "candidate": "0b27a109c819f365e4fb7422499deabaf997bc83",
+    "operation": "static package/index download only; no installation or source execution",
+    "files": [],
+    "failures": [
+      {
+        "type": "URLError",
+        "message": "<urlopen error [Errno -3] Temporary failure in name resolution>"
+      }
+    ]
+  },
+  "downloadOutcome": "Single new-authorized attempt failed resolving static.crates.io before the first HTTP response; no archive/index bytes downloaded, no additional package/version/network route tried. Earlier scope-denied prefetch and 7c manifest failure remain in their separate historical record. Authorization is now present; network availability remains missing.",
+  "dependencyAudit": {
+    "registryPackagesInLock": 401,
+    "existingArchiveChecksumsVerified": 398,
+    "missing": [
+      {
+        "name": "gethostname",
+        "version": "1.1.0",
+        "checksum": "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+      },
+      {
+        "name": "x11rb",
+        "version": "0.13.2",
+        "checksum": "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414"
+      },
+      {
+        "name": "x11rb-protocol",
+        "version": "0.13.2",
+        "checksum": "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+      }
+    ]
+  },
+  "toolchain": {
+    "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "cargoVersion": "cargo 1.98.1 (797e8a9bc 2026-08-05)\nrelease: 1.98.1\ncommit-hash: 797e8a9bca276c1c9f9f738d2a20f484fa4eea9d\ncommit-date: 2026-08-05\nhost: x86_64-unknown-linux-gnu\nlibgit2: 1.9.4 (sys:0.21.0 vendored)\nlibcurl: 8.21.0-DEV (sys:0.4.90+curl-8.21.0 vendored ssl:OpenSSL/3.6.3)\nssl: OpenSSL 3.6.3 9 Jun 2026\nos: Debian 13.0.0 (trixie) [64-bit]\n",
+    "binarySha256": {
+      "rustc": "859254978c0a0402c32f949f6de0d99aee73be8d15f45aac00ae1448aac51e74",
+      "cargo": "da77c8b33849312255ccde3179198ada4c8deb370488d050286146b1d1b27e14",
+      "rustdoc": "3ff7fed6d1064d8d75d24ae8beff9fe1d68031d3d819966481d22c3c9002b709"
+    },
+    "origin": "Previously restored official Rust 1.98.1 archive with matching official HTTPS checksum. No new toolchain installation. No independent signature claim."
+  },
+  "isolation": {
+    "environment": {
+      "PATH": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin:/usr/bin:/bin",
+      "HOME": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/home",
+      "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/cargo-home",
+      "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/target",
+      "RUSTC": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/rustc",
+      "RUSTDOC": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/rustdoc",
+      "CARGO_NET_OFFLINE": "true",
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_PROFILE_DEV_DEBUG": "0",
+      "CARGO_PROFILE_TEST_DEBUG": "0",
+      "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/tmp",
+      "LANG": "C.UTF-8",
+      "TZ": "UTC"
+    },
+    "network": "Cargo offline plus inherited seccomp socket denial. No mount-namespace isolation claim.",
+    "socketProbe": "socket denied EPERM",
+    "wrapperSha256": "810937a6e1564762ad73d3c0b90e4b12de0dbcb17c86c404aa6ecd02a63b3176",
+    "emptyHome": true,
+    "freshIndependentTarget": true
+  },
+  "runs": [
+    {
+      "candidate": "0b27a109c819f365e4fb7422499deabaf997bc83",
+      "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+      "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87",
+      "command": [
+        "/usr/bin/python3",
+        "/workspace/scratch/3ca1e20addac/shenko-build/no-network.py",
+        "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-ssh",
+        "selected_task::tests",
+        "--message-format=json"
+      ],
+      "environment": {
+        "PATH": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin:/usr/bin:/bin",
+        "HOME": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/home",
+        "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/cargo-home",
+        "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/target",
+        "RUSTC": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/rustc",
+        "RUSTDOC": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/rustdoc",
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/tmp",
+        "LANG": "C.UTF-8",
+        "TZ": "UTC"
+      },
+      "scope": "approved selected_task eight local tests and node regression only; no real remote/model/account/deployment",
+      "network": "inherited seccomp socket denial plus Cargo offline; not mount namespace",
+      "rawSystemStartedAt": "2026-10-30T11:28:17.380919+00:00",
+      "rawSystemFinishedAt": "2026-10-30T11:28:17.503116+00:00",
+      "wallSeconds": 0.12185353401582688,
+      "exitCode": 101,
+      "sourceUnchanged": true,
+      "logHashes": {
+        "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr": "c19e847385e9cb22bbfbbc5c948c6efad9de1d3668d37faf203a67f37bc45221"
+      }
+    },
+    {
+      "candidate": "0b27a109c819f365e4fb7422499deabaf997bc83",
+      "tree": "1364718e911a591025f686feefc54265a3fdf37c",
+      "lockSha256": "f5c7fe071f466d0848826d59d9e37ded37ab754a5667cab06e5981ae8f0a4e87",
+      "command": [
+        "/usr/bin/python3",
+        "/workspace/scratch/3ca1e20addac/shenko-build/no-network.py",
+        "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-node",
+        "--message-format=json"
+      ],
+      "environment": {
+        "PATH": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin:/usr/bin:/bin",
+        "HOME": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/home",
+        "CARGO_HOME": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/cargo-home",
+        "CARGO_TARGET_DIR": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/target",
+        "RUSTC": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/rustc",
+        "RUSTDOC": "/workspace/scratch/3ca1e20addac/qa-evidence/pr1024-resume-20261029/native-restore/toolchain/bin/rustdoc",
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_BUILD_JOBS": "1",
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_PROFILE_DEV_DEBUG": "0",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "TMPDIR": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/tmp",
+        "LANG": "C.UTF-8",
+        "TZ": "UTC"
+      },
+      "scope": "approved selected_task eight local tests and node regression only; no real remote/model/account/deployment",
+      "network": "inherited seccomp socket denial plus Cargo offline; not mount namespace",
+      "rawSystemStartedAt": "2026-10-30T11:28:17.527270+00:00",
+      "rawSystemFinishedAt": "2026-10-30T11:28:17.649392+00:00",
+      "wallSeconds": 0.12200240598758683,
+      "exitCode": 101,
+      "sourceUnchanged": true,
+      "logHashes": {
+        "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr": "c19e847385e9cb22bbfbbc5c948c6efad9de1d3668d37faf203a67f37bc45221"
+      }
+    }
+  ],
+  "stderrVerbatim": "error: no matching package named `x11rb` found\nlocation searched: crates.io index\nrequired by package `shenko-exec-host v0.1.0 (/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/source/crates/shenko-exec-host)`\nnote: offline mode (via `--offline`) can sometimes cause surprising resolution failures\nhelp: if this error is too confusing you may wish to retry without `--offline`\n",
+  "logs": {
+    "cargo-version.stdout": {
+      "sha256": "202e6344fa4c5c8976a685155e83888ffc90df7f05e37d37ff9f2707f4c9e445",
+      "bytes": 336
+    },
+    "dependency-verification.json": {
+      "sha256": "b69d19f32691e15518d69dd09d462db7c2b9d66af3f9c9dd672dc303f96f7e58",
+      "bytes": 61205
+    },
+    "preparation-results.json": {
+      "sha256": "34e27f3d31f9c8c6bd63fb7edbbb4638fba638aadd6e535d8b0b771aa5d52900",
+      "bytes": 1693
+    },
+    "node.result.json": {
+      "sha256": "1e895dbf9585eb13cdb5a8cd0e9b23c70d36786609cdd5d199cdbc17107ab21e",
+      "bytes": 2076
+    },
+    "socket-probe.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "prefetch.stderr": {
+      "sha256": "cfee861f8956c4282c25d7c27a7f50afb83a0b94efd169a096d70e98bc867535",
+      "bytes": 3712
+    },
+    "selected-ssh.result.json": {
+      "sha256": "fc495bd1039d12e458d0540620b916f4bbc10ac5eba39f5a86889116ed3bb9e1",
+      "bytes": 2108
+    },
+    "cargo-version.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "offline-metadata.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "rustc-version.stdout": {
+      "sha256": "778fbc643a806f0dd123c056e66201d7e8a56a61928ec0a33171be8d6c2d5a37",
+      "bytes": 196
+    },
+    "selected-ssh.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "selected-ssh.start.json": {
+      "sha256": "9f4d18805fe521593e847599ae58beefd7c32a0510a66279c4448adbaa6b9fd4",
+      "bytes": 1778
+    },
+    "rustc-version.stderr": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "node.start.json": {
+      "sha256": "8bfb2b44338043c8b9fc5317bdd9b870e5db0c409e9bbdd0e989f64750d6213c",
+      "bytes": 1746
+    },
+    "prefetch.json": {
+      "sha256": "bc2322537eb58c5a7ffb0eb55745d12de17e198b0691958eca6701e550e3b534",
+      "bytes": 309
+    },
+    "node.stderr": {
+      "sha256": "c19e847385e9cb22bbfbbc5c948c6efad9de1d3668d37faf203a67f37bc45221",
+      "bytes": 392
+    },
+    "selected-ssh.stderr": {
+      "sha256": "c19e847385e9cb22bbfbbc5c948c6efad9de1d3668d37faf203a67f37bc45221",
+      "bytes": 392
+    },
+    "node.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "results.json": {
+      "sha256": "79ef1452418565272c27b60f008612810e7238460d3186e064df51deb250a971",
+      "bytes": 4363
+    },
+    "prefetch.stdout": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "offline-metadata.stderr": {
+      "sha256": "c19e847385e9cb22bbfbbc5c948c6efad9de1d3668d37faf203a67f37bc45221",
+      "bytes": 392
+    },
+    "socket-probe.stdout": {
+      "sha256": "6c12df0a24dea094b5c8eadfe5a82e41f37f7e138be63d1405b16a896583bd76",
+      "bytes": 20
+    }
+  },
+  "localEvidenceDirectory": "/workspace/scratch/3ca1e20addac/shenko-pr127-fixed-0b27a109-run/evidence",
+  "remaining": [
+    "Download exactly the already-authorized three archives and their official index records when the permitted execution environment network is available; inspect partial files before any retry.",
+    "Reverify all 401 lock checksums and rerun only the approved fixed 0b27a109 suites offline/socket-denied. Do not remove workspace members, change lock, use another version, or relax tests.",
+    "Installed authenticated handler and registered-target permission/resource resolver remain absent.",
+    "Real remote/model behavior, full C17 and product completion remain unverified. PR remains Draft and dependent on unmerged #114."
+  ],
+  "notPerformed": [
+    "No new source, dependency or assertion change.",
+    "No real remote, model, account credential, deployment or production access.",
+    "No project build scripts or test binary executed; resolution failed first.",
+    "No PR merge, approval, protection change or new key."
+  ]
+}

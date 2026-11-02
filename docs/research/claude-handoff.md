@@ -62,7 +62,7 @@ gh auth setup-git --hostname github.com
 claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions
 ```
 
-进入后使用 [GOAL.md](../../GOAL.md) 的完整短入口。对应 headless 示例：
+进入后使用 [GOAL.md](../history/entrypoints-20261101/GOAL.md) 的完整短入口。对应 headless 示例：
 
 ```bash
 claude --model claude-opus-5-5 --effort ultracode --dangerously-skip-permissions \
@@ -177,4 +177,4 @@ Agent 自主配置自己 fork 的 workflow、runner、可管理的权限与所�
 
 ## 7. 核验范围
 
-本次核验针对官方文档公开支持的机制，未测试朋友机器或证明其账号已获模型、源库与运行环境访问。所有示例中的路径、分支、PR 编号和 session ID 都从真实执行状态取得。当前权威执行入口为 [Claude 启动与恢复](../governance/CLAUDE.md)，完整目标为 [GOAL.md](../../GOAL.md)；本文提供原始官方事实与采用理由。
+本次核验针对官方文档公开支持的机制，未测试朋友机器或证明其账号已获模型、源库与运行环境访问。所有示例中的路径、分支、PR 编号和 session ID 都从真实执行状态取得。当前权威执行入口为 [Claude 启动与恢复](../governance/CLAUDE.md)，完整目标为 [GOAL.md](../history/entrypoints-20261101/GOAL.md)；本文提供原始官方事实与采用理由。

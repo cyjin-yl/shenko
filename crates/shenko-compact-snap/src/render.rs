@@ -26,6 +26,14 @@ pub fn has_glyph(c: char) -> bool {
     unifont::get_glyph(c).is_some()
 }
 
+/// Whether the bytes really are a PNG image.
+///
+/// A frame that is not a PNG is not a frame: the strategy refuses it instead
+/// of shipping a text fallback that claims to be image proof.
+pub fn is_png(bytes: &[u8]) -> bool {
+    bytes.len() > 8 && bytes[..8] == [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
+}
+
 /// Wrap `text` at `columns` halfwidth cells and paginate into frames of
 /// `rows` text rows. A fullwidth glyph never straddles a line end.
 pub fn render(text: &str, columns: u32, rows: u32) -> Rendered {

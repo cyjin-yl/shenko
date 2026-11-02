@@ -3,9 +3,9 @@
 use super::{commit_output, execute_step, fixture, record_result, state};
 use crate::{ModelChildHandler, NativeChildService};
 use shenko_broker::{broker::{Broker, BrokerHandle}, local_provider::LocalModelProvider};
-use shenko_store::{Store, child::{NATIVE_OPERATION_ID, memo_uuid}};
+use shenko_store::{Store, external::MODEL_CHILD_STEP_OPERATION};
 use shenko_types::{ids::*, operation::OperationState, task::*};
-use std::{sync::Arc, time::Duration};
+use std::{sync::Arc, time::{Duration, Instant}};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 async fn read_wire(socket: &mut TcpStream) -> serde_json::Value {
@@ -49,14 +49,91 @@ fn service(store: &Arc<Store>, handle: BrokerHandle, generation: RuntimeGenerati
     service
 }
 
-async fn drive_until(service: &Arc<NativeChildService>, done: impl Fn() -> bool) {
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            service.run_once().await.unwrap();
-            if done() { break; }
-            tokio::time::sleep(Duration::from_millis(5)).await;
+/// The one durable model step of a child run. Every model step of a finite
+/// child is its own operation on the shared inference ledger.
+fn child_step(store: &Store, task_id: EntityId) -> shenko_types::operation::OperationRecord {
+    store
+        .external_task_operations(task_id, MODEL_CHILD_STEP_OPERATION)
+        .expect("the child run records its model steps")
+        .pop()
+        .expect("the child run has at least one model step")
+}
+
+/// The dispatch loop performs real durable writes and real provider round
+/// trips. A pure wall-clock budget turns slow but correct progress into a
+/// false failure whenever the host is busy, so the bound measures what it
+/// means to measure: a stalled dispatch stops producing durable progress,
+/// and a diverging dispatch never converges at all.
+const CONVERGENCE_STALL: Duration = Duration::from_secs(30);
+const CONVERGENCE_CAP: Duration = Duration::from_secs(120);
+
+/// The liveness bound of one dispatch convergence.
+struct ConvergenceGuard {
+    stall: Duration,
+    cap: Duration,
+    started: Instant,
+    advanced: Instant,
+    signature: u64,
+}
+
+impl ConvergenceGuard {
+    fn new(stall: Duration, cap: Duration) -> Self {
+        let now = Instant::now();
+        Self { stall, cap, started: now, advanced: now, signature: 0 }
+    }
+
+    /// Observe the durable signature of the dispatch. A changed signature is
+    /// real durable progress and restarts the stall window.
+    fn observe(&mut self, signature: u64) -> Result<(), String> {
+        if signature != self.signature {
+            self.signature = signature;
+            self.advanced = Instant::now();
         }
-    }).await.expect("bounded model child mechanics did not converge");
+        if self.advanced.elapsed() > self.stall {
+            return Err(format!("no durable progress for {:?} (signature {})", self.stall, self.signature));
+        }
+        if self.started.elapsed() > self.cap {
+            return Err(format!("no convergence within {:?} (signature {})", self.cap, self.signature));
+        }
+        Ok(())
+    }
+}
+
+/// Drive the native service until `done` holds. `progress` reports a durable
+/// signature that only changes when the store really advanced.
+async fn drive_until(
+    service: &Arc<NativeChildService>,
+    progress: impl Fn() -> u64,
+    done: impl Fn() -> bool,
+) {
+    let mut guard = ConvergenceGuard::new(CONVERGENCE_STALL, CONVERGENCE_CAP);
+    loop {
+        service.run_once().await.unwrap();
+        if done() { break; }
+        guard.observe(progress()).expect("bounded model child mechanics did not converge");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// The convergence bound must keep rejecting a dispatch that stops advancing
+/// and a dispatch that never converges, so a load-tolerant guard can never
+/// become a guard that never fails.
+#[tokio::test]
+async fn convergence_bound_rejects_a_stalled_and_a_diverging_dispatch() {
+    let mut stalled = ConvergenceGuard::new(Duration::from_millis(20), Duration::from_secs(5));
+    assert!(stalled.observe(0).is_ok());
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    assert!(stalled.observe(0).is_err(), "a dispatch that stops producing durable progress must still fail");
+
+    let mut advancing = ConvergenceGuard::new(Duration::from_millis(60), Duration::from_secs(5));
+    assert!(advancing.observe(0).is_ok());
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    assert!(advancing.observe(1).is_ok(), "durable progress restarts the stall window");
+
+    let mut diverging = ConvergenceGuard::new(Duration::from_secs(30), Duration::from_millis(20));
+    assert!(diverging.observe(0).is_ok());
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    assert!(diverging.observe(1).is_err(), "a dispatch that never converges must still fail");
 }
 
 #[tokio::test]
@@ -81,7 +158,11 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     commit_output(&store, &mut subject, 1, &[], &format!("{first}\n{second}\n两项有限研究已委派。")).await;
     let native = service(&store, handle.clone(), subject.head.software_generation.clone());
     let run = tokio::spawn(broker.run());
-    drive_until(&native, || store.ready_native_results(agent, 8).unwrap().len() == 2).await;
+    drive_until(
+        &native,
+        || store.ready_native_results(agent, 8).unwrap().len() as u64,
+        || store.ready_native_results(agent, 8).unwrap().len() == 2,
+    ).await;
     let wires = [wires_rx.recv().await.unwrap(), wires_rx.recv().await.unwrap()];
     server.await.unwrap();
     let results = store.ready_native_results(agent, 8).unwrap();
@@ -91,21 +172,31 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
             "child-b" => ("Independent critic. Question assumptions.", "Review the supplied beta assumptions.", 128),
             other => panic!("unexpected provider model: {other}"),
         };
-        assert!(wire["messages"][0]["content"].as_str().unwrap().ends_with(semantic));
-        assert!(wire["messages"][0]["content"].as_str().unwrap().contains("本轮没有任何工具 schema"));
+        // The child's own system prompt is the role contract, the authored
+        // semantic prompt and the installed tool catalog.
+        assert!(wire["messages"][0]["content"].as_str().unwrap().contains(semantic));
         assert_eq!(wire["messages"][1]["content"], goal);
         assert_eq!(wire["max_tokens"], cap);
-        assert!(wire.get("tools").is_none());
         let result = results.iter().find(|result| result.result.as_ref().unwrap()["provider_binding"]["model"] == wire["model"]).unwrap();
         assert!(matches!(result.outcome, TaskOutcome::Succeeded));
+        assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+        assert!(result.result.as_ref().unwrap()["answer"].as_str().unwrap().contains(&format!(
+            "scripted answer for {}", wire["model"].as_str().unwrap())));
         let task = store.external_task(result.task_id).unwrap();
         assert_eq!(task.owner, TaskOwner::Task { id: subject.head.subject_root_task_id });
+        // The sealed delegation contract binds the authored choice.
         let operation = store.external_operation(result.operation_id).unwrap();
         let frozen: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&operation.input_digest).unwrap()).unwrap();
         assert_eq!(frozen["spec"]["system_prompt"], semantic);
-        assert_eq!(frozen["payload"]["system_prompt"], wire["messages"][0]["content"]);
         assert_eq!(frozen["provider_binding"]["model"], wire["model"]);
+        // The model step is its own durable operation with its own frozen payload.
+        let step = child_step(&store, result.task_id);
+        let step_input: serde_json::Value = serde_json::from_slice(&store.cas.read_object(&step.final_input_ref.digest).unwrap()).unwrap();
+        assert_eq!(step_input["payload"]["system_prompt"], wire["messages"][0]["content"]);
+        assert_eq!(step_input["max_tokens"], cap);
+        assert_eq!(step_input["step_index"], 0);
         assert_eq!(store.external_operation_attempts(result.operation_id).unwrap().len(), 1);
+        assert_eq!(store.external_operation_attempts(step.operation_id).unwrap().len(), 1);
     }
     assert_eq!(handle.binding().model(), "subject-model", "child choices cannot mutate the subject binding");
     assert_eq!(handle.active_count(), 0);
@@ -122,7 +213,11 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     assert_eq!(next.active_count(), 0);
     let ready = reopened.ready_native_results(agent, 8).unwrap();
     assert_eq!(ready.iter().map(|r| r.result_id).collect::<Vec<_>>(), results.iter().map(|r| r.result_id).collect::<Vec<_>>());
-    for result in ready { assert_eq!(reopened.external_operation_attempts(result.operation_id).unwrap().len(), 1); }
+    for result in ready {
+        assert_eq!(reopened.external_operation_attempts(result.operation_id).unwrap().len(), 1);
+        // The reopened child did not send a second generation.
+        assert_eq!(reopened.external_operation_attempts(child_step(&reopened, result.task_id).operation_id).unwrap().len(), 1);
+    }
 }
 
 #[tokio::test]
@@ -149,7 +244,7 @@ async fn cancelled_stopped_waiter_retains_late_provider_e1_without_t2() {
     let wire = tokio::time::timeout(Duration::from_secs(5), wire_rx).await.unwrap().unwrap();
     assert_eq!(wire["model"], "cancel-child");
     let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
-    let operation_id = memo_uuid(&task, NATIVE_OPERATION_ID).unwrap();
+    let operation_id = child_step(&store, task.task_id).operation_id;
     assert_eq!(handle.active_count(), 1);
     native.cancel(task.task_id, "owner cancelled", AbortScope::Task).unwrap();
     native.close_and_join(0).await;
@@ -191,8 +286,13 @@ async fn uncertain_child_restores_original_debt_and_never_redispatches() {
     let (wire, listener) = tokio::time::timeout(Duration::from_secs(5), server).await.unwrap().unwrap();
     assert_eq!(wire["model"], "uncertain-child");
     let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
-    let operation_id = memo_uuid(&task, NATIVE_OPERATION_ID).unwrap();
-    drive_until(&native, || store.external_operation(operation_id).unwrap().state == OperationState::Reconciling).await;
+    let operation_id = child_step(&store, task.task_id).operation_id;
+    drive_until(
+        &native,
+        || store.external_operation_evidence(operation_id).unwrap().len() as u64
+            + store.external_operation_attempts(operation_id).unwrap().len() as u64,
+        || store.external_operation(operation_id).unwrap().state == OperationState::Reconciling,
+    ).await;
     let original = store.external_operation(operation_id).unwrap();
     let attempt = store.external_operation_attempt(operation_id).unwrap();
     assert_eq!(handle.active_count(), 1);
@@ -219,19 +319,27 @@ async fn uncertain_child_restores_original_debt_and_never_redispatches() {
     run.abort(); let _ = run.await;
 }
 
+/// A finite authored budget may exceed both the delegating step's budget and
+/// transport defaults. Resource admission still happens before actual sends.
 #[tokio::test]
-async fn child_budget_cannot_exceed_its_sealed_parent_cap() {
+async fn child_authored_budget_is_not_capped_by_defaults() {
     let (_dir, store, agent) = fixture();
     let (_, handle) = Broker::with_local_provider(LocalModelProvider::new("http://127.0.0.1:1".into(), "subject-model".into()), 1).unwrap();
+    let output_budget = handle.binding().default_max_tokens().checked_add(1).unwrap();
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle);
     subject.max_tokens = 32;
     let stop = tokio_util::sync::CancellationToken::new(); stop.cancel();
     execute_step(1, &[], &mut subject, &stop).await.unwrap();
-    let old_step = record_result(&store, &mut subject, &delegation("child", "Independent semantic prompt.", "Finite task.", 33));
-    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap().is_none());
-    assert_eq!(subject.head.committed_step_no, 0);
-    assert_ne!(subject.step.step_id, old_step);
-    assert!(store.native_task_candidates_after(None, 8).unwrap().is_empty());
+    let authored = format!("[delegate] {}", serde_json::json!({
+        "goal":"Finite task.", "system_prompt":"Independent semantic prompt.",
+        "model":"child", "max_tokens":output_budget,
+        "budget":{"max_steps":64,"max_tool_calls":64,"max_total_tokens":output_budget.checked_mul(64).unwrap()}
+    }));
+    record_result(&store, &mut subject, &authored);
+    let committed = execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new()).await.unwrap();
+    assert!(committed.is_some(), "the child's budget is not the delegating step's cap");
+    assert_eq!(subject.head.committed_step_no, 1);
+    assert_eq!(store.native_task_candidates_after(None, 8).unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -255,9 +363,15 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
         socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await.unwrap();
         socket.shutdown().await.unwrap();
     });
-    let (broker, handle) = Broker::with_anthropic_provider(AnthropicProvider {
-        api_key: "scripted-loopback-not-a-credential".into(), base_url: endpoint, model: "subject-cloud".into(),
-    }, 1).unwrap();
+    let (broker, handle) = Broker::with_anthropic_provider(
+        AnthropicProvider::with_endpoint(
+            "scripted-loopback-not-a-credential".into(),
+            endpoint,
+            "subject-cloud",
+        ),
+        1,
+    )
+    .unwrap();
     let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
     commit_output(&store, &mut subject, 1, &[], &delegation("cloud-child", "Independent finite reviewer.", "Review the supplied evidence.", 64)).await;
     let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
@@ -274,7 +388,8 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
         }], assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
         decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![SourceObservationPolicy {
-            source_kind: SourceKind::ApiHeaders, ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse,
+            source_kind: SourceKind::ApiHeaders, contract: None,
+            ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse,
         }],
     };
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
@@ -293,9 +408,9 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     native.run_once().await.unwrap();
     let wire = tokio::time::timeout(Duration::from_secs(5), wire_rx).await.unwrap().unwrap();
     assert_eq!(wire["model"], "cloud-child");
-    assert!(wire["system"].as_str().unwrap().ends_with("Independent finite reviewer."));
-    let current = store.external_task(task.task_id).unwrap();
-    let operation_id = memo_uuid(&current, NATIVE_OPERATION_ID).unwrap();
+    assert!(wire["system"].as_str().unwrap().contains("Independent finite reviewer."));
+    let step = child_step(&store, task.task_id);
+    let operation_id = step.operation_id;
     let operation = store.external_operation(operation_id).unwrap();
     let attempt = store.external_operation_attempt(operation_id).unwrap();
     let selected: InferenceSendBinding = serde_json::from_slice(&store.cas.read_object(&attempt.transport_ref.unwrap().digest).unwrap()).unwrap();
@@ -313,9 +428,14 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     };
     store.arm_quota_send(selected.request_id, &admission).unwrap();
     release_tx.send(()).unwrap(); server.await.unwrap();
-    drive_until(&native, || store.native_task_result(task.task_id).unwrap().is_some()).await;
+    drive_until(
+        &native,
+        || store.external_operation_evidence(operation_id).unwrap().len() as u64,
+        || store.native_task_result(task.task_id).unwrap().is_some(),
+    ).await;
     let result = store.native_task_result(task.task_id).unwrap().unwrap();
-    assert_eq!(result.result.as_ref().unwrap()["selected_send_id"], serde_json::json!(send));
+    assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
+    assert!(result.result.as_ref().unwrap()["answer"].as_str().unwrap().contains("scripted quota-bound cloud result"));
     let rows = store.quota_attempts("anthropic", "synthetic-child-quota").unwrap();
     assert_eq!(rows.len(), 4);
     for row in rows {

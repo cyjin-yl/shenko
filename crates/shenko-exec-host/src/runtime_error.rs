@@ -19,7 +19,8 @@ use shenko_types::{
     operation::*,
     task::{ImplementationRef, TaskRecord},
 };
-use std::path::PathBuf;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::history_task::{
@@ -33,6 +34,10 @@ const MAX_TITLE_CHARS: usize = 200;
 const MAX_SUMMARY_CHARS: usize = 8000;
 const MAX_ERROR_REFS: usize = 32;
 const MAX_ERROR_REF_CHARS: usize = 512;
+// Six bytes cover the largest JSON escape of one Unicode scalar; the rest
+// covers the fixed envelope and pretty-printed array punctuation.
+const MAX_DRAFT_BYTES: usize =
+    (MAX_TITLE_CHARS + MAX_SUMMARY_CHARS + MAX_ERROR_REFS * MAX_ERROR_REF_CHARS) * 6 + 4096;
 
 // ---------------------------------------------------------------------------
 // errors.read — read-only journal queries over runtime_error facts.
@@ -469,6 +474,60 @@ struct FrozenIssueInput {
     digest: String,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishedIssueBody {
+    title: String,
+    summary: String,
+    error_refs: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishedIssueDraft {
+    v: u32,
+    digest: String,
+    created_at: String,
+    source: String,
+    audience: String,
+    issue: PublishedIssueBody,
+}
+
+// Same no-replace rename primitive and target support as shenko-update.
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+fn rename_issue_draft(from: &Path, to: &Path) -> std::io::Result<()> {
+    use rustix::fs::{CWD, RenameFlags, renameat_with};
+    renameat_with(CWD, from, CWD, to, RenameFlags::NOREPLACE).map_err(Into::into)
+}
+
+#[cfg(windows)]
+fn rename_issue_draft(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileW;
+    let mut from: Vec<u16> = from.as_os_str().encode_wide().collect();
+    let mut to: Vec<u16> = to.as_os_str().encode_wide().collect();
+    if from.contains(&0) || to.contains(&0) {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "path contains NUL"));
+    }
+    from.push(0);
+    to.push(0);
+    // SAFETY: both NUL-terminated strings outlive the call. MoveFileW refuses
+    // an existing destination instead of replacing its bytes.
+    if unsafe { MoveFileW(from.as_ptr(), to.as_ptr()) } == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "android", target_vendor = "apple")))]
+fn rename_issue_draft(_from: &Path, _to: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "exclusive issue draft publication is not supported on this platform",
+    ))
+}
+
 pub struct IssueSubmitHandler {
     store: Arc<Store>,
     outbox_dir: PathBuf,
@@ -650,13 +709,62 @@ impl IssueSubmitHandler {
         Ok((operation, attempt))
     }
 
-    /// The real external effect: one digest-named draft JSON inside the
-    /// configured outbox directory. A file with the same digest is the same
-    /// submission — never rewritten, never duplicated.
+    fn existing_draft(path: &Path, frozen: &FrozenIssueInput) -> Result<Option<Vec<u8>>> {
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags((rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::NONBLOCK).bits() as i32);
+        }
+        let mut file = match options.open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error).context("issue draft cannot be opened"),
+        };
+        let metadata = file.metadata()?;
+        ensure!(metadata.is_file(), "issue draft is not a regular file");
+        ensure!(metadata.len() <= MAX_DRAFT_BYTES as u64, "issue draft exceeds its byte bound");
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        (&mut file).take(MAX_DRAFT_BYTES as u64 + 1).read_to_end(&mut bytes)?;
+        ensure!(bytes.len() <= MAX_DRAFT_BYTES, "issue draft exceeds its byte bound");
+        let draft: PublishedIssueDraft = serde_json::from_slice(&bytes)
+            .context("existing issue draft is not a valid v1 artifact")?;
+        ensure!(
+            draft.v == 1
+                && draft.digest == frozen.digest
+                && draft.source == "shenko.issue.submit.v1"
+                && draft.audience == "local_outbox"
+                && draft.issue.title == frozen.title
+                && draft.issue.summary == frozen.summary
+                && draft.issue.error_refs == frozen.error_refs,
+            "existing issue draft does not match its frozen submission"
+        );
+        chrono::DateTime::parse_from_rfc3339(&draft.created_at)
+            .context("existing issue draft has an invalid creation time")?;
+        file.sync_all()?;
+        Ok(Some(bytes))
+    }
+
+    fn sync_outbox_path(&self) -> Result<()> {
+        for directory in self.outbox_dir.ancestors().filter(|path| !path.as_os_str().is_empty()) {
+            std::fs::File::open(directory)?.sync_all()?;
+        }
+        Ok(())
+    }
+
+    /// An existing name is not evidence. Only a bounded, valid v1 artifact
+    /// matching this frozen submission can be attested; it is never replaced.
     fn publish(&self, frozen: &FrozenIssueInput) -> Result<(Vec<u8>, PathBuf, bool)> {
         std::fs::create_dir_all(&self.outbox_dir).map_err(|error| {
             anyhow::anyhow!("issue outbox {} unavailable: {error}", self.outbox_dir.display())
         })?;
+        let file_name = format!("issue-{}.json", frozen.digest.replace(':', "-"));
+        let path = self.outbox_dir.join(&file_name);
+        if let Some(existing) = Self::existing_draft(&path, frozen)? {
+            self.sync_outbox_path()?;
+            return Ok((existing, path, false));
+        }
         let draft = serde_json::json!({
             "v": 1,
             "digest": frozen.digest,
@@ -670,23 +778,33 @@ impl IssueSubmitHandler {
             },
         });
         let bytes = serde_json::to_vec_pretty(&draft)?;
-        let file_name = format!("issue-{}.json", frozen.digest.replace(':', "-"));
-        let path = self.outbox_dir.join(&file_name);
-        if path.exists() {
-            // The digest is the identity: an existing file with this name is
-            // the same submission. It is re-read below for the evidence seal.
-            let existing = std::fs::read(&path)?;
-            return Ok((existing, path, false));
+        let tmp = self.outbox_dir.join(format!(".{file_name}.tmp-{}", EntityId::new()));
+        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let publication: Result<bool> = (|| {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            match rename_issue_draft(&tmp, &path) {
+                Ok(()) => Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error).context("issue draft atomic publication failed"),
+            }
+        })();
+        drop(file);
+        if !matches!(&publication, Ok(true)) {
+            if let Err(cleanup) = std::fs::remove_file(&tmp) {
+                if cleanup.kind() != std::io::ErrorKind::NotFound {
+                    if publication.is_ok() {
+                        return Err(cleanup).context("issue draft staging cleanup failed");
+                    }
+                    tracing::warn!(error=%cleanup, "issue draft staging cleanup failed after publication failure");
+                }
+            }
         }
-        // Same-directory temp + rename keeps the outbox entry atomic.
-        let tmp = self.outbox_dir.join(format!(".{file_name}.tmp-{}", std::process::id()));
-        std::fs::write(&tmp, &bytes).map_err(|error| {
-            anyhow::anyhow!("issue draft write failed for {}: {error}", tmp.display())
-        })?;
-        std::fs::rename(&tmp, &path).map_err(|error| {
-            anyhow::anyhow!("issue draft publish failed for {}: {error}", path.display())
-        })?;
-        Ok((bytes, path, true))
+        let written = publication?;
+        self.sync_outbox_path()?;
+        let published = Self::existing_draft(&path, frozen)?
+            .context("published issue draft disappeared before observation")?;
+        Ok((published, path, written))
     }
 
     fn observe(
@@ -859,7 +977,7 @@ mod tests {
             seed_manifest_ref: object.clone(),
             initial_profile_ref: object.clone(),
             home_manifest_ref: object.clone(),
-            bootstrap_event_ref: object,
+            bootstrap_event_ref: object.clone(),
             created_commit: precommit,
         };
         let head = SubjectBranchHead {
@@ -897,7 +1015,15 @@ mod tests {
             record_revision: RecordRevision(0),
             created_by_step_id: None,
         };
-        store.initialize_genesis(&genesis, &head, &first).unwrap();
+        let root_task_record = shenko_types::task::TaskRecord::subject_root(
+            head.subject_root_task_id,
+            agent,
+            object,
+            precommit,
+        );
+        store
+            .initialize_genesis(&genesis, &head, &first, &root_task_record)
+            .unwrap();
         (agent, first_id)
     }
 
@@ -978,6 +1104,7 @@ mod tests {
             task,
             operation_id,
             input,
+            child_tools: None,
         }
     }
 
@@ -1065,14 +1192,14 @@ mod tests {
             agent,
             step_id,
             "issue.submit",
-            input_ref,
+            input_ref.clone(),
         );
         let mut batch = WriteBatch::new();
         batch.task_upserts.push(task.clone());
         store.commit(batch).unwrap();
 
         let task_id = task.task_id;
-        let invocation = native_invocation(task, task_invocation.clone(), input);
+        let invocation = native_invocation(task, task_invocation.clone(), input.clone());
         let operation = handler.execute(invocation).await.unwrap();
         assert_eq!(operation.state, OperationState::Resolved);
         assert_eq!(operation.outcome, Some(OperationOutcome::Succeeded));
@@ -1107,6 +1234,32 @@ mod tests {
             .map(|entry| entry.unwrap().path())
             .collect();
         assert_eq!(drafts_after.len(), 1);
+
+        // A new operation must not attest valid JSON whose content was changed
+        // under the old digest-named path. Historical receipts remain history.
+        let mut tampered = draft;
+        tampered["issue"]["title"] = serde_json::json!("a different submission");
+        let tampered_bytes = serde_json::to_vec(&tampered).unwrap();
+        std::fs::write(&drafts_after[0], &tampered_bytes).unwrap();
+        let (new_task, new_invocation) = running_task(
+            &store,
+            handler.descriptor().implementation_ref,
+            agent,
+            step_id,
+            "issue.submit",
+            input_ref,
+        );
+        let mut batch = WriteBatch::new();
+        batch.task_upserts.push(new_task.clone());
+        store.commit(batch).unwrap();
+        let invocation = native_invocation(new_task, new_invocation, input);
+        let rejected_id = invocation.operation_id;
+        assert!(handler.execute(invocation).await.is_err());
+        let rejected = store.external_operation(rejected_id).unwrap();
+        assert_ne!(rejected.outcome, Some(OperationOutcome::Succeeded));
+        assert_ne!(rejected.effect_status, EffectStatus::Complete);
+        assert!(store.external_operation_evidence(rejected_id).unwrap().is_empty());
+        assert_eq!(std::fs::read(&drafts_after[0]).unwrap(), tampered_bytes);
         drop(handler);
         drop(store);
         let _ = std::fs::remove_dir_all(dir);

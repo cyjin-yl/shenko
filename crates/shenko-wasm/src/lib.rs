@@ -1,6 +1,16 @@
 pub mod runtime;
+pub mod replay_io;
+pub mod p1;
 pub mod mount;
+pub mod cow;
+pub mod fsx;
 pub mod tool;
+pub mod artifact;
+pub mod manifest;
 pub use runtime::*;
 pub use mount::*;
+pub use cow::*;
+pub use p1::{P1Host, StdioStreams};
 pub use tool::*;
+pub use artifact::*;
+pub use manifest::*;

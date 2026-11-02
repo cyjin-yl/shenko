@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::EntityId;
 
+use crate::scope::ScopeIdentity;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceKind {
@@ -208,6 +210,17 @@ impl Range {
 pub struct QuotaWindow {
     pub window_key: String,
     pub scope_ref: String,
+    /// The real scope this window belongs to. A window of an organization,
+    /// of one workspace, of the Default Workspace, of one API key and of a
+    /// consumer subscription are different constraints and are never
+    /// summed into one balance.
+    #[serde(default)]
+    pub scope: ScopeIdentity,
+    /// The window this one inherits its limit from, when the provider
+    /// reports that a scope has no override of its own. An inherited
+    /// limit is still a limit; it is never "no limit".
+    #[serde(default)]
+    pub inherits_from: Option<String>,
     pub kind: WindowKind,
     pub metric: Metric,
     pub unit: String,
@@ -273,6 +286,15 @@ pub struct QuotaSnapshot {
     pub provider_id: String,
     pub account_scope_ref: String,
     pub source_kind: SourceKind,
+    /// The exact source contract that produced this snapshot. Two payloads
+    /// of the same source kind can carry different contracts and are
+    /// different facts.
+    #[serde(default)]
+    pub source_contract_ref: String,
+    /// The real account scope this reading belongs to. It stays unknown
+    /// when the source does not name one.
+    #[serde(default)]
+    pub scope: ScopeIdentity,
     pub source_version: Option<String>,
     /// The observed fields only (no credentials or unrelated headers).
     pub raw_evidence: String,

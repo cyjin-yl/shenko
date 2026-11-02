@@ -2,11 +2,16 @@
   "schema_version": 1,
   "upstream": {
     "repository": "https://github.com/Proto-UI/Proto-UI.git",
-    "commit": "7181a93a5ec5cad43936a72e31d5477d5488733a",
+    "commit": "971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e",
     "previous_reviewed_commit": "2962d4ee877f5a3544a13d4deaa09b6a2b038fb7",
     "lock_sha256": "3ac437fda5666f744c02587d9c90b47a927a6e2521973f6a18b47cc3c7cbe422",
-    "source_checkout": "/tank/shared/projects/shenko/build/c11-durable-input-native-20261029/pinned-inputs-7181a93-d947efcd/upstream",
-    "build_receipt": null
+    "source_checkout": "/tank/shared/projects/shenko/build/spec-architecture-20261101/ui-pinned-inputs-971cd35-20261102/upstream",
+    "build_receipt": {
+      "script": "scripts/build/public-packages.mjs",
+      "selected_package_count": 42,
+      "receipt_path": "/tank/shared/projects/shenko/build/spec-architecture-20261101/ui-pinned-inputs-971cd35-20261102/build-selected/public-packages.json",
+      "receipt_sha256": "375079d28822b1cd077877925974d62c6e01b011c3f198037bab5ed4b5f61b1d"
+    }
   },
   "packages": [
     "@proto.ui/adapter-react@0.3.0-alpha.1",
@@ -49,36 +54,36 @@
     "react": "19.3.1",
     "react_dom": "19.3.1"
   },
-  "web_root": "/tank/shared/projects/shenko/worktrees/c11-durable-input-20261029/crates/shenko-ui/web",
-  "built_at": "2026-10-29T21:01:18.389Z",
+  "web_root": "/tank/shared/projects/shenko/worktrees/architecture-20261101/crates/shenko-ui/web",
+  "built_at": "2026-11-02T00:08:41.447Z",
   "artifacts": {
     "app.js": {
-      "bytes": 859393,
-      "sha256": "68c063ee8039c22c7c577751d6579f14bb9ec1e94dd88982411d9e7ee6dd7350"
+      "bytes": 910558,
+      "sha256": "1950ab8506e170ad760563daa7b83cca14ec4d8711a3ec70d8d8249dd6139330"
     },
     "app.css": {
-      "bytes": 27627,
-      "sha256": "58683e43033de09065b6c3cc5424fb07dde3ac958b89a412167aef8e83afa08d"
+      "bytes": 27877,
+      "sha256": "b6095b7b3d0318cf2405762e9d3ce15db0558aad5156b291168c81cccb62a138"
     },
     "proto-ui-style.css": {
       "bytes": 294,
       "sha256": "446d2249e0672bdee7ddf77de55c7a8f2140adfb60c41d13ec0183d5f7199d88"
     },
     "proto-ui-tokens.generated.css": {
-      "bytes": 80071,
-      "sha256": "8b923b0d655f73712d6f341295381b41a54e8e9a6ee6a0565b761e653eeeca20"
+      "bytes": 141438,
+      "sha256": "fa9dd5eabb107f5e6d454ddc5271936ce99cc45c81a145e0c5d5cb1633343f8d"
     },
     "shadcn-theme.css": {
-      "bytes": 6441,
-      "sha256": "e2227f3997af25e86135908350179e96754902b0aca0e3da247843a12052848f"
+      "bytes": 6473,
+      "sha256": "3de2d4ce2a38e83086128c8863d3391eb74159adde7b1a8b7f450f93fd643f96"
     },
     "licenses/PROTO-UI-LICENSE": {
       "bytes": 1078,
       "sha256": "7b6e3e65736b51f976b8443bca2cc9796e010b1e8a4dfff7316240681e0ebf66"
     },
     "licenses/SHADCN-NOTICES.md": {
-      "bytes": 4617,
-      "sha256": "4ef0fe32ba2210147ddecc94c3cbfa9d54cd5e95ac20964e5d12081ea1a435e2"
+      "bytes": 7729,
+      "sha256": "219186f51ff5f2708d5fb5bfacb4876440b8186b48a0ee858c0f8e2e279abc76"
     },
     "licenses/REACT-LICENSE": {
       "bytes": 1088,

@@ -2,15 +2,19 @@
 //! admission and ingress staging all resolve through the channel registry.
 //! The real QQ plugin comes from `shenko-channel-napcat`; a local stub proves
 //! the boundary is open to channels the subject core has never heard of.
-use shenko_channel_napcat::{QQ_CHANNEL_ID, qq_registry};
+use std::sync::Arc;
+
+use shenko_channel_napcat::{QQ_CHANNEL_ID, qq_test_registry};
 use shenko_identity::{DefaultIdentityPolicy, IdentityService};
-use shenko_subject::{canonical_system_prompt, staged_message_text};
 use shenko_subject::output::parse_output;
-use shenko_types::channel::{ChannelPlugin, ChannelRegistry, ReplyKind};
+use shenko_subject::{canonical_system_prompt, staged_message_text};
+use shenko_types::channel::{
+    BoxFuture, ChannelAction, ChannelDispatch, ChannelEnvelope, ChannelError, ChannelPlugin,
+    ChannelReceipt, ChannelRegistry, ChannelReplyTarget, ReplyKind,
+};
 use shenko_types::ids::EntityId;
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::output::{OutputAction, PublicationTarget};
-use std::sync::Arc;
 
 fn raw_object(raw: &str) -> ObjectRef {
     ObjectRef {
@@ -27,7 +31,10 @@ fn raw_object(raw: &str) -> ObjectRef {
     }
 }
 
-fn parse(raw: &str, channels: &ChannelRegistry) -> Result<shenko_types::output::ParsedOutput, shenko_types::error::ShenkoError> {
+fn parse(
+    raw: &str,
+    channels: &ChannelRegistry,
+) -> Result<shenko_types::output::ParsedOutput, shenko_types::error::ShenkoError> {
     let identity = IdentityService::new(Arc::new(DefaultIdentityPolicy));
     parse_output(
         EntityId::new(),
@@ -41,51 +48,182 @@ fn parse(raw: &str, channels: &ChannelRegistry) -> Result<shenko_types::output::
 
 /// A minimal second channel the subject core knows nothing about: one "room"
 /// audience and its own staged-target projection keyed off `room_id`.
-fn stub_channel() -> ChannelPlugin {
-    ChannelPlugin {
-        channel: "relay",
-        sources: &["relay-bridge"],
-        kinds: &[ReplyKind {
+struct StubChannel {
+    channel: String,
+    source: String,
+    kinds: Vec<ReplyKind>,
+    prompt_names: &'static str,
+}
+
+impl ChannelPlugin for StubChannel {
+    fn channel_id(&self) -> &str {
+        &self.channel
+    }
+
+    fn sources(&self) -> &[String] {
+        std::slice::from_ref(&self.source)
+    }
+
+    fn kinds(&self) -> &[ReplyKind] {
+        &self.kinds
+    }
+
+    fn prompt_names(&self) -> &str {
+        self.prompt_names
+    }
+
+    fn classify(&self, source: &str, raw: &serde_json::Value) -> Option<ChannelEnvelope> {
+        if source != "relay-bridge"
+            || raw.get("channel_type").and_then(|value| value.as_str()) != Some("room")
+        {
+            return None;
+        }
+        let id = raw
+            .get("room_id")
+            .and_then(|value| value.as_u64())
+            .filter(|id| *id > 0)?
+            .to_string();
+        let who = raw
+            .get("nickname")
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
+        let text = raw
+            .get("text")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        Some(ChannelEnvelope {
+            schema_version: 1,
+            provider: self.channel.clone(),
+            account: "relay:local".to_string(),
+            tenant: None,
+            transport_identity_domain: "relay-bridge".to_string(),
+            conversation: Some(id.clone()),
+            thread: None,
+            message_id: raw
+                .get("message_id")
+                .and_then(|value| value.as_u64())
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            source_event_revision: None,
+            occurred_at: None,
+            received_at: chrono::Utc::now(),
+            actor: shenko_types::channel::ChannelActor {
+                platform_id: who.clone(),
+                display_name: if who.is_empty() { None } else { Some(who) },
+                alias: None,
+                person_ref: None,
+                role_grant_ref: None,
+                group_role: None,
+            },
+            content: shenko_types::channel::ChannelContent {
+                text,
+                segments: vec![],
+                mentions: vec![],
+                reply_to: None,
+            },
+            reply_target: Some(ChannelReplyTarget {
+                kind: "room".to_string(),
+                id: id.clone(),
+                label: format!("room {id}"),
+                account: "relay:local".to_string(),
+                tenant: None,
+                conversation: Some(id),
+            }),
+            attachments: vec![],
+            raw_ref: None,
+        })
+    }
+
+    fn staged_text(&self, envelope: &ChannelEnvelope) -> String {
+        let who = envelope
+            .actor
+            .display_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(envelope.actor.platform_id.as_str());
+        match &envelope.reply_target {
+            Some(target) => format!("[{who} · {}] {}", target.label, envelope.content.text),
+            None => format!("[{who}] {}", envelope.content.text),
+        }
+    }
+
+    fn resolve_reply(&self, kind: &str, id: &str) -> Option<PublicationTarget> {
+        if kind != "room" || id.is_empty() {
+            return None;
+        }
+        Some(
+            PublicationTarget::new(self.channel.clone(), "room", id, "relay:local")
+                .with_scope(None, Some(id.to_string())),
+        )
+    }
+
+    fn describe(&self, target: &PublicationTarget) -> Result<ChannelDispatch, ChannelError> {
+        Err(ChannelError::UnsupportedTarget {
+            channel: target.channel.clone(),
+            kind: target.kind.clone(),
+        })
+    }
+
+    fn dispatch(
+        &self,
+        dispatch: &ChannelDispatch,
+        _content: &str,
+    ) -> BoxFuture<'static, Result<ChannelReceipt, ChannelError>> {
+        let channel = dispatch.channel.clone();
+        let kind = dispatch.platform_action.clone();
+        Box::pin(async move {
+            Err(ChannelError::UnsupportedTarget { channel, kind })
+        })
+    }
+}
+
+fn stub_channel() -> StubChannel {
+    StubChannel {
+        channel: "relay".to_string(),
+        source: "relay-bridge".to_string(),
+        kinds: vec![ReplyKind {
             tag: "room",
             id_hint: "房间号",
             audience: "房间号",
         }],
         prompt_names: "房间号",
-        staged_target: |payload| {
-            (payload.get("channel_type").and_then(|t| t.as_str()) == Some("room"))
-                .then(|| {
-                    payload
-                        .get("room_id")
-                        .and_then(|id| id.as_u64())
-                        .filter(|id| *id > 0)
-                })
-                .flatten()
-                .map(|id| format!("room {id}"))
-        },
     }
 }
 
 fn stub_registry() -> ChannelRegistry {
     let mut registry = ChannelRegistry::new();
-    registry.register(stub_channel()).unwrap();
+    registry.register(Arc::new(stub_channel())).unwrap();
     registry
 }
 
+fn qq_group_target(id: &str) -> PublicationTarget {
+    PublicationTarget::new(QQ_CHANNEL_ID, "group", id, "qq:10000")
+        .with_scope(None, Some(id.to_string()))
+}
+
 /// Registry-driven parse: the registered kind resolves to a typed target
-/// carrying its channel id; an unregistered kind stays a protocol error.
+/// carrying its channel id and the connector account scope; an unregistered
+/// kind stays a protocol error.
 #[test]
 fn registered_and_unknown_reply_kinds() {
-    let channels = qq_registry();
+    let channels = qq_test_registry();
     let parsed = parse("[reply:group:7] 大家好", &channels).unwrap();
     let OutputAction::Reply { target, .. } = &parsed.controls[0].action else {
         panic!("expected reply control")
     };
-    assert_eq!(target, &PublicationTarget::new(QQ_CHANNEL_ID, "group", 7));
+    assert_eq!(target, &qq_group_target("7"));
     let private = parse("[reply:private:9] 你好", &channels).unwrap();
     let OutputAction::Reply { target, .. } = &private.controls[0].action else {
         panic!("expected reply control")
     };
-    assert_eq!(target, &PublicationTarget::new(QQ_CHANNEL_ID, "private", 9));
+    assert_eq!(
+        target,
+        &PublicationTarget::new(QQ_CHANNEL_ID, "private", "9", "qq:10000")
+            .with_scope(None, Some("9".to_string()))
+    );
 
     for raw in ["[reply:bogus:5] x", "[reply:matrix:5] x"] {
         let error = parse(raw, &channels).unwrap_err().to_string();
@@ -109,7 +247,11 @@ fn stub_channel_is_a_first_class_reply_target() {
     let OutputAction::Reply { target, text } = &parsed.controls[0].action else {
         panic!("expected reply control")
     };
-    assert_eq!(target, &PublicationTarget::new("relay", "room", 42));
+    assert_eq!(
+        target,
+        &PublicationTarget::new("relay", "room", "42", "relay:local")
+            .with_scope(None, Some("42".to_string()))
+    );
     assert!(text.contains("到了"));
 
     let staged = staged_message_text(
@@ -129,7 +271,7 @@ fn stub_channel_is_a_first_class_reply_target() {
 /// that no reply can be delivered.
 #[test]
 fn contract_text_comes_from_the_registry() {
-    let qq = canonical_system_prompt(&qq_registry());
+    let qq = canonical_system_prompt(&qq_test_registry());
     assert!(
         qq.contains("[reply:group:群号] 正文 或 [reply:private:QQ号] 正文"),
         "{qq}"
@@ -137,57 +279,91 @@ fn contract_text_comes_from_the_registry() {
     assert!(qq.contains("可回复的 QQ 号或群号"), "{qq}");
 
     let mut both = ChannelRegistry::new();
-    both.register(shenko_channel_napcat::qq_channel_plugin()).unwrap();
-    both.register(stub_channel()).unwrap();
+    both.register(Arc::new(shenko_channel_napcat::NapCatChannel::new(
+        shenko_channel_napcat::config::NapCatConfig {
+            bot_qq: 10000,
+            ..Default::default()
+        },
+        {
+            let config = shenko_channel_napcat::config::NapCatConfig {
+                bot_qq: 10000,
+                ..Default::default()
+            };
+            let (client, _events, _actions) =
+                shenko_channel_napcat::NapCatClient::open_isolated(config).unwrap();
+            Arc::new(client)
+        },
+    )))
+    .unwrap();
+    both.register(Arc::new(stub_channel())).unwrap();
     let multi = canonical_system_prompt(&both);
     assert!(multi.contains("[reply:room:房间号]"), "{multi}");
     assert!(multi.contains("房间号"), "{multi}");
 
     let none = canonical_system_prompt(&ChannelRegistry::new());
-    assert!(none.contains("没有注册的回复通道"), "{none}");
+    assert!(none.contains("当前没有注册的回复通道"), "{none}");
     assert!(!none.contains("[reply:"), "{none}");
 }
 
 /// Ambiguous descriptors are refused at registration, not at parse time.
 #[test]
 fn registry_rejects_duplicate_and_invalid_descriptors() {
-    let mut registry = qq_registry();
-    let mut conflicting = stub_channel();
-    conflicting.kinds = &[ReplyKind {
-        tag: "group",
-        id_hint: "x",
-        audience: "x",
-    }];
-    assert!(registry.register(conflicting).is_err());
-    let mut same_source = stub_channel();
-    same_source.channel = "relay2";
-    same_source.sources = &["napcat"];
-    assert!(registry.register(same_source).is_err());
-    let mut bad_tag = stub_channel();
-    bad_tag.channel = "relay3";
-    bad_tag.sources = &["relay3"];
-    bad_tag.kinds = &[ReplyKind {
-        tag: "bad:tag",
-        id_hint: "x",
-        audience: "x",
-    }];
-    assert!(registry.register(bad_tag).is_err());
+    use shenko_types::channel::ChannelRegistryError;
+    let mut registry = qq_test_registry();
+    let conflicting = StubChannel {
+        channel: "relay".to_string(),
+        source: "relay-bridge".to_string(),
+        kinds: vec![ReplyKind {
+            tag: "group",
+            id_hint: "x",
+            audience: "x",
+        }],
+        prompt_names: "x",
+    };
+    assert!(matches!(
+        registry.register(Arc::new(conflicting)),
+        Err(ChannelRegistryError::DuplicateTag)
+    ));
+    let same_source = StubChannel {
+        channel: "relay2".to_string(),
+        source: "napcat".to_string(),
+        kinds: stub_channel().kinds.clone(),
+        prompt_names: "房间号",
+    };
+    assert!(matches!(
+        registry.register(Arc::new(same_source)),
+        Err(ChannelRegistryError::DuplicateSource)
+    ));
+    let bad_tag = StubChannel {
+        channel: "relay3".to_string(),
+        source: "relay3".to_string(),
+        kinds: vec![ReplyKind {
+            tag: "bad:tag",
+            id_hint: "x",
+            audience: "x",
+        }],
+        prompt_names: "x",
+    };
+    assert!(matches!(
+        registry.register(Arc::new(bad_tag)),
+        Err(ChannelRegistryError::InvalidTag)
+    ));
 }
 
 /// Staged headers use the plugin's own label; events from unregistered
-/// sources, or registered-channel events without a replyable account, keep
-/// the plain `[who]` header so no unparseable reply can be invited.
+/// sources, or registered-channel payloads the plugin does not classify,
+/// keep the plain `[who]` header so no unparseable reply can be invited.
 #[test]
 fn staging_binds_labels_to_the_owning_channel() {
-    let channels = qq_registry();
+    let channels = qq_test_registry();
     let group = staged_message_text(
-        &serde_json::json!({"message_type":"group","group_id":7,"sender":{"nickname":"小明"},"raw_message":"在吗"}),
+        &serde_json::json!({"post_type":"message","message_type":"group","group_id":7,"sender":{"nickname":"小明"},"raw_message":"在吗"}),
         "napcat",
         &channels,
     );
     assert_eq!(group, "[小明 · 群 7] 在吗");
     let private = staged_message_text(
-        &serde_json::json!({"message_type":"private","user_id":9,"nickname":"小蓝","raw_message":"hi"}),
+        &serde_json::json!({"post_type":"message","message_type":"private","user_id":9,"sender":{"nickname":"小蓝"},"raw_message":"hi"}),
         "napcat",
         &channels,
     );
@@ -199,7 +375,7 @@ fn staging_binds_labels_to_the_owning_channel() {
     );
     assert_eq!(unknown_source, "[nowhere] x");
     let no_account = staged_message_text(
-        &serde_json::json!({"message_type":"notice","raw_message":"系统消息"}),
+        &serde_json::json!({"post_type":"notice","raw_message":"系统消息"}),
         "napcat",
         &channels,
     );
@@ -207,24 +383,29 @@ fn staging_binds_labels_to_the_owning_channel() {
 }
 
 /// Records sealed before the channel boundary (`{"kind":"qq_…","id":N}`)
-/// still deserialize into the new shape; admission of new targets is the
-/// registry's job, so this reader only preserves the old bytes.
+/// still read through the explicit legacy reader used by the Store
+/// migration; the versioned deserializer itself accepts only v2. Admission
+/// of new targets is the registry's job, so this reader only preserves the
+/// old bytes.
 #[test]
 fn legacy_qq_publication_records_still_read() {
+    let group = PublicationTarget::read_legacy(&serde_json::json!({"kind":"qq_group","id":7}))
+        .expect("legacy group target reads");
+    assert_eq!(group.channel, QQ_CHANNEL_ID);
+    assert_eq!(group.kind, "group");
+    assert_eq!(group.id, "7");
+    assert!(group.account.is_empty());
+    let private = PublicationTarget::read_legacy(&serde_json::json!({"kind":"qq_private","id":9}))
+        .expect("legacy private target reads");
+    assert_eq!(private.kind, "private");
+    assert_eq!(private.id, "9");
+
+    // The strict reader refuses the old shape: only the migration may read it.
     #[derive(serde::Deserialize)]
     struct Intent {
         target: PublicationTarget,
     }
-    let group: Intent =
-        serde_json::from_str(r#"{"target":{"kind":"qq_group","id":7}}"#).unwrap();
-    assert_eq!(
-        group.target,
-        PublicationTarget::new(QQ_CHANNEL_ID, "group", 7)
-    );
-    let private: Intent =
-        serde_json::from_str(r#"{"target":{"kind":"qq_private","id":9}}"#).unwrap();
-    assert_eq!(
-        private.target,
-        PublicationTarget::new(QQ_CHANNEL_ID, "private", 9)
+    assert!(
+        serde_json::from_str::<Intent>(r#"{"target":{"kind":"qq_group","id":7}}"#).is_err()
     );
 }

@@ -116,11 +116,22 @@ loop {
             }
             for (provider_id, scope) in scopes {
                 for source in &policy.observation_sources {
-                    let Some(snapshot) = store.latest_quota_snapshot_for_source(
-                        &provider_id,
-                        &scope,
-                        source.source_kind,
-                    )? else {
+                    // A policy that pins a source contract forecasts from
+                    // exactly that contract's reading. Two contracts of one
+                    // source kind are different facts: a configured limit
+                    // document and a usage report never stand in for each
+                    // other.
+                    let snapshot = match &source.contract {
+                        Some(contract) => store.latest_quota_snapshot_for_contract(
+                            &provider_id,
+                            &scope,
+                            source.source_kind,
+                            contract,
+                        )?,
+                        None => store
+                            .latest_quota_snapshot_for_source(&provider_id, &scope, source.source_kind)?,
+                    };
+                    let Some(snapshot) = snapshot else {
                         continue;
                     };
                     let options = source.options();

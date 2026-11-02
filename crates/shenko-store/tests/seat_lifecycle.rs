@@ -1,6 +1,16 @@
-use shenko_store::{LeaseEndReason, SeatLeaseEnd, SeatLocation, SeatStatus, Store};
+use shenko_store::{LeaseEndReason, SeatLeaseEnd, SeatLeaseRequest, SeatLocation, SeatStatus, Store};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
+
+fn lease_request(seat_id: EntityId, holder_task_id: EntityId, lease_id: EntityId) -> SeatLeaseRequest {
+    SeatLeaseRequest {
+        lease_id,
+        seat_id,
+        holder_task_id,
+        lease_epoch: 1,
+        fence_capability: "tmux.send-keys:%1".into(),
+    }
+}
 
 fn location(pane: &str) -> SeatLocation {
     SeatLocation::Tmux {
@@ -26,13 +36,13 @@ fn displaced_writer_stays_displaced_after_reopen_and_human_takeover() {
     let task = EntityId::new();
     let seat = store.register_seat(EntityId::new(), task, "omp", "1", location("%1")).unwrap();
     let acquisition_id = EntityId::new();
-    let first = store.acquire_seat_lease(seat.seat_id, task, acquisition_id).unwrap();
-    let second = store.acquire_seat_lease(seat.seat_id, task, EntityId::new()).unwrap();
+    let first = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id)).unwrap();
+    let second = store.acquire_seat_lease(lease_request(seat.seat_id, task, EntityId::new())).unwrap();
     drop(store);
     let store = Store::open(db, cas).unwrap();
     // Recover the original acquisition by the identity chosen before the
     // attempt. Replaying it after reopen cannot displace the newer writer.
-    let replay = store.acquire_seat_lease(seat.seat_id, task, acquisition_id).unwrap();
+    let replay = store.acquire_seat_lease(lease_request(seat.seat_id, task, acquisition_id)).unwrap();
     assert_eq!(replay.lease_id, acquisition_id);
     assert_eq!(replay.created_commit, first.created_commit);
     assert!(!replay.is_current());
@@ -58,7 +68,7 @@ fn relocation_preserves_history_and_invalidates_previous_location_lease() {
     let store = Store::open(dir.join("store.db"), dir.join("cas")).unwrap();
     let task = EntityId::new();
     let old = store.register_seat(EntityId::new(), task, "omp", "1", location("%1")).unwrap();
-    let lease = store.acquire_seat_lease(old.seat_id, task, EntityId::new()).unwrap();
+    let lease = store.acquire_seat_lease(lease_request(old.seat_id, task, EntityId::new())).unwrap();
     let new = store.relocate_seat(old.seat_id, task, "omp", "1", location("%2")).unwrap();
     assert_eq!(new.supersedes, Some(old.seat_id));
     assert_eq!(store.seat(old.seat_id).unwrap().unwrap().status, SeatStatus::Retired);
@@ -92,7 +102,9 @@ fn pane_admits_only_one_active_seat_for_registration_and_relocation() {
     assert_eq!(contender.seat_at_pane("local", "%2").unwrap().unwrap().seat_id, seat_a.seat_id);
     // Relocation into an occupied pane is refused the same way.
     let seat_c = contender.register_seat(EntityId::new(), task_c, "omp", "1", location("%3")).unwrap();
-    let lease_c = contender.acquire_seat_lease(seat_c.seat_id, task_c, EntityId::new()).unwrap();
+    let lease_c = contender
+        .acquire_seat_lease(lease_request(seat_c.seat_id, task_c, EntityId::new()))
+        .unwrap();
     let err = contender
         .relocate_seat(seat_c.seat_id, task_c, "omp", "1", location("%2"))
         .unwrap_err();
@@ -110,7 +122,7 @@ fn relocation_requires_the_predecessors_own_task() {
     let task_a = EntityId::new();
     let task_b = EntityId::new();
     let old = store.register_seat(EntityId::new(), task_a, "omp", "1", location("%1")).unwrap();
-    let lease = store.acquire_seat_lease(old.seat_id, task_a, EntityId::new()).unwrap();
+    let lease = store.acquire_seat_lease(lease_request(old.seat_id, task_a, EntityId::new())).unwrap();
     // Relocating under another task is refused and leaves task A's seat alive.
     let err = store
         .relocate_seat(old.seat_id, task_b, "omp", "1", location("%2"))

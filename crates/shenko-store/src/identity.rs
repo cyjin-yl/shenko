@@ -6,6 +6,7 @@
 use rusqlite::{Connection, OptionalExtension, params};
 
 use shenko_types::error::ShenkoError;
+use shenko_types::commit::CommitRef;
 use shenko_types::identity::{IdentityProfile, IdentityReceipt};
 use shenko_types::ids::EntityId;
 
@@ -57,19 +58,31 @@ impl Store {
         &self,
         genesis: &IdentityProfile,
     ) -> Result<IdentityProfile, ShenkoError> {
-        let mut conn = self.ledger.conn.lock();
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db)?;
-        if let Some(current) = read_latest(&tx, genesis.agent_id)? {
-            return Ok(current);
-        }
-        if genesis.revision != 1 {
-            return Err(ShenkoError::conflict("identity genesis must be revision 1"));
-        }
-        insert(&tx, genesis)?;
-        tx.commit().map_err(db)?;
-        Ok(genesis.clone())
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(db)?;
+                if let Some(current) = read_latest(&tx, genesis.agent_id)? {
+                    tx.commit().map_err(db)?;
+                    return Ok(current);
+                }
+                if genesis.revision != 1 {
+                    return Err(ShenkoError::conflict("identity genesis must be revision 1"));
+                }
+                // The birth record commits through the control ledger like
+                // every other durable fact: a profile row that exists
+                // outside the commit chain is invisible to recovery.
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                insert(&tx, genesis)?;
+                self.record_subject_commit(&tx, commit, 1)?;
+                tx.commit().map_err(db)?;
+                Ok(genesis.clone())
+            },
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
     }
 
     /// The editor must supply the revision it actually read. No read-latest rebasing.
@@ -77,25 +90,38 @@ impl Store {
         &self,
         next: &IdentityProfile,
         expected_revision: u64,
-    ) -> Result<(), ShenkoError> {
-        let mut conn = self.ledger.conn.lock();
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db)?;
-        let actual = read_latest(&tx, next.agent_id)?.map(|p| p.revision);
-        if actual != Some(expected_revision) || next.revision != expected_revision + 1 {
-            return Err(shenko_types::error::ProtocolError::new(
-                "IDENTITY_REVISION_CONFLICT",
-                shenko_types::error::ErrorScope::Call,
-                shenko_types::error::RetryStrategy::NewRevision,
-            )
-            .with_details(
-                serde_json::json!({"expected_revision":expected_revision,"actual_revision":actual}),
-            )
-            .into());
-        }
-        insert(&tx, next)?;
-        tx.commit().map_err(db)
+    ) -> Result<CommitRef, ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(TransactionBehavior::Immediate)
+                    .map_err(db)?;
+                let actual = read_latest(&tx, next.agent_id)?.map(|p| p.revision);
+                if actual != Some(expected_revision) || next.revision != expected_revision + 1 {
+                    return Err(shenko_types::error::ProtocolError::new(
+                        "IDENTITY_REVISION_CONFLICT",
+                        shenko_types::error::ErrorScope::Call,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    )
+                    .with_details(
+                        serde_json::json!({"expected_revision":expected_revision,"actual_revision":actual}),
+                    )
+                    .into());
+                }
+                // The operator is not a writer outside the ledger: the
+                // revision and its commit reference are one fact, so
+                // recovery and the cognitive archive see an operator edit
+                // exactly like a subject-authored one.
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                insert(&tx, next)?;
+                self.record_subject_commit(&tx, commit, 1)?;
+                tx.commit().map_err(db)?;
+                Ok(commit)
+            },
+            |e| matches!(e, ShenkoError::Storage(_)),
+        )
     }
 
     pub fn identity_receipt(

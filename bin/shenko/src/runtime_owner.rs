@@ -11,6 +11,38 @@ pub struct RuntimeOwner {
 
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
 impl RuntimeOwner {
+    /// Adopt the helper's SAME open-file-description lock across exec. The
+    /// directory identity and lock are verified before any Store is opened.
+    pub fn adopt_inherited(path: &Path, fd: std::os::fd::RawFd) -> anyhow::Result<Self> {
+        use std::os::fd::{FromRawFd, AsRawFd};
+        anyhow::ensure!(fd > 2, "invalid inherited runtime-owner descriptor");
+        let directory = unsafe { std::fs::File::from_raw_fd(fd) };
+        let owner = Self { directory };
+        owner.verify_path(path)?;
+        if unsafe { libc::flock(owner.directory.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        anyhow::ensure!(flags >= 0, "inherited owner descriptor unavailable");
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC) } < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(owner)
+    }
+
+    /// Only the selected successor exec inherits this descriptor. All
+    /// ordinary helper/provider spawns see the original CLOEXEC guard.
+    pub fn prepare_exec_transfer(&self) -> anyhow::Result<std::os::fd::RawFd> {
+        use std::os::fd::AsRawFd;
+        let fd = self.directory.as_raw_fd();
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFD) };
+        anyhow::ensure!(flags >= 0, "runtime owner descriptor unavailable");
+        if unsafe { libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        Ok(fd)
+    }
+
     pub fn try_acquire(path: &Path) -> anyhow::Result<Self> {
         use std::os::fd::AsRawFd;
         use std::os::unix::fs::OpenOptionsExt;

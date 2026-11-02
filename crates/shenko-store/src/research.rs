@@ -1,0 +1,2248 @@
+//! Research epochs, the structured intervention bank, bounded reminder
+//! decisions and retention tombstones — SPEC §14.2–§14.5 (research reset and
+//! the active memory worker) with §12.4 (semantic forget / archive_move /
+//! erase / restore) and §10.5 (complete object closure, honest reclaim
+//! reporting).
+//!
+//! This is not a second memory store. The searchable personal memory and its
+//! open knowledge-kind `String` stay in [`crate::memory`]; what lives here is
+//! the *research* state (lineage, epochs, candidates, the structured bank),
+//! the decision ledger of the bounded intervention worker, and the monotonic
+//! deletion tombstones a forget / archive / erase produces.
+//!
+//! Three separations are deliberate:
+//!
+//! * a research **reset** changes what a new worker sees; it never deletes
+//!   the frozen epoch, its candidates or its bank entries — the old epoch
+//!   stays addressable as an archive for audit and explicit look-back;
+//! * a **semantic forget** marks a fact as no longer part of default recall
+//!   while its text stays durable; only an **erase** removes content, and it
+//!   leaves a tombstone that keeps identity, scope and effect but not the
+//!   deleted body;
+//! * the **best artifact** of an epoch is validated before a reset may carry
+//!   it: the artifact bytes must still be in the content store under the
+//!   recorded digest, a score must exist together with the identity of the
+//!   verifier that produced it, and the reproducible environment must be
+//!   recorded. An unvalidated best is reported as such instead of being
+//!   presented as a starting point.
+//!
+//! Every write here uses the same ledger line as the rest of the store
+//! (`with_mutation` → immediate transaction → `commit_log`), so an epoch
+//! reset, a bank write and a tombstone are ordinary durable commits.
+
+use chrono::Utc;
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+
+use shenko_types::error::ShenkoError;
+use shenko_types::ids::{EntityId, LedgerSeq};
+use shenko_types::object::{Digest, ObjectRef};
+
+use crate::store::Store;
+
+/// Schema of the durable research facts. It is created idempotently by
+/// [`ensure_research_schema`]; the aggregate migration stream owns the same
+/// statements for a fresh installation.
+pub const RESEARCH_SCHEMA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS research_epochs (
+    epoch_id TEXT PRIMARY KEY,
+    reset_request_id TEXT,
+    lineage_id TEXT NOT NULL,
+    epoch_no INTEGER NOT NULL,
+    task_id TEXT,
+    status TEXT NOT NULL,
+    constraints_ref TEXT,
+    budget_ref TEXT,
+    effects_ref TEXT,
+    environment_ref TEXT,
+    best_candidate_id TEXT,
+    brief_ref TEXT,
+    reset_from_epoch TEXT,
+    reset_reason TEXT,
+    reset_receipt TEXT,
+    created_at_ms INTEGER NOT NULL,
+    frozen_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS research_epochs_lineage ON research_epochs(lineage_id, epoch_no);
+CREATE UNIQUE INDEX IF NOT EXISTS research_epochs_reset_request ON research_epochs(reset_request_id)
+    WHERE reset_request_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS research_candidates (
+    candidate_id TEXT PRIMARY KEY,
+    epoch_id TEXT NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    score REAL,
+    score_source TEXT,
+    environment_ref TEXT,
+    notes TEXT,
+    frozen INTEGER NOT NULL DEFAULT 0,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_candidates_epoch ON research_candidates(epoch_id, created_at_ms);
+CREATE TABLE IF NOT EXISTS intervention_bank_entries (
+    entry_id TEXT PRIMARY KEY,
+    epoch_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_refs TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    confidence REAL,
+    base_revision INTEGER NOT NULL DEFAULT 0,
+    supersedes TEXT,
+    superseded_by TEXT,
+    carried_from TEXT,
+    tombstoned_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS intervention_bank_epoch ON intervention_bank_entries(epoch_id, kind, created_at_ms);
+CREATE TABLE IF NOT EXISTS intervention_reminders (
+    reminder_id TEXT PRIMARY KEY,
+    epoch_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    policy TEXT NOT NULL,
+    policy_revision TEXT NOT NULL,
+    content TEXT,
+    provenance TEXT NOT NULL,
+    relevance TEXT,
+    scope TEXT NOT NULL,
+    expires_at_ms INTEGER,
+    transient INTEGER NOT NULL DEFAULT 1,
+    bank_entry_ids TEXT NOT NULL,
+    reason TEXT,
+    created_at_ms INTEGER NOT NULL,
+    used_step_id TEXT,
+    used_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS intervention_reminders_epoch ON intervention_reminders(epoch_id, created_at_ms);
+CREATE TABLE IF NOT EXISTS retention_tombstones (
+    tombstone_id TEXT PRIMARY KEY,
+    target_kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    effect_record TEXT NOT NULL,
+    deleted_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS retention_tombstones_target ON retention_tombstones(target_kind, target_id);
+CREATE TABLE IF NOT EXISTS archive_moves (
+    archive_id TEXT PRIMARY KEY,
+    source_ref TEXT NOT NULL,
+    target_provider TEXT NOT NULL,
+    target_namespace TEXT NOT NULL,
+    target_locator TEXT NOT NULL,
+    manifest_ref TEXT NOT NULL,
+    object_count INTEGER NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    hash_verified INTEGER NOT NULL,
+    readback_verified INTEGER NOT NULL,
+    local_released INTEGER NOT NULL DEFAULT 0,
+    local_release_note TEXT,
+    created_at_ms INTEGER NOT NULL
+);
+"#;
+
+/// Make sure the research tables exist on this database. The DDL is
+/// idempotent, so calling it on every entry point is safe and keeps the
+/// module usable against a database that was created before these facts
+/// existed.
+pub fn ensure_research_schema(conn: &Connection) -> Result<(), ShenkoError> {
+    conn.execute_batch(RESEARCH_SCHEMA_SQL)
+        .map_err(|error| ShenkoError::storage(format!("research schema: {error}")))
+}
+
+fn research_storage_failure(error: &ShenkoError) -> bool {
+    matches!(
+        error,
+        ShenkoError::Storage(_) | ShenkoError::Io(_) | ShenkoError::Serde(_)
+    )
+}
+
+fn encode_object(object: &ObjectRef) -> Result<String, ShenkoError> {
+    Ok(serde_json::to_string(object)?)
+}
+
+fn decode_object(text: Option<&str>) -> Result<Option<ObjectRef>, ShenkoError> {
+    match text {
+        None | Some("") => Ok(None),
+        Some(value) => Ok(Some(serde_json::from_str(value)?)),
+    }
+}
+
+fn encode_list<T: Serialize>(values: &[T]) -> Result<String, ShenkoError> {
+    Ok(serde_json::to_string(values)?)
+}
+
+fn decode_list<T: for<'de> Deserialize<'de>>(text: Option<&str>) -> Result<Vec<T>, ShenkoError> {
+    match text {
+        None | Some("") => Ok(Vec::new()),
+        Some(value) => Ok(serde_json::from_str(value)?),
+    }
+}
+
+fn parse_id(value: &str) -> Result<EntityId, ShenkoError> {
+    value
+        .parse()
+        .map_err(|error| ShenkoError::storage(format!("invalid research id: {error}")))
+}
+
+fn optional_id(value: Option<String>) -> Result<Option<EntityId>, ShenkoError> {
+    value.as_deref().map(parse_id).transpose()
+}
+
+/// One research lineage's epoch. An epoch is the identity of a worker's
+/// session and candidate workspace; a reset moves the lineage to the next
+/// epoch without touching the identity of the subject or the owner.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchEpoch {
+    pub epoch_id: EntityId,
+    /// The idempotency identity of the reset that created this epoch. A
+    /// replayed reset returns the same epoch instead of creating a second
+    /// one.
+    pub reset_request_id: Option<EntityId>,
+    pub lineage_id: EntityId,
+    pub epoch_no: u64,
+    pub task_id: Option<EntityId>,
+    pub status: ResearchEpochStatus,
+    /// Sealed closure of the still-valid constraints (SPEC §14.2).
+    pub constraints_ref: Option<ObjectRef>,
+    /// Sealed closure of the budget the worker may spend (SPEC §14.3).
+    pub budget_ref: Option<ObjectRef>,
+    /// Sealed closure of the external effects that already happened. It is
+    /// carried into the next epoch so a reset cannot repeat them.
+    pub effects_ref: Option<ObjectRef>,
+    /// Sealed record of the reproducible environment (SPEC §14.3).
+    pub environment_ref: Option<ObjectRef>,
+    pub best_candidate_id: Option<EntityId>,
+    /// Sealed worker brief: what a new worker of this epoch may see.
+    pub brief_ref: Option<ObjectRef>,
+    pub reset_from_epoch: Option<EntityId>,
+    pub reset_reason: Option<String>,
+    /// JSON validation facts of the reset that created this epoch.
+    pub reset_receipt: Option<String>,
+    pub created_at_ms: i64,
+    pub frozen_at_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResearchEpochStatus {
+    /// The epoch a worker currently runs in.
+    Active,
+    /// The epoch was closed by a reset. Its candidates and bank stay
+    /// addressable as an archive.
+    Frozen,
+}
+
+/// One candidate artifact of an epoch, with the score that a named verifier
+/// produced for it. The score is not an objective optimum: the source is
+/// recorded next to it so a later reset can tell a fragile judge from a
+/// reproducible check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchCandidate {
+    pub candidate_id: EntityId,
+    pub epoch_id: EntityId,
+    pub artifact_ref: ObjectRef,
+    pub score: Option<f64>,
+    pub score_source: Option<String>,
+    pub environment_ref: Option<ObjectRef>,
+    pub notes: Option<String>,
+    pub frozen: bool,
+    pub created_at_ms: i64,
+}
+
+/// The kind of fact a bank entry carries. The kind is an open string in the
+/// durable row; the enumeration here is the vocabulary the shipped worker
+/// understands, not a closed schema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BankEntryKind {
+    /// A requirement that still holds for this lineage.
+    Requirement,
+    /// A fact about the real environment the work runs in.
+    EnvironmentFact,
+    /// One attempt. Attempts are not carried into a new epoch: they are the
+    /// failure narrative a reset removes from the worker's view.
+    Attempt,
+    /// One diagnosis. Same rule as attempts.
+    Diagnosis,
+    /// An unfinished goal the lineage still pursues.
+    OpenGoal,
+}
+
+impl BankEntryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Requirement => "requirement",
+            Self::EnvironmentFact => "environment_fact",
+            Self::Attempt => "attempt",
+            Self::Diagnosis => "diagnosis",
+            Self::OpenGoal => "open_goal",
+        }
+    }
+
+    pub fn parse(value: &str) -> Result<Self, ShenkoError> {
+        match value {
+            "requirement" => Ok(Self::Requirement),
+            "environment_fact" => Ok(Self::EnvironmentFact),
+            "attempt" => Ok(Self::Attempt),
+            "diagnosis" => Ok(Self::Diagnosis),
+            "open_goal" => Ok(Self::OpenGoal),
+            other => Err(ShenkoError::conflict(format!(
+                "unknown bank entry kind: {other}"
+            ))),
+        }
+    }
+
+    /// Whether a reset carries this kind into the next epoch. Requirements,
+    /// environment facts and open goals survive; attempts and diagnoses are
+    /// the failure narrative that stays in the frozen archive.
+    pub fn survives_reset(self) -> bool {
+        matches!(self, Self::Requirement | Self::EnvironmentFact | Self::OpenGoal)
+    }
+}
+
+/// One entry of the structured bank the memory worker observes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InterventionBankEntry {
+    pub entry_id: EntityId,
+    pub epoch_id: EntityId,
+    pub kind: BankEntryKind,
+    pub content: String,
+    /// Where the fact came from. A reminder without provenance is not
+    /// accepted by the intervention worker.
+    pub source_refs: Vec<String>,
+    pub scope: String,
+    pub confidence: Option<f64>,
+    pub base_revision: u64,
+    /// The entry this one corrects.
+    pub supersedes: Option<EntityId>,
+    /// The entry that corrected this one.
+    pub superseded_by: Option<EntityId>,
+    /// The entry this one was carried from by a reset.
+    pub carried_from: Option<EntityId>,
+    pub tombstoned_at_ms: Option<i64>,
+    pub created_at_ms: i64,
+}
+
+/// The bounded worker's decision about one observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InterventionDecisionKind {
+    /// Nothing worth saying right now.
+    Silent,
+    /// One reminder with provenance, relevance and scope.
+    Remind,
+}
+
+/// The durable record of one intervention decision. A silent decision is
+/// recorded too: a missed reminder is a fact the policy can be evaluated
+/// against (SPEC §14.4).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InterventionReminder {
+    pub reminder_id: EntityId,
+    pub epoch_id: EntityId,
+    pub lineage_id: EntityId,
+    pub decision: InterventionDecisionKind,
+    pub policy: String,
+    pub policy_revision: String,
+    pub content: Option<String>,
+    pub provenance: Vec<String>,
+    pub relevance: Option<String>,
+    pub scope: String,
+    pub expires_at_ms: Option<i64>,
+    /// A transient reminder leaves the visible context after the request it
+    /// was prepared for; the ledger keeps the injection and its provenance.
+    pub transient: bool,
+    pub bank_entry_ids: Vec<EntityId>,
+    pub reason: Option<String>,
+    pub created_at_ms: i64,
+    pub used_step_id: Option<EntityId>,
+    pub used_at_ms: Option<i64>,
+}
+
+/// The monotonic tombstone of a deleted fact. It keeps identity, scope and
+/// the effect record; it never keeps the body that was deleted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RetentionTombstone {
+    pub tombstone_id: EntityId,
+    pub target_kind: String,
+    pub target_id: String,
+    pub scope: String,
+    pub reason: String,
+    /// JSON: what was actually deleted and what copies remain reachable.
+    pub effect_record: String,
+    pub deleted_at_ms: i64,
+}
+
+/// One completed archive move: a complete object closure left the local
+/// store for an authenticated target, was verified by hash and read back.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArchiveMoveRecord {
+    pub archive_id: EntityId,
+    pub source_ref: String,
+    pub target_provider: String,
+    pub target_namespace: String,
+    pub target_locator: String,
+    pub manifest_ref: String,
+    pub object_count: u64,
+    pub total_bytes: u64,
+    pub hash_verified: bool,
+    pub readback_verified: bool,
+    /// Whether the local copy was released. The content store has no object
+    /// delete, so a move normally keeps the local copy and says so.
+    pub local_released: bool,
+    pub local_release_note: Option<String>,
+    pub created_at_ms: i64,
+}
+
+/// A constraint that still holds for a lineage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchConstraint {
+    pub id: String,
+    pub statement: String,
+    pub source: Option<String>,
+}
+
+/// The budget a worker of an epoch may spend. The reset carries it into the
+/// next epoch; it never grows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchBudget {
+    pub max_tokens: Option<u64>,
+    pub max_duration_secs: Option<u64>,
+    pub max_cost_units: Option<u64>,
+    pub notes: Option<String>,
+}
+
+/// One external effect that already happened. A new worker must be able to
+/// see it, so it does not repeat a side effect.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchEffect {
+    pub effect_id: String,
+    pub description: String,
+    pub external: bool,
+    pub recorded_at_ms: i64,
+}
+
+/// The reproducible environment of an epoch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchEnvironment {
+    pub environment_id: String,
+    pub facts: Vec<String>,
+    pub toolchain: Vec<String>,
+    pub dataset_versions: Vec<String>,
+    /// Whether this environment can be reconstructed from the record alone.
+    pub reproducible: bool,
+}
+
+/// The closure a lineage keeps across epochs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchClosure {
+    pub constraints: Vec<ResearchConstraint>,
+    pub budget: ResearchBudget,
+    pub effects: Vec<ResearchEffect>,
+    pub environment: ResearchEnvironment,
+}
+
+/// Why a reset happened. The thresholds behind these signals are evaluated
+/// by the caller; the enum only records which signal fired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResearchResetTrigger {
+    Stagnation,
+    IsomorphicProposal,
+    EvidenceDirectionChanged,
+    PlannedRound,
+    SubjectRequest,
+}
+
+impl ResearchResetTrigger {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stagnation => "stagnation",
+            Self::IsomorphicProposal => "isomorphic_proposal",
+            Self::EvidenceDirectionChanged => "evidence_direction_changed",
+            Self::PlannedRound => "planned_round",
+            Self::SubjectRequest => "subject_request",
+        }
+    }
+}
+
+/// The validation of the candidate a reset wants to carry forward.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BestCandidateValidation {
+    pub candidate_id: Option<EntityId>,
+    pub artifact_present: bool,
+    pub artifact_digest_matches: bool,
+    pub score_present: bool,
+    pub score_source: Option<String>,
+    pub environment_recorded: bool,
+    pub valid: bool,
+    pub problems: Vec<String>,
+}
+
+/// One candidate carried into a new epoch. The whole frozen set is carried,
+/// not only the best one: a reset must not collapse a diverse candidate set
+/// into one fragile judge result (SPEC §14.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarriedCandidate {
+    pub candidate_id: EntityId,
+    pub artifact_ref: ObjectRef,
+    pub score: Option<f64>,
+    pub score_source: Option<String>,
+    pub environment_ref: Option<ObjectRef>,
+}
+
+/// One bank entry carried into a new epoch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CarriedBankEntry {
+    pub entry_id: EntityId,
+    pub carried_from: EntityId,
+    pub kind: BankEntryKind,
+    pub content: String,
+    pub source_refs: Vec<String>,
+    pub scope: String,
+    pub confidence: Option<f64>,
+}
+
+/// What a worker of an epoch is allowed to see. It holds the still-valid
+/// constraints, the environment facts, the reproducible best artifact, the
+/// budget, the effects that already happened and the open goals. It does not
+/// hold the previous epoch's failure narrative: those entries stay in the
+/// frozen archive and are only reachable by an explicit look-back.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchWorkerBrief {
+    pub schema_version: u32,
+    pub epoch_id: EntityId,
+    pub lineage_id: EntityId,
+    pub epoch_no: u64,
+    pub reset_trigger: ResearchResetTrigger,
+    pub reset_reason: String,
+    pub constraints: Vec<ResearchConstraint>,
+    pub budget: ResearchBudget,
+    pub effects: Vec<ResearchEffect>,
+    pub environment: ResearchEnvironment,
+    pub best: Option<CarriedCandidate>,
+    pub carried_candidates: Vec<CarriedCandidate>,
+    pub carried_bank_entries: Vec<CarriedBankEntry>,
+    pub open_goals: Vec<String>,
+    /// How many attempt/diagnosis entries of the previous epoch stayed in the
+    /// archive instead of being projected into this worker.
+    pub excluded_failure_entries: usize,
+    /// The frozen epoch id an explicit audit or look-back can address.
+    pub archive_epoch_id: Option<EntityId>,
+}
+
+/// The result of one reset.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResearchResetOutcome {
+    pub previous_epoch: ResearchEpoch,
+    pub epoch: ResearchEpoch,
+    pub brief: ResearchWorkerBrief,
+    pub validation: BestCandidateValidation,
+    pub carried_candidates: Vec<CarriedCandidate>,
+    pub carried_bank_entry_ids: Vec<EntityId>,
+    pub excluded_failure_entries: usize,
+}
+
+/// Which bank entries a reader may see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BankSelection {
+    /// Everything of the epoch that is not tombstoned.
+    All,
+    /// Only the kinds a fresh worker inherits.
+    Carried,
+    /// Only the failure narrative, for an explicit audit.
+    Failures,
+}
+
+impl Store {
+    /// Open a research lineage with its first epoch. The closure is sealed
+    /// into the content store first, so the epoch row never points at an
+    /// object that does not exist yet.
+    pub fn open_research_lineage(
+        &self,
+        request_id: EntityId,
+        lineage_id: EntityId,
+        task_id: Option<EntityId>,
+        closure: &ResearchClosure,
+    ) -> Result<ResearchEpoch, ShenkoError> {
+        // Idempotent on the opening request: a replayed open returns the
+        // epoch the original call created instead of a second lineage.
+        if let Some(existing) = self.epoch_by_reset_request(request_id)? {
+            return Ok(existing);
+        }
+        let sealed = self.seal_closure(closure)?;
+        let epoch = ResearchEpoch {
+            epoch_id: EntityId::new(),
+            reset_request_id: Some(request_id),
+            lineage_id,
+            epoch_no: 1,
+            task_id,
+            status: ResearchEpochStatus::Active,
+            constraints_ref: Some(sealed.constraints),
+            budget_ref: Some(sealed.budget),
+            effects_ref: Some(sealed.effects),
+            environment_ref: Some(sealed.environment),
+            best_candidate_id: None,
+            brief_ref: None,
+            reset_from_epoch: None,
+            reset_reason: None,
+            reset_receipt: None,
+            created_at_ms: Utc::now().timestamp_millis(),
+            frozen_at_ms: None,
+        };
+        let brief = self.seal_worker_brief(&ResearchWorkerBrief {
+            schema_version: 1,
+            epoch_id: epoch.epoch_id,
+            lineage_id,
+            epoch_no: 1,
+            reset_trigger: ResearchResetTrigger::PlannedRound,
+            reset_reason: "research lineage opened".to_string(),
+            constraints: closure.constraints.clone(),
+            budget: closure.budget.clone(),
+            effects: closure.effects.clone(),
+            environment: closure.environment.clone(),
+            best: None,
+            carried_candidates: Vec::new(),
+            carried_bank_entries: Vec::new(),
+            open_goals: Vec::new(),
+            excluded_failure_entries: 0,
+            archive_epoch_id: None,
+        })?;
+        let mut epoch = epoch;
+        epoch.brief_ref = Some(brief);
+        let receipt = self.ledger.with_mutation(
+            || {
+                self.try_insert_epoch(&epoch, &[], &[])?;
+                Ok(())
+            },
+            research_storage_failure,
+        )?;
+        let _ = receipt;
+        Ok(epoch)
+    }
+
+    fn seal_closure(&self, closure: &ResearchClosure) -> Result<SealedClosure, ShenkoError> {
+        let constraints = self.seal_json(
+            &closure.constraints,
+            "research-closures",
+            "research-constraints",
+        )?;
+        let budget = self.seal_json(&closure.budget, "research-closures", "research-budget")?;
+        let effects = self.seal_json(&closure.effects, "research-closures", "research-effects")?;
+        let environment = self.seal_json(
+            &closure.environment,
+            "research-closures",
+            "research-environment",
+        )?;
+        Ok(SealedClosure { constraints, budget, effects, environment })
+    }
+
+    fn seal_json<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        namespace: &str,
+        codec: &str,
+    ) -> Result<ObjectRef, ShenkoError> {
+        let bytes = serde_json::to_vec(value)?;
+        match self.cas.seal_object(&bytes, "application/json", namespace, codec, 1) {
+            Ok(sealed) => Ok(sealed.object),
+            Err(error) => {
+                self.close_external_writer();
+                Err(error)
+            }
+        }
+    }
+
+    fn seal_worker_brief(&self, brief: &ResearchWorkerBrief) -> Result<ObjectRef, ShenkoError> {
+        self.seal_json(brief, "research-closures", "research-worker-brief")
+    }
+
+    /// The active epoch of a lineage, if the lineage has one.
+    pub fn active_research_epoch(
+        &self,
+        lineage_id: EntityId,
+    ) -> Result<Option<ResearchEpoch>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        read_epoch_by(
+            &conn,
+            "WHERE lineage_id=?1 AND status='active' \
+             ORDER BY epoch_no DESC LIMIT 1",
+            params![lineage_id.to_string()],
+        )
+    }
+
+    /// One epoch by identity.
+    pub fn research_epoch(&self, epoch_id: EntityId) -> Result<Option<ResearchEpoch>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        read_epoch_by(
+            &conn,
+            "WHERE epoch_id=?1",
+            params![epoch_id.to_string()],
+        )
+    }
+
+    /// The epoch a reset with this request id created, if one exists.
+    fn epoch_by_reset_request(
+        &self,
+        request_id: EntityId,
+    ) -> Result<Option<ResearchEpoch>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        read_epoch_by(
+            &conn,
+            "WHERE reset_request_id=?1",
+            params![request_id.to_string()],
+        )
+    }
+
+    /// Every epoch of a lineage, oldest first. A frozen epoch is the archive
+    /// a reset leaves behind.
+    pub fn research_lineage(
+        &self,
+        lineage_id: EntityId,
+    ) -> Result<Vec<ResearchEpoch>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT epoch_id FROM research_epochs WHERE lineage_id=?1 ORDER BY epoch_no ASC",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let ids = statement
+            .query_map(params![lineage_id.to_string()], |row| row.get::<_, String>(0))
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        drop(statement);
+        let mut epochs = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(epoch) = read_epoch_by(
+                &conn,
+                "WHERE epoch_id=?1",
+                params![id],
+            )? {
+                epochs.push(epoch);
+            }
+        }
+        Ok(epochs)
+    }
+
+    /// Record a candidate artifact of an epoch.
+    pub fn add_research_candidate(
+        &self,
+        candidate: &ResearchCandidate,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_add_candidate(candidate),
+            research_storage_failure,
+        )
+    }
+
+    fn try_add_candidate(&self, candidate: &ResearchCandidate) -> Result<(), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        ensure_research_schema(&tx)?;
+        // A replayed candidate write is the same fact, not a second one.
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT artifact_ref FROM research_candidates WHERE candidate_id=?1",
+                params![candidate.candidate_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if let Some(artifact) = existing {
+            let same = artifact == encode_object(&candidate.artifact_ref)?
+                && candidate.score == candidate.score;
+            return if same {
+                Ok(())
+            } else {
+                Err(ShenkoError::conflict(
+                    "research candidate identity exists with different content",
+                ))
+            };
+        }
+        let seq = self.ledger.allocate_seq(&tx)?;
+        tx.execute(
+            "INSERT INTO research_candidates
+             (candidate_id,epoch_id,artifact_ref,score,score_source,environment_ref,notes,frozen,created_at_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![
+                candidate.candidate_id.to_string(),
+                candidate.epoch_id.to_string(),
+                encode_object(&candidate.artifact_ref)?,
+                candidate.score,
+                candidate.score_source,
+                candidate.environment_ref.as_ref().map(encode_object).transpose()?,
+                candidate.notes,
+                candidate.frozen as i64,
+                candidate.created_at_ms,
+            ],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        self.write_commit_log(&tx, seq)?;
+        tx.commit()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        Ok(())
+    }
+
+    /// The candidates of an epoch, oldest first.
+    pub fn research_candidates(
+        &self,
+        epoch_id: EntityId,
+    ) -> Result<Vec<ResearchCandidate>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT candidate_id,epoch_id,artifact_ref,score,score_source,environment_ref,notes,frozen,created_at_ms
+                 FROM research_candidates WHERE epoch_id=?1 ORDER BY created_at_ms ASC, candidate_id ASC",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let rows = statement
+            .query_map(params![epoch_id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<f64>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                ))
+            })
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let mut candidates = Vec::new();
+        for row in rows {
+            let (
+                candidate_id,
+                epoch_id,
+                artifact_ref,
+                score,
+                score_source,
+                environment_ref,
+                notes,
+                frozen,
+                created_at_ms,
+            ) = row.map_err(|error| ShenkoError::storage(error.to_string()))?;
+            candidates.push(ResearchCandidate {
+                candidate_id: parse_id(&candidate_id)?,
+                epoch_id: parse_id(&epoch_id)?,
+                artifact_ref: serde_json::from_str(&artifact_ref)?,
+                score,
+                score_source,
+                environment_ref: decode_object(environment_ref.as_deref())?,
+                notes,
+                frozen: frozen != 0,
+                created_at_ms,
+            });
+        }
+        Ok(candidates)
+    }
+
+    /// Reset a lineage to its next epoch.
+    ///
+    /// The candidates of the running epoch are frozen, the best candidate is
+    /// validated against the content store, the still-valid bank entries are
+    /// carried over and a new epoch with its own worker brief is created.
+    /// The previous epoch stays readable: the reset changes what a new worker
+    /// sees, it does not delete the evidence of the old attempts.
+    ///
+    /// The reset is idempotent on `request_id`: a replayed reset returns the
+    /// epoch the original call created, instead of creating a second one.
+    pub fn reset_research_epoch(
+        &self,
+        request_id: EntityId,
+        lineage_id: EntityId,
+        trigger: ResearchResetTrigger,
+        reason: &str,
+        closure: &ResearchClosure,
+        best_candidate_id: Option<EntityId>,
+    ) -> Result<ResearchResetOutcome, ShenkoError> {
+        if let Some(existing) = self.epoch_by_reset_request(request_id)? {
+            let brief = self
+                .research_worker_brief(existing.epoch_id)?
+                .ok_or_else(|| ShenkoError::storage("reset epoch lacks its sealed brief"))?;
+            let validation: BestCandidateValidation = existing
+                .reset_receipt
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()?
+                .unwrap_or(BestCandidateValidation {
+                    candidate_id: None,
+                    artifact_present: false,
+                    artifact_digest_matches: false,
+                    score_present: false,
+                    score_source: None,
+                    environment_recorded: false,
+                    valid: false,
+                    problems: vec!["the original reset carried no validation receipt".to_string()],
+                });
+            let carried_candidates: Vec<CarriedCandidate> = self
+                .research_candidates(existing.reset_from_epoch.unwrap_or(existing.epoch_id))?
+                .iter()
+                .map(|candidate| CarriedCandidate {
+                    candidate_id: candidate.candidate_id,
+                    artifact_ref: candidate.artifact_ref.clone(),
+                    score: candidate.score,
+                    score_source: candidate.score_source.clone(),
+                    environment_ref: candidate.environment_ref.clone(),
+                })
+                .collect();
+            let carried_bank_entry_ids: Vec<EntityId> = self
+                .bank_entries(existing.epoch_id, BankSelection::Carried)?
+                .iter()
+                .map(|entry| entry.entry_id)
+                .collect();
+            let previous_id = existing.reset_from_epoch
+                .ok_or_else(|| ShenkoError::storage("reset epoch lacks its origin"))?;
+            let previous_epoch = self.research_epoch(previous_id)?
+                .ok_or_else(|| ShenkoError::storage("reset epoch origin is not retained"))?;
+            let excluded_failure_entries = match existing.reset_from_epoch {
+                Some(id) => {
+                    self.bank_entries(id, BankSelection::Failures)?.len()
+                }
+                None => 0,
+            };
+            return Ok(ResearchResetOutcome {
+                previous_epoch,
+                epoch: existing.clone(),
+                brief,
+                validation,
+                carried_candidates,
+                carried_bank_entry_ids,
+                excluded_failure_entries,
+            });
+        }
+        let current = self
+            .active_research_epoch(lineage_id)?
+            .ok_or_else(|| ShenkoError::not_found("active research epoch"))?;
+        let candidates = self.research_candidates(current.epoch_id)?;
+        let validation = self.validate_best_candidate(&current, &candidates, best_candidate_id)?;
+        if best_candidate_id.is_some() && !validation.valid {
+            return Err(ShenkoError::conflict(format!(
+                "research best candidate is not validated: {}",
+                validation.problems.join("; ")
+            )));
+        }
+        let carried_candidates: Vec<CarriedCandidate> = candidates
+            .iter()
+            .filter(|candidate| candidate.frozen || true)
+            .map(|candidate| CarriedCandidate {
+                candidate_id: candidate.candidate_id,
+                artifact_ref: candidate.artifact_ref.clone(),
+                score: candidate.score,
+                score_source: candidate.score_source.clone(),
+                environment_ref: candidate.environment_ref.clone(),
+            })
+            .collect();
+        let best = validation
+            .candidate_id
+            .and_then(|id| carried_candidates.iter().find(|item| item.candidate_id == id))
+            .cloned();
+
+        // The bank of the running epoch: still-valid facts travel, the
+        // failure narrative stays in the frozen archive.
+        let old_entries = self.bank_entries(current.epoch_id, BankSelection::All)?;
+        let excluded_failure_entries = old_entries
+            .iter()
+            .filter(|entry| !entry.kind.survives_reset())
+            .count();
+        let carried_entries: Vec<&InterventionBankEntry> = old_entries
+            .iter()
+            .filter(|entry| entry.kind.survives_reset() && entry.tombstoned_at_ms.is_none())
+            .collect();
+        let carried_bank_entries: Vec<CarriedBankEntry> = carried_entries
+            .iter()
+            .map(|entry| CarriedBankEntry {
+                entry_id: EntityId::new(),
+                carried_from: entry.entry_id,
+                kind: entry.kind,
+                content: entry.content.clone(),
+                source_refs: entry.source_refs.clone(),
+                scope: entry.scope.clone(),
+                confidence: entry.confidence,
+            })
+            .collect();
+        let open_goals: Vec<String> = carried_entries
+            .iter()
+            .filter(|entry| entry.kind == BankEntryKind::OpenGoal)
+            .map(|entry| entry.content.clone())
+            .collect();
+
+        let sealed = self.seal_closure(closure)?;
+        let epoch_id = EntityId::new();
+        let epoch_no = current.epoch_no + 1;
+        let brief = ResearchWorkerBrief {
+            schema_version: 1,
+            epoch_id,
+            lineage_id,
+            epoch_no,
+            reset_trigger: trigger,
+            reset_reason: reason.to_string(),
+            constraints: closure.constraints.clone(),
+            budget: closure.budget.clone(),
+            effects: closure.effects.clone(),
+            environment: closure.environment.clone(),
+            best,
+            carried_candidates: carried_candidates.clone(),
+            carried_bank_entries: carried_bank_entries.clone(),
+            open_goals,
+            excluded_failure_entries,
+            archive_epoch_id: Some(current.epoch_id),
+        };
+        let brief_ref = self.seal_worker_brief(&brief)?;
+        let receipt = serde_json::to_string(&validation)?;
+        let epoch = ResearchEpoch {
+            epoch_id,
+            reset_request_id: Some(request_id),
+            lineage_id,
+            epoch_no,
+            task_id: current.task_id,
+            status: ResearchEpochStatus::Active,
+            constraints_ref: Some(sealed.constraints),
+            budget_ref: Some(sealed.budget),
+            effects_ref: Some(sealed.effects),
+            environment_ref: Some(sealed.environment),
+            best_candidate_id: validation.candidate_id,
+            brief_ref: Some(brief_ref),
+            reset_from_epoch: Some(current.epoch_id),
+            reset_reason: Some(reason.to_string()),
+            reset_receipt: Some(receipt),
+            created_at_ms: Utc::now().timestamp_millis(),
+            frozen_at_ms: None,
+        };
+        self.ledger.with_mutation(
+            || {
+                self.try_insert_epoch(&epoch, &carried_bank_entries, &[current.epoch_id])?;
+                Ok(())
+            },
+            research_storage_failure,
+        )?;
+        Ok(ResearchResetOutcome {
+            previous_epoch: current,
+            epoch,
+            brief,
+            validation,
+            carried_candidates,
+            carried_bank_entry_ids: carried_bank_entries
+                .iter()
+                .map(|entry| entry.entry_id)
+                .collect(),
+            excluded_failure_entries,
+        })
+    }
+
+    fn try_insert_epoch(
+        &self,
+        epoch: &ResearchEpoch,
+        carried: &[CarriedBankEntry],
+        frozen_epochs: &[EntityId],
+    ) -> Result<(), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        ensure_research_schema(&tx)?;
+        let seq = self.ledger.allocate_seq(&tx)?;
+        tx.execute(
+            "INSERT INTO research_epochs
+             (epoch_id,reset_request_id,lineage_id,epoch_no,task_id,status,constraints_ref,budget_ref,effects_ref,
+              environment_ref,best_candidate_id,brief_ref,reset_from_epoch,reset_reason,reset_receipt,
+              created_at_ms,frozen_at_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
+            params![
+                epoch.epoch_id.to_string(),
+                epoch.reset_request_id.map(|id| id.to_string()),
+                epoch.lineage_id.to_string(),
+                epoch.epoch_no as i64,
+                epoch.task_id.map(|id| id.to_string()),
+                match epoch.status {
+                    ResearchEpochStatus::Active => "active",
+                    ResearchEpochStatus::Frozen => "frozen",
+                },
+                epoch.constraints_ref.as_ref().map(encode_object).transpose()?,
+                epoch.budget_ref.as_ref().map(encode_object).transpose()?,
+                epoch.effects_ref.as_ref().map(encode_object).transpose()?,
+                epoch.environment_ref.as_ref().map(encode_object).transpose()?,
+                epoch.best_candidate_id.map(|id| id.to_string()),
+                epoch.brief_ref.as_ref().map(encode_object).transpose()?,
+                epoch.reset_from_epoch.map(|id| id.to_string()),
+                epoch.reset_reason,
+                epoch.reset_receipt,
+                epoch.created_at_ms,
+                epoch.frozen_at_ms,
+            ],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        for entry in carried {
+            tx.execute(
+                "INSERT INTO intervention_bank_entries
+                 (entry_id,epoch_id,kind,content,source_refs,scope,confidence,base_revision,
+                  supersedes,superseded_by,carried_from,tombstoned_at_ms,created_at_ms)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,NULL,NULL,?9,NULL,?10)",
+                params![
+                    entry.entry_id.to_string(),
+                    epoch.epoch_id.to_string(),
+                    entry.kind.as_str(),
+                    entry.content,
+                    encode_list(&entry.source_refs)?,
+                    entry.scope,
+                    entry.confidence,
+                    0i64,
+                    entry.carried_from.to_string(),
+                    Utc::now().timestamp_millis(),
+                ],
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        }
+        // Freeze the candidates of the epoch that just ended. The rows stay
+        // addressable: a reset never deletes the evidence of old attempts.
+        tx.execute(
+            "UPDATE research_candidates SET frozen=1 WHERE epoch_id IN (SELECT value FROM json_each(?1))",
+            params![serde_json::to_string(
+                &frozen_epochs.iter().map(|id| id.to_string()).collect::<Vec<String>>()
+            )?],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        for previous in frozen_epochs {
+            tx.execute(
+                "UPDATE research_epochs SET status='frozen', frozen_at_ms=?2 WHERE epoch_id=?1 AND status='active'",
+                params![previous.to_string(), Utc::now().timestamp_millis()],
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        }
+        self.write_commit_log(&tx, seq)?;
+        tx.commit()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        Ok(())
+    }
+
+    /// Validate the candidate a reset wants to carry forward. The artifact
+    /// must still be in the content store under the recorded digest, a score
+    /// must exist together with the verifier that produced it, and the
+    /// reproducible environment must be recorded.
+    fn validate_best_candidate(
+        &self,
+        epoch: &ResearchEpoch,
+        candidates: &[ResearchCandidate],
+        requested: Option<EntityId>,
+    ) -> Result<BestCandidateValidation, ShenkoError> {
+        let selected = requested.or(epoch.best_candidate_id);
+        let Some(candidate_id) = selected else {
+            return Ok(BestCandidateValidation {
+                candidate_id: None,
+                artifact_present: false,
+                artifact_digest_matches: false,
+                score_present: false,
+                score_source: None,
+                environment_recorded: epoch.environment_ref.is_some(),
+                valid: false,
+                problems: vec!["no best candidate is recorded for this epoch".to_string()],
+            });
+        };
+        let Some(candidate) = candidates.iter().find(|item| item.candidate_id == candidate_id)
+        else {
+            return Ok(BestCandidateValidation {
+                candidate_id: Some(candidate_id),
+                artifact_present: false,
+                artifact_digest_matches: false,
+                score_present: false,
+                score_source: None,
+                environment_recorded: epoch.environment_ref.is_some(),
+                valid: false,
+                problems: vec!["the named best candidate is not part of this epoch".to_string()],
+            });
+        };
+        let mut problems = Vec::new();
+        let artifact_present = self.cas.object_exists(&candidate.artifact_ref.digest);
+        if !artifact_present {
+            problems.push("the best artifact is no longer in the content store".to_string());
+        }
+        let artifact_digest_matches = if artifact_present {
+            match self.cas.read_object(&candidate.artifact_ref.digest) {
+                Ok(bytes) => {
+                    let matches = Digest::blake3(&bytes) == candidate.artifact_ref.digest
+                        && bytes.len() as u64 == candidate.artifact_ref.bytes;
+                    if !matches {
+                        problems.push(
+                            "the best artifact bytes do not match the recorded digest".to_string(),
+                        );
+                    }
+                    matches
+                }
+                Err(error) => {
+                    problems.push(format!("the best artifact cannot be read: {error}"));
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        let score_present = candidate.score.is_some();
+        if !score_present {
+            problems.push("the best candidate has no recorded score".to_string());
+        }
+        let score_source = candidate.score_source.clone();
+        if score_source.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            problems.push("the best candidate has no recorded score source".to_string());
+        }
+        let environment_recorded = candidate.environment_ref.is_some() || epoch.environment_ref.is_some();
+        if !environment_recorded {
+            problems.push("the reproducible environment of the best candidate is not recorded".to_string());
+        }
+        let valid = problems.is_empty();
+        Ok(BestCandidateValidation {
+            candidate_id: Some(candidate_id),
+            artifact_present,
+            artifact_digest_matches,
+            score_present,
+            score_source,
+            environment_recorded,
+            valid,
+            problems,
+        })
+    }
+
+    /// Read the sealed worker brief of an epoch.
+    pub fn research_worker_brief(
+        &self,
+        epoch_id: EntityId,
+    ) -> Result<Option<ResearchWorkerBrief>, ShenkoError> {
+        let Some(epoch) = self.research_epoch(epoch_id)? else {
+            return Ok(None);
+        };
+        let Some(brief_ref) = epoch.brief_ref else {
+            return Ok(None);
+        };
+        let bytes = self.cas.read_object(&brief_ref.digest)?;
+        Ok(Some(serde_json::from_slice(&bytes)?))
+    }
+
+    /// Write one entry of the structured bank.
+    pub fn put_bank_entry(
+        &self,
+        entry: &InterventionBankEntry,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_put_bank_entry(entry),
+            research_storage_failure,
+        )
+    }
+
+    fn try_put_bank_entry(&self, entry: &InterventionBankEntry) -> Result<(), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        ensure_research_schema(&tx)?;
+        // A replayed bank write is the same fact, not a second one.
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT content FROM intervention_bank_entries WHERE entry_id=?1",
+                params![entry.entry_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if let Some(content) = existing {
+            return if content == entry.content {
+                Ok(())
+            } else {
+                Err(ShenkoError::conflict(
+                    "bank entry identity exists with different content",
+                ))
+            };
+        }
+        let seq = self.ledger.allocate_seq(&tx)?;
+        tx.execute(
+            "INSERT INTO intervention_bank_entries
+             (entry_id,epoch_id,kind,content,source_refs,scope,confidence,base_revision,
+              supersedes,superseded_by,carried_from,tombstoned_at_ms,created_at_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+            params![
+                entry.entry_id.to_string(),
+                entry.epoch_id.to_string(),
+                entry.kind.as_str(),
+                entry.content,
+                encode_list(&entry.source_refs)?,
+                entry.scope,
+                entry.confidence,
+                entry.base_revision as i64,
+                entry.supersedes.map(|id| id.to_string()),
+                entry.superseded_by.map(|id| id.to_string()),
+                entry.carried_from.map(|id| id.to_string()),
+                entry.tombstoned_at_ms,
+                entry.created_at_ms,
+            ],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if let Some(superseded) = entry.supersedes {
+            tx.execute(
+                "UPDATE intervention_bank_entries SET superseded_by=?2 WHERE entry_id=?1",
+                params![superseded.to_string(), entry.entry_id.to_string()],
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        }
+        self.write_commit_log(&tx, seq)?;
+        tx.commit()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        Ok(())
+    }
+
+    /// The bank entries of an epoch.
+    pub fn bank_entries(
+        &self,
+        epoch_id: EntityId,
+        selection: BankSelection,
+    ) -> Result<Vec<InterventionBankEntry>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT entry_id,epoch_id,kind,content,source_refs,scope,confidence,base_revision,
+                        supersedes,superseded_by,carried_from,tombstoned_at_ms,created_at_ms
+                 FROM intervention_bank_entries WHERE epoch_id=?1 ORDER BY created_at_ms ASC, entry_id ASC",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let rows = statement
+            .query_map(params![epoch_id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<f64>>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<i64>>(11)?,
+                    row.get::<_, i64>(12)?,
+                ))
+            })
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let mut entries = Vec::new();
+        for row in rows {
+            let (
+                entry_id,
+                epoch_id,
+                kind,
+                content,
+                source_refs,
+                scope,
+                confidence,
+                base_revision,
+                supersedes,
+                superseded_by,
+                carried_from,
+                tombstoned_at_ms,
+                created_at_ms,
+            ) = row.map_err(|error| ShenkoError::storage(error.to_string()))?;
+            let entry = InterventionBankEntry {
+                entry_id: parse_id(&entry_id)?,
+                epoch_id: parse_id(&epoch_id)?,
+                kind: BankEntryKind::parse(&kind)?,
+                content,
+                source_refs: decode_list::<String>(Some(&source_refs))?,
+                scope,
+                confidence,
+                base_revision: base_revision.max(0) as u64,
+                supersedes: optional_id(supersedes)?,
+                superseded_by: optional_id(superseded_by)?,
+                carried_from: optional_id(carried_from)?,
+                tombstoned_at_ms,
+                created_at_ms,
+            };
+            let visible = match selection {
+                BankSelection::All => true,
+                BankSelection::Carried => entry.kind.survives_reset(),
+                BankSelection::Failures => !entry.kind.survives_reset(),
+            };
+            if visible {
+                entries.push(entry);
+            }
+        }
+        Ok(entries)
+    }
+
+    /// Link two retained bank entries as a correction. Both bodies remain
+    /// readable, and the relation is committed atomically (SPEC §12.2).
+    pub fn supersede_bank_entry(
+        &self,
+        superseded: EntityId,
+        replacement: EntityId,
+    ) -> Result<(), ShenkoError> {
+        if superseded == replacement {
+            return Err(ShenkoError::conflict("a bank entry cannot supersede itself"));
+        }
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(crate::store::storage_error)?;
+                ensure_research_schema(&tx)?;
+                let old_id = superseded.to_string();
+                let new_id = replacement.to_string();
+                let old_link: Option<Option<String>> = tx.query_row(
+                    "SELECT superseded_by FROM intervention_bank_entries WHERE entry_id=?1",
+                    [&old_id], |row| row.get(0),
+                ).optional().map_err(crate::store::storage_error)?;
+                let new_link: Option<Option<String>> = tx.query_row(
+                    "SELECT supersedes FROM intervention_bank_entries WHERE entry_id=?1",
+                    [&new_id], |row| row.get(0),
+                ).optional().map_err(crate::store::storage_error)?;
+                let old_link = old_link.ok_or_else(|| ShenkoError::not_found("superseded bank entry"))?;
+                let new_link = new_link.ok_or_else(|| ShenkoError::not_found("replacement bank entry"))?;
+                if old_link.as_deref() == Some(new_id.as_str()) && new_link.as_deref() == Some(old_id.as_str()) {
+                    return Ok(());
+                }
+                if old_link.as_deref().is_some_and(|id| id != new_id.as_str())
+                    || new_link.as_deref().is_some_and(|id| id != old_id.as_str())
+                {
+                    return Err(ShenkoError::conflict("bank supersession relation already names another entry"));
+                }
+                let closes_cycle: bool = tx.query_row(
+                    "WITH RECURSIVE successors(entry_id) AS (
+                        SELECT ?1 UNION
+                        SELECT bank.superseded_by FROM intervention_bank_entries bank
+                        JOIN successors ON bank.entry_id=successors.entry_id
+                        WHERE bank.superseded_by IS NOT NULL
+                     ) SELECT EXISTS(SELECT 1 FROM successors WHERE entry_id=?2)",
+                    params![new_id, old_id], |row| row.get(0),
+                ).map_err(crate::store::storage_error)?;
+                if closes_cycle {
+                    return Err(ShenkoError::conflict("bank supersession would create a cycle"));
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                tx.execute("UPDATE intervention_bank_entries SET superseded_by=?2 WHERE entry_id=?1",
+                    params![old_id, new_id]).map_err(crate::store::storage_error)?;
+                tx.execute("UPDATE intervention_bank_entries SET supersedes=?2 WHERE entry_id=?1",
+                    params![new_id, old_id]).map_err(crate::store::storage_error)?;
+                self.write_commit_log(&tx, seq)?;
+                tx.commit().map_err(crate::store::storage_error)?;
+                Ok(())
+            },
+            research_storage_failure,
+        )
+    }
+
+    /// Tombstone one bank entry. The row stays readable; it is no longer part
+    /// of the default view of the bank.
+    pub fn tombstone_bank_entry(
+        &self,
+        entry_id: EntityId,
+        reason: &str,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_tombstone_bank_entry(entry_id, reason),
+            research_storage_failure,
+        )
+    }
+
+    fn try_tombstone_bank_entry(
+        &self,
+        entry_id: EntityId,
+        reason: &str,
+    ) -> Result<(), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        // A replayed tombstone is the same terminal fact, not a second one:
+        // recovery may re-drive an Armed attempt whose original write already
+        // landed. Read the current state first.
+        {
+            let existing: Option<Option<i64>> = conn
+                .query_row(
+                    "SELECT tombstoned_at_ms FROM intervention_bank_entries WHERE entry_id=?1",
+                    params![entry_id.to_string()],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(|error| ShenkoError::storage(error.to_string()))?;
+            if existing.flatten().is_some() {
+                return Ok(());
+            }
+        }
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        ensure_research_schema(&tx)?;
+        let seq = self.ledger.allocate_seq(&tx)?;
+        let changed = tx.execute(
+            "UPDATE intervention_bank_entries SET tombstoned_at_ms=?2
+             WHERE entry_id=?1 AND tombstoned_at_ms IS NULL",
+            params![entry_id.to_string(), Utc::now().timestamp_millis()],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if changed != 1 {
+            return Err(ShenkoError::conflict(format!(
+                "bank entry {entry_id} is missing or already tombstoned ({reason})"
+            )));
+        }
+        self.write_commit_log(&tx, seq)?;
+        tx.commit()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        Ok(())
+    }
+
+    /// Record one intervention decision. A silent decision is recorded as
+    /// well: a missed reminder is a fact, not an absence.
+    pub fn record_intervention(
+        &self,
+        reminder: &InterventionReminder,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || self.try_record_intervention(reminder),
+            research_storage_failure,
+        )
+    }
+
+    fn try_record_intervention(&self, reminder: &InterventionReminder) -> Result<(), ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        ensure_research_schema(&tx)?;
+        // One bounded call produces one decision: a replay records it once.
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT decision FROM intervention_reminders WHERE reminder_id=?1",
+                params![reminder.reminder_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        if let Some(decision) = existing {
+            let same = decision
+                == match reminder.decision {
+                    InterventionDecisionKind::Remind => "remind",
+                    InterventionDecisionKind::Silent => "silent",
+                };
+            return if same {
+                Ok(())
+            } else {
+                Err(ShenkoError::conflict(
+                    "intervention decision identity exists with a different decision",
+                ))
+            };
+        }
+        let seq = self.ledger.allocate_seq(&tx)?;
+        tx.execute(
+            "INSERT INTO intervention_reminders
+             (reminder_id,epoch_id,lineage_id,decision,policy,policy_revision,content,provenance,
+              relevance,scope,expires_at_ms,transient,bank_entry_ids,reason,created_at_ms,
+              used_step_id,used_at_ms)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,NULL,NULL)",
+            params![
+                reminder.reminder_id.to_string(),
+                reminder.epoch_id.to_string(),
+                reminder.lineage_id.to_string(),
+                match reminder.decision {
+                    InterventionDecisionKind::Remind => "remind",
+                    InterventionDecisionKind::Silent => "silent",
+                },
+                reminder.policy,
+                reminder.policy_revision,
+                reminder.content,
+                encode_list(&reminder.provenance)?,
+                reminder.relevance,
+                reminder.scope,
+                reminder.expires_at_ms,
+                reminder.transient as i64,
+                encode_list(
+                    &reminder
+                        .bank_entry_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<String>>(),
+                )?,
+                reminder.reason,
+                reminder.created_at_ms,
+            ],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        self.write_commit_log(&tx, seq)?;
+        tx.commit()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        Ok(())
+    }
+
+    /// One recorded decision.
+    pub fn intervention_reminder(
+        &self,
+        reminder_id: EntityId,
+    ) -> Result<Option<InterventionReminder>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        read_reminder_by(
+            &conn,
+            "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
+            params![reminder_id.to_string()],
+        )
+    }
+
+    /// The most recent decision of an epoch.
+    pub fn latest_intervention(
+        &self,
+        epoch_id: EntityId,
+    ) -> Result<Option<InterventionReminder>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        read_reminder_by(
+            &conn,
+            "SELECT reminder_id FROM intervention_reminders WHERE epoch_id=?1 \
+             ORDER BY created_at_ms DESC, reminder_id DESC LIMIT 1",
+            params![epoch_id.to_string()],
+        )
+    }
+
+    /// The reminders of one scope that are still usable: not expired, not
+    /// already spent (a transient reminder leaves the visible context after
+    /// the request it was prepared for) and directed at this scope.
+    ///
+    /// The scope is an open string. The shipped producer writes `subject`
+    /// for a reminder meant for the subject itself and `epoch:<id>` for a
+    /// reminder that belongs to one research epoch.
+    pub fn pending_interventions_by_scope(
+        &self,
+        scope: &str,
+        now_ms: i64,
+    ) -> Result<Vec<InterventionReminder>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT reminder_id FROM intervention_reminders
+                 WHERE scope=?1 AND decision='remind'
+                   AND (expires_at_ms IS NULL OR expires_at_ms > ?2)
+                   AND (transient=0 OR used_at_ms IS NULL)
+                 ORDER BY created_at_ms ASC, reminder_id ASC",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let ids = statement
+            .query_map(params![scope, now_ms], |row| row.get::<_, String>(0))
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        drop(statement);
+        let mut reminders = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(reminder) = read_reminder_by(
+                &conn,
+                "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
+                params![id],
+            )? {
+                reminders.push(reminder);
+            }
+        }
+        Ok(reminders)
+    }
+
+    /// The reminders of a lineage that are still usable: not expired, not
+    /// already spent (a transient reminder leaves the visible context after
+    /// the request it was prepared for).
+    pub fn pending_interventions(
+        &self,
+        lineage_id: EntityId,
+        now_ms: i64,
+    ) -> Result<Vec<InterventionReminder>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT reminder_id FROM intervention_reminders
+                 WHERE lineage_id=?1 AND decision='remind'
+                   AND (expires_at_ms IS NULL OR expires_at_ms > ?2)
+                   AND (transient=0 OR used_at_ms IS NULL)
+                 ORDER BY created_at_ms ASC, reminder_id ASC",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let ids = statement
+            .query_map(params![lineage_id.to_string(), now_ms], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        drop(statement);
+        let mut reminders = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(reminder) = read_reminder_by(
+                &conn,
+                "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
+                params![id],
+            )? {
+                reminders.push(reminder);
+            }
+        }
+        Ok(reminders)
+    }
+
+    /// The still-usable intervention reminders of every active research epoch
+    /// whose owning task belongs to this agent, oldest first, bounded to
+    /// `limit`. This is the agent-scoped drain the PMA intervention worker
+    /// uses; it is a different durable set from the library memory intents
+    /// (`store/src/memory.rs::pending_library_memory_intents`) and the two
+    /// never share a method.
+    pub fn pending_intervention_reminders(
+        &self,
+        agent_id: EntityId,
+        now_ms: i64,
+        limit: usize,
+    ) -> Result<Vec<InterventionReminder>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT r.reminder_id FROM intervention_reminders r
+                 JOIN research_epochs e ON e.epoch_id = r.epoch_id
+                 JOIN tasks t ON t.task_id = e.task_id
+                 WHERE e.status='active'
+                   AND json_extract(t.data, '$.agent_id') = ?1
+                   AND r.decision='remind'
+                   AND (r.expires_at_ms IS NULL OR r.expires_at_ms > ?2)
+                   AND (r.transient=0 OR r.used_at_ms IS NULL)
+                 ORDER BY r.created_at_ms ASC, r.reminder_id ASC
+                 LIMIT ?3",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let ids = statement
+            .query_map(
+                params![agent_id.to_string(), now_ms, limit as i64],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        drop(statement);
+        let mut reminders = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(reminder) = read_reminder_by(
+                &conn,
+                "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
+                params![id],
+            )? {
+                reminders.push(reminder);
+            }
+        }
+        Ok(reminders)
+    }
+
+    /// Record that a reminder was actually sent in a call. This is the usage
+    /// receipt of the intervention worker: the ledger keeps what was
+    /// injected, its provenance and the call it was injected into.
+    pub fn record_intervention_use(
+        &self,
+        reminder_id: EntityId,
+        step_id: Option<EntityId>,
+        now_ms: i64,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                ensure_research_schema(&tx)?;
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let changed = tx.execute(
+                    "UPDATE intervention_reminders SET used_step_id=?2, used_at_ms=?3
+                     WHERE reminder_id=?1 AND used_at_ms IS NULL",
+                    params![
+                        reminder_id.to_string(),
+                        step_id.map(|id| id.to_string()),
+                        now_ms
+                    ],
+                )
+                .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                if changed != 1 {
+                    return Err(ShenkoError::conflict(
+                        "intervention reminder was already used or is unknown",
+                    ));
+                }
+                self.write_commit_log(&tx, seq)?;
+                tx.commit()
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                Ok(())
+            },
+            research_storage_failure,
+        )
+    }
+
+    /// Record a deletion tombstone. The tombstone keeps identity, scope and
+    /// the effect record; it never keeps the deleted body.
+    pub fn record_tombstone(
+        &self,
+        tombstone: &RetentionTombstone,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                ensure_research_schema(&tx)?;
+                // A replayed mechanism is the same terminal fact, not a
+                // second one: recovery may re-drive an Armed attempt whose
+                // original write already landed.
+                let existing: Option<String> = tx
+                    .query_row(
+                        "SELECT effect_record FROM retention_tombstones WHERE tombstone_id=?1",
+                        params![tombstone.tombstone_id.to_string()],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                if let Some(effect_record) = existing {
+                    return if effect_record == tombstone.effect_record {
+                        Ok(())
+                    } else {
+                        Err(ShenkoError::conflict(
+                            "retention tombstone identity exists with a different closure",
+                        ))
+                    };
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                tx.execute(
+                    "INSERT INTO retention_tombstones
+                     (tombstone_id,target_kind,target_id,scope,reason,effect_record,deleted_at_ms)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![
+                        tombstone.tombstone_id.to_string(),
+                        tombstone.target_kind,
+                        tombstone.target_id,
+                        tombstone.scope,
+                        tombstone.reason,
+                        tombstone.effect_record,
+                        tombstone.deleted_at_ms,
+                    ],
+                )
+                .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                self.write_commit_log(&tx, seq)?;
+                tx.commit()
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                Ok(())
+            },
+            research_storage_failure,
+        )
+    }
+
+    /// The tombstones of a target kind, newest first.
+    pub fn retention_tombstones(
+        &self,
+        target_kind: Option<&str>,
+    ) -> Result<Vec<RetentionTombstone>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let (sql, parameter): (String, Option<String>) = match target_kind {
+            Some(kind) => (
+                "SELECT tombstone_id,target_kind,target_id,scope,reason,effect_record,deleted_at_ms
+                 FROM retention_tombstones WHERE target_kind=?1 ORDER BY deleted_at_ms DESC, tombstone_id DESC"
+                    .to_string(),
+                Some(kind.to_string()),
+            ),
+            None => (
+                "SELECT tombstone_id,target_kind,target_id,scope,reason,effect_record,deleted_at_ms
+                 FROM retention_tombstones ORDER BY deleted_at_ms DESC, tombstone_id DESC"
+                    .to_string(),
+                None,
+            ),
+        };
+        let mut statement = conn.prepare(&sql).map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let decode_row = |row: &rusqlite::Row<'_>| {
+            Ok((
+                row.get::<_, String>(0)?, row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?, row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?, row.get::<_, String>(5)?,
+                row.get::<_, i64>(6)?,
+            ))
+        };
+        let rows = match &parameter {
+            Some(value) => statement
+                .query_map(params![value], decode_row)
+                .map_err(|error| ShenkoError::storage(error.to_string()))?,
+            None => statement
+                .query_map([], decode_row)
+                .map_err(|error| ShenkoError::storage(error.to_string()))?,
+        };
+        let mut tombstones = Vec::new();
+        for row in rows {
+            let (
+                tombstone_id,
+                target_kind,
+                target_id,
+                scope,
+                reason,
+                effect_record,
+                deleted_at_ms,
+            ) = row.map_err(|error| ShenkoError::storage(error.to_string()))?;
+            tombstones.push(RetentionTombstone {
+                tombstone_id: parse_id(&tombstone_id)?,
+                target_kind,
+                target_id,
+                scope,
+                reason,
+                effect_record,
+                deleted_at_ms,
+            });
+        }
+        Ok(tombstones)
+    }
+
+    /// Record one completed archive move.
+    pub fn record_archive_move(
+        &self,
+        record: &ArchiveMoveRecord,
+    ) -> Result<(), ShenkoError> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn
+                    .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                ensure_research_schema(&tx)?;
+                // A replayed archive move is the same terminal fact.
+                let existing: Option<String> = tx
+                    .query_row(
+                        "SELECT manifest_ref FROM archive_moves WHERE archive_id=?1",
+                        params![record.archive_id.to_string()],
+                        |row| row.get(0),
+                    )
+                    .optional()
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                if let Some(manifest_ref) = existing {
+                    return if manifest_ref == record.manifest_ref {
+                        Ok(())
+                    } else {
+                        Err(ShenkoError::conflict(
+                            "archive move identity exists with a different manifest",
+                        ))
+                    };
+                }
+                let seq = self.ledger.allocate_seq(&tx)?;
+                tx.execute(
+                    "INSERT INTO archive_moves
+                     (archive_id,source_ref,target_provider,target_namespace,target_locator,manifest_ref,
+                      object_count,total_bytes,hash_verified,readback_verified,local_released,
+                      local_release_note,created_at_ms)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+                    params![
+                        record.archive_id.to_string(),
+                        record.source_ref,
+                        record.target_provider,
+                        record.target_namespace,
+                        record.target_locator,
+                        record.manifest_ref,
+                        record.object_count as i64,
+                        record.total_bytes as i64,
+                        record.hash_verified as i64,
+                        record.readback_verified as i64,
+                        record.local_released as i64,
+                        record.local_release_note,
+                        record.created_at_ms,
+                    ],
+                )
+                .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                self.write_commit_log(&tx, seq)?;
+                tx.commit()
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                Ok(())
+            },
+            research_storage_failure,
+        )
+    }
+
+    /// Every recorded archive move, newest first.
+    pub fn archive_moves(&self) -> Result<Vec<ArchiveMoveRecord>, ShenkoError> {
+        let conn = self.ledger.conn.lock();
+        ensure_research_schema(&conn)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT archive_id,source_ref,target_provider,target_namespace,target_locator,manifest_ref,
+                        object_count,total_bytes,hash_verified,readback_verified,local_released,
+                        local_release_note,created_at_ms
+                 FROM archive_moves ORDER BY created_at_ms DESC, archive_id DESC",
+            )
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                    row.get::<_, i64>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, i64>(12)?,
+                ))
+            })
+            .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let mut moves = Vec::new();
+        for row in rows {
+            let (
+                archive_id,
+                source_ref,
+                target_provider,
+                target_namespace,
+                target_locator,
+                manifest_ref,
+                object_count,
+                total_bytes,
+                hash_verified,
+                readback_verified,
+                local_released,
+                local_release_note,
+                created_at_ms,
+            ) = row.map_err(|error| ShenkoError::storage(error.to_string()))?;
+            moves.push(ArchiveMoveRecord {
+                archive_id: parse_id(&archive_id)?,
+                source_ref,
+                target_provider,
+                target_namespace,
+                target_locator,
+                manifest_ref,
+                object_count: object_count.max(0) as u64,
+                total_bytes: total_bytes.max(0) as u64,
+                hash_verified: hash_verified != 0,
+                readback_verified: readback_verified != 0,
+                local_released: local_released != 0,
+                local_release_note,
+                created_at_ms,
+            });
+        }
+        Ok(moves)
+    }
+
+    fn write_commit_log(
+        &self,
+        tx: &rusqlite::Transaction<'_>,
+        seq: LedgerSeq,
+    ) -> Result<(), ShenkoError> {
+        tx.execute(
+            "INSERT INTO commit_log (ledger_id, seq, incarnation, entity_count)
+             VALUES (?1,?2,?3,1)",
+            params![
+                self.ledger.ledger_id().to_string(),
+                seq.0 as i64,
+                self.capabilities.incarnation.to_string(),
+            ],
+        )
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+        Ok(())
+    }
+}
+
+struct SealedClosure {
+    constraints: ObjectRef,
+    budget: ObjectRef,
+    effects: ObjectRef,
+    environment: ObjectRef,
+}
+
+const EPOCH_COLUMNS: &str = "epoch_id,reset_request_id,lineage_id,epoch_no,task_id,status,\
+     constraints_ref,budget_ref,effects_ref,environment_ref,best_candidate_id,brief_ref,\
+     reset_from_epoch,reset_reason,reset_receipt,created_at_ms,frozen_at_ms";
+
+/// The full projection of one epoch row.
+const EPOCH_SELECT: &str = "SELECT epoch_id,reset_request_id,lineage_id,epoch_no,task_id,status,\
+     constraints_ref,budget_ref,effects_ref,environment_ref,best_candidate_id,brief_ref,\
+     reset_from_epoch,reset_reason,reset_receipt,created_at_ms,frozen_at_ms FROM research_epochs";
+
+fn read_epoch_by(
+    conn: &Connection,
+    predicate: &str,
+    parameter: impl rusqlite::Params,
+) -> Result<Option<ResearchEpoch>, ShenkoError> {
+    let row = conn
+        .query_row(&format!("{EPOCH_SELECT} {predicate}"), parameter, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<String>>(10)?,
+                row.get::<_, Option<String>>(11)?,
+                row.get::<_, Option<String>>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, Option<String>>(14)?,
+                row.get::<_, i64>(15)?,
+                row.get::<_, Option<i64>>(16)?,
+            ))
+        })
+        .optional()
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+    let Some((
+        epoch_id,
+        reset_request_id,
+        lineage_id,
+        epoch_no,
+        task_id,
+        status,
+        constraints_ref,
+        budget_ref,
+        effects_ref,
+        environment_ref,
+        best_candidate_id,
+        brief_ref,
+        reset_from_epoch,
+        reset_reason,
+        reset_receipt,
+        created_at_ms,
+        frozen_at_ms,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    Ok(Some(ResearchEpoch {
+        epoch_id: parse_id(&epoch_id)?,
+        reset_request_id: optional_id(reset_request_id)?,
+        lineage_id: parse_id(&lineage_id)?,
+        epoch_no: epoch_no.max(0) as u64,
+        task_id: optional_id(task_id)?,
+        status: match status.as_str() {
+            "active" => ResearchEpochStatus::Active,
+            "frozen" => ResearchEpochStatus::Frozen,
+            other => {
+                return Err(ShenkoError::conflict(format!(
+                    "unknown research epoch status: {other}"
+                )));
+            }
+        },
+        constraints_ref: decode_object(constraints_ref.as_deref())?,
+        budget_ref: decode_object(budget_ref.as_deref())?,
+        effects_ref: decode_object(effects_ref.as_deref())?,
+        environment_ref: decode_object(environment_ref.as_deref())?,
+        best_candidate_id: optional_id(best_candidate_id)?,
+        brief_ref: decode_object(brief_ref.as_deref())?,
+        reset_from_epoch: optional_id(reset_from_epoch)?,
+        reset_reason,
+        reset_receipt,
+        created_at_ms,
+        frozen_at_ms,
+    }))
+}
+
+const REMINDER_COLUMNS: &str = "reminder_id,epoch_id,lineage_id,decision,policy,policy_revision,\
+     content,provenance,relevance,scope,expires_at_ms,transient,bank_entry_ids,reason,created_at_ms,\
+     used_step_id,used_at_ms";
+
+fn read_reminder_by(
+    conn: &Connection,
+    sql: &str,
+    parameter: impl rusqlite::Params,
+) -> Result<Option<InterventionReminder>, ShenkoError> {
+    // Callers pass a bare id-lookup SELECT; normalize it to the full
+    // projection this reader decodes. A full projection is left untouched.
+    let full = if let Some(predicate) =
+        sql.strip_prefix("SELECT reminder_id FROM intervention_reminders")
+    {
+        format!("SELECT {REMINDER_COLUMNS} FROM intervention_reminders{predicate}")
+    } else {
+        sql.to_string()
+    };
+    let row = conn
+        .query_row(&full, parameter, |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, String>(9)?,
+                row.get::<_, Option<i64>>(10)?,
+                row.get::<_, i64>(11)?,
+                row.get::<_, String>(12)?,
+                row.get::<_, Option<String>>(13)?,
+                row.get::<_, i64>(14)?,
+                row.get::<_, Option<String>>(15)?,
+                row.get::<_, Option<i64>>(16)?,
+            ))
+        })
+        .optional()
+        .map_err(|error| ShenkoError::storage(error.to_string()))?;
+    let Some((
+        reminder_id,
+        epoch_id,
+        lineage_id,
+        decision,
+        policy,
+        policy_revision,
+        content,
+        provenance,
+        relevance,
+        scope,
+        expires_at_ms,
+        transient,
+        bank_entry_ids,
+        reason,
+        created_at_ms,
+        used_step_id,
+        used_at_ms,
+    )) = row
+    else {
+        return Ok(None);
+    };
+    Ok(Some(InterventionReminder {
+        reminder_id: parse_id(&reminder_id)?,
+        epoch_id: parse_id(&epoch_id)?,
+        lineage_id: parse_id(&lineage_id)?,
+        decision: match decision.as_str() {
+            "remind" => InterventionDecisionKind::Remind,
+            "silent" => InterventionDecisionKind::Silent,
+            other => {
+                return Err(ShenkoError::conflict(format!(
+                    "unknown intervention decision: {other}"
+                )));
+            }
+        },
+        policy,
+        policy_revision,
+        content,
+        provenance: decode_list::<String>(Some(&provenance))?,
+        relevance,
+        scope,
+        expires_at_ms,
+        transient: transient != 0,
+        bank_entry_ids: decode_list::<String>(Some(&bank_entry_ids))?
+            .iter()
+            .map(|id| parse_id(id))
+            .collect::<Result<Vec<EntityId>, ShenkoError>>()?,
+        reason,
+        created_at_ms,
+        used_step_id: optional_id(used_step_id)?,
+        used_at_ms,
+    }))
+}
+
+/// The column list of the epoch table, kept next to the reader so a schema
+/// change cannot silently shift the tuple order.
+#[allow(dead_code)]
+pub const EPOCH_COLUMN_LIST: &str = EPOCH_COLUMNS;
+
+/// The column list of the reminder table.
+#[allow(dead_code)]
+pub const REMINDER_COLUMN_LIST: &str = REMINDER_COLUMNS;

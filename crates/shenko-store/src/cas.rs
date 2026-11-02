@@ -1,8 +1,8 @@
 //! Content-addressed object store. SPEC §41.2.2
 //! Objects are immutable; locators may change.
 use std::fs;
-use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use anyhow::Result;
 use shenko_types::object::{Digest, ObjectRef, SchemaRef, SealedObjectRef};
 use shenko_types::error::ShenkoError;
@@ -12,9 +12,16 @@ pub struct ContentStore {
 }
 
 impl ContentStore {
-    pub fn new(base: PathBuf) -> Self {
-        fs::create_dir_all(&base).ok();
-        Self { base }
+    pub fn new(base: PathBuf) -> Result<Self, ShenkoError> {
+        fs::create_dir_all(&base)
+            .map_err(|error| ShenkoError::storage(format!("CAS directory creation: {error}")))?;
+        // A newly created CAS root may itself have newly created parents.
+        // Sync the whole ancestry once, before admitting durable objects.
+        for directory in base.ancestors() {
+            sync_directory(directory)
+                .map_err(|error| ShenkoError::storage(format!("CAS directory sync: {error}")))?;
+        }
+        Ok(Self { base })
     }
 
     fn object_path(&self, digest: &Digest) -> Result<PathBuf, ShenkoError> {
@@ -38,25 +45,26 @@ impl ContentStore {
         let digest = Digest::blake3(data);
         let path = self.object_path(&digest)?;
 
-        if !path.exists() {
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| ShenkoError::storage(format!("cas mkdir: {e}")))?;
+        let result = match fs::File::open(&path) {
+            Ok(mut existing) => verify_file(&mut existing, &digest, data.len() as u64)
+                .and_then(|()| self.sync_object_directories(&path)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let temporary = self.base.join(format!(".object-{}", shenko_types::ids::EntityId::new()));
+                let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)
+                    .map_err(|error| ShenkoError::storage(format!("CAS staging creation: {error}")))?;
+                let result = (|| {
+                    output.write_all(data)?;
+                    output.sync_all()?;
+                    self.publish_temporary(&temporary, &path, &digest, data.len() as u64)
+                })();
+                drop(output);
+                // Cleanup owns only a staging file successfully created here.
+                let _ = fs::remove_file(&temporary);
+                result
             }
-            // Equal content may be sealed concurrently by unrelated actions.
-            // Each writer owns a distinct temporary inode; both renames of
-            // the same verified bytes are safe, unlike a shared digest.tmp.
-            let tmp = path.with_extension(format!("{}.tmp", shenko_types::ids::EntityId::new()));
-            let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)
-                .map_err(|e| ShenkoError::storage(format!("cas write tmp: {e}")))?;
-            f.write_all(data)
-                .map_err(|e| ShenkoError::storage(format!("cas write: {e}")))?;
-            f.sync_all()
-                .map_err(|e| ShenkoError::storage(format!("cas sync: {e}")))?;
-            drop(f);
-            fs::rename(&tmp, &path)
-                .map_err(|e| ShenkoError::storage(format!("cas rename: {e}")))?;
-        }
+            Err(error) => Err(error),
+        };
+        result.map_err(|error| ShenkoError::storage(format!("CAS object sealing: {error}")))?;
 
         let locator = format!("file://{}", path.display());
         let codec = SchemaRef {
@@ -97,8 +105,9 @@ impl ContentStore {
         codec_major: u32,
     ) -> Result<SealedObjectRef, ShenkoError> {
         let temporary = self.base.join(format!(".stream-{}", shenko_types::ids::EntityId::new()));
+        let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)
+            .map_err(|error| ShenkoError::storage(format!("CAS staging creation: {error}")))?;
         let result = (|| -> std::io::Result<(Digest, u64)> {
-            let mut output = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
             let mut buffer = [0u8; 64 * 1024];
             let mut hash = blake3::Hasher::new();
             let mut bytes = 0u64;
@@ -113,35 +122,13 @@ impl ContentStore {
                 bytes += count as u64;
             }
             output.sync_all()?;
-            drop(output);
             let digest = Digest(format!("blake3:{}", hash.finalize().to_hex()));
             let destination = self.object_path(&digest)
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
-            let parent = destination.parent().expect("CAS object has a parent");
-            fs::create_dir_all(parent)?;
-            match fs::hard_link(&temporary, &destination) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    // Existing objects are immutable, but never attest a
-                    // replaced/corrupted object merely because its name fits.
-                    let mut existing = fs::File::open(&destination)?;
-                    let mut existing_hash = blake3::Hasher::new();
-                    let mut existing_bytes = 0u64;
-                    loop {
-                        let count = existing.read(&mut buffer)?;
-                        if count == 0 { break; }
-                        existing_hash.update(&buffer[..count]);
-                        existing_bytes += count as u64;
-                    }
-                    if existing_bytes != bytes || existing_hash.finalize() != hash.finalize() {
-                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "CAS object digest/size mismatch"));
-                    }
-                }
-                Err(error) => return Err(error),
-            }
-            fs::File::open(parent)?.sync_all()?;
+            self.publish_temporary(&temporary, &destination, &digest, bytes)?;
             Ok((digest, bytes))
         })();
+        drop(output);
         // Only this invocation's unpredictable staging name is removed.
         let _ = fs::remove_file(&temporary);
         let (digest, bytes) = result.map_err(|error| ShenkoError::storage(format!("CAS stream sealing: {error}")))?;
@@ -172,11 +159,34 @@ impl ContentStore {
 
     /// Resolve immutable content in THIS store, never a historical locator.
     pub fn verified_object_path(&self, object: &ObjectRef) -> Result<PathBuf, ShenkoError> {
-        let bytes = self.read_object(&object.digest)?;
-        if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest {
-            return Err(ShenkoError::storage("CAS object length/digest mismatch"));
+        let path = self.object_path(&object.digest)?;
+        let mut file = fs::File::open(&path)
+            .map_err(|error| ShenkoError::storage(format!("CAS object open: {error}")))?;
+        verify_file(&mut file, &object.digest, object.bytes)
+            .map_err(|error| ShenkoError::storage(format!("CAS object verification: {error}")))?;
+        Ok(path)
+    }
+
+    fn publish_temporary(&self, temporary: &Path, destination: &Path, digest: &Digest, bytes: u64) -> io::Result<()> {
+        fs::create_dir_all(destination.parent().expect("CAS object has a parent"))?;
+        match fs::hard_link(temporary, destination) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                verify_file(&mut fs::File::open(destination)?, digest, bytes)?;
+            }
+            Err(error) => return Err(error),
         }
-        self.object_path(&object.digest)
+        self.sync_object_directories(destination)
+    }
+
+    fn sync_object_directories(&self, path: &Path) -> io::Result<()> {
+        // Publication can race another writer creating either shard. Sync
+        // each link up to the already admitted root, not only the leaf.
+        for directory in path.parent().expect("CAS object has a parent").ancestors() {
+            sync_directory(directory)?;
+            if directory == self.base { break; }
+        }
+        Ok(())
     }
 
     pub fn object_exists(&self, digest: &Digest) -> bool {
@@ -186,4 +196,32 @@ impl ContentStore {
     pub fn object_size(&self, digest: &Digest) -> Option<u64> {
         fs::metadata(self.object_path(digest).ok()?).ok().map(|m| m.len())
     }
+}
+
+fn sync_directory(directory: &Path) -> io::Result<()> {
+    let directory = if directory.as_os_str().is_empty() { Path::new(".") } else { directory };
+    fs::File::open(directory)?.sync_all()
+}
+
+fn verify_file(file: &mut fs::File, digest: &Digest, expected_bytes: u64) -> io::Result<()> {
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() != expected_bytes {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "CAS object size/type mismatch"));
+    }
+    let mut buffer = [0u8; 64 * 1024];
+    let mut hash = blake3::Hasher::new();
+    let mut bytes = 0u64;
+    loop {
+        let count = match file.read(&mut buffer) {
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            other => other?,
+        };
+        if count == 0 { break; }
+        hash.update(&buffer[..count]);
+        bytes += count as u64;
+    }
+    if bytes != expected_bytes || digest.0.strip_prefix("blake3:") != Some(hash.finalize().to_hex().as_str()) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "CAS object digest/size mismatch"));
+    }
+    Ok(())
 }

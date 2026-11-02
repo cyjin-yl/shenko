@@ -7,6 +7,15 @@ use serde::{Deserialize, Serialize};
 use shenko_types::evidence::EvidenceReceipt;
 use shenko_types::{commit::CommitRef, ids::*, operation::*, task::*};
 
+/// One model step of a finite model child: one broker send with its own
+/// T1/E1/T2 on the shared inference ledger.
+pub const MODEL_CHILD_STEP_OPERATION: &str = "model.child.generate.v1";
+/// The model child's own run operation. It carries the child's result, not a
+/// provider send, and is bound to the same sealed delegation contract.
+pub const MODEL_CHILD_RESULT_OPERATION: &str = "model.child.result.v1";
+/// The native definition kind of a model child task.
+pub const MODEL_CHILD_KIND: &str = "model.child";
+
 /// Trusted executor context, not authority supplied by a model tool argument.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskInvocation {
@@ -239,9 +248,7 @@ impl Store {
             "invalid_armed_operation"
         );
         let seq = self.ledger.allocate_seq(&tx)?;
-        if task.kind == "model.child" {
-            let binding = inference.ok_or_else(|| anyhow::anyhow!("model inference must use quota-bound T1 admission"))?;
-            ensure!(binding.schema_version == 1, "unsupported inference send binding");
+        if task.kind == MODEL_CHILD_KIND {
             let read = |object: &shenko_types::object::ObjectRef| -> Result<serde_json::Value> {
                 let bytes = self.cas.read_object(&object.digest)?;
                 ensure!(bytes.len() as u64 == object.bytes
@@ -249,23 +256,63 @@ impl Store {
                     "inference T1 input/binding closure mismatch");
                 Ok(serde_json::from_slice(&bytes)?)
             };
-            let frozen = read(&op.final_input_ref)?;
-            let decision = read(&task.input_ref)?;
-            let intent = decision.get("delegated_task_intents").and_then(|value| value.as_array())
-                .and_then(|intents| intents.iter().find(|intent| intent.get("intent_id") == Some(&serde_json::json!(task.task_id))))
-                .ok_or_else(|| anyhow::anyhow!("model inference has no frozen S1 delegation"))?;
-            ensure!(intent.pointer("/definition/input") == Some(&frozen)
-                && frozen.get("request_id") == Some(&serde_json::to_value(binding.request_id)?)
-                && op.input_digest == op.final_input_ref.digest
-                && read(att.transport_ref.as_ref().ok_or_else(|| anyhow::anyhow!("inference attempt lacks selected send binding"))?)?
-                    == serde_json::to_value(binding)?,
-                "inference T1 request/payload/selected-send mismatch");
-            if crate::quota::quota_gate_open(&tx)? {
-                let send_id = binding.send_id.ok_or_else(|| anyhow::anyhow!("configured quota requires exact selected send"))?;
-                ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq)?,
-                    "inference selected send is not admitted, armed and unclaimed for this request");
-            } else {
-                ensure!(binding.send_id.is_none(), "unexpected quota send without a recorded policy");
+            // The sealed model child contract this task is bound to. A child
+            // the subject delegated carries the contract inside its frozen S1
+            // decision; a nested or continued child carries the very same
+            // contract shape as its own sealed task input. Both are bound to
+            // the same T1 rules.
+            let sealed: serde_json::Value = match task
+                .memos
+                .get(crate::child::NATIVE_INPUT)
+                .and_then(|value| value.as_str())
+            {
+                Some("object") => read(&task.input_ref)?,
+                _ => {
+                    let decision = read(&task.input_ref)?;
+                    let intent = decision.get("delegated_task_intents").and_then(|value| value.as_array())
+                        .and_then(|intents| intents.iter().find(|intent| intent.get("intent_id") == Some(&serde_json::json!(task.task_id))))
+                        .ok_or_else(|| anyhow::anyhow!("model inference has no frozen S1 delegation"))?;
+                    intent.pointer("/definition/input").cloned()
+                        .ok_or_else(|| anyhow::anyhow!("model child delegation has no frozen definition input"))?
+                }
+            };
+            let sealed_digest = shenko_types::object::Digest::blake3(&serde_json::to_vec(&sealed)?);
+            match op.operation_name.as_str() {
+                MODEL_CHILD_STEP_OPERATION => {
+                    let binding = inference.ok_or_else(|| anyhow::anyhow!("model inference must use quota-bound T1 admission"))?;
+                    ensure!(binding.schema_version == 1, "unsupported inference send binding");
+                    let step = read(&op.final_input_ref)?;
+                    ensure!(op.input_digest == op.final_input_ref.digest,
+                        "model child step input is not its own closure");
+                    ensure!(step.get("schema_version").and_then(|value| value.as_u64()) == Some(1),
+                        "unsupported model child step input");
+                    let sealed_digest_text = sealed_digest.to_string();
+                    ensure!(step.get("contract_digest").and_then(|value| value.as_str())
+                        == Some(sealed_digest_text.as_str()),
+                        "model child step does not descend from the sealed delegation");
+                    ensure!(step.get("request_id") == Some(&serde_json::to_value(binding.request_id)?)
+                        && step.get("provider_binding") == sealed.get("provider_binding"),
+                        "model child step request/transport differs from the sealed delegation");
+                    ensure!(read(att.transport_ref.as_ref().ok_or_else(|| anyhow::anyhow!("inference attempt lacks selected send binding"))?)?
+                        == serde_json::to_value(binding)?,
+                        "inference T1 request/payload/selected-send mismatch");
+                    if crate::quota::quota_gate_open(&tx)? {
+                        let send_id = binding.send_id.ok_or_else(|| anyhow::anyhow!("configured quota requires exact selected send"))?;
+                        ensure!(crate::quota::quota_claim_send(&tx, binding.request_id, send_id, seq)?,
+                            "inference selected send is not admitted, armed and unclaimed for this request");
+                    } else {
+                        ensure!(binding.send_id.is_none(), "unexpected quota send without a recorded policy");
+                    }
+                }
+                MODEL_CHILD_RESULT_OPERATION => {
+                    ensure!(inference.is_none(), "the model child run operation is not a provider send");
+                    ensure!(op.input_digest == op.final_input_ref.digest
+                        && op.final_input_ref.digest == sealed_digest,
+                        "model child run operation does not bind the sealed delegation contract");
+                }
+                other => {
+                    anyhow::bail!("unsupported model child operation: {other}");
+                }
             }
         } else {
             ensure!(inference.is_none(), "inference T1 requires the registered model-child task contract");
@@ -490,6 +537,26 @@ impl Store {
         tx.commit()?;
         Ok(op)
     }
+    /// Every operation of one task under a given operation name, in commit
+    /// order. A finite model child uses it to rebuild its own step history
+    /// from the ledger after a restart, without a second index.
+    pub fn external_task_operations(
+        &self,
+        task_id: EntityId,
+        operation_name: &str,
+    ) -> Result<Vec<OperationRecord>> {
+        let c = self.ledger.conn.lock();
+        let mut q = c.prepare("SELECT data FROM operations WHERE json_extract(data,'$.task_id')=?1 AND json_extract(data,'$.operation_name')=?2 ORDER BY rowid")?;
+        let rows = q
+            .query_map(params![task_id.to_string(), operation_name], |r| {
+                r.get::<_, String>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        rows.into_iter()
+            .map(|data| serde_json::from_str(&data).map_err(Into::into))
+            .collect()
+    }
+
     pub fn external_operation_attempts(&self, id: EntityId) -> Result<Vec<AttemptRecord>> {
         let c = self.ledger.conn.lock();
         let mut q = c.prepare("SELECT data FROM attempts WHERE operation_id=?1 ORDER BY rowid")?;

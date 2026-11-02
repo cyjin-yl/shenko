@@ -83,10 +83,22 @@ sync peers): observed-primary evidence, then any bound-subject evidence, then
 verified reachability of the recovery closure (confirmed sync or local
 durability), then newest advertisement generation, then node ID. It is
 explicitly *not* an election — no member configuration, no quorum, no
-fencing, no liveness — and a partitioned component must still run the §5.4.1
-protocol before takeover. It supplies what that protocol may consider:
-versioned capability facts and actual evidence, not names, static parameter
-counts or cached claims.
+fencing, no liveness — the candidacy ordering only supplies what the real
+election may consider: versioned capability facts and actual evidence, not
+names, static parameter counts or cached claims.
+
+Node storage schema 6 adds the durable election control plane (see
+`docs/specs/nodes.md`): the committed member configuration, per-term vote
+receipts, the control log with quorum certificates, availability branches,
+adoptions and reconciliation records. The real election — `campaign`, verified
+vote requests over each member's authenticated route, joint-consensus member
+changes, and monotonic fencing epochs — is the only path to a committed
+primary claim; the candidacy response above reports the claim and quorum basis
+but never substitutes for them. A partitioned component with no reachable
+quorum opens an explicit availability branch and keeps its own subject
+available without claiming domain primary (§5.4.1), and a runtime observation
+records the `Primary` role only against the committed election's fencing
+token.
 
 ### Installation units and local readiness
 
@@ -207,7 +219,7 @@ loss are not claimed.
 
 Source/artifact-bound observations, failures and remaining scope are recorded in
 [the #71 evidence](../evidence/node-sync-cognition-20261026.json) and
-[C17](../tasks/C17.md). Full election, partition authority, every platform,
+[C17](../history/task-cards-20261101/C17.md). Full election, partition authority, every platform,
 arbitrary-effect fencing, encrypted disk-image recovery and 7/30-day observations
 remain separate acceptance obligations.
 
@@ -447,7 +459,7 @@ All owned listeners stop on both success/failure and are read back as refused.
 No physical machine, actual model inference, election, partition quorum,
 production child scheduler, arbitrary resource fencing, image resurrection or
 long-run acceptance follows from these two scenarios. See the machine-readable
-[evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../tasks/C17.md)
+[evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../history/task-cards-20261101/C17.md)
 for exact candidate and remaining obligations.
 
 ## Focused review repair / 复核接续

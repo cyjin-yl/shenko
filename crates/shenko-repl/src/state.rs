@@ -111,6 +111,14 @@ impl StateFile {
 
     /// Snapshot the initial/fork state once, before publishing its manifest.
     pub fn snapshot(&self, dir: &Path) -> Result<Option<Baseline>> {
+        self.snapshot_named(dir, BASELINE_FILE)
+    }
+
+    pub fn snapshot_named(&self, dir: &Path, name: &str) -> Result<Option<Baseline>> {
+        if Path::new(name).components().count() != 1
+            || !matches!(Path::new(name).components().next(), Some(std::path::Component::Normal(_))) {
+            bail!("REPL_STATE_INVALID: checkpoint name must be one filename");
+        }
         let mut source = match self.root.open(&self.relative) {
             Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -120,7 +128,7 @@ impl StateFile {
             bail!("REPL_STATE_INVALID: baseline state is not a regular file");
         }
         let mut target = fs::OpenOptions::new().write(true).create_new(true)
-            .open(dir.join(BASELINE_FILE))?;
+            .open(dir.join(name))?;
         let (blake3, bytes) = copy_and_hash(&mut source, &mut target)?;
         target.sync_all()?;
         File::open(dir)?.sync_all()?;
@@ -143,8 +151,16 @@ impl StateFile {
     /// Restore the frozen baseline through a fresh, same-directory temporary
     /// file. Verify the bytes while copying, before publishing the rename.
     pub fn restore(&self, session_dir: &Path, baseline: Option<&Baseline>) -> Result<()> {
+        self.restore_named(session_dir, BASELINE_FILE, baseline)
+    }
+
+    pub fn restore_named(&self, session_dir: &Path, name: &str, baseline: Option<&Baseline>) -> Result<()> {
+        if Path::new(name).components().count() != 1
+            || !matches!(Path::new(name).components().next(), Some(std::path::Component::Normal(_))) {
+            bail!("REPL_STATE_INVALID: checkpoint name must be one filename");
+        }
         let Some(baseline) = baseline else { return self.clear(); };
-        let mut source = File::open(session_dir.join(BASELINE_FILE))
+        let mut source = File::open(session_dir.join(name))
             .context("REPL_STATE_CORRUPT: baseline missing")?;
         if !source.metadata()?.is_file() {
             bail!("REPL_STATE_CORRUPT: baseline is not a regular file");

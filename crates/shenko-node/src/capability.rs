@@ -478,11 +478,19 @@ impl Node {
             entry["rank"] = json!(rank + 1);
             candidates.push(entry);
         }
+        let claim = self.committed_primary_claim()?;
         Ok(json!({
             "basis": "verified_capability_facts_and_sync_confirmations",
+            // This response is the candidacy ordering, not an election
+            // decision; the committed primary is published beside it.
             "is_election": false,
-            "global_quorum": false,
-            "member_configuration": "not_installed",
+            "election_provider": "durable_member_configuration_quorum_v1",
+            "global_quorum": claim.is_some(),
+            "primary_claim": claim,
+            "member_configuration": self.member_configuration()?,
+            "quorum_basis": "committed_member_configuration",
+            "visible_nodes_are_not_the_quorum": true,
+            "model_required_for_membership": false,
             "current_peer_liveness": "not_measured",
             "candidates": candidates,
         }))
@@ -524,8 +532,9 @@ mod tests {
         let mut a = init(&dir_a, a_id);
         let mut b = init(&scratch("b"), b_id);
 
-        // B declares intent, then its actual runtime evidences a bound
-        // subject; both travel as facts inside the advertisement.
+        // B declares intent, then wins the real single-member election of its
+        // own domain and evidences a bound subject; both travel as facts
+        // inside the advertisement.
         b.assign_roles(RoleAssignmentRequest {
             operation_id: EntityId::new(),
             expected_revision: "0".into(),
@@ -533,11 +542,17 @@ mod tests {
             reason: "this node reaches a working subject".into(),
         })
         .unwrap();
+        b.ensure_member_configuration().unwrap();
+        let campaign = b.campaign().unwrap();
+        let outcome = b.tally(campaign.term).unwrap();
+        assert!(outcome.elected, "the single-member domain elects its only member");
+        let token = b.fencing_token().unwrap().unwrap();
         b.observe_runtime_roles(
             EntityId::new(),
             vec![NodeRole::Primary, NodeRole::Executor],
             Some(EntityId::new()),
             "subject actually ran here".into(),
+            Some(&token),
         )
         .unwrap();
         let profile_b = b.capability_profile().unwrap();
@@ -554,6 +569,7 @@ mod tests {
             vec![NodeRole::Executor],
             None,
             "subject moved off this node".into(),
+            None,
         )
         .unwrap();
         let profile_b2 = b.capability_profile().unwrap();

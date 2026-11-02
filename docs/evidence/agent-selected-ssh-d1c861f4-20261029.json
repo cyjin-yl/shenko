@@ -1,0 +1,147 @@
+{
+  "candidate": "d1c861f4cac6aa5db4000afbc9a94b519d97a8e4",
+  "tree": "1cba6cd34fb3ff758d4c173e19c6a8f4e9cb1e3a",
+  "lockSha256": "c1094a9fb2c9a03a2578e858900f8922bffe96a89120f539fcf2307ceecd9f7b",
+  "toolchain": {
+    "rustcVersion": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: x86_64-unknown-linux-gnu\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+    "cargoVersion": "cargo 1.98.1 (797e8a9bc 2026-08-05)\nrelease: 1.98.1\ncommit-hash: 797e8a9bca276c1c9f9f738d2a20f484fa4eea9d\ncommit-date: 2026-08-05\nhost: x86_64-unknown-linux-gnu\nlibgit2: 1.9.4 (sys:0.21.0 vendored)\nlibcurl: 8.21.0-DEV (sys:0.4.90+curl-8.21.0 vendored ssl:OpenSSL/3.6.3)\nssl: OpenSSL 3.6.3 9 Jun 2026\nos: Debian 13.0.0 (trixie) [64-bit]\n",
+    "officialArchiveSha256": "24ba1338a2d35c5a3247936546429e163fa674d726102af18bdf624582c57aea",
+    "officialHTTPSChecksumMatched": true,
+    "independentSignatureVerified": false
+  },
+  "registryArchiveCount": 398,
+  "allRegistryArchivesRecheckedAgainstLock": true,
+  "runs": [
+    {
+      "label": "selected-ssh",
+      "command": "test --locked --offline -p shenko-exec-ssh selected_task::tests --message-format=json",
+      "startedAt": "2026-10-29T21:26:46.420770+00:00",
+      "finishedAt": "2026-10-29T21:28:51.856803+00:00",
+      "wallSeconds": 125.43583084398415,
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "tests": [
+        "test selected_task::tests::different_registered_target_is_not_a_fallback ... ok",
+        "test selected_task::tests::unrelated_authority_is_refused_before_t1 ... ok",
+        "test selected_task::tests::conflicting_retry_cannot_change_action_or_dispatch_twice ... ok",
+        "test selected_task::tests::legacy_input_bytes_are_unchanged_when_selection_is_absent ... ok",
+        "test selected_task::tests::forged_worker_is_refused_before_t1 ... ok",
+        "test selected_task::tests::selection_is_sealed_in_real_t1_and_recovery_never_reselects ... ok",
+        "test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.43s"
+      ],
+      "diagnostics": [
+        {
+          "level": "warning",
+          "message": "unused import: `object`",
+          "location": [
+            {
+              "file": "crates/shenko-exec-ssh/src/selected_task.rs",
+              "line": 204
+            }
+          ]
+        }
+      ],
+      "testArtifacts": [
+        {
+          "target": "shenko_exec_ssh",
+          "kind": [
+            "lib"
+          ],
+          "fresh": false,
+          "files": [
+            {
+              "name": "shenko_exec_ssh-6fccbe6ea25c8ed0",
+              "sha256": "9e83cd0e94e2b27aea009413e9ecf30ee1d4993bffab18feb3942c198bb17a2a"
+            }
+          ]
+        }
+      ],
+      "logHashes": {
+        "stdout": "d591a42fe093c198eecc844665b350fd402c9369f48ebeadda715bbcb30cdc63",
+        "stderr": "a8efae04292501ad929448ef74c3016c465c3a454003eee8d1c71557d5c45178"
+      }
+    },
+    {
+      "label": "node",
+      "command": "test --locked --offline -p shenko-node --message-format=json",
+      "startedAt": "2026-10-29T21:28:51.903873+00:00",
+      "finishedAt": "2026-10-29T21:29:27.340656+00:00",
+      "wallSeconds": 35.4367672399967,
+      "exitCode": 0,
+      "sourceUnchanged": true,
+      "tests": [
+        "test admission::tests::private_sqlite_recovery_cannot_mutate_an_outside_database ... ok",
+        "test selection::tests::snapshot_is_bounded_non_ranked_and_keeps_unknown_without_routes ... ok",
+        "test selection::tests::explicit_choice_survives_reopen_and_replay_never_dispatches ... ok",
+        "test roles::tests::role_assignment_and_observation_remain_distinct_across_reopen ... ok",
+        "test units::tests::digest_versions_keep_independent_edges_and_re_resolve ... ok",
+        "test selection::tests::absent_observation_and_unenrolled_target_are_explained_not_guessed ... ok",
+        "test capability::tests::malformed_advertisement_and_unverified_peer_have_no_authority ... ok",
+        "test selection::tests::oversized_advertisement_is_explicit_and_cannot_be_recorded_as_ready ... ok",
+        "test selection::tests::changed_observation_returns_reason_and_never_substitutes ... ok",
+        "test capability::tests::generation_safe_capability_facts_drive_candidacy ... ok",
+        "test units::tests::unresolved_attempt_becomes_unknown_and_is_never_replayed ... ok",
+        "test units::tests::exported_root_digest_is_independent_of_package_order ... ok",
+        "test units::tests::incoming_descriptor_supersedes_its_stale_retained_candidate ... ok",
+        "test units::tests::schema_two_transfer_does_not_invent_an_old_selection ... ok",
+        "test units::tests::v3_migration_preserves_identity_history_and_ambiguous_legacy_rows ... ok",
+        "test units::tests::trial_records_real_success_and_real_failure ... ok",
+        "test units::tests::export_retains_distinct_pins_and_recovers_a_missing_selected_version ... ok",
+        "test units::tests::package_transfers_between_nodes_without_inheriting_readiness ... ok",
+        "test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ],
+      "diagnostics": [],
+      "testArtifacts": [
+        {
+          "target": "shenko-node",
+          "kind": [
+            "bin"
+          ],
+          "fresh": false,
+          "files": [
+            {
+              "name": "shenko_node-c89fc232232010ac",
+              "sha256": "b28038a009945f8be56c9a40ba7ca8498204e781d22e58d3777e2b973ca03b0b"
+            }
+          ]
+        },
+        {
+          "target": "shenko_node",
+          "kind": [
+            "lib"
+          ],
+          "fresh": false,
+          "files": [
+            {
+              "name": "shenko_node-647421bf5723b2d5",
+              "sha256": "53110e22fc19b2dc0ed00faa9eb08672cb71e4f30d5dc51f61c2ab9c88170237"
+            }
+          ]
+        }
+      ],
+      "logHashes": {
+        "stdout": "dd44e92f801ab177c48e131ff0eb97720e7fde92fbd812c394ddf8683e71ff19",
+        "stderr": "c19b0a0ec4594c2148474faae008cc4bacbbb63269941f818368c302e2483192"
+      }
+    }
+  ],
+  "isolation": {
+    "emptyHome": true,
+    "independentCargoHomeTargetTemp": true,
+    "explicitEnvironmentNoAmbientCredentials": true,
+    "offline": true,
+    "inheritedSocketDeny": true,
+    "wrapperSha256": "810937a6e1564762ad73d3c0b90e4b12de0dbcb17c86c404aa6ecd02a63b3176",
+    "mountNamespace": false
+  },
+  "limits": [
+    "Six selected SSH tests executed; six other SSH tests filtered out, not passed",
+    "SSH fixture intentionally missing public host-trust CAS object; tested real local T1/E1 unknown-effect and recovery, not remote success",
+    "No installed authenticated subject/delegated-agent handler or registered-target permission/resource resolver acceptance",
+    "No real remote node, model, account credential, production data or deployment",
+    "No crash/commit-fault injection or GitHub CI claim",
+    "One unused test import warning retained; no source change made to hide it"
+  ]
+}

@@ -25,7 +25,7 @@ use shenko_store::{
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
-use crate::policy::{Derivative, WindowBase};
+use crate::policy::{Derivative, WINDOW_BODY_VERSION, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
 #[derive(Default, Deserialize)]
@@ -253,6 +253,12 @@ impl StoreWindowLog {
         if window.id != stored.window_id {
             return Err(storage(format!("window row {} holds body of {}", stored.window_id, window.id)));
         }
+        if window.body_version > WINDOW_BODY_VERSION {
+            return Err(storage(format!(
+                "window row {} holds body version {}, this reader understands up to {}",
+                stored.window_id, window.body_version, WINDOW_BODY_VERSION
+            )));
+        }
         window.derivatives = stored
             .derivatives
             .into_iter()
@@ -307,6 +313,10 @@ impl StoreWindowLog {
 }
 
 impl WindowLog for StoreWindowLog {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
     fn head(&self) -> Result<CommittedWindow, StorageError> {
         if let Some(head) = self.store.context_window_head(self.scope_id).map_err(storage)? {
             return Self::decode(head);
@@ -401,6 +411,30 @@ impl WindowLog for StoreWindowLog {
             ContextWindowAppend::HeadChanged => Err(storage("context head changed during model rebind")),
             ContextWindowAppend::ModelGenerationChanged { current } => Err(storage(format!("context model generation changed to {current} during rebind"))),
         }
+    }
+
+    /// The highest installation epoch any committed window of this scope was
+    /// prepared under. The bodies are read through the bounded metadata page,
+    /// so no derivative payload is materialized to answer this.
+    fn max_policy_epoch(&self) -> Result<u64, StorageError> {
+        let mut highest = 0u64;
+        let mut before = None;
+        loop {
+            let page = self.meta_page(before, 64)?;
+            for meta in &page.windows {
+                if let Some(base) = meta.window.base.as_ref() {
+                    highest = highest.max(base.policy_epoch);
+                }
+            }
+            if !page.has_older {
+                break;
+            }
+            before = page.windows.last().map(|meta| meta.window.generation);
+            if before.is_none() {
+                break;
+            }
+        }
+        Ok(highest)
     }
 }
 

@@ -27,7 +27,7 @@ fn fixture() -> (PathBuf, Store, EntityId) {
         seed_manifest_ref: object.clone(),
         initial_profile_ref: object.clone(),
         home_manifest_ref: object.clone(),
-        bootstrap_event_ref: object,
+        bootstrap_event_ref: object.clone(),
         created_commit: precommit,
     };
     let head = SubjectBranchHead {
@@ -65,23 +65,35 @@ fn fixture() -> (PathBuf, Store, EntityId) {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent,
+        object,
+        precommit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first, &root_task)
+        .unwrap();
     (dir, store, agent)
 }
 
 #[test]
 fn runtime_error_facts_commit_redacted_and_readable() {
     let (dir, store, agent) = fixture();
+    let original_message = "request failed with api_key=sk-9f8s7d and {\"password\":\"escaped_\\\"_secret\"} authorization: Bearer abc123 tail";
     let stored = store
         .record_runtime_error(
             agent,
             RuntimeErrorContext {
                 kind: "subject_loop".into(),
                 source_module: "shenko_subject::loop_runner".into(),
-                message: "request failed with api_key=sk-9f8s7d and authorization: Bearer abc123 tail".into(),
+                message: original_message.into(),
                 step_no: Some(41),
                 task_id: None,
-                extra: serde_json::json!({"step_id": "00000000-0000-0000-0000-000000000001"}),
+                extra: serde_json::json!({
+                    "step_id": "00000000-0000-0000-0000-000000000001",
+                    "request": {"api_key": "nested-secret", "error": "Bearer nested-bearer"},
+                }),
             },
         )
         .unwrap();
@@ -112,10 +124,13 @@ fn runtime_error_facts_commit_redacted_and_readable() {
     let message = first["message"].as_str().unwrap();
     assert!(!message.contains("sk-9f8s7d"), "api key must be redacted: {message}");
     assert!(!message.contains("abc123"), "bearer token must be redacted: {message}");
+    assert!(!message.contains("escaped_"), "escaped quoted credentials must be redacted");
+    assert!(!events[0].data.contains("nested-secret"));
+    assert!(!events[0].data.contains("nested-bearer"));
     assert!(message.contains("<redacted>"));
     assert_eq!(first["message_truncated"], false);
     assert_eq!(first["journal_dropped_total"], 0);
-    assert!(first["error_digest"].as_str().unwrap().starts_with("blake3:"));
+    assert_eq!(first["error_digest"], shenko_types::object::Digest::blake3(original_message.as_bytes()).to_string());
     assert!(first["occurred_at"].as_str().unwrap().contains("T"));
     assert_eq!(first["extra"]["step_id"], "00000000-0000-0000-0000-000000000001");
 
@@ -123,7 +138,7 @@ fn runtime_error_facts_commit_redacted_and_readable() {
     let second_message = second_entry["message"].as_str().unwrap();
     assert_eq!(second_entry["message_truncated"], true);
     assert!(!second_message.contains("def456"), "token must be redacted: {second_message}");
-    assert!(second_message.chars().count() <= 4096 + 1);
+    assert!(second_message.chars().count() <= 4096);
 
     // Searchable as ordinary raw facts through the same read surface.
     let hits = store

@@ -41,6 +41,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Versioned instance identity (SPEC §6): additive, never rewrites rows.
     conn.execute_batch(crate::identity::IDENTITY_SCHEMA)?;
 
+    // Configuration, owner claim and Playground business state (SPEC §43.1,
+    // §43.2, §44.4): additive, own tables only. These rows are ordinary
+    // ledger facts; nothing here rewrites an existing installation.
+    crate::config::ensure_config_schema(conn)?;
+    crate::artifacts::ensure_artifact_schema(conn)?;
+
     // Committed context windows (SPEC §12.3): additive, own tables only.
     conn.execute_batch(crate::context_windows::CONTEXT_WINDOWS_SCHEMA)?;
     ensure_column(conn, "context_window_scopes", "profile_digest", "TEXT")?;
@@ -62,6 +68,13 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         tracing::warn!(error = %e, "FTS5 unavailable; memory search will use LIKE fallback");
     }
     conn.execute_batch(crate::intents::SCHEMA)?;
+    // Step 4 (memory v3): open knowledge kinds separate from the operation
+    // kind, provenance/applicability/confidence, supersession, Git knowledge
+    // refs and the full request envelope (SPEC §12.2, §45.12, §10.3/10.5).
+    // This runs after the subject intent schema because the subject memory
+    // migration reads subject_intents.
+    ensure_memory_knowledge_columns(conn)?;
+    ensure_memory_intent_envelope(conn)?;
     conn.execute_batch(crate::child::SCHEMA)?;
     conn.execute_batch(crate::runtime_boundary::SCHEMA)?;
     // Semantic waits (SPEC §5.1, R143): additive, own tables only. The wait
@@ -86,6 +99,17 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable browser input submission bindings (SPEC §41.18). Additive,
     // never rewrites the original event or its admission fact.
     conn.execute_batch(crate::web_input::WEB_INPUT_SCHEMA)?;
+    // Durable main-request receipts (SPEC §41.5/§41.4): the subject's own
+    // generation arms an attempt before any wire send and records terminal
+    // evidence independently of the caller. Additive, own table only.
+    conn.execute_batch(crate::subject_request::SCHEMA)?;
+    // Durable commitments the subject made about itself (SPEC §13.8): the
+    // obligations it is still carrying and its own attention decision.
+    // Additive, own tables only.
+    conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Durable ordered public-text output parts (SPEC §21.11). Append-only;
+    // no row is ever updated or deleted by a migration.
+    conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
@@ -96,8 +120,514 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable seat records and single-writer leases (SPEC §17.1, §35.5):
     // additive, own tables only; location history is never rewritten.
     conn.execute_batch(crate::seat::SEAT_SCHEMA)?;
+    // Durable stream journal (SPEC §12.5): whole units and chunks of every
+    // source-bound stream, journaled with their delivery identity.
+    conn.execute_batch(crate::content_stream::CONTENT_STREAM_SCHEMA)?;
+    // Aggregate domain schemas (research, seats v2, contacts, config and
+    // playground artifacts, channels, media v2).
+    // Every statement is CREATE TABLE/INDEX IF NOT EXISTS: the archive
+    // schema is the sum of all domains, so the tables exist on every store
+    // regardless of which module first asked for them.
+    conn.execute_batch(AGGREGATE_DOMAIN_SCHEMA)?;
+    conn.execute_batch(crate::activation::SCHEMA)?;
+    // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
+    //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
+    //     forbids a second decision for the same question even when the
+    //     earlier one ended `not_sent` — a refusal the remote provably
+    //     never applied. v2 keeps the uniqueness rule in the admitting
+    //     transaction and drops the table constraint; the rows are kept.
+    //   * A stored v1 lease carries no writer epoch and no verified fence
+    //     capability, so it was never a writer fence under the v2 contract.
+    //     The cutover marks those leases explicitly as legacy non-writers in
+    //     their stored document, so the fact is visible in the ledger
+    //     instead of being re-derived from a serde default at every read.
+    //     The lease is not *ended* here: ending it is a lease transition
+    //     that belongs to a ledger commit (the first v2 acquisition
+    //     displaces it), and a migration must not fabricate one.
+    migrate_seat_v2(conn)?;
     Ok(())
 }
+
+/// The one explicit seat v1 → v2 cutover.
+///
+/// Both steps are format migrations of *local* seat bookkeeping: no seat
+/// location history, no question fact and no decision fact is dropped. The
+/// old decision rows are copied into the rebuilt table, and the legacy
+/// leases keep their identity, their holder and their history — only their
+/// writability ends, with the reason recorded.
+fn migrate_seat_v2(conn: &Connection) -> Result<()> {
+    // 1. Rebuild `seat_answer_decisions` without the v1 UNIQUE(question_id).
+    let has_unique: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master
+          WHERE type='table' AND name='seat_answer_decisions' AND sql LIKE '%UNIQUE%'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_unique != 0 {
+        conn.execute_batch(
+            "BEGIN;
+             CREATE TABLE seat_answer_decisions_v2(
+                 decision_id TEXT PRIMARY KEY,
+                 question_id TEXT NOT NULL,
+                 seat_id TEXT NOT NULL,
+                 data TEXT NOT NULL,
+                 updated_commit_seq INTEGER NOT NULL
+             );
+             INSERT INTO seat_answer_decisions_v2(decision_id,question_id,seat_id,data,updated_commit_seq)
+                 SELECT decision_id,question_id,seat_id,data,updated_commit_seq FROM seat_answer_decisions;
+             DROP TABLE seat_answer_decisions;
+             ALTER TABLE seat_answer_decisions_v2 RENAME TO seat_answer_decisions;
+             CREATE INDEX IF NOT EXISTS idx_seat_decisions_question
+                 ON seat_answer_decisions(question_id, updated_commit_seq);
+             COMMIT;",
+        )?;
+    }
+    // 1b. Bring the stored decision documents to the v2 shape. A v1
+    //     decision recorded the confirmation as a plain string; the v2
+    //     document keeps that string and derives the state from it, so the
+    //     original fact survives the migration unchanged.
+    conn.execute_batch(
+        "UPDATE seat_answer_decisions
+            SET data = json_set(
+                    data,
+                    '$.schema_version', 2,
+                    '$.state', CASE json_extract(data,'$.confirmation')
+                        WHEN 'confirmed' THEN 'answered'
+                        WHEN 'unconfirmed' THEN 'answer_unknown'
+                        WHEN 'rejected' THEN 'rejected'
+                        WHEN 'not_sent' THEN 'not_sent'
+                        ELSE 'committed' END,
+                    '$.transport', json_extract(data,'$.transport'),
+                    '$.question_revision', COALESCE(json_extract(data,'$.question_revision'),0),
+                    '$.expected_question_revision', COALESCE(json_extract(data,'$.expected_question_revision'),0),
+                    '$.lease_epoch', COALESCE(json_extract(data,'$.lease_epoch'),0),
+                    '$.fence_capability', COALESCE(json_extract(data,'$.fence_capability'),'')
+                )
+          WHERE json_extract(data,'$.schema_version') IS NULL OR json_extract(data,'$.schema_version') < 2;",
+    )?;
+    // 2. Mark the current v1 leases as legacy non-writers: they never
+    //    carried a writer epoch or a verified fence capability.
+    conn.execute_batch(
+        "UPDATE seat_leases
+            SET data=json_set(data,'$.schema_version',1,'$.legacy_writer',json('true'))
+          WHERE state='current'
+            AND COALESCE(json_extract(data,'$.lease_epoch'),0)=0;",
+    )?;
+    Ok(())
+}
+
+/// Every domain's additive tables, applied unconditionally on open so the
+/// archive's fact classes exist wherever the store does. The module that
+/// owns a domain applies the same CREATE IF NOT EXISTS statements; running
+/// them here too is idempotent and keeps open-order independent.
+const AGGREGATE_DOMAIN_SCHEMA: &str = r#"
+-- Research cognition (research.rs: epochs, candidates, intervention bank,
+-- reminders, retention tombstones, archive moves).
+CREATE TABLE IF NOT EXISTS research_epochs (
+    epoch_id TEXT PRIMARY KEY,
+    reset_request_id TEXT,
+    lineage_id TEXT NOT NULL,
+    epoch_no INTEGER NOT NULL,
+    task_id TEXT,
+    status TEXT NOT NULL,
+    constraints_ref TEXT,
+    budget_ref TEXT,
+    effects_ref TEXT,
+    environment_ref TEXT,
+    best_candidate_id TEXT,
+    brief_ref TEXT,
+    reset_from_epoch TEXT,
+    reset_reason TEXT,
+    reset_receipt TEXT,
+    created_at_ms INTEGER NOT NULL,
+    frozen_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS research_epochs_lineage ON research_epochs(lineage_id, epoch_no);
+CREATE UNIQUE INDEX IF NOT EXISTS research_epochs_reset_request ON research_epochs(reset_request_id)
+    WHERE reset_request_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS research_candidates (
+    candidate_id TEXT PRIMARY KEY,
+    epoch_id TEXT NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    score REAL,
+    score_source TEXT,
+    environment_ref TEXT,
+    notes TEXT,
+    frozen INTEGER NOT NULL DEFAULT 0,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS research_candidates_epoch ON research_candidates(epoch_id, created_at_ms);
+CREATE TABLE IF NOT EXISTS intervention_bank_entries (
+    entry_id TEXT PRIMARY KEY,
+    epoch_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source_refs TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    confidence REAL,
+    base_revision INTEGER NOT NULL DEFAULT 0,
+    supersedes TEXT,
+    superseded_by TEXT,
+    carried_from TEXT,
+    tombstoned_at_ms INTEGER,
+    created_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS intervention_bank_epoch ON intervention_bank_entries(epoch_id, kind, created_at_ms);
+CREATE TABLE IF NOT EXISTS intervention_reminders (
+    reminder_id TEXT PRIMARY KEY,
+    epoch_id TEXT NOT NULL,
+    lineage_id TEXT NOT NULL,
+    decision TEXT NOT NULL,
+    policy TEXT NOT NULL,
+    policy_revision TEXT NOT NULL,
+    content TEXT,
+    provenance TEXT NOT NULL,
+    relevance TEXT,
+    scope TEXT NOT NULL,
+    expires_at_ms INTEGER,
+    transient INTEGER NOT NULL DEFAULT 1,
+    bank_entry_ids TEXT NOT NULL,
+    reason TEXT,
+    created_at_ms INTEGER NOT NULL,
+    used_step_id TEXT,
+    used_at_ms INTEGER
+);
+CREATE INDEX IF NOT EXISTS intervention_reminders_epoch ON intervention_reminders(epoch_id, created_at_ms);
+CREATE TABLE IF NOT EXISTS retention_tombstones (
+    tombstone_id TEXT PRIMARY KEY,
+    target_kind TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    effect_record TEXT NOT NULL,
+    deleted_at_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS retention_tombstones_target ON retention_tombstones(target_kind, target_id);
+CREATE TABLE IF NOT EXISTS archive_moves (
+    archive_id TEXT PRIMARY KEY,
+    source_ref TEXT NOT NULL,
+    target_provider TEXT NOT NULL,
+    target_namespace TEXT NOT NULL,
+    target_locator TEXT NOT NULL,
+    manifest_ref TEXT NOT NULL,
+    object_count INTEGER NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    hash_verified INTEGER NOT NULL,
+    readback_verified INTEGER NOT NULL,
+    local_released INTEGER NOT NULL DEFAULT 0,
+    local_release_note TEXT,
+    created_at_ms INTEGER NOT NULL
+);
+-- Durable seat questions and answer decisions (seat.rs SPEC §41.11).
+CREATE TABLE IF NOT EXISTS seat_questions(
+    question_id TEXT PRIMARY KEY,
+    seat_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seat_questions_seat
+    ON seat_questions(seat_id, updated_commit_seq);
+CREATE INDEX IF NOT EXISTS idx_seat_questions_task
+    ON seat_questions(task_id, updated_commit_seq);
+CREATE TABLE IF NOT EXISTS seat_answer_decisions(
+    decision_id TEXT PRIMARY KEY,
+    question_id TEXT NOT NULL,
+    seat_id TEXT NOT NULL,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_seat_decisions_question
+    ON seat_answer_decisions(question_id, updated_commit_seq);
+-- Contacts person model (contacts.rs): claim revisions, merge/split events,
+-- admin grants and Life voiceprint ranks.
+CREATE TABLE IF NOT EXISTS person_claims (
+    claim_id TEXT PRIMARY KEY,
+    slot_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    claim_key TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    provenance_json TEXT NOT NULL,
+    confidence_json TEXT NOT NULL,
+    state TEXT NOT NULL,
+    scope_json TEXT NOT NULL,
+    created_at_ms INTEGER NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    UNIQUE(slot_id, revision)
+);
+CREATE INDEX IF NOT EXISTS idx_person_claims_person
+    ON person_claims(agent_id, person_id);
+CREATE INDEX IF NOT EXISTS idx_person_claims_slot
+    ON person_claims(agent_id, slot_id);
+CREATE INDEX IF NOT EXISTS idx_person_claims_kind_key
+    ON person_claims(agent_id, kind, claim_key);
+CREATE TABLE IF NOT EXISTS person_identity_events (
+    event_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source_person_id TEXT NOT NULL,
+    target_person_id TEXT NOT NULL,
+    moved_slot_ids_json TEXT NOT NULL,
+    returned_slot_ids_json TEXT NOT NULL,
+    reason TEXT,
+    provenance_json TEXT NOT NULL,
+    occurred_at_ms INTEGER NOT NULL,
+    commit_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_person_identity_events_agent
+    ON person_identity_events(agent_id, occurred_at_ms, commit_seq);
+CREATE INDEX IF NOT EXISTS idx_person_identity_events_person
+    ON person_identity_events(agent_id, source_person_id, target_person_id);
+CREATE TABLE IF NOT EXISTS admin_facts (
+    agent_id TEXT NOT NULL,
+    subject_kind TEXT NOT NULL,
+    subject_key TEXT NOT NULL,
+    granted INTEGER NOT NULL,
+    granted_by TEXT NOT NULL,
+    reason TEXT,
+    updated_at_ms INTEGER NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (agent_id, subject_kind, subject_key)
+);
+CREATE TABLE IF NOT EXISTS life_voiceprint_ranks (
+    agent_id TEXT NOT NULL,
+    recording_scope TEXT NOT NULL,
+    rank_id TEXT NOT NULL,
+    model_revision TEXT NOT NULL,
+    cluster_id TEXT,
+    confirmed_identity TEXT,
+    data TEXT NOT NULL,
+    recorded_at_ms INTEGER NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (agent_id, recording_scope, rank_id, model_revision)
+);
+CREATE INDEX IF NOT EXISTS idx_life_ranks_rank
+    ON life_voiceprint_ranks(agent_id, rank_id, model_revision);
+-- Owner grants, config entries/changes/adoptions (config.rs). The
+-- credential digest table owner_admin_tokens stays local and is never
+-- replicated.
+CREATE TABLE IF NOT EXISTS owner_grants (
+    installation_id TEXT PRIMARY KEY,
+    grant_id TEXT NOT NULL,
+    claim_id TEXT NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS owner_admin_tokens (
+    installation_id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS config_entries (
+    namespace TEXT NOT NULL,
+    logical_key TEXT NOT NULL,
+    desired_revision INTEGER NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (namespace, logical_key)
+);
+CREATE TABLE IF NOT EXISTS config_changes (
+    change_id TEXT PRIMARY KEY,
+    origin_identity TEXT NOT NULL,
+    logical_key TEXT NOT NULL,
+    namespace TEXT NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_config_changes_origin
+    ON config_changes(origin_identity, logical_key);
+CREATE TABLE IF NOT EXISTS config_adoptions (
+    namespace TEXT NOT NULL,
+    logical_key TEXT NOT NULL,
+    consumer_id TEXT NOT NULL,
+    adopted_revision INTEGER NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (namespace, logical_key, consumer_id)
+);
+-- Playground artifact records, manifests and runtime instances
+-- (artifacts.rs).
+CREATE TABLE IF NOT EXISTS artifact_records (
+    artifact_id TEXT PRIMARY KEY,
+    subject_id TEXT NOT NULL,
+    lifecycle TEXT NOT NULL,
+    state_revision TEXT NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_records_subject ON artifact_records(subject_id);
+CREATE TABLE IF NOT EXISTS artifact_manifests (
+    artifact_id TEXT NOT NULL,
+    version_digest TEXT NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (artifact_id, version_digest)
+);
+CREATE TABLE IF NOT EXISTS artifact_runtime_instances (
+    instance_id TEXT PRIMARY KEY,
+    artifact_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    record_revision INTEGER NOT NULL DEFAULT 0,
+    data TEXT NOT NULL,
+    updated_commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_runtime_artifact
+    ON artifact_runtime_instances(artifact_id, state);
+-- Channel runtime facts and record migrations (channel.rs).
+CREATE TABLE IF NOT EXISTS channel_runtime_facts(
+ fact_id TEXT PRIMARY KEY,
+ channel TEXT NOT NULL,
+ account TEXT NOT NULL,
+ kind TEXT NOT NULL,
+ state TEXT NOT NULL,
+ subject_ref TEXT,
+ detail TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 0,
+ created_seq INTEGER NOT NULL,
+ updated_seq INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS channel_runtime_facts_pending
+ ON channel_runtime_facts(channel,kind,state,created_seq);
+CREATE TABLE IF NOT EXISTS channel_record_migrations(
+ record_kind TEXT NOT NULL,
+ record_id TEXT NOT NULL,
+ from_version INTEGER NOT NULL,
+ to_version INTEGER NOT NULL,
+ source_digest TEXT NOT NULL,
+ target_digest TEXT NOT NULL,
+ migrated_seq INTEGER NOT NULL,
+ PRIMARY KEY(record_kind,record_id));
+-- Recording control and priority inputs (media.rs v2): the latest-state
+-- recording projection plus its immutable control notices.
+CREATE TABLE IF NOT EXISTS media_recordings (
+    stream_key TEXT NOT NULL REFERENCES media_streams(stream_key),
+    recording_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    started_at_ms INTEGER NOT NULL,
+    stopped_at_ms INTEGER,
+    scope_json TEXT NOT NULL,
+    start_control_id TEXT NOT NULL,
+    stop_control_id TEXT,
+    reason TEXT,
+    event_id TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    admitted_commit_ref TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (stream_key, recording_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_recordings_event
+    ON media_recordings(event_id);
+CREATE TABLE IF NOT EXISTS media_recording_controls (
+    stream_key TEXT NOT NULL REFERENCES media_streams(stream_key),
+    control_id TEXT NOT NULL,
+    recording_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    state TEXT NOT NULL,
+    data TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    admitted_commit_ref TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (stream_key, control_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_recording_controls_event
+    ON media_recording_controls(event_id);
+CREATE TABLE IF NOT EXISTS media_priority_inputs (
+    stream_key TEXT NOT NULL REFERENCES media_streams(stream_key),
+    priority_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    text TEXT,
+    occurred_at_ms INTEGER,
+    audio_json TEXT,
+    reason TEXT,
+    data TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    admitted_at_ms INTEGER NOT NULL,
+    admitted_commit_ref TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    PRIMARY KEY (stream_key, priority_id)
+);
+CREATE INDEX IF NOT EXISTS idx_media_priority_event
+    ON media_priority_inputs(event_id);
+-- Provider quota events (quota.rs): every event names the fact it
+-- describes, and it is written in the same transaction as that fact.
+CREATE TABLE IF NOT EXISTS quota_events (
+    event_id TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    account_scope_ref TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    data TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quota_events_scope ON quota_events(account_scope_ref, commit_seq);
+-- The subject's own durable request attempts (subject_request.rs): the row
+-- is armed BEFORE any wire send, the broker's send boundary flips it to
+-- dispatched exactly once, and the terminal provider evidence ends it.
+CREATE TABLE IF NOT EXISTS subject_request_attempts (
+    request_id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    attempt_id TEXT NOT NULL,
+    send_id TEXT,
+    state TEXT NOT NULL,
+    input_plan_ref TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    provider_binding_digest TEXT NOT NULL,
+    data TEXT NOT NULL,
+    created_commit_seq INTEGER NOT NULL,
+    updated_commit_seq INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_subject_request_step
+    ON subject_request_attempts(agent_id, step_id);
+-- The subject's obligations and its own attention decisions
+-- (subject_state.rs): an obligation stays open until a later committed
+-- step completes or cancels it.
+CREATE TABLE IF NOT EXISTS subject_obligations(
+ obligation_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, step_id TEXT NOT NULL,
+ origin_event_id TEXT, description TEXT NOT NULL, depends_on_task_id TEXT,
+ resume_condition TEXT NOT NULL, due_at TEXT, state TEXT NOT NULL,
+ decision_ref TEXT NOT NULL, created_seq INTEGER NOT NULL, updated_seq INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS subject_obligations_open
+ ON subject_obligations(agent_id,state,created_seq,obligation_id);
+CREATE TABLE IF NOT EXISTS subject_attention_policies(
+ intent_id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, step_id TEXT NOT NULL,
+ state TEXT NOT NULL, sources TEXT NOT NULL, reason TEXT NOT NULL,
+ review_after TEXT, decision_ref TEXT NOT NULL,
+ created_seq INTEGER NOT NULL, updated_seq INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS subject_attention_agent
+ ON subject_attention_policies(agent_id,created_seq,intent_id);
+-- Withdrawn browser input (web_input.rs): the withdrawal of one admitted
+-- submission, with the durable event identity that cancelled it.
+CREATE TABLE IF NOT EXISTS web_input_withdrawals (
+    agent_id TEXT NOT NULL,
+    submission_id TEXT NOT NULL,
+    cancel_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    result TEXT NOT NULL,
+    commit_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (agent_id, submission_id, cancel_id)
+);
+CREATE INDEX IF NOT EXISTS idx_web_withdrawals_event
+    ON web_input_withdrawals(event_id);
+"#;
 
 /// Add memory-v2 columns to an existing `memory_entries` table.
 /// SQLite has no `ADD COLUMN IF NOT EXISTS`, so each column is checked first.
@@ -123,11 +653,51 @@ fn ensure_memory_columns(conn: &Connection) -> Result<()> {
     )?;
     ensure_column(conn, "memory_entries", "updated_commit_seq", "INTEGER")?;
 
-    // Backfill millisecond timestamps for rows written by the legacy schema.
+/// Backfill millisecond timestamps for rows written by the legacy schema.
     conn.execute_batch(
         "UPDATE memory_entries
             SET created_at_ms = CAST(strftime('%s', created_at) AS INTEGER) * 1000
           WHERE created_at_ms = 0 AND created_at IS NOT NULL;",
+    )?;
+    Ok(())
+}
+
+/// Memory-v3 entry columns: supersession, confidence and Git knowledge refs
+/// (ArchMemory). Additive; the operation kind moves to the intent row.
+fn ensure_memory_knowledge_columns(conn: &Connection) -> Result<()> {
+    ensure_column(conn, "memory_entries", "confidence", "REAL")?;
+    ensure_column(conn, "memory_entries", "superseded_by", "TEXT")?;
+    ensure_column(conn, "memory_entries", "supersedes", "TEXT")?;
+    ensure_column(conn, "memory_entries", "git_commit", "TEXT")?;
+    ensure_column(conn, "memory_entries", "git_path", "TEXT")?;
+    // Unify operation kind and knowledge kind without losing facts: the
+    // operation stays on the memory_intents row that produced the entry, and
+    // the entry's knowledge kind becomes the open "note" vocabulary.
+    conn.execute_batch(
+        "UPDATE memory_entries SET kind='note' WHERE kind IN ('save','correct','recall','forget');",
+    )?;
+    Ok(())
+}
+
+/// Memory-v3 intent envelope: the request's knowledge kind, applicability,
+/// confidence, base revision, idempotency identity, provenance and the
+/// supersession target (ArchMemory). Additive.
+fn ensure_memory_intent_envelope(conn: &Connection) -> Result<()> {
+    ensure_column(conn, "memory_intents", "knowledge_kind", "TEXT NOT NULL DEFAULT 'note'")?;
+    ensure_column(conn, "memory_intents", "applicability", "TEXT")?;
+    ensure_column(conn, "memory_intents", "confidence", "REAL")?;
+    ensure_column(conn, "memory_intents", "base_revision", "INTEGER")?;
+    ensure_column(conn, "memory_intents", "idempotency_key", "TEXT")?;
+    ensure_column(conn, "memory_intents", "sources", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(conn, "memory_intents", "supersedes_entry_id", "TEXT")?;
+    // Subject-owned memory facts recorded the knowledge kind 'note' in the
+    // operation column; the operation is 'save' and the knowledge kind stays
+    // 'note'. A missing binding sidecar is that representation's intentional
+    // shape, never a corruption signal.
+    conn.execute_batch(
+        "UPDATE memory_intents SET kind='save', knowledge_kind='note'
+          WHERE kind='note' AND intent_id IN
+                (SELECT intent_id FROM subject_intents WHERE kind='memory');",
     )?;
     Ok(())
 }

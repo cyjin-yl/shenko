@@ -5,7 +5,12 @@ use shenko_types::ids::EntityId;
 use crate::history::{HistoryItem, ItemRef};
 
 /// Bumped on any incompatible change to the types in this crate.
-pub const CONTRACT_VERSION: u32 = 3;
+pub const CONTRACT_VERSION: u32 = 4;
+
+/// Body format version of a committed window (the store keeps the body
+/// opaquely). A body written by an older version still decodes; a body
+/// written by a newer version is refused rather than guessed at.
+pub const WINDOW_BODY_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolicyManifest {
@@ -14,6 +19,31 @@ pub struct PolicyManifest {
     pub contract: u32,
     /// Model capabilities this strategy needs to be enabled, e.g. "vision".
     pub requires: Vec<String>,
+    /// Capabilities this strategy provides while it is installed.
+    #[serde(default)]
+    pub provides: Vec<String>,
+    /// One line a human can read in the capability list.
+    #[serde(default)]
+    pub summary: String,
+    /// Other installed strategies this one needs at runtime.
+    #[serde(default)]
+    pub dependencies: Vec<String>,
+}
+
+impl Default for PolicyManifest {
+    /// An empty manifest is not a strategy; it exists so a manifest can be
+    /// completed field by field without repeating the whole field list.
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            version: String::new(),
+            contract: CONTRACT_VERSION,
+            requires: Vec::new(),
+            provides: Vec::new(),
+            summary: String::new(),
+            dependencies: Vec::new(),
+        }
+    }
 }
 
 /// Actual vision envelope of the bound model, never inferred from text context.
@@ -62,6 +92,17 @@ pub struct WindowBase {
 pub struct ContextInput<'a> {
     pub base: WindowBase,
     pub items: &'a [HistoryItem],
+    pub caps: &'a ModelCaps,
+    pub used_tokens: u32,
+}
+
+/// The bounded facts a trigger decision may use.
+///
+/// A trigger never reads the raw history: the decision "is a new window
+/// needed" depends on the observed input size and the model's real limits,
+/// not on how much history exists. Reading the history belongs to the
+/// preparation, which runs off the request path.
+pub struct TriggerInput<'a> {
     pub caps: &'a ModelCaps,
     pub used_tokens: u32,
 }
@@ -123,6 +164,23 @@ pub struct CostReport {
     /// cache-hit measurement; everything after it must be recomputed.
     pub reusable_prefix_tokens: u32,
     pub recompute_tokens: u32,
+    /// Rendered frames this window carries.
+    #[serde(default)]
+    pub frames: u32,
+    /// Rendered frame pixels, summed.
+    #[serde(default)]
+    pub frame_pixels: u64,
+    /// Raw events the window's source covers. The raw events stay in the
+    /// store; this is how many of them the window stands for.
+    #[serde(default)]
+    pub raw_events_covered: u64,
+    /// Tool calls still unresolved by the execution ledger. They are kept as
+    /// whole units inside the window.
+    #[serde(default)]
+    pub open_calls: u32,
+    /// How the KV figure was obtained. It never claims a backend cache hit.
+    #[serde(default)]
+    pub kv_accounting: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -155,7 +213,7 @@ pub enum PolicyError {
 pub trait ContextPolicy: Send + Sync + 'static {
     fn manifest(&self) -> PolicyManifest;
     fn availability(&self, caps: &ModelCaps) -> Availability;
-    fn should_compact(&self, input: &ContextInput<'_>) -> bool;
+    fn should_compact(&self, trigger: &TriggerInput<'_>) -> bool;
     fn prepare(&self, input: &ContextInput<'_>) -> Result<PreparedWindow, PolicyError>;
 }
 
