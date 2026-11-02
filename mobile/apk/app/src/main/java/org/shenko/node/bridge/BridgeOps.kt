@@ -9,6 +9,7 @@ import org.json.JSONObject
 import org.shenko.node.ShenkoAccessibilityService
 import org.shenko.node.ShenkoApp
 import org.shenko.node.ShizukuUserShell
+import org.shenko.node.BoundedProcessCapture
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -23,7 +24,6 @@ import java.util.concurrent.TimeUnit
  */
 object BridgeOps {
     private const val TAG = "ShenkoBridgeOps"
-    private const val SHELL_OUTPUT_CAP = 4 * 1024 * 1024
 
     fun dispatch(context: Context, request: JSONObject): JSONObject =
         when (request.optString("op")) {
@@ -356,22 +356,13 @@ object BridgeOps {
                 if (idx > 0) environment[entry.substring(0, idx)] = entry.substring(idx + 1)
             }
             val process = pb.start()
-            val finished = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                JSONObject().put("ok", true).put("exit_code", -1)
-                    .put("stdout_b64", "").put("stderr_b64", "")
-                    .put("timed_out", true).put("authority_used", "root_su")
-            } else {
-                val stdout = drain(process.inputStream)
-                val stderr = drain(process.errorStream)
-                JSONObject().put("ok", true)
-                    .put("exit_code", process.exitValue())
-                    .put("stdout_b64", Base64.encodeToString(stdout, Base64.NO_WRAP))
-                    .put("stderr_b64", Base64.encodeToString(stderr, Base64.NO_WRAP))
-                    .put("timed_out", false)
-                    .put("authority_used", "root_su")
-            }
+            val captured = BoundedProcessCapture.capture(process, timeoutMillis)
+            JSONObject().put("ok", true)
+                .put("exit_code", captured.exitCode)
+                .put("stdout_b64", Base64.encodeToString(captured.stdout, Base64.NO_WRAP))
+                .put("stderr_b64", Base64.encodeToString(captured.stderr, Base64.NO_WRAP))
+                .put("timed_out", captured.timedOut)
+                .put("authority_used", "root_su")
         } catch (e: Exception) {
             error("typed_unavailable", "root su exec-form unavailable: ${e.message}", false)
         }
@@ -384,22 +375,13 @@ object BridgeOps {
             }
             val envArray = if (env.isEmpty()) null else env.toTypedArray()
             val process = com.rosan.dhizuku.api.Dhizuku.newProcess(argv.toTypedArray(), envArray, null)
-            val finished = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
-            if (!finished) {
-                process.destroy()
-                JSONObject().put("ok", true).put("exit_code", -1)
-                    .put("stdout_b64", "").put("stderr_b64", "")
-                    .put("timed_out", true).put("authority_used", "dhizuku")
-            } else {
-                val stdout = drain(process.inputStream)
-                val stderr = drain(process.errorStream)
-                JSONObject().put("ok", true)
-                    .put("exit_code", process.exitValue())
-                    .put("stdout_b64", Base64.encodeToString(stdout, Base64.NO_WRAP))
-                    .put("stderr_b64", Base64.encodeToString(stderr, Base64.NO_WRAP))
-                    .put("timed_out", false)
-                    .put("authority_used", "dhizuku")
-            }
+            val captured = BoundedProcessCapture.capture(process, timeoutMillis)
+            JSONObject().put("ok", true)
+                .put("exit_code", captured.exitCode)
+                .put("stdout_b64", Base64.encodeToString(captured.stdout, Base64.NO_WRAP))
+                .put("stderr_b64", Base64.encodeToString(captured.stderr, Base64.NO_WRAP))
+                .put("timed_out", captured.timedOut)
+                .put("authority_used", "dhizuku")
         } catch (e: Exception) {
             error("typed_unavailable", "dhizuku process unavailable: ${e.message}", false)
         }
@@ -416,21 +398,6 @@ object BridgeOps {
         val dhizuku = execDhizuku(argv, emptyList(), 15_000)
         if (dhizuku.optBoolean("ok")) return dhizuku
         return error("typed_unavailable", "no granted shell authority (shizuku/root/dhizuku)", false)
-    }
-
-    private fun drain(stream: java.io.InputStream): ByteArray {
-        val out = java.io.ByteArrayOutputStream()
-        val buf = ByteArray(64 * 1024)
-        var total = 0
-        var read = stream.read(buf)
-        while (read > 0 && total < SHELL_OUTPUT_CAP) {
-            val take = minOf(read, SHELL_OUTPUT_CAP - total)
-            out.write(buf, 0, take)
-            total += take
-            if (take < read) break
-            read = stream.read(buf)
-        }
-        return out.toByteArray()
     }
 
     private fun jsonArrayToList(array: JSONArray): List<String> =
