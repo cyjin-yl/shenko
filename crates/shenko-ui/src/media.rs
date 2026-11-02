@@ -232,26 +232,35 @@ async fn session_status(
 }
 
 /// `PUT /api/media/recording` with a `MediaRecordingControl` body. The
-/// control is a durable admitted fact immediately; capture arms/stops with
-/// the session's audio flow.
+/// control is a durable admitted fact immediately and reaches the live
+/// session's recorder through the media runtime: an admitted `start` arms
+/// (or creates) the recorder and an admitted `stop` stops the capture, so
+/// audio pushed after a successful stop is never sealed as if recording
+/// continued. Without a wired runtime the same admission still lands via
+/// the ingress service.
 async fn control_recording(
     State(state): State<MediaRouteState>,
     Json(control): Json<MediaRecordingControl>,
 ) -> impl IntoResponse {
-    let Some(ingress) = state.ingress else {
-        return unavailable();
+    let outcome = match (&state.runtime, &state.ingress) {
+        (Some(runtime), _) => match runtime.control_recording(control).await {
+            Ok(outcome) => outcome,
+            Err(error) => return error_response(error),
+        },
+        (None, Some(ingress)) => match ingress.admit_recording(control).await {
+            Ok(outcome) => outcome,
+            Err(error) => return error_response(error),
+        },
+        (None, None) => return unavailable(),
     };
-    match ingress.admit_recording(control).await {
-        Ok(outcome) => (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "schema_version": 1,
-                "receipt": outcome.admission.receipt,
-                "delivery": outcome.delivery,
-            })),
-        ),
-        Err(error) => error_response(error),
-    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "schema_version": 1,
+            "receipt": outcome.admission.receipt,
+            "delivery": outcome.delivery,
+        })),
+    )
 }
 
 #[derive(Debug, Deserialize)]

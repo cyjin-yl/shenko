@@ -7,15 +7,17 @@
 //! live, admits every engine transcript event through the SAME
 //! [`MediaIngress`] the external providers use (one admission path, one
 //! durable original per fact, same subject inbox), stops the agent's own
-//! playback when the far side speaks (barge-in), and surfaces recording
-//! controls and priority inputs as ordinary admitted facts.
+//! playback when the far side speaks (barge-in), and applies admitted
+//! recording controls to the live capture — an admitted `start` arms the
+//! recorder, an admitted `stop` stops the capture so post-stop audio is
+//! never sealed into the final transcript.
 //!
 //! Nothing here synthesizes transcript text: the engine owns every word,
 //! every speaker claim stays a provider claim (unknown stays unknown), and
 //! the sealed original audio is what the provider heard — CAS bytes, never a
 //! provider-local handle.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -32,7 +34,7 @@ use crate::provider::{
     SpeakerIdentity,
 };
 use crate::recording::MediaAudioRecorder;
-use crate::MediaIngress;
+use crate::{MediaDelivery, MediaIngress};
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
@@ -98,6 +100,18 @@ pub struct ActiveMediaSession {
     pub descriptor: MediaStreamDescriptor,
     session: Arc<dyn RealtimeSession>,
     recorder: Option<MediaAudioRecorder>,
+    /// Sample rate of the binding this session opened against; needed to arm
+    /// a recorder when an admitted `start` reaches a session opened without
+    /// recording.
+    sample_rate: u32,
+    /// Recording identities whose admitted controls arm this session's
+    /// capture. Kept on the session itself — never inside the recorder,
+    /// which `push_audio` takes out of the map while a provider push
+    /// awaits — so an admitted `stop` lands even mid-push. Capture runs
+    /// while any admitted recording is live, so a `stop` of one recording
+    /// never silently ends the capture another live recording still owns:
+    /// the live state and the ledger's per-recording state agree.
+    recording_ids: HashSet<String>,
     segment: u64,
     revision_no: u64,
     last_speaker: Option<MediaSpeakerClaim>,
@@ -108,6 +122,12 @@ impl ActiveMediaSession {
     fn next_revision(&mut self) -> (u64, u64) {
         self.revision_no += 1;
         (self.segment, self.revision_no)
+    }
+
+    /// True while at least one admitted recording arms this session's
+    /// capture.
+    fn is_recording(&self) -> bool {
+        !self.recording_ids.is_empty()
     }
 }
 
@@ -202,10 +222,11 @@ impl MediaRuntime {
             })
             .await?;
         if let Some(scope) = recording {
+            let recording_id = format!("rec-{}", descriptor.stream_id);
             self.ingress
                 .admit_recording(MediaRecordingControl {
                     control_id: format!("rec-{}-start", descriptor.stream_id),
-                    recording_id: format!("rec-{}", descriptor.stream_id),
+                    recording_id: recording_id.clone(),
                     stream: descriptor.clone(),
                     action: MediaRecordingAction::Start,
                     scope: Some(scope.clone()),
@@ -223,6 +244,8 @@ impl MediaRuntime {
                     descriptor: descriptor.clone(),
                     session,
                     recorder: Some(recorder),
+                    sample_rate,
+                    recording_ids: HashSet::from([recording_id]),
                     segment: 1,
                     revision_no: 0,
                     last_speaker: None,
@@ -232,6 +255,7 @@ impl MediaRuntime {
             return Ok(descriptor);
         }
         let sink: Arc<dyn MediaEventSink> = Arc::new(RuntimeSink(self.clone()));
+        let sample_rate = provider.binding().sample_rate;
         let session = provider.open(request, sink).await?;
         self.sessions.lock().await.insert(
             descriptor.stream_id.clone(),
@@ -239,6 +263,8 @@ impl MediaRuntime {
                 descriptor: descriptor.clone(),
                 session,
                 recorder: None,
+                sample_rate,
+                recording_ids: HashSet::new(),
                 segment: 1,
                 revision_no: 0,
                 last_speaker: None,
@@ -273,6 +299,9 @@ impl MediaRuntime {
 
     /// Push one chunk of mono PCM16 audio into the session; while a
     /// recording is live the same bytes are captured for the segment seal.
+    /// The capture decision consults the admitted recording state BOTH when
+    /// the push begins and when the provider acknowledges it, so a chunk in
+    /// flight while a `stop` was admitted is never captured after the stop.
     pub async fn push_audio(
         self: &Arc<Self>,
         stream: &MediaStreamDescriptor,
@@ -284,13 +313,18 @@ impl MediaRuntime {
                 return Err(ShenkoError::not_found(format!(
                     "no live media session for stream {}", stream.stream_id)));
             };
-            (active.session.clone(), active.recorder.take())
+            let recorder = if active.is_recording() {
+                active.recorder.take()
+            } else {
+                None
+            };
+            (active.session.clone(), recorder)
         };
         let result = session.push_audio(chunk).await;
         let mut sessions = self.sessions.lock().await;
         if let Some(active) = sessions.get_mut(&stream.stream_id) {
             if let Some(mut recorder) = recorder {
-                if result.is_ok() {
+                if result.is_ok() && active.is_recording() {
                     recorder.push(chunk);
                 }
                 active.recorder = Some(recorder);
@@ -317,15 +351,44 @@ impl MediaRuntime {
         session.finish().await
     }
 
-    /// Admit one recording control. `Start` arms the session's recorder (the
-    /// capture itself begins on the next audio push); `Stop` seals the open
-    /// segment so its bytes close with the next final transcript revision.
+    /// Admit one recording control and apply the admitted decision to the
+    /// live session. `Start` arms capture — creating the recorder when the
+    /// session opened without one — so the next audio push is captured;
+    /// `Stop` releases that recording's arm so audio received after the
+    /// admitted stop is not sealed as if the recording had continued, while
+    /// bytes already held still close with the next segment-final revision.
+    /// The durable notice commits first: only a newly admitted
+    /// (non-replayed) control changes live capture, so the recorder and the
+    /// ledger never disagree, and applying the same control twice stays
+    /// idempotent.
     pub async fn control_recording(
         self: &Arc<Self>,
         control: MediaRecordingControl,
-    ) -> Result<(), ShenkoError> {
-        self.ingress.admit_recording(control).await?;
-        Ok(())
+    ) -> Result<MediaDelivery<MediaRecordingAdmission>, ShenkoError> {
+        let stream_id = control.stream.stream_id.clone();
+        let recording_id = control.recording_id.clone();
+        let action = control.action;
+        let outcome = self.ingress.admit_recording(control).await?;
+        if !outcome.admission.receipt.replayed {
+            let mut sessions = self.sessions.lock().await;
+            if let Some(active) = sessions.get_mut(&stream_id) {
+                match action {
+                    MediaRecordingAction::Stop => {
+                        active.recording_ids.remove(&recording_id);
+                    }
+                    MediaRecordingAction::Start => {
+                        active.recording_ids.insert(recording_id);
+                        if active.recorder.is_none() {
+                            active.recorder = Some(MediaAudioRecorder::new(
+                                active.descriptor.clone(),
+                                active.sample_rate,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(outcome)
     }
 
     /// Admit one priority input from a UI or channel surface.
@@ -395,7 +458,7 @@ impl MediaRuntime {
         sessions.get(&stream.stream_id).map(|active| MediaSessionStatus {
             stream: active.descriptor.clone(),
             segment: active.segment,
-            recording: active.recorder.is_some(),
+            recording: active.is_recording(),
             revisions: active.revision_no,
             last_speaker: active.last_speaker.clone(),
         })
