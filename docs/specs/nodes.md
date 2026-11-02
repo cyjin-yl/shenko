@@ -66,7 +66,14 @@ CLI (`shenko sync` in `bin/shenko/src/node_sync.rs`):
 - `sync members show|add|remove|push` — show facts; joint+final membership
   change by quorum; push committed configuration + control log to one peer.
 - `sync adopt --identity-file ... --trusted-node ... --provenance ...` —
-  adopt a verified existing self.
+  adopt a verified existing self. Adoption and the installation's subject
+  binding are one fact: the binding is projected from durable subject
+  genesis/head state, so `adopt` is refused before the node records anything
+  when the trusted identity is a different self than the bound subject — the
+  store cannot transition that binding without the adopted subject's own
+  durable facts, and a reported success would break every later `open_node`.
+  Adopting the already-bound identity is allowed and is the path that
+  re-converges a diverged node/binding pair.
 - `sync reconcile --peer <id>` — pull the peer's verified events/receipts
   over its authenticated route and merge as parallel facts.
 - `sync identity` response now also carries the committed primary claim and
@@ -96,6 +103,11 @@ domain-primary claim. The deterministic no-model path observes with `None`.
   against) the committed election; refused.
 - `replication response is from a different Node` / capability-name
   mismatch — authenticated-channel binding failed; the receipt is discarded.
+- `sync adopt refused` — the trusted identity is not the installation's
+  bound subject and the adoption cannot transition the binding by itself
+  (the adopted subject's genesis/retained facts are not yet committed in
+  this store); the node is left untouched so the refusal cannot strand the
+  installation mid-transition.
 
 ## Recovery
 

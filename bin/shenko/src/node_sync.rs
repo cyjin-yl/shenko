@@ -143,11 +143,39 @@ struct Receipt {
 }
 
 pub fn open_node(data_dir: &Path, store: &Store) -> Result<Node> {
-    let identity = store.installation_binding()?.subject.map(|subject| shenko_node::Identity {
-        agent_id: subject.agent_id,
-        branch_id: subject.branch_id,
-        origin_proof: subject.origin_proof,
-    });
+    let identity = bound_subject_identity(store)?;
+    open_node_inner(data_dir, identity, true)
+}
+
+/// The subject identity this installation's durable facts currently bind, if
+/// exactly one local subject exists. The binding is projected from committed
+/// genesis/head facts; nothing writes it directly.
+fn bound_subject_identity(store: &Store) -> Result<Option<shenko_node::Identity>> {
+    Ok(store
+        .installation_binding()?
+        .subject
+        .map(|subject| shenko_node::Identity {
+            agent_id: subject.agent_id,
+            branch_id: subject.branch_id,
+            origin_proof: subject.origin_proof,
+        }))
+}
+
+/// Node opener for the adoption command: adoption is the operation that
+/// reconciles a node/subject divergence, so it must not deadlock on the
+/// binding equality check that every other path enforces. The command's own
+/// coherence check — `ensure_adopt_is_coherent` — runs before any adoption
+/// is recorded.
+fn open_node_for_adoption(data_dir: &Path, store: &Store) -> Result<Node> {
+    let identity = bound_subject_identity(store)?;
+    open_node_inner(data_dir, identity, false)
+}
+
+fn open_node_inner(
+    data_dir: &Path,
+    identity: Option<shenko_node::Identity>,
+    enforce_subject_binding: bool,
+) -> Result<Node> {
     let mut node = Node::open(&data_dir.join("node"))?;
     if node.local_node_id()?.is_none() {
         node.handle(shenko_node::Request::Initialize {
@@ -157,7 +185,7 @@ pub fn open_node(data_dir: &Path, store: &Store) -> Result<Node> {
     } else if let Some(identity) = identity {
         match node.local_identity()? {
             Some(old) => ensure!(
-                old == identity,
+                !enforce_subject_binding || old == identity,
                 "Node/subject branch differs; reconcile retained partition facts before adoption"
             ),
             None => {
@@ -172,6 +200,36 @@ pub fn open_node(data_dir: &Path, store: &Store) -> Result<Node> {
         }
     }
     Ok(node)
+}
+
+/// The installation-level half of `adopt_identity` (SPEC §5.4): the node may
+/// adopt the trusted identity only when the store's subject binding stays
+/// coherent with it — either no local subject is bound yet (the node carries
+/// the adopted self until the subject's retained facts arrive; the binding
+/// is derived from durable subject facts, never written speculatively), or
+/// the trusted identity IS the bound self, which is also the path that
+/// re-converges an already diverged node/binding pair. Any other adoption
+/// would report success while leaving `open_node`'s binding check broken on
+/// every later start, so it is refused before the node is touched.
+fn ensure_adopt_is_coherent(
+    store: &Store,
+    trusted: &shenko_node::Identity,
+    operation: &str,
+) -> Result<()> {
+    if let Some(bound) = bound_subject_identity(store)? {
+        ensure!(
+            bound == *trusted,
+            "{operation} refused: this installation's subject is bound to agent {} branch {}, \
+             a different self than the trusted identity; the adoption cannot transition the \
+             binding without the adopted subject's own durable genesis and retained facts, \
+             and succeeding anyway would leave the node diverged from the installation. \
+             Reconcile the adopted subject's facts first, or adopt the bound identity to \
+             re-converge.",
+            bound.agent_id,
+            bound.branch_id
+        );
+    }
+    Ok(())
 }
 
 fn options(data_dir: &Path, workspace_roots: Vec<PathBuf>) -> CognitionSnapshotOptions {
@@ -909,7 +967,15 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
 pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
     tokio::fs::create_dir_all(&data_dir).await?;
     let store = Arc::new(crate::open_installation_store(&data_dir)?);
-    let mut node = open_node(&data_dir, &store)?;
+    // Adoption is the divergence-reconciliation entry: it opens the node
+    // without the binding gate (a diverged installation must still be able
+    // to reach it) and refuses before any write when the adoption would
+    // leave the node diverged from the subject binding.
+    let mut node = if matches!(command, SyncCommand::Adopt { .. }) {
+        open_node_for_adoption(&data_dir, &store)?
+    } else {
+        open_node(&data_dir, &store)?
+    };
     match command {
         SyncCommand::Identity => println!(
             "{}",
@@ -1139,6 +1205,7 @@ pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
                         .with_context(|| format!("read trusted identity {}", identity_file.display()))?,
                 ))
                 .context("decode trusted identity")?;
+            ensure_adopt_is_coherent(&store, &trusted_identity, "sync adopt")?;
             let record = node.adopt_identity(AdoptRequest {
                 operation_id: EntityId::new(),
                 trusted_identity,
@@ -1237,6 +1304,25 @@ pub fn node_command(data_dir: &Path) -> Result<()> {
         "Node request exceeds 16MiB"
     );
     let request = serde_json::from_slice(&bytes)?;
-    println!("{}", open_node(data_dir, &store)?.handle(request)?);
+    // The same contract the CLI enforces: identity-writing requests are
+    // refused before the node records anything it cannot keep coherent with
+    // the store's subject binding. `adopt` is the divergence-recovery op and
+    // reaches the node even when the pair already diverged; `join` can only
+    // ever write the bound identity and is rejected outright when it tries
+    // to adopt a different self.
+    match &request {
+        shenko_node::Request::Adopt { request: adopt } => {
+            ensure_adopt_is_coherent(&store, &adopt.trusted_identity, "sync adopt")?;
+        }
+        shenko_node::Request::Join { identity, .. } => {
+            ensure_adopt_is_coherent(&store, identity, "node join")?;
+        }
+        _ => {}
+    }
+    let mut node = match &request {
+        shenko_node::Request::Adopt { .. } => open_node_for_adoption(data_dir, &store)?,
+        _ => open_node(data_dir, &store)?,
+    };
+    println!("{}", node.handle(request)?);
     Ok(())
 }
