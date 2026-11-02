@@ -5028,6 +5028,163 @@ mod recovery_integration_tests {
         assert_eq!(late_n["sent_events"].as_u64().unwrap_or(0), 0);
         assert_eq!(late.effect_status, EffectStatus::None);
     }
+
+    /// SPEC §5.4: adoption retires the node's independent self while its
+    /// retained experience survives as a recorded branch — but the node
+    /// identity and the store's derived subject binding are one installation
+    /// fact. An adoption that cannot move them together must refuse before
+    /// the node is touched, because succeeding would leave every later
+    /// `open_node` failing on `Node/subject branch differs`. Adopting the
+    /// bound identity back is the path that re-converges an already diverged
+    /// installation.
+    #[tokio::test]
+    async fn sync_adopt_keeps_subject_binding_coherent() {
+        let dir = std::env::temp_dir().join(format!("shenko-adopt-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(open_native_fixture(&dir));
+        let home = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+            data_dir: dir.clone(),
+            ..Default::default()
+        })
+        .prepare(store.ledger.ledger_id())
+        .unwrap();
+        let agent = bootstrap_genesis(&store, None, &home.manifest, &shenko_seed::ModelProfile::from_env()).unwrap();
+        drop(home);
+        let bound = node_sync::open_node(&dir, &store)
+            .unwrap()
+            .local_identity()
+            .unwrap()
+            .expect("initialized node carries the bound subject identity");
+        assert_eq!(bound.agent_id, agent);
+
+        // An adoption the binding cannot follow is refused BEFORE the node
+        // records anything: the command reports no success.
+        let foreign = shenko_node::Identity {
+            agent_id: EntityId::new(),
+            branch_id: EntityId::new(),
+            origin_proof: shenko_types::object::Digest::blake3(b"trusted peer genesis"),
+        };
+        let foreign_file = dir.join("foreign-identity.json");
+        std::fs::write(&foreign_file, serde_json::to_vec(&foreign).unwrap()).unwrap();
+        let refusal = node_sync::run(
+            node_sync::SyncCommand::Adopt {
+                identity_file: foreign_file,
+                trusted_node: EntityId::new(),
+                provenance: "test-fixture: operator-provided file".into(),
+                reason: "join the peer's existing self".into(),
+            },
+            dir.clone(),
+        )
+        .await
+        .expect_err("adoption must refuse when the bound subject cannot transition");
+        assert!(
+            refusal.to_string().contains("sync adopt refused"),
+            "unexpected refusal message: {refusal:#}"
+        );
+        // The refused adoption left the installation exactly as it was:
+        // startup still opens, the bound identity is intact, no adoption
+        // was recorded.
+        let node = node_sync::open_node(&dir, &store).unwrap();
+        assert_eq!(node.local_identity().unwrap(), Some(bound.clone()));
+        assert!(node
+            .branches()
+            .unwrap()
+            .iter()
+            .all(|branch| branch.branch_id != foreign.branch_id));
+        drop(node);
+
+        // The historical defect state — node identity adopted while the
+        // binding stayed behind — is reproduced at the node level so the
+        // command path can prove recovery. The next open sees the real
+        // divergence and refuses, as before.
+        {
+            let mut node = node_sync::open_node(&dir, &store).unwrap();
+            node.adopt_identity(shenko_node::AdoptRequest {
+                operation_id: EntityId::new(),
+                trusted_identity: foreign.clone(),
+                trusted_node_id: EntityId::new(),
+                provenance: "test-fixture: operator-provided file".into(),
+                reason: "reproduce the diverged binding defect".into(),
+            })
+            .unwrap();
+        }
+        let divergence = node_sync::open_node(&dir, &store)
+            .err()
+            .expect("diverged node/subject pair must still be refused");
+        assert!(divergence.to_string().contains("Node/subject branch differs"));
+        // The startup observation path is equally blocked before recovery.
+        assert!(node_sync::observe(&dir, &store, EntityId::new(), None).is_err());
+
+        // Adopting the bound identity back through the real command
+        // re-converges the pair and records the retired self's experience.
+        let bound_file = dir.join("bound-identity.json");
+        std::fs::write(&bound_file, serde_json::to_vec(&bound).unwrap()).unwrap();
+        node_sync::run(
+            node_sync::SyncCommand::Adopt {
+                identity_file: bound_file,
+                trusted_node: EntityId::new(),
+                provenance: "test-fixture: installation binding projection".into(),
+                reason: "re-converge the diverged node/subject pair".into(),
+            },
+            dir.clone(),
+        )
+        .await
+        .unwrap();
+        let node = node_sync::open_node(&dir, &store).unwrap();
+        assert_eq!(node.local_identity().unwrap(), Some(bound.clone()));
+        // Both retired selves stay auditable: nothing was deleted.
+        let retired: Vec<EntityId> = node
+            .branches()
+            .unwrap()
+            .into_iter()
+            .filter_map(|branch| {
+                (branch.kind == shenko_node::BranchKind::AdoptedExperience)
+                    .then_some(branch.branch_id)
+            })
+            .collect();
+        assert!(retired.contains(&bound.branch_id) && retired.contains(&foreign.branch_id));
+        // Startup and role observation work again on the recovered pair.
+        drop(node);
+        node_sync::observe(&dir, &store, EntityId::new(), None).unwrap();
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// With no local subject bound, node-level adoption is the only
+    /// consistent state `open_node` can check: it proceeds and the node
+    /// carries the adopted self until the subject's own facts arrive.
+    #[tokio::test]
+    async fn sync_adopt_without_bound_subject_stays_coherent() {
+        let dir = std::env::temp_dir().join(format!("shenko-adopt-unbound-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(open_native_fixture(&dir));
+        assert!(store.installation_binding().unwrap().subject.is_none());
+        let trusted = shenko_node::Identity {
+            agent_id: EntityId::new(),
+            branch_id: EntityId::new(),
+            origin_proof: shenko_types::object::Digest::blake3(b"trusted peer genesis"),
+        };
+        let identity_file = dir.join("trusted-identity.json");
+        std::fs::write(&identity_file, serde_json::to_vec(&trusted).unwrap()).unwrap();
+        node_sync::run(
+            node_sync::SyncCommand::Adopt {
+                identity_file,
+                trusted_node: EntityId::new(),
+                provenance: "test-fixture: operator-provided file".into(),
+                reason: "carry the peer's self until its facts arrive".into(),
+            },
+            dir.clone(),
+        )
+        .await
+        .unwrap();
+        // Every later open stays consistent: still no bound subject, so the
+        // binding gate never compares identities.
+        let node = node_sync::open_node(&dir, &store).unwrap();
+        assert_eq!(node.local_identity().unwrap(), Some(trusted));
+        drop(node);
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
 
 #[cfg(test)]
