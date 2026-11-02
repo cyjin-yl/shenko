@@ -17,6 +17,7 @@ shenko-kernel = { path = "../../crates/shenko-kernel" }
 shenko-store = { path = "../../crates/shenko-store" }
 shenko-node = { path = "../../crates/shenko-node" }
 shenko-exec-host = { path = "../../crates/shenko-exec-host" }
+shenko-exec-ssh = { path = "../../crates/shenko-exec-ssh" }
 shenko-broker = { path = "../../crates/shenko-broker" }
 shenko-subject = { path = "../../crates/shenko-subject" }
 shenko-quota = { path = "../../crates/shenko-quota" }
@@ -45,7 +46,6 @@ dirs-next = "2"
 libc = "0.2"
 
 [dev-dependencies]
-shenko-exec-ssh = { path = "../../crates/shenko-exec-ssh" }
 russh = { workspace = true }
 async-trait = { workspace = true }
 x11rb = { workspace = true }

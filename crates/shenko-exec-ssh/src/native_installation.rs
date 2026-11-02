@@ -112,7 +112,46 @@ pub struct NativeSshFileTargetConfig {
     pub receipt_root: String,
 }
 
+/// Public configuration observation only. This does not attest possession of
+/// the private signer, authentication, endpoint trust or a managed-key history.
+/// Intentionally excludes paths, account/host, free-form comments and secrets.
+#[derive(Debug, Serialize)]
+pub struct ConfiguredSshPublicIdentity {
+    pub schema: &'static str,
+    pub status: &'static str,
+    pub target_id: String,
+    pub algorithm: String,
+    pub public_key_openssh: String,
+    pub fingerprint_sha256: String,
+}
+
 impl NativeSshFileTargetConfig {
+    /// Inspect only the public identity in one explicitly selected config.
+    /// Unlike `install`, this never opens known_hosts/private_key_file, creates
+    /// a Store/CAS object, authenticates or connects. Do not infer that any
+    /// unselected entry, remote endpoint or private signer has been verified.
+    pub fn inspect_public_identity(path: &Path, target_id: &str) -> Result<ConfiguredSshPublicIdentity> {
+        ensure!(!target_id.is_empty() && target_id.len() <= 128
+            && target_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-:".contains(&b)),
+            "ssh_public_identity_target_invalid");
+        let configs = Self::read_installation_file(path)?;
+        let mut matching = configs.into_iter().filter(|config| config.target_id == target_id);
+        let selected = matching.next().ok_or_else(|| anyhow::anyhow!("ssh_public_identity_target_not_found"))?;
+        ensure!(matching.next().is_none(), "ssh_public_identity_target_ambiguous");
+        let mut key = PublicKey::from_openssh(&selected.public_key_openssh)
+            .map_err(|_| anyhow::anyhow!("ssh_public_identity_invalid"))?;
+        // A public-key comment may contain arbitrary private notes. Only the
+        // canonical algorithm/key blob is relevant for copy/fingerprint use.
+        key.set_comment("");
+        let public_key_openssh = key.to_openssh()
+            .map_err(|_| anyhow::anyhow!("ssh_public_identity_unsupported"))?;
+        Ok(ConfiguredSshPublicIdentity {
+            schema: "ssh.configured-public-identity.v1", status: "configured_unverified",
+            target_id: selected.target_id, algorithm: key.algorithm().to_string(),
+            public_key_openssh, fingerprint_sha256: key.fingerprint(HashAlg::Sha256).to_string(),
+        })
+    }
+
     /// Parse only an explicitly selected, bounded regular configuration file.
     /// This does not read private material or install a network connection.
     pub fn read_installation_file(path: &Path) -> Result<Vec<Self>> {

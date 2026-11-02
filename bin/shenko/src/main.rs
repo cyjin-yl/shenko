@@ -29,6 +29,15 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Command {
+    /// Print the configured public SSH identity; never open a private key or connect.
+    SshPublicIdentity {
+        /// Explicit installation config; no HOME/env identity discovery.
+        #[arg(long)]
+        installation: PathBuf,
+        /// Existing target ID in this config (not a host/account/key path).
+        #[arg(long)]
+        target: String,
+    },
     /// Start Shenko agent with UI and continuous thought loop
     Start {
         #[arg(long, default_value = "7860")]
@@ -170,6 +179,13 @@ enum RuntimeCommand {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Public configuration inspection has no runtime, Store, model or default
+    // HOME data directory side effects. Its output is not authentication proof.
+    if let Some(output) = configured_ssh_public_identity_output(&cli.command)? {
+        println!("{output}");
+        return Ok(());
+    }
+
     fmt()
         .with_env_filter(EnvFilter::new(&cli.log))
         .with_writer(std::io::stderr)
@@ -213,6 +229,12 @@ fn main() -> Result<()> {
     result
 }
 
+fn configured_ssh_public_identity_output(command: &Command) -> Result<Option<String>> {
+    let Command::SshPublicIdentity { installation, target } = command else { return Ok(None); };
+    let observed = shenko_exec_ssh::NativeSshFileTargetConfig::inspect_public_identity(installation, target)?;
+    Ok(Some(serde_json::to_string_pretty(&observed)?))
+}
+
 async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
@@ -226,6 +248,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let identity_service = identity_context.try_service::<IdentityService>()?;
     let result: Result<()> = async {
     match command {
+        Command::SshPublicIdentity { .. } => {
+            // No runtime fallback: a successful process-level observation must
+            // come through the early, public-only CLI path above.
+            anyhow::bail!("public identity command must complete before runtime setup");
+        }
         Command::Node => node_sync::node_command(&data_dir)?,
         Command::Tool { command } => tool_command(&data_dir, command)?,
         Command::Sync { command } => node_sync::run(command, data_dir.clone()).await?,
@@ -1611,6 +1638,7 @@ async fn install_native_ssh(
 #[cfg(test)]
 mod recovery_integration_tests {
     include!("native_ssh_installation_tests.rs");
+    include!("ssh_public_identity_tests.rs");
     use super::*;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
     use shenko_types::{
