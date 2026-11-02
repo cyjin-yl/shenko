@@ -198,7 +198,9 @@ pub struct ActionReport {
 pub struct ActionReceipt {
     pub index: usize,
     pub kind: String,
-    /// "acked" | "rejected" | "failed" | "unknown"
+    /// "acked" | "rejected" | "failed" | "unknown" | "refused"
+    /// ("refused": control of the session changed before dispatch, so the
+    /// action was never sent)
     pub transport: String,
     /// "none" | "partial" | "complete" | "unknown"
     pub effect: String,
