@@ -57,11 +57,21 @@ const CELL_CONTRACT: &[u8] =
 // Input schemas (model-facing, deny-unknown-fields).
 // ---------------------------------------------------------------------------
 
+/// First-stage parse: the op discriminator only. The remaining fields are
+/// enforced per operation in the second stage (`op_args`), so an op's
+/// required arguments are admitted while genuinely unknown fields are still
+/// refused. `deny_unknown_fields` deliberately does NOT live here — the other
+/// fields belong to the op, not to the discriminator.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SessionInput {
     op: SessionOp,
 }
+
+/// Arguments shared by every zero-argument op: none at all. Strict so a
+/// stray field on `list_kernels` refuses instead of being silently dropped.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoArgs {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -76,6 +86,24 @@ enum SessionOp {
     Cancel,
     Dispose,
     InstallDependencies,
+}
+
+impl SessionOp {
+    /// The wire `op` spelling recorded in the sealed frozen input.
+    fn wire_name(&self) -> &'static str {
+        match self {
+            SessionOp::ListKernels => "list_kernels",
+            SessionOp::Create => "create",
+            SessionOp::Inspect => "inspect",
+            SessionOp::Checkpoint => "checkpoint",
+            SessionOp::Restore => "restore",
+            SessionOp::Fork => "fork",
+            SessionOp::Reset => "reset",
+            SessionOp::Cancel => "cancel",
+            SessionOp::Dispose => "dispose",
+            SessionOp::InstallDependencies => "install_dependencies",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -108,6 +136,15 @@ struct LimitInput {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionRef {
+    session_id: EntityId,
+}
+
+/// Route-only view of a session-targeted request: extracts the operation's
+/// target before its own strict argument set is enforced. NOT
+/// `deny_unknown_fields` — per-op arguments (e.g. `wheels`) would otherwise
+/// be refused here before the op schema ever sees them.
+#[derive(Debug, Deserialize)]
+struct SessionRoute {
     session_id: EntityId,
 }
 
@@ -154,6 +191,23 @@ enum CellKindInput {
 #[serde(rename_all = "snake_case")]
 enum CellOp {
     Execute,
+}
+
+/// Second-stage parse: the op's own arguments are the request object minus
+/// the `op` discriminator, deserialized under the argument struct's strict
+/// `deny_unknown_fields` schema. Missing required fields refuse with the
+/// schema's `missing field` error; unknown fields refuse outright — a partial
+/// operation is never admitted.
+fn op_args<T: serde::de::DeserializeOwned>(payload: &serde_json::Value) -> serde_json::Result<T> {
+    let args = match payload {
+        serde_json::Value::Object(map) => {
+            let mut map = map.clone();
+            map.remove("op");
+            serde_json::Value::Object(map)
+        }
+        other => other.clone(),
+    };
+    serde_json::from_value(args)
 }
 
 // ---------------------------------------------------------------------------
@@ -622,6 +676,20 @@ fn operation_outcome_of(outcome: &crate::contract::CellOutcome) -> OperationOutc
     }
 }
 
+/// The honest effect settlement for a cell that already ran: its record and
+/// streams are durable in the session journal, so a completed or exited cell
+/// is fully applied; a cancelled, deadlined or failed cell may have changed
+/// guest state partway — partial, never unknown: the work was observed.
+fn cell_effect_of(outcome: &crate::contract::CellOutcome) -> EffectStatus {
+    match outcome {
+        crate::contract::CellOutcome::Completed { .. } | crate::contract::CellOutcome::Exited { .. } =>
+            EffectStatus::Complete,
+        crate::contract::CellOutcome::Cancelled
+        | crate::contract::CellOutcome::DeadlineExceeded
+        | crate::contract::CellOutcome::Failed { .. } => EffectStatus::Partial,
+    }
+}
+
 /// Seal one journaled stream file: full bytes into CAS by streaming, plus a
 /// bounded head preview (the only bytes ever resident in memory).
 fn seal_stream(store: &Store, session_dir: &Path, relative: &Path) -> Result<(ObjectRef, Vec<u8>, bool)> {
@@ -795,6 +863,8 @@ fn run_session_op(
 ) -> Result<SessionOpOutcome> {
     match input.op {
         SessionOp::ListKernels => {
+            let _strict: NoArgs = op_args(payload)
+                .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
             let targets = crate::kernel::named_targets().iter().map(|target| {
                 let availability = match &target.availability {
                     crate::kernel::KernelAvailability::Bindable { via } =>
@@ -816,7 +886,7 @@ fn run_session_op(
                 Some(OperationOutcome::Succeeded), EffectStatus::None, None))
         }
         SessionOp::Create => {
-            let create: CreateInput = serde_json::from_value(payload.clone())
+            let create: CreateInput = op_args(payload)
                 .map_err(|error| anyhow::anyhow!("REPL_KERNEL_INVALID: create payload: {error}"))?;
             let (profile, module_digest) = build_kernel(sessions, &create)?;
             let provider = crate::session::WasiReplProvider::new(sessions.sessions_root_cloned());
@@ -857,10 +927,10 @@ fn run_session_op(
                     crate::kernel::ModuleSource::ModulePath(path) => path.clone(),
                 }), module_digest: Some(module_digest), session_id: Some(session_id),
                 limits: Some(create.limits) }, value, true, Some(OperationOutcome::Succeeded),
-                EffectStatus::Unknown, None))
+                EffectStatus::Complete, None))
         }
         SessionOp::Cancel => {
-            let reference: SessionRef = serde_json::from_value(payload.clone())
+            let reference: SessionRef = op_args(payload)
                 .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
             let session_id = reference.session_id;
             let requested = sessions.request_cancel(session_id)?;
@@ -873,15 +943,30 @@ fn run_session_op(
                 recovery_level: None, cells_executed: None, environment_generation: None,
                 detail: None, error: None,
             })?;
-            Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+            Ok((frozen, value, true, Some(OperationOutcome::Succeeded),
+                if requested { EffectStatus::Complete } else { EffectStatus::None }, None))
         }
         SessionOp::Inspect | SessionOp::Checkpoint | SessionOp::Restore | SessionOp::Fork
         | SessionOp::Reset | SessionOp::Dispose | SessionOp::InstallDependencies => {
-            let reference: SessionRef = serde_json::from_value(payload.clone())
+            // Route on the session id first, then enforce the op's own strict
+            // argument set before the session is opened: a malformed or
+            // over-supplied request is refused, never admitted against a real
+            // session and never fabricates one.
+            let route: SessionRoute = op_args(payload)
                 .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
-            let session_id = reference.session_id;
+            let install = match input.op {
+                SessionOp::InstallDependencies =>
+                    Some(op_args::<InstallInput>(payload)
+                        .map_err(|error| anyhow::anyhow!("REPL_INSTALL_INVALID: {error}"))?),
+                _ => {
+                    let _strict: SessionRef = op_args(payload)
+                        .map_err(|error| anyhow::anyhow!("REPL_SESSION_INVALID: {error}"))?;
+                    None
+                }
+            };
+            let session_id = route.session_id;
             let handle = sessions.open(session_id)?;
-            let frozen = SessionFrozenInput { op: format!("{:?}", input.op).to_lowercase(),
+            let frozen = SessionFrozenInput { op: input.op.wire_name().into(),
                 kernel_id: None, module: None, module_digest: None, session_id: Some(session_id),
                 limits: None };
             let mut session = handle.lock()
@@ -904,7 +989,9 @@ fn run_session_op(
                             info.enforcement, info.driver)),
                         error: None,
                     })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+                    // A read-only observation: nothing about the session's
+                    // durable state changed.
+                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::None, None))
                 }
                 SessionOp::Checkpoint => {
                     let checkpoint = session.checkpoint()?;
@@ -919,7 +1006,9 @@ fn run_session_op(
                             checkpoint.journal_blake3, checkpoint.state_files.len())),
                         error: None,
                     })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+                    // A checkpoint is a durable citation of what already
+                    // exists — it mutates nothing.
+                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::None, None))
                 }
                 SessionOp::Restore => {
                     let report = session.restore()?;
@@ -937,7 +1026,13 @@ fn run_session_op(
                         detail: Some(serde_json::to_string(&report)?),
                         error: (!ready).then(|| "REPL_RECOVERY_REQUIRED: final live state has no verified R1 checkpoint".into()),
                     })?;
-                    Ok((frozen, value, true, Some(if ready { OperationOutcome::Succeeded } else { OperationOutcome::Failed }), EffectStatus::Unknown, None))
+                    // A verified restore is fully applied; an unready one
+                    // durably kept the active-restore fence and whatever
+                    // object restores already landed — partial, never
+                    // unknown: the work was observed.
+                    Ok((frozen, value, true,
+                        Some(if ready { OperationOutcome::Succeeded } else { OperationOutcome::Failed }),
+                        if ready { EffectStatus::Complete } else { EffectStatus::Partial }, None))
                 }
                 SessionOp::Fork => {
                     let forked = session.fork(&sessions.sessions_root_cloned())?;
@@ -961,7 +1056,7 @@ fn run_session_op(
                         detail: None,
                         error: None,
                     })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Complete, None))
                 }
                 SessionOp::Reset => {
                     session.reset()?;
@@ -972,7 +1067,7 @@ fn run_session_op(
                         recovery_level: None, cells_executed: None, environment_generation: None,
                         detail: None, error: None,
                     })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Complete, None))
                 }
                 SessionOp::Dispose => {
                     session.dispose()?;
@@ -985,11 +1080,10 @@ fn run_session_op(
                         recovery_level: None, cells_executed: None, environment_generation: None,
                         detail: None, error: None,
                     })?;
-                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Unknown, None))
+                    Ok((frozen, value, true, Some(OperationOutcome::Succeeded), EffectStatus::Complete, None))
                 }
                 SessionOp::InstallDependencies => {
-                    let install: InstallInput = serde_json::from_value(payload.clone())
-                        .map_err(|error| anyhow::anyhow!("REPL_INSTALL_INVALID: {error}"))?;
+                    let install = install.expect("install_dependencies routed its arguments");
                     let mut wheels = Vec::new();
                     for wheel in &install.wheels {
                         wheels.push(sessions.admit_wheel(wheel)?);
@@ -1013,11 +1107,14 @@ fn run_session_op(
                         recovery_level: None, cells_executed: None, environment_generation: None,
                         detail: None, error,
                     })?;
-                    let operation_outcome = match outcome {
-                        crate::contract::InstallOutcome::Installed { .. } => OperationOutcome::Succeeded,
-                        _ => OperationOutcome::Failed,
+                    // An installed generation is committed durably; a refused
+                    // or unsupported install committed nothing.
+                    let (operation_outcome, effect) = match &outcome {
+                        crate::contract::InstallOutcome::Installed { .. } =>
+                            (OperationOutcome::Succeeded, EffectStatus::Complete),
+                        _ => (OperationOutcome::Failed, EffectStatus::None),
                     };
-                    Ok((frozen, value, true, Some(operation_outcome), EffectStatus::Unknown, None))
+                    Ok((frozen, value, true, Some(operation_outcome), effect, None))
                 }
                 SessionOp::ListKernels | SessionOp::Create | SessionOp::Cancel => unreachable!("routed above"),
             }
@@ -1241,7 +1338,7 @@ impl ReplCellHandler {
         }), "repl-cell-observation")?;
         let normalized = self.core.seal(&result_view, "repl-cell-result")?;
         self.core.evidence(&invocation, &operation, &attempt, raw, Some(normalized),
-            true, Some(operation_outcome_of(&outcome)), EffectStatus::Unknown, None)
+            true, Some(operation_outcome_of(&outcome)), cell_effect_of(&outcome), None)
     }
 
     async fn record_refusal(&self, invocation: &NativeTaskInvocation, detail: String)
@@ -1306,5 +1403,344 @@ impl NativeTaskHandler for ReplCellHandler {
 
     async fn reconcile(&self, task: &TaskRecord, operation_id: EntityId) -> Result<OperationRecord> {
         self.core.reconcile_unknown(task, operation_id).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Native-handler regressions: every advertised session op through the real
+// registered handler, ledger T1 and CAS receipts — never a session fabricated
+// by the parser.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shenko_store::TaskInvocation;
+    use shenko_types::agent::CallContext;
+    use shenko_types::store::WriteBatch;
+
+    /// A real resident WASI guest for the live-session ops: like a driver
+    /// interpreter it stays alive on the session's framed stdin channel,
+    /// blocking in `fd_read` until the host closes the pipe (shutdown/reset/
+    /// drop), then exits cleanly. `restore` spawns it for real; a guest that
+    /// dies early makes `inspect` report `recovery_required`, so the asserts
+    /// below fail loudly rather than matching whatever happened.
+    const RESIDENT_GUEST: &str = r#"
+(module
+  (import "wasi_snapshot_preview1" "fd_read"
+    (func $read (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (func (export "_start")
+    (local $nread i32)
+    (loop $again
+      ;; iov {buf=64, len=512} at 0; nread lands at 8.
+      (i32.store (i32.const 0) (i32.const 64))
+      (i32.store (i32.const 4) (i32.const 512))
+      ;; Any read error ends the guest rather than spinning.
+      (if (call $read (i32.const 0) (i32.const 0) (i32.const 1) (i32.const 8))
+        (then (return)))
+      (local.set $nread (i32.load (i32.const 8)))
+      (br_if $again (i32.ne (local.get $nread) (i32.const 0))))))
+"#;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("shenko-repl-task-{tag}-{}", EntityId::new()))
+    }
+
+    struct Harness {
+        store: Arc<Store>,
+        handler: ReplSessionHandler,
+        data_dir: PathBuf,
+    }
+
+    impl Harness {
+        fn new(tag: &str) -> Result<(Self, PathBuf)> {
+            let root = temp_dir(tag);
+            let data_dir = root.join("repl");
+            for sub in ["kernels", "wheels"] {
+                fs::create_dir_all(data_dir.join(sub))?;
+            }
+            let store = Arc::new(Store::open(root.join("shenko.db"), root.join("cas"))?);
+            let handler = ReplSessionHandler::new(store.clone(), data_dir.clone())?;
+            Ok((Self { store, handler, data_dir }, root))
+        }
+
+        /// Register one Running task in the real ledger (T1 admission needs
+        /// its exact revision/invocation) and invoke the handler through the
+        /// registered `NativeTaskHandler::execute` path.
+        async fn run(&self, input: serde_json::Value) -> Result<OperationRecord> {
+            let (task_id, invocation_id) = (EntityId::new(), EntityId::new());
+            let epoch = ControllerEpoch(1);
+            let zero = CommitRef::new(self.store.ledger.ledger_id(), LedgerSeq::ZERO);
+            let input_ref = self.handler.core.seal(&input, "repl-session-request")?;
+            let task = TaskRecord {
+                record_schema_version: 1,
+                task_id,
+                task_revision: TaskRevision(0),
+                record_revision: RecordRevision(0),
+                agent_id: EntityId::new(),
+                conversation_id: EntityId::new(),
+                owner: TaskOwner::Conversation { id: EntityId::new() },
+                background: false,
+                kind: "repl.session".into(),
+                definition_version: 1,
+                implementation_ref: self.handler.descriptor().implementation_ref,
+                input_ref,
+                state: TaskState::Running {
+                    checkpoint_ref: None,
+                    invocation_id,
+                    mode: RunMode::Run,
+                    epoch,
+                },
+                abort_request: None,
+                memos: serde_json::Map::new(),
+                residual_case_ids: vec![],
+                created_by_step_id: None,
+                dispatch_eligibility: DispatchEligibility::Ready,
+                no_progress_crashes: 0,
+                first_run_at: None,
+                terminal_at: None,
+                created_commit: zero,
+                updated_commit: zero,
+            };
+            let mut batch = WriteBatch::new();
+            batch.task_upserts.push(task.clone());
+            self.store.commit(batch)?;
+            let task_invocation = TaskInvocation {
+                task_id,
+                task_revision: TaskRevision(0),
+                record_revision: RecordRevision(0),
+                invocation_id,
+                epoch,
+                software_generation: RuntimeGeneration::default(),
+                worker_id: EntityId::new(),
+                node_id: EntityId::new(),
+            };
+            let mut context = CallContext::new_system(RuntimeGeneration::default());
+            context.task_id = Some(task_id);
+            context.invocation_id = Some(invocation_id);
+            context.controller_epoch = epoch;
+            self.handler
+                .execute(NativeTaskInvocation {
+                    context,
+                    task_invocation,
+                    task,
+                    operation_id: EntityId::new(),
+                    authority: AuthorityRef {
+                        delegation_id: task_id,
+                        delegation_revision: RecordRevision(0),
+                        decision_ref: EntityId::new(),
+                    },
+                    input,
+                    child_tools: None,
+                })
+                .await
+        }
+
+        /// The sealed bounded result of exactly one settled observation.
+        fn normalized(&self, operation: &OperationRecord) -> Result<serde_json::Value> {
+            let evidence = self.store.external_operation_evidence(operation.operation_id)?;
+            ensure!(evidence.len() == 1, "expected one observation, got {}", evidence.len());
+            let normalized = evidence[0].normalized_ref.as_ref().context("no bounded result")?;
+            Ok(serde_json::from_slice(&self.store.cas.read_object(&normalized.digest)?)?)
+        }
+    }
+
+    fn session_id_of(result: &serde_json::Value) -> EntityId {
+        result["session_id"]
+            .as_str()
+            .and_then(|id| id.parse().ok())
+            .expect("result carries a session id")
+    }
+
+    /// Every advertised session op is dispatched with its own arguments:
+    /// `op` is the discriminator, never the whole request. `create` and the
+    /// session-targeted ops succeed against the durable session journal;
+    /// `install_dependencies` records the kernel's own installer refusal
+    /// (resolved, never a parse rejection).
+    #[tokio::test]
+    async fn advertised_session_operations_dispatch_with_their_arguments() -> Result<()> {
+        let (harness, root) = Harness::new("ops")?;
+        let module = harness.data_dir.join("kernels").join("python.wat");
+        fs::write(&module, RESIDENT_GUEST)?;
+        let wheel = harness.data_dir.join("wheels").join("pkg-1.0-py3-none-any.whl");
+        fs::write(&wheel, b"not-a-wheel")?;
+
+        // list_kernels: zero arguments, real named targets.
+        let op = harness.run(serde_json::json!({"op": "list_kernels"})).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        let result = harness.normalized(&op)?;
+        assert!(result["targets"].as_array().context("targets")?.iter()
+            .any(|target| target["name"] == "python-wasi"), "{result}");
+
+        // create with kernel_id + module + limits: a real durable session.
+        let op = harness.run(serde_json::json!({
+            "op": "create",
+            "kernel_id": "python-wasi",
+            "module": module,
+            "limits": {"max_wall_clock_ms": 60000},
+        })).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        assert_eq!(op.effect_status, EffectStatus::Complete);
+        let result = harness.normalized(&op)?;
+        assert_eq!(result["outcome"], "created");
+        assert_eq!(result["kernel_id"], "python-wasi");
+        let session_id = session_id_of(&result);
+        let sid = serde_json::json!(session_id);
+
+        // Every session-targeted op reaches the durable session by its id.
+        for (op_name, expected_outcome) in [
+            ("inspect", "Ready"),
+            ("checkpoint", "R1ObjectCheckpoint"),
+            ("restore", "restored"),
+            ("reset", "reset"),
+        ] {
+            let op = harness
+                .run(serde_json::json!({"op": op_name, "session_id": sid.clone()}))
+                .await?;
+            assert_eq!(op.state, OperationState::Resolved, "{op_name}");
+            assert_eq!(op.outcome, Some(OperationOutcome::Succeeded), "{op_name}");
+            if op_name == "inspect" || op_name == "checkpoint" {
+                assert_eq!(op.effect_status, EffectStatus::None, "{op_name}");
+            } else {
+                assert_eq!(op.effect_status, EffectStatus::Complete, "{op_name}");
+            }
+            let result = harness.normalized(&op)?;
+            assert_eq!(result["session_id"], session_id.to_string(), "{op_name}");
+            assert_eq!(result["outcome"], expected_outcome, "{op_name}");
+        }
+
+        // cancel reports the session's real run state, not an error.
+        let op = harness
+            .run(serde_json::json!({"op": "cancel", "session_id": sid.clone()}))
+            .await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        assert_eq!(harness.normalized(&op)?["outcome"], "nothing_running");
+
+        // fork returns the new session; dispose then retires it by id.
+        let op = harness
+            .run(serde_json::json!({"op": "fork", "session_id": sid.clone()}))
+            .await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        let forked = session_id_of(&harness.normalized(&op)?);
+        assert_ne!(forked, session_id);
+        let op = harness
+            .run(serde_json::json!({"op": "dispose", "session_id": forked}))
+            .await?;
+        assert_eq!(op.outcome, Some(OperationOutcome::Succeeded));
+        assert_eq!(harness.normalized(&op)?["outcome"], "disposed");
+
+        // install_dependencies accepts its own argument set (session_id +
+        // wheels) and records the kernel's real installer outcome — the
+        // CPython-WASI route requires ABI tags observed from a live cell, so
+        // the honest settled result is the installer's refusal, not a parse
+        // rejection and never a fabricated session.
+        let op = harness.run(serde_json::json!({
+            "op": "install_dependencies",
+            "session_id": sid.clone(),
+            "wheels": [wheel],
+        })).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Failed));
+        // A refused install committed no environment — none, not unknown.
+        assert_eq!(op.effect_status, EffectStatus::None);
+        let result = harness.normalized(&op)?;
+        assert_eq!(result["session_id"], session_id.to_string());
+        assert_eq!(result["outcome"], "refused", "{result}");
+        assert!(result["error"].as_str().context("install error")?
+            .contains("REPL_INSTALL_FAILED"), "{result}");
+
+        // An unknown session is an explicit refusal: no session is invented.
+        let op = harness.run(serde_json::json!({
+            "op": "cancel",
+            "session_id": EntityId::new(),
+        })).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Failed));
+        assert_eq!(harness.normalized(&op)?["outcome"], "refused");
+
+        drop(harness);
+        fs::remove_dir_all(root).ok();
+        Ok(())
+    }
+
+    /// The strict argument contract still holds: genuinely unknown fields and
+    /// missing required arguments refuse before any session work; the refusal
+    /// is either a recorded resolved failure or an immediate REPL_* error, in
+    /// each case with an explicit reason.
+    #[tokio::test]
+    async fn session_ops_refuse_unknown_fields_and_missing_arguments() -> Result<()> {
+        let (harness, root) = Harness::new("refusals")?;
+        let module = harness.data_dir.join("kernels").join("python.wat");
+        fs::write(&module, "(module)")?;
+
+        // A stray field on a zero-argument op refuses.
+        match harness.run(serde_json::json!({"op": "list_kernels", "verbose": true})).await {
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("REPL_SESSION_INVALID")
+                    && message.contains("unknown field `verbose`"), "{message}");
+            }
+            Ok(op) => panic!("stray field dispatched: {op:?}"),
+        }
+
+        // An unknown field on a session-targeted op refuses.
+        match harness.run(serde_json::json!({
+            "op": "inspect", "session_id": EntityId::new(), "bogus": 1,
+        })).await {
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("REPL_SESSION_INVALID")
+                    && message.contains("unknown field `bogus`"), "{message}");
+            }
+            Ok(op) => panic!("unknown field dispatched: {op:?}"),
+        }
+
+        // A missing required argument on a session-targeted op refuses
+        // without touching any session.
+        match harness.run(serde_json::json!({"op": "inspect"})).await {
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("REPL_SESSION_INVALID")
+                    && message.contains("missing field `session_id`"), "{message}");
+            }
+            Ok(op) => panic!("partial inspect dispatched: {op:?}"),
+        }
+        match harness.run(serde_json::json!({"op": "install_dependencies"})).await {
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("REPL_SESSION_INVALID")
+                    && message.contains("missing field `session_id`"), "{message}");
+            }
+            Ok(op) => panic!("partial install dispatched: {op:?}"),
+        }
+
+        // create without its required arguments is an explicit recorded
+        // refusal (REPL_KERNEL_INVALID), never a fabricated session.
+        let op = harness.run(serde_json::json!({"op": "create"})).await?;
+        assert_eq!(op.state, OperationState::Resolved);
+        assert_eq!(op.outcome, Some(OperationOutcome::Failed));
+        let result = harness.normalized(&op)?;
+        assert_eq!(result["outcome"], "refused");
+        assert!(result["session_id"].is_null(), "{result}");
+        assert!(result["error"].as_str().context("refusal error")?
+            .contains("REPL_KERNEL_INVALID"), "{result}");
+
+        // An unknown op variant refuses; an unknown op together with a
+        // fabricated session id never opens a session.
+        match harness.run(serde_json::json!({"op": "fabricate_session"})).await {
+            Err(error) => {
+                let message = format!("{error:#}");
+                assert!(message.contains("REPL_SESSION_INVALID")
+                    && message.contains("unknown variant"), "{message}");
+            }
+            Ok(op) => panic!("unknown op dispatched: {op:?}"),
+        }
+
+        drop(harness);
+        fs::remove_dir_all(root).ok();
+        Ok(())
     }
 }
