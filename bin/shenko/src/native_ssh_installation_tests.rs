@@ -247,8 +247,7 @@ mod native_ssh_installation {
         f.supervisor.stop().await.unwrap(); f.opener.finish().await;
     }
 
-    #[tokio::test]
-    async fn startup_file_installation_diagnoses_missing_key_after_t1_without_fallback() {
+    async fn startup_file_signer_failure_after_t1(fifo: bool) {
         let f = fixture(Mode::Complete).await;
         // Withdraw the memory provider before exercising actual startup file
         // construction on the same real runtime. No secret file is created.
@@ -256,11 +255,12 @@ mod native_ssh_installation {
         let trust = f.root.join("owned-public-trust");
         std::fs::write(&trust, format!("fixture.invalid {}\n", key(81).public_key().to_openssh().unwrap())).unwrap();
         let config_path = f.root.join("owned-installation.json");
+        let selected_key = f.root.join("never-created-private-key");
         std::fs::write(&config_path, serde_json::to_vec(&serde_json::json!({
             "schema":"shenko.ssh.file-installation.v1", "targets":[{
                 "node_id":f.node_id,"target_id":"owned-native-target","revision":"owned-file-1",
                 "host":"fixture.invalid","port":22,"account":"fixture",
-                "private_key_file":f.root.join("never-created-private-key"),
+                "private_key_file":selected_key,
                 "public_key_openssh":key(82).public_key().to_openssh().unwrap(),
                 "known_hosts_file":trust,"receipt_root":"/owned-fixture-receipts"
             }]})).unwrap()).unwrap();
@@ -272,6 +272,18 @@ mod native_ssh_installation {
         let prompt = service.installed_prompt_sections().join("\n");
         assert!(prompt.contains("owned-native-target"));
         assert!(!prompt.contains("fixture.invalid")); assert!(!prompt.contains("never-created-private-key"));
+        assert!(!selected_key.exists());
+        // The real startup installer has frozen this exact file reference.
+        // Only the new negative case now substitutes an owned FIFO, with no
+        // writer. The real opener must reject it rather than block or fallback.
+        #[cfg(unix)]
+        if fifo {
+            use std::os::unix::ffi::OsStrExt as _;
+            let name = std::ffi::CString::new(selected_key.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        }
+        #[cfg(not(unix))]
+        assert!(!fifo, "FIFO fixture is Unix-only");
         submit(&f);
         service.run_once().await.unwrap();
         let id = tokio::time::timeout(Duration::from_secs(10), async { loop {
@@ -287,8 +299,27 @@ mod native_ssh_installation {
         let raw: serde_json::Value = serde_json::from_slice(&f.store.cas.read_object(&evidence[0].raw_ref.digest).unwrap()).unwrap();
         assert_eq!(raw[2], "selected native SSH credential unavailable");
         assert_eq!(f.opener.opens.load(Ordering::SeqCst), 0);
-        assert!(!f.root.join("never-created-private-key").exists());
+        assert!(f.store.native_task_result(f.task_id).unwrap().is_none());
+        assert_eq!(f.store.external_operation_attempts(id).unwrap().len(), 1);
+        assert_eq!(f.store.external_operation_attempt(id).unwrap().attempt_no, 1);
+        if !fifo { assert!(!selected_key.exists()); }
+        #[cfg(unix)]
+        if fifo {
+            use std::os::unix::fs::FileTypeExt as _;
+            assert!(std::fs::symlink_metadata(&selected_key).unwrap().file_type().is_fifo());
+        }
         supervisor.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn startup_file_installation_diagnoses_missing_key_after_t1_without_fallback() {
+        startup_file_signer_failure_after_t1(false).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn startup_file_installation_rejects_fifo_signer_after_t1_without_fallback() {
+        startup_file_signer_failure_after_t1(true).await;
     }
     // Real S1 + Store claim, with the same public NativeTaskInvocation contract
     // used by the installed registry. Only these negative tests detach fields.
