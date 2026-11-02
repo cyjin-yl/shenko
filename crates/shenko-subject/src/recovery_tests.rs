@@ -14,6 +14,9 @@ use std::{path::PathBuf, sync::Arc};
 #[path = "model_child_tests.rs"]
 mod model_child_tests;
 
+#[path = "request_recovery_tests.rs"]
+mod request_recovery_tests;
+
 fn fixture() -> (PathBuf, Arc<Store>, EntityId) {
     let dir = std::env::temp_dir().join(format!("shenko-recovery-{}", EntityId::new()));
     std::fs::create_dir_all(&dir).unwrap();

@@ -882,6 +882,11 @@ async fn execute_step(
         if let (Some(broker), Some(request_id)) =
             (state.broker.as_ref(), step.active_request_id)
         {
+            let attempt = store.subject_request_attempt(request_id)?
+                .ok_or_else(|| ShenkoError::conflict("awaiting request has no durable attempt"))?;
+            // Armed is positive evidence that the send boundary did not pass.
+            // Registering it as unknown would consume broker capacity forever.
+            if attempt.state != SubjectRequestState::Armed {
             let sink = Arc::new(crate::subject_receipt::SubjectReceiptSink {
                 store: Arc::clone(&state.store),
                 agent_id: state.agent_id,
@@ -901,16 +906,16 @@ async fn execute_step(
                     .ok_or_else(|| ShenkoError::conflict("S0 provider binding missing"))?,
                 payload: input.payload.clone(),
             });
-            if let Err(error) = broker.register_recovered(sink) {
-                debug!(seq, %error, "broker could not restore the original request reader");
+            broker.register_recovered(sink).map_err(|error| {
+                ShenkoError::conflict(format!("original request recovery failed: {error:#}"))
+            })?;
             }
         }
         match recover_awaiting_model(state, &mut step, &input)? {
             AwaitingRecovery::Adopted { output, stop_reason } => {
                 recovered = Some((output, stop_reason));
             }
-            AwaitingRecovery::DispatchLost => return Ok(None),
-            AwaitingRecovery::NeverDispatched => {}
+            AwaitingRecovery::RetryRecorded => return Ok(None),
         }
     }
     let (model_output, stop_reason) = if let Some((output, stop_reason)) = recovered {
@@ -1093,86 +1098,7 @@ async fn execute_step(
                 "model result request identity mismatch",
             ));
         }
-        // Response evidence binds to the exact send this step dispatched —
-        // durable claim lineage, never a reversed "latest" guess.
-        if let Some(send_id) = claimed_send {
-            observe_quota_response(&store, broker.binding(), &result, request_id, send_id);
-        }
-        use shenko_broker::request::InferenceStatus;
-        match result.status {
-            InferenceStatus::QueuedCapacityWait => {
-                record_retry(state, InferenceRetryFact::NeverDispatched)?;
-                return Err(ShenkoError::other(
-                    "broker capacity rejection; never_dispatched persisted",
-                ));
-            }
-            InferenceStatus::Rejected { http_status: 429 } => {
-                record_retry(
-                    state,
-                    InferenceRetryFact::ProviderRejected { http_status: 429 },
-                )?;
-                return Err(ShenkoError::other(
-                    "provider rejection persisted; same frozen request may resume",
-                ));
-            }
-            InferenceStatus::Rejected { http_status } => {
-                return Err(ShenkoError::Protocol(
-                    shenko_types::error::ProtocolError::new(
-                        "PROVIDER_REJECTED",
-                        shenko_types::error::ErrorScope::Request,
-                        shenko_types::error::RetryStrategy::NewRevision,
-                    )
-                    .with_details(serde_json::json!({"http_status":http_status})),
-                ));
-            }
-            InferenceStatus::InvalidRequest { code } => {
-                return Err(ShenkoError::Protocol(
-                    shenko_types::error::ProtocolError::new(
-                        code.as_str(),
-                        shenko_types::error::ErrorScope::Request,
-                        shenko_types::error::RetryStrategy::NewRevision,
-                    ),
-                ));
-            }
-            InferenceStatus::Unavailable => {
-                return Err(ShenkoError::other(
-                    "MODEL_PROVIDER_UNAVAILABLE: no provider was dispatched",
-                ));
-            }
-            InferenceStatus::Success
-                if result.termination.kind
-                    == shenko_broker::request::TerminationKind::ProviderTerminal => {}
-            InferenceStatus::Success => {
-                return Err(ShenkoError::conflict(
-                    "successful model result lacks provider terminal evidence",
-                ));
-            }
-            _ => {
-                return Err(ShenkoError::other(
-                    "model outcome not conclusive; preserve original awaiting_model for reconciliation",
-                ));
-            }
-        }
-        // The response proved provider-terminal: settle this send's own
-        // bound attempt rows with what the provider actually reported.
-        if let Some(send_id) = claimed_send {
-            settle_quota_terminal(&store, &result, request_id, send_id);
-        }
-        if !result.effective.matches_seal(
-            input
-                .provider_binding
-                .as_ref()
-                .expect("broker binding checked"),
-            &input.payload,
-        ) {
-            return Err(ShenkoError::Protocol(
-                shenko_types::error::ProtocolError::new(
-                    "MODEL_PROVIDER_BINDING_MISMATCH",
-                    shenko_types::error::ErrorScope::Request,
-                    shenko_types::error::RetryStrategy::NewRevision,
-                ),
-            ));
-        }
+        admit_model_result(state, &input, &result, claimed_send)?;
         let (output, stop_reason) =
             record_model_evidence(&store, &mut step, &state.head, seq, request_id, &result)?;
         state.step = step.clone();
@@ -1742,6 +1668,68 @@ fn record_retry(state: &mut SubjectLoopState, fact: InferenceRetryFact) -> Resul
     Ok(())
 }
 
+/// Live delivery and restart interpret the same original receipt identically.
+/// Only provider-terminal success may become model output; a rejection without
+/// text is retry/refusal evidence, never an empty successful answer.
+fn admit_model_result(
+    state: &mut SubjectLoopState,
+    input: &FrozenStepInput,
+    result: &shenko_broker::request::InferenceResult,
+    send_id: Option<EntityId>,
+) -> Result<(), ShenkoError> {
+    use shenko_broker::request::{InferenceStatus, TerminationKind};
+    let binding = input.provider_binding.as_ref()
+        .ok_or_else(|| ShenkoError::conflict("model result has no sealed binding"))?;
+    if !result.effective.matches_seal(binding, &input.payload) {
+        return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+            "MODEL_PROVIDER_BINDING_MISMATCH",
+            shenko_types::error::ErrorScope::Request,
+            shenko_types::error::RetryStrategy::NewRevision,
+        )));
+    }
+    // Restore observations against the receipt's own selected send, not a
+    // later quota admission for the same sealed step.
+    if let Some(send_id) = send_id {
+        observe_quota_response(&state.store, binding, result, result.request_id, send_id);
+    }
+    match result.status {
+        InferenceStatus::QueuedCapacityWait => {
+            record_retry(state, InferenceRetryFact::NeverDispatched)?;
+            return Err(ShenkoError::other("broker capacity rejection; never_dispatched persisted"));
+        }
+        InferenceStatus::Rejected { http_status: 429 } => {
+            record_retry(state, InferenceRetryFact::ProviderRejected { http_status: 429 })?;
+            return Err(ShenkoError::other("provider rejection persisted; same frozen request may resume"));
+        }
+        InferenceStatus::Rejected { http_status } => {
+            return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+                "PROVIDER_REJECTED", shenko_types::error::ErrorScope::Request,
+                shenko_types::error::RetryStrategy::NewRevision,
+            ).with_details(serde_json::json!({"http_status":http_status}))));
+        }
+        InferenceStatus::InvalidRequest { code } => {
+            return Err(ShenkoError::Protocol(shenko_types::error::ProtocolError::new(
+                code.as_str(), shenko_types::error::ErrorScope::Request,
+                shenko_types::error::RetryStrategy::NewRevision,
+            )));
+        }
+        InferenceStatus::Unavailable => {
+            return Err(ShenkoError::other("MODEL_PROVIDER_UNAVAILABLE: no provider was dispatched"));
+        }
+        InferenceStatus::Success if result.termination.kind == TerminationKind::ProviderTerminal => {}
+        InferenceStatus::Success => {
+            return Err(ShenkoError::conflict("successful model result lacks provider terminal evidence"));
+        }
+        _ => {
+            return Err(ShenkoError::other("model outcome not conclusive; preserve original awaiting_model for reconciliation"));
+        }
+    }
+    if let Some(send_id) = send_id {
+        settle_quota_terminal(&state.store, result, result.request_id, send_id);
+    }
+    Ok(())
+}
+
 /// One projection for both live admission and restart. The existing frozen
 /// request, not a second copy of the preparer's plan, owns these identities.
 fn contribution_usage(
@@ -1872,12 +1860,10 @@ enum AwaitingRecovery {
     /// The terminal evidence of this step's own request already exists: the
     /// result is adopted. No new send happens.
     Adopted { output: String, stop_reason: String },
-    /// The request provably never left the process: the same sealed step may
-    /// arm a new attempt.
-    NeverDispatched,
-    /// The outcome is unknown: the step is reconciled and the spent debt
-    /// stays recorded. It is never re-sent under the same identity.
-    DispatchLost,
+    /// A positive retry fact was committed. The next invocation uses the
+    /// legal RetryPending transition and a new request identity; unknown
+    /// dispatched debt is never released by that transition.
+    RetryRecorded,
 }
 
 /// Consult the durable receipts of this step's own attempts. The terminal
@@ -1889,30 +1875,20 @@ fn recover_awaiting_model(
 ) -> Result<AwaitingRecovery, ShenkoError> {
     let store = Arc::clone(&state.store);
     let attempts = store.subject_request_attempts_for_step(state.agent_id, step.step_id)?;
-    // A terminal receipt of this step's OWN request is the result. It is
-    // read, never re-requested.
-    for attempt in attempts.iter().rev() {
-        if attempt.state != SubjectRequestState::Terminal {
-            continue;
-        }
+    let request_id = step.active_request_id
+        .ok_or_else(|| ShenkoError::conflict("awaiting step has no active request"))?;
+    let attempt = attempts.iter().find(|attempt| attempt.request_id == request_id)
+        .ok_or_else(|| ShenkoError::conflict("awaiting request has no durable attempt"))?;
+    // Older rejected attempts must not override a later active request. Read
+    // the exact original receipt of the currently awaited identity only.
+    if attempt.state == SubjectRequestState::Terminal {
         let Some(result) = crate::subject_receipt::read_terminal_result(&store, attempt)
             .map_err(|error| ShenkoError::storage(format!("{error:#}")))?
         else {
-            continue;
+            return Err(ShenkoError::conflict("terminal request has no sealed result"));
         };
-        if result.termination.kind == shenko_broker::request::TerminationKind::Unknown {
-            continue;
-        }
-        let binding = input
-            .provider_binding
-            .as_ref()
-            .ok_or_else(|| ShenkoError::conflict("recovered request has no sealed binding"))?;
-        if !result.effective.matches_seal(binding, &input.payload) {
-            return Err(ShenkoError::conflict(
-                "recovered model result does not match the sealed request",
-            ));
-        }
-        let request_id = attempt.request_id;
+        if result.termination.kind != shenko_broker::request::TerminationKind::Unknown {
+        admit_model_result(state, input, &result, attempt.send_id)?;
         let (output, stop_reason) = record_model_evidence(
             &store,
             step,
@@ -1923,12 +1899,11 @@ fn recover_awaiting_model(
         )?;
         state.step = step.clone();
         return Ok(AwaitingRecovery::Adopted { output, stop_reason });
+        }
     }
-    // No terminal receipt. Did the request ever leave this process?
-    if attempts
-        .iter()
-        .any(|attempt| attempt.state == SubjectRequestState::Dispatched)
-    {
+    // Only an Armed row proves the dispatch boundary never passed. Terminal
+    // records carrying Unknown remain uncertain, just like Dispatched rows.
+    if attempt.state != SubjectRequestState::Armed {
         // The outcome is unknown. The spent send stays armed and unsettled,
         // and the next attempt gets a NEW request identity.
         record_retry(
@@ -1937,11 +1912,13 @@ fn recover_awaiting_model(
                 reason: "the original request left the process without terminal evidence".into(),
             },
         )?;
-        return Ok(AwaitingRecovery::DispatchLost);
+        return Ok(AwaitingRecovery::RetryRecorded);
     }
     // The request provably never dispatched: the send boundary never
-    // passed. The same sealed step may arm a new attempt.
-    Ok(AwaitingRecovery::NeverDispatched)
+    // passed. Persist that fact through the existing legal retry transition;
+    // do not attempt AwaitingModel -> AwaitingModel or reuse the old identity.
+    record_retry(state, InferenceRetryFact::NeverDispatched)?;
+    Ok(AwaitingRecovery::RetryRecorded)
 }
 
 #[cfg(test)]
