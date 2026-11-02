@@ -15,7 +15,10 @@
 //! * **catch_up** — the candidate imports the facts committed after the
 //!   copy.
 //! * **smoke** — the candidate program actually starts against its own copy
-//!   and reports readiness.
+//!   and reports readiness. A failed or absent report is an error that stops
+//!   the preparation: no activation record is created for it. The swap still
+//!   re-reads the sealed report before quiescing, so a record whose saved
+//!   evidence failed or is missing can never replace the working runtime.
 //! * **handoff** — the subject pauses at a boundary, the participants release
 //!   their resources, the candidate imports the final watermark and the
 //!   selector swaps in one ledger transaction.
@@ -825,6 +828,15 @@ impl UpdateService {
             ));
         }
 
+        // 0b. The sealed smoke evidence must actually say the candidate
+        //     passed, and it must name this activation's target generation.
+        //     A failed, absent or foreign report refuses the swap before
+        //     anything is quiesced: the working runtime is never replaced
+        //     by a candidate its own smoke rejected (docs/specs/self-update.md:
+        //     "a missing/malformed manifest, failed command or failed report
+        //     is an error").
+        self.verify_smoke_evidence(&record)?;
+
         // 1. The subject pauses at a boundary; a running primary is fenced
         //    here, a stopped one has already stopped admitting decisions.
         let quiesce_request = self.quiesce_subject(record.agent_id, activation_id).await?;
@@ -1069,6 +1081,10 @@ impl UpdateService {
 
         // 3. A new activation record back to the old generation.
         let previous_manifest = slots::read_slot_manifest(&previous_slot).map_err(anyhow::Error::from)?;
+        // The retained executable must pass its smoke against the older
+        // copy exactly like a forward candidate: a failed or absent report
+        // is an error and no rollback record is created for it. The working
+        // runtime stays selected and its quiesced writers are resumed.
         let rollback_smoke = smoke::launch_smoke(
             Path::new(previous_manifest.artifact_path.as_ref().context("retained rollback executable missing")?),
             &previous_slot, &record.from_generation,
@@ -1213,6 +1229,57 @@ impl UpdateService {
         UpdateError::Other(anyhow::anyhow!("activation abandoned: {detail}"))
     }
 
+    /// Re-read the sealed smoke evidence of a Smoke-phase activation and
+    /// refuse the swap when it is missing, reports a failure, or names a
+    /// generation other than this record's target. The refusal abandons the
+    /// activation with the outcome named in `last_error_ref`; integrity or
+    /// decoding failures stay loud errors instead.
+    fn verify_smoke_evidence(&self, record: &ActivationRecord) -> UpdateResult<()> {
+        let evidence = match record.smoke_evidence_ref.as_ref() {
+            Some(evidence) => evidence,
+            None => {
+                return Err(self.refuse_smoke(
+                    record,
+                    "the activation has no saved smoke report; a missing report is not a pass",
+                ));
+            }
+        };
+        let bytes = self
+            .store
+            .cas
+            .read_object(&evidence.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(
+            Digest::blake3(&bytes) == evidence.digest && bytes.len() as u64 == evidence.bytes,
+            "smoke evidence reference integrity mismatch"
+        );
+        let report: SmokeReport = serde_json::from_slice(&bytes).map_err(anyhow::Error::from)?;
+        if !report.passed {
+            return Err(self.refuse_smoke(
+                record,
+                &format!("the saved smoke report did not pass: {}", smoke::describe_failure(&report)),
+            ));
+        }
+        if report.generation != record.to_generation.0 {
+            return Err(self.refuse_smoke(
+                record,
+                &format!(
+                    "the saved smoke report names generation {}, not this activation's target {}",
+                    report.generation, record.to_generation.0
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Abandon an activation whose smoke evidence does not qualify it, then
+    /// return the refusal. The saved failure becomes the record's
+    /// `last_error_ref`, so the decision stays inspectable afterwards.
+    fn refuse_smoke(&self, record: &ActivationRecord, detail: &str) -> UpdateError {
+        let _ = self.fail_open(record.clone(), detail.to_string());
+        UpdateError::SmokeFailed(detail.to_string())
+    }
+
     fn state_slot(&self, state_ref: &ObjectRef) -> UpdateResult<PathBuf> {
         let bytes = self.store.cas.read_object(&state_ref.digest).map_err(anyhow::Error::from)?;
         ensure!(Digest::blake3(&bytes) == state_ref.digest && bytes.len() as u64 == state_ref.bytes,
@@ -1320,3 +1387,7 @@ pub fn delta_migrator_ref() -> VersionRef {
         },
     }
 }
+
+#[cfg(test)]
+#[path = "handoff_tests.rs"]
+mod handoff_tests;
