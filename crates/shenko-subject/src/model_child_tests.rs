@@ -5,7 +5,7 @@ use crate::{ModelChildHandler, NativeChildService};
 use shenko_broker::{broker::{Broker, BrokerHandle}, local_provider::LocalModelProvider};
 use shenko_store::{Store, external::MODEL_CHILD_STEP_OPERATION};
 use shenko_types::{ids::*, operation::OperationState, task::*};
-use std::{sync::Arc, time::{Duration, Instant}};
+use std::{sync::Arc, time::Duration};
 use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}};
 
 async fn read_wire(socket: &mut TcpStream) -> serde_json::Value {
@@ -59,81 +59,14 @@ fn child_step(store: &Store, task_id: EntityId) -> shenko_types::operation::Oper
         .expect("the child run has at least one model step")
 }
 
-/// The dispatch loop performs real durable writes and real provider round
-/// trips. A pure wall-clock budget turns slow but correct progress into a
-/// false failure whenever the host is busy, so the bound measures what it
-/// means to measure: a stalled dispatch stops producing durable progress,
-/// and a diverging dispatch never converges at all.
-const CONVERGENCE_STALL: Duration = Duration::from_secs(30);
-const CONVERGENCE_CAP: Duration = Duration::from_secs(120);
-
-/// The liveness bound of one dispatch convergence.
-struct ConvergenceGuard {
-    stall: Duration,
-    cap: Duration,
-    started: Instant,
-    advanced: Instant,
-    signature: u64,
-}
-
-impl ConvergenceGuard {
-    fn new(stall: Duration, cap: Duration) -> Self {
-        let now = Instant::now();
-        Self { stall, cap, started: now, advanced: now, signature: 0 }
-    }
-
-    /// Observe the durable signature of the dispatch. A changed signature is
-    /// real durable progress and restarts the stall window.
-    fn observe(&mut self, signature: u64) -> Result<(), String> {
-        if signature != self.signature {
-            self.signature = signature;
-            self.advanced = Instant::now();
+async fn drive_until(service: &Arc<NativeChildService>, done: impl Fn() -> bool) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            service.run_once().await.unwrap();
+            if done() { break; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        if self.advanced.elapsed() > self.stall {
-            return Err(format!("no durable progress for {:?} (signature {})", self.stall, self.signature));
-        }
-        if self.started.elapsed() > self.cap {
-            return Err(format!("no convergence within {:?} (signature {})", self.cap, self.signature));
-        }
-        Ok(())
-    }
-}
-
-/// Drive the native service until `done` holds. `progress` reports a durable
-/// signature that only changes when the store really advanced.
-async fn drive_until(
-    service: &Arc<NativeChildService>,
-    progress: impl Fn() -> u64,
-    done: impl Fn() -> bool,
-) {
-    let mut guard = ConvergenceGuard::new(CONVERGENCE_STALL, CONVERGENCE_CAP);
-    loop {
-        service.run_once().await.unwrap();
-        if done() { break; }
-        guard.observe(progress()).expect("bounded model child mechanics did not converge");
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-}
-
-/// The convergence bound must keep rejecting a dispatch that stops advancing
-/// and a dispatch that never converges, so a load-tolerant guard can never
-/// become a guard that never fails.
-#[tokio::test]
-async fn convergence_bound_rejects_a_stalled_and_a_diverging_dispatch() {
-    let mut stalled = ConvergenceGuard::new(Duration::from_millis(20), Duration::from_secs(5));
-    assert!(stalled.observe(0).is_ok());
-    tokio::time::sleep(Duration::from_millis(40)).await;
-    assert!(stalled.observe(0).is_err(), "a dispatch that stops producing durable progress must still fail");
-
-    let mut advancing = ConvergenceGuard::new(Duration::from_millis(60), Duration::from_secs(5));
-    assert!(advancing.observe(0).is_ok());
-    tokio::time::sleep(Duration::from_millis(40)).await;
-    assert!(advancing.observe(1).is_ok(), "durable progress restarts the stall window");
-
-    let mut diverging = ConvergenceGuard::new(Duration::from_secs(30), Duration::from_millis(20));
-    assert!(diverging.observe(0).is_ok());
-    tokio::time::sleep(Duration::from_millis(40)).await;
-    assert!(diverging.observe(1).is_err(), "a dispatch that never converges must still fail");
+    }).await.expect("bounded model child mechanics did not converge");
 }
 
 #[tokio::test]
@@ -158,11 +91,7 @@ async fn distinct_authored_children_use_selected_wire_and_reopen_owned_results()
     commit_output(&store, &mut subject, 1, &[], &format!("{first}\n{second}\n两项有限研究已委派。")).await;
     let native = service(&store, handle.clone(), subject.head.software_generation.clone());
     let run = tokio::spawn(broker.run());
-    drive_until(
-        &native,
-        || store.ready_native_results(agent, 8).unwrap().len() as u64,
-        || store.ready_native_results(agent, 8).unwrap().len() == 2,
-    ).await;
+    drive_until(&native, || store.ready_native_results(agent, 8).unwrap().len() == 2).await;
     let wires = [wires_rx.recv().await.unwrap(), wires_rx.recv().await.unwrap()];
     server.await.unwrap();
     let results = store.ready_native_results(agent, 8).unwrap();
@@ -287,12 +216,7 @@ async fn uncertain_child_restores_original_debt_and_never_redispatches() {
     assert_eq!(wire["model"], "uncertain-child");
     let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
     let operation_id = child_step(&store, task.task_id).operation_id;
-    drive_until(
-        &native,
-        || store.external_operation_evidence(operation_id).unwrap().len() as u64
-            + store.external_operation_attempts(operation_id).unwrap().len() as u64,
-        || store.external_operation(operation_id).unwrap().state == OperationState::Reconciling,
-    ).await;
+    drive_until(&native, || store.external_operation(operation_id).unwrap().state == OperationState::Reconciling).await;
     let original = store.external_operation(operation_id).unwrap();
     let attempt = store.external_operation_attempt(operation_id).unwrap();
     assert_eq!(handle.active_count(), 1);
@@ -428,11 +352,7 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
     };
     store.arm_quota_send(selected.request_id, &admission).unwrap();
     release_tx.send(()).unwrap(); server.await.unwrap();
-    drive_until(
-        &native,
-        || store.external_operation_evidence(operation_id).unwrap().len() as u64,
-        || store.native_task_result(task.task_id).unwrap().is_some(),
-    ).await;
+    drive_until(&native, || store.native_task_result(task.task_id).unwrap().is_some()).await;
     let result = store.native_task_result(task.task_id).unwrap().unwrap();
     assert_eq!(result.result.as_ref().unwrap()["termination"], "completed");
     assert!(result.result.as_ref().unwrap()["answer"].as_str().unwrap().contains("scripted quota-bound cloud result"));
