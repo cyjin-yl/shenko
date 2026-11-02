@@ -546,9 +546,14 @@ impl CognitionCatalog {
         let facts = self.node.lock().installed_unit_facts()?;
         let bytes = serde_json::to_vec(&facts)?;
         let digest = Digest::blake3(&bytes);
-        let hex = digest.0.as_str();
+        // The digest carries its algorithm ("blake3:<64 hex>"): only the
+        // canonical hexadecimal part is a number. Parsing the whole string
+        // always failed and reported revision zero for every installation.
+        let hex = digest
+            .canonical_blake3_hex()
+            .context("catalog revision digest is not canonical")?;
         let width = hex.len().min(16);
-        Ok(u64::from_str_radix(&hex[..width], 16).unwrap_or(0))
+        u64::from_str_radix(&hex[..width], 16).context("catalog revision is not a number")
     }
 
     /// Re-read the installation authority.

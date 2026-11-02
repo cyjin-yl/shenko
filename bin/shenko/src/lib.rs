@@ -1467,7 +1467,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 Arc::clone(&cognition_node),
             ));
             let cognition_root = shenko_awareness_core::cognition_package_root(&data_dir);
+            // A shipped seed is bootstrap material, not authority over this
+            // installation. A unit that is already installed keeps its own
+            // version, its enable state and its observations.
+            let installed_units: std::collections::HashSet<String> = cognition
+                .units()?
+                .into_iter()
+                .map(|unit| unit.unit_id)
+                .collect();
             for package in shenko_awareness_core::seed_packages()? {
+                if installed_units.contains(&package.unit_id) {
+                    info!(unit = %package.unit_id, revision = %package.revision, "cognition seed already installed; keeping the installation's own version");
+                    continue;
+                }
                 cognition.install(&package, &cognition_root)?;
                 info!(unit = %package.unit_id, revision = %package.revision, "cognition seed installed");
             }

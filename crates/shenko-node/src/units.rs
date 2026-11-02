@@ -1216,6 +1216,21 @@ impl Node {
                             set_config_section(&mut descriptor.config, "cognition", "adoption", adoption);
                         }
                     }
+                    // The observations this installation recorded against
+                    // this exact artifact identity are its own facts. A
+                    // re-import of the same bytes must not drop them.
+                    if let Some(observations) =
+                        old.unit.config.pointer("/cognition/observations").cloned()
+                    {
+                        if descriptor.config.pointer("/cognition/observations").is_none() {
+                            set_config_section(
+                                &mut descriptor.config,
+                                "cognition",
+                                "observations",
+                                observations,
+                            );
+                        }
+                    }
                 }
                 // Package bytes reuse the existing inline object store.
                 if external_artifact_of(&descriptor).is_none() {
@@ -1257,13 +1272,28 @@ impl Node {
                 // The first package for an identity chooses its current
                 // version; the declared root is explicitly first among root
                 // versions. Other retained closure members do not overwrite it.
-                let choose_current = index == root_index || (descriptor.unit_id != export.root_unit_id
-                    && !members[..index].iter().any(|(unit, _, _, _)| unit.unit_id == descriptor.unit_id));
+                let current_row: Option<(String, String, i64)> = tx.query_row(
+                    "SELECT revision,artifact_digest,enabled FROM unit_current WHERE unit_id=?1",
+                    params![descriptor.unit_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                ).optional()?;
+                let already_held = old_version.is_some();
+                let current_revision = current_row.as_ref().map(|row| row.0.clone()).unwrap_or_default();
+                let current_digest = current_row.as_ref().map(|row| row.1.clone()).unwrap_or_default();
+                let current_names_other = current_revision != descriptor.revision
+                    || current_digest != descriptor.artifact_digest.0;
+                let choose_current = (index == root_index || (descriptor.unit_id != export.root_unit_id
+                    && !members[..index].iter().any(|(unit, _, _, _)| unit.unit_id == descriptor.unit_id)))
+                    && !(already_held && current_names_other);
                 if choose_current {
-                    let previous_enabled = tx.query_row(
-                        "SELECT enabled FROM unit_current WHERE unit_id=?1", [&descriptor.unit_id], |r| r.get::<_, i64>(0),
-                    ).optional()?.unwrap_or(0) != 0;
-                    let enabled = if index == root_index { enable.unwrap_or(previous_enabled) } else { previous_enabled };
+                    let previous_enabled = current_row.as_ref().map(|row| row.2 != 0).unwrap_or(false);
+                    let enabled = if already_held {
+                        previous_enabled
+                    } else if index == root_index {
+                        enable.unwrap_or(previous_enabled)
+                    } else {
+                        previous_enabled
+                    };
                     tx.execute(
                     "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
                      VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id) DO UPDATE SET \
