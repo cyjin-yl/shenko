@@ -409,6 +409,17 @@ async fn a_silent_answer_settles_with_exactly_one_durable_decision() -> Result<(
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn an_unroutable_reminder_fails_without_committing_a_poisoned_decision() -> Result<()> {
+    let attempt = attempt(r#"{"decision":"remind","content":"Keep external IDs lossless.","provenance":["fixture:source"],"relevance":"the current migration","scope":"迁移导出的数值处理与提交实现","expires_in_secs":600}"#).await?;
+    assert_eq!(attempt.operation.state, OperationState::Resolved);
+    assert_eq!(attempt.outcome, Some(OperationOutcome::Failed));
+    assert!(matches!(attempt.task_outcome, Some(TaskOutcome::Failed { .. })));
+    assert!(attempt.decision.is_none(), "invalid routing must not poison pending reminder preparation");
+    assert_eq!(attempt.requests, 1, "refusal does not resend the original inference");
+    Ok(())
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn reminder_batches_are_scoped_and_rebind_after_plugin_restart() -> Result<()> {
     use shenko_context_policy::{ContributionHost, ContributionRegistry, scope_wide};
     use shenko_memory::{ReminderPublisher, intervention_runtime::{

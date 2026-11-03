@@ -54,7 +54,9 @@ pub const INTERVENTION_ROLE: &str = "\
 你没有任何工具、文件、shell、网络或发信入口，也不能接管主体的计划；你只输出一个决定。
 决定只有两种：
 1) 保持沉默：现在没有值得打断工作的事实。
-2) 给出一条提醒：内容、出处（必须引用观察到的记忆条目 id 或来源）、相关性、作用范围、有效期秒数。
+2) 给出一条提醒：内容、出处、相关性、投递地址、有效期秒数。
+provenance 至少逐字引用一个可见 bank 条目的 entry_id 或 source_refs 值，不添加 entry_id: 等前缀，不编造出处。
+scope 是投递地址而非自然语言描述：从 allowed_reminder_scopes 中逐字选择一个值。subject 表示提醒主体；epoch:<当前 epoch_id> 表示提醒拥有这条研究线的执行者，不拼接 lineage 或解释文字。
 相关性指这条提醒与当前正在推进的工作/研究线的关系；不需要论证它对用户个人兴趣是否重要，也不需要请求任何批准。
 如果没有把握，保持沉默比编造提醒更好。
 只输出一个 JSON 对象，不要解释，不要 markdown 代码块之外的内容：\
@@ -222,6 +224,7 @@ impl ModelMemoryInterventionPolicy {
         let user = serde_json::json!({
             "epoch_id": observation.epoch_id.to_string(),
             "lineage_id": observation.lineage_id.to_string(),
+            "allowed_reminder_scopes": [SUBJECT_SCOPE.to_string(), epoch_scope(observation.epoch_id)],
             "now_ms": observation.now_ms,
             "trajectory": trajectory,
             "bank": bank,
@@ -303,18 +306,15 @@ impl ModelMemoryInterventionPolicy {
                         "a reminder needs at least one provenance reference".to_string(),
                     ));
                 }
-                let known: Vec<String> = observation
-                    .bank
-                    .iter()
-                    .map(|entry| entry.entry_id.to_string())
-                    .collect();
-                if !known.is_empty()
-                    && !provenance
-                        .iter()
-                        .any(|item| known.iter().any(|entry| entry == item))
+                let visible = &observation.bank[..observation.bank.len().min(observation.budget.max_bank_entries)];
+                if !visible.is_empty()
+                    && !provenance.iter().any(|reference| visible.iter().any(|entry| {
+                        reference.parse::<EntityId>().ok() == Some(entry.entry_id)
+                            || entry.source_refs.iter().any(|source| source == reference)
+                    }))
                 {
                     return Err(InterventionError::InvalidDecision(
-                        "a reminder must reference an observed bank entry".to_string(),
+                        "a reminder must reference a visible bank entry or its exact source".to_string(),
                     ));
                 }
                 let relevance = object
@@ -337,6 +337,8 @@ impl ModelMemoryInterventionPolicy {
                         "a reminder needs a scope".to_string(),
                     ));
                 }
+                shenko_store::validate_intervention_scope(observation.epoch_id, scope)
+                    .map_err(|error| InterventionError::InvalidDecision(error.to_string()))?;
                 let expires_in_secs = object.get("expires_in_secs").and_then(|value| value.as_u64());
                 if expires_in_secs == Some(0) {
                     return Err(InterventionError::InvalidDecision(

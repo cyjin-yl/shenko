@@ -91,3 +91,39 @@ fn explicitly_reusable_material_keeps_its_deadline_without_being_consumed() {
     assert_eq!(registry.collect(&scope, 199).contributions, vec![item]);
     assert!(registry.collect(&scope, 200).contributions.is_empty());
 }
+
+#[test]
+fn reminder_addresses_and_provenance_are_bound_to_the_visible_observation() {
+    use shenko_memory::{BankSnapshot, InterventionBudget, InterventionDecision,
+        InterventionObservation, ModelMemoryInterventionPolicy};
+    let epoch = EntityId::new();
+    let visible_id = EntityId::new();
+    let hidden_id = EntityId::new();
+    let observation = InterventionObservation {
+        epoch_id: epoch, lineage_id: EntityId::new(), now_ms: 100,
+        budget: InterventionBudget { max_bank_entries: 1, ..Default::default() },
+        trajectory: vec![],
+        bank: vec![
+            BankSnapshot { entry_id: visible_id, kind: "requirement".into(), content: "Preserve IDs.".into(),
+                source_refs: vec!["record:visible".into()], scope: format!("epoch:{epoch}"), confidence: Some(1.0), age_ms: 1 },
+            BankSnapshot { entry_id: hidden_id, kind: "requirement".into(), content: "Not shown to the worker.".into(),
+                source_refs: vec!["record:hidden".into()], scope: format!("epoch:{epoch}"), confidence: Some(1.0), age_ms: 1 },
+        ],
+    };
+    let answer = |scope: &str, source: &str| serde_json::json!({
+        "decision":"remind", "content":"Preserve IDs.", "relevance":"current work",
+        "scope":scope, "provenance":[source], "expires_in_secs":600,
+    }).to_string();
+    for source in [visible_id.to_string(), "record:visible".into()] {
+        let decision = ModelMemoryInterventionPolicy::parse_decision(&answer(&format!("epoch:{epoch}"), &source), &observation).unwrap();
+        let InterventionDecision::Remind { provenance, scope, .. } = decision else { panic!("lost reminder") };
+        assert_eq!(provenance, vec![source]);
+        assert_eq!(scope, format!("epoch:{epoch}"));
+    }
+    for scope in ["current migration".into(), format!("epoch:{}", EntityId::new()), format!("epoch:{epoch} / lineage:extra")] {
+        assert!(ModelMemoryInterventionPolicy::parse_decision(&answer(&scope, "record:visible"), &observation).is_err());
+    }
+    for source in [hidden_id.to_string(), "record:hidden".into(), format!("entry_id:{visible_id}")] {
+        assert!(ModelMemoryInterventionPolicy::parse_decision(&answer("subject", &source), &observation).is_err());
+    }
+}
