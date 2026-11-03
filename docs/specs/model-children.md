@@ -20,7 +20,7 @@ CLI、Store、broker 的验证不等于真实模型行为验收，也不覆盖�
 
 | 事实 | 归属 | 持久位置 |
 | --- | --- | --- |
-| 冻结的 child 合同（契约 schema 2） | 委派者写、运行器绑定 | `subject_intents` 的 delegation 行 + CAS 对象 |
+| 冻结的 child 合同（契约 schema 3；历史 schema 2 的读取见 §6） | 委派者写、运行器绑定 | `subject_intents` 的 delegation 行 + CAS 对象 |
 | 每个模型步（一次真实 generation） | child 自己的 operation/attempt/evidence | `operations` / `attempts` / `evidence_receipts`，operation 名 `model.child.generate.v1` |
 | 每次工具调用 | 一个**真实的** native 子任务 | `tasks`（kind = 工具 kind，owner = child 任务） |
 | 运行结果（transcript、答案、预算、终止原因） | child 的 run operation | operation 名 `model.child.result.v1` + 其 normalized 记录 |
@@ -70,7 +70,7 @@ child 的每步预算、工具选择、上下文与语义 prompt 全部**独立�
 
 ## 3. 冻结合同与指纹
 
-`FrozenModelChild`（契约 schema 2）是 child 的冻结身份，内容包括：
+`FrozenModelChild`（当前契约 schema 3）是 child 的冻结身份，内容包括：
 
 * `task_id`、`created_by_step_id`、`software_generation`、`role_revision`；
 * `spec`（作者写的全部选择）、`provider_binding`（transport + 选定 model 的确切绑定）；
@@ -84,10 +84,10 @@ provider 绑定、决定内容、预算提示一致；不一致即拒绝该委�
 运行器在执行前再次用 `FrozenModelChild::validate` 重建并全等比较。
 
 该准入同时读取主体的 **FrozenStepInput plan schema**（当前 = 12，与 Subject 的统一切换
-一起移动）。child 合同 schema 2 必须绑定到同一个 plan schema；用旧 plan 封存的 child
+一起移动）。child 合同必须绑定到同一个 plan schema；用旧 plan 封存的 child
 委派会被拒绝，不会被"宽容读取"。
 
-每个模型步另有自己的冻结输入 `FrozenModelChildStep`（step schema 1），它携带
+每个模型步另有自己的冻结输入 `FrozenModelChildStep`（当前 step schema 2；历史读取见 §7.1），它携带
 `contract_digest`（= 冻结合同的 digest）、`request_id`、该步的 `provider_binding`、
 `max_tokens` 和**实际发出的 payload** 与其 `payload_fingerprint`。账本上每个 step
 operation 的 `final_input_ref` 指向它，`input_digest == final_input_ref.digest`。
@@ -175,9 +175,10 @@ id 属于哪一类受众"，**永远不是账号**；把它当账号会让授权
 或数字 id 的目标在通道侧根本无法绑定，因此不再作为可用写法出现在语法里。
 
 冻结合同版本随之升级：`FrozenModelChild` 的 schema 2 → 3。schema 2 的历史合同保留
-它自己的旧账号推导（audience kind），因此已封存的运行仍能按原样恢复，不会被新语义
-改写；schema 3 的合同记录账号命名空间。Store 的准入同时认识两个版本，并按封存时的
-版本核对授权，不会用新规则去解释旧合同。
+它自己的旧账号推导（audience kind），校验时不会被新语义改写；schema 3 的合同记录
+账号命名空间。Store 的准入同时认识两个版本，并按封存时的版本核对授权。
+这不是所有历史运行都能在新二进制接续的证明：恢复还依赖被冻结的 handler artifact
+可用，重新构造 schema 2 再校验的测试不能替代真实旧记录的恢复观察。
 
 发布复用主体的 native publication 任务链：`Store::admit_child_publication` 写入
 与主体 S1 发布同构的 `subject_intents`（`kind='publication'`，state=`ready`）与
@@ -216,9 +217,11 @@ child 回 `[reply] …`，CLI 自己的发布循环经插件 `describe`/`dispatc
 
 同一轮实测还暴露并修复了一个关机缺陷：关机时 CLI 先关闭 subject inbox，正在投递
 native 结果的 dispatcher 会看到 `channel closed`，把它当成失败、记一条
-`native_dispatcher` runtime error 并让进程以 1 退出。修复后 inbox 关闭只表示"本轮
-投递正常结束"（结果仍留在 Store，下次打开再投）。修复前后对照见
-`closed-inbox-before-after.json`。
+`native_dispatcher` runtime error 并让进程以 1 退出。当前实现把 closed send 当作
+本轮投递结束，解决了上述正常关机场景，结果仍留在 Store；修复前后对照见
+`closed-inbox-before-after.json`。这不是所有 inbox 关闭都正常的证明：公开的
+`Inbox::close()` 在运行中也能关闭接收端。区分预期停止与意外接收者丢失、保持后者
+错误可见的生命周期修复仍未完成，不能把持久结果存在等同于投递成功。
 
 ---
 
@@ -235,6 +238,32 @@ native 结果的 dispatcher 会看到 `channel closed`，把它当成失败、�
 **成功的含义**：child 的成功只证明"该定义的 generation 到达了终态边界"，不证明自然
 语言目标已达成。截断、拒绝、Unknown 分开记录（`ModelChildStepRecord.complete` 与
 `stop_reason`）。
+
+**失败传播**：沿用 generation 已有的接受条件：状态为成功、存在 provider 响应、
+终止类型为 `provider_terminal` 且 stop reason 为 `stop`/`end_turn`/`stop_sequence`。
+不满足时 `ModelChildStepRecord.complete = false`；正文空字符串本身不是新增拒绝条件。
+运行循环不执行该步输出的工具行或 `[reply]`，也不把它当空答案：run 以
+`termination = generation_failed` 收束，run-result operation 记 `Failed`，原 step 的
+outcome 与其原始 E1 保持不变。修复前 run 可能会被误记为 `Completed`/成功；
+真实试验 `child-channel-live-r3` 中主体使用 Coder390，但 child 请求了未服务的模型，
+原始 provider 回执为 HTTP 404，
+因此留下 `model.child.generate.v1 = failed` 而 `model.child.result.v1 = succeeded`
+的配对，见 `child-provider-terminal-facts-20261104.json`。旧记录不改写，新代码按
+原样读取。E1 已落盘但 run-result 尚未生成时，恢复按已有失败步收束，不发送下一步。
+完整 SPEC 验收、真实模型行为与所有恢复组合仍需分别验证。
+
+有限验证（2026-11-04）：`subject-controls-verification-r6` 的 65 项主体库回归通过，
+包括真实 broker 已落 E1、handler 不再被 poll、run-result 尚不存在时替换服务与
+重开 Store 的恢复用例；同一原始 step/receipt/E1 保留，没有第二次 provider 请求。
+同一保留 CLI 二进制分别运行脚本 HTTP 404 和 HTTP 200/`length` 场景，两者都是
+一次 child 请求、step/run 失败、`generation_failed`、零发布意图和零工具 operation。
+截断正文仍保留其解析出的工具行，但没有执行；解析计数不是执行回执。
+对应回执位于 `build/spec-architecture-20261101/` 下
+`child-generation-rejected-after-r1/receipt.json` 与
+`child-generation-truncated-after-r1/receipt.json`，均正常退出且进程组消失。
+旧二进制截断对照留下八个失败 generation 和一条带 child grant 的发布意图，最终
+run 因预算耗尽失败；这与上述 HTTP 404 的错误成功是两份不同证据，不代表消息已
+送到真实平台。这里没有真实模型、真实 IM 平台或物理掉电验收。
 
 同一个 invocation 的 T1 与发送记录会推进任务的 `record_revision`。下一模型步、工具
 调用或最终 run-result 操作必须读取新的记录版本，不能继续用最初 claim 的旧版本。

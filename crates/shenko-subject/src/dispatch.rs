@@ -42,13 +42,10 @@ pub async fn run_committed_dispatcher(
                                 created_at: chrono::Utc::now(),
                                 source: "native-child".into(),
                             };
-                            // A closed subject inbox means the subject is
-                            // shutting down or was replaced. The result
-                            // stays durable in the store for the next open,
-                            // so a closed inbox ends this delivery pass
-                            // normally instead of failing the dispatcher
-                            // and journalling a runtime error for a normal
-                            // shutdown.
+                            // This is a volatile delivery projection: the
+                            // original result remains durable on closure.
+                            // Closure alone does not identify why the
+                            // receiver stopped; it is not a success receipt.
                             if !deliver_native_result(task_result_tx, event, &cancel).await {
                                 break;
                             }
