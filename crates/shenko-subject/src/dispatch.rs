@@ -42,9 +42,15 @@ pub async fn run_committed_dispatcher(
                                 created_at: chrono::Utc::now(),
                                 source: "native-child".into(),
                             };
-                            tokio::select! {
-                                _ = cancel.cancelled() => break,
-                                result = task_result_tx.send(event) => result?,
+                            // A closed subject inbox means the subject is
+                            // shutting down or was replaced. The result
+                            // stays durable in the store for the next open,
+                            // so a closed inbox ends this delivery pass
+                            // normally instead of failing the dispatcher
+                            // and journalling a runtime error for a normal
+                            // shutdown.
+                            if !deliver_native_result(task_result_tx, event, &cancel).await {
+                                break;
                             }
                         }
                     }
@@ -66,5 +72,58 @@ pub async fn run_committed_dispatcher(
                 }
             }
         }
+    }
+}
+
+/// Deliver one durable native result into the subject inbox.
+///
+/// Returns false when the inbox is closed or the runtime is stopping. The
+/// result itself stays durable in the store, so the caller ends its delivery
+/// pass normally rather than reporting a failure.
+async fn deliver_native_result(
+    tx: &tokio::sync::mpsc::Sender<InboxEvent>,
+    event: InboxEvent,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> bool {
+    tokio::select! {
+        _ = cancel.cancelled() => false,
+        result = tx.send(event) => result.is_ok(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A closed inbox is a normal end of the delivery pass, not a failure.
+    #[tokio::test]
+    async fn a_closed_inbox_ends_the_delivery_without_an_error() {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        drop(rx);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let event = InboxEvent {
+            event_id: shenko_types::ids::EntityId::new(),
+            kind: InboxEventKind::TaskResult,
+            payload: serde_json::json!({}),
+            created_at: chrono::Utc::now(),
+            source: "test".into(),
+        };
+        assert!(!deliver_native_result(&tx, event, &cancel).await);
+    }
+
+    /// A live inbox still receives the result.
+    #[tokio::test]
+    async fn a_live_inbox_receives_the_result() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let event = InboxEvent {
+            event_id: shenko_types::ids::EntityId::new(),
+            kind: InboxEventKind::TaskResult,
+            payload: serde_json::json!({"ok": true}),
+            created_at: chrono::Utc::now(),
+            source: "test".into(),
+        };
+        assert!(deliver_native_result(&tx, event, &cancel).await);
+        assert_eq!(rx.recv().await.unwrap().kind, InboxEventKind::TaskResult);
     }
 }

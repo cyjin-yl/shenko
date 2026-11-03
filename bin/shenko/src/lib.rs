@@ -2003,7 +2003,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 inbox_ev.payload = serde_json::to_value(&envelope)?;
                             }
                             tokio::select! {
-                                sent = inbox_tx.send(inbox_ev) => sent.map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?,
+                                sent = inbox_tx.send(inbox_ev) => {
+                                    // A closed subject inbox during shutdown
+                                    // is not an admission failure: the
+                                    // ingress event stays pending in the
+                                    // durable spool and is admitted on the
+                                    // next open.
+                                    if sent.is_err() { break; }
+                                }
                                 _ = cancel_events.cancelled() => break,
                             }
                         }
