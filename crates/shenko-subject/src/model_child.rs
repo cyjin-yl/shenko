@@ -48,7 +48,9 @@ use shenko_types::{
     ids::*,
     object::*,
     operation::*,
-    output::{ModelChildBudget, ModelChildSpec, ModelChildTool, PublicationTarget},
+    output::{
+        ModelChildBudget, ModelChildReplyGrant, ModelChildSpec, ModelChildTool, PublicationTarget,
+    },
     subject::{BudgetHint, DelegationIntent, PublicationIntent, ReplyGrant},
     task::*,
 };
@@ -70,7 +72,11 @@ const ROLE: &str = "model-child/tool-agent@2";
 /// The frozen child contract version. Schema 2 replaced the single frozen
 /// generation with a frozen RUN contract: the step payloads are derived from
 /// it, one durable operation per step.
-const CONTRACT_SCHEMA: u32 = 2;
+const CONTRACT_SCHEMA: u32 = 3;
+/// The contract version that still derived the outbound account from the
+/// target's audience kind. Sealed contracts of that version keep their own
+/// derivation, so a historical run still recovers exactly as it was sealed.
+const LEGACY_CONTRACT_SCHEMA: u32 = 2;
 /// The frozen step input version.
 const STEP_SCHEMA: u32 = 2;
 /// Bounded text kept from one model result.
@@ -79,11 +85,6 @@ const MAX_STEP_TEXT_BYTES: usize = 64 * 1024;
 const MAX_TOOL_RESULT_BYTES: usize = 16 * 1024;
 /// The whole transcript kept in one step payload.
 const MAX_TRANSCRIPT_BYTES: usize = 256 * 1024;
-/// The publication contract the subject's own replies use. A child reply is
-/// admitted through the very same intent/task rows, so the installed channel
-/// plugin dispatches it with the same service, the same durable publication
-/// states and the same receipts.
-const PUBLICATION_CONTRACT: &str = "shenko.napcat/onebot11-send/1";
 
 const ROLE_CONTRACT: &str = "运行角色：有明确任务边界的有限模型 child，不是持续主体，也没有第二条无限主动循环。\n\
 你可以分多步完成一个明确任务：每一步先判断还需要什么事实或真实效果，需要时用工具调用行请求一个已注册能力，拿到结果后继续下一步，最后给出结论。\n\
@@ -155,6 +156,26 @@ impl FrozenModelChild {
         generation: RuntimeGeneration,
         continued_from: Option<EntityId>,
     ) -> Result<Self> {
+        Self::build(
+            task_id,
+            step_id,
+            spec,
+            transport,
+            generation,
+            continued_from,
+            CONTRACT_SCHEMA,
+        )
+    }
+
+    fn build(
+        task_id: EntityId,
+        step_id: EntityId,
+        spec: ModelChildSpec,
+        transport: &ProviderBinding,
+        generation: RuntimeGeneration,
+        continued_from: Option<EntityId>,
+        schema: u32,
+    ) -> Result<Self> {
         ensure!(
             !spec.goal.trim().is_empty() && spec.goal.len() <= 64 * 1024,
             "invalid model child goal"
@@ -206,10 +227,19 @@ impl FrozenModelChild {
         // A transport default is not a maximum. Preserve the authored request;
         // the broker and provider admit it against actual resource facts.
         let provider_binding = transport.with_model(&spec.model)?;
-        let granted_account = spec
-            .reply_grant
-            .as_ref()
-            .map(|grant| grant.account.clone().unwrap_or_else(|| grant.target.kind.clone()));
+        if let Some(grant) = spec.reply_grant.as_ref() {
+            ensure!(
+                schema == LEGACY_CONTRACT_SCHEMA || !grant.contradicts_target_account(),
+                "reply grant account contradicts the account of its own publication target"
+            );
+        }
+        let granted_account = spec.reply_grant.as_ref().map(|grant| match schema {
+            LEGACY_CONTRACT_SCHEMA => grant
+                .account
+                .clone()
+                .unwrap_or_else(|| grant.target.kind.clone()),
+            _ => grant.account_namespace().to_string(),
+        });
         let reply_grant = spec.reply_grant.as_ref().map(|grant| ReplyGrant {
             grant_id: derived_id(
                 "shenko.model-child.reply-grant",
@@ -228,7 +258,7 @@ impl FrozenModelChild {
         let prompt_fingerprint = Digest::blake3(spec.system_prompt.as_bytes());
         let toolset_fingerprint = Digest::blake3(&serde_json::to_vec(&spec.tools)?);
         Ok(Self {
-            schema_version: CONTRACT_SCHEMA,
+            schema_version: schema,
             task_id,
             created_by_step_id: step_id,
             spec,
@@ -246,14 +276,26 @@ impl FrozenModelChild {
     }
 
     fn validate(&self) -> Result<()> {
-        let expected = Self::new(
-            self.task_id,
-            self.created_by_step_id,
-            self.spec.clone(),
-            &self.provider_binding,
-            self.software_generation.clone(),
-            self.continued_from,
-        )?;
+        let expected = match self.schema_version {
+            CONTRACT_SCHEMA => Self::new(
+                self.task_id,
+                self.created_by_step_id,
+                self.spec.clone(),
+                &self.provider_binding,
+                self.software_generation.clone(),
+                self.continued_from,
+            )?,
+            LEGACY_CONTRACT_SCHEMA => Self::build(
+                self.task_id,
+                self.created_by_step_id,
+                self.spec.clone(),
+                &self.provider_binding,
+                self.software_generation.clone(),
+                self.continued_from,
+                LEGACY_CONTRACT_SCHEMA,
+            )?,
+            other => anyhow::bail!("unsupported model child contract version {other}"),
+        };
         ensure!(self == &expected, "frozen model child contract mismatch");
         Ok(())
     }
@@ -412,6 +454,27 @@ fn plugin_id() -> EntityId {
     "de5bdc7a-ae54-45d5-948c-125f515f866d"
         .parse()
         .expect("fixed model child plugin UUID")
+}
+
+/// The delegation grammar the subject reads.
+///
+/// The outbound authority is described by the versioned publication target
+/// itself: `schema_version` 2, an opaque string id and the account
+/// namespace. An unversioned target or a numeric id cannot be bound to a
+/// channel at all, and the audience kind is not an account.
+fn delegation_grammar(profile_id: &str) -> String {
+    format!(
+        "有限模型 child 已注册（多步有界运行）：[delegate] {{\"goal\":\"…\",\"system_prompt\":\"你为该 child 独立写的完整语义 prompt\",\"model\":\"…\",\"max_tokens\":2048,\
+ \"tools\":[{{\"kind\":\"<已注册定义 kind>\",\"definition_version\":1}}],\
+ \"context\":[{{\"label\":\"…\",\"text\":\"…\"}}],\
+ \"budget\":{{\"max_total_tokens\":8192,\"max_steps\":8,\"max_tool_calls\":8}},\
+ \"reply_grant\":{{\"target\":{{\"schema_version\":2,\"channel\":\"…\",\"kind\":\"…\",\"id\":\"…\",\"account\":\"…\"}},\"allowed_message_types\":[\"text\"],\"expires_at\":\"…\"}},\
+ \"continue_task_id\":\"<先前已完成的 child 任务 id>\",\"owner_answer\":\"<你对它提问的回答>\"}}。\
+只有 goal/system_prompt/model/max_tokens 必填；tools 为空即纯文本 child；continue_task_id 与 owner_answer 必须同时出现（继续同一讨论）。\
+reply_grant 是可选的外发授权：target 必须是已注册通道的版本化目标——schema_version 固定 2，id 是平台不透明字符串（不要写数字），account 是账号命名空间（未知时留空字符串）；kind 是受众类别，不是账号。\
+child 每步一次真实 generation，可按 tools 调用**已注册**能力，工具结果回灌下一步；它自己的输出预算不受你本步上限限制，但受 transport 配置上限与它自己的 budget 限制。\
+当前 provider 通路为 {profile_id}；model 名称不代表已验证可用。T1/E1/T2 与主体共用 broker/资源域。"
+    )
 }
 
 fn contract_digest() -> Digest {
@@ -2077,16 +2140,7 @@ impl NativeTaskHandler for ModelChildHandler {
             },
             role_revision: ROLE.into(),
             authority_refs: vec!["model.inference.finite-tool-agent/v2".into()],
-            prompt_section: Some(format!(
-                "有限模型 child 已注册（多步有界运行）：[delegate] {{\"goal\":\"…\",\"system_prompt\":\"你为该 child 独立写的完整语义 prompt\",\"model\":\"…\",\"max_tokens\":2048,\
- \"tools\":[{{\"kind\":\"<已注册定义 kind>\",\"definition_version\":1}}],\
- \"context\":[{{\"label\":\"…\",\"text\":\"…\"}}],\
- \"budget\":{{\"max_total_tokens\":8192,\"max_steps\":8,\"max_tool_calls\":8}},\
- \"reply_grant\":{{\"target\":{{\"channel\":\"…\",\"kind\":\"…\",\"id\":1}},\"account\":\"…\",\"allowed_message_types\":[\"text\"],\"expires_at\":\"…\"}},\
- \"continue_task_id\":\"<先前已完成的 child 任务 id>\",\"owner_answer\":\"<你对它提问的回答>\"}}。\
-只有 goal/system_prompt/model/max_tokens 必填；tools 为空即纯文本 child；continue_task_id 与 owner_answer 必须同时出现（继续同一讨论）。\
-child 每步一次真实 generation，可按 tools 调用**已注册**能力，工具结果回灌下一步；它自己的输出预算不受你本步上限限制，但受 transport 配置上限与它自己的 budget 限制。\
-当前 provider 通路为 {}；model 名称不代表已验证可用。T1/E1/T2 与主体共用 broker/资源域。",
+            prompt_section: Some(delegation_grammar(
                 self.broker.binding().profile_id(),
             )),
         }
@@ -2263,4 +2317,120 @@ fn read_original_terminal(
         settle_quota_terminal(store, &result, step.request_id, send_id);
     }
     Ok(Some(result))
+}
+
+#[cfg(test)]
+mod grant_account_tests {
+    use super::*;
+
+    fn binding() -> ProviderBinding {
+        ProviderBinding::Local {
+            base_url: "http://127.0.0.1:1/v1".into(),
+            model: "scripted".into(),
+            allow_invalid_certs: false,
+            serializer_revision: 1,
+            default_max_tokens: 4096,
+        }
+    }
+
+    fn spec(target_account: &str, grant_account: Option<&str>) -> ModelChildSpec {
+        ModelChildSpec {
+            goal: "keep the external id".into(),
+            system_prompt: "you are the worker".into(),
+            model: "scripted".into(),
+            max_tokens: 256,
+            tools: vec![],
+            context: vec![],
+            budget: None,
+            reply_grant: Some(ModelChildReplyGrant {
+                target: PublicationTarget::new("qq", "group", "12345", target_account),
+                account: grant_account.map(str::to_string),
+                allowed_message_types: vec!["text".into()],
+                reply_to_event_id: None,
+                expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+            }),
+            continue_task_id: None,
+            owner_answer: None,
+        }
+    }
+
+    fn contract(
+        spec: ModelChildSpec,
+        schema: u32,
+    ) -> Result<FrozenModelChild> {
+        FrozenModelChild::build(
+            EntityId::new(),
+            EntityId::new(),
+            spec,
+            &binding(),
+            RuntimeGeneration("grant-account-test".into()),
+            None,
+            schema,
+        )
+    }
+
+    /// The audience kind names which kind of audience an id belongs to; the
+    /// account names the connector that owns the conversation.
+    #[test]
+    fn the_contract_binds_the_account_namespace_not_the_audience_kind() {
+        let frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
+        assert_eq!(frozen.schema_version, CONTRACT_SCHEMA);
+        let grant = frozen.reply_grant.as_ref().unwrap();
+        assert_eq!(grant.target_account, "qq:9");
+        assert_eq!(grant.target_provider, "qq");
+        assert_eq!(grant.target_conversation, "12345");
+    }
+
+    /// An explicit grant account that agrees with the target is kept.
+    #[test]
+    fn an_explicit_grant_account_wins_when_it_agrees() {
+        let frozen = contract(spec("qq:9", Some("qq:9")), CONTRACT_SCHEMA).unwrap();
+        assert_eq!(frozen.reply_grant.as_ref().unwrap().target_account, "qq:9");
+    }
+
+    /// A grant that names another account than its own target is refused
+    /// instead of being resolved by guesswork.
+    #[test]
+    fn a_contradicting_account_is_refused() {
+        let error = contract(spec("qq:10", Some("qq:9")), CONTRACT_SCHEMA).unwrap_err();
+        assert!(
+            error.to_string().contains("contradicts"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// A contract sealed before the account namespace was separated from the
+    /// audience kind still recovers exactly as it was sealed.
+    #[test]
+    fn a_legacy_contract_still_validates() {
+        let legacy = contract(spec("qq:9", None), LEGACY_CONTRACT_SCHEMA).unwrap();
+        assert_eq!(legacy.schema_version, LEGACY_CONTRACT_SCHEMA);
+        assert_eq!(
+            legacy.reply_grant.as_ref().unwrap().target_account,
+            "group",
+            "the legacy derivation named the audience kind"
+        );
+        legacy.validate().unwrap();
+        let current = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
+        assert_eq!(current.reply_grant.as_ref().unwrap().target_account, "qq:9");
+    }
+
+    /// An unknown contract version is not silently reinterpreted.
+    #[test]
+    fn an_unknown_contract_version_is_refused() {
+        let mut frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
+        frozen.schema_version = CONTRACT_SCHEMA + 1;
+        assert!(frozen.validate().is_err());
+    }
+
+    /// The grammar the subject reads must name the versioned target: an
+    /// unversioned target or a numeric id cannot be bound to a channel.
+    #[test]
+    fn the_delegation_grammar_names_the_versioned_target() {
+        let grammar = delegation_grammar("profile-under-test");
+        assert!(grammar.contains("\"schema_version\":2"), "{grammar}");
+        assert!(grammar.contains("\"id\":\"…\""), "{grammar}");
+        assert!(!grammar.contains("\"id\":1"), "{grammar}");
+        assert!(grammar.contains("profile-under-test"), "{grammar}");
+    }
 }

@@ -164,8 +164,20 @@ child 的 `[reply] 正文` 只有在它**确实被授予** `reply_grant` 时才�
 
 没有授权就不发布（不降级、不改投其它目标）。
 
-授权的账号绑定：`ModelChildReplyGrant.account` 显式给出账号；缺省时用目标的
-audience kind 作为账号（与主体自身回复的账号语义一致）。
+授权的账号绑定：账号命名空间属于**目标**。`PublicationTarget.account` 是拥有该会话
+的连接器账号；`ModelChildReplyGrant.account` 可以显式给出同一个账号，缺省（或空串）
+时用目标自己的账号。audience kind（`group`/`private`/`feishu-chat` …）只是"这个平台
+id 属于哪一类受众"，**永远不是账号**；把它当账号会让授权记录与实际投递账号不一致。
+显式账号与目标账号同时存在且不相等时，授权在冻结阶段被拒绝，不靠猜测定夺。
+
+授权里的目标是**版本化**的：`schema_version` 固定 2，`id` 是平台不透明字符串，`account`
+是账号命名空间（未知时留空字符串）。主体看到的委派语法给出的就是这个形状；未版本化
+或数字 id 的目标在通道侧根本无法绑定，因此不再作为可用写法出现在语法里。
+
+冻结合同版本随之升级：`FrozenModelChild` 的 schema 2 → 3。schema 2 的历史合同保留
+它自己的旧账号推导（audience kind），因此已封存的运行仍能按原样恢复，不会被新语义
+改写；schema 3 的合同记录账号命名空间。Store 的准入同时认识两个版本，并按封存时的
+版本核对授权，不会用新规则去解释旧合同。
 
 发布复用主体的 native publication 任务链：`Store::admit_child_publication` 写入
 与主体 S1 发布同构的 `subject_intents`（`kind='publication'`，state=`ready`）与
@@ -173,9 +185,11 @@ audience kind 作为账号（与主体自身回复的账号语义一致）。
 prepared/dispatched/confirmed/failed/unknown 状态与回执处理它。发布任务挂在主体的
 owner 链上（不是 child 任务上），因此 child 自己的完成**不会**被一次远端发送拖住。
 
-> 迁移边界：主体发布已使用 `CHANNEL_PUBLISH_CONTRACT`，child 的
-> `PUBLICATION_CONTRACT` 仍残留 `shenko.napcat/onebot11-send/1`。因此不能据共享
-> `PublicationTarget` 和任务表声称 child 的通用渠道发布已完成验收。
+> 迁移边界：child 回复与主体回复共用同一条通用渠道发布链（同一 `subject_intents`
+> /`subject_publication` 行、`CHANNEL_PUBLISH_CONTRACT`、同一组 prepared/dispatched/
+> confirmed/failed/unknown 状态），child 侧不再残留 `shenko.napcat/onebot11-send/1`
+> 这样的写死合同字符串。但这仍**不是**验收：child 的回复在真实非 QQ 插件上的完整
+> 外发链路（授权→发布→插件接受→回执）尚无原生与真实模型证据。
 
 ---
 
