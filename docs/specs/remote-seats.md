@@ -106,6 +106,10 @@ as `superseded` and keeps its history.
   blind-typed. The guarded `send-keys` re-checks the pane on the far side:
   the pane must exist, must not be dead, must still run the observed program
   and must still host the observed root process (`pane_replaced`).
+  A captured screen's final LF is a row terminator, not a live terminal
+  newline: a full-height capture must retain its first row. Both `1.` and
+  `1)` option markers retain their numeric input value; absence of a
+  highlight or cursor marker leaves the selected option unknown.
 * `ssh_pty` — managed remote agent over `native_transport::open_pty`. One
   single-owner pump feeds a `TerminalScreen` (full VT styles/grid,
   `terminal.rs`) and serializes writer commands, so writers never queue
@@ -114,6 +118,9 @@ as `superseded` and keeps its history.
   `extension_ui_request` (select/confirm/input), `extension_ui_response`,
   `agent_end{isTerminal}`. A remote timeout is recorded
   `externally_resolved`, not an agent decision.
+  Chunk assembly admits the first chunk's declared count and byte length,
+  and requires the complete observed length to match before allocating the
+  assembled payload; a parseable JSON prefix is not a complete message.
 * `claude_sdk` — managed Claude Code control protocol
   (`--input-format stream-json --output-format stream-json
   --permission-prompt-tool-name stdio`; `initialize` before the first user
@@ -135,6 +142,28 @@ durable claim, the live preflight, the arm and the closing evidence.
 handshake)` → `NativePtySession` (live `NativePtyEvent` stream, send/resize/
 signal/eof, `close(grace)` that counts post-close frames as `Protocol`
 interruption). The single-command `execute()` path is unchanged.
+
+### Explicit file-backed installation
+
+`shenko start --ssh-targets <installation.json>` installs the `ssh.native`
+task handler before native-child recovery. The
+`shenko.ssh.file-installation.v1` document names explicit targets, their
+selected private-key file, configured public key, known-hosts file and
+remote receipt root. It does not discover credentials or select a different
+node in place of the durable node-selection decision.
+
+`shenko ssh-public-identity --installation <installation.json> --target <id>`
+prints the configured public key and fingerprint with status
+`configured_unverified`. It runs before Store/Tokio startup and does not open
+the referenced key or trust file, authenticate, or claim possession of the
+key. Execution uses the selected key through a bounded zeroizing buffer and
+checks the configured public identity. This `ssh.native` path opens the key
+before TCP; it is distinct from `ssh.exec`'s KEX-before-key path.
+
+If the first reply is lost after the remote helper records its receipt,
+recovery queries that original operation and input digest. It does not
+upload again or create another attempt merely because local completion is
+unknown. A wrong pinned host key must not reach authentication or the helper.
 
 ## Schema cutover (one explicit step)
 

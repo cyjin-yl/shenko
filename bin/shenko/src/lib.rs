@@ -37,6 +37,13 @@ pub enum Command {
     /// Resume an immutable, installation-owned process handoff request.
     #[command(hide = true)]
     CompleteUpdate { request: PathBuf, digest: String },
+    /// Print the configured public SSH identity without opening a signer or connecting.
+    SshPublicIdentity {
+        #[arg(long)]
+        installation: PathBuf,
+        #[arg(long)]
+        target: String,
+    },
     /// Start Shenko agent with UI and continuous thought loop
     Start {
         #[arg(long, default_value = "7860")]
@@ -76,6 +83,9 @@ pub enum Command {
         /// one plugin personality. Requires --napcat-account.
         #[arg(long, env = "NAPCAT_CLI_URL", requires = "napcat_account")]
         napcat_cli_url: Option<String>,
+        /// Explicit native SSH target installation; no ambient identity discovery.
+        #[arg(long)]
+        ssh_targets: Option<PathBuf>,
     },
     /// Show or edit the instance's name, soul and personality — SPEC §6.
     /// Every edit is a new revision of the same agent; history is kept.
@@ -878,6 +888,10 @@ pub fn run_cli() -> Result<()> {
 /// Run one host while retaining exclusive installation ownership until its
 /// Tokio runtime is dropped. Handoff launches adopt the existing locked FD.
 pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
+    if let Some(output) = configured_ssh_public_identity_output(&command)? {
+        println!("{output}");
+        return Ok(());
+    }
     // This guard outlives the Tokio runtime. In particular, cancellation of
     // an async task is not proof that a blocking/provider operation has ended.
     let (owner, data_dir) = if matches!(&command, Command::Start { .. }) {
@@ -907,6 +921,12 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
     result
 }
 
+fn configured_ssh_public_identity_output(command: &Command) -> Result<Option<String>> {
+    let Command::SshPublicIdentity { installation, target } = command else { return Ok(None); };
+    let observed = shenko_exec_ssh::NativeSshFileTargetConfig::inspect_public_identity(installation, target)?;
+    Ok(Some(serde_json::to_string_pretty(&observed)?))
+}
+
 async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     // Reuse the actual published C03 host: one native root, one install.
     let supervisor =
@@ -925,6 +945,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
     let identity_service = identity_context.try_service::<IdentityService>()?;
     let result: Result<()> = async {
     match command {
+        Command::SshPublicIdentity { .. } => {
+            anyhow::bail!("public identity command must complete before runtime setup");
+        }
         Command::CompleteUpdate { request, digest } => {
             update_control::complete_handoff(request, digest, data_dir.clone()).await?;
         }
@@ -1259,6 +1282,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             napcat_file_root,
             napcat_file_host,
             napcat_cli_url,
+            ssh_targets,
         } => {
             if napcat.is_some() {
                 anyhow::ensure!(
@@ -1387,6 +1411,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 wasi_mounts.clone(),
             )
             .await?;
+            if let Some(path) = ssh_targets {
+                let ssh_node = node_sync::open_node(&data_dir, &store)?;
+                install_native_ssh(&supervisor, Arc::clone(&store), ssh_node, &path).await?;
+                info!("native SSH explicit installation ready; credentials are loaded only after task admission");
+            }
             // The runtime's own changes become hook events from now on: the
             // installation above and every later registration are observed
             // through the live graph, not through a startup snapshot.
@@ -3377,8 +3406,25 @@ async fn install_node_selection_recorder(
     Ok(())
 }
 
+// The selected SSH helper handler shares the current native registry and
+// generation lifetime; absence of explicit configuration leaves it uninstalled.
+async fn install_native_ssh(
+    supervisor: &shenko_kernel::Supervisor,
+    store: Arc<shenko_store::Store>,
+    node: shenko_node::Node,
+    path: &std::path::Path,
+) -> Result<()> {
+    let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::NativeSshTaskHandler::from_file(store, node, path)?);
+    supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod recovery_integration_tests {
+    include!("native_ssh_installation_tests.rs");
+    include!("ssh_public_identity_tests.rs");
+    include!("native_ssh_memory_helper_tests.rs");
     use super::*;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
     use shenko_types::{

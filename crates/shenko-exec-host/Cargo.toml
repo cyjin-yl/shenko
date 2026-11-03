@@ -6,6 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+shenko-exec-ssh = { path = "../shenko-exec-ssh" }
 shenko-types = { path = "../shenko-types" }
 shenko-store = { path = "../shenko-store" }
 shenko-subject = { path = "../shenko-subject" }

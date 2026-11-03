@@ -3077,8 +3077,6 @@ dependencies = [
 [[package]]
 name = "russh"
 version = "0.65.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bb77a4b259312b2abbc541bca1c13cb4e9b61c560a7fd894068c3b92e0c9dc3"
 dependencies = [
  "aes",
  "bitflags 2.13.2",
@@ -3535,6 +3533,7 @@ dependencies = [
  "dirs-next",
  "libc",
  "parking_lot",
+ "russh",
  "serde",
  "serde_json",
  "shenko-awareness-core",
@@ -3752,6 +3751,7 @@ dependencies = [
  "shenko-broker",
  "shenko-channel-napcat",
  "shenko-context-policy",
+ "shenko-exec-ssh",
  "shenko-identity",
  "shenko-kernel",
  "shenko-memory",
@@ -3778,9 +3778,9 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "libc",
  "rusqlite",
  "russh",
- "libc",
  "serde",
  "serde_json",
  "shenko-node",

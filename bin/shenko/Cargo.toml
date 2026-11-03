@@ -55,6 +55,8 @@ dirs-next = "2"
 libc = "0.2"
 
 [dev-dependencies]
+russh = { workspace = true }
+async-trait = { workspace = true }
 x11rb = { workspace = true }
 
 [lints.rust]

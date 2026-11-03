@@ -1,0 +1,313 @@
+{
+  "status": "SELECTED_TESTS_EXECUTED_71_PASS",
+  "as_of_utc": "2026-11-01T05:16:04Z",
+  "tested_tree": "4c7631b94a2fbb2b7330e2a36cdeef3d90000104",
+  "integrated_main_commit": "78f5f63cc6b51cffb68a0619179e765afdb73913",
+  "installation_parent_commit": "e0418493b41bbc480a6ede0b51e8a318275b8deb",
+  "issue": "https://github.com/cyjin-yl/shenko/issues/12",
+  "pull_request": "https://github.com/cyjin-yl/shenko/pull/127",
+  "lock_sha256": "e72d098af350e3e55acf42f4eabd5240aa274eaf7c6ff1567ab6ea65996c0eca",
+  "evidence_sha256": "9c3a638bee56996b21c019017a2f81ffecf67e557ea0e742ff050ca4d0dd0f05",
+  "runner_sha256": "eb63fd1ef05133ea7e70a3aba213a9e5352e57229d4ec060a0d051b50ed91b4e",
+  "scope_sha256": "cb13ad4fe58a4d5051c8f66326c45a33495bf0ee8d1fa6ac780658f244c4e326",
+  "expected_names_sha256": "1cb0c0c3809b09272006459b98dd6247a5b0375122171ade4d37ff3dda58c0e7",
+  "protocol": "All seven cargo --list groups compiled and exactly matched frozen names before any test body. Every subsequent group required identical executed names, expected pass count, zero failures/ignored; filtered counts retained.",
+  "results": [
+    {
+      "name": "native-ssh",
+      "expected": 9,
+      "actual_counts": [
+        [
+          9,
+          0,
+          0,
+          0,
+          41
+        ]
+      ],
+      "filtered": [
+        41
+      ],
+      "started_at": "2026-11-01T05:15:46.956633+00:00",
+      "finished_at": "2026-11-01T05:15:47.572095+00:00",
+      "exact_names": true
+    },
+    {
+      "name": "native-query-bridge",
+      "expected": 9,
+      "actual_counts": [
+        [
+          9,
+          0,
+          0,
+          0,
+          41
+        ]
+      ],
+      "filtered": [
+        41
+      ],
+      "started_at": "2026-11-01T05:15:47.662694+00:00",
+      "finished_at": "2026-11-01T05:15:48.279546+00:00",
+      "exact_names": true
+    },
+    {
+      "name": "selected-ssh",
+      "expected": 26,
+      "actual_counts": [
+        [
+          26,
+          0,
+          0,
+          0,
+          24
+        ]
+      ],
+      "filtered": [
+        24
+      ],
+      "started_at": "2026-11-01T05:15:48.380738+00:00",
+      "finished_at": "2026-11-01T05:15:49.290582+00:00",
+      "exact_names": true
+    },
+    {
+      "name": "selection-handler",
+      "expected": 3,
+      "actual_counts": [
+        [
+          3,
+          0,
+          0,
+          0,
+          14
+        ]
+      ],
+      "filtered": [
+        14
+      ],
+      "started_at": "2026-11-01T05:15:49.384941+00:00",
+      "finished_at": "2026-11-01T05:15:50.338634+00:00",
+      "exact_names": true
+    },
+    {
+      "name": "query-handler",
+      "expected": 3,
+      "actual_counts": [
+        [
+          3,
+          0,
+          0,
+          0,
+          14
+        ]
+      ],
+      "filtered": [
+        14
+      ],
+      "started_at": "2026-11-01T05:15:50.432841+00:00",
+      "finished_at": "2026-11-01T05:15:51.067558+00:00",
+      "exact_names": true
+    },
+    {
+      "name": "startup-node",
+      "expected": 2,
+      "actual_counts": [
+        [
+          2,
+          0,
+          0,
+          0,
+          11
+        ]
+      ],
+      "filtered": [
+        11
+      ],
+      "started_at": "2026-11-01T05:15:51.165933+00:00",
+      "finished_at": "2026-11-01T05:15:51.841270+00:00",
+      "exact_names": true
+    },
+    {
+      "name": "node",
+      "expected": 19,
+      "actual_counts": [
+        [
+          19,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "filtered": [
+        0,
+        0,
+        0
+      ],
+      "started_at": "2026-11-01T05:15:51.939638+00:00",
+      "finished_at": "2026-11-01T05:15:52.671811+00:00",
+      "exact_names": true
+    }
+  ],
+  "expected_names": {
+    "native-ssh": [
+      "native_transport::tests::native_protocol_cancel_during_kex_closes_owned_stream",
+      "native_transport::tests::native_protocol_deadline_preserves_unknown_and_observes_local_session_end",
+      "native_transport::tests::native_protocol_duplex_and_unambiguous_exit_255",
+      "native_transport::tests::native_protocol_output_cap_keeps_draining_and_retains_status",
+      "native_transport::tests::native_protocol_refuses_unsolicited_session_without_breaking_outbound_command",
+      "native_transport::tests::native_protocol_revocation_overrides_matching_pin",
+      "native_transport::tests::native_protocol_rsa_sha1_only_host_refused_before_authentication",
+      "native_transport::tests::native_protocol_rsa_sha2_host_accepts_raw_ssh_rsa_pin",
+      "native_transport::tests::native_protocol_wrong_pin_stops_before_authentication"
+    ],
+    "native-query-bridge": [
+      "task_runner::native_query_tests::native_query_accepts_complete_receipt_on_close_without_eof",
+      "task_runner::native_query_tests::native_query_deadline_survives_reopen_and_requeries_original_without_replay",
+      "task_runner::native_query_tests::native_query_error_keeps_native_codec_without_changing_legacy_encoding",
+      "task_runner::native_query_tests::native_query_records_receipt_on_original_operation_without_dispatch",
+      "task_runner::native_query_tests::native_query_rejects_other_endpoint_even_with_same_host_key_and_account",
+      "task_runner::native_query_tests::native_query_rejects_partial_json_despite_exit_zero_and_clean_close",
+      "task_runner::native_query_tests::native_query_rejects_receipt_for_another_input_seal",
+      "task_runner::native_query_tests::native_query_rejects_receipt_for_another_operation",
+      "task_runner::native_query_tests::native_query_rejects_valid_json_prefix_after_transport_output_overflow"
+    ],
+    "selected-ssh": [
+      "selected_task::tests::armed_ssh_target_never_reresolves_current_registry_references",
+      "selected_task::tests::changed_runtime_generation_cannot_reuse_selected_invocation",
+      "selected_task::tests::conflicting_retry_cannot_change_action_or_dispatch_twice",
+      "selected_task::tests::descriptor_cannot_substitute_target_or_smuggle_credential_fields",
+      "selected_task::tests::different_registered_target_is_not_a_fallback",
+      "selected_task::tests::forged_worker_is_refused_before_t1",
+      "selected_task::tests::legacy_input_bytes_are_unchanged_when_selection_is_absent",
+      "selected_task::tests::legacy_selected_input_remains_query_only_without_inventing_generation",
+      "selected_task::tests::permission_bridge_fences_cancelled_ancestor_while_awaiting",
+      "selected_task::tests::permission_bridge_fences_dispatcher_takeover_while_awaiting",
+      "selected_task::tests::permission_bridge_fences_generation_changed_while_awaiting",
+      "selected_task::tests::permission_bridge_fences_stale_generation_before_callback",
+      "selected_task::tests::permission_bridge_fences_task_revoked_while_awaiting",
+      "selected_task::tests::permission_bridge_observes_exact_scope_without_grant_and_rechecks_revocation",
+      "selected_task::tests::permission_bridge_rechecks_sealed_public_trust_after_callback",
+      "selected_task::tests::permission_bridge_rechecks_task_after_provider_await",
+      "selected_task::tests::permission_bridge_rejects_missing_runtime_state_before_callback",
+      "selected_task::tests::permission_bridge_rejects_prior_reply_for_identical_request",
+      "selected_task::tests::permission_bridge_requires_exact_installed_binding_before_callback",
+      "selected_task::tests::permission_bridge_requires_exact_installed_provider_before_disclosing_action",
+      "selected_task::tests::permission_bridge_sanitizes_provider_failure",
+      "selected_task::tests::permission_bridge_uses_registered_binding_not_mutable_trust_locator",
+      "selected_task::tests::reference_inspection_rejects_stale_invocation_and_foreign_subject",
+      "selected_task::tests::registered_references_remain_unresolved_not_authority_or_admission",
+      "selected_task::tests::selection_is_sealed_in_real_t1_and_recovery_never_reselects",
+      "selected_task::tests::unrelated_authority_is_refused_before_t1"
+    ],
+    "selection-handler": [
+      "node_selection_task::tests::absent_choice_stays_unknown_until_original_receipt_arrives_without_replay",
+      "node_selection_task::tests::committed_choice_recovers_original_receipt_without_refresh_or_rearm",
+      "node_selection_task::tests::explicit_choice_rejects_model_authority_and_never_substitutes_changed_observation"
+    ],
+    "query-handler": [
+      "node_capabilities_task::tests::armed_node_page_recovers_later_observation_once_without_rearming",
+      "node_capabilities_task::tests::capability_page_rejects_model_authority_and_retains_unknown_without_private_routes",
+      "node_capabilities_task::tests::recovery_never_rebinds_to_another_node_installation"
+    ],
+    "startup-node": [
+      "recovery_integration_tests::node_capability_reader_is_discoverable_only_while_installed",
+      "recovery_integration_tests::node_selection_recorder_delivers_explicit_choice_only_while_installed"
+    ],
+    "node": [
+      "admission::tests::private_sqlite_recovery_cannot_mutate_an_outside_database",
+      "capability::tests::generation_safe_capability_facts_drive_candidacy",
+      "capability::tests::malformed_advertisement_and_unverified_peer_have_no_authority",
+      "roles::tests::role_assignment_and_observation_remain_distinct_across_reopen",
+      "selection::tests::absent_observation_and_unenrolled_target_are_explained_not_guessed",
+      "selection::tests::changed_observation_returns_reason_and_never_substitutes",
+      "selection::tests::explicit_choice_survives_reopen_and_replay_never_dispatches",
+      "selection::tests::oversized_advertisement_is_explicit_and_cannot_be_recorded_as_ready",
+      "selection::tests::snapshot_is_bounded_non_ranked_and_keeps_unknown_without_routes",
+      "selection::tests::subject_bound_selection_refuses_identity_adoption_on_another_connection",
+      "units::tests::digest_versions_keep_independent_edges_and_re_resolve",
+      "units::tests::export_retains_distinct_pins_and_recovers_a_missing_selected_version",
+      "units::tests::exported_root_digest_is_independent_of_package_order",
+      "units::tests::incoming_descriptor_supersedes_its_stale_retained_candidate",
+      "units::tests::package_transfers_between_nodes_without_inheriting_readiness",
+      "units::tests::schema_two_transfer_does_not_invent_an_old_selection",
+      "units::tests::trial_records_real_success_and_real_failure",
+      "units::tests::unresolved_attempt_becomes_unknown_and_is_never_replayed",
+      "units::tests::v3_migration_preserves_identity_history_and_ambiguous_legacy_rows"
+    ]
+  },
+  "source_inventory": {
+    "tree": "4c7631b94a2fbb2b7330e2a36cdeef3d90000104",
+    "files": 539,
+    "lock_sha256": "e72d098af350e3e55acf42f4eabd5240aa274eaf7c6ff1567ab6ea65996c0eca",
+    "all_blobs_and_modes_match": true,
+    "no_extra_source_files": true
+  },
+  "dependencies": {
+    "registry_archives": 493,
+    "extracted_files": 25840,
+    "exact_inventory_and_hashes_pre_post": true,
+    "cordis": "9a8a49fa459991ee29da73fb42ea9324cee9b680",
+    "toolchain": "Rust/Cargo1.98.1",
+    "new_registry_versions": []
+  },
+  "compiler_artifact_observations": {
+    "fresh": 3829,
+    "nonfresh": 51
+  },
+  "build_note": "3829 repeated fresh-cache and51 nonfresh compiler-artifact observations across listings and executions; not a clean full rebuild. New main/query compiled, then selected tests executed.",
+  "resource_minima_observed": {
+    "memory_available_bytes": 5304725504,
+    "disk_available_bytes": 11155664896,
+    "free_inodes": 596659
+  },
+  "runner_limits": {
+    "minimum_memory_bytes": 3221225472,
+    "minimum_free_disk_bytes": 5368709120,
+    "minimum_free_inodes": 50000,
+    "per_stream_output_bytes": 16777216,
+    "per_phase_output_bytes": 33554432,
+    "per_attempt_output_bytes": 268435456,
+    "actual_attempt_output_bytes": 3055799
+  },
+  "isolation": "Own empty environment/HOME, privatePID, read-only source/dependencies, offline Cargo, j1; deny network socket/connect/bind/listen/accept/io_uring. Anonymous IPC allowed. Only owned in-memory stream and local Store fixtures; no realhost/helperprocess/account/model/app/deploy/merge.",
+  "verified_slice": [
+    "Query original frozen operation and attempt only; never dispatch original action payload or arm/replay a new attempt",
+    "Exact frozen binding retained through verified host-key/account session; mismatched endpoint rejected even when same key/account",
+    "Deadline remains unknown; reopen and requery original without replay",
+    "Complete matching receipt on Close without EOF accepted; validJSON prefix with actual transportoverflow, partialJSON and wrong op/inputseal rejected",
+    "Native error E1 codec remains distinct; legacy tuple/public serialized shape retained"
+  ],
+  "historical_records": [
+    "native-russh-main-integration-unrun-20261101.json and native-russh-query-bridge-unrun-20261101.json remain unchanged snapshots of their preparation time, superseded for execution status by this file",
+    "Published installatione041/f8b original62 remains separate",
+    "Earlier84distinct selectedcases across2featureconfigurations remain separate",
+    "Both original58/4 failures, diagnostics, fixture compilefailures and5zero-test attempts retained"
+  ],
+  "boundaries": [
+    "71 selected tests only, not all new-main behavior or whole-workspace/upstream suites",
+    "No realSSH/production policy/resource grant/installed endpoint-signer-child wiring; no app/deploy/merge",
+    "Close without EOF can carry complete receipt; partial JSON or local overflow remains unknown",
+    "Old 62/84 and all historical failures remain separate source-bound evidence"
+  ],
+  "remaining": [
+    "Production permission/resource provider and exact authorized endpoint/signer installation",
+    "Fresh native child dispatch and actual NativeTaskHandler installation; query_native is trustedcaller API only",
+    "Real remote helper, original TCP/upstream whole suite, platform/WASM/fullproduct acceptance"
+  ],
+  "publication_note": "Publication may add documentation/evidence only to the tested tree; executable input identity must be checked before commit/ref. Main authors are retained by a real second parent, not recertified."
+}

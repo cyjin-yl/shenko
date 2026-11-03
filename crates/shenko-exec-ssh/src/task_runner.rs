@@ -1,5 +1,6 @@
 //! Task-bound native SSH effects. One armed admission, never blind replay.
 use crate::{ExecOutcome, ExecResult, SshExecutor, SshTarget};
+use crate::native_transport::{NativeCommandLimits, NativeCommandObservation, NativeExit, NativeSshSession};
 use anyhow::{Context, Result, ensure};
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::{Deserialize, Serialize};
@@ -149,6 +150,8 @@ pub(super) struct FrozenInput {
     // operations and their receipt readers keep their original input digest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) selection: Option<crate::selected_task::TaskBoundNodeSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) installation: Option<crate::NativeInstallationSeal>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,7 +177,16 @@ pub struct SshObservation {
     pub operation: OperationRecord,
     pub receipt: Option<SshReceipt>,
     pub transport: Option<ExecResult>,
+    /// Native protocol evidence is separate from historical host-process status.
+    /// In particular an old OpenSSH exit255 is never retyped as remote exit255.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub native_transport: Option<NativeCommandObservation>,
     pub diagnostic: Option<String>,
+}
+
+enum ObservedTransport {
+    OpenSsh(Result<ExecResult, String>),
+    Native(Result<NativeCommandObservation, String>),
 }
 
 /// Trusted child-side API. This is not a model-facing authority/registry API.
@@ -211,7 +223,7 @@ impl SshTaskRunner<'_> {
         timeout_secs: u64,
     ) -> Result<SshObservation> {
         self.execute_frozen(ctx, operation_id, logical_key, authority,
-            FrozenInput { binding, action, selection: None }, timeout_secs).await
+            FrozenInput { binding, action, selection: None, installation: None }, timeout_secs).await
     }
 
     pub(super) async fn execute_frozen(
@@ -223,6 +235,19 @@ impl SshTaskRunner<'_> {
         frozen: FrozenInput,
         timeout_secs: u64,
     ) -> Result<SshObservation> {
+        let (op, att, frozen, fresh) = self.prepare_frozen(
+            ctx, operation_id, logical_key, authority, frozen)?;
+        self.observe(op, att, frozen, if fresh { "dispatch" } else { "query" }, timeout_secs).await
+    }
+
+    fn prepare_frozen(
+        &self,
+        ctx: &TaskInvocation,
+        operation_id: EntityId,
+        logical_key: &str,
+        authority: AuthorityRef,
+        frozen: FrozenInput,
+    ) -> Result<(OperationRecord, AttemptRecord, FrozenInput, bool)> {
         if let Some(selected) = &frozen.selection {
             selected.ensure_fresh()?;
         }
@@ -309,13 +334,104 @@ impl SshTaskRunner<'_> {
         };
         if let Some(existing) = self.store.arm_external_operation(ctx, &mut op, &mut att)? {
             // Even an armed-but-never-sent record is uncertain after recovery.
-            return self.query(existing.operation_id, timeout_secs).await;
+            let (op, att, frozen) = self.query_input(existing.operation_id)?;
+            return Ok((op, att, frozen, false));
         }
-        self.observe(op, att, frozen, "dispatch", timeout_secs)
-            .await
+        Ok((op, att, frozen, true))
+    }
+
+    pub(super) async fn execute_frozen_installed(
+        &self, ctx: &TaskInvocation, operation_id: EntityId, logical_key: &str,
+        authority: AuthorityRef, mut frozen: FrozenInput,
+        installation: &crate::NativeSshInstallation, limits: NativeCommandLimits,
+    ) -> Result<SshObservation> {
+        ensure!(installation.matches_original(self.store, &frozen.binding, Some(installation.seal())),
+            "native SSH installation binding mismatch");
+        // The native transport's already established bound includes the JSON
+        // envelope/base64, not merely decoded action stdin/upload bytes. Reject
+        // oversized fresh input before T1, never as an unknown sent operation.
+        ensure!(serde_json::to_vec(&frozen.action)?.len() <= 1024 * 1024,
+            "native SSH action exceeds 1MiB encoded transport input");
+        frozen.installation = Some(installation.seal().clone());
+        // All connection/signing code is below this durable T1. No permission
+        // verdict or metadata descriptor is converted into an invented grant.
+        let (op, att, frozen, fresh) = self.prepare_frozen(
+            ctx, operation_id, logical_key, authority, frozen)?;
+        self.observe_installed(op, att, frozen, installation, limits,
+            if fresh { Some(ctx) } else { None }).await
+    }
+
+    /// Installed handler recovery. The target comes from original frozen data,
+    /// not a newly supplied model target; credentials remain local to installer.
+    pub fn original_target_id(&self, id: EntityId) -> Result<String> {
+        Ok(self.query_input(id)?.2.binding.target_id)
+    }
+
+    pub async fn query_installed(&self, id: EntityId,
+        installation: &crate::NativeSshInstallation, limits: NativeCommandLimits,
+    ) -> Result<SshObservation> {
+        let (op, att, frozen) = self.query_input(id)?;
+        self.observe_installed(op, att, frozen, installation, limits, None).await
+    }
+
+    async fn observe_installed(&self, op: OperationRecord, att: AttemptRecord,
+        frozen: FrozenInput, installation: &crate::NativeSshInstallation,
+        mut limits: NativeCommandLimits, fresh: Option<&TaskInvocation>,
+    ) -> Result<SshObservation> {
+        use crate::native_transport::NativeSshError;
+        let mode = if fresh.is_some() { "dispatch" } else { "query" };
+        let command = Self::helper_command(&op, &frozen.binding, mode);
+        let payload = if fresh.is_some() { serde_json::to_vec(&frozen.action)? } else { Vec::new() };
+        let end = tokio::time::Instant::now().checked_add(limits.deadline)
+            .filter(|_| !limits.deadline.is_zero());
+        let observed = async {
+            let end = end.ok_or(NativeSshError::InvalidLimits)?;
+            if let Some(ctx) = fresh {
+                if self.store.native_invocation_current(ctx).ok() != Some(true) {
+                    return Err(NativeSshError::InvocationChanged);
+                }
+            }
+            let session = tokio::time::timeout_at(end, installation.open_original(self.store,
+                &frozen.binding, frozen.installation.as_ref(), limits.deadline)).await
+                .map_err(|_| NativeSshError::Deadline)??;
+            // No Store or Node lock crosses the opener/authentication await.
+            // Durable cancellation/ancestor/generation change is observed
+            // before a NEW exec; original recovery only queries an old receipt.
+            if let Some(ctx) = fresh {
+                if self.store.native_invocation_current(ctx).ok() != Some(true) {
+                    return Err(NativeSshError::InvocationChanged);
+                }
+            }
+            limits.deadline = end.saturating_duration_since(tokio::time::Instant::now());
+            session.execute(command.as_bytes(), &payload, limits).await
+        }.await.map_err(|error: NativeSshError| error.to_string());
+        // Failed connection/credential/fencing after T1 is armed/unknown.
+        // No false NeverDispatched and no implicit retry or alternate identity.
+        self.record_observation(op, att, frozen, ObservedTransport::Native(observed))
     }
 
     pub async fn query(&self, id: EntityId, timeout_secs: u64) -> Result<SshObservation> {
+        let (op, att, frozen) = self.query_input(id)?;
+        self.observe(op, att, frozen, "query", timeout_secs).await
+    }
+
+    /// Reconcile the ORIGINAL already-armed operation over one explicitly
+    /// authenticated native session. Trusted child/recovery API, not a model
+    /// tool or permission grant: the caller authorizes this query, the stream
+    /// acquisition and the exact signer. No action payload or T1/retry is sent.
+    pub async fn query_native(
+        &self, id: EntityId, session: NativeSshSession, limits: NativeCommandLimits,
+    ) -> Result<SshObservation> {
+        let (op, att, frozen) = self.query_input(id)?;
+        ensure!(session.matches_binding(&frozen.binding)?, "native session binding mismatch");
+        let command = Self::helper_command(&op, &frozen.binding, "query");
+        // Native errors contain fixed, non-secret diagnostics only.
+        let observed = session.execute(command.as_bytes(), &[], limits).await
+            .map_err(|error| error.to_string());
+        self.record_observation(op, att, frozen, ObservedTransport::Native(observed))
+    }
+
+    fn query_input(&self, id: EntityId) -> Result<(OperationRecord, AttemptRecord, FrozenInput)> {
         let op = self.store.external_operation(id)?;
         let att = self.store.external_operation_attempt(id)?;
         ensure!(
@@ -333,7 +449,16 @@ impl SshTaskRunner<'_> {
         if let Some(selected) = &frozen.selection {
             selected.ensure_readable()?;
         }
-        self.observe(op, att, frozen, "query", timeout_secs).await
+        Ok((op, att, frozen))
+    }
+
+    fn helper_command(op: &OperationRecord, binding: &SshBinding, mode: &str) -> String {
+        fn quote(s: &str) -> String {
+            format!("'{}'", s.replace('\'', "'\\''"))
+        }
+        format!("python3 -I -c {} {} {} {} {}", quote(HELPER),
+            quote(&binding.receipt_root), quote(&op.operation_id.to_string()),
+            quote(&op.input_digest.0), quote(mode))
     }
 
     async fn observe(
@@ -344,17 +469,7 @@ impl SshTaskRunner<'_> {
         mode: &str,
         timeout: u64,
     ) -> Result<SshObservation> {
-        fn quote(s: &str) -> String {
-            format!("'{}'", s.replace('\'', "'\\''"))
-        }
-        let command = format!(
-            "python3 -I -c {} {} {} {} {}",
-            quote(HELPER),
-            quote(&frozen.binding.receipt_root),
-            quote(&op.operation_id.to_string()),
-            quote(&op.input_digest.0),
-            quote(mode)
-        );
+        let command = Self::helper_command(&op, &frozen.binding, mode);
         let payload = if mode == "dispatch" {
             serde_json::to_vec(&frozen.action)?
         } else {
@@ -365,15 +480,36 @@ impl SshTaskRunner<'_> {
             Err(e) => Err(e),
         };
         // Spawn/trust/read errors after T1 remain armed/unknown, not retryable failure.
-        let (transport, dispatch_error) = match result {
-            Ok(result) => (Some(result), None),
-            Err(error) => (None, Some(error.to_string())),
+        self.record_observation(op, att, frozen,
+            ObservedTransport::OpenSsh(result.map_err(|error| error.to_string())))
+    }
+
+    fn record_observation(
+        &self, op: OperationRecord, att: AttemptRecord, frozen: FrozenInput,
+        observed: ObservedTransport,
+    ) -> Result<SshObservation> {
+        let (transport, native_transport, dispatch_error, is_native) = match observed {
+            ObservedTransport::OpenSsh(Ok(value)) => (Some(value), None, None, false),
+            ObservedTransport::OpenSsh(Err(error)) => (None, None, Some(error), false),
+            ObservedTransport::Native(Ok(value)) => (None, Some(value), None, true),
+            ObservedTransport::Native(Err(error)) => (None, None, Some(error), true),
         };
-        let receipt = transport
-            .as_ref()
-            .filter(|r| r.outcome == Some(ExecOutcome::Exited) && r.exit_code == 0)
-            .and_then(|r| serde_json::from_str::<SshReceipt>(&r.stdout).ok())
-            .filter(|r| r.operation_id == op.operation_id && r.seal == op.input_digest.0);
+        let receipt = if let Some(native) = native_transport.as_ref() {
+            // Drain reaches the ordered channel Close, not necessarily EOF:
+            // RFC4254 permits Close without EOF. A complete JSON object, exact
+            // identity and no interruption are required. Transport append
+            // overflow is sticky and produces OutputLimit (or another error),
+            // so a truncated prefix that happens to be valid JSON cannot pass.
+            // This differs from receipt.stdout_truncated: that field describes
+            // the original action output, not truncation of this helper reply.
+            (native.interruption.is_none() && native.exec_accepted && native.channel_closed
+                && native.exit == Some(NativeExit::Status { code: 0 }))
+                .then(|| serde_json::from_slice::<SshReceipt>(&native.stdout).ok()).flatten()
+        } else {
+            transport.as_ref()
+                .filter(|r| r.outcome == Some(ExecOutcome::Exited) && r.exit_code == 0)
+                .and_then(|r| serde_json::from_str::<SshReceipt>(&r.stdout).ok())
+        }.filter(|r| r.operation_id == op.operation_id && r.seal == op.input_digest.0);
         let completed = receipt
             .as_ref()
             .filter(|r| r.schema == Some(1) && r.state == "completed" && r.exit_code.is_some());
@@ -393,14 +529,31 @@ impl SshTaskRunner<'_> {
             }
             _ => EffectStatus::Unknown,
         };
-        let raw = self.seal(
-            &(
-                receipt.as_ref(),
-                transport.as_ref(),
-                dispatch_error.as_ref(),
-            ),
-            "ssh-observation",
-        )?;
+        let raw = if is_native {
+            self.seal(&(receipt.as_ref(), native_transport.as_ref(), dispatch_error.as_ref()),
+                "ssh-native-observation-v1")?
+        } else {
+            // Preserve the historical observation encoding for the old path.
+            self.seal(&(receipt.as_ref(), transport.as_ref(), dispatch_error.as_ref()),
+                "ssh-observation")?
+        };
+        // The installed child exposes a bounded result plus a CAS reference to
+        // the complete receipt. It does not recast an arbitrary exec as known
+        // effects. Historical codecs/frozen inputs retain their old shape.
+        let normalized = if frozen.installation.is_some() {
+            let receipt_ref = receipt.as_ref().map(|receipt|
+                self.seal(receipt, "ssh-native-helper-receipt-v1")).transpose()?;
+            Some(self.seal(&serde_json::json!({
+                "schema": "ssh.native-task-result.v1", "operation_id": op.operation_id,
+                "receipt_ref": receipt_ref, "effect_status": effect,
+                "state": receipt.as_ref().map(|r| &r.state),
+                "exit_code": receipt.as_ref().and_then(|r| r.exit_code),
+                "stdout_preview_b64": receipt.as_ref().map(|r| r.stdout_b64.chars().take(8192).collect::<String>()),
+                "stderr_preview_b64": receipt.as_ref().map(|r| r.stderr_b64.chars().take(8192).collect::<String>()),
+                "stdout_preview_truncated": receipt.as_ref().map(|r| r.stdout_truncated || r.stdout_b64.len() > 8192),
+                "stderr_preview_truncated": receipt.as_ref().map(|r| r.stderr_truncated || r.stderr_b64.len() > 8192),
+            }), "ssh-native-task-result-v1")?)
+        } else { None };
         let ev = EvidenceReceipt {
             record_schema_version: 1,
             receipt_id: EntityId::new(),
@@ -419,7 +572,7 @@ impl SshTaskRunner<'_> {
                 DecodeStatus::Uninterpreted
             },
             observation_level: completed.map(|_| ObservationLevel::RemoteCompleted),
-            normalized_ref: None,
+            normalized_ref: normalized,
             observed_at: Some(chrono::Utc::now()),
             received_commit: op.prepared_commit,
         };
@@ -434,6 +587,7 @@ impl SshTaskRunner<'_> {
             operation,
             receipt,
             transport,
+            native_transport,
             diagnostic: dispatch_error,
         })
     }
@@ -480,3 +634,7 @@ mod tests {
         assert_eq!(std::fs::read(&marker).unwrap(), b"called");
     }
 }
+
+#[cfg(test)]
+#[path = "native_query_tests.rs"]
+mod native_query_tests;

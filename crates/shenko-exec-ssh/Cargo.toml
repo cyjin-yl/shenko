@@ -21,11 +21,11 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 russh = { workspace = true }
-
-# Existing locked versions: bounded selected-key file access and transient byte cleanup.
+# Existing locked package, for bounded transient key-buffer cleanup.
 zeroize = "=1.9.1"
 
 [target.'cfg(unix)'.dependencies]
+# Existing locked libc: no-follow/nonblocking open of the explicit regular key file.
 libc = "=0.2.191"
 
 [dev-dependencies]

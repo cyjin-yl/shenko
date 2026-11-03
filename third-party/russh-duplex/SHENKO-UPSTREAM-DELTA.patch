@@ -1,0 +1,611 @@
+--- a/src/client/mod.rs
++++ b/src/client/mod.rs
+@@ -1,3 +1,4 @@
++// Modified locally for Shenko on 2026-11-01; static validation candidate, not upstream.
+ // Copyright 2016 Pierre-Étienne Meunier
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -1398,8 +1399,6 @@
+         let mut result: Result<RemoteDisconnectInfo, H::Error> = Err(Error::Disconnect.into());
+         self.flush()?;
+ 
+-        map_err!(self.common.packet_writer.flush_into(stream_write).await)?;
+-
+         let buffer = SSHBuffer::new();
+ 
+         // Allow handing out references to the cipher
+@@ -1426,11 +1425,16 @@
+             // Keep reading the network for window adjustments, but leave
+             // application output in its bounded receivers while a channel is
+             // window-blocked.
+-            let can_receive_outbound = !self.kex.active() && !self.common.has_any_pending_data();
++            let can_flush = self.common.packet_writer.has_pending_write();
++            let can_receive_outbound = !can_flush && !self.kex.active()
++                && !self.common.has_any_pending_data();
+             let rekey_timer =
+                 crate::future_or_pending(self.rekey_time_remaining(), tokio::time::sleep);
+             pin!(rekey_timer);
+             tokio::select! {
++                r = self.common.packet_writer.flush_into(stream_write), if can_flush => {
++                    r?;
++                }
+                 r = &mut reading => {
+                     let (stream_read, mut buffer, mut opening_cipher) = match r {
+                         Ok((_, stream_read, buffer, opening_cipher)) => (stream_read, buffer, opening_cipher),
+@@ -1503,16 +1507,9 @@
+                         }
+                     };
+ 
+-                    // eagerly take all outgoing messages so writes are batched
+-                    while !self.kex.active() && !self.common.has_any_pending_data() {
+-                        self.drain_priority_msgs()?;
+-                        match self.receiver.try_recv() {
+-                            Ok(next) => self.handle_msg(next)?,
+-                            Err(_) => break
+-                        }
+-                    }
+-                }
+-                msg = self.priority_receiver.recv(), if !self.kex.active() => {
++                    // Leave later application output in its bounded receiver.
++                }
++                msg = self.priority_receiver.recv(), if !can_flush && !self.kex.active() => {
+                     match msg {
+                         Some(msg) => self.handle_msg(msg)?,
+                         None => (),
+@@ -1528,24 +1525,11 @@
+                         None => (),
+                     }
+ 
+-                    // eagerly take all outgoing messages so writes are batched
+-                    while !self.kex.active() && !self.common.has_any_pending_data() {
+-                        self.drain_priority_msgs()?;
+-                        match self.inbound_channel_receiver.try_recv() {
+-                            Ok(next) => self.handle_msg(next)?,
+-                            Err(_) => break
+-                        }
+-                    }
++                    // Leave later application output in its bounded receiver.
+                 }
+             };
+ 
+             self.flush()?;
+-            crate::flush_or_timeout(
+-                &mut self.common.packet_writer,
+-                stream_write,
+-                inactivity_timer.as_mut(),
+-            )
+-            .await?;
+ 
+             if let Some(ref mut enc) = self.common.encrypted
+                 && let EncryptedState::InitCompression = enc.state
+@@ -1583,6 +1567,12 @@
+             }
+         }
+ 
++        // Best-effort ordered local disconnect, still under the existing timer.
++        crate::flush_or_timeout(
++            &mut self.common.packet_writer,
++            stream_write,
++            inactivity_timer.as_mut(),
++        ).await?;
+         result
+     }
+ 
+@@ -1613,7 +1603,11 @@
+     fn drain_priority_msgs(&mut self) -> Result<(), crate::Error> {
+         while !self.kex.active() {
+             match self.priority_receiver.try_recv() {
+-                Ok(msg) => self.handle_msg(msg)?,
++                Ok(msg) => {
++                    self.handle_msg(msg)?;
++                    // Enforce the ciphertext bound even during priority drains.
++                    self.flush()?;
++                }
+                 Err(_) => break,
+             }
+         }
+--- a/src/server/session.rs
++++ b/src/server/session.rs
+@@ -1,3 +1,4 @@
++// Modified locally for Shenko on 2026-11-01; static validation candidate, not upstream.
+ use std::collections::{HashMap, VecDeque};
+ use std::io::ErrorKind;
+ use std::sync::Arc;
+@@ -631,7 +632,7 @@
+ 
+     pub(crate) async fn run<H, R>(
+         mut self,
+-        mut stream: SshRead<R>,
++        stream: SshRead<R>,
+         mut handler: H,
+     ) -> Result<(), H::Error>
+     where
+@@ -640,8 +641,6 @@
+     {
+         self.flush()?;
+ 
+-        map_err!(self.common.packet_writer.flush_into(&mut stream).await)?;
+-
+         let (stream_read, mut stream_write) = stream.split();
+         let buffer = SSHBuffer::new();
+ 
+@@ -666,55 +665,17 @@
+             self.common.received_data = false;
+             let mut sent_keepalive = false;
+ 
+-            // Drain messages already queued on the session channel (e.g. shell
+-            // output pushed via `Handle::data()` from a spawned task) before
+-            // blocking in `select!`. `select!` only handles one queued message
+-            // per loop iteration, so a task producing faster than the loop
+-            // drains falls behind. Capped so high-rate output can't starve
+-            // client input (Ctrl+C, resize): once the cap is hit we fall through
+-            // to `select!`, which picks up any client-side event first. Gated on
+-            // `!kex.active()` to match the `select!` receiver arm.
+-            const MAX_MESSAGES_PER_BATCH: usize = 64;
+-            // Leave application messages in the bounded receiver once a peer's
+-            // channel window is exhausted. Network reads remain active so a
+-            // window adjustment can release the queued data.
+-            if !self.kex.active() && !self.common.has_any_pending_data() {
+-                let mut drained = 0;
+-                while drained < MAX_MESSAGES_PER_BATCH {
+-                    // Only Empty/Disconnected end the drain; both mean "nothing
+-                    // more to hand off right now", so treat them the same.
+-                    let msg = match self.priority_receiver.try_recv() {
+-                        Ok(msg) => msg,
+-                        Err(_) => match self.receiver.try_recv() {
+-                            Ok(msg) => msg,
+-                            Err(_) => break,
+-                        },
+-                    };
+-                    self.dispatch_msg(msg)?;
+-                    drained += 1;
+-                    if self.common.has_any_pending_data() {
+-                        break;
+-                    }
+-                }
+-                if drained > 0 {
+-                    self.flush()?;
+-                    crate::flush_or_timeout(
+-                        &mut self.common.packet_writer,
+-                        &mut stream_write,
+-                        inactivity_timer.as_mut(),
+-                    )
+-                    .await?;
+-                }
+-                // A drained Disconnect sets this; don't block in `select!` after.
+-                if self.common.disconnected {
+-                    continue;
+-                }
+-            }
++            let can_flush = self.common.packet_writer.has_pending_write();
++            let can_receive_outbound = !can_flush && !self.kex.active()
++                && !self.common.has_any_pending_data();
+ 
+             let rekey_timer = future_or_pending(self.rekey_time_remaining(), tokio::time::sleep);
+             pin!(rekey_timer);
+ 
+             tokio::select! {
++                r = self.common.packet_writer.flush_into(&mut stream_write), if can_flush => {
++                    r?;
++                }
+                 r = &mut reading => {
+                     let (stream_read, mut buffer, mut opening_cipher) = match r {
+                         Ok((_, stream_read, buffer, opening_cipher)) => (stream_read, buffer, opening_cipher),
+@@ -780,7 +741,7 @@
+                     debug!("timeout");
+                     return Err(crate::Error::InactivityTimeout.into());
+                 }
+-                msg = self.priority_receiver.recv(), if !self.kex.active() => {
++                msg = self.priority_receiver.recv(), if !can_flush && !self.kex.active() => {
+                     match msg {
+                         Some(msg) => self.dispatch_msg(msg)?,
+                         None => {
+@@ -788,7 +749,7 @@
+                         }
+                     }
+                 }
+-                msg = self.receiver.recv(), if !self.kex.active() && !self.common.has_any_pending_data() => {
++                msg = self.receiver.recv(), if can_receive_outbound => {
+                     // Channel open replies must be dispatched before any
+                     // channel traffic queued after them: `msg` may be data for
+                     // a channel whose confirmation is still sitting in the
+@@ -797,6 +758,7 @@
+                     // its open reply is processed).
+                     while let Ok(reply) = self.priority_receiver.try_recv() {
+                         self.dispatch_msg(reply)?;
++                        self.flush()?;
+                     }
+                     match msg {
+                         Some(msg) => self.dispatch_msg(msg)?,
+@@ -808,12 +770,6 @@
+             }
+             self.flush()?;
+ 
+-            crate::flush_or_timeout(
+-                &mut self.common.packet_writer,
+-                &mut stream_write,
+-                inactivity_timer.as_mut(),
+-            )
+-            .await?;
+ 
+             if self.common.received_data {
+                 // Reset the number of failed keepalive attempts. We don't
+@@ -841,7 +797,12 @@
+             }
+         }
+         debug!("disconnected");
+-        // Shutdown
++        // Shutdown: preserve ordered disconnect output under the existing timer.
++        crate::flush_or_timeout(
++            &mut self.common.packet_writer,
++            &mut stream_write,
++            inactivity_timer.as_mut(),
++        ).await?;
+         map_err!(stream_write.shutdown().await)?;
+         loop {
+             if let Some((stream_read, buffer, opening_cipher)) = is_reading.take() {
+--- a/src/sshbuffer.rs
++++ b/src/sshbuffer.rs
+@@ -1,3 +1,4 @@
++// Modified locally for Shenko on 2026-11-01; static validation candidate, not upstream.
+ // Copyright 2016 Pierre-Étienne Meunier
+ //
+ // Licensed under the Apache License, Version 2.0 (the "License");
+@@ -26,6 +27,9 @@
+ 
+ use super::*;
+ 
++#[cfg(test)]
++mod pending_write_tests;
++
+ /// The SSH client/server identification string.
+ #[derive(Debug)]
+ pub enum SshId {
+@@ -397,6 +401,11 @@
+     compress: Compress,
+     packet_buffer: Vec<u8>,
+     write_buffer: SSHBuffer,
++    // Updated synchronously after each successful write, before another await.
++    // Dropping a flush future must never replay already accepted ciphertext.
++    write_cursor: usize,
++    needs_flush: bool,
++    write_failed: bool,
+ }
+ 
+ impl Debug for PacketWriter {
+@@ -406,6 +415,10 @@
+ }
+ 
+ impl PacketWriter {
++    // A fail-closed retained ciphertext bound, not a larger transport buffer.
++    // Includes framing, padding and authentication tags. This does not bound
++    // allocations made by arbitrary caller-supplied packet-building closures.
++    const MAX_PENDING_WRITE_BYTES: usize = 1024 * 1024;
+     // SSH packet prefix = packet_length (cipher::PACKET_LENGTH_LEN bytes)
+     // + padding_length (1 byte).
+     const PACKET_PREFIX_LEN: usize = cipher::PACKET_LENGTH_LEN + 1;
+@@ -420,7 +433,49 @@
+             compress,
+             packet_buffer: Vec::new(),
+             write_buffer: SSHBuffer::new(),
+-        }
++            write_cursor: 0,
++            needs_flush: false,
++            write_failed: false,
++        }
++    }
++
++    pub(crate) fn has_pending_write(&self) -> bool {
++        self.write_failed || self.needs_flush || self.write_cursor < self.write_buffer.buffer.len()
++    }
++
++    fn begin_packet(&mut self) -> Result<(), Error> {
++        if self.write_failed {
++            return Err(Error::IO(std::io::Error::new(
++                std::io::ErrorKind::BrokenPipe,
++                "packet writer is terminal after a write failure",
++            )));
++        }
++        // Only remove bytes already accepted by AsyncWrite. A pending flush
++        // remains represented by needs_flush even when all bytes were sent.
++        if self.write_cursor != 0 {
++            self.write_buffer.buffer.drain(..self.write_cursor);
++            self.write_cursor = 0;
++        }
++        Ok(())
++    }
++
++    fn write_limit_error(&mut self) -> Error {
++        self.write_failed = true;
++        Error::Pending
++    }
++
++    #[allow(clippy::indexing_slicing)] // Packet builder supplies the checked appended payload range.
++    fn admit_packet(&mut self, offset: usize, payload_len: usize) -> Result<(), Error> {
++        let payload_start = offset + Self::PACKET_PREFIX_LEN;
++        let payload_end = payload_start + payload_len;
++        let padding = self.cipher.padding_length(&self.write_buffer.buffer[payload_start..payload_end]);
++        let encoded_end = payload_end.checked_add(padding)
++            .and_then(|n| n.checked_add(self.cipher.tag_len()));
++        if !matches!(encoded_end, Some(n) if n <= Self::MAX_PENDING_WRITE_BYTES) {
++            self.write_buffer.buffer.truncate(offset);
++            return Err(self.write_limit_error());
++        }
++        Ok(())
+     }
+ 
+     fn prepare_packet<F: FnOnce(&mut Vec<u8>) -> Result<(), Error>>(
+@@ -452,6 +507,7 @@
+     where
+         F: FnOnce(&mut Vec<u8>, usize) -> Result<usize, Error>,
+     {
++        self.begin_packet()?;
+         let offset = self.write_buffer.buffer.len();
+         let payload_start = offset + Self::PACKET_PREFIX_LEN;
+ 
+@@ -467,6 +523,7 @@
+                     debug!("> msg type {message_type:?}, len {payload_len}");
+                 }
+ 
++                self.admit_packet(offset, payload_len)?;
+                 self.cipher
+                     .finish_packet(offset, payload_len, &mut self.write_buffer);
+                 Ok(())
+@@ -479,6 +536,7 @@
+     }
+ 
+     fn write_compressed_payload_into_output(&mut self, buf: &[u8]) -> Result<(), Error> {
++        self.begin_packet()?;
+         let offset = self.write_buffer.buffer.len();
+         let payload_start = offset + Self::PACKET_PREFIX_LEN;
+ 
+@@ -493,6 +551,7 @@
+                     return Ok(());
+                 }
+ 
++                self.admit_packet(offset, payload_len)?;
+                 self.cipher
+                     .finish_packet(offset, payload_len, &mut self.write_buffer);
+                 Ok(())
+@@ -505,9 +564,18 @@
+     }
+ 
+     pub fn packet_raw(&mut self, buf: &[u8]) -> Result<(), Error> {
++        self.begin_packet()?;
+         if let Some(message_type) = buf.first() {
+             debug!("> msg type {message_type:?}, len {}", buf.len());
+             if matches!(&self.compress, Compress::None) {
++                let encoded_end = self.write_buffer.buffer.len()
++                    .checked_add(Self::PACKET_PREFIX_LEN)
++                    .and_then(|n| n.checked_add(buf.len()))
++                    .and_then(|n| n.checked_add(self.cipher.padding_length(buf)))
++                    .and_then(|n| n.checked_add(self.cipher.tag_len()));
++                if !matches!(encoded_end, Some(n) if n <= Self::MAX_PENDING_WRITE_BYTES) {
++                    return Err(self.write_limit_error());
++                }
+                 self.cipher.write(buf, &mut self.write_buffer);
+             } else {
+                 self.write_compressed_payload_into_output(buf)?;
+@@ -551,7 +619,9 @@
+         // without coupling callers to individual cipher padding formulas.
+         let per_packet_margin = Self::PACKET_PREFIX_LEN + self.cipher.tag_len() + 32;
+         let additional = payload_bytes.saturating_add(packet_count.saturating_mul(per_packet_margin));
+-        self.write_buffer.buffer.reserve(additional);
++        self.write_buffer.buffer.reserve(additional.min(
++            Self::MAX_PENDING_WRITE_BYTES.saturating_sub(self.write_buffer.buffer.len()),
++        ));
+     }
+ 
+     /// Sends and returns the packet contents for callers that need to retain
+@@ -607,12 +677,39 @@
+         self.write_buffer.seqn = Wrapping(0);
+     }
+ 
+-    pub async fn flush_into<W: AsyncWrite + Unpin>(&mut self, w: &mut W) -> std::io::Result<()> {
+-        if !self.write_buffer.buffer.is_empty() {
+-            w.write_all(&self.write_buffer.buffer).await?;
+-            w.flush().await?;
+-            self.write_buffer.buffer.clear();
+-        }
++    #[allow(clippy::indexing_slicing)] // Loop guard verifies cursor is before the vector end.
++    pub async fn flush_into<W: AsyncWrite + Unpin>(&mut self, w: &mut W) -> Result<(), Error> {
++        self.begin_packet()?;
++        // Also cover the few pre-encryption callers of buffer().
++        if self.write_buffer.buffer.len() > Self::MAX_PENDING_WRITE_BYTES {
++            return Err(self.write_limit_error());
++        }
++        while self.write_cursor < self.write_buffer.buffer.len() {
++            match w.write(&self.write_buffer.buffer[self.write_cursor..]).await {
++                Ok(0) => {
++                    self.write_failed = true;
++                    return Err(std::io::Error::new(std::io::ErrorKind::WriteZero,
++                        "failed to write pending SSH ciphertext").into());
++                }
++                Ok(n) => {
++                    self.write_cursor += n;
++                    self.needs_flush = true;
++                }
++                Err(error) => {
++                    self.write_failed = true;
++                    return Err(error.into());
++                }
++            }
++        }
++        if self.needs_flush {
++            if let Err(error) = w.flush().await {
++                self.write_failed = true;
++                return Err(error.into());
++            }
++            self.needs_flush = false;
++        }
++        self.write_buffer.buffer.clear();
++        self.write_cursor = 0;
+         Ok(())
+     }
+ }
+--- /dev/null
++++ b/src/sshbuffer/pending_write_tests.rs
+@@ -0,0 +1,163 @@
++#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
++//! Fixed synthetic writer controls: no socket, credential, sleep or real peer.
++//! Clear packet framing is deterministic here; real encryption is covered by
++//! the separately selected, existing protocol tests, not by these unit tests.
++use super::*;
++use std::{io, pin::Pin, task::{Context, Poll}};
++
++struct Sink {
++    bytes: Vec<u8>,
++    accept_until: usize,
++    flush_ready: bool,
++    write_zero: bool,
++    write_error: bool,
++    flush_error: bool,
++    writes: usize,
++}
++impl Sink {
++    fn open() -> Self {
++        Self { bytes: vec![], accept_until: usize::MAX, flush_ready: true,
++            write_zero: false, write_error: false, flush_error: false, writes: 0 }
++    }
++}
++impl AsyncWrite for Sink {
++    fn poll_write(mut self: Pin<&mut Self>, _: &mut Context<'_>, buf: &[u8])
++        -> Poll<io::Result<usize>>
++    {
++        self.writes += 1;
++        if self.write_error { return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())); }
++        if self.write_zero { return Poll::Ready(Ok(0)); }
++        let n = buf.len().min(self.accept_until.saturating_sub(self.bytes.len()));
++        if n == 0 { return Poll::Pending; }
++        self.bytes.extend_from_slice(&buf[..n]);
++        Poll::Ready(Ok(n))
++    }
++    fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
++        if self.flush_error { return Poll::Ready(Err(io::ErrorKind::BrokenPipe.into())); }
++        if self.flush_ready { Poll::Ready(Ok(())) } else { Poll::Pending }
++    }
++    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
++        self.poll_flush(cx)
++    }
++}
++
++async fn assert_terminal(writer: &mut PacketWriter, sink: &mut Sink) {
++    assert!(writer.has_pending_write(), "terminal failure must remain visible to the protocol driver");
++    sink.write_zero = false;
++    sink.write_error = false;
++    sink.flush_error = false;
++    sink.flush_ready = true;
++    sink.accept_until = usize::MAX;
++    let output = sink.bytes.clone();
++    let sequence = writer.write_buffer.seqn;
++    assert!(writer.packet_raw(b"retry").is_err());
++    assert!(writer.write_packet(|b| { b.extend_from_slice(b"retry"); Ok(()) }).is_err());
++    assert!(writer.packet(|b| { b.extend_from_slice(b"retry"); Ok(()) }).is_err());
++    assert!(writer.packet_bytes(|b| { b.extend_from_slice(b"retry"); Ok(()) }).is_err());
++    assert!(writer.flush_into(sink).await.is_err());
++    assert_eq!(writer.write_buffer.seqn, sequence);
++    assert_eq!(sink.bytes, output);
++}
++
++#[tokio::test]
++async fn canceled_partial_write_then_control_append_is_exactly_once() {
++    let mut writer = PacketWriter::clear();
++    writer.packet_raw(b"first packet").unwrap();
++    let mut expected = PacketWriter::clear();
++    expected.packet_raw(b"first packet").unwrap();
++    expected.packet_raw(b"control reply").unwrap();
++    let mut sink = Sink::open();
++    sink.accept_until = 3;
++    // One poll accepts a prefix then blocks; dropping this future is exactly
++    // what selecting a ready inbound event does to the losing flush future.
++    {
++        let mut flush = std::pin::pin!(writer.flush_into(&mut sink));
++        assert!(futures::poll!(&mut flush).is_pending());
++    }
++    assert_eq!(writer.write_cursor, 3);
++    writer.packet_raw(b"control reply").unwrap();
++    assert_eq!(writer.write_buffer.bytes, b"first packet".len() + b"control reply".len());
++    assert_eq!(writer.write_buffer.seqn, Wrapping(2));
++    sink.accept_until = usize::MAX;
++    writer.flush_into(&mut sink).await.unwrap();
++    assert_eq!(sink.bytes, expected.write_buffer.buffer);
++    assert!(!writer.has_pending_write());
++}
++
++#[tokio::test]
++async fn canceled_pending_flush_does_not_replay_accepted_bytes() {
++    let mut writer = PacketWriter::clear();
++    writer.packet_raw(b"flush pending").unwrap();
++    let expected = writer.write_buffer.buffer.clone();
++    let mut sink = Sink::open();
++    sink.flush_ready = false;
++    {
++        let mut flush = std::pin::pin!(writer.flush_into(&mut sink));
++        assert!(futures::poll!(&mut flush).is_pending());
++    }
++    assert!(writer.has_pending_write());
++    assert_eq!(sink.bytes, expected);
++    let writes = sink.writes;
++    sink.flush_ready = true;
++    writer.flush_into(&mut sink).await.unwrap();
++    assert_eq!(sink.bytes, expected);
++    assert_eq!(sink.writes, writes);
++    assert!(!writer.has_pending_write());
++}
++
++#[tokio::test]
++async fn write_zero_permanently_ends_packet_writer() {
++    let mut writer = PacketWriter::clear();
++    writer.packet_raw(b"write zero").unwrap();
++    let mut sink = Sink::open();
++    sink.write_zero = true;
++    assert!(matches!(writer.flush_into(&mut sink).await,
++        Err(Error::IO(e)) if e.kind() == io::ErrorKind::WriteZero));
++    assert_terminal(&mut writer, &mut sink).await;
++}
++
++#[tokio::test]
++async fn write_error_permanently_ends_packet_writer() {
++    let mut writer = PacketWriter::clear();
++    writer.packet_raw(b"write error").unwrap();
++    let mut sink = Sink::open();
++    sink.write_error = true;
++    assert!(matches!(writer.flush_into(&mut sink).await,
++        Err(Error::IO(e)) if e.kind() == io::ErrorKind::BrokenPipe));
++    assert_terminal(&mut writer, &mut sink).await;
++}
++
++#[tokio::test]
++async fn flush_error_permanently_ends_packet_writer() {
++    let mut writer = PacketWriter::clear();
++    writer.packet_raw(b"flush error").unwrap();
++    let mut sink = Sink::open();
++    sink.flush_error = true;
++    assert!(matches!(writer.flush_into(&mut sink).await,
++        Err(Error::IO(e)) if e.kind() == io::ErrorKind::BrokenPipe));
++    assert!(!sink.bytes.is_empty());
++    assert_terminal(&mut writer, &mut sink).await;
++}
++
++#[tokio::test]
++async fn exact_encoded_limit_accepts_then_overflow_is_terminal() {
++    let mut writer = PacketWriter::clear();
++    // Clear framing has a 5-byte prefix + 4-byte padding at this length.
++    // This unit intentionally tests the local queue cap, not peer packet limits.
++    let payload = vec![0x5a; PacketWriter::MAX_PENDING_WRITE_BYTES - 9];
++    writer.packet_raw(&payload).unwrap();
++    assert_eq!(writer.write_buffer.buffer.len(), PacketWriter::MAX_PENDING_WRITE_BYTES);
++    let sequence = writer.write_buffer.seqn;
++    assert!(matches!(writer.packet_raw(b"overflow control"), Err(Error::Pending)));
++    assert_eq!(writer.write_buffer.seqn, sequence);
++    let mut sink = Sink::open();
++    assert_terminal(&mut writer, &mut sink).await;
++    assert!(sink.bytes.is_empty());
++    // The same admission limit with no prior bytes must also wake the driver's
++    // terminal flush arm, even if a Handler caught the admission error.
++    let mut empty = PacketWriter::clear();
++    let too_large = vec![0x5a; PacketWriter::MAX_PENDING_WRITE_BYTES + 1];
++    assert!(matches!(empty.packet_raw(&too_large), Err(Error::Pending)));
++    assert!(empty.write_buffer.buffer.is_empty());
++    assert_terminal(&mut empty, &mut Sink::open()).await;
++}
