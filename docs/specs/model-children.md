@@ -9,9 +9,8 @@ system prompt / 模型 / 上下文 / 工具 / 输出预算）、§14.5（递归�
 `crates/shenko-store/src/{external,intents,child}.rs`（账本与准入）、
 `crates/shenko-types/src/output.rs`（作者可见的 spec 类型）。
 
-本文描述**合同与接口**。本文中的"已实现"只指源码已存在；本次交付**没有**执行任何
-构建、测试、native 或真实模型调用（父代理在集成后统一验证）。任何"运行期行为"的断言
-都以"待验证"标注。
+本文描述合同与接口；已执行的机制验证及未通过的边界见 §9。脚本 provider 配合真实
+CLI、Store、broker 的验证不等于真实模型行为验收，也不覆盖未执行的恢复场景。
 
 ---
 
@@ -117,8 +116,10 @@ kind 为空）的行**不**被当作工具调用，而是留在答案正文里�
 工具调用执行方式：child 通过共享 native runtime（`ChildToolRuntime`）请求一次
 **真实的** native 子任务。该子任务有自己的 task 行（owner = child 任务）、operation、
 attempt、evidence 与 T2，走的是主体委派时完全相同的 handler、authority 与账本。
-子任务 id 由调用身份派生（`tool_task_id(call_id)`），所以**同一个调用永远不会被执行
-两次**：重启、恢复或继续讨论时读的是同一条子任务的持久结果。
+子任务 id 由调用身份派生（`tool_task_id(call_id)`）。不存在的子任务先插入，再在
+同一事务中认领；认领失败时创建也回滚，不留下可被另一 dispatcher 抢走的中间任务。
+已有调用身份不再新建任务：重启、恢复或继续讨论时读取、协调原任务的持久结果，
+未知效果不能被当作一次新调用。
 
 ### 4.1 嵌套的模型 child
 
@@ -166,15 +167,15 @@ child 的 `[reply] 正文` 只有在它**确实被授予** `reply_grant` 时才�
 授权的账号绑定：`ModelChildReplyGrant.account` 显式给出账号；缺省时用目标的
 audience kind 作为账号（与主体自身回复的账号语义一致）。
 
-发布走的是**与主体自身回复完全相同**的路径：`Store::admit_child_publication` 写入
+发布复用主体的 native publication 任务链：`Store::admit_child_publication` 写入
 与主体 S1 发布同构的 `subject_intents`（`kind='publication'`，state=`ready`）与
 `subject_publication` 任务行，已安装的渠道插件因此用同一个 service、同一套
 prepared/dispatched/confirmed/failed/unknown 状态与回执处理它。发布任务挂在主体的
 owner 链上（不是 child 任务上），因此 child 自己的完成**不会**被一次远端发送拖住。
 
-> 备注：`subject_intents` 里 publication 的 contract 字符串目前仍是
-> `shenko.napcat/onebot11-send/1`（主体自身发布同样如此）。通用渠道 contract 的迁移
-> 属于渠道 owner 的范围，本切片沿用现状以保证 child 与主体走同一条路。
+> 迁移边界：主体发布已使用 `CHANNEL_PUBLISH_CONTRACT`，child 的
+> `PUBLICATION_CONTRACT` 仍残留 `shenko.napcat/onebot11-send/1`。因此不能据共享
+> `PublicationTarget` 和任务表声称 child 的通用渠道发布已完成验收。
 
 ---
 
@@ -198,9 +199,20 @@ owner 链上（不是 child 任务上），因此 child 自己的完成**不会*
 必须保持一致，已取消或已替换的运行拒绝继续。Store 在下一次 T1 内仍原子检查 CAS、
 owner、controller generation 与可执行状态；晚到的模型 E1 不因此获得 T2 权限。
 
+发送边界按 **operation/attempt** 而不是整个 task 记账。
+`Store::commit_native_dispatch(ctx, operation_id, attempt_id)` 在同一事务中核对持久
+operation 的任务归属、attempt 的 operation/invocation/epoch 和当前执行权限。一个
+attempt 只有一个调用者能获得发送权；同一 invocation 的下一模型步使用自己的
+operation/attempt，不会被前一步的发送记录误判为重发。
+
+task memo 中 schema 2 的发送记录保留每个 attempt 的绑定和提交位置，不删除前一步
+记录，也不伪造 provider 已接收的事实。已经提交的 attempt 即使随后被取消，重复
+回调仍按“可能已发送”处理；尚未提交的 attempt 被取消后不得发送。旧的任务级
+发送标记不能归属到某个 attempt 时保留未知状态，不能以字段缺失推断“从未发送”。
+
 ---
 
-## 8. 接口清单（父代理集成时需要知道的）
+## 8. 接口清单
 
 新增/变更的公开面：
 
@@ -211,27 +223,49 @@ owner、controller generation 与可执行状态；晚到的模型 E1 不因此�
   （`model.child.generate.v1`）、`MODEL_CHILD_RESULT_OPERATION`（`model.child.result.v1`）、
   `Store::external_task_operations(task_id, operation_name)`。
 * `shenko_store::Store`：`Store::claim_child_tool_task(...)`（原子创建并 claim 一个
-  工具子任务）、`Store::admit_child_publication(...)`（child 发布准入）。
+  工具子任务）、`Store::commit_native_dispatch(ctx, operation_id, attempt_id)`（单次
+  attempt 的发送边界）、`Store::admit_child_publication(...)`（child 发布准入）。
 * `shenko_subject`：`ChildToolRuntime` / `ChildToolCall` / `ChildToolOutcome` /
   `NativeChildService::tool_runtime()` / `describe_tools()` / `call_tool()`；
   `NativeTaskInvocation.child_tools`。
 * `ModelChildHandler` 的 `descriptor().prompt_section` 现在描述多步 + 工具能力。
 
-共享文件的所有权提醒：本切片改动了 `shenko-store/src/external.rs`（Ledger owner）、
-`shenko-store/src/intents.rs`（Subject/Ledger owner）、`shenko-types/src/output.rs`
-（Channels owner 共用文件）、`shenko-subject/src/child.rs`、`shenko-subject/src/loop_runner.rs`
-（Subject owner）。合并时这些 hunk 需要由父代理与对应 owner 一起落。
-
 ---
 
-## 9. 尚未验证的部分（诚实边界）
+## 9. 验证范围与未通过的边界
 
 2026-11-02 的集成记录已覆盖 Linux 工作区构建，以及真实 Store/parser/broker 配合
 脚本 loopback 响应的限定机制验证。它们不是实际模型行为验收，不证明下列全部行为。
 
-以下行为仍是**按合同设计、尚未完整运行验证**的：多步循环、工具调用与工具结果回灌、
-嵌套 child 的预算账户、继续链的 transcript 继承、child 回复经渠道服务外发、
-未决步的恢复不重发。
+2026-11-03 的同一有界原生场景依次暴露并保留了两次失败：首次工具任务使用更新而非
+插入，导致 revision 下溢；修复插入后，整个 task 共用的发送标记又阻止了第二模型步。
+修复两处后，真实默认 CLI 完成了五个 child 模型步，执行研究工具与一次 PMA 调用，
+最终结果回到主体，CLI 正常退出。网络响应由脚本提供，不是真实 Coder390 行为证明。
+
+证据位于 `build/spec-architecture-20261101/` 的 `pma-epoch-before-r1/`、
+`pma-epoch-admission-fixed-r1/` 和 `pma-epoch-dispatch-fixed-r2/`。
+最后一次观察的 CLI SHA-256 为
+`a79deb1e5972f3f74fb1573f23a161f86837b01b574e1f68aec45bd67e345e5b`；
+原始 provider 请求与独立 Store/CAS 回读分别保存在后者的
+`provider-observation.json` 和 `store-observation.json`。
+
+该观察同时证明 **epoch 定向瞬态提醒仍未通过**：五个 child 请求都没有收到 prepared
+contribution，而提醒正文作为 PMA 工具结果出现在最后三个请求的滚动历史中。PMA
+决策成功落账不等于提醒投递和单次消费正确，不能将本次多步执行成功泛化为此项通过。
+
+上述限定场景之外，嵌套 child 的预算账户、继续链的 transcript 继承、child 经通用
+渠道外发以及全部中断/恢复组合仍需各自的原生和真实模型证据。
+
+本次 Store roundtrip 21 项、Subject library 54 项测试通过；新增断言覆盖工具任务
+创建/认领的原子性与回滚、不同模型步的独立发送、同 attempt 竞争、取消前后及重开后
+的防重复，还有旧任务级发送记录的保守恢复。初次测试因 fixture 缺少 native input
+绑定而失败，修正的是测试初始化，未放宽产品准入。
+
+`child-tool-verification-r3/receipt.json` 的两条测试命令均退出 0，但外层检查因
+进程组仍存在而退出 1；原始失败保持不变。后续进程快照发现一个已退出、由 PID 1
+持有的 `kill` zombie，其组内没有执行中进程。由于外层未保留原 Cargo PID，不能把
+该组归属写成确定事实，也不能声称本次所有进程组均已消失；这与原生 CLI 观察中
+已确认的正常退出、进程组消失是不同的证据边界。
 
 测试超时仅说明观察未在指定窗口内完成，不能单独归因于宿主负载，也不能由后续通过
 排除产品缺陷。完整用例耗时不能代替内部等待阶段的耗时；逐次启动并等待结束的重复

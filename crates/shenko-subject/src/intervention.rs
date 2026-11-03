@@ -526,7 +526,9 @@ struct InterventionReceiptSink {
 
 impl InferenceReceiptSink for InterventionReceiptSink {
     fn may_dispatch(&self) -> Result<DispatchFence> {
-        Ok(match self.store.commit_native_dispatch(&self.invocation)? {
+        Ok(match self.store.commit_native_dispatch(
+            &self.invocation, self.operation.operation_id, self.attempt.attempt_id,
+        )? {
             shenko_store::child::NativeDispatchTransition::Won => DispatchFence::Send,
             shenko_store::child::NativeDispatchTransition::Fenced => DispatchFence::Fenced,
             shenko_store::child::NativeDispatchTransition::AlreadyCommitted => {

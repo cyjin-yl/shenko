@@ -1796,7 +1796,9 @@ impl InferenceReceiptSink for ChildStepSink {
         // task is fenced before any send; a committed dispatch is reported as
         // unknown so the original attempt stays recoverable and is never
         // re-sent or marked never-dispatched.
-        Ok(match self.store.commit_native_dispatch(&self.invocation)? {
+        Ok(match self.store.commit_native_dispatch(
+            &self.invocation, self.operation.operation_id, self.attempt.attempt_id,
+        )? {
             shenko_store::child::NativeDispatchTransition::Won => DispatchFence::Send,
             shenko_store::child::NativeDispatchTransition::Fenced => DispatchFence::Fenced,
             shenko_store::child::NativeDispatchTransition::AlreadyCommitted => {
