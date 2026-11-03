@@ -237,6 +237,8 @@ fn options(data_dir: &Path, workspace_roots: Vec<PathBuf>) -> CognitionSnapshotO
         memory_root: Some(data_dir.join("memory")),
         workspace_roots,
         include_git_history: true,
+        // Peer exports do not carry the complete local boundary database.
+        local_boundary_preserved: false,
     }
 }
 

@@ -3038,6 +3038,49 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
     // Keep the fixture on container disk for independent inspection.
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn catalog_publication_does_not_recover_or_fence_a_live_dispatcher() {
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(&store, &mut subject, 1, &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\nRetain this live effect during discovery.").await;
+    let task = store.native_task_candidates_after(None, 8).unwrap()[0].1.task_id;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let generation = subject.head.software_generation.clone();
+    let live = shenko_kernel::Supervisor::new(generation.clone());
+    live.spawn(crate::NativeChildPlugin, (store.clone(), generation.clone())).await.unwrap();
+    live.spawn(crate::NativeTaskHandlerPlugin, Arc::new(GatedHandler {
+        store: store.clone(), started: started.clone(), release: release.clone(), hold_reconcile: false,
+    }) as Arc<dyn crate::NativeTaskHandler>).await.unwrap();
+    let service = live.context().try_service::<crate::NativeChildService>().unwrap();
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified()).await.unwrap();
+    let running = store.external_task(task).unwrap();
+    assert!(running.is_running());
+
+    // Another Store incarnation has no dispatcher authority. Registering and
+    // withdrawing its catalog must not normalize or take over the live claim.
+    let observer = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let catalog = shenko_kernel::Supervisor::new(generation.clone());
+    catalog.spawn(crate::NativeChildPlugin, (observer, generation)).await.unwrap();
+    catalog.stop().await.unwrap();
+    assert_eq!(serde_json::to_value(store.external_task(task).unwrap()).unwrap(),
+        serde_json::to_value(running).unwrap());
+
+    release.notify_one();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            service.run_once().await.unwrap();
+            if let Some(result) = store.native_task_result(task).unwrap() { break result; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(result.outcome, TaskOutcome::Succeeded);
+    live.stop().await.unwrap();
+}
+
 /// §5.6/C02 restart: Cordis seals the plugin input at spawn, so a same-Fiber
 /// `restart` re-applies the SAME `Arc<NativeChildService>` — still `closed`
 /// from its teardown. Reactivation must reopen admission only after the

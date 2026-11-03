@@ -25,6 +25,7 @@
 
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
+use cordis_core::{Context, InjectSpec, Plugin, Service};
 use serde::{Deserialize, Serialize};
 use shenko_broker::broker::{BrokerHandle, DispatchFence, InferenceReceiptSink, InferenceRecoverySource};
 use shenko_broker::request::*;
@@ -47,6 +48,7 @@ use std::sync::Arc;
 
 use crate::quota_gate::{QuotaGate, observe_quota_response, quota_dispatch_gate, settle_quota_terminal};
 use crate::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_memory::intervention_runtime::PmaContributionRuntime;
 
 /// The native definition kind of the memory-intervention worker.
 pub const PMA_EVALUATE_KIND: &str = "pma.evaluate";
@@ -162,6 +164,41 @@ fn read_frozen(store: &Store, object: &ObjectRef) -> Result<FrozenIntervention> 
     let frozen: FrozenIntervention = serde_json::from_slice(&bytes)?;
     frozen.validate()?;
     Ok(frozen)
+}
+
+/// Rebuild the native definition when either memory service is replaced.
+/// The handler must not retain a withdrawn contribution registration.
+pub struct PmaEvaluatePlugin;
+
+impl Plugin for PmaEvaluatePlugin {
+    type Config = (Arc<Store>, BrokerHandle);
+    type Input = Self::Config;
+    type PrepareError = std::convert::Infallible;
+    type ApplyError = std::io::Error;
+
+    fn name(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Borrowed("shenko-pma-evaluate")
+    }
+
+    fn inject(&self) -> InjectSpec {
+        InjectSpec::none()
+            .require(crate::NativeChildService::NAME)
+            .require(MemoryInterventionRegistry::NAME)
+            .require(PmaContributionRuntime::NAME)
+    }
+
+    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        Ok(config)
+    }
+
+    async fn apply(&self, ctx: Context, (store, broker): &Self::Input) -> Result<(), Self::ApplyError> {
+        let policy = ctx.try_service::<MemoryInterventionRegistry>().map_err(std::io::Error::other)?;
+        let publisher = ctx.try_service::<PmaContributionRuntime>().map_err(std::io::Error::other)?;
+        let handler: Arc<dyn NativeTaskHandler> = Arc::new(
+            PmaEvaluateHandler::new(store.clone(), broker.clone(), policy).with_publisher(publisher),
+        );
+        crate::NativeTaskHandlerPlugin.apply(ctx, &handler).await
+    }
 }
 
 /// The native handler of the memory-intervention worker.
@@ -423,8 +460,7 @@ impl PmaEvaluateHandler {
         Ok(())
     }
 
-    /// Publish a reminder as one context contribution for the scope it was
-    /// addressed to.
+    /// Refresh the addressed scope from all of its committed reminders.
     fn publish_reminder(
         &self,
         reminder: &InterventionReminder,
@@ -436,15 +472,12 @@ impl PmaEvaluateHandler {
         if reminder.decision != InterventionDecisionKind::Remind {
             return Ok(());
         }
-        let provider = shenko_memory::PmaContributionProvider::new(Arc::clone(&self.store));
         let scope_id = self.scope_id_for(&reminder.scope, reminder.epoch_id, agent_id)?;
         let scope = shenko_context_policy::contribution::ContributionScope {
             scope_id,
             task_id: None,
         };
-        let contribution =
-            provider.contribution_for(reminder, &scope, chrono::Utc::now().timestamp_millis())?;
-        publisher.publish(&scope, vec![contribution])?;
+        publisher.refresh(&scope)?;
         Ok(())
     }
 
@@ -459,7 +492,7 @@ impl PmaEvaluateHandler {
     ) -> Result<EntityId> {
         if scope == shenko_memory::SUBJECT_SCOPE {
             let (head, _step) = self.store.load_subject(agent_id)?;
-            return Ok(head.agent_id);
+            return Ok(EntityId(head.branch_id.0));
         }
         if let Some(rest) = scope.strip_prefix("epoch:") {
             let parsed: EntityId = rest

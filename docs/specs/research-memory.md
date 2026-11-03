@@ -11,9 +11,10 @@ mechanisms.
 ```
 shenko-memory         MemoryInterventionPolicy (trait) + Model/Silent impls
                       + MemoryInterventionRegistry (Cordis service)
+                      + MemoryInterventionPlugin / PmaContributionRuntime
 shenko-store          research.rs: epochs/candidates/bank/reminders/tombstones
                       + archive_moves; every write idempotent + ledger commit
-shenko-subject        PmaEvaluateHandler (native kind "pma.evaluate")
+shenko-subject        PmaEvaluatePlugin / PmaEvaluateHandler ("pma.evaluate")
 shenko-exec-host      research.reset / research.candidate / research.bank /
                       retention.apply handlers + builtin.rs assembly
 ```
@@ -37,7 +38,9 @@ fields are `max_tokens`, `max_duration_secs`, `max_cost_units`, and `notes`
 `toolchain`, `dataset_versions`, and `reproducible`; a software-generation
 label alone is not a reproducible environment.
 
-- **open** creates epoch 1 of a lineage with a sealed worker brief.
+- **open** creates epoch 1 of a lineage with a sealed worker brief and the
+  authoritative native invocation's task identity. Recovery uses the original
+  operation's task, not a caller-supplied ownership field.
 - **reset** freezes the active epoch as an archive and opens the next one:
   candidates are frozen; the best candidate is **validated** (artifact present
   in CAS, digest matches, score recorded with its source, environment
@@ -127,8 +130,9 @@ bounded observation of the epoch's bank + attempts, asks the installed
 - **silent**: recorded as a decision (a missed reminder is a fact, not an
   absence); nothing is injected.
 - **remind**: one transient, source-bound reminder with provenance and
-  relevance, delivered through the context contract; the ledger records the
-  usage receipt (`record_intervention_use`).
+  relevance, delivered through the context contract. Accepted S0 usage is the
+  authoritative contribution consumption receipt; a decision row or provider
+  answer alone does not consume it.
 
 No personal-interest relevance gate and no approval step: the policy is the
 only authority, the decision is bounded, durable and reproducible.
@@ -143,8 +147,21 @@ A transient reminder with a deadline uses `ThisRequestUntilMillis`: it expires
 if still unused at that deadline and is consumed when an accepted S0 first
 adopts it. Re-publication and replay of S0 usage do not revive it. Ordinary
 `ExpiresAtMillis` remains reusable until its deadline. This contribution-level
-contract does not by itself prove default-runtime producer installation,
-correct subject routing or provider delivery.
+contract does not by itself prove default-runtime producer installation or
+provider delivery.
+
+Subject delivery resolves `epoch -> owning task -> agent -> current branch`.
+The scope string `subject` is not a global broadcast address. Epoch-directed
+reminders match only their exact `epoch:<id>` destination; they do not also
+receive subject-directed reminders. Preparation selects active epochs and
+retains the existing expiry and consumption filters. Historical epochs without
+an owning task remain readable, but cannot establish a subject destination;
+the producer does not guess an owner from whichever subject happens to run.
+The immediate publisher uses the actual subject branch identity, matching
+request collection rather than substituting the agent identity. It refreshes
+the complete committed batch for that destination, not a singleton that could
+overwrite another pending reminder. The publication ticket is acquired before
+preparation, and registration withdrawal invalidates all of its tickets.
 
 ### The decision and its settlement are one fact
 
@@ -188,13 +205,40 @@ No mechanism deletes user data in development.
 
 ## Runtime registration
 
-`exec_host::builtin::{spawn_builtin_runtime, builtin_handlers}` installs the
-full set — research.reset, research.candidate, research.bank,
-retention.apply, pma.evaluate — onto a real Cordis supervisor through
-`NativeChildPlugin` + `NativeTaskHandlerPlugin`, the same path every native
-child uses. A composition root calls `spawn_builtin_runtime(store,
-model_child_handle, generation)`; recovery (`native.recover()`) re-drives
-Armed attempts through the idempotent writes.
+The default CLI installs `exec_host::builtin::research_handlers(store)` on
+its existing `NativeChildPlugin` through `NativeTaskHandlerPlugin`. Thus
+`research.reset`, `research.candidate`, `research.bank` and `retention.apply`
+are present both in live dispatch and in the `capabilities` command, including
+model-free startup. There is no separate, unused built-in supervisor.
+
+With a configured model, the CLI also installs `MemoryInterventionPlugin`
+and `PmaEvaluatePlugin`. The latter uses the same broker as the subject and
+model children, and declares dependencies on the native runtime, the policy
+registry and the contribution runtime. Replacing those memory services
+rebuilds the handler rather than retaining a withdrawn publisher. Policy
+replacement remains `MemoryInterventionRegistry::install`; no keyword,
+model-selection or human-approval gate is introduced.
+
+The memory plugin restores the current subject branch's prepared batch before
+startup completes. Afterward it reconciles ledger changes on a 250 ms background
+tick; committed reminder decisions also request an immediate full-batch
+refresh. Branch changes withdraw the previous branch's batch. Expiry is checked
+at collection, and accepted S0 history reconstructs single-use consumption on
+process/service replacement. Preparation is outside the request collector and
+does not consume a reminder. The background projection only reads committed
+decisions; it does not trigger an inference or choose what the subject does.
+
+Cordis teardown closes publication, cancels and joins the projection worker,
+then removes that exact registration. A retained service handle cannot publish
+after closure; same-Fiber restart gets a fresh worker and registration. A
+projection failure is journaled and stops its owning runtime rather than
+silently serving a stale successful projection.
+
+Initial native-plugin publication installs the catalog without recovering or
+acquiring dispatcher authority. A live composition root explicitly calls
+`native.recover()` after owning the dispatcher. Same-Fiber native restart still
+recovers aborted claims after its close/join barrier. Capability discovery
+therefore cannot recover or fence another live dispatcher's tasks.
 
 ## Failure and recovery semantics
 
