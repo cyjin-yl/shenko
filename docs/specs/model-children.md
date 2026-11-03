@@ -185,11 +185,40 @@ id 属于哪一类受众"，**永远不是账号**；把它当账号会让授权
 prepared/dispatched/confirmed/failed/unknown 状态与回执处理它。发布任务挂在主体的
 owner 链上（不是 child 任务上），因此 child 自己的完成**不会**被一次远端发送拖住。
 
-> 迁移边界：child 回复与主体回复共用同一条通用渠道发布链（同一 `subject_intents`
-> /`subject_publication` 行、`CHANNEL_PUBLISH_CONTRACT`、同一组 prepared/dispatched/
-> confirmed/failed/unknown 状态），child 侧不再残留 `shenko.napcat/onebot11-send/1`
-> 这样的写死合同字符串。但这仍**不是**验收：child 的回复在真实非 QQ 插件上的完整
-> 外发链路（授权→发布→插件接受→回执）尚无原生与真实模型证据。
+child 回复与主体回复共用同一条通用渠道发布链（同一 `subject_intents`
+/`subject_publication` 行、`CHANNEL_PUBLISH_CONTRACT`、同一组 prepared/dispatched/
+confirmed/failed/unknown 状态），child 侧不再残留 `shenko.napcat/onebot11-send/1`
+这样的写死合同字符串。
+
+### 原生证据（2026-11-03）
+
+默认 CLI 的真实进程 + 真实 NapCat/OneBot 插件 + 本地 OneBot WebSocket 双工 +
+脚本 provider：主体委派一个带 `reply_grant` 的 child（目标
+`{schema_version:2, channel:qq, kind:group, id:"123456789", account:"qq:10001"}`），
+child 回 `[reply] …`，CLI 自己的发布循环经插件 `describe`/`dispatch` 把消息发出。
+
+观察到的事实：
+
+* 平台双工收到**一次** `send_group_msg`，`group_id=123456789`，正文就是 child 的
+  `[reply]` 原文；
+* 持久层里的发布行 `contract=shenko.channel/publish/2`，目标 `schema_version=2`，
+  `account=qq:10001`（**不是** audience kind `group`），并带 `reply_grant_id`；
+* 该发布的 E1 回执 `observation_level=provider_accepted`；
+* 输出中没有任何凭据样式，provider 无错误。
+
+边界：平台侧是**本地 OneBot 双工**，不是真实 QQ 平台；provider 是脚本，不是真实
+模型；不含崩溃/掉电耐久性；也**没有**证明真实模型会照着委派语法写出可绑定的
+`reply_grant`。因此本条只证明"授权→发布→插件→回执"这条链路本身，不等于通用渠道
+外发的完整验收。
+
+证据根：`build/spec-architecture-20261101/child-channel-r{3,5,6,7}/`、
+`child-channel-publication-assessment.json`。
+
+同一轮实测还暴露并修复了一个关机缺陷：关机时 CLI 先关闭 subject inbox，正在投递
+native 结果的 dispatcher 会看到 `channel closed`，把它当成失败、记一条
+`native_dispatcher` runtime error 并让进程以 1 退出。修复后 inbox 关闭只表示"本轮
+投递正常结束"（结果仍留在 Store，下次打开再投）。修复前后对照见
+`closed-inbox-before-after.json`。
 
 ---
 
