@@ -28,7 +28,9 @@
 //! receipts belong to the shared native runtime.
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
+use cordis_core::Context;
 use serde::{Deserialize, Serialize};
+use shenko_context_policy::{ContributionPlan, ContributionRegistry, ContributionScope, ContributionUsage};
 use shenko_broker::{
     broker::{BrokerHandle, DispatchFence, InferenceReceiptSink, InferenceRecoverySource},
     request::*,
@@ -70,7 +72,7 @@ const ROLE: &str = "model-child/tool-agent@2";
 /// it, one durable operation per step.
 const CONTRACT_SCHEMA: u32 = 2;
 /// The frozen step input version.
-const STEP_SCHEMA: u32 = 1;
+const STEP_SCHEMA: u32 = 2;
 /// Bounded text kept from one model result.
 const MAX_STEP_TEXT_BYTES: usize = 64 * 1024;
 /// Bounded tool result handed back to the model.
@@ -283,6 +285,30 @@ struct FrozenModelChildStep {
     max_tokens: u64,
     payload: InferencePayload,
     payload_fingerprint: Digest,
+    /// Historical schema 1 had no contribution collection. Schema 2 always
+    /// seals a plan, including an explicitly empty plan. A missing/null plan
+    /// must never turn a schema-2 request into an unused contribution.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "read_contribution_plan")]
+    contribution_plan: Option<ContributionPlan>,
+}
+
+fn read_contribution_plan<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<ContributionPlan>, D::Error> {
+    ContributionPlan::deserialize(deserializer).map(Some)
+}
+
+impl FrozenModelChildStep {
+    fn contribution_usage(&self, task_id: EntityId, seal: &ObjectRef) -> Result<Option<ContributionUsage>> {
+        let Some(plan) = &self.contribution_plan else { return Ok(None); };
+        let scope = ContributionScope { scope_id: task_id, task_id: Some(task_id) };
+        ensure!(plan.missing_required.is_empty()
+            && plan.contributions.iter().all(|item| item.scope == scope && item.tokens <= item.budget_tokens)
+            && plan.contributions.iter().try_fold(0u64, |total, item| total.checked_add(item.tokens)) == Some(plan.total_tokens),
+            "sealed child contribution scope/token evidence mismatch");
+        if plan.contributions.is_empty() && plan.omitted.is_empty() { return Ok(None); }
+        Ok(Some(plan.usage(self.request_id, u64::from(self.step_index), task_id.to_string(), seal.digest.clone())))
+    }
 }
 
 /// The durable record of one finished model step.
@@ -394,19 +420,19 @@ fn contract_digest() -> Digest {
 }
 
 fn seal<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
-    seal_value(store, &serde_json::to_value(value)?, schema)
+    seal_value(store, &serde_json::to_value(value)?, schema, 1)
 }
 
 /// Seal an already canonical JSON value. The bytes are the canonical value
 /// serialization, so the object's digest equals the digest the store computes
 /// from the sealed delegation input.
-fn seal_value(store: &Store, value: &serde_json::Value, schema: &str) -> Result<ObjectRef> {
+fn seal_value(store: &Store, value: &serde_json::Value, schema: &str, version: u32) -> Result<ObjectRef> {
     match store.cas.seal_object(
         &serde_json::to_vec(value)?,
         "application/json",
         "model-child-effects",
         schema,
-        1,
+        version,
     ) {
         Ok(sealed) => Ok(sealed.object),
         Err(error) => {
@@ -435,7 +461,7 @@ fn read_step(store: &Store, object: &ObjectRef) -> Result<FrozenModelChildStep> 
     );
     let step: FrozenModelChildStep = serde_json::from_slice(&bytes)?;
     ensure!(
-        step.schema_version == STEP_SCHEMA,
+        matches!((step.schema_version, &step.contribution_plan), (1, None) | (STEP_SCHEMA, Some(_))),
         "unsupported model child step input"
     );
     Ok(step)
@@ -536,13 +562,16 @@ struct ChildHistory {
 pub struct ModelChildHandler {
     store: Arc<Store>,
     broker: BrokerHandle,
+    plugin_context: Context,
+    contribution_registry: parking_lot::Mutex<Option<Arc<ContributionRegistry>>>,
 }
 
 impl ModelChildHandler {
     /// Restore debt BEFORE starting the broker or subject. Include cancelled
     /// tasks: cancellation is not provider termination, and no callback is
     /// needed to reconstruct an original armed/unknown request after restart.
-    pub fn new(store: Arc<Store>, broker: BrokerHandle) -> Result<Self> {
+    pub fn new(store: Arc<Store>, broker: BrokerHandle, plugin_context: Context) -> Result<Self> {
+        let registry = plugin_context.try_service::<ContributionRegistry>().ok();
         let mut after = None;
         loop {
             let page = store.external_operations_after(MODEL_CHILD_STEP_OPERATION, after, 128)?;
@@ -552,6 +581,9 @@ impl ModelChildHandler {
             for operation in &page {
                 let attempt = store.external_operation_attempt(operation.operation_id)?;
                 let step = read_step(&store, &operation.final_input_ref)?;
+                if let (Some(registry), Some(usage)) = (&registry, step.contribution_usage(operation.task_id, &operation.final_input_ref)?) {
+                    registry.record_usage(usage)?;
+                }
                 broker.register_recovered(Arc::new(RecoveryReceipt {
                     store: Arc::clone(&store),
                     operation: operation.clone(),
@@ -561,7 +593,33 @@ impl ModelChildHandler {
                 after = Some(operation.operation_id);
             }
         }
-        Ok(Self { store, broker })
+        Ok(Self { store, broker, plugin_context, contribution_registry: parking_lot::Mutex::new(registry) })
+    }
+
+    /// Resolve the live root service, not the registry that happened to exist
+    /// when this long-running child was claimed. Replacement replays every
+    /// accepted T1, including completed/cancelled tasks and older steps.
+    fn refresh_contributions(&self) -> Result<Option<Arc<ContributionRegistry>>> {
+        let mut previous = self.contribution_registry.lock();
+        let current = self.plugin_context.try_service::<ContributionRegistry>().ok();
+        if let Some(registry) = &current {
+            if previous.as_ref().is_none_or(|old| !Arc::ptr_eq(old, registry)) {
+                let mut after = None;
+                loop {
+                    let page = self.store.external_operations_after(MODEL_CHILD_STEP_OPERATION, after, 128)?;
+                    if page.is_empty() { break; }
+                    for operation in &page {
+                        let step = read_step(&self.store, &operation.final_input_ref)?;
+                        if let Some(usage) = step.contribution_usage(operation.task_id, &operation.final_input_ref)? {
+                            registry.record_usage(usage)?;
+                        }
+                        after = Some(operation.operation_id);
+                    }
+                }
+            }
+        }
+        *previous = current.clone();
+        Ok(current)
     }
 
     /// The child's system prompt: the role contract, the authored semantic
@@ -1060,7 +1118,7 @@ impl ModelChildHandler {
         broker: &BrokerHandle,
         history: &ChildHistory,
         step_index: u32,
-        payload: InferencePayload,
+        mut payload: InferencePayload,
     ) -> Result<StepOutcome> {
         let logical_key = format!("model-child-step:{step_index}");
         // A recorded step is read, never sent again. The quota reservation of
@@ -1080,6 +1138,21 @@ impl ModelChildHandler {
             "shenko.model-child.request",
             &[contract.task_id.to_string().as_str(), &step_index.to_string()],
         );
+        // Preparation belongs to plugins. This path only reads prepared
+        // material and seals it in this request before reserving quota, never in
+        // the rolling transcript reconstructed from model/tool results.
+        let registry = self.refresh_contributions()?;
+        let scope = ContributionScope { scope_id: contract.task_id, task_id: Some(contract.task_id) };
+        let collected = crate::context_projection::collect_contributions(&self.store, registry.as_deref(), &scope)?;
+        let contribution_plan = match collected {
+            Some(collected) => {
+                if let Some(text) = collected.material {
+                    payload.messages.push(InferenceMessage::text("user", text));
+                }
+                collected.plan
+            }
+            None => ContributionPlan::default(),
+        };
         let sealed_contract_digest = contract_digest_of(contract)?;
         let step = FrozenModelChildStep {
             schema_version: STEP_SCHEMA,
@@ -1090,11 +1163,13 @@ impl ModelChildHandler {
             max_tokens: contract.max_tokens,
             payload_fingerprint: Digest::blake3(&serde_json::to_vec(&payload)?),
             payload,
+            contribution_plan: Some(contribution_plan),
         };
         let input_ref = seal_value(
             &self.store,
             &serde_json::to_value(&step)?,
             "model-child-step-input",
+            STEP_SCHEMA,
         )?;
         let operation_id = derived_id(
             "shenko.model-child.step",
@@ -1168,7 +1243,7 @@ impl ModelChildHandler {
             task_id: contract.task_id,
             logical_key,
             operation_name: MODEL_CHILD_STEP_OPERATION.into(),
-            input_schema_version: 1,
+            input_schema_version: STEP_SCHEMA,
             output_schema_version: 1,
             final_input_ref: input_ref.clone(),
             input_digest: input_ref.digest.clone(),
@@ -1237,6 +1312,16 @@ impl ModelChildHandler {
                 record,
                 operation: existing,
             });
+        }
+        // CAS writes alone own no consumption. T1 has now accepted the
+        // exact request. Re-resolve after admission as a service replacement
+        // could have replayed history before this T1 became visible.
+        if let Some(usage) = step.contribution_usage(contract.task_id, &input_ref)? {
+            let current = self.refresh_contributions()?;
+            if let Some(current) = current.as_ref().filter(|current| registry.as_ref().is_none_or(|old| !Arc::ptr_eq(old, current))) {
+                current.record_usage(usage.clone())?;
+            }
+            if let Some(registry) = &registry { registry.record_usage(usage)?; }
         }
         let sink = Arc::new(ChildStepSink {
             store: Arc::clone(&self.store),
@@ -1410,6 +1495,7 @@ impl ModelChildHandler {
             &self.store,
             &serde_json::to_value(&nested)?,
             "model-child-frozen-input",
+            1,
         )?;
         let Some(claim) = self.store.claim_child_tool_task(
             &invocation.task,
@@ -1578,6 +1664,7 @@ impl ModelChildHandler {
             &self.store,
             &serde_json::to_value(contract)?,
             "model-child-frozen-input",
+            1,
         )?;
         let result = serde_json::json!({
             "schema_version": 1,
@@ -1609,7 +1696,7 @@ impl ModelChildHandler {
             "transcript": history.records.clone(),
             "publications": publications,
         });
-        let result_ref = seal_value(&self.store, &result, "model-child-result")?;
+        let result_ref = seal_value(&self.store, &result, "model-child-result", 1)?;
         let digest = contract_digest();
         let version = VersionRef {
             artifact: ArtifactRef {
@@ -1913,6 +2000,7 @@ impl InferenceReceiptSink for ChildStepSink {
             &self.store,
             &serde_json::to_value(&record)?,
             "model-child-step-record",
+            1,
         )?;
         let evidence = EvidenceReceipt {
             record_schema_version: 1,

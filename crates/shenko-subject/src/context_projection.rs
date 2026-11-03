@@ -70,12 +70,9 @@ fn storage(error: impl std::fmt::Display) -> ShenkoError {
 
 /// What the contribution registry returned for this step.
 pub(super) struct CollectedContributions {
-    pub contributions: Vec<serde_json::Value>,
-    pub omissions: Vec<serde_json::Value>,
-    pub total_tokens: u64,
-    /// The model-facing text of every collected contribution, resolved from
-    /// the sealed document each contribution's reference points at.
-    pub material: Vec<String>,
+    pub plan: shenko_context_policy::ContributionPlan,
+    /// One model-facing part, resolved from the verified contribution bodies.
+    pub material: Option<String>,
 }
 
 /// Collect the prepared contributions for this step.
@@ -86,19 +83,16 @@ pub(super) struct CollectedContributions {
 /// contribution is the decision point: the step is not admissible without
 /// it, so it fails with a typed conflict that names exactly what was
 /// missing — never a silent drop.
-fn collect_contributions(
-    state: &SubjectLoopState,
-    scope_id: EntityId,
+pub(super) fn collect_contributions(
+    store: &Store,
+    registry: Option<&shenko_context_policy::ContributionRegistry>,
+    scope: &shenko_context_policy::ContributionScope,
 ) -> Result<Option<CollectedContributions>, ShenkoError> {
-    let Some(registry) = &state.contribution_registry else {
+    let Some(registry) = registry else {
         // No contribution runtime installed: there is nothing to collect.
         return Ok(None);
     };
-    // The scope is scope-wide: a task-bound contribution is not eligible
-    // for the subject's own step, and the registry reports that as a
-    // scope_mismatch omission instead of including it silently.
-    let scope = shenko_context_policy::contribution::scope_wide(scope_id);
-    let plan = registry.collect(&scope, chrono::Utc::now().timestamp_millis());
+    let plan = registry.collect(scope, chrono::Utc::now().timestamp_millis());
     if !plan.missing_required.is_empty() {
         return Err(ShenkoError::conflict(format!(
             "CONTRIBUTION_REQUIRED_MISSING: {}",
@@ -109,40 +103,22 @@ fn collect_contributions(
     // reference points at, not in the record itself. The document version is
     // read through the registry's own reader, so a newer document is an
     // error rather than a guess.
-    let mut material = Vec::new();
+    let mut material = None::<String>;
     for contribution in &plan.contributions {
-        let bytes = state.store.cas.read_object(&contribution.data.digest)?;
+        let bytes = store.cas.read_object(&contribution.data.digest)?;
         if bytes.len() as u64 != contribution.data.bytes
             || Digest::blake3(&bytes) != contribution.data.digest
         {
             return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
         }
-        material.push(
-            shenko_context_policy::contribution::ContributionPayload::read(&bytes).map_err(
-                |error| {
-                    ShenkoError::storage(format!("CONTRIBUTION_PAYLOAD_INVALID: {error}"))
-                },
-            )?,
-        );
+        let text = shenko_context_policy::contribution::ContributionPayload::read(&bytes)
+            .map_err(|error| ShenkoError::storage(format!("CONTRIBUTION_PAYLOAD_INVALID: {error}")))?;
+        match &mut material {
+            Some(material) => { material.push('\n'); material.push_str(&text); }
+            None => { material = Some(format!("[prepared contributions]\n{text}")); }
+        }
     }
-    let contributions = plan
-        .contributions
-        .iter()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ShenkoError::Serde)?;
-    let omissions = plan
-        .omitted
-        .iter()
-        .map(serde_json::to_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ShenkoError::Serde)?;
-    Ok(Some(CollectedContributions {
-        contributions,
-        omissions,
-        total_tokens: plan.total_tokens,
-        material,
-    }))
+    Ok(Some(CollectedContributions { plan, material }))
 }
 
 /// A prepared window can only be adopted against the history it was cut
@@ -924,7 +900,10 @@ pub(super) fn prepare_context(
     // The prepared contributions are collected BEFORE the final budget
     // check, so their cost is charged together with the context and the
     // tool cost (SPEC §37.7) and can never be added after the check.
-    let collected = collect_contributions(state, scope_id)?;
+    let collected = collect_contributions(
+        &state.store, state.contribution_registry.as_deref(),
+        &shenko_context_policy::contribution::scope_wide(scope_id),
+    )?;
     let mut contribution_estimate = 0;
     let (contributions, contribution_omissions, contribution_tokens) =
         match collected {
@@ -933,22 +912,16 @@ pub(super) fn prepare_context(
             // sealed document its reference points at. Its provenance
             // (producer, version, artifact digest) is NOT put in front of
             // the model: that reaches the raw call record through the seal.
-            if !collected.material.is_empty() {
-                const PREFIX: &str = "[prepared contributions]\n";
-                let bytes = collected.material.iter().map(String::len).sum::<usize>();
-                let mut text = String::with_capacity(PREFIX.len() + bytes + collected.material.len() - 1);
-                text.push_str(PREFIX);
-                for (index, part) in collected.material.into_iter().enumerate() {
-                    if index != 0 { text.push('\n'); }
-                    text.push_str(&part);
-                }
+            if let Some(text) = collected.material {
                 contribution_estimate = estimate_tokens(&text);
                 payload.messages.push(InferenceMessage::text("user", text));
             }
             (
-                collected.contributions,
-                collected.omissions,
-                collected.total_tokens,
+                collected.plan.contributions.iter().map(serde_json::to_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+                collected.plan.omitted.iter().map(serde_json::to_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+                collected.plan.total_tokens,
             )
         }
         None => (Vec::new(), Vec::new(), 0),

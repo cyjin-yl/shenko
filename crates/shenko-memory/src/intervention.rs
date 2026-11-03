@@ -513,11 +513,11 @@ impl PmaContributionProvider {
     /// the request it was prepared for) and directed at this scope.
     pub fn pending_reminders(
         &self,
-        scope_id: EntityId,
+        scope: &ContributionScope,
         now_ms: i64,
     ) -> Result<Vec<shenko_store::InterventionReminder>, InterventionError> {
         self.store
-            .pending_interventions_for_scope(scope_id, now_ms)
+            .pending_interventions_for_scope(scope, now_ms)
             .map_err(|error| InterventionError::Store(error.to_string()))
     }
 
@@ -613,7 +613,7 @@ impl ContributionProvider for PmaContributionProvider {
     ) -> Result<Vec<ContextContribution>, ContributionError> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let reminders = self
-            .pending_reminders(scope.scope_id, now_ms)
+            .pending_reminders(scope, now_ms)
             .map_err(|error| ContributionError::Provider {
                 provider: self.plugin_version.clone(),
                 reason: error.to_string(),

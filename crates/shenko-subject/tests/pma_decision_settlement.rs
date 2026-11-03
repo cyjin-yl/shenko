@@ -435,11 +435,12 @@ async fn reminder_batches_are_scoped_and_rebind_after_plugin_restart() -> Result
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let endpoint = format!("http://{}", listener.local_addr()?);
     let server = tokio::spawn(async move {
-        for name in ["A-first", "A-second", "B-first", "B-after-restart"] {
+        for name in ["A-first", "A-second", "B-first", "B-after-restart", "A-owned-epoch"] {
             let (mut socket, _) = listener.accept().await?;
             let _wire = read_wire(&mut socket).await?;
+            let address = if name == "A-owned-epoch" { format!("epoch:{}", ea.epoch_id) } else { "subject".into() };
             let answer = json!({"decision":"remind", "content":name, "provenance":["scope-fixture"],
-                "relevance":"the current research", "scope":"subject", "expires_in_secs":600}).to_string();
+                "relevance":"the current research", "scope":address, "expires_in_secs":600}).to_string();
             let raw = json!({"id":name, "choices":[{"message":{"role":"assistant","content":answer},
                 "finish_reason":"stop"}], "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
             socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await?;
@@ -468,7 +469,7 @@ async fn reminder_batches_are_scoped_and_rebind_after_plugin_restart() -> Result
     };
     let mut a_keys = Vec::new();
     let mut b_keys = Vec::new();
-    for (index, (agent, epoch)) in [(a, &ea), (a, &ea), (b, &eb), (b, &eb)].into_iter().enumerate() {
+    for (index, (agent, epoch)) in [(a, &ea), (a, &ea), (b, &eb), (b, &eb), (a, &ea)].into_iter().enumerate() {
         if index == 3 {
             let old = supervisor.context().try_service::<PmaContributionRuntime>()?;
             supervisor.restart(&projection).await?;
@@ -488,6 +489,14 @@ async fn reminder_batches_are_scoped_and_rebind_after_plugin_restart() -> Result
             }
         }).await??;
         let reminder = store.latest_intervention(epoch.epoch_id)?.context("committed reminder")?;
+        let tool_result = store.native_task_result(task)?.context("settled PMA task result")?;
+        let projected = tool_result.result.context("decision identity projection")?;
+        assert!(!projected.to_string().contains(reminder.content.as_deref().unwrap()),
+            "transient reminder content must not become permanent rolling tool history");
+        let decision_ref: shenko_types::object::ObjectRef = serde_json::from_value(projected["decision_ref"].clone())?;
+        let bytes = store.cas.read_object(&decision_ref.digest)?;
+        assert_eq!(shenko_types::object::Digest::blake3(&bytes), decision_ref.digest);
+        assert_eq!(serde_json::from_slice::<shenko_store::InterventionReminder>(&bytes)?, reminder);
         let expected = if agent == a { &mut a_keys } else { &mut b_keys };
         expected.push(format!("pma.reminder.{}", reminder.reminder_id));
         expected.sort();

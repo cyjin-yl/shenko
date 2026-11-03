@@ -150,18 +150,38 @@ adopts it. Re-publication and replay of S0 usage do not revive it. Ordinary
 contract does not by itself prove default-runtime producer installation or
 provider delivery.
 
-Subject delivery resolves `epoch -> owning task -> agent -> current branch`.
-The scope string `subject` is not a global broadcast address. Epoch-directed
-reminders match only their exact `epoch:<id>` destination; they do not also
-receive subject-directed reminders. Preparation selects active epochs and
-retains the existing expiry and consumption filters. Historical epochs without
-an owning task remain readable, but cannot establish a subject destination;
-the producer does not guess an owner from whichever subject happens to run.
-The immediate publisher uses the actual subject branch identity, matching
-request collection rather than substituting the agent identity. It refreshes
-the complete committed batch for that destination, not a singleton that could
-overwrite another pending reminder. The publication ticket is acquired before
-preparation, and registration withdrawal invalidates all of its tickets.
+Reminder delivery is resolved from **committed epoch and task ownership**, not
+from the address string alone. `subject` and `epoch:<id>` are addresses; the
+collection scope is derived from them: the epoch's owning task is walked to its
+nearest model child, or to the subject root. A model child owns the task scope
+`{ scope_id: task_id, task_id: Some(task_id) }`; the subject root owns the
+scope-wide branch scope `{ scope_id: branch_id, task_id: None }`.
+
+An epoch id is **not** a collection scope. No request collects
+`scope_wide(epoch_id)`, so a reminder published under the epoch id was
+prepared for a scope nobody reads: the decision was durable and the reminder
+was still unreachable. An epoch-directed reminder now reaches the worker that
+owns the epoch, and a subject-directed reminder reaches the subject's own
+branch scope. The scope string `subject` is not a global broadcast address,
+and an epoch-directed reminder does not also receive subject-directed
+reminders. Preparation selects active epochs and retains the existing expiry
+and consumption filters. Historical epochs without an owning task remain
+readable, but cannot establish a delivery scope; the producer does not guess
+an owner from whichever subject happens to run. A malformed ownership chain is
+an explicit conflict, not an empty plan.
+
+The immediate publisher refreshes the resolved delivery scope — the complete
+committed batch for that destination, not a singleton that could overwrite
+another pending reminder. The publication ticket is acquired before
+preparation, and registration withdrawal invalidates all of its tickets. A
+restart re-derives every pending scope from the durable decisions, so a
+prepared batch lost with the process is rebuilt for the same owner.
+
+The reminder body is **not** tool-result context. The normalized decision
+result carries the decision identity and a sealed reference to the recorded
+decision; the reminder text reaches a model only as a prepared contribution,
+in the contribution scope its owner collects. A decision row, a provider
+answer or a sealed decision object is evidence, not delivery.
 
 ### The decision and its settlement are one fact
 
