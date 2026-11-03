@@ -329,17 +329,123 @@ pub async fn tcp_connect(host: &str, port: u16, deadline: Duration) -> Result<Tc
 /// Load one exact private key, refusing encrypted keys (no passphrase
 /// channel exists in this contract) and refusing RSA without a SHA-2 hash.
 pub fn load_private_key(path: &std::path::Path) -> Result<PrivateKeyWithHashAlg> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading key {}", path.display()))?;
-    let key = russh::keys::PrivateKey::from_openssh(&bytes)
-        .with_context(|| format!("parsing key {}", path.display()))?;
-    ensure!(
-        !key.is_encrypted(),
-        "encrypted private keys are not admitted (no passphrase channel)"
+    use std::io::Read as _;
+    const MAX_SELECTED_KEY_BYTES: u64 = 1024 * 1024;
+    // One selected file, never an ambient identity or agent fallback. Reject
+    // nonregular files before reading; a FIFO without a writer must not strand
+    // a runtime worker. O_NOFOLLOW covers the final path component, not an
+    // adversarial ancestor-directory race or every filesystem driver.
+    let unavailable = || anyhow::anyhow!("selected native SSH credential unavailable");
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)] {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = options.open(path).map_err(|_| unavailable())?;
+    let metadata = file.metadata().map_err(|_| unavailable())?;
+    if !metadata.is_file() || metadata.len() > MAX_SELECTED_KEY_BYTES {
+        return Err(unavailable());
+    }
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt as _;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(unavailable());
+        }
+    }
+    // Allocate before reading secret bytes, then read only into this fixed
+    // slice. Zeroizing<Vec<_>> cannot scrub copies left by reallocation;
+    // read_to_end may grow even a preallocated Vec while probing for EOF.
+    let mut bytes = zeroize::Zeroizing::new(
+        vec![0_u8; (MAX_SELECTED_KEY_BYTES + 1) as usize].into_boxed_slice(),
     );
+    let mut used = 0;
+    while used < bytes.len() {
+        match file.read(&mut bytes[used..]) {
+            Ok(0) => break,
+            Ok(read) => used += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(unavailable()),
+        }
+    }
+    if used as u64 > MAX_SELECTED_KEY_BYTES { return Err(unavailable()); }
+    // Do not preserve path/parse-error context in a receipt-visible error.
+    let key = russh::keys::PrivateKey::from_openssh(&bytes[..used]).map_err(|_| unavailable())?;
+    if key.is_encrypted() { return Err(unavailable()); }
     let hash = if key.algorithm().is_rsa() {
         Some(russh::keys::HashAlg::Sha512)
     } else {
         None
     };
     Ok(PrivateKeyWithHashAlg::new(Arc::new(key), hash))
+}
+
+#[cfg(all(test, unix))]
+mod selected_key_file_tests {
+    use super::load_private_key;
+    use std::{path::{Path, PathBuf}, os::unix::{ffi::OsStrExt as _, fs::PermissionsExt as _}};
+
+    struct OwnedDir(PathBuf);
+    impl OwnedDir {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("shenko-selected-key-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&root).unwrap();
+            std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+            Self(root)
+        }
+        fn file(&self) -> PathBuf { self.0.join("owned-private-path-marker") }
+        fn valid(&self) -> PathBuf {
+            let path = self.file();
+            std::fs::write(&path, include_bytes!("../native_transport/fixtures/public-test-only-rsa")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+            path
+        }
+    }
+    impl Drop for OwnedDir { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+    fn rejected(path: &Path) {
+        let error = match load_private_key(path) { Ok(_) => panic!("unsafe selected key accepted"), Err(e) => e };
+        assert_eq!(format!("{error:#}"), "selected native SSH credential unavailable");
+        assert!(!format!("{error:?}").contains("owned-private-path-marker"));
+    }
+    #[test]
+    fn selected_key_accepts_protected_regular_fixture() {
+        let root = OwnedDir::new();
+        let key = load_private_key(&root.valid()).unwrap();
+        assert!(key.algorithm().is_rsa());
+        assert!(key.hash_alg().is_some());
+    }
+    #[test]
+    fn selected_key_rejects_fifo_without_writer() {
+        let root = OwnedDir::new(); let path = root.file();
+        let name = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        rejected(&path); // Run under an external process watchdog: timeout alone cannot preempt blocking open.
+    }
+    #[test]
+    fn selected_key_rejects_final_symlink() {
+        let root = OwnedDir::new(); let file = root.valid(); let link = root.0.join("selected-link");
+        std::os::unix::fs::symlink(&file, &link).unwrap(); rejected(&link);
+        assert!(load_private_key(&file).is_ok());
+    }
+    #[test]
+    fn selected_key_rejects_group_readable_mode() {
+        let root = OwnedDir::new(); let file = root.valid();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o440)).unwrap(); rejected(&file);
+    }
+    #[test]
+    fn selected_key_rejects_oversized_regular_file() {
+        let root = OwnedDir::new(); let path = root.file();
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_permissions(std::fs::Permissions::from_mode(0o600)).unwrap();
+        file.set_len(1024 * 1024 + 1).unwrap(); rejected(&path);
+    }
+    #[test]
+    fn selected_key_parse_failure_has_no_path_or_contents() {
+        let root = OwnedDir::new(); let path = root.file();
+        std::fs::write(&path, b"owned-invalid-key-content-marker").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        rejected(&path);
+        let error = load_private_key(&path).err().unwrap();
+        assert!(!format!("{error:?}").contains("owned-invalid-key-content-marker"));
+    }
 }
