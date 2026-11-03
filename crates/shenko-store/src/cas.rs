@@ -198,10 +198,9 @@ impl ContentStore {
     }
 }
 
-/// Make a directory entry change durable. On Unix this fsyncs the directory
-/// itself. Windows cannot open a directory as a plain file (access denied),
-/// and NTFS journals directory metadata, so there is nothing equivalent to
-/// flush; the call is a no-op there rather than an error that blocks open.
+/// Make a directory entry change durable. Filesystem journaling alone is not
+/// a successful publication barrier. Unsupported platforms must reject the
+/// operation rather than report durable CAS/recovery publication without one.
 #[cfg(unix)]
 pub(crate) fn sync_directory(directory: &Path) -> io::Result<()> {
     let directory = if directory.as_os_str().is_empty() { Path::new(".") } else { directory };
@@ -210,7 +209,8 @@ pub(crate) fn sync_directory(directory: &Path) -> io::Result<()> {
 
 #[cfg(not(unix))]
 pub(crate) fn sync_directory(_directory: &Path) -> io::Result<()> {
-    Ok(())
+    Err(io::Error::new(io::ErrorKind::Unsupported,
+        "durable directory synchronization is not supported on this platform"))
 }
 
 fn verify_file(file: &mut fs::File, digest: &Digest, expected_bytes: u64) -> io::Result<()> {
