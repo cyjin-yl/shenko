@@ -488,15 +488,11 @@ pub fn epoch_scope(epoch_id: EntityId) -> String {
     format!("epoch:{epoch_id}")
 }
 
-/// The runtime seam that publishes a prepared reminder into the request
-/// path. The implementation owns the context-contribution registry; the
-/// memory domain only knows this trait.
+/// Refresh a scope from committed decisions, outside the request path. The
+/// implementation acquires a publication ticket before preparing the full
+/// batch; a new reminder must not replace other pending reminders.
 pub trait ReminderPublisher: Send + Sync + 'static {
-    fn publish(
-        &self,
-        scope: &ContributionScope,
-        contributions: Vec<ContextContribution>,
-    ) -> Result<(), ContributionError>;
+    fn refresh(&self, scope: &ContributionScope) -> Result<(), ContributionError>;
 }
 
 /// The provider that turns the durable reminder ledger into context
@@ -520,17 +516,9 @@ impl PmaContributionProvider {
         scope_id: EntityId,
         now_ms: i64,
     ) -> Result<Vec<shenko_store::InterventionReminder>, InterventionError> {
-        let mut reminders = self
-            .store
-            .pending_interventions_by_scope(SUBJECT_SCOPE, now_ms)
-            .map_err(|error| InterventionError::Store(error.to_string()))?;
-        let epoch_scope = epoch_scope(scope_id);
-        reminders.extend(
-            self.store
-                .pending_interventions_by_scope(&epoch_scope, now_ms)
-                .map_err(|error| InterventionError::Store(error.to_string()))?,
-        );
-        Ok(reminders)
+        self.store
+            .pending_interventions_for_scope(scope_id, now_ms)
+            .map_err(|error| InterventionError::Store(error.to_string()))
     }
 
     /// The body of one reminder, sealed into the content store. The body is

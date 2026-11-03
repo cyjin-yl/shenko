@@ -567,6 +567,9 @@ async fn install_native_definitions(
     let _native_memory_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, memory_handler)
         .await?;
+    for handler in shenko_exec_host::research_handlers(Arc::clone(store)) {
+        supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
+    }
     // Runtime-error awareness — SPEC §45.14: errors.read exposes the
     // subject's own committed runtime_error facts; issue.submit writes
     // subject-authored drafts into the local issues outbox only.
@@ -1644,6 +1647,17 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     Arc::clone(&contribution_registry),
                 )
                 .await?;
+            supervisor.spawn(
+                shenko_memory::intervention_runtime::MemoryInterventionPlugin,
+                shenko_memory::intervention_runtime::MemoryInterventionConfig {
+                    store: Arc::clone(&store),
+                    agent_id,
+                    policy: Arc::new(shenko_memory::MemoryInterventionRegistry::new(Arc::new(
+                        shenko_memory::ModelMemoryInterventionPolicy,
+                    ))),
+                    failure_cancel: cancel.clone(),
+                },
+            ).await?;
             // The Node installation records are the installation authority for
             // the context strategies: a strategy runs only while its unit is
             // enabled, with the configuration that unit carries. The
@@ -1730,6 +1744,10 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let _model_child_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, model_child_handler)
                 .await?;
+            supervisor.spawn(
+                shenko_subject::intervention::PmaEvaluatePlugin,
+                (Arc::clone(&store), broker_handle.clone()),
+            ).await?;
             // The measurement path of a cognition unit: a finite comparison of
             // the candidate against the same installation with the unit
             // switched off. It runs in throwaway sandboxes and its inference

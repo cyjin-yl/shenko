@@ -1694,31 +1694,34 @@ impl Store {
         )
     }
 
-    /// The reminders of one scope that are still usable: not expired, not
-    /// already spent (a transient reminder leaves the visible context after
-    /// the request it was prepared for) and directed at this scope.
-    ///
-    /// The scope is an open string. The shipped producer writes `subject`
-    /// for a reminder meant for the subject itself and `epoch:<id>` for a
-    /// reminder that belongs to one research epoch.
-    pub fn pending_interventions_by_scope(
+    /// Usable reminders for one actual request scope. Subject delivery follows
+    /// epoch -> owning task -> agent -> current branch; the word `subject` is
+    /// not a global destination. Epoch-directed reminders match only that epoch.
+    /// Legacy epochs without an owning task cannot establish subject delivery.
+    pub fn pending_interventions_for_scope(
         &self,
-        scope: &str,
+        scope_id: EntityId,
         now_ms: i64,
     ) -> Result<Vec<InterventionReminder>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         ensure_research_schema(&conn)?;
         let mut statement = conn
             .prepare(
-                "SELECT reminder_id FROM intervention_reminders
-                 WHERE scope=?1 AND decision='remind'
-                   AND (expires_at_ms IS NULL OR expires_at_ms > ?2)
-                   AND (transient=0 OR used_at_ms IS NULL)
-                 ORDER BY created_at_ms ASC, reminder_id ASC",
+                "SELECT r.reminder_id FROM intervention_reminders r
+                 JOIN research_epochs e ON e.epoch_id = r.epoch_id
+                 LEFT JOIN tasks t ON t.task_id = e.task_id
+                 LEFT JOIN subject_branch_heads h
+                   ON h.agent_id = json_extract(t.data, '$.agent_id')
+                 WHERE e.status='active' AND r.decision='remind'
+                   AND ((r.scope='subject' AND h.branch_id=?1)
+                     OR (r.scope='epoch:' || ?1 AND r.epoch_id=?1))
+                   AND (r.expires_at_ms IS NULL OR r.expires_at_ms > ?2)
+                   AND (r.transient=0 OR r.used_at_ms IS NULL)
+                 ORDER BY r.created_at_ms ASC, r.reminder_id ASC",
             )
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         let ids = statement
-            .query_map(params![scope, now_ms], |row| row.get::<_, String>(0))
+            .query_map(params![scope_id.to_string(), now_ms], |row| row.get::<_, String>(0))
             .map_err(|error| ShenkoError::storage(error.to_string()))?
             .collect::<Result<Vec<String>, _>>()
             .map_err(|error| ShenkoError::storage(error.to_string()))?;

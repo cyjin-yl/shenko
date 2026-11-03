@@ -407,3 +407,102 @@ async fn a_silent_answer_settles_with_exactly_one_durable_decision() -> Result<(
     assert_eq!(attempt.requests, 1, "the bounded call is dispatched once");
     Ok(())
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn reminder_batches_are_scoped_and_rebind_after_plugin_restart() -> Result<()> {
+    use shenko_context_policy::{ContributionHost, ContributionRegistry, scope_wide};
+    use shenko_memory::{ReminderPublisher, intervention_runtime::{
+        MemoryInterventionConfig, MemoryInterventionPlugin, PmaContributionRuntime,
+    }};
+    let dir = std::env::temp_dir().join(format!("shenko-pma-scope-{}", EntityId::new()));
+    std::fs::create_dir_all(&dir)?;
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas"))?);
+    let a = initialize(&store)?;
+    let b = initialize(&store)?;
+    store.start_subject_dispatcher()?;
+    let (ha, _) = store.load_subject(a)?;
+    let (hb, _) = store.load_subject(b)?;
+    let closure = ResearchClosure {
+        constraints: vec![], effects: vec![],
+        budget: ResearchBudget { max_tokens: Some(1000), max_duration_secs: None, max_cost_units: None, notes: None },
+        environment: ResearchEnvironment {
+            environment_id: "pma-scope".into(), facts: vec![], toolchain: vec![],
+            dataset_versions: vec![], reproducible: true,
+        },
+    };
+    let ea = store.open_research_lineage(EntityId::new(), EntityId::new(), Some(ha.subject_root_task_id), &closure)?;
+    let eb = store.open_research_lineage(EntityId::new(), EntityId::new(), Some(hb.subject_root_task_id), &closure)?;
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let endpoint = format!("http://{}", listener.local_addr()?);
+    let server = tokio::spawn(async move {
+        for name in ["A-first", "A-second", "B-first", "B-after-restart"] {
+            let (mut socket, _) = listener.accept().await?;
+            let _wire = read_wire(&mut socket).await?;
+            let answer = json!({"decision":"remind", "content":name, "provenance":["scope-fixture"],
+                "relevance":"the current research", "scope":"subject", "expires_in_secs":600}).to_string();
+            let raw = json!({"id":name, "choices":[{"message":{"role":"assistant","content":answer},
+                "finish_reason":"stop"}], "usage":{"prompt_tokens":12,"completion_tokens":7}}).to_string();
+            socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{raw}", raw.len()).as_bytes()).await?;
+            socket.shutdown().await?;
+        }
+        Ok::<_, anyhow::Error>(())
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "pma-scope".into()), 1)?;
+    let broker_run = tokio::spawn(broker.run());
+    let supervisor = Supervisor::new(ha.software_generation.clone());
+    supervisor.spawn(NativeChildPlugin, (store.clone(), ha.software_generation)).await?;
+    let native = supervisor.context().try_service::<NativeChildService>()?;
+    let registry = Arc::new(ContributionRegistry::new());
+    supervisor.spawn(ContributionHost, registry.clone()).await?;
+    let failure_cancel = tokio_util::sync::CancellationToken::new();
+    let policy = Arc::new(MemoryInterventionRegistry::new(Arc::new(ModelMemoryInterventionPolicy)));
+    let projection = supervisor.spawn(MemoryInterventionPlugin, MemoryInterventionConfig {
+        store: store.clone(), agent_id: a, policy: policy.clone(), failure_cancel: failure_cancel.clone(),
+    }).await?;
+    let implementation = PmaEvaluateHandler::new(store.clone(), handle.clone(), policy).descriptor().implementation_ref;
+    supervisor.spawn(shenko_subject::intervention::PmaEvaluatePlugin, (store.clone(), handle.clone())).await?;
+    let keys = |scope| {
+        let mut keys: Vec<_> = registry.collect(&scope_wide(scope), chrono::Utc::now().timestamp_millis())
+            .contributions.into_iter().map(|item| item.key).collect();
+        keys.sort(); keys
+    };
+    let mut a_keys = Vec::new();
+    let mut b_keys = Vec::new();
+    for (index, (agent, epoch)) in [(a, &ea), (a, &ea), (b, &eb), (b, &eb)].into_iter().enumerate() {
+        if index == 3 {
+            let old = supervisor.context().try_service::<PmaContributionRuntime>()?;
+            supervisor.restart(&projection).await?;
+            assert!(old.refresh(&scope_wide(EntityId(ha.branch_id.0))).is_err());
+            assert_eq!(keys(EntityId(ha.branch_id.0)), a_keys, "startup restores the full pending batch");
+            assert!(!failure_cancel.is_cancelled(), "plugin replacement must not stop its owner");
+        }
+        let task = admit(&store, agent, implementation.clone(), epoch.lineage_id, epoch.epoch_id)?;
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                native.run_once().await?;
+                if let Some(result) = store.native_task_result(task)? {
+                    ensure!(result.outcome == TaskOutcome::Succeeded, "PMA task failed: {result:?}");
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        }).await??;
+        let reminder = store.latest_intervention(epoch.epoch_id)?.context("committed reminder")?;
+        let expected = if agent == a { &mut a_keys } else { &mut b_keys };
+        expected.push(format!("pma.reminder.{}", reminder.reminder_id));
+        expected.sort();
+        assert_eq!(keys(EntityId(ha.branch_id.0)), a_keys);
+        assert_eq!(keys(EntityId(hb.branch_id.0)), b_keys);
+        assert!(keys(ea.epoch_id).is_empty(), "subject reminders are not epoch reminders");
+        assert!(keys(EntityId::new()).is_empty(), "unrelated subjects receive nothing");
+    }
+    server.await??;
+    let retained = supervisor.context().try_service::<PmaContributionRuntime>()?;
+    supervisor.stop().await?;
+    assert!(retained.refresh(&scope_wide(EntityId(ha.branch_id.0))).is_err());
+    assert!(keys(EntityId(ha.branch_id.0)).is_empty());
+    assert!(!failure_cancel.is_cancelled(), "normal teardown must not signal runtime failure");
+    broker_run.abort();
+    let _ = broker_run.await;
+    Ok(())
+}

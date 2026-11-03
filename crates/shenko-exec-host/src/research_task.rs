@@ -412,7 +412,7 @@ impl ResearchResetHandler {
         frozen.trigger.unwrap_or(ResearchResetTrigger::SubjectRequest)
     }
 
-    fn write(&self, frozen: &FrozenReset) -> Result<(serde_json::Value, OperationOutcome)> {
+    fn write(&self, frozen: &FrozenReset, task_id: EntityId) -> Result<(serde_json::Value, OperationOutcome)> {
         let closure = Self::closure_of(frozen);
         match frozen.op {
             ResetOp::Open => {
@@ -421,7 +421,7 @@ impl ResearchResetHandler {
                     .context("open requires the lineage_id to open")?;
                 let epoch =
                     self.store
-                        .open_research_lineage(frozen.request_id, lineage_id, None, &closure)?;
+                        .open_research_lineage(frozen.request_id, lineage_id, Some(task_id), &closure)?;
                 let brief = self.store.research_worker_brief(epoch.epoch_id)?;
                 Ok((
                     serde_json::json!({
@@ -492,6 +492,7 @@ impl NativeTaskHandler for ResearchResetHandler {
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         let frozen = self.freeze(&invocation.input)?;
+        let task_id = invocation.task_invocation.task_id;
         run_recorded(
             &self.store,
             &invocation,
@@ -502,7 +503,7 @@ impl NativeTaskHandler for ResearchResetHandler {
             "research-reset-observation-v1",
             "research_reset_own_subject_lineage",
             &frozen,
-            move |_store, frozen| self.write(frozen),
+            move |_store, frozen| self.write(frozen, task_id),
         )
     }
 
@@ -513,7 +514,7 @@ impl NativeTaskHandler for ResearchResetHandler {
             operation_id,
             "research.reset.v1",
             |operation| read_frozen::<FrozenReset>(&self.store, operation),
-            move |_store, frozen| self.write(frozen),
+            move |_store, frozen| self.write(frozen, task.task_id),
         )
         .await
     }
