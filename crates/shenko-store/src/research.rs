@@ -742,24 +742,30 @@ impl Store {
     }
 
     fn try_add_candidate(&self, candidate: &ResearchCandidate) -> Result<(), ShenkoError> {
+        let candidate_id = candidate.candidate_id.to_string();
+        let epoch_id = candidate.epoch_id.to_string();
+        let artifact_ref = encode_object(&candidate.artifact_ref)?;
+        let environment_ref = candidate.environment_ref.as_ref().map(encode_object).transpose()?;
         let mut conn = self.ledger.conn.lock();
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         ensure_research_schema(&tx)?;
-        // A replayed candidate write is the same fact, not a second one.
-        let existing: Option<String> = tx
+        // Identity covers the evidence, not the first-observed timestamp or
+        // the frozen state that a later reset projects onto this row.
+        let existing: Option<(bool, Option<f64>)> = tx
             .query_row(
-                "SELECT artifact_ref FROM research_candidates WHERE candidate_id=?1",
-                params![candidate.candidate_id.to_string()],
-                |row| row.get(0),
+                "SELECT epoch_id=?2 AND artifact_ref=?3 AND score_source IS ?4
+                        AND environment_ref IS ?5 AND notes IS ?6, score
+                 FROM research_candidates WHERE candidate_id=?1",
+                params![candidate_id, epoch_id, artifact_ref, candidate.score_source,
+                    environment_ref, candidate.notes],
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        if let Some(artifact) = existing {
-            let same = artifact == encode_object(&candidate.artifact_ref)?
-                && candidate.score == candidate.score;
-            return if same {
+        if let Some((same_evidence, score)) = existing {
+            return if same_evidence && score == candidate.score {
                 Ok(())
             } else {
                 Err(ShenkoError::conflict(
@@ -773,12 +779,12 @@ impl Store {
              (candidate_id,epoch_id,artifact_ref,score,score_source,environment_ref,notes,frozen,created_at_ms)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
-                candidate.candidate_id.to_string(),
-                candidate.epoch_id.to_string(),
-                encode_object(&candidate.artifact_ref)?,
+                candidate_id,
+                epoch_id,
+                artifact_ref,
                 candidate.score,
                 candidate.score_source,
-                candidate.environment_ref.as_ref().map(encode_object).transpose()?,
+                environment_ref,
                 candidate.notes,
                 candidate.frozen as i64,
                 candidate.created_at_ms,
@@ -1302,22 +1308,33 @@ impl Store {
     }
 
     fn try_put_bank_entry(&self, entry: &InterventionBankEntry) -> Result<(), ShenkoError> {
+        let entry_id = entry.entry_id.to_string();
+        let epoch_id = entry.epoch_id.to_string();
+        let source_refs = encode_list(&entry.source_refs)?;
+        let carried_from = entry.carried_from.map(|id| id.to_string());
+        let supersedes = entry.supersedes.map(|id| id.to_string());
         let mut conn = self.ledger.conn.lock();
         let tx = conn
             .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
         ensure_research_schema(&tx)?;
-        // A replayed bank write is the same fact, not a second one.
-        let existing: Option<String> = tx
+        // Compare the original evidence while preserving later lifecycle
+        // projections. An explicit correction target must already match;
+        // an original write without one may replay after a later link.
+        let existing: Option<(bool, Option<f64>)> = tx
             .query_row(
-                "SELECT content FROM intervention_bank_entries WHERE entry_id=?1",
-                params![entry.entry_id.to_string()],
-                |row| row.get(0),
+                "SELECT epoch_id=?2 AND kind=?3 AND content=?4 AND source_refs=?5
+                        AND scope=?6 AND base_revision=?7 AND carried_from IS ?8
+                        AND (?9 IS NULL OR supersedes IS ?9), confidence
+                 FROM intervention_bank_entries WHERE entry_id=?1",
+                params![entry_id, epoch_id, entry.kind.as_str(), entry.content, source_refs,
+                    entry.scope, entry.base_revision as i64, carried_from, supersedes],
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()
             .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        if let Some(content) = existing {
-            return if content == entry.content {
+        if let Some((same_evidence, confidence)) = existing {
+            return if same_evidence && confidence == entry.confidence {
                 Ok(())
             } else {
                 Err(ShenkoError::conflict(
@@ -1332,17 +1349,17 @@ impl Store {
               supersedes,superseded_by,carried_from,tombstoned_at_ms,created_at_ms)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
             params![
-                entry.entry_id.to_string(),
-                entry.epoch_id.to_string(),
+                entry_id,
+                epoch_id,
                 entry.kind.as_str(),
                 entry.content,
-                encode_list(&entry.source_refs)?,
+                source_refs,
                 entry.scope,
                 entry.confidence,
                 entry.base_revision as i64,
-                entry.supersedes.map(|id| id.to_string()),
+                supersedes,
                 entry.superseded_by.map(|id| id.to_string()),
-                entry.carried_from.map(|id| id.to_string()),
+                carried_from,
                 entry.tombstoned_at_ms,
                 entry.created_at_ms,
             ],

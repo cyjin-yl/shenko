@@ -66,6 +66,119 @@ fn assert_same_projection(actual: &ResearchResetOutcome, original: &ResearchRese
 }
 
 #[test]
+fn candidate_identity_rejects_changed_evidence_and_preserves_first_observation() {
+    let (_root, store, closure, epoch) = fixture();
+    let foreign = store.open_research_lineage(EntityId::new(), EntityId::new(), None, &closure).unwrap();
+    let artifact = store.cas.seal_object(b"original", "text/plain", "test", "raw", 1).unwrap().object;
+    let other = store.cas.seal_object(b"different", "text/plain", "test", "raw", 1).unwrap().object;
+    for present in [false, true] {
+        let original = ResearchCandidate {
+            candidate_id: EntityId::new(), epoch_id: epoch.epoch_id,
+            artifact_ref: artifact.clone(), score: present.then_some(8.0),
+            score_source: present.then(|| "byte count".into()),
+            environment_ref: if present { epoch.environment_ref.clone() } else { None },
+            notes: present.then(|| "first observation".into()), frozen: false, created_at_ms: 1,
+        };
+        store.add_research_candidate(&original).unwrap();
+        let retained = store.research_candidates(epoch.epoch_id).unwrap();
+        let seq = store.current_commit_seq().unwrap();
+        let mut replay = original.clone();
+        replay.created_at_ms = 99;
+        store.add_research_candidate(&replay).unwrap();
+        for field in ["epoch", "artifact", "score", "verifier", "environment", "notes"]
+            .into_iter().chain(present.then_some("score_absence")) {
+            let mut changed = original.clone();
+            match field {
+                "epoch" => changed.epoch_id = foreign.epoch_id,
+                "artifact" => changed.artifact_ref = other.clone(),
+                "score" => changed.score = Some(999.0),
+                "score_absence" => changed.score = None,
+                "verifier" => changed.score_source = (!present).then(|| "other verifier".into()),
+                "environment" => changed.environment_ref = if present { None } else { epoch.environment_ref.clone() },
+                "notes" => changed.notes = (!present).then(|| "other observation".into()),
+                _ => unreachable!(),
+            }
+            assert!(matches!(store.add_research_candidate(&changed),
+                Err(shenko_types::error::ShenkoError::Conflict(_))), "{field}, present={present}");
+        }
+        assert_eq!(store.research_candidates(epoch.epoch_id).unwrap(), retained);
+        assert_eq!(store.current_commit_seq().unwrap(), seq);
+    }
+}
+
+#[test]
+fn bank_identity_rejects_changed_evidence_and_correction_targets() {
+    let (_root, store, closure, epoch) = fixture();
+    let foreign = store.open_research_lineage(EntityId::new(), EntityId::new(), None, &closure).unwrap();
+    for present in [false, true] {
+        let mut original = bank_entry(epoch.epoch_id, BankEntryKind::Requirement, "retained fact");
+        original.confidence = present.then_some(0.75);
+        store.put_bank_entry(&original).unwrap();
+        let seq = store.current_commit_seq().unwrap();
+        let mut replay = original.clone();
+        replay.created_at_ms = 99;
+        store.put_bank_entry(&replay).unwrap();
+        for field in ["epoch", "kind", "content", "provenance", "scope", "confidence",
+            "revision", "ancestry", "supersedes"]
+            .into_iter().chain(present.then_some("confidence_absence")) {
+            let mut changed = original.clone();
+            match field {
+                "epoch" => changed.epoch_id = foreign.epoch_id,
+                "kind" => changed.kind = BankEntryKind::Attempt,
+                "content" => changed.content = "different fact".into(),
+                "provenance" => changed.source_refs = vec!["fixture:other-fact".into()],
+                "scope" => changed.scope = "other scope".into(),
+                "confidence" => changed.confidence = Some(0.25),
+                "confidence_absence" => changed.confidence = None,
+                "revision" => changed.base_revision += 1,
+                "ancestry" => changed.carried_from = Some(EntityId::new()),
+                "supersedes" => changed.supersedes = Some(EntityId::new()),
+                _ => unreachable!(),
+            }
+            assert!(matches!(store.put_bank_entry(&changed),
+                Err(shenko_types::error::ShenkoError::Conflict(_))), "{field}, present={present}");
+        }
+        assert_eq!(store.bank_entry(original.entry_id).unwrap(), Some(original));
+        assert_eq!(store.current_commit_seq().unwrap(), seq);
+    }
+}
+
+#[test]
+fn original_writes_replay_after_freeze_correction_and_tombstone_without_reverting_them() {
+    let (root, store, closure, epoch) = fixture();
+    let original = candidate(&store, &epoch, b"retained candidate");
+    let old = bank_entry(epoch.epoch_id, BankEntryKind::Requirement, "old fact");
+    let replacement = bank_entry(epoch.epoch_id, BankEntryKind::Requirement, "corrected fact");
+    let unrelated = bank_entry(epoch.epoch_id, BankEntryKind::Requirement, "unrelated fact");
+    for entry in [&old, &replacement, &unrelated] { store.put_bank_entry(entry).unwrap(); }
+    store.reset_research_epoch(EntityId::new(), epoch.lineage_id,
+        ResearchResetTrigger::PlannedRound, "freeze evidence", &closure, Some(original.candidate_id)).unwrap();
+    store.supersede_bank_entry(old.entry_id, replacement.entry_id).unwrap();
+    store.tombstone_bank_entry(old.entry_id, "withdrawn").unwrap();
+    let retired = store.bank_entry(old.entry_id).unwrap();
+    let corrected = store.bank_entry(replacement.entry_id).unwrap().unwrap();
+    assert_eq!(corrected.supersedes, Some(old.entry_id));
+    drop(store);
+    let store = Store::open(root.path().join("research.db"), root.path().join("cas")).unwrap();
+    let seq = store.current_commit_seq().unwrap();
+    store.add_research_candidate(&original).unwrap();
+    store.put_bank_entry(&old).unwrap();
+    store.put_bank_entry(&replacement).unwrap();
+    store.put_bank_entry(&corrected).unwrap();
+    let mut conflicting = corrected.clone();
+    conflicting.supersedes = Some(unrelated.entry_id);
+    assert!(matches!(store.put_bank_entry(&conflicting),
+        Err(shenko_types::error::ShenkoError::Conflict(_))));
+    let mut frozen = original;
+    frozen.frozen = true;
+    assert_eq!(store.research_candidates(epoch.epoch_id).unwrap(), vec![frozen]);
+    assert_eq!(store.bank_entry(old.entry_id).unwrap(), retired);
+    assert_eq!(store.bank_entry(replacement.entry_id).unwrap(), Some(corrected));
+    assert_eq!(store.bank_entry(unrelated.entry_id).unwrap(), Some(unrelated));
+    assert_eq!(store.current_commit_seq().unwrap(), seq);
+}
+
+#[test]
 fn tombstones_leave_active_views_but_remain_readable_after_reopen() {
     let (root, store, _, epoch) = fixture();
     let mut retired = bank_entry(epoch.epoch_id, BankEntryKind::Requirement, "retired requirement");
