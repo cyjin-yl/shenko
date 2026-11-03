@@ -345,7 +345,9 @@ impl TerminalScreen {
     /// Feed a rendered screen dump (tmux `capture-pane -p -e`).
     pub fn feed_screen_dump(&mut self, bytes: &[u8]) {
         self.mode = TerminalMode::ScreenDump;
-        self.feed(bytes);
+        // capture-pane terminates its last row with LF. That separator is
+        // not a live terminal line-feed which may scroll the captured rows.
+        self.feed(bytes.strip_suffix(b"\n").unwrap_or(bytes));
     }
 
     fn index(&self, row: u16, column: u16) -> usize {
@@ -1331,7 +1333,7 @@ mod tests {
 
     #[test]
     fn screen_dump_mode_returns_to_column_zero_per_line() {
-        let mut screen = TerminalScreen::new(20, 3, TerminalMode::ScreenDump);
+        let mut screen = TerminalScreen::new(3, 2, TerminalMode::ScreenDump);
         screen.feed_screen_dump(b"one\ntwo\n");
         let grid = screen.grid();
         assert_eq!(grid.lines[0].text.trim_end(), "one");

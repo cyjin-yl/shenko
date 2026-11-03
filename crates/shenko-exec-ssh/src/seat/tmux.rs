@@ -383,7 +383,7 @@ pub fn is_yes_no_prompt(text: &str) -> bool {
 
 /// True when the line reads like something the remote agent is asking.
 fn looks_like_question(text: &str) -> bool {
-    if text.ends_with('?') {
+    if text.ends_with('?') || is_yes_no_prompt(text) {
         return true;
     }
     const MARKERS: &[&str] = &[
@@ -477,7 +477,7 @@ pub fn infer_questions(grid: &ScreenGrid, seat: &SeatHandle) -> Vec<SeatQuestion
             }
             let option_id = format!("opt-{}", options.len() + 1);
             let marker_text = marker.map(|marker| &trimmed[..marker]).unwrap_or("");
-            let numeric = marker_text.trim_end();
+            let numeric = marker_text.trim_end().trim_end_matches(['.', ')']);
             // A numbered option can be selected by its number; that mapping
             // is justified by the screen itself.
             let native_value = if !numeric.is_empty() && numeric.chars().all(|c| c.is_ascii_digit())
@@ -619,25 +619,18 @@ mod tests {
     }
 
     #[test]
-    fn a_question_without_highlight_keeps_the_selection_unknown() {
-        let grid = screen(&[
-            ("Do you want to continue?", false),
-            ("  ❯ yes", false),
-            ("    no", false),
-        ]);
-        let question = &infer_questions(&grid, &handle())[0];
-        assert_eq!(question.options.len(), 2);
-        assert!(
-            question
-                .unknown
-                .iter()
-                .any(|entry| entry.contains("光标标记"))
-        );
+    fn selection_requires_a_visible_marker_not_option_position() {
+        for (first, expected) in [("  ❯ yes", Some("opt-1")), ("  - yes", None)] {
+            let grid = screen(&[("Do you want to continue?", false), (first, false), ("  - no", false)]);
+            let question = &infer_questions(&grid, &handle())[0];
+            assert_eq!(question.options.len(), 2);
+            assert_eq!(question.selected_option.as_deref(), expected);
+        }
     }
 
     #[test]
     fn numbered_options_map_to_their_number() {
-        let grid = screen(&[("Pick one", false), ("  1. alpha", false), ("  2. beta", false)]);
+        let grid = screen(&[("Pick one?", false), ("  1. alpha", false), ("  2) beta", false)]);
         let question = &infer_questions(&grid, &handle())[0];
         assert_eq!(question.options[0].native_value.as_deref(), Some("1"));
         assert_eq!(question.options[1].native_value.as_deref(), Some("2"));
@@ -683,8 +676,11 @@ mod tests {
 
     #[test]
     fn an_unmapped_decision_sends_nothing() {
-        let grid = screen(&[("Pick one", false), ("  alpha", false), ("  beta", false)]);
+        let grid = screen(&[("Pick one?", false), ("  - alpha", false), ("  - beta", false)]);
         let question = &infer_questions(&grid, &handle())[0];
+        assert_eq!(question.options[0].label, "alpha");
+        assert_eq!(question.options[0].native_value, None);
+        assert_eq!(question.selected_option, None);
         let answer = SeatAnswer {
             option_id: Some("opt-1".into()),
             text: None,
