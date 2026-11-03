@@ -196,6 +196,41 @@ store at S1.
 | `[dnd]` | the subject's own attention decision. `off` requires the silenced sources and a review time; an unbounded silent switch is refused at S1 admission. |
 | `[steer]` | the adoption of one live steer that was carried into this step. The submission key must name a steer that was actually selected into this S0; the store re-checks that binding at S1. |
 
+## R0 rejection and correction
+
+A syntactically valid disposition that names an event outside its own sealed S0 is
+rejected BEFORE the step can be committed, at the same parsed-result boundary
+that validates the rest of the control protocol. This is not an S1 conflict
+discovered late and it is not a reason to kill the subject.
+
+* A `[dispose]` may name only an event that was actually selected into this
+  step's sealed `events`. A disposition for an unknown or unselected event is
+  `CONTROL_PROTOCOL_INVALID` (`scope: request`, `retry: new_revision`); the
+  store never sees it as an S1 commit attempt, so nothing about the step's
+  other intents is partially applied.
+* Rejection retires the step: the original sealed input, the exact model
+  text, the sealed outcome and a `StepRejection` record are all durable. The
+  rejection names its replacement step; the next attempt gets a NEW request
+  identity. A correction re-seals the same selected events, so a crash
+  between retire and reopen still reconstructs the correction from the
+  durable facts alone.
+* The model's own text is preserved verbatim — including any `[remember]` or
+  other controls it wrote alongside the invalid disposition. They were never
+  committed; they are not adopted into the correction either. The subject
+  must re-author them in the new attempt.
+
+Bounded native proof (2026-11-04): the real default CLI against a scripted
+provider received `[remember] …` plus a `[dispose]` naming a random event id,
+retired the step with `CONTROL_PROTOCOL_INVALID`, preserved the verbatim
+model output in CAS, sealed the rejection record with its replacement, sent
+a second request under a new request identity, committed the correction
+exactly once and wrote NO memory intent. Receipt:
+`build/spec-architecture-20261101/subject-controls-native-r2/receipt.json`;
+build and source-integrity binding
+`subject-controls-verification-r6/receipt.json`. This proves the correction
+mechanism with a real store/broker/CLI; it is not live-model or physical
+power-loss evidence.
+
 ## Identity
 
 * An identity edit that does not fit the profile bounds is REFUSED with a
@@ -206,9 +241,9 @@ store at S1.
 
 ## What is not proven yet
 
-This document describes the implemented source contract. The native proof
-recipe (a real store, a real broker, a real provider turn, a crash between
-the arm and the send, and a resumed step) has not been executed in this
-phase; the parent serializes that verification after integration. Until it
-runs, the recovery paths above are source-level contracts, not observed
-runtime behaviour.
+This document describes the implemented source contract. One bounded native
+proof ran for the R0 rejection/correction path above (scripted provider,
+no physical crash). The broader native recipe — a real store, a real
+broker, a real provider turn, a crash between the arm and the send, and a
+resumed step — remains unexecuted in this phase; recovery paths beyond the
+bounded proof are source-level contracts, not observed runtime behaviour.

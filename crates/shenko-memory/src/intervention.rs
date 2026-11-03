@@ -38,7 +38,7 @@ use cordis_core::Service;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use shenko_context_policy::contribution::{
-    ContributionError, ContributionKind, ContributionLifetime, ContributionProvider,
+    ContributionError, ContributionKind, ContributionLifetime, ContributionPayload, ContributionProvider,
     ContributionScope, ContributionSlot, ContributionSource, ContextContribution,
 };
 use shenko_store::Store;
@@ -54,7 +54,9 @@ pub const INTERVENTION_ROLE: &str = "\
 你没有任何工具、文件、shell、网络或发信入口，也不能接管主体的计划；你只输出一个决定。
 决定只有两种：
 1) 保持沉默：现在没有值得打断工作的事实。
-2) 给出一条提醒：内容、出处（必须引用观察到的记忆条目 id 或来源）、相关性、作用范围、有效期秒数。
+2) 给出一条提醒：内容、出处、相关性、投递地址、有效期秒数。
+provenance 至少逐字引用一个可见 bank 条目的 entry_id 或 source_refs 值，不添加 entry_id: 等前缀，不编造出处。
+scope 是投递地址而非自然语言描述：从 allowed_reminder_scopes 中逐字选择一个值。subject 表示提醒主体；epoch:<当前 epoch_id> 表示提醒拥有这条研究线的执行者，不拼接 lineage 或解释文字。
 相关性指这条提醒与当前正在推进的工作/研究线的关系；不需要论证它对用户个人兴趣是否重要，也不需要请求任何批准。
 如果没有把握，保持沉默比编造提醒更好。
 只输出一个 JSON 对象，不要解释，不要 markdown 代码块之外的内容：\
@@ -222,6 +224,7 @@ impl ModelMemoryInterventionPolicy {
         let user = serde_json::json!({
             "epoch_id": observation.epoch_id.to_string(),
             "lineage_id": observation.lineage_id.to_string(),
+            "allowed_reminder_scopes": [SUBJECT_SCOPE.to_string(), epoch_scope(observation.epoch_id)],
             "now_ms": observation.now_ms,
             "trajectory": trajectory,
             "bank": bank,
@@ -303,18 +306,15 @@ impl ModelMemoryInterventionPolicy {
                         "a reminder needs at least one provenance reference".to_string(),
                     ));
                 }
-                let known: Vec<String> = observation
-                    .bank
-                    .iter()
-                    .map(|entry| entry.entry_id.to_string())
-                    .collect();
-                if !known.is_empty()
-                    && !provenance
-                        .iter()
-                        .any(|item| known.iter().any(|entry| entry == item))
+                let visible = &observation.bank[..observation.bank.len().min(observation.budget.max_bank_entries)];
+                if !visible.is_empty()
+                    && !provenance.iter().any(|reference| visible.iter().any(|entry| {
+                        reference.parse::<EntityId>().ok() == Some(entry.entry_id)
+                            || entry.source_refs.iter().any(|source| source == reference)
+                    }))
                 {
                     return Err(InterventionError::InvalidDecision(
-                        "a reminder must reference an observed bank entry".to_string(),
+                        "a reminder must reference a visible bank entry or its exact source".to_string(),
                     ));
                 }
                 let relevance = object
@@ -337,6 +337,8 @@ impl ModelMemoryInterventionPolicy {
                         "a reminder needs a scope".to_string(),
                     ));
                 }
+                shenko_store::validate_intervention_scope(observation.epoch_id, scope)
+                    .map_err(|error| InterventionError::InvalidDecision(error.to_string()))?;
                 let expires_in_secs = object.get("expires_in_secs").and_then(|value| value.as_u64());
                 if expires_in_secs == Some(0) {
                     return Err(InterventionError::InvalidDecision(
@@ -488,15 +490,11 @@ pub fn epoch_scope(epoch_id: EntityId) -> String {
     format!("epoch:{epoch_id}")
 }
 
-/// The runtime seam that publishes a prepared reminder into the request
-/// path. The implementation owns the context-contribution registry; the
-/// memory domain only knows this trait.
+/// Refresh a scope from committed decisions, outside the request path. The
+/// implementation acquires a publication ticket before preparing the full
+/// batch; a new reminder must not replace other pending reminders.
 pub trait ReminderPublisher: Send + Sync + 'static {
-    fn publish(
-        &self,
-        scope: &ContributionScope,
-        contributions: Vec<ContextContribution>,
-    ) -> Result<(), ContributionError>;
+    fn refresh(&self, scope: &ContributionScope) -> Result<(), ContributionError>;
 }
 
 /// The provider that turns the durable reminder ledger into context
@@ -509,7 +507,7 @@ pub struct PmaContributionProvider {
 
 impl PmaContributionProvider {
     pub fn new(store: Arc<Store>) -> Self {
-        Self { store, plugin_version: "pma.intervention/v1".to_string() }
+        Self { store, plugin_version: "pma.intervention/v2".to_string() }
     }
 
     /// The reminders that may still be shown for a scope: not expired, not
@@ -517,20 +515,12 @@ impl PmaContributionProvider {
     /// the request it was prepared for) and directed at this scope.
     pub fn pending_reminders(
         &self,
-        scope_id: EntityId,
+        scope: &ContributionScope,
         now_ms: i64,
     ) -> Result<Vec<shenko_store::InterventionReminder>, InterventionError> {
-        let mut reminders = self
-            .store
-            .pending_interventions_by_scope(SUBJECT_SCOPE, now_ms)
-            .map_err(|error| InterventionError::Store(error.to_string()))?;
-        let epoch_scope = epoch_scope(scope_id);
-        reminders.extend(
-            self.store
-                .pending_interventions_by_scope(&epoch_scope, now_ms)
-                .map_err(|error| InterventionError::Store(error.to_string()))?,
-        );
-        Ok(reminders)
+        self.store
+            .pending_interventions_for_scope(scope, now_ms)
+            .map_err(|error| InterventionError::Store(error.to_string()))
     }
 
     /// The body of one reminder, sealed into the content store. The body is
@@ -539,9 +529,13 @@ impl PmaContributionProvider {
         &self,
         reminder: &shenko_store::InterventionReminder,
     ) -> Result<ObjectRef, InterventionError> {
+        let text = reminder.content.as_deref().ok_or_else(|| {
+            InterventionError::InvalidDecision("a silent decision has no reminder body".to_string())
+        })?;
         let body = serde_json::json!({
+            "v": ContributionPayload::VERSION,
+            "text": text,
             "reminder_id": reminder.reminder_id.to_string(),
-            "content": reminder.content,
             "provenance": reminder.provenance,
             "relevance": reminder.relevance,
             "scope": reminder.scope,
@@ -562,7 +556,7 @@ impl PmaContributionProvider {
             "application/json",
             "memory-intervention",
             "pma-reminder-body",
-            1,
+            2,
         ) {
             Ok(sealed) => Ok(sealed.object),
             Err(error) => Err(InterventionError::Store(error.to_string())),
@@ -576,22 +570,25 @@ impl PmaContributionProvider {
         scope: &ContributionScope,
         now_ms: i64,
     ) -> Result<ContextContribution, InterventionError> {
-        let Some(content) = reminder.content.clone() else {
+        let Some(content) = reminder.content.as_deref() else {
             return Err(InterventionError::InvalidDecision(
                 "a silent decision has no reminder body".to_string(),
             ));
         };
         let body = self.seal_body(reminder)?;
-        let tokens = estimate_tokens(&content);
+        let tokens = estimate_tokens(content);
         Ok(ContextContribution {
             key: format!("pma.reminder.{}", reminder.reminder_id),
             slot: ContributionSlot::TransientReminder,
             source: self.manifest(),
             scope: scope.clone(),
             input_revision: format!("pma:{}:{}", reminder.epoch_id, reminder.reminder_id),
-            lifetime: match reminder.expires_at_ms {
-                Some(expires_at_ms) => ContributionLifetime::ExpiresAtMillis { expires_at_ms },
-                None => ContributionLifetime::ThisRequest,
+            lifetime: match (reminder.transient, reminder.expires_at_ms) {
+                (true, Some(expires_at_ms)) => {
+                    ContributionLifetime::ThisRequestUntilMillis { expires_at_ms }
+                }
+                (false, Some(expires_at_ms)) => ContributionLifetime::ExpiresAtMillis { expires_at_ms },
+                (_, None) => ContributionLifetime::ThisRequest,
             },
             required: false,
             budget_tokens: tokens,
@@ -618,7 +615,7 @@ impl ContributionProvider for PmaContributionProvider {
     ) -> Result<Vec<ContextContribution>, ContributionError> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let reminders = self
-            .pending_reminders(scope.scope_id, now_ms)
+            .pending_reminders(scope, now_ms)
             .map_err(|error| ContributionError::Provider {
                 provider: self.plugin_version.clone(),
                 reason: error.to_string(),

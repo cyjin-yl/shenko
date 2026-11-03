@@ -600,10 +600,11 @@ impl NativeChildService {
         let _guard = self.run_lock.lock().await;
         // Defensive: the barrier should have drained these, but a worker can
         // never be re-admitted without a clean book regardless.
-        let leftover: Vec<Worker> = {
+        let (reactivating, leftover): (bool, Vec<Worker>) = {
             let mut executions = self.executions.lock();
+            let reactivating = executions.apply_epoch != 0;
             executions.apply_epoch += 1;
-            executions.workers.drain().map(|(_, worker)| worker).collect()
+            (reactivating, executions.workers.drain().map(|(_, worker)| worker).collect())
         };
         for worker in &leftover {
             worker.handle.abort();
@@ -611,7 +612,12 @@ impl NativeChildService {
         for worker in leftover {
             let _ = worker.handle.await;
         }
-        self.store.recover_native_tasks()?;
+        // First publication only installs the catalog. A running composition
+        // root explicitly recovers after it owns the dispatcher; discovery
+        // must not need or acquire that durable authority.
+        if reactivating {
+            self.store.recover_native_tasks()?;
+        }
         let mut executions = self.executions.lock();
         executions.closed = false;
         Ok(executions.apply_epoch)
@@ -1549,9 +1555,8 @@ impl Plugin for NativeChildPlugin {
     async fn apply(&self, ctx: Context, service: &Self::Input) -> Result<(), Self::ApplyError> {
         // Same-Fiber restart reuses this sealed service: reactivate only after
         // any in-flight close barrier and after aborted Running claims were
-        // recovered into query-only reconciliation. On first publication the
-        // drain is empty and recovery only normalizes claims orphaned by a
-        // previous process — the same thing callers already do via recover().
+        // recovered into query-only reconciliation. On first publication,
+        // recovery belongs to the owning composition root, not catalog discovery.
         let epoch = service
             .reopen()
             .await

@@ -110,6 +110,8 @@ pub struct ContributionScope {
 pub enum ContributionLifetime {
     /// Valid for exactly the request that used it.
     ThisRequest,
+    /// Consumed by its first request, or expired at the deadline if unused.
+    ThisRequestUntilMillis { expires_at_ms: i64 },
     /// Valid until the given inbox event revision is reached.
     UntilEventRevision { event_revision: u64 },
     /// Valid until the given wall-clock instant (milliseconds since epoch).
@@ -117,25 +119,27 @@ pub enum ContributionLifetime {
 }
 
 impl ContributionLifetime {
-    /// Wall-clock expiry. A lifetime bound to a request or an event revision
-    /// has no wall-clock end of its own.
+    /// Wall-clock expiry. Request/event-only lifetimes have no deadline;
+    /// the bounded single-request variant retains both termination rules.
     pub fn is_expired(&self, now_ms: i64) -> bool {
         match self {
             Self::ThisRequest => false,
             Self::UntilEventRevision { .. } => false,
-            Self::ExpiresAtMillis { expires_at_ms } => now_ms >= *expires_at_ms,
+            Self::ThisRequestUntilMillis { expires_at_ms }
+            | Self::ExpiresAtMillis { expires_at_ms } => now_ms >= *expires_at_ms,
         }
     }
 
     /// Whether the contribution is consumed by the first request that uses it.
     pub fn is_single_use(&self) -> bool {
-        matches!(self, Self::ThisRequest)
+        matches!(self, Self::ThisRequest | Self::ThisRequestUntilMillis { .. })
     }
 
     /// The wall-clock end of this lifetime, when it has one.
     pub fn expires_at_ms(&self) -> Option<i64> {
         match self {
-            Self::ExpiresAtMillis { expires_at_ms } => Some(*expires_at_ms),
+            Self::ThisRequestUntilMillis { expires_at_ms }
+            | Self::ExpiresAtMillis { expires_at_ms } => Some(*expires_at_ms),
             _ => None,
         }
     }

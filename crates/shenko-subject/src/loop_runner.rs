@@ -2,7 +2,7 @@
 //! Real S0/S1 step state machine. Never terminates on empty inbox.
 //! Semantic wait hard-max 600s. Yields inference slot after each step.
 use crate::inbox::{Inbox, InboxEvent};
-use crate::context_projection::{FrozenContextInput, estimate_payload_tokens, prepare_context};
+use crate::context_projection::{ContextPreparer, FrozenContextInput, estimate_payload_tokens, prepare_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
 use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
 use shenko_identity::IdentityService;
@@ -224,6 +224,7 @@ pub struct SubjectLoopState {
     pub(super) previous_input_binding: Option<shenko_broker::request::ProviderBinding>,
     pub(super) model_capabilities: Option<Arc<shenko_broker::request::ProviderCapabilities>>,
     pub(super) context_registry: Arc<shenko_context_policy::PolicyRegistry>,
+    pub(super) context_preparer: Option<ContextPreparer>,
     /// Pinned for one step, after replaying all accepted S0 usage into this
     /// service instance. A hot replacement must replay before collection.
     pub(super) contribution_registry: Option<Arc<shenko_context_policy::ContributionRegistry>>,
@@ -325,6 +326,7 @@ impl SubjectLoopState {
             previous_estimated_input_tokens,
             model_capabilities: None,
             context_registry,
+            context_preparer: None,
             contribution_registry: None,
             native_capability_sections: vec![],
             goals: vec![],
@@ -786,7 +788,11 @@ async fn execute_step(
         let obligations = store.open_subject_obligations(state.agent_id)?;
         let attention = store.current_subject_attention(state.agent_id)?;
         let prepared = match prepare_context(state, events) {
-            Ok(prepared) => prepared,
+            Ok(Some(prepared)) => prepared,
+            Ok(None) => {
+                wait_for_context_preparer(state, cancel).await;
+                return Ok(None);
+            }
             Err(ShenkoError::ResnapshotRequired { reason }) => {
                 // No S0 seal or model admission exists. The outer loop yields
                 // and rebuilds this same Planned step from durable staging.
@@ -1170,6 +1176,29 @@ async fn execute_step(
                 })?;
             }
         }
+        // A disposition may only name an event this step actually selected.
+        // The model naming an event it was never given is an invalid
+        // control, not a broken runtime: it travels the same sourced
+        // correction path as any other invalid control, so the subject is
+        // told and can correct it instead of the whole loop stopping and
+        // waiting for a reopen.
+        for control in &output.controls {
+            if let OutputAction::Dispose { spec } = &control.action {
+                if !input.events.iter().any(|event| event.event_id == spec.event_id) {
+                    return Err(ShenkoError::Protocol(
+                        shenko_types::error::ProtocolError::new(
+                            "CONTROL_PROTOCOL_INVALID",
+                            shenko_types::error::ErrorScope::Request,
+                            shenko_types::error::RetryStrategy::NewRevision,
+                        )
+                        .with_details(serde_json::json!({
+                            "line": control.spans.first().map(|span| span.line),
+                            "reason": "disposition names an event that was not selected into this step",
+                        })),
+                    ));
+                }
+            }
+        }
         let mut delegations = Vec::new();
         for control in &output.controls {
             let intent = match &control.action {
@@ -1355,11 +1384,6 @@ async fn execute_step(
     let mut authored: std::collections::HashMap<EntityId, EventDisposition> =
         std::collections::HashMap::new();
     for (_action_id, spec) in &disposition_specs {
-        if !events.iter().any(|event| event.event_id == spec.event_id) {
-            return Err(ShenkoError::conflict(
-                "disposition names an event that was not selected into this step",
-            ));
-        }
         authored.insert(
             spec.event_id,
             EventDisposition {

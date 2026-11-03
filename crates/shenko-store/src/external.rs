@@ -1,8 +1,8 @@
 //! Conditional T1 and append-only E1 for native external executors.
 //! No network I/O occurs under these transactions; task completion is separate.
-use crate::Store;
+use crate::{InterventionReminder, Store};
 use anyhow::{Result, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::evidence::EvidenceReceipt;
 use shenko_types::{commit::CommitRef, ids::*, operation::*, task::*};
@@ -284,8 +284,22 @@ impl Store {
                     let step = read(&op.final_input_ref)?;
                     ensure!(op.input_digest == op.final_input_ref.digest,
                         "model child step input is not its own closure");
-                    ensure!(step.get("schema_version").and_then(|value| value.as_u64()) == Some(1),
+                    ensure!(op.input_schema_version == 2
+                        && step.get("schema_version").and_then(|value| value.as_u64()) == Some(2),
                         "unsupported model child step input");
+                    let plan = step.get("contribution_plan")
+                        .ok_or_else(|| anyhow::anyhow!("model child step lacks its contribution plan"))?;
+                    let sent: Vec<shenko_types::plugin_runtime::ContextContribution> =
+                        serde::Deserialize::deserialize(&plan["contributions"])?;
+                    let _: Vec<shenko_types::plugin_runtime::ContributionOmission> =
+                        serde::Deserialize::deserialize(&plan["omitted"])?;
+                    ensure!(plan["missing_required"].as_array().is_some_and(Vec::is_empty)
+                        && sent.iter().all(|item| item.scope.scope_id == task.task_id
+                            && item.scope.task_id == Some(task.task_id) && item.tokens <= item.budget_tokens)
+                        && sent.iter().try_fold(0u64, |total, item| total.checked_add(item.tokens))
+                            .is_some_and(|tokens| plan["total_tokens"].as_u64() == Some(tokens)),
+                        "model child contribution scope/token evidence mismatch");
+                    for item in &sent { read(&item.data)?; }
                     let sealed_digest_text = sealed_digest.to_string();
                     ensure!(step.get("contract_digest").and_then(|value| value.as_str())
                         == Some(sealed_digest_text.as_str()),
@@ -450,6 +464,61 @@ impl Store {
         )
     }
 
+    /// The provider's answer of one bounded intervention attempt becomes
+    /// durable evidence on its own.
+    ///
+    /// An answer is not yet a decision: the policy still has to read it.
+    /// Until the decision commits, nothing may claim that the intervention
+    /// succeeded, so the operation stays unresolved and no settlement path
+    /// can complete the task from an answer alone.
+    pub fn record_intervention_provider_evidence(
+        &self,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        ev: EvidenceReceipt,
+    ) -> Result<OperationRecord> {
+        self.ledger.with_mutation(
+            || self.try_record_intervention_provider_evidence(operation_id, attempt_id, ev),
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>(),
+        )
+    }
+
+    /// The decision of one bounded intervention attempt and the settlement
+    /// that accepts it commit together.
+    ///
+    /// The decision IS the effect of this operation, so a successful
+    /// intervention and its durable decision are one fact: neither can exist
+    /// without the other. A bounded answer that carries no usable decision
+    /// settles as a failure and never as a fabricated silence.
+    pub fn record_intervention_settlement(
+        &self,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        ev: EvidenceReceipt,
+        outcome: OperationOutcome,
+        effect: EffectStatus,
+        decision: Option<&InterventionReminder>,
+    ) -> Result<OperationRecord> {
+        ensure!(
+            matches!(outcome, OperationOutcome::Succeeded) == decision.is_some(),
+            "an intervention outcome and its decision must agree"
+        );
+        ensure!(
+            decision.is_none() || effect == EffectStatus::Complete,
+            "a recorded intervention decision is a complete effect"
+        );
+        self.ledger.with_mutation(
+            || {
+                self.try_record_intervention_settlement(
+                    operation_id, attempt_id, ev, outcome, effect, decision,
+                )
+            },
+            |e: &anyhow::Error| e.is::<rusqlite::Error>() || e.is::<serde_json::Error>()
+                || e.downcast_ref::<shenko_types::error::ShenkoError>()
+                    .is_some_and(crate::research::research_storage_failure),
+        )
+    }
+
     fn try_record_external_evidence(
         &self,
         operation_id: EntityId,
@@ -460,24 +529,8 @@ impl Store {
     ) -> Result<OperationRecord> {
         let mut c = self.ledger.conn.lock();
         let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let data: String = tx.query_row(
-            "SELECT data FROM operations WHERE operation_id=?1",
-            [operation_id.to_string()],
-            |r| r.get(0),
-        )?;
-        let mut op: OperationRecord = serde_json::from_str(&data)?;
-        let data: String = tx.query_row(
-            "SELECT data FROM attempts WHERE attempt_id=?1",
-            [attempt_id.to_string()],
-            |r| r.get(0),
-        )?;
-        let mut att: AttemptRecord = serde_json::from_str(&data)?;
-        ensure!(
-            att.operation_id == operation_id
-                && ev.operation_id == Some(operation_id)
-                && ev.attempt_id == Some(attempt_id),
-            "receipt_identity_mismatch"
-        );
+        let (mut op, mut att) =
+            Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
         let seq = self.ledger.allocate_seq(&tx)?;
         let commit = CommitRef::new(self.ledger.ledger_id(), seq);
         ev.received_commit = commit;
@@ -527,11 +580,207 @@ impl Store {
             ],
         )?;
         tx.execute(
-            "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,3)",
+            "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,?4)",
             params![
                 commit.ledger_id.to_string(),
                 seq.0 as i64,
-                self.capabilities.incarnation.to_string()
+                self.capabilities.incarnation.to_string(),
+                3
+            ],
+        )?;
+        tx.commit()?;
+        Ok(op)
+    }
+    /// The operation and the attempt one receipt belongs to.
+    fn load_external_records(
+        tx: &Transaction<'_>,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        ev: &EvidenceReceipt,
+    ) -> Result<(OperationRecord, AttemptRecord)> {
+        let data: String = tx.query_row(
+            "SELECT data FROM operations WHERE operation_id=?1",
+            [operation_id.to_string()],
+            |r| r.get(0),
+        )?;
+        let op: OperationRecord = serde_json::from_str(&data)?;
+        let data: String = tx.query_row(
+            "SELECT data FROM attempts WHERE attempt_id=?1",
+            [attempt_id.to_string()],
+            |r| r.get(0),
+        )?;
+        let att: AttemptRecord = serde_json::from_str(&data)?;
+        ensure!(
+            att.operation_id == operation_id
+                && ev.operation_id == Some(operation_id)
+                && ev.attempt_id == Some(attempt_id),
+            "receipt_identity_mismatch"
+        );
+        Ok((op, att))
+    }
+
+    /// Read one sealed object and parse it as JSON.
+    fn read_sealed_json(
+        &self,
+        reference: &shenko_types::object::ObjectRef,
+    ) -> Result<serde_json::Value> {
+        let bytes = self.cas.read_object(&reference.digest)?;
+        ensure!(
+            bytes.len() as u64 == reference.bytes
+                && shenko_types::object::Digest::blake3(&bytes) == reference.digest,
+            "sealed intervention evidence closure mismatch"
+        );
+        Ok(serde_json::from_slice(&bytes)?)
+    }
+
+    /// The provider's answer of one bounded attempt becomes durable, and the
+    /// operation stays unresolved until its decision commits.
+    fn try_record_intervention_provider_evidence(
+        &self,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        mut ev: EvidenceReceipt,
+    ) -> Result<OperationRecord> {
+        let mut c = self.ledger.conn.lock();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (mut op, mut att) =
+            Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        ensure!(
+            op.outcome.is_none() && !op.outcome_conflict,
+            "the intervention operation was already settled"
+        );
+        let seq = self.ledger.allocate_seq(&tx)?;
+        let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        ev.received_commit = commit;
+        // The answer is the original fact; the decision is not made yet, so
+        // the operation keeps no outcome and no effect.
+        op.record_revision = RecordRevision(op.record_revision.0 + 1);
+        op.evidence_through = Some(commit);
+        att.dispatch_stage = AttemptDispatchStage::Ended;
+        att.final_receipt_id = Some(ev.receipt_id);
+        att.last_observed_at = Some(chrono::Utc::now());
+        tx.execute("INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![ev.receipt_id.to_string(),operation_id.to_string(),serde_json::to_string(&ev)?,seq.0 as i64])?;
+        tx.execute("UPDATE operations SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE operation_id=?1",
+            params![operation_id.to_string(),op.record_revision.0 as i64,serde_json::to_string(&op)?,seq.0 as i64])?;
+        tx.execute(
+            "UPDATE attempts SET data=?2,updated_commit_seq=?3 WHERE attempt_id=?1",
+            params![
+                attempt_id.to_string(),
+                serde_json::to_string(&att)?,
+                seq.0 as i64
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,?4)",
+            params![
+                commit.ledger_id.to_string(),
+                seq.0 as i64,
+                self.capabilities.incarnation.to_string(),
+                3
+            ],
+        )?;
+        tx.commit()?;
+        Ok(op)
+    }
+
+    /// The decision of one bounded attempt and the settlement that accepts it
+    /// commit together: the decision row becomes visible in the same
+    /// transaction that resolves the operation.
+    fn try_record_intervention_settlement(
+        &self,
+        operation_id: EntityId,
+        attempt_id: EntityId,
+        mut ev: EvidenceReceipt,
+        outcome: OperationOutcome,
+        effect: EffectStatus,
+        decision: Option<&InterventionReminder>,
+    ) -> Result<OperationRecord> {
+        let mut c = self.ledger.conn.lock();
+        let tx = c.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let (mut op, mut att) =
+            Self::load_external_records(&tx, operation_id, attempt_id, &ev)?;
+        ensure!(
+            op.outcome.is_none() && !op.outcome_conflict,
+            "the intervention operation was already settled"
+        );
+        if let Some(reminder) = decision {
+            // The decision must be the decision the frozen request and the
+            // original evidence describe.
+            let frozen = self.read_sealed_json(&op.final_input_ref)?;
+            for (field, expected) in [
+                ("task_id", op.task_id),
+                ("request_id", reminder.reminder_id),
+                ("epoch_id", reminder.epoch_id),
+                ("lineage_id", reminder.lineage_id),
+            ] {
+                ensure!(
+                    frozen[field].as_str().map(str::parse::<EntityId>).transpose()? == Some(expected),
+                    "intervention decision differs from frozen {field}"
+                );
+            }
+            ensure!(
+                frozen["policy_name"].as_str() == Some(reminder.policy.as_str())
+                    && frozen["policy_revision"].as_str() == Some(reminder.policy_revision.as_str()),
+                "intervention decision policy differs from frozen request"
+            );
+            let normalized = self.read_sealed_json(
+                ev.normalized_ref.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!("intervention decision lacks normalized evidence")
+                })?,
+            )?;
+            let decision_ref: shenko_types::object::ObjectRef =
+                serde::Deserialize::deserialize(&normalized["decision_ref"])?;
+            ensure!(normalized["schema_version"] == 2
+                && normalized["task_id"] == serde_json::to_value(op.task_id)?
+                && normalized["request_id"] == serde_json::to_value(reminder.reminder_id)?
+                && normalized["reminder_id"] == serde_json::to_value(reminder.reminder_id)?
+                && normalized["decision"] == serde_json::to_value(reminder.decision)?
+                && normalized["scope"] == reminder.scope
+                && self.read_sealed_json(&decision_ref)? == serde_json::to_value(reminder)?,
+                "intervention decision differs from its original evidence"
+            );
+            ensure!(
+                reminder.used_step_id.is_none() && reminder.used_at_ms.is_none(),
+                "intervention acceptance cannot fabricate consumption"
+            );
+        }
+        let seq = self.ledger.allocate_seq(&tx)?;
+        let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        ev.received_commit = commit;
+        let decision_inserted = match decision {
+            Some(reminder) => {
+                Self::insert_intervention(&tx, reminder).map_err(anyhow::Error::from)?
+            }
+            None => false,
+        };
+        op.state = OperationState::Resolved;
+        op.outcome = Some(outcome);
+        op.effect_status = effect;
+        op.record_revision = RecordRevision(op.record_revision.0 + 1);
+        op.evidence_through = Some(commit);
+        att.dispatch_stage = AttemptDispatchStage::Ended;
+        att.final_receipt_id = Some(ev.receipt_id);
+        att.last_observed_at = Some(chrono::Utc::now());
+        tx.execute("INSERT INTO evidence_receipts(receipt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![ev.receipt_id.to_string(),operation_id.to_string(),serde_json::to_string(&ev)?,seq.0 as i64])?;
+        tx.execute("UPDATE operations SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE operation_id=?1",
+            params![operation_id.to_string(),op.record_revision.0 as i64,serde_json::to_string(&op)?,seq.0 as i64])?;
+        tx.execute(
+            "UPDATE attempts SET data=?2,updated_commit_seq=?3 WHERE attempt_id=?1",
+            params![
+                attempt_id.to_string(),
+                serde_json::to_string(&att)?,
+                seq.0 as i64
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,?4)",
+            params![
+                commit.ledger_id.to_string(),
+                seq.0 as i64,
+                self.capabilities.incarnation.to_string(),
+                3 + i64::from(decision_inserted)
             ],
         )?;
         tx.commit()?;

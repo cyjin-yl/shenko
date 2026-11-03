@@ -25,6 +25,7 @@
 
 use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
+use cordis_core::{Context, InjectSpec, Plugin, Service};
 use serde::{Deserialize, Serialize};
 use shenko_broker::broker::{BrokerHandle, DispatchFence, InferenceReceiptSink, InferenceRecoverySource};
 use shenko_broker::request::*;
@@ -47,6 +48,7 @@ use std::sync::Arc;
 
 use crate::quota_gate::{QuotaGate, observe_quota_response, quota_dispatch_gate, settle_quota_terminal};
 use crate::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
+use shenko_memory::intervention_runtime::PmaContributionRuntime;
 
 /// The native definition kind of the memory-intervention worker.
 pub const PMA_EVALUATE_KIND: &str = "pma.evaluate";
@@ -109,6 +111,11 @@ struct FrozenIntervention {
     policy_revision: String,
     /// `true` when the policy decided without an inference.
     decided_without_call: bool,
+    /// The bounded observation this call decided on. It is frozen so that a
+    /// recovered call re-derives exactly the same decision from exactly the
+    /// same facts. Sealed inputs of an older revision simply lack it.
+    #[serde(default)]
+    observation: Option<InterventionObservation>,
 }
 
 impl FrozenIntervention {
@@ -157,6 +164,41 @@ fn read_frozen(store: &Store, object: &ObjectRef) -> Result<FrozenIntervention> 
     let frozen: FrozenIntervention = serde_json::from_slice(&bytes)?;
     frozen.validate()?;
     Ok(frozen)
+}
+
+/// Rebuild the native definition when either memory service is replaced.
+/// The handler must not retain a withdrawn contribution registration.
+pub struct PmaEvaluatePlugin;
+
+impl Plugin for PmaEvaluatePlugin {
+    type Config = (Arc<Store>, BrokerHandle);
+    type Input = Self::Config;
+    type PrepareError = std::convert::Infallible;
+    type ApplyError = std::io::Error;
+
+    fn name(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Borrowed("shenko-pma-evaluate")
+    }
+
+    fn inject(&self) -> InjectSpec {
+        InjectSpec::none()
+            .require(crate::NativeChildService::NAME)
+            .require(MemoryInterventionRegistry::NAME)
+            .require(PmaContributionRuntime::NAME)
+    }
+
+    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        Ok(config)
+    }
+
+    async fn apply(&self, ctx: Context, (store, broker): &Self::Input) -> Result<(), Self::ApplyError> {
+        let policy = ctx.try_service::<MemoryInterventionRegistry>().map_err(std::io::Error::other)?;
+        let publisher = ctx.try_service::<PmaContributionRuntime>().map_err(std::io::Error::other)?;
+        let handler: Arc<dyn NativeTaskHandler> = Arc::new(
+            PmaEvaluateHandler::new(store.clone(), broker.clone(), policy).with_publisher(publisher),
+        );
+        crate::NativeTaskHandlerPlugin.apply(ctx, &handler).await
+    }
 }
 
 /// The native handler of the memory-intervention worker.
@@ -244,7 +286,11 @@ impl PmaEvaluateHandler {
             policy.name() == frozen.policy_name && policy.revision() == frozen.policy_revision,
             "the installed intervention policy changed after the request was sealed"
         );
-        Ok(policy.interpret(observation, reply)?)
+        let decision = policy.interpret(observation, reply)?;
+        if let InterventionDecision::Remind { scope, .. } = &decision {
+            shenko_store::validate_intervention_scope(frozen.epoch_id, scope)?;
+        }
+        Ok(decision)
     }
 
     /// Record the decision and, for a reminder, publish it into the request
@@ -309,9 +355,10 @@ impl PmaEvaluateHandler {
             bank_entry_ids: observation
                 .bank
                 .iter()
+                .take(observation.budget.max_bank_entries)
                 .filter(|entry| {
                     decision_provenance(decision).iter().any(|reference| {
-                        reference == &entry.entry_id.to_string()
+                        reference.parse::<EntityId>().ok() == Some(entry.entry_id)
                             || entry.source_refs.iter().any(|source| source == reference)
                     })
                 })
@@ -322,16 +369,123 @@ impl PmaEvaluateHandler {
             used_step_id: None,
             used_at_ms: None,
         };
-        self.store.record_intervention(&reminder)?;
         Ok(reminder)
     }
 
-    /// Publish a reminder as one context contribution for the scope it was
-    /// addressed to.
+    /// Commit one decision of a bounded attempt and the settlement that
+    /// accepts it. The decision row becomes visible in the same transaction
+    /// that resolves the operation, so a successful intervention and its
+    /// durable decision are one fact.
+    fn commit_decision(
+        &self,
+        frozen: &FrozenIntervention,
+        operation: &OperationRecord,
+        attempt: &AttemptRecord,
+        request: &InterventionRequest,
+        observation: &InterventionObservation,
+        decision: &InterventionDecision,
+        raw: ObjectRef,
+        recovered: bool,
+        source_instance_id: String,
+        observation_level: Option<ObservationLevel>,
+    ) -> Result<InterventionReminder> {
+        let reminder = self.record_decision(frozen, request, observation, decision)?;
+        // The complete decision remains evidence, not rolling tool context.
+        // Only the prepared contribution may deliver a transient reminder's
+        // body; the task result carries its identity and evidence reference.
+        let decision_ref = seal(&self.store, &reminder, "pma-recorded-decision")?;
+        let body = serde_json::json!({
+            "schema_version": 2,
+            "task_id": frozen.task_id,
+            "request_id": frozen.request_id,
+            "policy": frozen.policy_name,
+            "policy_revision": frozen.policy_revision,
+            "decided_without_call": frozen.decided_without_call,
+            "decision": reminder.decision,
+            "reminder_id": reminder.reminder_id,
+            "epoch_id": reminder.epoch_id,
+            "lineage_id": reminder.lineage_id,
+            "scope": reminder.scope,
+            "decision_ref": decision_ref,
+            "recovered": recovered,
+        });
+        let normalized = seal(&self.store, &body, "pma-decision")?;
+        let evidence = EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: EntityId::new(),
+            operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id),
+            source_id: PMA_OPERATION.into(),
+            source_instance_id,
+            source_event_key: Some(format!("pma-decision:{}", frozen.request_id)),
+            producer_epoch: Some(attempt.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw,
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: DecodeStatus::Decoded,
+            observation_level,
+            normalized_ref: Some(normalized),
+            observed_at: Some(chrono::Utc::now()),
+            received_commit: operation.prepared_commit,
+        };
+        self.store.record_intervention_settlement(
+            operation.operation_id,
+            attempt.attempt_id,
+            evidence,
+            OperationOutcome::Succeeded,
+            EffectStatus::Complete,
+            Some(&reminder),
+        )?;
+        Ok(reminder)
+    }
+
+    /// Commit the failure of one bounded attempt whose answer carries no
+    /// usable decision. The answer stays the original fact, and no silence
+    /// is fabricated for it.
+    fn commit_refusal(
+        &self,
+        frozen: &FrozenIntervention,
+        operation: &OperationRecord,
+        attempt: &AttemptRecord,
+        raw: ObjectRef,
+        body: serde_json::Value,
+        source_instance_id: String,
+        observation_level: Option<ObservationLevel>,
+    ) -> Result<()> {
+        let normalized = seal(&self.store, &body, "pma-refusal")?;
+        let evidence = EvidenceReceipt {
+            record_schema_version: 1,
+            receipt_id: EntityId::new(),
+            operation_id: Some(operation.operation_id),
+            attempt_id: Some(attempt.attempt_id),
+            source_id: PMA_OPERATION.into(),
+            source_instance_id,
+            source_event_key: Some(format!("pma-decision:{}", frozen.request_id)),
+            producer_epoch: Some(attempt.epoch.0),
+            producer_schema_version: Some("1".into()),
+            raw_ref: raw,
+            decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
+            decode_status: DecodeStatus::Decoded,
+            observation_level,
+            normalized_ref: Some(normalized),
+            observed_at: Some(chrono::Utc::now()),
+            received_commit: operation.prepared_commit,
+        };
+        self.store.record_intervention_settlement(
+            operation.operation_id,
+            attempt.attempt_id,
+            evidence,
+            OperationOutcome::Failed,
+            EffectStatus::None,
+            None,
+        )?;
+        Ok(())
+    }
+
+    /// Refresh the addressed scope from all of its committed reminders.
     fn publish_reminder(
         &self,
         reminder: &InterventionReminder,
-        agent_id: EntityId,
     ) -> Result<()> {
         let Some(publisher) = self.publisher.as_ref() else {
             return Ok(());
@@ -339,41 +493,10 @@ impl PmaEvaluateHandler {
         if reminder.decision != InterventionDecisionKind::Remind {
             return Ok(());
         }
-        let provider = shenko_memory::PmaContributionProvider::new(Arc::clone(&self.store));
-        let scope_id = self.scope_id_for(&reminder.scope, reminder.epoch_id, agent_id)?;
-        let scope = shenko_context_policy::contribution::ContributionScope {
-            scope_id,
-            task_id: None,
-        };
-        let contribution =
-            provider.contribution_for(reminder, &scope, chrono::Utc::now().timestamp_millis())?;
-        publisher.publish(&scope, vec![contribution])?;
+        if let Some(scope) = self.store.intervention_delivery_scope(reminder)? {
+            publisher.refresh(&scope)?;
+        }
         Ok(())
-    }
-
-    /// The scope a reminder belongs to. A subject-directed reminder is
-    /// published under the subject's current branch, a worker-directed one
-    /// under its epoch.
-    fn scope_id_for(
-        &self,
-        scope: &str,
-        epoch_id: EntityId,
-        agent_id: EntityId,
-    ) -> Result<EntityId> {
-        if scope == shenko_memory::SUBJECT_SCOPE {
-            let (head, _step) = self.store.load_subject(agent_id)?;
-            return Ok(head.agent_id);
-        }
-        if let Some(rest) = scope.strip_prefix("epoch:") {
-            let parsed: EntityId = rest
-                .parse()
-                .map_err(|_| anyhow::anyhow!("reminder scope is not a valid epoch identity"))?;
-            ensure!(parsed == epoch_id, "reminder scope names another epoch");
-            return Ok(parsed);
-        }
-        Err(anyhow::anyhow!(
-            "reminder scope must be `subject` or `epoch:<id>`, not `{scope}`"
-        ))
     }
 }
 
@@ -396,7 +519,9 @@ struct InterventionReceiptSink {
 
 impl InferenceReceiptSink for InterventionReceiptSink {
     fn may_dispatch(&self) -> Result<DispatchFence> {
-        Ok(match self.store.commit_native_dispatch(&self.invocation)? {
+        Ok(match self.store.commit_native_dispatch(
+            &self.invocation, self.operation.operation_id, self.attempt.attempt_id,
+        )? {
             shenko_store::child::NativeDispatchTransition::Won => DispatchFence::Send,
             shenko_store::child::NativeDispatchTransition::Fenced => DispatchFence::Fenced,
             shenko_store::child::NativeDispatchTransition::AlreadyCommitted => {
@@ -418,26 +543,6 @@ impl InferenceReceiptSink for InterventionReceiptSink {
             && result.response.as_ref().is_some_and(|response| {
                 matches!(response.stop_reason.as_str(), "stop" | "end_turn" | "stop_sequence")
             });
-        let (outcome, effect) = match result.termination.kind {
-            TerminationKind::ProviderTerminal => (
-                Some(if complete {
-                    OperationOutcome::Succeeded
-                } else {
-                    OperationOutcome::Failed
-                }),
-                EffectStatus::Complete,
-            ),
-            TerminationKind::NeverDispatched => (
-                Some(if result.status == InferenceStatus::Cancelled {
-                    OperationOutcome::Cancelled
-                } else {
-                    OperationOutcome::Failed
-                }),
-                EffectStatus::None,
-            ),
-            TerminationKind::TransportRejected => (Some(OperationOutcome::Failed), EffectStatus::None),
-            TerminationKind::Unknown => (None, EffectStatus::Unknown),
-        };
         let text = result.response.as_ref().map(|response| {
             let end = response
                 .content
@@ -491,13 +596,55 @@ impl InferenceReceiptSink for InterventionReceiptSink {
         };
         // E1 has no task commit authority; cancellation or teardown cannot
         // discard this original fact.
-        self.store.record_external_evidence(
-            self.operation.operation_id,
-            self.attempt.attempt_id,
-            evidence,
-            outcome,
-            effect,
-        )?;
+        match result.termination.kind {
+            // A bounded answer is not yet a decision: the answer becomes
+            // durable, and the operation stays unresolved until the policy
+            // commits its decision together with the settlement.
+            TerminationKind::ProviderTerminal => {
+                self.store.record_intervention_provider_evidence(
+                    self.operation.operation_id,
+                    self.attempt.attempt_id,
+                    evidence,
+                )?;
+            }
+            // Nothing was answered, so there is no decision to commit.
+            TerminationKind::NeverDispatched => {
+                let outcome = if result.status == InferenceStatus::Cancelled {
+                    OperationOutcome::Cancelled
+                } else {
+                    OperationOutcome::Failed
+                };
+                self.store.record_intervention_settlement(
+                    self.operation.operation_id,
+                    self.attempt.attempt_id,
+                    evidence,
+                    outcome,
+                    EffectStatus::None,
+                    None,
+                )?;
+            }
+            TerminationKind::TransportRejected => {
+                self.store.record_intervention_settlement(
+                    self.operation.operation_id,
+                    self.attempt.attempt_id,
+                    evidence,
+                    OperationOutcome::Failed,
+                    EffectStatus::None,
+                    None,
+                )?;
+            }
+            // The send stayed uncertain: the attempt keeps no outcome and is
+            // never replayed.
+            TerminationKind::Unknown => {
+                self.store.record_external_evidence(
+                    self.operation.operation_id,
+                    self.attempt.attempt_id,
+                    evidence,
+                    None,
+                    EffectStatus::Unknown,
+                )?;
+            }
+        }
         if let Some(send_id) = self.send_binding.send_id {
             observe_quota_response(
                 &self.store,
@@ -572,10 +719,110 @@ impl NativeTaskHandler for PmaEvaluateHandler {
         self.broker.register_recovered(Arc::new(RecoveryReceipt {
             store: Arc::clone(&self.store),
             operation: operation.clone(),
-            attempt,
-            frozen,
+            attempt: attempt.clone(),
+            frozen: frozen.clone(),
         }))?;
-        Ok(operation)
+        if operation.state == OperationState::Resolved {
+            return Ok(operation);
+        }
+        // The answer is durable but its decision is not: re-derive the same
+        // decision from the frozen observation and the original answer. The
+        // frozen observation is what makes the re-derived decision the same
+        // decision.
+        let observation = frozen.observation.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "the original observation was not frozen; the decision cannot be re-derived"
+            )
+        })?;
+        let request: InterventionRequest = serde_json::from_value(frozen.delegation.clone())
+            .context("the frozen delegation is not a valid intervention request")?;
+        if frozen.decided_without_call {
+            // The policy decided without an inference, so the decision is
+            // re-derived from the frozen observation alone.
+            let policy = self.policy.current();
+            ensure!(
+                policy.name() == frozen.policy_name && policy.revision() == frozen.policy_revision,
+                "the installed intervention policy changed after the request was sealed"
+            );
+            let plan = policy.plan(observation)?;
+            let decision = plan.decision.ok_or_else(|| {
+                anyhow::anyhow!("the frozen policy no longer decides without a call")
+            })?;
+            let raw = seal(&self.store, &decision, "pma-local-decision")?;
+            let reminder = self.commit_decision(
+                &frozen,
+                &operation,
+                &attempt,
+                &request,
+                observation,
+                &decision,
+                raw,
+                true,
+                attempt.node_id.to_string(),
+                None,
+            )?;
+            self.publish_reminder(&reminder)?;
+            return self.store.external_operation(operation_id);
+        }
+        let Some(result) = read_original_terminal(&self.store, &operation, &attempt, &frozen)? else {
+            // The send stayed uncertain: the attempt keeps no outcome and is
+            // never replayed.
+            return Ok(operation);
+        };
+        let text = result
+            .response
+            .as_ref()
+            .map(|response| response.content.clone())
+            .unwrap_or_default();
+        let reply = InterventionModelReply {
+            text: text.clone(),
+            tokens: result
+                .response
+                .as_ref()
+                .and_then(|response| response.usage.as_ref())
+                .map(|usage| usage.output_tokens.unwrap_or(0))
+                .unwrap_or(0),
+        };
+        match self.decide(&frozen, observation, &reply) {
+            Ok(decision) => {
+                let raw = seal(&self.store, &result, "pma-provider-result")?;
+                let reminder = self.commit_decision(
+                    &frozen,
+                    &operation,
+                    &attempt,
+                    &request,
+                    observation,
+                    &decision,
+                    raw,
+                    true,
+                    attempt.node_id.to_string(),
+                    Some(ObservationLevel::RemoteCompleted),
+                )?;
+                self.publish_reminder(&reminder)?;
+            }
+            Err(error) => {
+                // The original answer carries no usable decision: the bounded
+                // call failed, and no silence is fabricated for it.
+                let raw = seal(&self.store, &result, "pma-provider-result")?;
+                let body = serde_json::json!({
+                    "schema_version": 1,
+                    "task_id": frozen.task_id,
+                    "request_id": frozen.request_id,
+                    "decision_error": error.to_string(),
+                    "recovered": true,
+                });
+                self.commit_refusal(
+                    &frozen,
+                    &operation,
+                    &attempt,
+                    raw,
+                    body,
+                    attempt.node_id.to_string(),
+                    Some(ObservationLevel::RemoteCompleted),
+                )?;
+            }
+        }
+        self.store.external_operation(operation_id)
     }
 }
 
@@ -755,6 +1002,7 @@ impl PmaEvaluateHandler {
             policy_name: policy.name().to_string(),
             policy_revision: policy.revision().to_string(),
             decided_without_call: plan.call.is_none(),
+            observation: Some(observation.clone()),
         };
         frozen.validate()?;
         let input_ref = seal(&self.store, &frozen, "pma-frozen-input")?;
@@ -870,7 +1118,7 @@ impl PmaEvaluateHandler {
             return Ok(existing);
         }
 
-        let decision = match (plan.call, payload) {
+        let reminder = match (plan.call, payload) {
             (None, _) => {
                 // The policy decided without an inference. The decision itself
                 // is the durable effect of this attempt.
@@ -879,47 +1127,21 @@ impl PmaEvaluateHandler {
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("INTERVENTION_PLAN_EMPTY"))?;
                 let raw = seal(&self.store, &decision, "pma-local-decision")?;
-                let normalized = seal(
-                    &self.store,
-                    &serde_json::json!({
-                        "schema_version": 1,
-                        "task_id": frozen.task_id,
-                        "request_id": frozen.request_id,
-                        "policy": frozen.policy_name,
-                        "policy_revision": frozen.policy_revision,
-                        "decided_without_call": true,
-                        "decision": decision,
-                    }),
-                    "pma-decision",
-                )?;
-                let evidence = EvidenceReceipt {
-                    record_schema_version: 1,
-                    receipt_id: EntityId::new(),
-                    operation_id: Some(operation.operation_id),
-                    attempt_id: Some(attempt.attempt_id),
-                    source_id: PMA_OPERATION.into(),
-                    source_instance_id: invocation.task_invocation.node_id.to_string(),
-                    source_event_key: Some(format!("pma-decision:{}", frozen.request_id)),
-                    producer_epoch: Some(invocation.task_invocation.epoch.0),
-                    producer_schema_version: Some("1".into()),
-                    raw_ref: raw,
-                    decoder_ref: Some(operation.contract_ref.receipt_reader_ref.clone()),
-                    decode_status: DecodeStatus::Decoded,
+                let reminder = self.commit_decision(
+                    &frozen,
+                    &operation,
+                    &attempt,
+                    &request,
+                    &observation,
+                    &decision,
+                    raw,
+                    false,
+                    invocation.task_invocation.node_id.to_string(),
                     // No provider was contacted: there is no remote
                     // observation to report for a locally decided attempt.
-                    observation_level: None,
-                    normalized_ref: Some(normalized),
-                    observed_at: Some(chrono::Utc::now()),
-                    received_commit: operation.prepared_commit,
-                };
-                self.store.record_external_evidence(
-                    operation.operation_id,
-                    attempt.attempt_id,
-                    evidence,
-                    Some(OperationOutcome::Succeeded),
-                    EffectStatus::Complete,
+                    None,
                 )?;
-                decision
+                Some(reminder)
             }
             (Some(_call), Some(payload)) => {
                 let sink = Arc::new(InterventionReceiptSink {
@@ -932,7 +1154,7 @@ impl PmaEvaluateHandler {
                     send_binding: send_binding.clone(),
                 });
                 let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-                let request = InferenceRequest {
+                let inference_request = InferenceRequest {
                     request_id,
                     agent_id: invocation.task.agent_id,
                     conversation_id: invocation.task.conversation_id,
@@ -942,7 +1164,7 @@ impl PmaEvaluateHandler {
                     payload: payload.clone(),
                     result_tx,
                 };
-                if let Err(error) = broker.submit_recorded(request, sink) {
+                if let Err(error) = broker.submit_recorded(inference_request, sink) {
                     // An admission error is not authority to reinterpret an
                     // armed identity as safe to replay.
                     broker.recover_unknown(request_id);
@@ -955,29 +1177,81 @@ impl PmaEvaluateHandler {
                     result.request_id == request_id,
                     "memory intervention result identity mismatch"
                 );
-                let text = result
-                    .response
-                    .as_ref()
-                    .map(|response| response.content.clone())
-                    .unwrap_or_default();
-                let reply = InterventionModelReply {
-                    text,
-                    tokens: result
+                // The sink recorded the answer. The decision commits together
+                // with the settlement, so an attempt that ended without an
+                // answer to interpret settles as it is.
+                let settled = self.store.external_operation(operation.operation_id)?;
+                if result.termination.kind == TerminationKind::Unknown {
+                    // The send stayed uncertain: the attempt keeps no outcome
+                    // and is never replayed.
+                    return Ok(settled);
+                }
+                if settled.state == OperationState::Resolved {
+                    None
+                } else {
+                    let text = result
                         .response
                         .as_ref()
-                        .and_then(|response| response.usage.as_ref())
-                        .map(|usage| usage.output_tokens.unwrap_or(0))
-                        .unwrap_or(0),
-                };
-                self.decide(&frozen, &observation, &reply)?
+                        .map(|response| response.content.clone())
+                        .unwrap_or_default();
+                    let reply = InterventionModelReply {
+                        text: text.clone(),
+                        tokens: result
+                            .response
+                            .as_ref()
+                            .and_then(|response| response.usage.as_ref())
+                            .map(|usage| usage.output_tokens.unwrap_or(0))
+                            .unwrap_or(0),
+                    };
+                    match self.decide(&frozen, &observation, &reply) {
+                        Ok(decision) => {
+                            let raw = seal(&self.store, &result, "pma-provider-result")?;
+                            let reminder = self.commit_decision(
+                                &frozen,
+                                &operation,
+                                &attempt,
+                                &request,
+                                &observation,
+                                &decision,
+                                raw,
+                                false,
+                                invocation.task_invocation.node_id.to_string(),
+                                Some(ObservationLevel::RemoteCompleted),
+                            )?;
+                            Some(reminder)
+                        }
+                        Err(error) => {
+                            // An answer that carries no usable decision is a
+                            // failed bounded call, never a fabricated silence.
+                            let raw = seal(&self.store, &result, "pma-provider-result")?;
+                            let body = serde_json::json!({
+                                    "schema_version": 1,
+                                    "task_id": frozen.task_id,
+                                    "request_id": frozen.request_id,
+                                    "decision_error": error.to_string(),
+                                });
+                            self.commit_refusal(
+                                &frozen,
+                                &operation,
+                                &attempt,
+                                raw,
+                                body,
+                                invocation.task_invocation.node_id.to_string(),
+                                Some(ObservationLevel::RemoteCompleted),
+                            )?;
+                            None
+                        }
+                    }
+                }
             }
             (Some(_call), None) => {
                 anyhow::bail!("INTERVENTION_PLAN_MISMATCH: a planned call has no sealed payload")
             }
         };
 
-        let reminder = self.record_decision(&frozen, &request, &observation, &decision)?;
-        self.publish_reminder(&reminder, frozen.agent_id)?;
+        if let Some(reminder) = reminder.as_ref() {
+            self.publish_reminder(reminder)?;
+        }
         self.store.external_operation(operation.operation_id)
     }
 }

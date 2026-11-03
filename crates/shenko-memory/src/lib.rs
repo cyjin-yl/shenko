@@ -13,6 +13,7 @@ pub mod excerpt;
 pub mod knowledge;
 pub mod memory_store;
 pub mod intervention;
+pub mod intervention_runtime;
 pub mod worker;
 
 pub use backend::{
