@@ -111,7 +111,7 @@ scope, confidence, base revision and reset ancestry (`carried_from`). A supplied
 a target may replay after an explicit correction link. Replay neither changes
 those links nor removes a tombstone, and retains the first creation timestamp.
 Conflicting evidence or a different explicit correction target refuses before
-allocating a new ledger commit. Changing an existing relation or retiring an
+allocating a new ledger commit. Adding a correction link or retiring an
 entry uses the explicit lifecycle operations, not a repeated `put`.
 
 ## PMA intervention worker (pma.evaluate)
