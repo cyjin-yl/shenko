@@ -38,7 +38,7 @@ use cordis_core::Service;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use shenko_context_policy::contribution::{
-    ContributionError, ContributionKind, ContributionLifetime, ContributionProvider,
+    ContributionError, ContributionKind, ContributionLifetime, ContributionPayload, ContributionProvider,
     ContributionScope, ContributionSlot, ContributionSource, ContextContribution,
 };
 use shenko_store::Store;
@@ -509,7 +509,7 @@ pub struct PmaContributionProvider {
 
 impl PmaContributionProvider {
     pub fn new(store: Arc<Store>) -> Self {
-        Self { store, plugin_version: "pma.intervention/v1".to_string() }
+        Self { store, plugin_version: "pma.intervention/v2".to_string() }
     }
 
     /// The reminders that may still be shown for a scope: not expired, not
@@ -539,9 +539,13 @@ impl PmaContributionProvider {
         &self,
         reminder: &shenko_store::InterventionReminder,
     ) -> Result<ObjectRef, InterventionError> {
+        let text = reminder.content.as_deref().ok_or_else(|| {
+            InterventionError::InvalidDecision("a silent decision has no reminder body".to_string())
+        })?;
         let body = serde_json::json!({
+            "v": ContributionPayload::VERSION,
+            "text": text,
             "reminder_id": reminder.reminder_id.to_string(),
-            "content": reminder.content,
             "provenance": reminder.provenance,
             "relevance": reminder.relevance,
             "scope": reminder.scope,
@@ -562,7 +566,7 @@ impl PmaContributionProvider {
             "application/json",
             "memory-intervention",
             "pma-reminder-body",
-            1,
+            2,
         ) {
             Ok(sealed) => Ok(sealed.object),
             Err(error) => Err(InterventionError::Store(error.to_string())),
@@ -576,22 +580,25 @@ impl PmaContributionProvider {
         scope: &ContributionScope,
         now_ms: i64,
     ) -> Result<ContextContribution, InterventionError> {
-        let Some(content) = reminder.content.clone() else {
+        let Some(content) = reminder.content.as_deref() else {
             return Err(InterventionError::InvalidDecision(
                 "a silent decision has no reminder body".to_string(),
             ));
         };
         let body = self.seal_body(reminder)?;
-        let tokens = estimate_tokens(&content);
+        let tokens = estimate_tokens(content);
         Ok(ContextContribution {
             key: format!("pma.reminder.{}", reminder.reminder_id),
             slot: ContributionSlot::TransientReminder,
             source: self.manifest(),
             scope: scope.clone(),
             input_revision: format!("pma:{}:{}", reminder.epoch_id, reminder.reminder_id),
-            lifetime: match reminder.expires_at_ms {
-                Some(expires_at_ms) => ContributionLifetime::ExpiresAtMillis { expires_at_ms },
-                None => ContributionLifetime::ThisRequest,
+            lifetime: match (reminder.transient, reminder.expires_at_ms) {
+                (true, Some(expires_at_ms)) => {
+                    ContributionLifetime::ThisRequestUntilMillis { expires_at_ms }
+                }
+                (false, Some(expires_at_ms)) => ContributionLifetime::ExpiresAtMillis { expires_at_ms },
+                (_, None) => ContributionLifetime::ThisRequest,
             },
             required: false,
             budget_tokens: tokens,

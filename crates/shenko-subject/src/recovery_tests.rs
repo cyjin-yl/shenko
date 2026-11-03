@@ -768,6 +768,52 @@ fn rejected_s0_does_not_consume_a_prepared_contribution() {
     assert_eq!(usage.seal_digest, subject.step.input_plan_ref.as_ref().unwrap().digest);
 }
 
+#[test]
+fn expiring_pma_material_reaches_s0_once_and_stays_consumed_after_reopen() {
+    use shenko_context_policy::contribution::*;
+    use shenko_store::{InterventionDecisionKind, InterventionReminder};
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let scope = scope_wide(EntityId(subject.head.branch_id.0));
+    let now = chrono::Utc::now().timestamp_millis();
+    let reminder = InterventionReminder {
+        reminder_id: EntityId::new(), epoch_id: EntityId::new(), lineage_id: EntityId::new(),
+        decision: InterventionDecisionKind::Remind, policy: "fixture".into(), policy_revision: "1".into(),
+        content: Some("PMA bounded observation for this request only".into()),
+        provenance: vec!["fixture-source".into()], relevance: Some("current work".into()),
+        scope: "subject".into(), expires_at_ms: Some(i64::MAX), transient: true,
+        bank_entry_ids: vec![], reason: None, created_at_ms: now, used_step_id: None, used_at_ms: None,
+    };
+    let provider = shenko_memory::PmaContributionProvider::new(store.clone());
+    let item = provider.contribution_for(&reminder, &scope, now).unwrap();
+    let registry = Arc::new(ContributionRegistry::new());
+    let _publication = subject.plugin_context.provide(registry.clone()).unwrap();
+    subject.refresh_contributions().unwrap();
+    let registration = registry.register_publisher(provider.manifest());
+    registry.publish(registry.begin_publication(registration, &scope).unwrap(), vec![item.clone()]).unwrap();
+    let accepted = sealed_preparing_step(&mut subject);
+    let input = super::frozen_input(&store, &accepted).unwrap();
+    let text = reminder.content.as_ref().unwrap();
+    assert!(input.payload.messages.iter().flat_map(|message| &message.parts).any(|part| {
+        matches!(part, shenko_broker::request::InferencePart::Text { text: body } if body.contains(text))
+    }));
+    super::commit_s0(&mut subject, accepted, &input).unwrap();
+    let usage = registry.usage(&input.request_id).unwrap();
+    assert_eq!(usage.sent, vec![item.clone()]);
+    assert!(registry.collect(&scope, now + 1).contributions.is_empty());
+    drop((provider, registry, subject, store));
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut restored = state(reopened, agent).unwrap();
+    let registry = Arc::new(ContributionRegistry::new());
+    let registration = registry.register_publisher(item.source.clone());
+    registry.publish(registry.begin_publication(registration, &scope).unwrap(), vec![item]).unwrap();
+    let _publication = restored.plugin_context.provide(registry.clone()).unwrap();
+    restored.refresh_contributions().unwrap();
+    assert_eq!(registry.usage(&input.request_id), Some(usage));
+    assert!(registry.collect(&scope, now + 2).contributions.is_empty());
+}
+
 #[tokio::test]
 async fn contribution_recovery_includes_steps_older_than_the_committed_head() {
     let (dir, store, agent) = fixture();
