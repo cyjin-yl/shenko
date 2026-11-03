@@ -8,6 +8,7 @@ import android.os.IBinder
 import android.util.Base64
 import rikka.shizuku.Shizuku
 import rikka.shizuku.Shizuku.UserServiceArgs
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
@@ -27,7 +28,6 @@ object ShizukuUserShell {
 
     class ShellService : IShenkoShellService.Stub() {
         override fun execJson(argv: Array<String>, env: Array<String>, timeoutMillis: Long): String {
-            val timedOut = booleanArrayOf(false)
             val process = try {
                 val pb = ProcessBuilder(*argv)
                 pb.directory(File("/"))
@@ -47,19 +47,12 @@ object ShizukuUserShell {
                     .put("timed_out", false)
                     .toString()
             }
-            val finished = process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
-            if (!finished) {
-                timedOut[0] = true
-                process.destroyForcibly()
-                process.waitFor(1, TimeUnit.SECONDS)
-            }
-            val stdout = drain(process.inputStream)
-            val stderr = drain(process.errorStream)
+            val captured = BoundedProcessCapture.capture(process, timeoutMillis)
             return org.json.JSONObject()
-                .put("exit_code", if (timedOut[0]) -1 else process.exitValue())
-                .put("stdout_b64", Base64.encodeToString(stdout, Base64.NO_WRAP))
-                .put("stderr_b64", Base64.encodeToString(stderr, Base64.NO_WRAP))
-                .put("timed_out", timedOut[0])
+                .put("exit_code", captured.exitCode)
+                .put("stdout_b64", Base64.encodeToString(captured.stdout, Base64.NO_WRAP))
+                .put("stderr_b64", Base64.encodeToString(captured.stderr, Base64.NO_WRAP))
+                .put("timed_out", captured.timedOut)
                 .toString()
         }
 
@@ -67,21 +60,6 @@ object ShizukuUserShell {
             // Shizuku tears the user-service process down after unbind.
         }
 
-        private fun drain(stream: java.io.InputStream): ByteArray {
-            val out = java.io.ByteArrayOutputStream()
-            val buf = ByteArray(64 * 1024)
-            var read = stream.read(buf)
-            var total = 0
-            val cap = 4 * 1024 * 1024
-            while (read > 0 && total < cap) {
-                val take = minOf(read, cap - total)
-                out.write(buf, 0, take)
-                total += take
-                if (take < read) break
-                read = stream.read(buf)
-            }
-            return out.toByteArray()
-        }
     }
 
     @Volatile

@@ -64,9 +64,24 @@ in `authority_used`.
   so app-process death surfaces as a connect failure.
 - Frame 1 (client→server): `{"version":1,"token":"..."}\n`.
 - Server reply `{"ok":true}\n`, else `{"ok":false,"error":{kind,message,retryable}}`.
-- Frame 2: one request JSON line `{"op":..., ...}` ≤ 64 KiB.
+- Frame 2: one request JSON line, for example
+  `{"version":1,"request_id":"...","op":"probe"}`, ≤ 64 KiB. The operation
+  discriminator is a top-level string; operation arguments are siblings of
+  `op`, not a second nested operation object.
 - Frame 3: one response JSON line ≤ 16 MiB; errors carry `error.kind` in
   `typed_unavailable|denied|io|unsupported|timeout|internal`.
+- Successful operation fields are at the response root alongside `ok`, for
+  example `{"ok":true,"binding":{...},"authorities":{...}}`; there is no
+  `result` wrapper. The Rust client retains those fields and the original
+  error classification instead of replacing a successful response with null.
+- Frames are UTF-8. The APK buffers bounded bytes until LF, then decodes the
+  complete frame; splitting a multibyte code point across reads cannot alter
+  text or argv. Malformed UTF-8 and a partial/oversized frame are not requests.
+  The APK's response bound also counts encoded bytes, not UTF-16 characters.
+- The filesystem listener is a bound `LocalSocket` wrapped by
+  `LocalServerSocket(FileDescriptor)`. The latter borrows the descriptor;
+  stop closes its retained `LocalSocket` owner, as required by the
+  [Android API contract](https://developer.android.com/reference/android/net/LocalServerSocket).
 - The token binds the **bridge service incarnation** (app process + service
   lifecycle). It is not a grant and never elevates any operation.
 
@@ -74,6 +89,16 @@ Ops: `probe`, `capability_list`, `screen_capture`, `input_batch`,
 `shell_exec`, `db_snapshot`, `human_activity_after`. The Rust vocabulary is
 the `BridgeOp` enum in `crates/shenko-mobile/src/bridge.rs`; Kotlin dispatch
 is `DeviceBridgeServer`/`BridgeOps`.
+
+All three shell mechanisms use the same process capture: stdout and stderr
+are drained concurrently while the process runs, retaining at most 4 MiB of
+each stream and discarding excess bytes while continuing to drain. Waiting
+for exit before reading, or stopping the reader when retention fills, can
+block an otherwise finite child on its output pipe. A normal completion keeps
+its actual exit code; a process deadline reports `timed_out` and retires the
+direct child. This is not proof that an arbitrary remote process implementation
+or a detached descendant has terminated; device-side lifecycle acceptance
+remains separate.
 
 ## 5. Plugin handlers (`crates/shenko-mobile`, UUID
 `3b9c1a2e-7d4f-4e8a-9b15-6c2e8f0a1d34`)
@@ -111,9 +136,11 @@ fact about material, independent of ciphertext readability).
 
 ## 7. Honest gaps
 
-- No runtime verification has been performed yet: the Rust handlers compile
-  against the store/subject APIs but no on-device or emulated run has driven
-  the bridge. The proof recipe in §8 is the required verification.
+- Host-side checks cover the Rust socket protocol and the actual shared Java
+  frame/process-capture implementation on a native JVM. They do not exercise
+  the Android service, the full APK build, Binder grants or a real device.
+  The development container currently lacks the Android SDK/NDK and Gradle;
+  the proof recipe in §8 remains required before claiming on-device support.
 - `MediaProjection` pixel capture and app-supported export adapters are not
   bundled; without a shell-grade authority, `screen_capture` reports
   `typed_unavailable` rather than synthesizing pixels, and `app_export`
@@ -128,7 +155,9 @@ fact about material, independent of ciphertext readability).
    the lib target keep passing).
 2. `cargo ndk -t arm64-v8a -o mobile/apk/app/src/main/jniLibs build --release
    -p shenko-android-shell` (needs NDK + cargo-ndk).
-3. `./gradlew :app:assembleDebug` (AGP 8.7.3, Kotlin 2.0.21, minSdk 26).
+3. With a compatible Gradle installed, run `gradle :app:assembleDebug` from
+   `mobile/apk` (AGP 8.7.3, Kotlin 2.0.21, minSdk 26); the repository does not
+   currently bundle a Gradle wrapper.
 4. Install on an emulator/device (API 26+): start ShenkoNodeService, confirm
    the node thread reports startup, `device_bridge.sock` exists, and
    `shenko identity` over the UI port answers.

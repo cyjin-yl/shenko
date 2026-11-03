@@ -40,6 +40,7 @@ class DeviceBridgeServer(
     @Volatile
     private var running = false
     private var server: LocalServerSocket? = null
+    private var boundSocket: LocalSocket? = null
     @Volatile
     private var token: String = ""
 
@@ -47,11 +48,20 @@ class DeviceBridgeServer(
         stop()
         token = newToken().also { writeToken(it) }
         socketFile.delete()
-        server = LocalServerSocket(
-            LocalSocketAddress(socketFile.absolutePath, LocalSocketAddress.Namespace.FILESYSTEM)
-        )
+        val socket = LocalSocket()
+        val listener = try {
+            socket.bind(LocalSocketAddress(socketFile.absolutePath, LocalSocketAddress.Namespace.FILESYSTEM))
+            LocalServerSocket(socket.fileDescriptor)
+        } catch (error: Exception) {
+            socket.close()
+            throw error
+        }
+        // LocalServerSocket(FileDescriptor) borrows the descriptor; retain its
+        // actual owner so stop closes the filesystem socket and wakes accept.
+        boundSocket = socket
+        server = listener
         running = true
-        Thread({ acceptLoop() }, "shenko-bridge").apply { isDaemon = true }.start()
+        Thread({ acceptLoop(listener) }, "shenko-bridge").apply { isDaemon = true }.start()
         Log.i(TAG, "bridge listening on ${socketFile.absolutePath}")
     }
 
@@ -62,6 +72,11 @@ class DeviceBridgeServer(
         } catch (_: Exception) {
         }
         server = null
+        try {
+            boundSocket?.close()
+        } catch (_: Exception) {
+        }
+        boundSocket = null
         socketFile.delete()
     }
 
@@ -79,14 +94,14 @@ class DeviceBridgeServer(
         tokenFile.setReadable(true, true) // owner-only read
     }
 
-    private fun acceptLoop() {
+    private fun acceptLoop(listener: LocalServerSocket) {
         while (running) {
             val connection = try {
-                server?.accept()
+                listener.accept()
             } catch (e: Exception) {
                 if (running) Log.w(TAG, "accept failed: ${e.message}")
                 null
-            } ?: continue
+            } ?: break
             Thread({ handle(connection) }, "shenko-bridge-conn").apply { isDaemon = true }.start()
         }
     }
@@ -94,10 +109,10 @@ class DeviceBridgeServer(
     private fun handle(connection: LocalSocket) {
         try {
             connection.soTimeout = 30_000
-            val input = connection.inputStream
+            val input = connection.inputStream.buffered()
             val output = connection.outputStream
 
-            val handshakeLine = readLine(input, MAX_HANDSHAKE_BYTES) ?: return
+            val handshakeLine = BridgeFrames.readLine(input, MAX_HANDSHAKE_BYTES) ?: return
             val handshake = try {
                 JSONObject(handshakeLine)
             } catch (e: Exception) {
@@ -116,7 +131,7 @@ class DeviceBridgeServer(
             }
             writeJson(output, JSONObject().put("ok", true))
 
-            val requestLine = readLine(input, MAX_REQUEST_BYTES) ?: return
+            val requestLine = BridgeFrames.readLine(input, MAX_REQUEST_BYTES) ?: return
             val response = try {
                 val request = JSONObject(requestLine)
                 BridgeOps.dispatch(context, request)
@@ -129,11 +144,12 @@ class DeviceBridgeServer(
                         .put("retryable", false)
                 )
             }
-            if (response.toString().length > MAX_RESPONSE_BYTES) {
+            val responseBytes = response.toString().toByteArray(Charsets.UTF_8)
+            if (responseBytes.size > MAX_RESPONSE_BYTES) {
                 writeJson(output, refuse("internal", "response exceeds 16 MiB bound", false))
                 return
             }
-            writeJson(output, response)
+            writeFrame(output, responseBytes)
         } catch (e: Exception) {
             Log.w(TAG, "connection failed: ${e.message}")
         } finally {
@@ -150,20 +166,13 @@ class DeviceBridgeServer(
             JSONObject().put("kind", kind).put("message", message).put("retryable", retryable)
         )
 
-    /** Read one LF-terminated line bounded by [cap] bytes; null on EOF/violation. */
-    private fun readLine(input: java.io.InputStream, cap: Int): String? {
-        val builder = StringBuilder()
-        while (true) {
-            val byte = input.read()
-            if (byte == -1) return null
-            if (byte == '\n'.code) return builder.toString()
-            builder.append(byte.toChar())
-            if (builder.length > cap) return null
-        }
+    private fun writeJson(output: java.io.OutputStream, value: JSONObject) {
+        writeFrame(output, value.toString().toByteArray(Charsets.UTF_8))
     }
 
-    private fun writeJson(output: java.io.OutputStream, value: JSONObject) {
-        output.write((value.toString() + "\n").toByteArray())
+    private fun writeFrame(output: java.io.OutputStream, bytes: ByteArray) {
+        output.write(bytes)
+        output.write('\n'.code)
         output.flush()
     }
 }
