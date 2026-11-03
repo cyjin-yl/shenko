@@ -212,6 +212,29 @@ task memo 中 schema 2 的发送记录保留每个 attempt 的绑定和提交位
 
 ---
 
+### 7.1 准备材料的作用域、单次消费与恢复
+
+child 与主体共用同一个准备材料注册表，但**收集作用域不同**：child 只收集自己的
+任务作用域 `{ scope_id: task_id, task_id: Some(task_id) }`，主体只收集自己的分支级
+作用域 `{ scope_id: branch_id, task_id: None }`。主体的范围级收集不会取走 child 的
+任务材料，child 也不会取走主体的材料。
+
+准备材料在**请求封装里**随 step 一起封存（`model-child-step-input` schema 2），
+不进入由工具结果重建的滚动历史；模型看到的是一条 `[prepared contributions]` 的
+用户消息。schema 1 的历史 step 没有这份计划，仍然可读；schema 2 缺失或为 null
+的计划一律拒绝，不能把一次请求降级成“这次没有使用任何材料”。
+
+单次消费以 **T1 被接受** 为准：只有请求真正被接受之后，child 才把这次封口的用量
+登记到注册表；仅写完 CAS 对象不算消费。注册表实例被替换（插件重启）时，child 从
+live 服务重新解析注册表，并按该分支**全部已有封口的 step** 重放用量，恢复已经
+消费的材料，而不是只读最新一步。
+
+Store 在 T1 准入时复核这份计划：计划里的每一项都必须属于该 child 的任务作用域、
+声明 token 不得超过自身预算、合计 token 与计划一致，且每个材料正文的 CAS 闭包
+可读。范围、token 或闭包不符即拒绝准入，不做静默裁剪。
+
+---
+
 ## 8. 接口清单
 
 新增/变更的公开面：
@@ -249,17 +272,36 @@ task memo 中 schema 2 的发送记录保留每个 attempt 的绑定和提交位
 原始 provider 请求与独立 Store/CAS 回读分别保存在后者的
 `provider-observation.json` 和 `store-observation.json`。
 
-该观察同时证明 **epoch 定向瞬态提醒仍未通过**：五个 child 请求都没有收到 prepared
+该观察当时还证明 **epoch 定向瞬态提醒未通过**：五个 child 请求都没有收到 prepared
 contribution，而提醒正文作为 PMA 工具结果出现在最后三个请求的滚动历史中。PMA
-决策成功落账不等于提醒投递和单次消费正确，不能将本次多步执行成功泛化为此项通过。
+决策成功落账不等于提醒投递和单次消费正确。
+
+2026-11-03 修复 epoch 定向投递与请求恢复边界后，同一有界原生场景重跑并通过：提醒
+正文只出现在**拥有该 epoch 的 model child 自己的 prepared contribution** 中一次
+（child 的第二个模型步），此后不再出现；它没有进入任何 child 请求的滚动 tool
+历史，也没有进入主体的请求。持久化的投递作用域是该 model child 的任务作用域
+`{scope_id: child_task, task_id: Some(child_task)}`，而不是 epoch id——epoch id
+从来不是收集作用域。PMA 决策结果只保留身份摘要与封口的决策引用，提醒正文不再成为
+永久的滚动上下文。
+
+该次证据位于 `build/spec-architecture-20261101/child-epoch-r2/`（provider 观察
+`provider-observation.json`、独立 Store/CAS 回读 `store-observation.json`、
+`receipt.json`），构建与回归证据位于同目录 `child-epoch-build-1/`。CLI SHA-256 为
+`456d1157eef27232debec08c03bdaeb5e7779a8baa61ffb1b4cdc8104bff855c`。provider 响应
+仍由脚本给出，不是真实 Coder390 行为证明。
 
 上述限定场景之外，嵌套 child 的预算账户、继续链的 transcript 继承、child 经通用
 渠道外发以及全部中断/恢复组合仍需各自的原生和真实模型证据。
 
-本次 Store roundtrip 21 项、Subject library 54 项测试通过；新增断言覆盖工具任务
-创建/认领的原子性与回滚、不同模型步的独立发送、同 attempt 竞争、取消前后及重开后
-的防重复，还有旧任务级发送记录的保守恢复。初次测试因 fixture 缺少 native input
-绑定而失败，修正的是测试初始化，未放宽产品准入。
+本次 Store roundtrip 21 项、Subject library 55 项、PMA contribution 3 项、PMA 决策
+结算 3 项测试通过；新增断言覆盖工具任务创建/认领的原子性与回滚、不同模型步的独立
+发送、同 attempt 竞争、取消前后及重开后的防重复、旧任务级发送记录的保守恢复，
+以及 child 一次性材料在注册表换代与重开之后不被复活。初次测试因 fixture 缺少
+native input 绑定而失败，修正的是测试初始化，未放宽产品准入。
+
+回归期间还暴露并修复了一处投影缺陷：按需发布的作用域被并入周期作用域集合后，
+会被当作“不再 pending”而清空，抹掉另一个归属仍在读取的批次。现在按需发布只发布
+该作用域，不改动周期集合。
 
 `child-tool-verification-r3/receipt.json` 的两条测试命令均退出 0，但外层检查因
 进程组仍存在而退出 1；原始失败保持不变。后续进程快照发现一个已退出、由 PID 1

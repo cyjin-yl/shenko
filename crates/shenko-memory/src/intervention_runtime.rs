@@ -26,7 +26,7 @@ pub struct MemoryInterventionConfig {
 struct ProjectionState {
     closed: bool,
     commit_seq: Option<u64>,
-    scope: Option<ContributionScope>,
+    scopes: Vec<ContributionScope>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -64,13 +64,16 @@ impl PmaContributionRuntime {
             return Ok(());
         }
         let (head, _) = self.store.load_subject(self.agent_id)?;
-        let scope = ContributionScope { scope_id: EntityId(head.branch_id.0), task_id: None };
-        if let Some(previous) = state.scope.as_ref().filter(|previous| **previous != scope) {
+        let mut scopes = self.store.pending_intervention_scopes(self.agent_id, chrono::Utc::now().timestamp_millis())?;
+        scopes.push(ContributionScope { scope_id: EntityId(head.branch_id.0), task_id: None });
+        scopes.sort_by_key(|scope| (scope.scope_id, scope.task_id));
+        scopes.dedup();
+        for previous in state.scopes.iter().filter(|previous| !scopes.contains(previous)) {
             let ticket = self.registry.begin_publication(self.registration, previous)?;
             self.registry.publish(ticket, Vec::new())?;
         }
-        self.prepare_scope(&scope)?;
-        state.scope = Some(scope);
+        for scope in &scopes { self.prepare_scope(scope)?; }
+        state.scopes = scopes;
         state.commit_seq = Some(seq);
         Ok(())
     }
@@ -119,6 +122,11 @@ impl ReminderPublisher for PmaContributionRuntime {
         if state.closed {
             return Err(ContributionError::RegistrationGone { registration: self.registration });
         }
+        // An on-demand refresh publishes the committed batch for exactly this
+        // destination. It does not join the periodic scope set: that set is
+        // derived from this agent's own pending decisions, and a scope that is
+        // not in it must not be emptied as "no longer pending" — that would
+        // wipe a batch another owner is still reading.
         self.prepare_scope(scope)
     }
 }

@@ -380,13 +380,30 @@ impl PmaEvaluateHandler {
         observation: &InterventionObservation,
         decision: &InterventionDecision,
         raw: ObjectRef,
-        body: serde_json::Value,
+        recovered: bool,
         source_instance_id: String,
         observation_level: Option<ObservationLevel>,
     ) -> Result<InterventionReminder> {
         let reminder = self.record_decision(frozen, request, observation, decision)?;
-        let mut body = body;
-        body["decision"] = serde_json::to_value(&reminder)?;
+        // The complete decision remains evidence, not rolling tool context.
+        // Only the prepared contribution may deliver a transient reminder's
+        // body; the task result carries its identity and evidence reference.
+        let decision_ref = seal(&self.store, &reminder, "pma-recorded-decision")?;
+        let body = serde_json::json!({
+            "schema_version": 2,
+            "task_id": frozen.task_id,
+            "request_id": frozen.request_id,
+            "policy": frozen.policy_name,
+            "policy_revision": frozen.policy_revision,
+            "decided_without_call": frozen.decided_without_call,
+            "decision": reminder.decision,
+            "reminder_id": reminder.reminder_id,
+            "epoch_id": reminder.epoch_id,
+            "lineage_id": reminder.lineage_id,
+            "scope": reminder.scope,
+            "decision_ref": decision_ref,
+            "recovered": recovered,
+        });
         let normalized = seal(&self.store, &body, "pma-decision")?;
         let evidence = EvidenceReceipt {
             record_schema_version: 1,
@@ -464,7 +481,6 @@ impl PmaEvaluateHandler {
     fn publish_reminder(
         &self,
         reminder: &InterventionReminder,
-        agent_id: EntityId,
     ) -> Result<()> {
         let Some(publisher) = self.publisher.as_ref() else {
             return Ok(());
@@ -472,38 +488,10 @@ impl PmaEvaluateHandler {
         if reminder.decision != InterventionDecisionKind::Remind {
             return Ok(());
         }
-        let scope_id = self.scope_id_for(&reminder.scope, reminder.epoch_id, agent_id)?;
-        let scope = shenko_context_policy::contribution::ContributionScope {
-            scope_id,
-            task_id: None,
-        };
-        publisher.refresh(&scope)?;
+        if let Some(scope) = self.store.intervention_delivery_scope(reminder)? {
+            publisher.refresh(&scope)?;
+        }
         Ok(())
-    }
-
-    /// The scope a reminder belongs to. A subject-directed reminder is
-    /// published under the subject's current branch, a worker-directed one
-    /// under its epoch.
-    fn scope_id_for(
-        &self,
-        scope: &str,
-        epoch_id: EntityId,
-        agent_id: EntityId,
-    ) -> Result<EntityId> {
-        if scope == shenko_memory::SUBJECT_SCOPE {
-            let (head, _step) = self.store.load_subject(agent_id)?;
-            return Ok(EntityId(head.branch_id.0));
-        }
-        if let Some(rest) = scope.strip_prefix("epoch:") {
-            let parsed: EntityId = rest
-                .parse()
-                .map_err(|_| anyhow::anyhow!("reminder scope is not a valid epoch identity"))?;
-            ensure!(parsed == epoch_id, "reminder scope names another epoch");
-            return Ok(parsed);
-        }
-        Err(anyhow::anyhow!(
-            "reminder scope must be `subject` or `epoch:<id>`, not `{scope}`"
-        ))
     }
 }
 
@@ -756,16 +744,6 @@ impl NativeTaskHandler for PmaEvaluateHandler {
                 anyhow::anyhow!("the frozen policy no longer decides without a call")
             })?;
             let raw = seal(&self.store, &decision, "pma-local-decision")?;
-            let body = serde_json::json!({
-                "schema_version": 1,
-                "task_id": frozen.task_id,
-                "request_id": frozen.request_id,
-                "policy": frozen.policy_name,
-                "policy_revision": frozen.policy_revision,
-                "decided_without_call": true,
-                "policy_decision": decision,
-                "recovered": true,
-            });
             let reminder = self.commit_decision(
                 &frozen,
                 &operation,
@@ -774,11 +752,11 @@ impl NativeTaskHandler for PmaEvaluateHandler {
                 observation,
                 &decision,
                 raw,
-                body,
+                true,
                 attempt.node_id.to_string(),
                 None,
             )?;
-            self.publish_reminder(&reminder, frozen.agent_id)?;
+            self.publish_reminder(&reminder)?;
             return self.store.external_operation(operation_id);
         }
         let Some(result) = read_original_terminal(&self.store, &operation, &attempt, &frozen)? else {
@@ -803,17 +781,6 @@ impl NativeTaskHandler for PmaEvaluateHandler {
         match self.decide(&frozen, observation, &reply) {
             Ok(decision) => {
                 let raw = seal(&self.store, &result, "pma-provider-result")?;
-                let body = serde_json::json!({
-                    "schema_version": 1,
-                    "task_id": frozen.task_id,
-                    "request_id": frozen.request_id,
-                    "policy": frozen.policy_name,
-                    "policy_revision": frozen.policy_revision,
-                    "decided_without_call": false,
-                    "policy_decision": decision,
-                    "text": text,
-                    "recovered": true,
-                });
                 let reminder = self.commit_decision(
                     &frozen,
                     &operation,
@@ -822,11 +789,11 @@ impl NativeTaskHandler for PmaEvaluateHandler {
                     observation,
                     &decision,
                     raw,
-                    body,
+                    true,
                     attempt.node_id.to_string(),
                     Some(ObservationLevel::RemoteCompleted),
                 )?;
-                self.publish_reminder(&reminder, frozen.agent_id)?;
+                self.publish_reminder(&reminder)?;
             }
             Err(error) => {
                 // The original answer carries no usable decision: the bounded
@@ -837,7 +804,6 @@ impl NativeTaskHandler for PmaEvaluateHandler {
                     "task_id": frozen.task_id,
                     "request_id": frozen.request_id,
                     "decision_error": error.to_string(),
-                    "text": text,
                     "recovered": true,
                 });
                 self.commit_refusal(
@@ -1156,15 +1122,6 @@ impl PmaEvaluateHandler {
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("INTERVENTION_PLAN_EMPTY"))?;
                 let raw = seal(&self.store, &decision, "pma-local-decision")?;
-                let body = serde_json::json!({
-                    "schema_version": 1,
-                    "task_id": frozen.task_id,
-                    "request_id": frozen.request_id,
-                    "policy": frozen.policy_name,
-                    "policy_revision": frozen.policy_revision,
-                    "decided_without_call": true,
-                    "policy_decision": decision,
-                });
                 let reminder = self.commit_decision(
                     &frozen,
                     &operation,
@@ -1173,7 +1130,7 @@ impl PmaEvaluateHandler {
                     &observation,
                     &decision,
                     raw,
-                    body,
+                    false,
                     invocation.task_invocation.node_id.to_string(),
                     // No provider was contacted: there is no remote
                     // observation to report for a locally decided attempt.
@@ -1244,16 +1201,6 @@ impl PmaEvaluateHandler {
                     match self.decide(&frozen, &observation, &reply) {
                         Ok(decision) => {
                             let raw = seal(&self.store, &result, "pma-provider-result")?;
-                            let body = serde_json::json!({
-                                    "schema_version": 1,
-                                    "task_id": frozen.task_id,
-                                    "request_id": frozen.request_id,
-                                    "policy": frozen.policy_name,
-                                    "policy_revision": frozen.policy_revision,
-                                    "decided_without_call": false,
-                                    "policy_decision": decision,
-                                    "text": text,
-                                });
                             let reminder = self.commit_decision(
                                 &frozen,
                                 &operation,
@@ -1262,7 +1209,7 @@ impl PmaEvaluateHandler {
                                 &observation,
                                 &decision,
                                 raw,
-                                body,
+                                false,
                                 invocation.task_invocation.node_id.to_string(),
                                 Some(ObservationLevel::RemoteCompleted),
                             )?;
@@ -1277,7 +1224,6 @@ impl PmaEvaluateHandler {
                                     "task_id": frozen.task_id,
                                     "request_id": frozen.request_id,
                                     "decision_error": error.to_string(),
-                                    "text": text,
                                 });
                             self.commit_refusal(
                                 &frozen,
@@ -1299,7 +1245,7 @@ impl PmaEvaluateHandler {
         };
 
         if let Some(reminder) = reminder.as_ref() {
-            self.publish_reminder(reminder, frozen.agent_id)?;
+            self.publish_reminder(reminder)?;
         }
         self.store.external_operation(operation.operation_id)
     }

@@ -284,8 +284,22 @@ impl Store {
                     let step = read(&op.final_input_ref)?;
                     ensure!(op.input_digest == op.final_input_ref.digest,
                         "model child step input is not its own closure");
-                    ensure!(step.get("schema_version").and_then(|value| value.as_u64()) == Some(1),
+                    ensure!(op.input_schema_version == 2
+                        && step.get("schema_version").and_then(|value| value.as_u64()) == Some(2),
                         "unsupported model child step input");
+                    let plan = step.get("contribution_plan")
+                        .ok_or_else(|| anyhow::anyhow!("model child step lacks its contribution plan"))?;
+                    let sent: Vec<shenko_types::plugin_runtime::ContextContribution> =
+                        serde::Deserialize::deserialize(&plan["contributions"])?;
+                    let _: Vec<shenko_types::plugin_runtime::ContributionOmission> =
+                        serde::Deserialize::deserialize(&plan["omitted"])?;
+                    ensure!(plan["missing_required"].as_array().is_some_and(Vec::is_empty)
+                        && sent.iter().all(|item| item.scope.scope_id == task.task_id
+                            && item.scope.task_id == Some(task.task_id) && item.tokens <= item.budget_tokens)
+                        && sent.iter().try_fold(0u64, |total, item| total.checked_add(item.tokens))
+                            .is_some_and(|tokens| plan["total_tokens"].as_u64() == Some(tokens)),
+                        "model child contribution scope/token evidence mismatch");
+                    for item in &sent { read(&item.data)?; }
                     let sealed_digest_text = sealed_digest.to_string();
                     ensure!(step.get("contract_digest").and_then(|value| value.as_str())
                         == Some(sealed_digest_text.as_str()),
@@ -715,8 +729,15 @@ impl Store {
                     anyhow::anyhow!("intervention decision lacks normalized evidence")
                 })?,
             )?;
-            ensure!(
-                normalized["decision"] == serde_json::to_value(reminder)?,
+            let decision_ref: shenko_types::object::ObjectRef =
+                serde::Deserialize::deserialize(&normalized["decision_ref"])?;
+            ensure!(normalized["schema_version"] == 2
+                && normalized["task_id"] == serde_json::to_value(op.task_id)?
+                && normalized["request_id"] == serde_json::to_value(reminder.reminder_id)?
+                && normalized["reminder_id"] == serde_json::to_value(reminder.reminder_id)?
+                && normalized["decision"] == serde_json::to_value(reminder.decision)?
+                && normalized["scope"] == reminder.scope
+                && self.read_sealed_json(&decision_ref)? == serde_json::to_value(reminder)?,
                 "intervention decision differs from its original evidence"
             );
             ensure!(

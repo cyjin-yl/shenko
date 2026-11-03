@@ -37,6 +37,9 @@ use serde::{Deserialize, Serialize};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
+use shenko_types::plugin_runtime::ContributionScope;
+use shenko_types::subject::SubjectBranchHead;
+use shenko_types::task::{TaskOwner, TaskRecord};
 
 use crate::store::Store;
 
@@ -1694,49 +1697,82 @@ impl Store {
         )
     }
 
-    /// Usable reminders for one actual request scope. Subject delivery follows
-    /// epoch -> owning task -> agent -> current branch; the word `subject` is
-    /// not a global destination. Epoch-directed reminders match only that epoch.
-    /// Legacy epochs without an owning task cannot establish subject delivery.
+    /// Resolve the addressed consumer from committed epoch/task ownership.
+    /// An epoch belongs to its nearest model child, or to the subject root;
+    /// it is never broadcast to siblings or to later delegated workers.
+    pub fn intervention_delivery_scope(
+        &self,
+        reminder: &InterventionReminder,
+    ) -> Result<Option<ContributionScope>, ShenkoError> {
+        let mut locked = self.ledger.conn.lock();
+        let conn = locked.transaction().map_err(|error| ShenkoError::storage(error.to_string()))?;
+        reminder_delivery_scope(&conn, reminder.epoch_id, &reminder.scope)
+    }
+
+    /// Prepared batches lost on restart are derived from the pending durable
+    /// decisions. Their consumers replay accepted request usage separately.
+    pub fn pending_intervention_scopes(
+        &self,
+        agent_id: EntityId,
+        now_ms: i64,
+    ) -> Result<Vec<ContributionScope>, ShenkoError> {
+        let mut locked = self.ledger.conn.lock();
+        let conn = locked.transaction().map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let reminders = pending_scope_reminders(&conn, Some(&agent_id.to_string()), now_ms)?;
+        let mut scopes = Vec::new();
+        let mut resolved = std::collections::BTreeMap::new();
+        for reminder in reminders {
+            let scope = match resolved.entry((reminder.epoch_id, reminder.scope)) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let scope = reminder_delivery_scope(&conn, entry.key().0, &entry.key().1)?;
+                    entry.insert(scope)
+                }
+            };
+            if let Some(scope) = scope { scopes.push(scope.clone()); }
+        }
+        scopes.sort_by_key(|scope| (scope.scope_id, scope.task_id));
+        scopes.dedup();
+        Ok(scopes)
+    }
+
+    /// Usable material for one exact request scope. Branch-wide reminders
+    /// never enter a child's scope; malformed ownership is not an empty plan.
     pub fn pending_interventions_for_scope(
         &self,
-        scope_id: EntityId,
+        scope: &ContributionScope,
         now_ms: i64,
     ) -> Result<Vec<InterventionReminder>, ShenkoError> {
-        let conn = self.ledger.conn.lock();
-        ensure_research_schema(&conn)?;
-        let mut statement = conn
-            .prepare(
-                "SELECT r.reminder_id FROM intervention_reminders r
-                 JOIN research_epochs e ON e.epoch_id = r.epoch_id
-                 LEFT JOIN tasks t ON t.task_id = e.task_id
-                 LEFT JOIN subject_branch_heads h
-                   ON h.agent_id = json_extract(t.data, '$.agent_id')
-                 WHERE e.status='active' AND r.decision='remind'
-                   AND ((r.scope='subject' AND h.branch_id=?1)
-                     OR (r.scope='epoch:' || ?1 AND r.epoch_id=?1))
-                   AND (r.expires_at_ms IS NULL OR r.expires_at_ms > ?2)
-                   AND (r.transient=0 OR r.used_at_ms IS NULL)
-                 ORDER BY r.created_at_ms ASC, r.reminder_id ASC",
-            )
-            .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        let ids = statement
-            .query_map(params![scope_id.to_string(), now_ms], |row| row.get::<_, String>(0))
-            .map_err(|error| ShenkoError::storage(error.to_string()))?
-            .collect::<Result<Vec<String>, _>>()
-            .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        drop(statement);
-        let mut reminders = Vec::with_capacity(ids.len());
-        for id in ids {
-            if let Some(reminder) = read_reminder_by(
-                &conn,
-                "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
-                params![id],
-            )? {
-                reminders.push(reminder);
+        let mut locked = self.ledger.conn.lock();
+        let conn = locked.transaction().map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let agent: Option<String> = match scope.task_id {
+            Some(task) if task == scope.scope_id => conn.query_row(
+                "SELECT json_extract(data,'$.agent_id') FROM tasks
+                 WHERE task_id=?1 AND json_extract(data,'$.kind')=?2",
+                params![task.to_string(), crate::external::MODEL_CHILD_KIND], |row| row.get(0),
+            ).optional(),
+            Some(_) => return Err(ShenkoError::conflict("noncanonical child contribution scope")),
+            None => conn.query_row(
+                "SELECT agent_id FROM subject_branch_heads WHERE branch_id=?1",
+                [scope.scope_id.to_string()], |row| row.get(0),
+            ).optional(),
+        }.map_err(|error| ShenkoError::storage(error.to_string()))?;
+        let Some(agent) = agent else { return Ok(Vec::new()); };
+        let mut resolved = std::collections::BTreeMap::new();
+        let mut addressed = Vec::new();
+        for reminder in pending_scope_reminders(&conn, Some(&agent), now_ms)? {
+            let delivery = match resolved.entry((reminder.epoch_id, reminder.scope.clone())) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let delivery = reminder_delivery_scope(&conn, entry.key().0, &entry.key().1)?;
+                    entry.insert(delivery)
+                }
+            };
+            if delivery.as_ref() == Some(scope) {
+                addressed.push(reminder);
             }
         }
-        Ok(reminders)
+        Ok(addressed)
     }
 
     /// The reminders of a lineage that are still usable: not expired, not
@@ -2238,6 +2274,71 @@ fn read_epoch_by(
 const REMINDER_COLUMNS: &str = "reminder_id,epoch_id,lineage_id,decision,policy,policy_revision,\
      content,provenance,relevance,scope,expires_at_ms,transient,bank_entry_ids,reason,created_at_ms,\
      used_step_id,used_at_ms";
+
+/// One SQL snapshot; the optional agent binding avoids scanning other agents
+/// for each prepared scope. Callers keep the connection lock through routing.
+fn pending_scope_reminders(
+    conn: &Connection,
+    agent: Option<&str>,
+    now_ms: i64,
+) -> Result<Vec<InterventionReminder>, ShenkoError> {
+    ensure_research_schema(conn)?;
+    let mut statement = conn.prepare(
+        "SELECT r.reminder_id FROM intervention_reminders r
+         JOIN research_epochs e ON e.epoch_id=r.epoch_id
+         LEFT JOIN tasks t ON t.task_id=e.task_id
+         WHERE e.status='active' AND r.decision='remind'
+           AND (?1 IS NULL OR json_extract(t.data,'$.agent_id')=?1)
+           AND (r.expires_at_ms IS NULL OR r.expires_at_ms>?2)
+           AND (r.transient=0 OR r.used_at_ms IS NULL)
+         ORDER BY r.created_at_ms,r.reminder_id",
+    ).map_err(|error| ShenkoError::storage(error.to_string()))?;
+    let ids = statement.query_map(params![agent, now_ms], |row| row.get::<_, String>(0))
+        .map_err(|error| ShenkoError::storage(error.to_string()))?
+        .collect::<Result<Vec<_>, _>>().map_err(|error| ShenkoError::storage(error.to_string()))?;
+    ids.into_iter().map(|id| read_reminder_by(conn,
+        "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1", params![id])?
+        .ok_or_else(|| ShenkoError::conflict("pending reminder disappeared within its snapshot")))
+        .collect()
+}
+
+fn reminder_delivery_scope(
+    conn: &Connection,
+    epoch: EntityId,
+    address: &str,
+) -> Result<Option<ContributionScope>, ShenkoError> {
+    if address != "subject" && address != format!("epoch:{epoch}") {
+        return Err(ShenkoError::conflict("reminder names a different or invalid scope"));
+    }
+    let binding: Option<(String, String)> = conn.query_row(
+        "SELECT t.data,h.data FROM research_epochs e
+         JOIN tasks t ON t.task_id=e.task_id
+         JOIN subject_branch_heads h ON h.agent_id=json_extract(t.data,'$.agent_id')
+         WHERE e.epoch_id=?1 AND e.status='active'",
+        [epoch.to_string()], |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional().map_err(|error| ShenkoError::storage(error.to_string()))?;
+    // Legacy ownerless epochs establish no recipient, never a broadcast.
+    let Some((task, head)) = binding else { return Ok(None); };
+    let mut task: TaskRecord = serde_json::from_str(&task)?;
+    let head: SubjectBranchHead = serde_json::from_str(&head)?;
+    let subject = ContributionScope { scope_id: EntityId(head.branch_id.0), task_id: None };
+    if address == "subject" { return Ok(Some(subject)); }
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..64 {
+        if task.agent_id != head.agent_id || !seen.insert(task.task_id) {
+            return Err(ShenkoError::conflict("invalid epoch task ownership chain"));
+        }
+        if task.task_id == head.subject_root_task_id { return Ok(Some(subject)); }
+        if task.kind == crate::external::MODEL_CHILD_KIND {
+            return Ok(Some(ContributionScope { scope_id: task.task_id, task_id: Some(task.task_id) }));
+        }
+        let TaskOwner::Task { id } = task.owner else { return Ok(None); };
+        task = crate::child::read_task(conn, id)
+            .map_err(|error| ShenkoError::storage(error.to_string()))?
+            .ok_or_else(|| ShenkoError::conflict("epoch task owner is missing"))?;
+    }
+    Err(ShenkoError::conflict("epoch task ownership depth exceeded"))
+}
 
 fn read_reminder_by(
     conn: &Connection,

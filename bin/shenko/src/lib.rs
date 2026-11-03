@@ -1739,7 +1739,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 }
             };
             let model_child_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
-                shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone())?,
+                shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone(), supervisor.context().clone())?,
             );
             let _model_child_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, model_child_handler)
