@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
 
+# Vendored dependency is not a default workspace test/example target.
+exclude = ["third-party/russh-duplex"]
+
 members = [
     "crates/shenko-types",
     "crates/shenko-identity",
@@ -133,3 +136,8 @@ strip = "symbols"
 inherits = "release"
 opt-level = "z"
 lto = true
+
+# Source-pinned native SSH dependency; local partial-write progress fix.
+# Provenance, exact upstream delta and validation limits: third-party/russh-duplex/SHENKO-PATCH.md.
+[patch.crates-io]
+russh = { path = "third-party/russh-duplex" }

@@ -1,0 +1,283 @@
+{
+  "schema": "shenko.native-installed-dependency-evidence.v1",
+  "status": "62_ACTUAL_PASS_ON_FIXED_INSTALLATION_SOURCE",
+  "tested_tree": "f8b268618b97009fce9ed51d5ecf51504b68e2fc",
+  "root_lock_sha256": "1d43d6a548f36a19c9af3fc0f179c29aa76c7f7596e79dd2ca1cdcb3ccf57f3a",
+  "production_patch_sha256": "415c29b50ca302557a644bda46ccc516a7e77e56dd933d18e8333041afac277b",
+  "upstream_russh_version": "0.65.0",
+  "upstream_commit": "183a22e8f8f490fa09b6eb7bd044ef99d8c4414f",
+  "upstream_archive_sha256": "3bb77a4b259312b2abbc541bca1c13cb4e9b61c560a7fd894068c3b92e0c9dc3",
+  "upstream_license": "Apache-2.0, complete LICENSE.txt and original attribution preserved",
+  "local_delta_sha256": "e3a2904b568ab69efca8c83f097014c6e7fbe23fc5bea643f289bc47d047893e",
+  "runner_sha256": "8df7958f2c9dd6556e1225a27b5ab6c930307de931bd94ff9fecd1b123b0fb09",
+  "scope_manifest_sha256": "0fcb74c4bf1b9dab1b33b479edeb72d68791d1f51a63945c149f35827360b2d6",
+  "local_full_evidence_sha256": "1a712efdef0e4dacc0433e8a5ec8791481841340d6f8a2df6937a03dce8b6484",
+  "started_at": "2026-11-01T03:04:29.313883+00:00",
+  "finished_at": "2026-11-01T03:04:42.177785+00:00",
+  "passed": 62,
+  "failed": 0,
+  "ignored": 0,
+  "source_and_dependencies_unchanged_before_after": true,
+  "registry_archives_verified": 493,
+  "extracted_files_verified": 25840,
+  "exact_file_directory_inventory_no_intermediate_symlinks": true,
+  "git_dependency_commit": "9a8a49fa459991ee29da73fb42ea9324cee9b680",
+  "toolchain": "Rust/Cargo/rustdoc1.98.1 with original fixed binary hashes",
+  "toolchain_binary_hashes": {
+    "rustc": "859254978c0a0402c32f949f6de0d99aee73be8d15f45aac00ae1448aac51e74",
+    "cargo": "da77c8b33849312255ccde3179198ada4c8deb370488d050286146b1d1b27e14",
+    "rustdoc": "3ff7fed6d1064d8d75d24ae8beff9fe1d68031d3d819966481d22c3c9002b709"
+  },
+  "isolation": "Empty environment/HOME, private PID/mount view, readonly source/dependencies/toolchain, offline Cargo, new network sockets/connect/bind/listen/accept/io_uring denied; anonymous IPC retained. No real SSH/model/accounts/deploy/merge.",
+  "artifact_target_feature_profile_sets_exactly_equal_previous_scope": true,
+  "cargo_artifact_observations": {
+    "fresh_cached": 1679,
+    "compiled_nonfresh": 0,
+    "note": "Counts include repeated command observations; not distinct package counts. Cache reused deliberately; no fresh full compilation claimed."
+  },
+  "test_rows": [
+    {
+      "name": "native-ssh",
+      "cargo_arguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-ssh",
+        "native_transport::tests",
+        "--message-format=json",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "test_counts": [
+        [
+          9,
+          0,
+          0,
+          0,
+          32
+        ]
+      ],
+      "exact_count_acceptance": true,
+      "stdout_sha256": "723ba4fa71a9af7b4d300a6c16aa48cb2512d6c989e9d844bae5102501e954ab",
+      "stderr_sha256": "e8e8bf0f1d06c4505833a289453ca93d44a3daf66cadc609f6c7cc2c043f004f",
+      "started_at": "2026-11-01T03:04:29.358209+00:00",
+      "finished_at": "2026-11-01T03:04:30.026719+00:00"
+    },
+    {
+      "name": "selected-ssh",
+      "cargo_arguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-ssh",
+        "selected_task::tests",
+        "--message-format=json",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "test_counts": [
+        [
+          26,
+          0,
+          0,
+          0,
+          15
+        ]
+      ],
+      "exact_count_acceptance": true,
+      "stdout_sha256": "fac7cbf5b86010844e03afe51cbd46683d02893964efe7998ab1ab6bc0c9de1e",
+      "stderr_sha256": "1b73be656586ea289fcd8732a18ba79d32f3c1005d6c5940124ad94697481f5d",
+      "started_at": "2026-11-01T03:04:30.114231+00:00",
+      "finished_at": "2026-11-01T03:04:31.184662+00:00"
+    },
+    {
+      "name": "selection-handler",
+      "cargo_arguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-host",
+        "node_selection_task::tests",
+        "--message-format=json",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "test_counts": [
+        [
+          3,
+          0,
+          0,
+          0,
+          9
+        ]
+      ],
+      "exact_count_acceptance": true,
+      "stdout_sha256": "2c6d28063121fe5dc83678d3930629ebf59dfc8172e89f2555e004a1c618c020",
+      "stderr_sha256": "b05c1f70233cf4843d5b8cf96265107b93495703111caf5b75421cb55408415b",
+      "started_at": "2026-11-01T03:04:31.284526+00:00",
+      "finished_at": "2026-11-01T03:04:32.554975+00:00"
+    },
+    {
+      "name": "query-handler",
+      "cargo_arguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-exec-host",
+        "node_capabilities_task::tests",
+        "--message-format=json",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "test_counts": [
+        [
+          3,
+          0,
+          0,
+          0,
+          9
+        ]
+      ],
+      "exact_count_acceptance": true,
+      "stdout_sha256": "0768592d269673f5c1e89263629c4ec49d285df6122a5ade0cb4a06a214bf2a9",
+      "stderr_sha256": "574eaa60f3fe26f2253977eca7570c6d73e6c1421d535f7faba34086a33a2023",
+      "started_at": "2026-11-01T03:04:32.659849+00:00",
+      "finished_at": "2026-11-01T03:04:33.327357+00:00"
+    },
+    {
+      "name": "startup-node",
+      "cargo_arguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko",
+        "--bin",
+        "shenko",
+        "recovery_integration_tests::node_",
+        "--message-format=json",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "test_counts": [
+        [
+          2,
+          0,
+          0,
+          0,
+          11
+        ]
+      ],
+      "exact_count_acceptance": true,
+      "stdout_sha256": "0c5af5527247778954771591023bf013d11224e08092dcaff996fe8be48167ec",
+      "stderr_sha256": "0b664f63173d075a669951cd6ae9d747f9523bb4db9d9272ea311afd994df561",
+      "started_at": "2026-11-01T03:04:33.431040+00:00",
+      "finished_at": "2026-11-01T03:04:34.251360+00:00"
+    },
+    {
+      "name": "node",
+      "cargo_arguments": [
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "shenko-node",
+        "--message-format=json",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "test_counts": [
+        [
+          19,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "exact_count_acceptance": true,
+      "stdout_sha256": "9c8b0bb4e9d1520c3df50c379a2e77db09a3452383fa3b88b094c5c7c29bc324",
+      "stderr_sha256": "b161b317c31dd345a988dc64310088709d53f4993e0b2edb54731f5c3f2eda8d",
+      "started_at": "2026-11-01T03:04:34.359843+00:00",
+      "finished_at": "2026-11-01T03:04:35.277200+00:00"
+    }
+  ],
+  "preserved_test_executables": [
+    {
+      "target": "shenko_exec_ssh",
+      "sha256": "4bc72aa2232ba0849bcdea39a55842627e56dc388295af468ce884fef4d47c13",
+      "bytes": 30802464
+    },
+    {
+      "target": "shenko_exec_host",
+      "sha256": "18f3abdc4209e999e3dd6500a6af7b6eeea0277b2fa64423f7ae2f16fa637983",
+      "bytes": 105895000
+    },
+    {
+      "target": "shenko",
+      "sha256": "be85c97bc867cfe436bf7bc0471c93b1df75ee7c9cb6b3f31d07264cd31ac04d",
+      "bytes": 118452416
+    },
+    {
+      "target": "shenko-node",
+      "sha256": "b28038a009945f8be56c9a40ba7ca8498204e781d22e58d3777e2b973ca03b0b",
+      "bytes": 1079592
+    },
+    {
+      "target": "shenko_node",
+      "sha256": "78418d949047d4ee9a21ee0e3f94569a0b109f2fbfc7aacefeabbfe9f393776f",
+      "bytes": 10532808
+    }
+  ],
+  "dependency_packaging": "Original normalized upstream manifest, all90 published crate files including original standalone Cargo.lock and full Apache license kept. Vendor excluded from23root workspace members. Root lock528→493 removes35 validation-only identities, adds none, keeps all retained versions/checksums. Original upstream TCP setup restored; six own controls retained cfg(test).",
+  "earlier_validation": {
+    "tree": "22a15aec844ca25a7498fef5e077b27c799148e1",
+    "results": "84 distinct selected tests=79ring,rsa+5ring,rsa,flate2; not one all-feature run and not rerun on this new installation tree",
+    "evidence79_sha256": "c9584d5cbbe8fdac3cf45a7632560416dbe7a116a2c4043da3b765186e033fea",
+    "evidence5_sha256": "3a0faba06eb6a54480ed7a77733717bf911f8d3e97a101094c61b998ce391bda",
+    "comments": [
+      "https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6552531628",
+      "https://github.com/cyjin-yl/shenko/pull/127#issuecomment-6552585194"
+    ]
+  },
+  "failure_history_preserved": [
+    "Original published023/tree64cb:58pass4fail; evidencef2712e42",
+    "Concurrent server fixture:58pass4fail; evidence2cebed1b",
+    "One-case ACK and IO diagnostics each0pass1fail; no parameters loosened",
+    "First local patch:63pass21compileblocked,16exit101; evidence ddbba218",
+    "Next local fixture:79pass5zero-test-filter; not84; feature gate then explicitly approved and5actuallypassed"
+  ],
+  "whitespace_check": "Full vendor import retains3upstreamREADME trailing-space lines; a unified diff artifact necessarily contains context-space blank lines. These are not silently rewritten. Product source has no listed whitespace errors.",
+  "remaining": [
+    "Not newer main78f5 integration or full workspace/upstream examples/tests/all-feature suite.",
+    "Not production policy/resource/signer/endpoint/child installation or real SSH/model/accounts/network/deployment/merge.",
+    "All original58/4,63/21 and79/5zero-filter histories retained.",
+    "Currentmain78f5/#114/#130/#131 integration remains a separate source candidate.",
+    "Production policy/resource authorization and actual installed signer/endpoint/child path remain incomplete; metadata inspection is not a grant."
+  ],
+  "publication_rule": "Published source differs from testedtreef8b only in this evidenceJSON and SHENKO-PATCH.md result text. No source/dependency/test code changed after this run."
+}

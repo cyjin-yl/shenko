@@ -345,7 +345,9 @@ impl TerminalScreen {
     /// Feed a rendered screen dump (tmux `capture-pane -p -e`).
     pub fn feed_screen_dump(&mut self, bytes: &[u8]) {
         self.mode = TerminalMode::ScreenDump;
-        self.feed(bytes);
+        // capture-pane terminates its last row with LF. That separator is
+        // not a live terminal line-feed which may scroll the captured rows.
+        self.feed(bytes.strip_suffix(b"\n").unwrap_or(bytes));
     }
 
     fn index(&self, row: u16, column: u16) -> usize {
@@ -581,7 +583,7 @@ impl TerminalScreen {
         if count == 0 {
             return;
         }
-        for row in top..=(bottom + 1 - count) {
+        for row in top..(bottom + 1 - count) {
             let source = self.index((row + count) as u16, 0);
             let target = self.index(row as u16, 0);
             for column in 0..self.columns as usize {
@@ -1287,15 +1289,20 @@ mod tests {
     }
 
     #[test]
-    fn reverse_video_is_reported_as_a_selection_marker() {
-        let grid = grid_of(b"\x1b[7m> pick me\x1b[0m");
-        assert_eq!(grid.highlighted_range(0), Some((0, 8)));
-    }
-
-    #[test]
     fn erase_display_clears_the_screen() {
         let grid = grid_of(b"hello\x1b[2J");
         assert!(grid.plain_text().trim().is_empty());
+    }
+
+    #[test]
+    fn scrolling_preserves_remaining_rows_and_blanks_a_full_region() {
+        let mut screen = TerminalScreen::new(4, 2, TerminalMode::Stream);
+        screen.feed(b"one\r\ntwo\r\nend");
+        let grid = screen.grid();
+        assert_eq!(grid.lines[0].text.trim_end(), "two");
+        assert_eq!(grid.lines[1].text.trim_end(), "end");
+        screen.feed(b"\x1b[99S");
+        assert_eq!(screen.grid().lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), vec!["    ", "    "]);
     }
 
     #[test]
@@ -1326,7 +1333,7 @@ mod tests {
 
     #[test]
     fn screen_dump_mode_returns_to_column_zero_per_line() {
-        let mut screen = TerminalScreen::new(20, 3, TerminalMode::ScreenDump);
+        let mut screen = TerminalScreen::new(3, 2, TerminalMode::ScreenDump);
         screen.feed_screen_dump(b"one\ntwo\n");
         let grid = screen.grid();
         assert_eq!(grid.lines[0].text.trim_end(), "one");

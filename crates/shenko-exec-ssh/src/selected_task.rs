@@ -154,6 +154,38 @@ impl SshTaskRunner<'_> {
         action: SshAction,
         timeout_secs: u64,
     ) -> Result<SelectedSshOutcome> {
+        self.execute_selected_with(node, ctx, operation_id, logical_key, authority,
+            decision_id, registered_node_id, binding, action, timeout_secs, None).await
+    }
+
+    /// Native dispatch consumed by the installed NativeTaskHandler. Selection
+    /// remains evidence; exact endpoint/signer capability is installer-owned.
+    pub async fn execute_selected_installed(
+        &self, node: &std::sync::Mutex<Node>, ctx: &TaskInvocation,
+        operation_id: EntityId, logical_key: &str, authority: AuthorityRef,
+        decision_id: EntityId, installation: &crate::NativeSshInstallation,
+        action: SshAction, limits: crate::native_transport::NativeCommandLimits,
+    ) -> Result<SelectedSshOutcome> {
+        self.execute_selected_with(node, ctx, operation_id, logical_key, authority,
+            decision_id, installation.seal().registered_node_id,
+            installation.binding().clone(), action, limits.deadline.as_secs().max(1),
+            Some((installation, limits))).await
+    }
+
+    async fn execute_selected_with(
+        &self,
+        node: &std::sync::Mutex<Node>,
+        ctx: &TaskInvocation,
+        operation_id: EntityId,
+        logical_key: &str,
+        authority: AuthorityRef,
+        decision_id: EntityId,
+        registered_node_id: EntityId,
+        binding: SshBinding,
+        action: SshAction,
+        timeout_secs: u64,
+        installed: Option<(&crate::NativeSshInstallation, crate::native_transport::NativeCommandLimits)>,
+    ) -> Result<SelectedSshOutcome> {
         use SelectedSshUnavailable as U;
         let task = self.store.external_task(ctx.task_id)?;
         // This memo is written in the same T1 transaction as the operation.
@@ -169,7 +201,11 @@ impl SshTaskRunner<'_> {
             if !matches_original(&op, &frozen, ctx, logical_key, &authority, decision_id, registered_node_id, &binding, &action)? {
                 return Ok(SelectedSshOutcome::Unavailable(U::FrozenSelectionConflict));
             }
-            return Ok(SelectedSshOutcome::Observed(self.query(operation_id, timeout_secs).await?));
+            let observed = match installed {
+                Some((installation, limits)) => self.query_installed(operation_id, installation, limits).await?,
+                None => self.query(operation_id, timeout_secs).await?,
+            };
+            return Ok(SelectedSshOutcome::Observed(observed));
         }
         if let Some(reason) = check_task(&task, ctx, &authority, operation_id)? {
             return Ok(SelectedSshOutcome::Unavailable(reason));
@@ -207,8 +243,13 @@ impl SshTaskRunner<'_> {
         // Existing T1 stores the complete frozen input, enforces task fencing,
         // and either arms once or reconciles the already armed original. No
         // Node admin Create/Execute RPC is involved.
-        Ok(SelectedSshOutcome::Observed(self.execute_frozen(ctx, operation_id, logical_key, authority,
-            FrozenInput { binding, action, selection: Some(selection) }, timeout_secs).await?))
+        let frozen = FrozenInput { binding, action, selection: Some(selection), installation: None };
+        let observed = match installed {
+            Some((installation, limits)) => self.execute_frozen_installed(ctx, operation_id,
+                logical_key, authority, frozen, installation, limits).await?,
+            None => self.execute_frozen(ctx, operation_id, logical_key, authority, frozen, timeout_secs).await?,
+        };
+        Ok(SelectedSshOutcome::Observed(observed))
     }
 }
 
@@ -495,6 +536,7 @@ mod tests {
         task.memos.remove(NATIVE_ASSIGNMENT);
         task.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!({"fixture": true}));
         let implementation = task.implementation_ref.clone();
+        task.record_revision = RecordRevision(task.record_revision.0 + 1);
         let mut batch = WriteBatch::new();
         if with_parent {
             let mut parent = task.clone();
@@ -975,7 +1017,7 @@ mod tests {
         let action = SshAction::exec(vec!["legacy".into()], b"");
         #[derive(Serialize)] struct Legacy<'a> { binding: &'a SshBinding, action: &'a SshAction }
         let old = serde_json::to_vec(&Legacy { binding: &f.binding, action: &action }).unwrap();
-        let frozen = FrozenInput { binding: f.binding, action, selection: None };
+        let frozen = FrozenInput { binding: f.binding, action, selection: None, installation: None };
         assert_eq!(serde_json::to_vec(&frozen).unwrap(), old);
         assert!(serde_json::from_slice::<FrozenInput>(&old).unwrap().selection.is_none());
     }

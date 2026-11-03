@@ -1,0 +1,34 @@
+{
+  "status": "STATIC_MAIN_INTEGRATION_NOT_EXECUTED_NOT_PUBLISHED",
+  "base_installation_tree": "a78c5980fc148003779de595c6762721b81b1dda",
+  "base_tested_tree": "f8b268618b97009fce9ed51d5ecf51504b68e2fc",
+  "main_commit": "78f5f63cc6b51cffb68a0619179e765afdb73913",
+  "merge_base": "bc33b654bcb78012c671827e1968f652aa69056b",
+  "conflict_resolutions": [
+    {
+      "path": "bin/shenko/src/main.rs",
+      "resolution": "Keep both existing node reader/selection handler installers and main runtime-error/self-knowledge/playground installers. No owner path or handler dropped."
+    },
+    {
+      "path": "Cargo.lock",
+      "resolution": "Keep the existing native crypto generic-array1.4.5 andghash0.6 entries; Cargo metadata --offline then resolved the complete merged graph successfully without changing the reconciled lock."
+    }
+  ],
+  "root_lock_sha256": "e72d098af350e3e55acf42f4eabd5240aa274eaf7c6ff1567ab6ea65996c0eca",
+  "registry_packages": 493,
+  "added_registry_versions": [],
+  "removed_registry_versions": [],
+  "checksum_changes": [],
+  "added_local_workspace_package": "shenko-media0.1.0 from existing main",
+  "third_party_production_patch_unchanged": "415c29b50ca302557a644bda46ccc516a7e77e56dd933d18e8333041afac277b",
+  "metadata_only_exit_code": 0,
+  "runtime_tested": false,
+  "published": false,
+  "owner_boundaries": "#114/#130/#131 are merged main; #91 remains independent and is not cherry-picked or taken over.",
+  "limits": [
+    "Prior62 and84 are separately source-bound; no result extrapolation.",
+    "New local runtime/store/subject/media source paths require fixed-scope execution review before running.",
+    "No real SSH/model/accounts/credentials/sockets/deployment/merge.",
+    "Production policy/resource/signing endpoint/child installation remains incomplete."
+  ]
+}

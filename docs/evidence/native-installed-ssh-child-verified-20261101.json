@@ -1,0 +1,262 @@
+{
+  "schema": "shenko.native-installed-child.validation.v1",
+  "recorded_at_utc": "2026-11-01T08:08:55.363630+00:00",
+  "base_commit": "de9d490b86db3393629260d457a54df398bcdb86",
+  "tested_tree": "cb59d5a46c3c05e44940e12cfe23b325b3eee5ac",
+  "lock_sha256": "aa39552c312e1d4041f2cf9cda8494f87bb61fd9bd999bdb7e040b4c87a97234",
+  "runner_sha256": "ea7ad95b2bc8d4a8492a98bafcd8f04962041d06ab1ed8ad80587db4a2873606",
+  "scope_sha256": "9aa6ae3e9ab76526d19eb4c5d1fc452b48b8437f176652c6db12962a28523fa2",
+  "expected_names_sha256": "c2ca20e8244567e881883a82455784e1717e632ff65e8dc5968bfbb54def74fd",
+  "raw_evidence_sha256": "55118f289a7923a01d69d725a96d36a7a282d8e4a5f02e6f637184f9a4365045",
+  "started_at": "2026-11-01T08:06:58.193849+00:00",
+  "finished_at": "2026-11-01T08:07:29.549935+00:00",
+  "passed": 80,
+  "failed": 0,
+  "ignored": 0,
+  "nine_lists_and_nine_test_groups_exact": true,
+  "compiler_artifact_observations": {
+    "fresh": 5913,
+    "non_fresh": 1
+  },
+  "clean_rebuild_claimed": false,
+  "source_leaf_count": 543,
+  "registry_archive_count": 493,
+  "registry_extracted_files": 25840,
+  "source_dependency_toolchain_guards_exact_before_after": true,
+  "socket_wrapper_sha256": "dd00143f7a5b7752da148d1026011208351e13fc172f1bbe732bdd31228511a8",
+  "toolchain_binary_sha256": {
+    "rustc": "859254978c0a0402c32f949f6de0d99aee73be8d15f45aac00ae1448aac51e74",
+    "cargo": "da77c8b33849312255ccde3179198ada4c8deb370488d050286146b1d1b27e14",
+    "rustdoc": "3ff7fed6d1064d8d75d24ae8beff9fe1d68031d3d819966481d22c3c9002b709"
+  },
+  "cordis_commit": "9a8a49fa459991ee29da73fb42ea9324cee9b680",
+  "groups": [
+    {
+      "name": "native-ssh",
+      "exit_code": 0,
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        43
+      ],
+      "exact_names": [
+        "native_transport::tests::native_protocol_rsa_sha1_only_host_refused_before_authentication",
+        "native_transport::tests::native_protocol_cancel_during_kex_closes_owned_stream",
+        "native_transport::tests::native_protocol_revocation_overrides_matching_pin",
+        "native_transport::tests::native_protocol_wrong_pin_stops_before_authentication",
+        "native_transport::tests::native_protocol_output_cap_keeps_draining_and_retains_status",
+        "native_transport::tests::native_protocol_refuses_unsolicited_session_without_breaking_outbound_command",
+        "native_transport::tests::native_protocol_rsa_sha2_host_accepts_raw_ssh_rsa_pin",
+        "native_transport::tests::native_protocol_duplex_and_unambiguous_exit_255",
+        "native_transport::tests::native_protocol_deadline_preserves_unknown_and_observes_local_session_end"
+      ],
+      "stdout_sha256": "f4ed5a1bda2f59f3a7490a8a6f7977254ad4feb0ba4dce30374bc9ee9ce9aa74",
+      "stderr_sha256": "b935c7df120934394c92108bd548da5553f2268fc8f328aadc9d6b060ee3b6f5"
+    },
+    {
+      "name": "native-query-bridge",
+      "exit_code": 0,
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        43
+      ],
+      "exact_names": [
+        "task_runner::native_query_tests::native_query_rejects_other_endpoint_even_with_same_host_key_and_account",
+        "task_runner::native_query_tests::native_query_rejects_receipt_for_another_operation",
+        "task_runner::native_query_tests::native_query_rejects_receipt_for_another_input_seal",
+        "task_runner::native_query_tests::native_query_records_receipt_on_original_operation_without_dispatch",
+        "task_runner::native_query_tests::native_query_accepts_complete_receipt_on_close_without_eof",
+        "task_runner::native_query_tests::native_query_error_keeps_native_codec_without_changing_legacy_encoding",
+        "task_runner::native_query_tests::native_query_rejects_partial_json_despite_exit_zero_and_clean_close",
+        "task_runner::native_query_tests::native_query_rejects_valid_json_prefix_after_transport_output_overflow",
+        "task_runner::native_query_tests::native_query_deadline_survives_reopen_and_requeries_original_without_replay"
+      ],
+      "stdout_sha256": "0afdb7cba35746585944250cebc93d49f831279ed03330f9f697d51f8a68ab71",
+      "stderr_sha256": "b0282fac75d1bdffd7a6c8acecbd8e092b2f0ca364b54c0a7ee5a80815da87b8"
+    },
+    {
+      "name": "selected-ssh",
+      "exit_code": 0,
+      "passed": 26,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        26
+      ],
+      "exact_names": [
+        "selected_task::tests::different_registered_target_is_not_a_fallback",
+        "selected_task::tests::legacy_input_bytes_are_unchanged_when_selection_is_absent",
+        "selected_task::tests::forged_worker_is_refused_before_t1",
+        "selected_task::tests::legacy_selected_input_remains_query_only_without_inventing_generation",
+        "selected_task::tests::descriptor_cannot_substitute_target_or_smuggle_credential_fields",
+        "selected_task::tests::changed_runtime_generation_cannot_reuse_selected_invocation",
+        "selected_task::tests::conflicting_retry_cannot_change_action_or_dispatch_twice",
+        "selected_task::tests::armed_ssh_target_never_reresolves_current_registry_references",
+        "selected_task::tests::permission_bridge_fences_cancelled_ancestor_while_awaiting",
+        "selected_task::tests::permission_bridge_rejects_missing_runtime_state_before_callback",
+        "selected_task::tests::permission_bridge_fences_generation_changed_while_awaiting",
+        "selected_task::tests::permission_bridge_rejects_prior_reply_for_identical_request",
+        "selected_task::tests::permission_bridge_rechecks_sealed_public_trust_after_callback",
+        "selected_task::tests::permission_bridge_observes_exact_scope_without_grant_and_rechecks_revocation",
+        "selected_task::tests::permission_bridge_fences_stale_generation_before_callback",
+        "selected_task::tests::permission_bridge_fences_dispatcher_takeover_while_awaiting",
+        "selected_task::tests::permission_bridge_rechecks_task_after_provider_await",
+        "selected_task::tests::permission_bridge_fences_task_revoked_while_awaiting",
+        "selected_task::tests::permission_bridge_requires_exact_installed_provider_before_disclosing_action",
+        "selected_task::tests::registered_references_remain_unresolved_not_authority_or_admission",
+        "selected_task::tests::permission_bridge_requires_exact_installed_binding_before_callback",
+        "selected_task::tests::permission_bridge_sanitizes_provider_failure",
+        "selected_task::tests::unrelated_authority_is_refused_before_t1",
+        "selected_task::tests::reference_inspection_rejects_stale_invocation_and_foreign_subject",
+        "selected_task::tests::permission_bridge_uses_registered_binding_not_mutable_trust_locator",
+        "selected_task::tests::selection_is_sealed_in_real_t1_and_recovery_never_reselects"
+      ],
+      "stdout_sha256": "875c0eea323c9d0688e29666d7e2bdeda47ce46f04651ba83a7408b1b2573fc2",
+      "stderr_sha256": "b935c7df120934394c92108bd548da5553f2268fc8f328aadc9d6b060ee3b6f5"
+    },
+    {
+      "name": "selection-handler",
+      "exit_code": 0,
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        14
+      ],
+      "exact_names": [
+        "node_selection_task::tests::absent_choice_stays_unknown_until_original_receipt_arrives_without_replay",
+        "node_selection_task::tests::committed_choice_recovers_original_receipt_without_refresh_or_rearm",
+        "node_selection_task::tests::explicit_choice_rejects_model_authority_and_never_substitutes_changed_observation"
+      ],
+      "stdout_sha256": "0c69ade0ad83a71c82ff4dab47c8c7c77ba220bbdfe6ba96b107616572af37b7",
+      "stderr_sha256": "48aae6421bce275d13566b1c00eb5ff9db755014c2266115a35d688d36d31330"
+    },
+    {
+      "name": "query-handler",
+      "exit_code": 0,
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        14
+      ],
+      "exact_names": [
+        "node_capabilities_task::tests::capability_page_rejects_model_authority_and_retains_unknown_without_private_routes",
+        "node_capabilities_task::tests::recovery_never_rebinds_to_another_node_installation",
+        "node_capabilities_task::tests::armed_node_page_recovers_later_observation_once_without_rearming"
+      ],
+      "stdout_sha256": "cc51519abdf92713314eacfe6cc9e057033645ef53ff8e936ec98cc34c5013c2",
+      "stderr_sha256": "d46da92c1b049f1712808cbd59c0759a1aaf54971588bdc3a4e8e5c66e25360c"
+    },
+    {
+      "name": "startup-node",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        18
+      ],
+      "exact_names": [
+        "recovery_integration_tests::node_capability_reader_is_discoverable_only_while_installed",
+        "recovery_integration_tests::node_selection_recorder_delivers_explicit_choice_only_while_installed"
+      ],
+      "stdout_sha256": "a0fd85a453ac138979839c557f8677bcb4657a1c92e4fefbd6a435b86a2a2307",
+      "stderr_sha256": "dc9aa67a1e36c6c6abe986a0b0152fb55e6741de069055e7bc1dd5101ce5f975"
+    },
+    {
+      "name": "node",
+      "exit_code": 0,
+      "passed": 19,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        0,
+        0,
+        0
+      ],
+      "exact_names": [
+        "admission::tests::private_sqlite_recovery_cannot_mutate_an_outside_database",
+        "roles::tests::role_assignment_and_observation_remain_distinct_across_reopen",
+        "selection::tests::snapshot_is_bounded_non_ranked_and_keeps_unknown_without_routes",
+        "selection::tests::subject_bound_selection_refuses_identity_adoption_on_another_connection",
+        "selection::tests::explicit_choice_survives_reopen_and_replay_never_dispatches",
+        "capability::tests::malformed_advertisement_and_unverified_peer_have_no_authority",
+        "selection::tests::oversized_advertisement_is_explicit_and_cannot_be_recorded_as_ready",
+        "selection::tests::changed_observation_returns_reason_and_never_substitutes",
+        "selection::tests::absent_observation_and_unenrolled_target_are_explained_not_guessed",
+        "units::tests::digest_versions_keep_independent_edges_and_re_resolve",
+        "capability::tests::generation_safe_capability_facts_drive_candidacy",
+        "units::tests::incoming_descriptor_supersedes_its_stale_retained_candidate",
+        "units::tests::exported_root_digest_is_independent_of_package_order",
+        "units::tests::unresolved_attempt_becomes_unknown_and_is_never_replayed",
+        "units::tests::schema_two_transfer_does_not_invent_an_old_selection",
+        "units::tests::v3_migration_preserves_identity_history_and_ambiguous_legacy_rows",
+        "units::tests::export_retains_distinct_pins_and_recovers_a_missing_selected_version",
+        "units::tests::trial_records_real_success_and_real_failure",
+        "units::tests::package_transfers_between_nodes_without_inheriting_readiness"
+      ],
+      "stdout_sha256": "0fddc6c0c6e191dfecefb8de458ce0f533e57b76a8e958dc6f6ab3452969917c",
+      "stderr_sha256": "f983ba7f2d6c6b899d49ce6eb2b5f2e4f6887ba87fc2d526f92ac40dd689b26f"
+    },
+    {
+      "name": "native-file-signer",
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        50
+      ],
+      "exact_names": [
+        "native_installation::tests::explicit_public_installation_reader_rejects_fifo_without_waiting_for_writer",
+        "native_installation::tests::explicit_file_signer_reads_only_owned_protected_fixture_identity"
+      ],
+      "stdout_sha256": "8bf9c6c2dfee0867ac8619dac3532e8575a6fb0819578fa4ecb6cf8c09c1493d",
+      "stderr_sha256": "b935c7df120934394c92108bd548da5553f2268fc8f328aadc9d6b060ee3b6f5"
+    },
+    {
+      "name": "native-installed-child",
+      "exit_code": 0,
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_counts": [
+        13
+      ],
+      "exact_names": [
+        "recovery_integration_tests::native_ssh_installation::detached_task_snapshot_and_call_context_cannot_reach_t1",
+        "recovery_integration_tests::native_ssh_installation::startup_file_installation_diagnoses_missing_key_after_t1_without_fallback",
+        "recovery_integration_tests::native_ssh_installation::authenticated_other_identity_is_not_installed_signer",
+        "recovery_integration_tests::native_ssh_installation::child_dispatch_t1_precedes_signer_and_delivers_real_receipt",
+        "recovery_integration_tests::native_ssh_installation::cancellation_while_opening_authenticated_session_never_sends_exec",
+        "recovery_integration_tests::native_ssh_installation::lost_receipt_reopen_queries_original_without_dispatch_replay",
+        "recovery_integration_tests::native_ssh_installation::same_agent_other_branch_and_origin_is_not_the_installed_subject"
+      ],
+      "stdout_sha256": "ec6fe7110f918310b575de1936f1635de10c671a10e3145474a251cac68907de",
+      "stderr_sha256": "25c1ff1019cb6300dc2d48ea94e302ed5b4ca67c79c09b01dc424150ce900bf4"
+    }
+  ],
+  "retained_original_attempt": {
+    "tested_tree": "42f65b6ca3302f7fa761cb9df49291ff54ed6ac8",
+    "passed": 78,
+    "failed": 2,
+    "evidence_sha256": "7aa3fe7390b78e049cc7caaef5569e26bc1ab4e953d52e01a0d5452e0bf73be2",
+    "cause": "Two owned negative helpers froze the pending placeholder implementation instead of the installed descriptor. Production implementation guard correctly stopped them before target identity/context guard.",
+    "recovery_patch_sha256": "22c5aa9bd2e979513a1030d93323a4fedb86d2657f45ae4ad29bfefa4bc0d444",
+    "change": "Only owned helper calls real Store claim with installed descriptor and four kind/version/plugin/artifact precondition asserts; exact expected denials and no-T1/no-opener/no-exec assertions unchanged. Production/dependency bytes unchanged.",
+    "scope_caveat": "These two negative helpers call real Store directly; the five positive installed-child journeys exercise real service registry dispatch."
+  },
+  "boundaries": [
+    "Owned 1KiB memory SSH peers, owned temporary ledger/key/FIFO fixtures only; no real network host/account/credential/agent/model/remote helper process.",
+    "Explicit file installer is unencrypted-key only. No implicit HOME/env credential search; actual agent/hardware/Windows ACL/WASM installation remains unaccepted.",
+    "Selected-suite result is not full main/all features/upstream suite/production acceptance; exact-head hosted CI absent.",
+    "No production deployment, merge, issue closure, or manufactured authorization grant.",
+    "Old71 and84-across-two-configs remain distinct version-bound evidence."
+  ],
+  "remaining_issue": "https://github.com/cyjin-yl/shenko/issues/12",
+  "raw_evidence_attempt_id": "20261101T080645350423Z"
+}

@@ -215,7 +215,9 @@ fn take_chunk(value: &Value, state: &mut State) -> Option<Value> {
     let byte_length = value.get("byteLength").and_then(Value::as_u64)? as usize;
     let data = value.get("data").and_then(Value::as_str)?;
     let bytes = B64.decode(data).ok()?;
-    let entry = state.chunks.entry(chunk_id.to_string()).or_default();
+    let entry = state.chunks.entry(chunk_id.to_string()).or_insert_with(|| ChunkAssembly {
+        count, byte_length, parts: BTreeMap::new(),
+    });
     if entry.count != count || entry.byte_length != byte_length {
         // An inconsistent header invalidates the whole sequence.
         state.chunks.remove(chunk_id);
@@ -230,7 +232,11 @@ fn take_chunk(value: &Value, state: &mut State) -> Option<Value> {
         return None;
     }
     let assembly = state.chunks.remove(chunk_id)?;
-    let mut merged = Vec::with_capacity(assembly.byte_length);
+    let actual_bytes = assembly.parts.values().try_fold(0usize, |sum, part| sum.checked_add(part.len()))?;
+    if actual_bytes != assembly.byte_length {
+        return None;
+    }
+    let mut merged = Vec::with_capacity(actual_bytes);
     for index in 0..assembly.count {
         let Some(part) = assembly.parts.get(&index) else {
             return None;
@@ -757,6 +763,20 @@ mod tests {
             &json!({"type":"rpc_chunk","chunkId":"c1","index":1,"count":2,"byteLength":bytes.len(),"data":second}).to_string(),
             &mut state,
         );
-        assert_eq!(state.questions.len(), 1);
+        assert_eq!(state.questions.get("omp-ui:ui_2").map(|question| &question.question_kind),
+            Some(&QuestionKind::ToolPermission));
+        assert!(matches!(state.question_states.get("omp-ui:ui_2"), Some(OmpQuestionState::Open)));
+    }
+
+    #[test]
+    fn chunk_length_mismatch_does_not_adopt_a_valid_json_prefix() {
+        let mut state = State::default();
+        let payload = json!({"type":"extension_ui_request","id":"truncated","method":"confirm","message":"m"});
+        let bytes = serde_json::to_vec(&payload).unwrap();
+        ingest_line(&json!({"type":"rpc_chunk","chunkId":"bad","index":0,"count":1,
+            "byteLength":bytes.len()+1,"data":B64.encode(&bytes)}).to_string(), &mut state);
+        assert!(!state.questions.contains_key("omp-ui:truncated"));
+        assert!(!state.question_states.contains_key("omp-ui:truncated"));
+        assert!(!state.chunks.contains_key("bad"));
     }
 }

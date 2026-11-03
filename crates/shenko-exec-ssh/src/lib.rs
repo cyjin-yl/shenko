@@ -21,6 +21,8 @@ pub use installed_binding::*;
 /// Native protocol adapter only; not installed task authority or a sandbox.
 pub mod native_transport;
 
+mod native_installation;
+pub use native_installation::*;
 /// Terminal screen state machine for seat observation (SPEC §17.5).
 pub mod terminal;
 pub use terminal::*;
