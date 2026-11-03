@@ -1035,6 +1035,192 @@ fn recovery_task(
 }
 
 #[test]
+fn child_tool_creation_claim_and_reopen_keep_one_identity() {
+    use shenko_types::{ids::*, task::*};
+    let (dir, store, agent) = initialized_subject();
+    let parent = claimed_native_task(&store, agent).task;
+    let id = EntityId::new();
+    let implementation = parent.implementation_ref.clone();
+    let claim = store.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), implementation.clone(),
+    ).unwrap().unwrap();
+    assert_eq!(claim.task.owner, TaskOwner::Task { id: parent.task_id });
+    assert_eq!(claim.task.record_revision, RecordRevision(1));
+    assert!(matches!(claim.task.state, TaskState::Running { invocation_id, mode: RunMode::Run, .. }
+        if invocation_id == claim.invocation.invocation_id));
+    assert_eq!(claim.task.created_commit, claim.task.updated_commit);
+    let commit = store.current_commit_seq().unwrap();
+    assert!(store.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), implementation.clone(),
+    ).unwrap().is_none());
+    assert_eq!(store.current_commit_seq().unwrap(), commit);
+    drop(store);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    let before = reopened.current_commit_seq().unwrap();
+    assert!(reopened.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), implementation,
+    ).unwrap().is_none());
+    let retained = reopened.external_task(id).unwrap();
+    assert_eq!(retained.state, claim.task.state);
+    assert_eq!(retained.memos, claim.task.memos);
+    assert_eq!(retained.updated_commit, claim.task.updated_commit);
+    assert_eq!(reopened.current_commit_seq().unwrap(), before);
+}
+
+#[test]
+fn failed_child_tool_claim_rolls_back_its_creation() {
+    use shenko_types::ids::*;
+    let (dir, store, agent) = initialized_subject();
+    let parent = claimed_native_task(&store, agent).task;
+    let id = EntityId::new();
+    let connection = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    connection.execute_batch(&format!(
+        "CREATE TRIGGER fail_tool_claim BEFORE UPDATE ON tasks WHEN NEW.task_id='{id}'
+         BEGIN SELECT RAISE(ABORT,'injected claim failure'); END;"
+    )).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    let error = store.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), parent.implementation_ref.clone(),
+    ).unwrap_err();
+    assert!(format!("{error:#}").contains("injected claim failure"));
+    assert!(store.get_task(id).unwrap().is_none());
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+    assert_eq!(store.external_task(parent.task_id).unwrap().state, parent.state);
+}
+
+fn claimed_native_task(
+    store: &Store, agent: shenko_types::ids::EntityId,
+) -> shenko_store::child::NativeTaskClaim {
+    let mut task = recovery_task(store, agent, 1, false);
+    task.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(task.clone());
+    store.commit(batch).unwrap();
+    store.start_subject_dispatcher().unwrap();
+    store.claim_native_task(task.task_id, task.implementation_ref, false)
+        .unwrap().expect("the pending native task has an admitted input")
+}
+
+fn arm_dispatch_probe(
+    store: &Store, invocation: &shenko_store::TaskInvocation, key: &str,
+) -> (shenko_types::ids::EntityId, shenko_types::ids::EntityId) {
+    use shenko_types::{ids::*, object::*, operation::*};
+    let task = store.external_task(invocation.task_id).unwrap();
+    let mut current = invocation.clone();
+    current.record_revision = task.record_revision;
+    let object = task.input_ref;
+    let reader = VersionRef {
+        artifact: ArtifactRef { digest: object.digest.clone(), locator: object.locator.clone() },
+        symbol: "dispatch-probe".into(), schema: object.codec.clone(),
+    };
+    let mut operation = OperationRecord {
+        record_schema_version: 1, operation_id: EntityId::new(), record_revision: RecordRevision(0),
+        task_id: task.task_id, logical_key: key.into(), operation_name: "dispatch.probe".into(),
+        input_schema_version: 1, output_schema_version: 1,
+        final_input_ref: object.clone(), input_digest: object.digest.clone(),
+        contract_ref: OperationContractRef {
+            plugin_id: task.implementation_ref.plugin_id,
+            artifact_digest: object.digest.clone(), contract_digest: object.digest.clone(),
+            receipt_reader_ref: reader.clone(),
+        },
+        resource_bindings_ref: object.clone(),
+        authority_ref: AuthorityRef {
+            delegation_id: task.task_id, delegation_revision: task.record_revision,
+            decision_ref: task.task_id,
+        },
+        acceptance_predicate_ref: object.clone(), retry_contract_ref: object,
+        checkpoint_scope_ref: None, state: OperationState::InFlight, outcome: None,
+        outcome_conflict: false, effect_status: EffectStatus::Unknown, retry_of: None,
+        compensates: None, possible_duplicate_of: vec![], prepared_commit: task.updated_commit,
+        evidence_through: None,
+    };
+    let mut attempt = AttemptRecord {
+        record_schema_version: 1, attempt_id: EntityId::new(), operation_id: operation.operation_id,
+        attempt_no: 1, invocation_id: current.invocation_id, worker_id: current.worker_id,
+        node_id: current.node_id, epoch: current.epoch, implementation_ref: reader,
+        dispatch_stage: AttemptDispatchStage::Armed, armed_commit: task.updated_commit,
+        provider_handle: None, provider_idempotency: None, transport_ref: None,
+        started_at: None, last_observed_at: None, final_receipt_id: None,
+    };
+    assert!(store.arm_external_operation(&current, &mut operation, &mut attempt).unwrap().is_none());
+    (operation.operation_id, attempt.attempt_id)
+}
+
+#[test]
+fn native_dispatch_is_once_per_attempt_across_steps_cancellation_and_reopen() {
+    use shenko_store::child::NativeDispatchTransition::{AlreadyCommitted, Fenced, Won};
+    use shenko_types::{ids::*, operation::AttemptDispatchStage, task::*};
+    let (dir, store, agent) = initialized_subject();
+    let ctx = claimed_native_task(&store, agent).invocation;
+    let first = arm_dispatch_probe(&store, &ctx, "step/0");
+    let second = arm_dispatch_probe(&store, &ctx, "step/1");
+    let cancelled = arm_dispatch_probe(&store, &ctx, "step/2");
+    let before = store.current_commit_seq().unwrap();
+    assert!(store.commit_native_dispatch(&ctx, first.0, second.1).is_err());
+    let mut foreign = ctx.clone();
+    foreign.invocation_id = EntityId::new();
+    assert!(store.commit_native_dispatch(&foreign, first.0, first.1).is_err());
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let racers: Vec<_> = (0..2).map(|_| {
+        let store = Arc::clone(&store);
+        let barrier = Arc::clone(&barrier);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            store.commit_native_dispatch(&ctx, first.0, first.1).unwrap()
+        })
+    }).collect();
+    let results: Vec<_> = racers.into_iter().map(|racer| racer.join().unwrap()).collect();
+    assert_eq!(results.iter().filter(|result| **result == Won).count(), 1);
+    assert_eq!(results.iter().filter(|result| **result == AlreadyCommitted).count(), 1);
+    assert_eq!(store.commit_native_dispatch(&ctx, second.0, second.1).unwrap(), Won);
+    // A send-boundary commit is not a fabricated provider acknowledgement.
+    assert_eq!(store.external_attempt(first.1).unwrap().dispatch_stage, AttemptDispatchStage::Armed);
+    store.request_native_cancellation(ctx.task_id, EntityId::new(), EntityId::new(),
+        "cancel remaining step", AbortScope::Task).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    assert_eq!(store.commit_native_dispatch(&ctx, first.0, first.1).unwrap(), AlreadyCommitted);
+    assert_eq!(store.commit_native_dispatch(&ctx, cancelled.0, cancelled.1).unwrap(), Fenced);
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+    drop(store);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    let before = reopened.current_commit_seq().unwrap();
+    assert_eq!(reopened.commit_native_dispatch(&ctx, first.0, first.1).unwrap(), AlreadyCommitted);
+    assert_eq!(reopened.commit_native_dispatch(&ctx, second.0, second.1).unwrap(), AlreadyCommitted);
+    assert_eq!(reopened.commit_native_dispatch(&ctx, cancelled.0, cancelled.1).unwrap(), Fenced);
+    assert_eq!(reopened.current_commit_seq().unwrap(), before);
+}
+
+#[test]
+fn legacy_unattributed_dispatch_never_authorizes_another_attempt() {
+    use shenko_store::child::{NATIVE_DISPATCH, NativeDispatchTransition::AlreadyCommitted};
+    let (dir, store, agent) = initialized_subject();
+    let ctx = claimed_native_task(&store, agent).invocation;
+    let first = arm_dispatch_probe(&store, &ctx, "step/0");
+    let second = arm_dispatch_probe(&store, &ctx, "step/1");
+    let mut task = store.external_task(ctx.task_id).unwrap();
+    let marker = serde_json::json!({"task_revision": ctx.task_revision,
+        "invocation_id": ctx.invocation_id, "commit": task.updated_commit});
+    task.memos.insert(NATIVE_DISPATCH.into(), marker.clone());
+    rusqlite::Connection::open(dir.join("head.db")).unwrap().execute(
+        "UPDATE tasks SET data=?1 WHERE task_id=?2",
+        rusqlite::params![serde_json::to_string(&task).unwrap(), task.task_id.to_string()],
+    ).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    for (operation, attempt) in [first, second] {
+        assert_eq!(store.commit_native_dispatch(&ctx, operation, attempt).unwrap(), AlreadyCommitted);
+    }
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+    assert_eq!(store.external_task(ctx.task_id).unwrap().memos.get(NATIVE_DISPATCH), Some(&marker));
+}
+
+#[test]
 fn native_recovery_scans_past_pending_tasks_and_preserves_checkpoint() {
     use shenko_types::{ids::*, task::*};
     let (dir, store, agent) = initialized_subject();

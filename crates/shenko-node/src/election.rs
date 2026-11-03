@@ -1884,6 +1884,19 @@ impl Node {
         }
         for receipt in &peer.receipts {
             let task_id = receipt.ticket.task_id;
+            let data = text(receipt)?;
+            let receipt_digest = Digest::blake3(data.as_bytes());
+            // Keep the complete incoming evidence in the existing receipt
+            // journal, atomically with the reconciliation below. Merely
+            // classifying it does not retain its ticket, result or event.
+            // The peer is its transport provenance, not settlement authority.
+            // A replay must neither duplicate nor downgrade an existing row.
+            tx.execute(
+                "INSERT OR IGNORE INTO receipts(source,event_id,digest,task,data,status,reason) \
+                 VALUES(?1,?2,?3,?4,?5,'evidence_only','peer_reconciliation')",
+                params![peer.peer_node_id.to_string(), receipt.event.raw.event_id.to_string(),
+                    receipt_digest.0, task_id.to_string(), data],
+            )?;
             let local: Option<String> = tx
                 .query_row(
                     "SELECT data FROM results WHERE task=?1",
@@ -1894,7 +1907,7 @@ impl Node {
             match local {
                 Some(raw) => {
                     let local_receipt: ResultReceipt = serde_json::from_str(&raw)?;
-                    let same = digest(&local_receipt)? == digest(receipt)?;
+                    let same = digest(&local_receipt)? == receipt_digest;
                     effects.push(EffectReconciliation {
                         task_id,
                         classification: if same {

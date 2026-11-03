@@ -567,6 +567,9 @@ async fn install_native_definitions(
     let _native_memory_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, memory_handler)
         .await?;
+    for handler in shenko_exec_host::research_handlers(Arc::clone(store)) {
+        supervisor.spawn(shenko_subject::NativeTaskHandlerPlugin, handler).await?;
+    }
     // Runtime-error awareness — SPEC §45.14: errors.read exposes the
     // subject's own committed runtime_error facts; issue.submit writes
     // subject-authored drafts into the local issues outbox only.
@@ -883,7 +886,7 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
         });
         // Reject an unrelated target before creating any owner or store file.
         bootstrap.validate_target()?;
-        std::fs::create_dir_all(&data_dir)?;
+        create_data_directory(&data_dir)?;
         let data_dir = data_dir.canonicalize()?;
         let owner = update_control::acquire_launch_owner(&data_dir)?;
         // Recheck after obtaining the guard: another starter may have finished
@@ -1006,7 +1009,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         }
         Command::Context { command } => context_policy::command(&data_dir, command)?,
         Command::Admin { command } => {
-            tokio::fs::create_dir_all(&data_dir).await?;
+            create_data_directory_async(&data_dir).await?;
             let store =
                 shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
             let agent_id = store
@@ -1042,7 +1045,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             }
         }
         Command::Contacts { command } => {
-            tokio::fs::create_dir_all(&data_dir).await?;
+            create_data_directory_async(&data_dir).await?;
             let store =
                 shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
             let agent_id = store
@@ -1159,7 +1162,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 ..Default::default()
             });
             bootstrap.validate_target()?;
-            tokio::fs::create_dir_all(&data_dir).await?;
             let store = open_installation_store(&data_dir)?;
             println!(
                 "Store: OK (SQLite {}, WAL={}, FTS5={})",
@@ -1199,7 +1201,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             expected_revision,
             history,
         } => {
-            tokio::fs::create_dir_all(&data_dir).await?;
             let store = open_installation_store(&data_dir)?;
             let agent_id = store
                 .get_existing_agent_id()?
@@ -1283,7 +1284,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             //    The store lives in the live slot the durable pointer names
             //    (`versions/<gen>/`); a data dir without any slot published
             //    yet is itself the live slot (first run).
-            tokio::fs::create_dir_all(&data_dir).await?;
+            create_data_directory_async(&data_dir).await?;
             let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
                 .unwrap_or_else(|| data_dir.clone());
             let db_path = live_slot.join(shenko_update::SLOT_DB_FILENAME);
@@ -1578,6 +1579,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let dispatch_native = Arc::clone(&native_child);
             let dispatch_results = model_profile.configured.then(|| subject_inbox.sender());
             let dispatch_stop = consumer_cancel.clone();
+            let dispatch_subject_stopping = cancel.clone();
             let failure_cancel = cancel.clone();
             let dispatcher_task = tokio::spawn(async move {
                 let result = shenko_subject::dispatch::run_committed_dispatcher(
@@ -1585,6 +1587,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     dispatch_native,
                     agent_id,
                     dispatch_results,
+                    dispatch_subject_stopping,
                     dispatch_stop,
                 ).await;
                 if result.is_err() { failure_cancel.cancel(); }
@@ -1644,6 +1647,17 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     Arc::clone(&contribution_registry),
                 )
                 .await?;
+            supervisor.spawn(
+                shenko_memory::intervention_runtime::MemoryInterventionPlugin,
+                shenko_memory::intervention_runtime::MemoryInterventionConfig {
+                    store: Arc::clone(&store),
+                    agent_id,
+                    policy: Arc::new(shenko_memory::MemoryInterventionRegistry::new(Arc::new(
+                        shenko_memory::ModelMemoryInterventionPolicy,
+                    ))),
+                    failure_cancel: cancel.clone(),
+                },
+            ).await?;
             // The Node installation records are the installation authority for
             // the context strategies: a strategy runs only while its unit is
             // enabled, with the configuration that unit carries. The
@@ -1725,11 +1739,15 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 }
             };
             let model_child_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
-                shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone())?,
+                shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone(), supervisor.context().clone())?,
             );
             let _model_child_plugin = supervisor
                 .spawn(shenko_subject::NativeTaskHandlerPlugin, model_child_handler)
                 .await?;
+            supervisor.spawn(
+                shenko_subject::intervention::PmaEvaluatePlugin,
+                (Arc::clone(&store), broker_handle.clone()),
+            ).await?;
             // The measurement path of a cognition unit: a finite comparison of
             // the candidate against the same installation with the unit
             // switched off. It runs in throwaway sandboxes and its inference
@@ -1986,9 +2004,17 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 }
                                 inbox_ev.payload = serde_json::to_value(&envelope)?;
                             }
-                            tokio::select! {
-                                sent = inbox_tx.send(inbox_ev) => sent.map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?,
+                            tokio::select! { biased;
                                 _ = cancel_events.cancelled() => break,
+                                sent = inbox_tx.send(inbox_ev) => {
+                                    if let Err(error) = sent {
+                                        // The spool retains the event, but a
+                                        // lost live receiver is still a fault.
+                                        if cancel_events.is_cancelled() { break; }
+                                        return Err(anyhow::Error::new(error)
+                                            .context("subject channel inbox closed before shutdown"));
+                                    }
+                                }
                             }
                         }
                         Ok(())
@@ -2260,8 +2286,10 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 _ = cancel.cancelled() => Err(anyhow::anyhow!("runtime stopped after connector failure; reopen for recovery")),
             };
             live.set_wired(false);
-            subject_inbox.close().await;
+            // Signal expected delivery shutdown before closing the receiver.
+            // Durable consumers retain their separate settlement lifetime.
             cancel.cancel();
+            subject_inbox.close().await;
             if !subject_finished {
                 // Do not drop an admitted request merely because Ctrl-C arrived.
                 // A timeout is an observation limit, never proof the provider stopped.
@@ -2348,7 +2376,7 @@ async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path
         buffer
     };
     let steps: Vec<serde_json::Value> = serde_json::from_str(&input)?;
-    tokio::fs::create_dir_all(data_dir).await?;
+    create_data_directory_async(data_dir).await?;
     let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
     let provider = Arc::new(BrowserProvider::new(Arc::new(store), data_dir.join("browser")));
     let caller = shenko_types::ids::EntityId::new();
@@ -3008,6 +3036,7 @@ impl shenko_kernel::ErrorSink for StoreErrorSink {
 /// Open the store of the live slot the durable pointer names. A data dir
 /// that has never published a slot is itself the live slot (first run).
 fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store> {
+    create_data_directory(data_dir)?;
     let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
         .unwrap_or_else(|| data_dir.to_path_buf());
     Ok(shenko_store::store::Store::open(
@@ -3016,6 +3045,57 @@ fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store
         // installation and always lives at <data_dir>/cas.
         data_dir.join("cas"),
     )?)
+}
+
+// Specify access when creating each new directory, not by chmod after it is
+// exposed. Inherited default ACLs otherwise bypass the process umask. Existing
+// directories and ancestors are untouched; owner-control still admits them.
+fn create_data_directory(path: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+async fn create_data_directory_async(path: &Path) -> std::io::Result<()> {
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder.create(path).await
+}
+
+#[cfg(all(test, unix))]
+mod data_directory_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn new_data_roots_are_private_without_chmod_of_existing_directories() -> Result<()> {
+        let parent = std::env::temp_dir().join(format!(
+            "shenko-private-data-{}", shenko_types::ids::EntityId::new()
+        ));
+        std::fs::create_dir(&parent)?;
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o770))?;
+        for asynchronous in [false, true] {
+            let path = parent.join(if asynchronous { "async" } else { "sync" }).join("data");
+            if asynchronous { create_data_directory_async(&path).await?; }
+            else { create_data_directory(&path)?; }
+            for new_directory in [path.as_path(), path.parent().unwrap()] {
+                assert_eq!(new_directory.metadata()?.permissions().mode() & 0o777, 0o700);
+            }
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o770))?;
+            if asynchronous { create_data_directory_async(&path).await?; }
+            else { create_data_directory(&path)?; }
+            assert_eq!(path.metadata()?.permissions().mode() & 0o777, 0o770);
+        }
+        assert_eq!(parent.metadata()?.permissions().mode() & 0o777, 0o770);
+        Ok(())
+    }
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6.
@@ -3801,7 +3881,7 @@ mod recovery_integration_tests {
         let agent = store.get_existing_agent_id()?.expect("fixture identity exists");
         let cancel = tokio_util::sync::CancellationToken::new();
         let dispatcher = tokio::spawn(shenko_subject::dispatch::run_committed_dispatcher(
-            store.clone(), native, agent, None, cancel.clone(),
+            store.clone(), native, agent, None, cancel.clone(), cancel.clone(),
         ));
         let observed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
             while store.ready_native_results(agent, 1)?.is_empty() {
@@ -3951,6 +4031,92 @@ mod recovery_integration_tests {
         assert!(store.native_task_result(missing_task).unwrap().is_none());
         assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 1);
 
+        // A receiver can close while its owning Arc still lives. Durable
+        // results do not make that unexpected delivery failure a success.
+        let closed_inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
+        closed_inbox.close().await;
+        let closed_cancel = tokio_util::sync::CancellationToken::new();
+        let mut closed_dispatcher = tokio::spawn(
+            shenko_subject::dispatch::run_committed_dispatcher(
+                store.clone(), native.clone(), agent,
+                Some(closed_inbox.sender()),
+                tokio_util::sync::CancellationToken::new(), closed_cancel.clone(),
+            ),
+        );
+        let failed = tokio::time::timeout(
+            std::time::Duration::from_secs(5), &mut closed_dispatcher,
+        ).await;
+        closed_cancel.cancel();
+        if failed.is_err() {
+            closed_dispatcher.await.unwrap().unwrap();
+            supervisor.stop().await.unwrap();
+            panic!("unexpected inbox closure was silently suppressed by the native dispatcher");
+        }
+        let delivery_error = failed.unwrap().unwrap().expect_err(
+            "unexpected inbox closure must propagate, not return success");
+        assert!(delivery_error.is::<tokio::sync::mpsc::error::SendError<shenko_subject::InboxEvent>>(),
+            "the propagated cause must be receiver loss, not an unrelated store failure");
+        let (head, _) = store.load_subject(agent).unwrap();
+        let error_filter = shenko_store::SessionEventFilter {
+            from_seq: 0,
+            to_seq: i64::MAX,
+            limit: 20,
+            event_types: vec![shenko_store::RUNTIME_ERROR_EVENT_TYPE.to_owned()],
+            roles: vec![],
+        };
+        let errors = store.list_session_events(
+            EntityId(head.branch_id.0), &error_filter,
+        ).unwrap();
+        assert_eq!(errors.len(), 1);
+        let error: serde_json::Value = serde_json::from_str(&errors[0].data).unwrap();
+        assert_eq!(error["kind"], "native_dispatcher");
+        assert_eq!(error["journal_dropped_total"], 0);
+        assert_eq!(store.ready_native_results(agent, 8).unwrap()[0].result_id, result.result_id);
+        assert_eq!(
+            serde_json::to_value(store.external_operation_evidence(result.operation_id).unwrap()).unwrap(),
+            serde_json::to_value(&evidence).unwrap(),
+            "delivery failure must not replace the original native E1",
+        );
+
+        // Stopping subject delivery must not stop durable consumers before
+        // the final S1 work can settle. Execute another real printf while
+        // the same inbox is closed, with only the subject token cancelled.
+        let subject_stopping = tokio_util::sync::CancellationToken::new();
+        subject_stopping.cancel();
+        let settling_task = EntityId::new();
+        let settling_text = "native work settles after subject delivery stops";
+        commit_native_fixture_step(
+            &store,
+            &format!("[delegate:host.printf:1] {}", serde_json::json!({
+                "text": settling_text, "timeout_secs": 5,
+            })),
+            &[settling_task], vec![],
+        );
+        let settling_cancel = tokio_util::sync::CancellationToken::new();
+        let settling_dispatcher = tokio::spawn(
+            shenko_subject::dispatch::run_committed_dispatcher(
+                store.clone(), native.clone(), agent, Some(closed_inbox.sender()),
+                subject_stopping, settling_cancel.clone(),
+            ),
+        );
+        let settled = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                if let Some(result) = store.native_task_result(settling_task)? {
+                    break anyhow::Ok(result);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }).await;
+        settling_cancel.cancel();
+        settling_dispatcher.await.unwrap().unwrap();
+        let settled = settled.unwrap().unwrap();
+        assert!(matches!(&settled.outcome, TaskOutcome::Succeeded));
+        assert_eq!(settled.result.as_ref().unwrap()["stdout_utf8"], settling_text);
+        assert_eq!(store.external_operation_attempts(settled.operation_id).unwrap().len(), 1);
+        assert_eq!(store.ready_native_results(agent, 8).unwrap().len(), 2);
+        assert_eq!(store.list_session_events(EntityId(head.branch_id.0), &error_filter).unwrap().len(), 1,
+            "expected shutdown must not add a runtime error");
+
         let inbox = Arc::new(shenko_subject::inbox::Inbox::new(8));
         let cancel = tokio_util::sync::CancellationToken::new();
         let dispatcher = tokio::spawn(shenko_subject::dispatch::run_committed_dispatcher(
@@ -3959,18 +4125,21 @@ mod recovery_integration_tests {
             agent,
             Some(inbox.sender()),
             cancel.clone(),
+            cancel.clone(),
         ));
-        let events = inbox.recv_batch(1, 2_000).await;
+        let events = inbox.recv_batch(2, 2_000).await;
         cancel.cancel();
         dispatcher.await.unwrap().unwrap();
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id, result.result_id);
+        assert_eq!(events.len(), 2);
+        let original_event = events.iter().find(|event| event.event_id == result.result_id).unwrap();
+        let settled_event = events.iter().find(|event| event.event_id == settled.result_id).unwrap();
+        assert_eq!(settled_event.payload["result"]["stdout_utf8"], settling_text);
         assert_eq!(
-            events[0].kind,
+            original_event.kind,
             shenko_subject::inbox::InboxEventKind::TaskResult
         );
         assert_eq!(
-            events[0]
+            original_event
                 .payload
                 .get("result")
                 .and_then(|value| value.get("stdout_utf8"))
@@ -3990,13 +4159,13 @@ mod recovery_integration_tests {
             &store,
             "已接收并核对 child 结果",
             &[],
-            vec![EventDisposition {
-                event_id: events[0].event_id,
+            events.iter().map(|event| EventDisposition {
+                event_id: event.event_id,
                 disposition: Disposition::Acknowledged,
                 reason: None,
                 review_after: None,
                 priority: None,
-            }],
+            }).collect(),
         );
         assert!(store.ready_native_results(agent, 8).unwrap().is_empty());
         assert_eq!(
@@ -4005,6 +4174,22 @@ mod recovery_integration_tests {
                 .unwrap()
                 .len(),
             1
+        );
+        drop(native);
+        drop(_handler);
+        drop(_child);
+        drop(supervisor);
+        drop(store);
+        let reopened = open_native_fixture(&dir);
+        let reopened_errors = reopened.list_session_events(
+            EntityId(head.branch_id.0), &error_filter,
+        ).unwrap();
+        assert_eq!(reopened_errors.len(), 1);
+        assert_eq!(reopened_errors[0].data, errors[0].data);
+        assert!(reopened.ready_native_results(agent, 8).unwrap().is_empty());
+        assert_eq!(
+            serde_json::to_value(reopened.external_operation_evidence(result.operation_id).unwrap()).unwrap(),
+            serde_json::to_value(&evidence).unwrap(),
         );
         // The process/ledger/evidence directory is retained for readback.
     }

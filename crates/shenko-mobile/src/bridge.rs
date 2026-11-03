@@ -197,6 +197,15 @@ pub struct SocketBridge {
     token_path: PathBuf,
 }
 
+#[derive(Serialize)]
+struct BridgeRequest<'a> {
+    version: u32,
+    request_id: &'a str,
+    // BridgeOps dispatches the internally tagged operation at the root.
+    #[serde(flatten)]
+    operation: &'a BridgeOp,
+}
+
 impl SocketBridge {
     pub fn new(data_dir: &Path) -> Self {
         Self {
@@ -237,11 +246,11 @@ impl SocketBridge {
 impl DeviceBridge for SocketBridge {
     fn roundtrip(&self, op: BridgeOp) -> Result<serde_json::Value, BridgeError> {
         let request_id = request_id();
-        let request = serde_json::json!({
-            "version": BRIDGE_PROTOCOL_VERSION,
-            "request_id": request_id,
-            "op": op,
-        });
+        let request = BridgeRequest {
+            version: BRIDGE_PROTOCOL_VERSION,
+            request_id: &request_id,
+            operation: &op,
+        };
         let mut request_bytes = serde_json::to_vec(&request).map_err(|e| BridgeError {
             kind: BridgeErrorKind::Internal,
             message: e.to_string(),
@@ -366,7 +375,9 @@ impl DeviceBridge for SocketBridge {
                 retryable,
             });
         }
-        Ok(response.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        // BridgeOps returns its successful fields alongside `ok`, not in a
+        // second `result` envelope. Preserve the device's original response.
+        Ok(response)
     }
 }
 
@@ -412,5 +423,82 @@ fn request_id() -> String {
 fn assert_bridge_send_sync() {
     fn assert<T: Send + Sync>() {}
     assert::<Arc<dyn DeviceBridge>>();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixListener;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn exchange(op: BridgeOp, response: serde_json::Value) -> (Result<serde_json::Value, BridgeError>, serde_json::Value) {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let dir = std::env::temp_dir().join(format!("bridge-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("device_bridge.token"), "synthetic-bridge-incarnation").unwrap();
+        let server = UnixListener::bind(dir.join("device_bridge.sock")).unwrap();
+        let worker = std::thread::spawn(move || {
+            let (socket, _) = server.accept().unwrap();
+            socket.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let handshake: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(handshake["version"], BRIDGE_PROTOCOL_VERSION);
+            assert_eq!(handshake["token"], "synthetic-bridge-incarnation");
+            reader.get_mut().write_all(b"{\"ok\":true}\n").unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            // DeviceBridgeServer forwards this object to BridgeOps.dispatch,
+            // whose discriminator is a top-level string, not an object.
+            let response = if request["op"].is_string() {
+                response
+            } else {
+                serde_json::json!({"ok":false,"error":{"kind":"unsupported","message":"unknown op","retryable":false}})
+            };
+            serde_json::to_writer(reader.get_mut(), &response).unwrap();
+            reader.get_mut().write_all(b"\n").unwrap();
+            request
+        });
+        let result = SocketBridge::new(&dir).roundtrip(op);
+        let request = worker.join().unwrap();
+        std::fs::remove_dir_all(dir).unwrap();
+        (result, request)
+    }
+
+    #[test]
+    fn socket_probe_preserves_flat_device_capability_response() {
+        let response = serde_json::json!({"ok":true,"binding":{"digest":"native-binding","method":"app_install_id"},"authorities":{"normal_perm":{"state":"available"}}});
+        let (result, request) = exchange(BridgeOp::Probe, response.clone());
+        assert_eq!(request["op"], "probe");
+        assert_eq!(request["version"], BRIDGE_PROTOCOL_VERSION);
+        assert!(request["request_id"].is_string());
+        assert_eq!(result.unwrap(), response);
+    }
+
+    #[test]
+    fn socket_shell_preserves_argv_and_flat_completion() {
+        let argv = vec!["printf".into(), "中文 café \"quoted\"; $literal".into()];
+        let response = serde_json::json!({"ok":true,"exit_code":7,"stdout_b64":"eA==","stderr_b64":"eQ==","timed_out":false,"authority_used":"shizuku"});
+        let (result, request) = exchange(BridgeOp::ShellExec {
+            authority: BridgeAuthority::Shizuku, argv: argv.clone(), env: vec!["LANG=C.UTF-8".into()], timeout_secs: 9,
+        }, response.clone());
+        assert_eq!(request["op"], "shell_exec");
+        assert_eq!(request["authority"], "shizuku");
+        assert_eq!(request["argv"], serde_json::json!(argv));
+        assert_eq!(request["timeout_secs"], 9);
+        assert_eq!(result.unwrap(), response);
+    }
+
+    #[test]
+    fn socket_device_refusal_keeps_its_authority_and_retry_semantics() {
+        let response = serde_json::json!({"ok":false,"error":{"kind":"typed_unavailable","message":"shizuku not granted","retryable":false}});
+        let (result, _) = exchange(BridgeOp::CapabilityList, response);
+        let error = result.unwrap_err();
+        assert_eq!(error.kind, BridgeErrorKind::TypedUnavailable);
+        assert_eq!(error.message, "shizuku not granted");
+        assert!(!error.retryable);
+    }
 }
 

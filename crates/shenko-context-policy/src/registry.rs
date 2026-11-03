@@ -43,6 +43,7 @@ struct RegistryState {
     installed: Vec<Installed>,
     preference: Vec<String>,
     next_epoch: u64,
+    configuration_revision: u64,
     /// The highest epoch observed in the committed chain; a new installation
     /// starts above it, so a window prepared by an earlier process can never
     /// commit.
@@ -141,6 +142,13 @@ impl PolicyRegistry {
         &self.ledger
     }
 
+    /// Process-local revision of the strategy set and preference order.
+    /// A failed preparation only describes the configuration it observed;
+    /// callers can retry after replacement without retrying unchanged failures.
+    pub fn configuration_revision(&self) -> u64 {
+        self.state.lock().configuration_revision
+    }
+
     /// Install or replace the strategy with this manifest id. Returns the new
     /// epoch; windows prepared by any earlier epoch can no longer commit.
     ///
@@ -165,6 +173,7 @@ impl PolicyRegistry {
         let epoch = state.next_epoch;
         state.installed.retain(|i| i.manifest.id != manifest.id);
         state.installed.push(Installed { policy, manifest, epoch });
+        state.configuration_revision += 1;
         Ok(epoch)
     }
 
@@ -174,7 +183,11 @@ impl PolicyRegistry {
         let mut state = self.state.lock();
         let before = state.installed.len();
         state.installed.retain(|i| !(i.manifest.id == id && i.epoch == epoch));
-        state.installed.len() != before
+        let removed = state.installed.len() != before;
+        if removed {
+            state.configuration_revision += 1;
+        }
+        removed
     }
 
     pub fn installed(&self) -> Vec<(PolicyManifest, u64)> {
@@ -192,7 +205,11 @@ impl PolicyRegistry {
     /// Strategy order chosen by the subject or configuration; ids not listed
     /// follow in installation order.
     pub fn set_preference(&self, ids: Vec<String>) {
-        self.state.lock().preference = ids;
+        let mut state = self.state.lock();
+        if state.preference != ids {
+            state.preference = ids;
+            state.configuration_revision += 1;
+        }
     }
 
     /// The preference order currently in effect, for honest reporting.
@@ -207,7 +224,10 @@ impl PolicyRegistry {
     /// as unknown instead of being silently dropped.
     pub fn apply_preference(&self, ids: Vec<String>) -> PreferenceAdoption {
         let mut state = self.state.lock();
-        state.preference = ids.clone();
+        if state.preference != ids {
+            state.preference = ids.clone();
+            state.configuration_revision += 1;
+        }
         let installed: Vec<String> =
             state.installed.iter().map(|i| i.manifest.id.clone()).collect();
         let mut adopted = Vec::new();

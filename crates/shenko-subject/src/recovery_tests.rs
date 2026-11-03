@@ -273,7 +273,7 @@ async fn durable_web_selection_requires_actual_s0_seal() {
     let event = message("需要保留原始用户输入");
     admit_web_event(&store, agent, "sealed-selection", &event);
     let mut subject = state(store.clone(), agent).unwrap();
-    crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap();
+    crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap().expect("fixture projection must fit");
     // Durable staging is recovery data while Planned, not sealed presentation.
     assert!(store.web_input_selected_step(agent, event.event_id).unwrap().is_none());
     // The real step path seals S0 before reporting the missing broker. There is
@@ -353,7 +353,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     let mut subject = state(store.clone(), agent).unwrap();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "user", &serde_json::json!({"v":1,"text":"earlier question"})).unwrap();
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "assistant", &serde_json::json!({"v":1,"text":"completed answer"})).unwrap();
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     assert!(prepared.events.is_empty());
     assert!(prepared.context.source.input_raw_event_ids.is_empty());
     let estimate = crate::context_projection::estimate_payload_tokens(&prepared.payload, 0);
@@ -368,16 +368,16 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
     drop(store);
     let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
     let mut subject = state(reopened.clone(), agent).unwrap();
-    let resumed = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let resumed = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     assert_eq!(wire(resumed.payload).await, body);
-    let fresh = crate::context_projection::prepare_context(&mut subject, &[message("new question")]).unwrap();
+    let fresh = crate::context_projection::prepare_context(&mut subject, &[message("new question")]).unwrap().expect("fixture projection must fit");
     let fresh_body = wire(fresh.payload).await;
     assert_eq!(fresh_body["messages"].as_array().unwrap().len(), 3);
     assert!(fresh_body["messages"][2]["content"].as_str().unwrap().contains("new question"));
     reopened.append_subject_raw_fact(&subject.head, EntityId::new(), "tool_result", &serde_json::json!({
         "v":1,"text":"observed tool output","call_id":EntityId::new().to_string()
     })).unwrap();
-    let tool = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let tool = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     let tool_body = wire(tool.payload).await;
     let last = tool_body["messages"].as_array().unwrap().last().unwrap();
     assert_eq!(last["role"], "user");
@@ -386,7 +386,7 @@ async fn idle_history_reopens_as_new_anthropic_turn_not_assistant_prefill() {
 }
 
 fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
-    let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap();
+    let prepared = crate::context_projection::prepare_context(subject, &[]).unwrap().expect("fixture projection must fit");
     let mut step = subject.step.clone();
     let input = super::FrozenStepInput {
         schema_version: 12, step_id: step.step_id, step_no: step.step_no,
@@ -467,7 +467,7 @@ fn native_result_replay_keeps_first_delivery_metadata() {
     let replayed = crate::inbox::InboxEvent {
         created_at: chrono::Utc::now() + chrono::Duration::seconds(5), ..original.clone()
     };
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed]).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[replayed]).unwrap().expect("fixture projection must fit");
     assert_eq!(prepared.events, vec![original]);
     assert_eq!(prepared.context.source.input_raw_event_ids.len(), 1);
     let events = store.session_events_range(EntityId(subject.head.branch_id.0), 0, i64::MAX).unwrap();
@@ -507,7 +507,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         ..message("上次的约定还算数吗？周末一起看展览")
     };
     let prepared =
-        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
+        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap().expect("fixture projection must fit");
     let prompt = &prepared.payload.system_prompt;
     assert!(
         prompt.starts_with(&crate::canonical_system_prompt(&subject.channels)),
@@ -541,7 +541,7 @@ fn installed_awareness_reaches_the_sealed_prompt_as_advisory_text() {
         ..message("上次的约定还算数吗？周末一起看展览")
     };
     let prepared =
-        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
+        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap().expect("fixture projection must fit");
     assert!(!prepared.payload.system_prompt.contains("约定 承诺 时间冲突"));
 }
 
@@ -567,7 +567,7 @@ fn personality_stays_out_of_the_tool_contract() {
         ..message("你在吗")
     };
     let prepared =
-        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap();
+        crate::context_projection::prepare_context(&mut subject, &[event]).unwrap().expect("fixture projection must fit");
     let prompt = &prepared.payload.system_prompt;
     // The persona is prompt text only: it never adds a tool, never changes the
     // sealed protocol, and it is placed after the stable contract plus the
@@ -690,13 +690,13 @@ fn contribution_final_budget_calibrates_complete_payload_without_double_charge()
     let (_offline, handle) = shenko_broker::broker::Broker::offline();
     let binding = handle.binding().clone();
     let mut subject = state(store, agent).unwrap().with_broker(handle);
-    let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     let base = baseline.context.estimated_input_tokens.unwrap();
     subject.previous_input_binding = Some(binding);
     subject.previous_input_tokens = Some(base + 200);
     subject.previous_estimated_input_tokens = Some(base + 100);
     prepared_contribution(&mut subject);
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     let added = shenko_context_policy::estimate_tokens("[prepared contributions]\none prepared observation");
     assert_eq!(prepared.context.estimated_input_tokens, Some(base + added));
     assert_eq!(prepared.context.budget_input_tokens, Some(base + 200));
@@ -718,7 +718,7 @@ fn contribution_final_budget_keeps_image_estimate() {
     subject.max_tokens = 64;
     store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
         &serde_json::json!({"v":1,"text":"source represented by the fixture frame"})).unwrap();
-    crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     let history = StoreHistory::new(store, EntityId(subject.head.branch_id.0), Arc::new(estimate_tokens));
     let ledger = subject.context_registry.ledger();
     let leaf = history.leaf_seq().unwrap().unwrap();
@@ -732,11 +732,11 @@ fn contribution_final_budget_keeps_image_estimate() {
         carried_calls: vec![], derivatives: vec![Derivative::new("image/png", png)],
         cost: CostReport { window_tokens: 1, vision_tokens_estimate: 1, ..Default::default() },
     }, &history).unwrap();
-    let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let baseline = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     assert!(baseline.payload.messages.iter().flat_map(|message| &message.parts)
         .any(shenko_broker::request::InferencePart::is_image));
     prepared_contribution(&mut subject);
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     let added = estimate_tokens("[prepared contributions]\none prepared observation");
     let expected = baseline.context.estimated_input_tokens.unwrap() + added;
     assert_eq!(prepared.context.estimated_input_tokens, Some(expected));
@@ -766,6 +766,52 @@ fn rejected_s0_does_not_consume_a_prepared_contribution() {
     let usage = registry.usage(&input.request_id).unwrap();
     assert_eq!(usage.sent, vec![item]);
     assert_eq!(usage.seal_digest, subject.step.input_plan_ref.as_ref().unwrap().digest);
+}
+
+#[test]
+fn expiring_pma_material_reaches_s0_once_and_stays_consumed_after_reopen() {
+    use shenko_context_policy::contribution::*;
+    use shenko_store::{InterventionDecisionKind, InterventionReminder};
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let scope = scope_wide(EntityId(subject.head.branch_id.0));
+    let now = chrono::Utc::now().timestamp_millis();
+    let reminder = InterventionReminder {
+        reminder_id: EntityId::new(), epoch_id: EntityId::new(), lineage_id: EntityId::new(),
+        decision: InterventionDecisionKind::Remind, policy: "fixture".into(), policy_revision: "1".into(),
+        content: Some("PMA bounded observation for this request only".into()),
+        provenance: vec!["fixture-source".into()], relevance: Some("current work".into()),
+        scope: "subject".into(), expires_at_ms: Some(i64::MAX), transient: true,
+        bank_entry_ids: vec![], reason: None, created_at_ms: now, used_step_id: None, used_at_ms: None,
+    };
+    let provider = shenko_memory::PmaContributionProvider::new(store.clone());
+    let item = provider.contribution_for(&reminder, &scope, now).unwrap();
+    let registry = Arc::new(ContributionRegistry::new());
+    let _publication = subject.plugin_context.provide(registry.clone()).unwrap();
+    subject.refresh_contributions().unwrap();
+    let registration = registry.register_publisher(provider.manifest());
+    registry.publish(registry.begin_publication(registration, &scope).unwrap(), vec![item.clone()]).unwrap();
+    let accepted = sealed_preparing_step(&mut subject);
+    let input = super::frozen_input(&store, &accepted).unwrap();
+    let text = reminder.content.as_ref().unwrap();
+    assert!(input.payload.messages.iter().flat_map(|message| &message.parts).any(|part| {
+        matches!(part, shenko_broker::request::InferencePart::Text { text: body } if body.contains(text))
+    }));
+    super::commit_s0(&mut subject, accepted, &input).unwrap();
+    let usage = registry.usage(&input.request_id).unwrap();
+    assert_eq!(usage.sent, vec![item.clone()]);
+    assert!(registry.collect(&scope, now + 1).contributions.is_empty());
+    drop((provider, registry, subject, store));
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut restored = state(reopened, agent).unwrap();
+    let registry = Arc::new(ContributionRegistry::new());
+    let registration = registry.register_publisher(item.source.clone());
+    registry.publish(registry.begin_publication(registration, &scope).unwrap(), vec![item]).unwrap();
+    let _publication = restored.plugin_context.provide(registry.clone()).unwrap();
+    restored.refresh_contributions().unwrap();
+    assert_eq!(registry.usage(&input.request_id), Some(usage));
+    assert!(registry.collect(&scope, now + 2).contributions.is_empty());
 }
 
 #[tokio::test]
@@ -854,12 +900,12 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     subject.max_tokens = 10;
     // Reserve 400 tokens for compacted history in addition to the actual
     // mandatory prefix. The test does not pin the prompt's incidental size.
-    let prefix = crate::context_projection::prepare_context(&mut subject, &[]).unwrap()
+    let prefix = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit")
         .context.estimated_input_tokens.unwrap();
     capabilities.max_context_tokens = Some(prefix + 400 + subject.max_tokens as u32);
     subject = subject.with_model_capabilities(Some(capabilities.clone()));
     // Establish the final binding before the preparer captures its generation.
-    crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     subject.previous_input_binding = Some(binding);
     subject.previous_input_tokens = Some(700);
     subject.previous_estimated_input_tokens = Some(1);
@@ -886,7 +932,7 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
         model_id: capabilities.binding.model().into(),
         max_context: capabilities.max_context_tokens.unwrap() - subject.max_tokens as u32, vision: None,
     }, subject.previous_input_tokens.unwrap()).unwrap();
-    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap();
+    let prepared = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().expect("fixture projection must fit");
     assert!(prepared.context.trigger_budget_input_tokens.unwrap() > 700);
     assert_eq!(prepared.context.observed_input_tokens, Some(700));
     assert_eq!(prepared.context.reserved_output_tokens, 10);
@@ -915,7 +961,7 @@ async fn budget_projection_commits_window_and_keeps_unknown_call_verbatim() {
     let mut reopened = state(store.clone(), agent).unwrap().with_broker(handle)
         .with_model_capabilities(Some(capabilities));
     reopened.max_tokens = 10;
-    let resumed = crate::context_projection::prepare_context(&mut reopened, &[]).unwrap();
+    let resumed = crate::context_projection::prepare_context(&mut reopened, &[]).unwrap().expect("fixture projection must fit");
     assert_eq!(resumed.context.profile_digest, profile);
     assert_eq!(resumed.context.source.window_id, window_id);
     assert_eq!(resumed.context.source.model_generation, source.model_generation);
@@ -938,7 +984,7 @@ fn retained_calibrated_budget_over_limit_blocks_dispatch() {
     subject.previous_estimated_input_tokens = Some(1);
     let error = crate::context_projection::prepare_context(&mut subject, &[])
         .err().expect("calibrated over-budget retention must be rejected");
-    assert!(error.to_string().contains("projected input budget"));
+    assert!(matches!(error, ShenkoError::Conflict(_)));
     assert_eq!(subject.step.state, SubjectStepState::Planned);
     assert_eq!(subject.step.active_request_id, None);
     drop(offline);
@@ -963,7 +1009,7 @@ async fn budget_fresh_batch_survives_uncommitted_reopen_and_successful_s1() {
         payload: serde_json::json!({"content":format!("fresh-{index}-{}", "z".repeat(80))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
-    let initial = crate::context_projection::prepare_context(&mut subject, &events).unwrap();
+    let initial = crate::context_projection::prepare_context(&mut subject, &events).unwrap().expect("fixture projection must fit");
     subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
         shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
     ))).expect("install budget compact");
@@ -1071,7 +1117,7 @@ fn execution_commit_during_projection_is_rejected() {
     let error = crate::context_projection::project_payload_stable(
         &store, &window, &history, "fixture".into(), None, 10, &[],
     ).err().expect("a mutation during execution reads must invalidate the projection");
-    assert!(error.to_string().contains("during projection"));
+    assert!(matches!(error, ShenkoError::ResnapshotRequired { .. }));
     assert_eq!(store.current_commit_seq().unwrap(), before + 1);
 }
 
@@ -1093,8 +1139,13 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
         payload: serde_json::json!({"content":format!("oversized-{index}-{}", "q".repeat(800))}),
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
-    let error = crate::context_projection::prepare_context(&mut subject, &events).err().unwrap();
-    assert!(error.to_string().contains("projected input budget"));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    // The whole fresh batch must remain verbatim, even after compaction.
+    // Wait for preparation without adding unrelated events to move its source.
+    assert!(execute_step(1, &events, &mut subject, &cancel).await.unwrap().is_none());
+    let error = execute_step(1, &[], &mut subject, &cancel).await.err().unwrap();
+    assert!(matches!(error, ShenkoError::Conflict(_)));
+    assert!(subject.step.input_plan_ref.is_none());
     let pending = store.stage_subject_inputs(&subject.head, &subject.step, &[]).unwrap();
     let original: Vec<_> = pending.iter().map(|record| (record.event_id, record.data.clone())).collect();
     assert_eq!(original.len(), events.len());
@@ -1112,6 +1163,274 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
         assert!(store.event_disposition_commit(agent, event.event_id).unwrap().is_none());
     }
     drop(offline);
+}
+
+#[tokio::test]
+async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
+    let (mut subject, _gate, release) = gated_context_subject(16384, false);
+    subject.context_registry.install(Arc::new(WindowOverheadPolicy {
+        budget: shenko_compact_budget::BudgetCompact::new(
+            shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
+    })).unwrap();
+    assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
+    release.release();
+    crate::context_projection::wait_for_context_preparer(&mut subject,
+        &tokio_util::sync::CancellationToken::new()).await;
+    let result = crate::context_projection::prepare_context(&mut subject, &[]);
+    assert!(matches!(result, Err(ShenkoError::Conflict(_))));
+    let (_, pending) = subject.store.load_subject(subject.agent_id).unwrap();
+    assert_eq!(pending.state, SubjectStepState::Planned);
+    assert!(pending.input_plan_ref.is_none());
+    assert!(subject.context_preparer.is_none());
+}
+
+#[tokio::test]
+async fn compaction_wait_late_arrivals_retry_without_stale_refusal() {
+    let (mut subject, gate, release) = gated_context_subject(16384, false);
+    assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
+    gate.entered.notified().await;
+    // A candidate may carry a newer raw tail when the complete payload fits;
+    // the late event must appear in that projection without another worker.
+    subject.store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
+        &serde_json::json!({"v":1,"text":"arrived during preparation"})).unwrap();
+    release.release();
+    crate::context_projection::wait_for_context_preparer(&mut subject,
+        &tokio_util::sync::CancellationToken::new()).await;
+    let projected = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
+    assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
+    assert!(projected.payload.messages.iter().flat_map(|message| &message.parts).any(|part|
+        matches!(part, shenko_broker::request::InferencePart::Text { text }
+            if text.contains("arrived during preparation"))));
+    assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    let (_, pending) = subject.store.load_subject(subject.agent_id).unwrap();
+    assert_eq!(pending.state, SubjectStepState::Planned);
+    assert!(pending.input_plan_ref.is_none());
+}
+
+#[derive(Default)]
+struct PreparationGate {
+    entered: tokio::sync::Notify,
+    calls: std::sync::atomic::AtomicUsize,
+    released: std::sync::Mutex<bool>,
+    wake: std::sync::Condvar,
+}
+
+struct PreparationRelease(Arc<PreparationGate>);
+
+impl PreparationRelease {
+    fn release(&self) {
+        *self.0.released.lock().unwrap() = true;
+        self.0.wake.notify_all();
+    }
+}
+
+impl Drop for PreparationRelease {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+struct GatedContextPolicy {
+    gate: Arc<PreparationGate>,
+    fail: bool,
+    budget: shenko_compact_budget::BudgetCompact,
+}
+
+struct WindowOverheadPolicy {
+    budget: shenko_compact_budget::BudgetCompact,
+}
+
+impl shenko_context_policy::ContextPolicy for WindowOverheadPolicy {
+    fn manifest(&self) -> shenko_context_policy::PolicyManifest {
+        self.budget.manifest()
+    }
+    fn availability(&self, caps: &shenko_context_policy::ModelCaps) -> shenko_context_policy::Availability {
+        self.budget.availability(caps)
+    }
+    fn should_compact(&self, trigger: &shenko_context_policy::TriggerInput<'_>) -> bool {
+        self.budget.should_compact(trigger)
+    }
+    fn prepare(&self, input: &shenko_context_policy::ContextInput<'_>)
+        -> Result<shenko_context_policy::PreparedWindow, shenko_context_policy::PolicyError>
+    {
+        let mut window = self.budget.prepare(input)?;
+        window.entries.push(shenko_context_policy::WindowEntry::Pointer {
+            from: 0, to: 0, note: "fixture overhead".into(),
+            tokens: input.caps.max_context,
+        });
+        Ok(window)
+    }
+}
+
+impl shenko_context_policy::ContextPolicy for GatedContextPolicy {
+    fn manifest(&self) -> shenko_context_policy::PolicyManifest {
+        self.budget.manifest()
+    }
+    fn availability(&self, caps: &shenko_context_policy::ModelCaps) -> shenko_context_policy::Availability {
+        self.budget.availability(caps)
+    }
+    fn should_compact(&self, _: &shenko_context_policy::TriggerInput<'_>) -> bool {
+        true
+    }
+    fn prepare(&self, input: &shenko_context_policy::ContextInput<'_>)
+        -> Result<shenko_context_policy::PreparedWindow, shenko_context_policy::PolicyError>
+    {
+        self.gate.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.gate.entered.notify_one();
+        let (released, _) = self.gate.wake.wait_timeout_while(
+            self.gate.released.lock().unwrap(), std::time::Duration::from_secs(10),
+            |released| !*released,
+        ).unwrap();
+        if !*released {
+            return Err(shenko_context_policy::PolicyError::Other("fixture gate timed out".into()));
+        }
+        if self.fail {
+            Err(shenko_context_policy::PolicyError::NoReduction)
+        } else {
+            self.budget.prepare(input)
+        }
+    }
+}
+
+fn gated_context_subject(history_bytes: usize, fail: bool)
+    -> (SubjectLoopState, Arc<PreparationGate>, PreparationRelease)
+{
+    let (_dir, store, agent) = fixture();
+    let (offline, handle) = shenko_broker::broker::Broker::offline();
+    let caps = shenko_broker::request::ProviderCapabilities {
+        binding: handle.binding().clone(), max_context_tokens: Some(8192), vision: None,
+    };
+    drop(offline);
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle)
+        .with_model_capabilities(Some(caps));
+    subject.max_tokens = 64;
+    for index in 0..4 {
+        store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
+            &serde_json::json!({"v":1,"text":format!("old-{index}-{}", "x".repeat(history_bytes))})).unwrap();
+    }
+    let gate = Arc::new(PreparationGate::default());
+    subject.context_registry.install(Arc::new(GatedContextPolicy {
+        gate: gate.clone(), fail,
+        budget: shenko_compact_budget::BudgetCompact::new(
+            shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
+    })).unwrap();
+    (subject, gate.clone(), PreparationRelease(gate))
+}
+
+#[tokio::test]
+async fn context_preparer_fitting_requests_share_worker_and_tolerate_failure() {
+    let (mut subject, gate, release) = gated_context_subject(256, true);
+    for _ in 0..2 {
+        let projected = crate::context_projection::prepare_context(&mut subject, &[])
+            .unwrap().expect("fitting requests do not wait for compaction");
+        assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Preparing { .. }));
+    }
+    gate.entered.notified().await;
+    release.release();
+    crate::context_projection::wait_for_context_preparer(&mut subject,
+        &tokio_util::sync::CancellationToken::new()).await;
+    let projected = crate::context_projection::prepare_context(&mut subject, &[])
+        .unwrap().expect("background failure does not reject a fitting request");
+    assert!(matches!(projected.context.selection,
+        crate::context_projection::ContextSelection::NoUsablePolicy { attempts } if attempts.len() == 1));
+    assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(subject.context_preparer.is_none());
+}
+
+#[tokio::test]
+async fn context_preparer_waits_before_s0_and_seals_same_step_after_completion() {
+    let (mut subject, gate, release) = gated_context_subject(16384, false);
+    let store = subject.store.clone();
+    let agent = subject.agent_id;
+    let planned = subject.step.step_id;
+    let events = [message("exact fresh event during preparation")];
+    let cancel = tokio_util::sync::CancellationToken::new();
+    {
+        let attempt = execute_step(1, &events, &mut subject, &cancel);
+        tokio::pin!(attempt);
+        tokio::select! {
+            result = &mut attempt => panic!("oversized step did not wait: {result:?}"),
+            _ = gate.entered.notified() => {}
+        }
+        let (_, pending) = store.load_subject(agent).unwrap();
+        assert_eq!(pending.step_id, planned);
+        assert_eq!(pending.state, SubjectStepState::Planned);
+        assert!(pending.input_plan_ref.is_none());
+        release.release();
+        assert!(attempt.await.unwrap().is_none());
+    }
+    assert!(execute_step(1, &[], &mut subject, &cancel).await.is_err()); // Closed broker, after S0.
+    let sealed = super::frozen_input(&store, &subject.step).unwrap();
+    assert_eq!(sealed.step_id, planned);
+    assert_eq!(sealed.events, events);
+    assert!(matches!(sealed.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
+    assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(store.load_subject(agent).unwrap().0.committed_step_no, 0);
+}
+
+#[tokio::test]
+async fn context_preparer_unchanged_failure_refuses_without_restart_or_s0() {
+    let (mut subject, gate, release) = gated_context_subject(16384, true);
+    let event = message("still pending after policy failure");
+    assert!(crate::context_projection::prepare_context(&mut subject, &[event.clone()]).unwrap().is_none());
+    gate.entered.notified().await;
+    release.release();
+    crate::context_projection::wait_for_context_preparer(&mut subject,
+        &tokio_util::sync::CancellationToken::new()).await;
+    let result = crate::context_projection::prepare_context(&mut subject, &[]);
+    assert!(matches!(result, Err(ShenkoError::Conflict(_))));
+    assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(subject.context_preparer.is_none());
+    let (_, pending) = subject.store.load_subject(subject.agent_id).unwrap();
+    assert_eq!(pending.state, SubjectStepState::Planned);
+    assert!(pending.input_plan_ref.is_none());
+    assert!(subject.store.event_disposition_commit(subject.agent_id, event.event_id).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn context_preparer_replacement_does_not_inherit_old_failure() {
+    let (mut subject, gate, release) = gated_context_subject(16384, true);
+    assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
+    gate.entered.notified().await;
+    subject.context_registry.install(Arc::new(shenko_compact_budget::BudgetCompact::new(
+        shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 },
+    ))).unwrap();
+    release.release();
+    let cancel = tokio_util::sync::CancellationToken::new();
+    crate::context_projection::wait_for_context_preparer(&mut subject, &cancel).await;
+    assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
+    crate::context_projection::wait_for_context_preparer(&mut subject, &cancel).await;
+    let projected = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
+    assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
+    assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn context_preparer_cancellation_and_owner_drop_prevent_late_publication() {
+    for cancel_wait in [true, false] {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let (registry, window_id) = runtime.block_on(async {
+            let (mut subject, gate, release) = gated_context_subject(16384, false);
+            assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
+            gate.entered.notified().await;
+            let registry = subject.context_registry.clone();
+            let window_id = registry.ledger().current().unwrap().id;
+            if cancel_wait {
+                let cancel = tokio_util::sync::CancellationToken::new();
+                cancel.cancel();
+                crate::context_projection::wait_for_context_preparer(&mut subject, &cancel).await;
+                assert!(subject.context_preparer.is_none());
+            }
+            drop(subject);
+            release.release();
+            (registry, window_id)
+        });
+        // Runtime drop joins actual blocking workers, not just their strategy
+        // callback: a late publication would be visible after this barrier.
+        drop(runtime);
+        assert!(!registry.prepared_candidate_pending());
+        assert_eq!(registry.ledger().current().unwrap().id, window_id);
+    }
 }
 
 #[tokio::test]
@@ -1962,6 +2281,66 @@ fn record_result(
     step_id
 }
 
+#[tokio::test]
+async fn unselected_disposition_preserves_evidence_and_reopens_a_correction() {
+    let (dir, store, agent) = fixture();
+    let selected = crate::inbox::InboxEvent {
+        event_id: EntityId::new(),
+        kind: crate::inbox::InboxEventKind::Message,
+        payload: serde_json::json!({"content":"retain this selected input"}),
+        source: "fixture".into(),
+        created_at: chrono::Utc::now(),
+    };
+    let mut subject = state(store.clone(), agent).unwrap();
+    let cancelled = tokio_util::sync::CancellationToken::new();
+    cancelled.cancel();
+    execute_step(1, &[selected.clone()], &mut subject, &cancelled).await.unwrap();
+    let unknown = EntityId::new();
+    let raw = format!("[remember] must not commit this partial decision\n[dispose] {}",
+        serde_json::json!({"event_id":unknown,"disposition":"acknowledged"}));
+    let rejected_id = record_result(&store, &mut subject, &raw);
+    let rejected = subject.step.clone();
+    let original_head = subject.head.clone();
+    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().is_none());
+    assert_eq!(subject.head.committed_at, original_head.committed_at);
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert!(store.committed_intents(None, None, 8).unwrap().is_empty());
+    assert!(store.event_disposition_commit(agent, selected.event_id).unwrap().is_none());
+    assert!(store.event_disposition_commit(agent, unknown).unwrap().is_none());
+    let retired = store.get_step(&original_head.branch_id, rejected_id).unwrap().unwrap();
+    assert_eq!(retired.state, SubjectStepState::Retired);
+    assert_eq!(retired.model_result_ref, rejected.model_result_ref);
+    assert_eq!(retired.model_outcome_ref, rejected.model_outcome_ref);
+    assert_eq!(retired.input_plan_ref, rejected.input_plan_ref);
+    assert_eq!(super::read_sealed(&store, retired.model_result_ref.as_ref().unwrap()).unwrap(), raw.as_bytes());
+    let rejection: ControlOutputRejection = serde_json::from_slice(
+        &super::read_sealed(&store, retired.retry_reason_ref.as_ref().unwrap()).unwrap()
+    ).unwrap();
+    assert_eq!(rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(rejection.request_id, rejected.active_request_id.unwrap());
+    assert_eq!(rejection.replacement_step_id, subject.step.step_id);
+    drop(subject);
+    drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.step_id, rejection.replacement_step_id);
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    let correction = super::frozen_input(&reopened, &subject.step).unwrap();
+    assert_eq!(correction.events.len(), 1);
+    assert_eq!(correction.events[0].event_id, selected.event_id);
+    let repaired = format!("[dispose] {}",
+        serde_json::json!({"event_id":selected.event_id,"disposition":"acknowledged"}));
+    record_result(&reopened, &mut subject, &repaired);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().expect("corrected S1 commits without another provider request");
+    assert_eq!(subject.head.committed_step_no, 1);
+    assert!(reopened.event_disposition_commit(agent, selected.event_id).unwrap().is_some());
+    assert!(reopened.event_disposition_commit(agent, unknown).unwrap().is_none());
+    assert!(reopened.committed_intents(Some("memory"), None, 8).unwrap().is_empty());
+}
+
 /// R143/§41.5: a wait is a durable subject decision, not an in-memory flag.
 /// Polling never renews its deadline, an unrelated message does not end it and
 /// a late continue cannot resurrect a wait that already ended.
@@ -2717,6 +3096,49 @@ async fn stop_joins_workers_even_while_a_service_handle_is_retained() {
     drop(service);
     drop(subject);
     // Keep the fixture on container disk for independent inspection.
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn catalog_publication_does_not_recover_or_fence_a_live_dispatcher() {
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(&store, &mut subject, 1, &[],
+        "[delegate:fixture.gated:1] {\"hold\":true}\nRetain this live effect during discovery.").await;
+    let task = store.native_task_candidates_after(None, 8).unwrap()[0].1.task_id;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let generation = subject.head.software_generation.clone();
+    let live = shenko_kernel::Supervisor::new(generation.clone());
+    live.spawn(crate::NativeChildPlugin, (store.clone(), generation.clone())).await.unwrap();
+    live.spawn(crate::NativeTaskHandlerPlugin, Arc::new(GatedHandler {
+        store: store.clone(), started: started.clone(), release: release.clone(), hold_reconcile: false,
+    }) as Arc<dyn crate::NativeTaskHandler>).await.unwrap();
+    let service = live.context().try_service::<crate::NativeChildService>().unwrap();
+    service.run_once().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified()).await.unwrap();
+    let running = store.external_task(task).unwrap();
+    assert!(running.is_running());
+
+    // Another Store incarnation has no dispatcher authority. Registering and
+    // withdrawing its catalog must not normalize or take over the live claim.
+    let observer = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let catalog = shenko_kernel::Supervisor::new(generation.clone());
+    catalog.spawn(crate::NativeChildPlugin, (observer, generation)).await.unwrap();
+    catalog.stop().await.unwrap();
+    assert_eq!(serde_json::to_value(store.external_task(task).unwrap()).unwrap(),
+        serde_json::to_value(running).unwrap());
+
+    release.notify_one();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            service.run_once().await.unwrap();
+            if let Some(result) = store.native_task_result(task).unwrap() { break result; }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(result.outcome, TaskOutcome::Succeeded);
+    live.stop().await.unwrap();
 }
 
 /// §5.6/C02 restart: Cordis seals the plugin input at spawn, so a same-Fiber

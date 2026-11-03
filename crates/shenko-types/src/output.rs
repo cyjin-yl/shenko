@@ -156,7 +156,7 @@ impl<'de> Deserialize<'de> for PublicationTarget {
 
 #[cfg(test)]
 mod tests {
-    use super::PublicationTarget;
+    use super::{ModelChildReplyGrant, PublicationTarget};
 
     /// The versioned target round-trips; older shapes are only readable
     /// through the explicit legacy reader used by the Store migration.
@@ -178,6 +178,27 @@ mod tests {
             PublicationTarget::read_legacy(&serde_json::json!({"kind":"relay_room","id":7})).unwrap();
         assert_eq!(pre_plugin.channel, "relay");
         assert_eq!(pre_plugin.kind, "room");
+    }
+
+    /// The audience kind is not an account. The grant binds the account
+    /// namespace and refuses to contradict its own target.
+    #[test]
+    fn a_grant_binds_the_account_namespace() {
+        let grant = |account: Option<&str>, target_account: &str| ModelChildReplyGrant {
+            target: PublicationTarget::new("qq", "group", "12345", target_account),
+            account: account.map(str::to_string),
+            allowed_message_types: vec!["text".into()],
+            reply_to_event_id: None,
+            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
+        };
+        assert_eq!(grant(None, "qq:9").account_namespace(), "qq:9");
+        assert_eq!(grant(Some("qq:9"), "qq:9").account_namespace(), "qq:9");
+        assert_eq!(grant(None, "").account_namespace(), "");
+        assert_eq!(grant(Some("  "), "qq:9").account_namespace(), "qq:9");
+        assert!(!grant(None, "qq:9").contradicts_target_account());
+        assert!(!grant(Some("qq:9"), "qq:9").contradicts_target_account());
+        assert!(!grant(Some("qq:9"), "").contradicts_target_account());
+        assert!(grant(Some("qq:9"), "qq:10").contradicts_target_account());
     }
 }
 
@@ -222,8 +243,14 @@ pub struct ModelChildBudget {
 pub struct ModelChildReplyGrant {
     /// The resolved destination. The channel plugin owns this namespace.
     pub target: PublicationTarget,
-    /// The account this grant is bound to. Absent means the target's own
-    /// audience kind is the account.
+    /// The account namespace this grant is bound to. Absent (or empty) means
+    /// the target's own account is used.
+    ///
+    /// The audience kind (`group`, `private`, `feishu-chat`, ...) names WHICH
+    /// kind of audience a platform id belongs to. It is never an account: the
+    /// account names the connector instance that owns the conversation. A
+    /// grant may name the account explicitly, but it may not contradict the
+    /// account its own target carries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
     /// Message types the child may send on this grant.
@@ -233,6 +260,30 @@ pub struct ModelChildReplyGrant {
     pub reply_to_event_id: Option<crate::ids::EntityId>,
     /// The grant stops working at this instant.
     pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl ModelChildReplyGrant {
+    /// The account namespace this grant is bound to.
+    ///
+    /// The publication target owns the account. An explicit grant account
+    /// wins when it is present and non-empty; otherwise the target's own
+    /// account is used, which may be empty for an unscoped record.
+    pub fn account_namespace(&self) -> &str {
+        match self.account.as_deref().map(str::trim) {
+            Some(account) if !account.is_empty() => account,
+            _ => self.target.account.as_str(),
+        }
+    }
+
+    /// True when the grant names an account the target does not.
+    ///
+    /// Such a grant would send to one account while claiming another, so it
+    /// is refused instead of resolved by guesswork.
+    pub fn contradicts_target_account(&self) -> bool {
+        let explicit = self.account.as_deref().map(str::trim).unwrap_or_default();
+        let target = self.target.account.trim();
+        !explicit.is_empty() && !target.is_empty() && explicit != target
+    }
 }
 
 impl ModelChildBudget {
