@@ -226,8 +226,9 @@ child 与主体共用同一个准备材料注册表，但**收集作用域不同
 
 单次消费以 **T1 被接受** 为准：只有请求真正被接受之后，child 才把这次封口的用量
 登记到注册表；仅写完 CAS 对象不算消费。注册表实例被替换（插件重启）时，child 从
-live 服务重新解析注册表，并按该分支**全部已有封口的 step** 重放用量，恢复已经
-消费的材料，而不是只读最新一步。
+live 服务重新解析注册表，并遍历当前 Store 中全部已接受的 model-child step
+operation，从各自封口输入重放用量，包括已完成或取消任务的旧步骤，而不是只读
+当前 child 或最新一步。
 
 Store 在 T1 准入时复核这份计划：计划里的每一项都必须属于该 child 的任务作用域、
 声明 token 不得超过自身预算、合计 token 与计划一致，且每个材料正文的 CAS 闭包
@@ -278,7 +279,7 @@ contribution，而提醒正文作为 PMA 工具结果出现在最后三个请求
 
 2026-11-03 修复 epoch 定向投递与请求恢复边界后，同一有界原生场景重跑并通过：提醒
 正文只出现在**拥有该 epoch 的 model child 自己的 prepared contribution** 中一次
-（child 的第二个模型步），此后不再出现；它没有进入任何 child 请求的滚动 tool
+（`step_index = 2`，即第三次 child 请求），此后不再出现；它没有进入任何 child 请求的滚动 tool
 历史，也没有进入主体的请求。持久化的投递作用域是该 model child 的任务作用域
 `{scope_id: child_task, task_id: Some(child_task)}`，而不是 epoch id——epoch id
 从来不是收集作用域。PMA 决策结果只保留身份摘要与封口的决策引用，提醒正文不再成为
@@ -289,6 +290,18 @@ contribution，而提醒正文作为 PMA 工具结果出现在最后三个请求
 `receipt.json`），构建与回归证据位于同目录 `child-epoch-build-1/`。CLI SHA-256 为
 `456d1157eef27232debec08c03bdaeb5e7779a8baa61ffb1b4cdc8104bff855c`。provider 响应
 仍由脚本给出，不是真实 Coder390 行为证明。
+
+**来源绑定更正**：上述二进制上的机制观察保留，但旧构建脚本在构建后才取源码摘要，
+没有构建前后比较；不能把 `sources_unchanged: true` 解释成完整构建来源证明。
+合并树补跑 `child-epoch-merge-r1/` 的七项机制检查也为真，但其绑定脚本先追加
+`Cargo.lock` 再判断空列表，导致完整源码分支不可达，回执只绑定了锁文件。
+该补跑的 Store observer 仍从分支工作树编译，不能称为独立的合并树消费者。
+共享 Cargo target 的跨工作树产物风险也未被这些退出码排除。
+
+`agent-heavy` 当时有四个槽，并非单槽互斥。保留的
+`child-epoch-build-1/merge-process-snapshot-20261103.json` 显示两个 merge supervisor
+及其 Cargo 进程同时存在；不声称两作业串行，也不据此推断两个编译器或测试同时执行。
+这些限定另存于 `child-epoch-build-1/evidence-correction-20261103.json`，不覆盖原回执。
 
 上述限定场景之外，嵌套 child 的预算账户、继续链的 transcript 继承、child 经通用
 渠道外发以及全部中断/恢复组合仍需各自的原生和真实模型证据。
@@ -302,6 +315,10 @@ native input 绑定而失败，修正的是测试初始化，未放宽产品准�
 回归期间还暴露并修复了一处投影缺陷：按需发布的作用域被并入周期作用域集合后，
 会被当作“不再 pending”而清空，抹掉另一个归属仍在读取的批次。现在按需发布只发布
 该作用域，不改动周期集合。
+
+`child-epoch-build-1/rerun.log` 中 Subject library 的 420 秒阶段先报告两个用例
+`FAILED`，随后在完整失败摘要产生前被终止。后续四线程局部运行与默认线程完整运行
+分别通过，只证明各次运行的结果，不能据此归因于宿主负载或排除产品竞态；原因未定。
 
 `child-tool-verification-r3/receipt.json` 的两条测试命令均退出 0，但外层检查因
 进程组仍存在而退出 1；原始失败保持不变。后续进程快照发现一个已退出、由 PID 1
