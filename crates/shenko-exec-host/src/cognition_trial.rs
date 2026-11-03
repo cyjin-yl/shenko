@@ -394,6 +394,7 @@ async fn committed_output(
         agent,
         Some(inbox.sender()),
         cancel.clone(),
+        cancel.clone(),
     ));
     inbox
         .sender()

@@ -215,13 +215,32 @@ child 回 `[reply] …`，CLI 自己的发布循环经插件 `describe`/`dispatc
 证据根：`build/spec-architecture-20261101/child-channel-r{3,5,6,7}/`、
 `child-channel-publication-assessment.json`。
 
-同一轮实测还暴露并修复了一个关机缺陷：关机时 CLI 先关闭 subject inbox，正在投递
-native 结果的 dispatcher 会看到 `channel closed`，把它当成失败、记一条
-`native_dispatcher` runtime error 并让进程以 1 退出。当前实现把 closed send 当作
-本轮投递结束，解决了上述正常关机场景，结果仍留在 Store；修复前后对照见
-`closed-inbox-before-after.json`。这不是所有 inbox 关闭都正常的证明：公开的
-`Inbox::close()` 在运行中也能关闭接收端。区分预期停止与意外接收者丢失、保持后者
-错误可见的生命周期修复仍未完成，不能把持久结果存在等同于投递成功。
+早期实测曾暴露正常关机被误报为 `channel closed` 的缺陷；把所有 closed send 都
+吞掉虽通过当时的关机对照，却掩盖了运行中的接收者丢失。公开的 `Inbox::close()`
+在持有 `Arc` 时也能关闭接收端，持久结果存在不等于投递成功。
+
+当前生命周期区分**主体停止接收**与**持久消费者停止**。CLI 先发出主体停止信号，
+再关闭 inbox，等主体到达可恢复结算边界后才停止消费者。dispatcher 只在主体或
+自身已开始停止时正常结束投递；其他 closed send 返回原始通道错误并写入现有
+`native_dispatcher` journal，结果及 E1 仍留在 Store。NapCat 入站同样区分预期
+停止与意外关闭，后者走现有 `napcat_admission_failed` journal，spool 不因此 ACK。
+直接使用 `run_committed_dispatcher` 的调用者须分别传入主体停止与消费者停止信号；
+两者确实同生命周期时才复用同一个 token。
+
+有限验证（2026-11-04）：扩充既有真实 `printf` 子进程/重开消费者回归，修复前
+关闭仍被持有的 inbox 后没有返回错误、没有 journal；修复后返回类型化的 send
+错误并留下恰一条 journal。仅停止主体接收时，另一个真实 `printf` 仍能由消费者
+执行和结算，不新增错误；新 inbox 收到两个持久结果，ACK 后重开保持原 E1 和
+journal。`dispatch-lifetime-verification-after-r1` 还通过主体库 63 项及 CLI 构建；
+数量变化来自删除旧错误预期和纯转发的两个小测试，不是过滤失败用例。
+
+同一保留 CLI 的 `dispatch-lifetime-channel-native-r1` 收到一次获授目标的
+`send_group_msg`、一条带 child grant 的发布及 `provider_accepted` 回执，正常
+退出且没有 runtime error；拒绝与截断两个默认 CLI 场景也正常退出、无重复 child
+请求或失败输出的发布效果。回执根为 `build/spec-architecture-20261101/`，独立
+只读账本投影为 `dispatch-lifetime-native-before-after-facts.json`。平台仍是本地
+OneBot 双工，provider 仍是脚本；不是实际 QQ、真实模型或掉电验收，也不代表已
+穷尽 NapCat 入站关闭的所有交错。
 
 ---
 
