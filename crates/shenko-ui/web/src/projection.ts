@@ -8,10 +8,40 @@
 export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v1' as const;
 export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
 
-export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config';
+export type ViewName = 'timeline' | 'tasks' | 'memory' | 'config' | 'playground';
+
+/// The Proto-UI playground surface — SPEC §43.2. Every fact below comes
+/// from the durable records; the view renders them, it does not invent a
+/// second artifact index.
+export interface PlaygroundView {
+  available?: boolean;
+  roots?: Array<{ artifact_id: string; root: string; identity: string }>;
+  artifacts?: Array<{
+    artifact_id: string;
+    title?: string;
+    mime?: string;
+    revision?: number;
+    parent_revision?: number | null;
+    updated_at?: string;
+    backend?: boolean;
+    lifecycle?: string;
+    record?: unknown;
+  }>;
+  namespaces?: Array<{ namespace: string; description?: string; logical_keys?: string[] }>;
+}
 export type ReadingState = 'following_latest' | 'reading_history' | 'selecting_or_interacting';
 export type ConnectionState = 'connecting' | 'online' | 'reconnecting' | 'offline';
-export type ReceiptState = 'sending' | 'sent' | 'queued_volatile' | 'rejected' | 'unknown';
+// Durable admission stages — SPEC §41.18: accepted/selected/committed are
+// separate fact receipts, never a single progress bar.
+export type ReceiptState =
+  | 'sending'
+  | 'sent'
+  | 'accepted'
+  | 'selected'
+  | 'committed'
+  | 'conflict'
+  | 'rejected'
+  | 'unknown';
 
 export interface TimelinePart {
   role: 'subject';
@@ -20,6 +50,8 @@ export interface TimelinePart {
   part_id: string;
   part_revision: string;
   next_chunk_seq: number;
+  /** The terminal chunk of the part has been durably observed. */
+  terminal?: boolean;
   step: number;
   step_id: string;
   commit_ref: string;
@@ -36,10 +68,24 @@ export interface SubmissionPayload {
   submission_id: string;
   message_id: string;
   subject_id: string;
-  mode: 'append';
+  mode: 'append' | 'steer';
   content: string;
   attachment_refs: [];
   observed_step_id?: string;
+}
+
+/** Where an admitted input is actually handled (§41.18 placement). */
+export interface SubmissionPlacement {
+  requested: 'append' | 'steer';
+  actual: 'pending' | 'next_boundary' | 'live_steer' | 'cancel_reseal';
+  target_request_id?: string;
+}
+
+/** Durable withdrawal record (§41.18); never deletes the admitted fact. */
+export interface WithdrawalView {
+  cancel_id: string;
+  commit_ref: string;
+  result: 'withdrawn_before_presentation' | 'withdrawal_queued';
 }
 
 export interface Submission {
@@ -47,7 +93,59 @@ export interface Submission {
   created_at: string;
   receipt: ReceiptState;
   detail?: string;
-  last_transport_receipt?: 'queued_volatile';
+  event_id?: string;
+  accepted_commit?: string;
+  selected_step_id?: string;
+  committed_at?: string;
+  placement?: SubmissionPlacement;
+  withdrawal?: WithdrawalView;
+  // Correlation between this client's send attempts and the query_replies:
+  // a view for an older attempt must not undo a newer send's restored ACK.
+  send_epoch: number;
+}
+
+// §21.8: numbered options preserve action identity across degradation.
+export interface ActionOption {
+  index: number;
+  action_id: string;
+  nonce: string;
+  revision: string;
+  label: string;
+  required_capabilities: string[];
+  /** Canonical payload from the committed binding; the server re-hashes it
+   *  at admission and never trusts a client-supplied digest. */
+  payload: Record<string, unknown>;
+}
+
+export type DegradedMode = 'rich' | 'card' | 'text';
+
+/** A validated semantic document degraded to this surface's facts (§21.7). */
+export interface DegradedDocument {
+  mode: DegradedMode;
+  document_id: string;
+  revision: string;
+  options: ActionOption[];
+  summary: string;
+  nodes?: unknown[];
+}
+
+export interface DocumentErrorView {
+  source_step_id: string;
+  source_commit: string;
+  reason: string;
+}
+
+/** Server-advertised capability facts from the WS hello (schema v2). */
+export interface ServerCapabilities {
+  append: boolean;
+  steer: boolean;
+  withdraw: boolean;
+  actions: boolean;
+  documents: boolean;
+  attachments: boolean;
+  durable_input_receipts: boolean;
+  committed_replay: boolean;
+  streaming: boolean;
 }
 
 export interface IdentityView {
@@ -103,6 +201,16 @@ export interface UiState {
   connection: ConnectionState;
   reconnect_seconds: number;
   server_version?: string;
+  capabilities: ServerCapabilities;
+  surface?: unknown;
+  append_available: boolean;
+  durable_receipts: boolean;
+  committed_replay: boolean;
+  /** True only when the server advertised a durable stream sink AND the
+   *  provider capability fact says streaming. Never drives a typewriter. */
+  streaming: boolean;
+  documents: DegradedDocument[];
+  document_errors: DocumentErrorView[];
   subject_id: string | null;
   identity?: IdentityView;
   wanted_identity_revision: number | null;
@@ -118,6 +226,8 @@ export interface UiState {
   tasks_error: boolean;
   memory?: { items?: Array<Record<string, unknown>>; note?: string };
   memory_error: boolean;
+  playground?: PlaygroundView;
+  playground_error: boolean;
   manifest?: BuildManifest;
   display: DisplayState;
 }
@@ -144,6 +254,10 @@ export interface UiNode {
 export interface UiCapabilities {
   append: boolean;
   steer: boolean;
+  withdraw: boolean;
+  actions: boolean;
+  documents: boolean;
+  streaming: boolean;
   attachments: boolean;
   durable_input_receipts: boolean;
   committed_replay: boolean;
@@ -254,27 +368,48 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
   });
   const submissionRows = state.submissions.map((submission) => {
     const refs: string[] = [];
-    if (submission.receipt === 'rejected') {
-      refs.push(
-        addAction(
-          actions,
-          `submission.retry.${submission.payload.submission_id}`,
-          'submission.retry',
-          `retry:${submission.payload.submission_id}:${semanticHash(submission.payload.content)}:append`,
-          state.connection === 'online',
-          { submission_id: submission.payload.submission_id },
-        ),
+    let retryAction: string | undefined;
+    let withdrawAction: string | undefined;
+    if (submission.receipt === 'rejected' || submission.receipt === 'unknown') {
+      retryAction = addAction(
+        actions,
+        `submission.retry.${submission.payload.submission_id}`,
+        'submission.retry',
+        `retry:${submission.payload.submission_id}:${semanticHash(submission.payload.content)}:append`,
+        state.connection === 'online',
+        { submission_id: submission.payload.submission_id },
       );
+      refs.push(retryAction);
     }
-    return node(`submission.${submission.payload.submission_id}`, 'user_submission', { submission }, [], {
-      action_refs: refs,
-      a11y: { label: '你的追加输入' },
-      fallback: 'raw_text',
-    });
+    const withdrawable = ['sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt)
+      && !submission.withdrawal;
+    if (withdrawable && state.capabilities.withdraw) {
+      withdrawAction = addAction(
+        actions,
+        `submission.withdraw.${submission.payload.submission_id}`,
+        'submission.withdraw',
+        `withdraw:${submission.payload.submission_id}:${semanticHash(submission.payload.content)}`,
+        state.connection === 'online',
+        { submission_id: submission.payload.submission_id },
+      );
+      refs.push(withdrawAction);
+    }
+    return node(
+      `submission.${submission.payload.submission_id}`,
+      'user_submission',
+      { submission, retry_action: retryAction, withdraw_action: withdrawAction },
+      [],
+      { action_refs: refs, a11y: { label: '你的追加输入' }, fallback: 'raw_text' },
+    );
   });
   return [...subjectRows, ...submissionRows].sort((left, right) => {
-    const leftTime = left.kind === 'subject_part' ? left.props.part.observed_at : left.props.submission.created_at;
-    const rightTime = right.kind === 'subject_part' ? right.props.part.observed_at : right.props.submission.created_at;
+    const timeOf = (entry: UiNode): string => entry.kind === 'subject_part'
+      ? entry.props.part.observed_at
+      : entry.kind === 'user_submission'
+        ? entry.props.submission.created_at
+        : '';
+    const leftTime = timeOf(left);
+    const rightTime = timeOf(right);
     // Committed history retains replay order for equal timestamps; a later
     // committed reply stays after local input instead of jumping above it.
     return Date.parse(leftTime) - Date.parse(rightTime);
@@ -283,14 +418,33 @@ function entryNodes(state: UiState, actions: Record<string, UiAction>): UiNode[]
 
 export function buildProjection(state: UiState, revision: number): UiProjection {
   const actions: Record<string, UiAction> = {};
-  const navNodes: UiNode[] = (['timeline', 'tasks', 'memory', 'config'] as ViewName[]).map((view) => {
+  const navNodes: UiNode[] = (['timeline', 'tasks', 'memory', 'config', 'playground'] as ViewName[]).map((view) => {
     const action = addAction(actions, `view.${view}`, 'view.select', 'view-v1', true, { view });
     return node(`nav.${view}`, 'navigation_item', { view, current: state.display.view === view }, [], {
       action_refs: [action],
       a11y: { current: state.display.view === view ? 'page' : false },
     });
   });
-  const timelineChildren = entryNodes(state, actions);
+  // Degraded semantic documents ride the timeline as their own nodes; the
+  // numbered options keep actions completable at every rung (§21.7/§21.8).
+  const documentNodes = state.documents.map((document) => {
+    const refs = document.options.map((option) => addAction(
+      actions,
+      `document.${document.document_id}.${option.action_id}`,
+      'document.action',
+      document.revision,
+      state.capabilities.actions,
+      { document_id: document.document_id, action_id: option.action_id },
+    ));
+    return node(
+      `document.${document.document_id}`,
+      'semantic_document',
+      { document, mode: document.mode },
+      [],
+      { action_refs: refs, fallback: document.summary },
+    );
+  });
+  const timelineChildren = [...entryNodes(state, actions), ...documentNodes];
   const timeline = node(
     'timeline',
     'timeline',
@@ -320,6 +474,8 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   const canAppend =
     state.source === 'live' &&
     state.connection === 'online' &&
+    state.append_available &&
+    state.durable_receipts &&
     Boolean(state.subject_id) &&
     draft.trim().length > 0;
   const appendAction = addAction(
@@ -328,6 +484,14 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     'composer.append',
     `append:${state.subject_id ?? 'unbound'}:${semanticHash(draft.trim())}`,
     canAppend,
+  );
+  const canSteer = canAppend && state.capabilities.steer;
+  const steerAction = addAction(
+    actions,
+    'composer.steer',
+    'composer.steer',
+    `steer:${state.subject_id ?? 'unbound'}:${semanticHash(draft.trim())}`,
+    canSteer,
   );
   const draftAction = addAction(actions, 'composer.draft', 'composer.draft', 'display-v1', state.source === 'live');
   const composer = node(
@@ -341,10 +505,13 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       subject_bound: Boolean(state.subject_id),
       append_action: appendAction,
       append_enabled: canAppend,
+      steer_action: steerAction,
+      steer_enabled: canSteer,
+      streaming: state.streaming,
     },
     [],
     {
-      action_refs: [draftAction, appendAction],
+      action_refs: [draftAction, appendAction, steerAction],
       a11y: { label: '向同一主体追加输入' },
       layout: { hidden: state.display.view !== 'timeline' },
     },
@@ -409,13 +576,22 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         manifest: state.manifest,
         step: state.step,
         capabilities: {
-          append: state.source === 'live',
-          steer: false,
+          append: state.append_available,
+          steer: state.capabilities.steer,
+          withdraw: state.capabilities.withdraw,
+          actions: state.capabilities.actions,
+          documents: state.capabilities.documents,
+          streaming: state.streaming,
           attachments: false,
-          durable_input_receipts: false,
-          committed_replay: true,
+          durable_input_receipts: state.durable_receipts,
+          committed_replay: state.committed_replay,
         },
       }, [], { layout: { hidden: state.display.view !== 'config' }, fallback: 'read_only_values' }),
+      node('playground', 'playground_surface', {
+        hidden: state.display.view !== 'playground',
+        playground: state.playground,
+        error: state.playground_error,
+      }, [], { layout: { hidden: state.display.view !== 'playground' }, fallback: 'read_only_list' }),
       composer,
       panel,
       node('notice', 'status_notice', { text: state.display.notice, source: state.source }, [], {
@@ -423,11 +599,15 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       }),
     ],
     capabilities: {
-      append: state.source === 'live',
-      steer: false,
+      append: state.append_available,
+      steer: state.capabilities.steer,
+      withdraw: state.capabilities.withdraw,
+      actions: state.capabilities.actions,
+      documents: state.capabilities.documents,
+      streaming: state.streaming,
       attachments: false,
-      durable_input_receipts: false,
-      committed_replay: true,
+      durable_input_receipts: state.durable_receipts,
+      committed_replay: state.committed_replay,
     },
     actions,
     assets: {

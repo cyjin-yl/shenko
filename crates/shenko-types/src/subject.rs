@@ -14,6 +14,29 @@ use serde::{Deserialize, Serialize};
 pub struct EventDisposition {
     pub event_id: EntityId,
     pub disposition: Disposition,
+    /// The subject's own reason for a disposition. It is required for every
+    /// disposition except `Acknowledged`; an empty reason is not a decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Authored attention priority of this input. It changes selection order
+    /// only: a message body never raises trusted priority, admin status or
+    /// tool authority by itself. SPEC §41.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<EventPriority>,
+    /// When a deferred input may be selected again. `None` means the subject
+    /// will decide later; it never means "never".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_after: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Authored attention level of one input. Selection order only — never an
+/// authority signal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventPriority {
+    Low,
+    Normal,
+    High,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,7 +58,8 @@ pub struct DelegationIntent {
     pub capabilities: Vec<String>,
     pub budget_hint: Option<BudgetHint>,
     pub reply_grant: Option<ReplyGrant>,
-    /// None is an unresolved natural-language delegation, never a fake native run.
+    /// Frozen execution input. Historical unbound goals remain unresolved;
+    /// current model delegation freezes its own model.child definition here.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<NativeTaskDefinition>,
 }
@@ -49,7 +73,7 @@ pub struct BudgetHint {
 
 /// Reply grant — allows a child to publish directly.
 /// Bound to task/generation, target provider/account/conversation/thread.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplyGrant {
     pub grant_id: EntityId,
     pub task_id: EntityId,
@@ -212,7 +236,7 @@ pub struct SubjectGenesis {
     pub created_commit: CommitRef,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenesisRef {
     pub ledger_id: EntityId,
     pub genesis_id: EntityId,
@@ -303,6 +327,14 @@ pub struct SubjectRetryEvidence {
 pub enum InferenceRetryFact {
     NeverDispatched,
     ProviderRejected { http_status: u16 },
+    /// The original request was dispatched into this runtime and its outcome
+    /// never reached a terminal receipt before the runtime died. A local,
+    /// process-bound provider provably cannot still produce that exact
+    /// request id's result; the spent debt stays recorded in the quota
+    /// ledger (the armed send is never settled) and a new attempt of the
+    /// SAME sealed step may be armed. This is reconciliation, not a blind
+    /// replay: the old request id is never re-used.
+    DispatchLost { reason: String },
 }
 
 impl SubjectRetryEvidence {
@@ -312,6 +344,7 @@ impl SubjectRetryEvidence {
                 self.fact,
                 InferenceRetryFact::NeverDispatched
                     | InferenceRetryFact::ProviderRejected { http_status: 429 }
+                    | InferenceRetryFact::DispatchLost { .. }
             )
     }
 }
@@ -344,8 +377,24 @@ pub struct StepDecision {
     pub policy_intents: Vec<PolicyIntent>,
     pub publication_intents: Vec<PublicationIntent>,
     pub pending_obligations: Vec<PendingObligation>,
+    /// The subject's own attention decision (免打扰). SPEC §13.8: off →
+    /// active → off, with the applicable sources and the end/review
+    /// condition kept durable. It changes selection, not history.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attention_policy: Option<AttentionPolicy>,
     pub evidence_refs: Vec<ObjectRef>,
     pub successor_step_id: EntityId,
+}
+
+/// The direction of one dialogue message between the subject and a child.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogueDirection {
+    /// The subject asks a child, or answers a child's question.
+    #[default]
+    ToChild,
+    /// A child asked the subject; the question waits for a subject step.
+    ToSubject,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +403,47 @@ pub struct DialogueIntent {
     pub target_task_id: EntityId,
     pub message: String,
     pub in_reply_to: Option<EntityId>,
+    pub direction: DialogueDirection,
+}
+
+/// The subject's own attention decision. SPEC §13.8.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttentionPolicy {
+    pub intent_id: EntityId,
+    pub state: AttentionState,
+    /// Ingress sources this decision applies to. Empty means every source.
+    pub sources: Vec<String>,
+    pub reason: String,
+    /// End or review condition of this decision. `None` means the subject
+    /// ends it explicitly later; it is never an unbounded silent switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_step_id: EntityId,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttentionState {
+    Off,
+    Active,
+}
+
+/// The sealed per-steer record behind one entry of `applied_steering_refs`.
+/// Each applied steer is sealed as its own object so S1 can verify, per
+/// steer, that the decision cites a real admitted steer submission and the
+/// event that carried it was actually selected into this step's S0. SPEC §41.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppliedSteeringRecord {
+    pub schema_version: u32,
+    /// The steer submission key as admitted (`web_input_submissions`).
+    pub steer_submission_id: String,
+    /// The InboxEvent that carried the steer; must be one of the sealed
+    /// plan's selected events.
+    pub steer_event_id: EntityId,
+    /// The mode read from the steer payload at seal time; S1 re-checks it
+    /// against the sealed event payload.
+    pub mode: String,
+    pub decided_at_step_id: EntityId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -390,4 +480,11 @@ pub struct PendingObligation {
     pub description: String,
     pub depends_on_task_id: Option<EntityId>,
     pub resume_condition: String,
+    /// The input that created this obligation, when it came from one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin_event_id: Option<EntityId>,
+    /// When the obligation should be looked at again. The subject decides;
+    /// this is never a scheduler that wakes the subject by itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
 }

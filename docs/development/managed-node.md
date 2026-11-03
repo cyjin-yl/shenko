@@ -54,6 +54,52 @@ are opt-in (`--workspace` at export/enrollment and an explicit receiving root),
 not a prerequisite for cognition recovery. Protect transfer bytes as private
 data, even when the transport is already authenticated.
 
+### Verified capability facts and coordination candidacy
+
+Every transfer now carries a bounded `NodeCapabilityProfile` advertisement in
+both directions: the `shenko-node-sync/2` header names the sender's real Node
+ID, self identity, running artifact manifest, persisted role assignment
+(intent, never liveness), latest runtime observation, the count of
+observations that ever carried a bound subject, and the capability names
+declared by currently enabled units. The verified receipt carries the
+receiver's profile; `sync identity` also returns its profile so `enroll`
+stores the same fact before any transfer. Mixed-version transports fail
+closed at the framing/schema boundary; an older peer that omits the fact at
+enrollment leaves that peer with no capability fact rather than a fabricated
+one.
+
+Advertisements carry a per-node strictly increasing `advertisement_seq` that
+advances only on content change. `record_peer_capability` keeps at most the
+newest verified fact per source: an older generation is `stale`, an identical
+replay is `duplicate`, different bytes at the same generation are a retained
+`conflict`, and every arrival is appended to the observation log with its
+provenance. Facts are only ever bound to the Node ID inside the
+authenticated/verified channel itself; a profile naming a different Node is
+rejected.
+
+`sync identity`/`sync status` and the `coordination` Node request return a
+deterministic candidacy ordering of the known member set (self plus enrolled
+sync peers): observed-primary evidence, then any bound-subject evidence, then
+verified reachability of the recovery closure (confirmed sync or local
+durability), then newest advertisement generation, then node ID. It is
+explicitly *not* an election — no member configuration, no quorum, no
+fencing, no liveness — the candidacy ordering only supplies what the real
+election may consider: versioned capability facts and actual evidence, not
+names, static parameter counts or cached claims.
+
+Node storage schema 6 adds the durable election control plane (see
+`docs/specs/nodes.md`): the committed member configuration, per-term vote
+receipts, the control log with quorum certificates, availability branches,
+adoptions and reconciliation records. The real election — `campaign`, verified
+vote requests over each member's authenticated route, joint-consensus member
+changes, and monotonic fencing epochs — is the only path to a committed
+primary claim; the candidacy response above reports the claim and quorum basis
+but never substitutes for them. A partitioned component with no reachable
+quorum opens an explicit availability branch and keeps its own subject
+available without claiming domain primary (§5.4.1), and a runtime observation
+records the `Primary` role only against the committed election's fencing
+token.
+
 ### Installation units and local readiness
 
 Unit transfer schema 3 carries `perception`, `awareness`, `skill` and `code` packages:
@@ -143,15 +189,22 @@ observations, cursor and gaps. Its chunked CAS root is part of the closure.
 path without activating a provider or replaying an input. This does not scan
 arbitrary provider databases, private environment files or credential stores.
 
-Manifest schema 3 binds source ledger/high water, durable snapshot order,
+Manifest schema 4 binds source ledger/high water, durable snapshot order,
 fingerprint, object descriptors, file origins and durable memory-intent
-bindings. Schema 2 remains readable when its pending memory identities are
-recoverable; an older schema-2-only receiver must be upgraded to receive a
-schema-3 archive. Missing binding identity, unknown fact tables, stale order,
-missing/corrupt retained CAS and forged fingerprints block verified recovery.
+bindings, plus media stream/revision/terminal facts, original admission
+receipts and their durable inbox identities/audio closure. Schema 2/3 remains
+readable only when current identity/closure admission succeeds; older
+receivers must be upgraded to receive schema 4. Missing binding identity,
+unknown fact tables, stale order, missing/corrupt retained CAS and forged
+fingerprints block verified recovery.
 An intent, its binding and associated memory entry reconcile as one conflict
 unit; a conflicting source cannot publish only its entry or attach its
 reference to a retained locator-only intent.
+A media stream's facts and inbox originals likewise reconcile as one conflict
+unit; immutable open/terminal receipts retain their source CommitRefs when
+the receiver's local import sequence advances. This media repair is source
+only; its pending-input consumer requires C11's shared `media/%` drain, and
+runtime/ASR acceptance is not claimed (see [media ingress](media-transcript-ingress.md)).
 Imported S1 history keeps original ledger/commit references, while local replay
 uses its own sequence and a step-order cursor so an imported same-sequence page
 cannot reorder or skip committed steps. Imported unknown effects are not
@@ -166,7 +219,7 @@ loss are not claimed.
 
 Source/artifact-bound observations, failures and remaining scope are recorded in
 [the #71 evidence](../evidence/node-sync-cognition-20261026.json) and
-[C17](../tasks/C17.md). Full election, partition authority, every platform,
+[C17](../history/task-cards-20261101/C17.md). Full election, partition authority, every platform,
 arbitrary-effect fencing, encrypted disk-image recovery and 7/30-day observations
 remain separate acceptance obligations.
 
@@ -208,7 +261,7 @@ contract, not remote attestation or a substitute for verifying the source tree.
 
 `shenko-node PRIVATE_DATA_DIR` reads one bounded JSON request on stdin and returns
 one JSON response after committed work. Existing unrelated data is rejected;
-never use a live main-app directory. Storage schema **4** is separate from
+never use a live main-app directory. Storage schema **5** is separate from
 record/wire schema **1**. Existing databases first undergo an immutable/read-only
 application/schema/installation preflight: even WAL sidecar creation or journal
 recovery is not allowed for an unknown database. If an interrupted DELETE-mode
@@ -243,7 +296,7 @@ The only unmarked legacy format eligible for migration is the exact original v1
 schema (all non-SQLite schema objects) with valid durable node/ledger/identity
 metadata. Its rows, node/self IDs, ledger and seq remain unchanged. One migration
 transaction adds the installation UUID, SHNK application_id, receipts table and
-the current storage version. Role/unit/peer tables are added without replacing
+the current storage version. Role/unit/peer/capability tables are added without replacing
 old facts. This is a trusted local format migration, not cryptographic
 proof of remote ownership. Unknown, corrupt or incomplete uninitialized databases
 fail closed; this adapter does not overwrite them or repair arbitrary data. New counters on the wire are canonical
@@ -254,6 +307,9 @@ unsigned decimal strings. Node UUIDs, agent/branch UUIDs and task UUIDs are dist
   verified `identity` and actual `manifest`; payload mismatch is a conflict.
 - `status`: optional join `operation_id`; returns the old immutable join receipt
   separately from a fresh `running_manifest`, observation time and capabilities.
+- `capabilities`: this Node's current self-declared advertisement;
+  `capability_facts`: newest verified fact per known source; `coordination`:
+  the deterministic candidacy ordering above (`is_election=false`).
 - `register`: immutable `node_id`, `target_id`, public-trust/binding digest.
 - `create`: stable `task_id`, registered `node_id`, bounded `input` byte array;
   returns the same ticket on duplicate input and rejects conflicting creation.
@@ -403,7 +459,7 @@ All owned listeners stop on both success/failure and are read back as refused.
 No physical machine, actual model inference, election, partition quorum,
 production child scheduler, arbitrary resource fencing, image resurrection or
 long-run acceptance follows from these two scenarios. See the machine-readable
-[evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../tasks/C17.md)
+[evidence](../evidence/c17-native-first-journey-20261025.json) and [C17](../history/task-cards-20261101/C17.md)
 for exact candidate and remaining obligations.
 
 ## Focused review repair / 复核接续

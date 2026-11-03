@@ -45,7 +45,7 @@
 //!   that already holds other content keeps it: the divergence is reported
 //!   instead of being overwritten.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
@@ -173,6 +173,15 @@ pub struct CognitionSnapshotOptions {
     pub workspace_roots: Vec<PathBuf>,
     /// Capture the memory repository history. On by default.
     pub include_git_history: bool,
+    /// The caller guarantees the paused local subject boundary is preserved
+    /// at the destination before this archive is applied. Only the
+    /// same-installation A/B handover sets this: its importer installs the
+    /// complete paused head/successor/quiesce state through
+    /// `copy_paused_activation_boundary` before applying the archive, so a
+    /// paused head is a snapshot the receiver is equipped to carry, never a
+    /// stranded one. Peer replication must leave this unset — a peer archive
+    /// cannot deliver a local boundary safely.
+    pub local_boundary_preserved: bool,
 }
 
 impl Default for CognitionSnapshotOptions {
@@ -181,6 +190,7 @@ impl Default for CognitionSnapshotOptions {
             memory_root: None,
             workspace_roots: Vec::new(),
             include_git_history: true,
+            local_boundary_preserved: false,
         }
     }
 }
@@ -433,6 +443,19 @@ enum RowKind {
     /// An inbox event. The pending input is recovery data; the local
     /// consumption cursor is not.
     InboxEvent,
+    /// A tombstone-bearing fact. The tombstone state is monotone: a peer may
+    /// retire a live local row, and a peer may never revive a retired one.
+    /// The merge follows the tombstone, never arrival order.
+    Monotonic,
+    /// A fact carrying its own explicit revision. The peer wins only with a
+    /// strictly greater revision — the record's own order decides, never
+    /// which peer happened to answer first (SPEC §41.2: no last-writer-wins
+    /// on a durable record).
+    Revisioned,
+    /// A fact with a monotone state ladder. The peer may move the row
+    /// forward along the ladder and never backward; a terminal state is
+    /// never rewritten.
+    Ladder,
 }
 
 /// One replicated table.
@@ -599,6 +622,11 @@ const TABLES: &[TableSpec] = &[
             "content",
             "source",
             "applicability",
+            "confidence",
+            "superseded_by",
+            "supersedes",
+            "git_commit",
+            "git_path",
             "created_at",
             "updated_at",
             "deleted",
@@ -617,6 +645,13 @@ const TABLES: &[TableSpec] = &[
             "intent_id",
             "agent_id",
             "kind",
+            "knowledge_kind",
+            "supersedes_entry_id",
+            "applicability",
+            "confidence",
+            "base_revision",
+            "idempotency_key",
+            "sources",
             "scope",
             "content",
             "content_ref",
@@ -722,6 +757,137 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_commit_seq"),
         kind: RowKind::Verbatim,
     },
+    // Durable media truth: stream identity and latest state first, then the
+    // immutable terminal notices and raw revision facts bound to it. Origin
+    // CommitRefs travel verbatim: local import sequencing never changes an
+    // already-issued event/receipt binding.
+    TableSpec {
+        name: "media_streams",
+        key: &["stream_key"],
+        columns: &[
+            "stream_key",
+            "agent_id",
+            "provider",
+            "account",
+            "stream_id",
+            "open_id",
+            "open_event_id",
+            "end_id",
+            "end_event_id",
+            "state",
+            "opened_at_ms",
+            "ended_at_ms",
+            "end_reason",
+            "implicit",
+            "descriptor",
+            "open_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_stream_ends",
+        key: &["stream_key", "end_id"],
+        columns: &[
+            "stream_key",
+            "end_id",
+            "state",
+            "ended_at_ms",
+            "reason",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_segment_revisions",
+        key: &["stream_key", "revision_id"],
+        columns: &[
+            "stream_key",
+            "segment_key",
+            "segment",
+            "revision",
+            "revision_id",
+            "partial",
+            "text",
+            "captured_at_ms",
+            "speaker_json",
+            "audio_json",
+            "provider_facts_json",
+            "data",
+            "disposition",
+            "supersedes_revision",
+            "superseded_by_revision",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Recording control and priority inputs travel with the same media
+    // conflict unit: control/notice rows are immutable like terminal
+    // notices; the recording row is a latest-state projection bound to the
+    // event of its latest control.
+    TableSpec {
+        name: "media_recordings",
+        key: &["stream_key", "recording_id"],
+        columns: &[
+            "stream_key",
+            "recording_id",
+            "agent_id",
+            "state",
+            "started_at_ms",
+            "stopped_at_ms",
+            "scope_json",
+            "start_control_id",
+            "stop_control_id",
+            "reason",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_recording_controls",
+        key: &["stream_key", "control_id"],
+        columns: &[
+            "stream_key",
+            "control_id",
+            "recording_id",
+            "action",
+            "state",
+            "data",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_priority_inputs",
+        key: &["stream_key", "priority_id"],
+        columns: &[
+            "stream_key",
+            "priority_id",
+            "kind",
+            "text",
+            "occurred_at_ms",
+            "audio_json",
+            "reason",
+            "data",
+            "event_id",
+            "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
     TableSpec {
         name: "task_results",
         key: &["result_id"],
@@ -750,6 +916,493 @@ const TABLES: &[TableSpec] = &[
         columns: &["window_id", "scope_id", "generation", "body", "commit_seq"],
         local_seq: None,
         kind: RowKind::Verbatim,
+    },
+    // Research cognition: one epoch, its candidates, intervention bank
+    // entries and reminders form ONE conflict unit (`epoch/…`); tombstones
+    // and archive moves are row facts.
+    TableSpec {
+        name: "research_epochs",
+        key: &["epoch_id"],
+        columns: &[
+            "epoch_id", "reset_request_id", "lineage_id", "epoch_no", "task_id",
+            "status", "constraints_ref", "budget_ref", "effects_ref",
+            "environment_ref", "best_candidate_id", "brief_ref",
+            "reset_from_epoch", "reset_reason", "reset_receipt",
+            "created_at_ms", "frozen_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "research_candidates",
+        key: &["candidate_id"],
+        columns: &[
+            "candidate_id", "epoch_id", "artifact_ref", "score", "score_source",
+            "environment_ref", "notes", "frozen", "created_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "intervention_bank_entries",
+        key: &["entry_id"],
+        columns: &[
+            "entry_id", "epoch_id", "kind", "content", "source_refs", "scope",
+            "confidence", "base_revision", "supersedes", "superseded_by",
+            "carried_from", "tombstoned_at_ms", "created_at_ms",
+        ],
+        local_seq: None,
+        // A bank entry carries its own tombstone: supersession is monotone,
+        // so a peer may retire an entry but never revive one.
+        kind: RowKind::Monotonic,
+    },
+    TableSpec {
+        name: "intervention_reminders",
+        key: &["reminder_id"],
+        columns: &[
+            "reminder_id", "epoch_id", "lineage_id", "decision", "policy",
+            "policy_revision", "content", "provenance", "relevance", "scope",
+            "expires_at_ms", "transient", "bank_entry_ids", "reason",
+            "created_at_ms", "used_step_id", "used_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "retention_tombstones",
+        key: &["tombstone_id"],
+        columns: &[
+            "tombstone_id", "target_kind", "target_id", "scope", "reason",
+            "effect_record", "deleted_at_ms",
+        ],
+        local_seq: None,
+        // The row IS the tombstone: the first durable deletion wins and is
+        // never replaced by a later, differently-worded one.
+        kind: RowKind::Monotonic,
+    },
+    TableSpec {
+        name: "archive_moves",
+        key: &["archive_id"],
+        columns: &[
+            "archive_id", "source_ref", "target_provider", "target_namespace",
+            "target_locator", "manifest_ref", "object_count", "total_bytes",
+            "hash_verified", "readback_verified", "local_released",
+            "local_release_note", "created_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    // Durable browser submissions (SPEC §41.18): the submission binding,
+    // its durable event identity and the admitted payload are one immutable
+    // fact. The admission sequence is the receiving store's own, never the
+    // peer's — the binding, not the sequence, is the replicated fact.
+    TableSpec {
+        name: "web_input_submissions",
+        key: &["agent_id", "submission_id"],
+        columns: &[
+            "agent_id", "submission_id", "event_id", "payload",
+        ],
+        local_seq: Some("accepted_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Withdrawn browser input: the withdrawal of one admitted submission,
+    // with the durable event identity that cancelled it. The submission
+    // and its withdrawals form ONE unit (`web_input/…`): a peer can never
+    // hold a withdrawal without the submission it withdraws.
+    TableSpec {
+        name: "web_input_withdrawals",
+        key: &["agent_id", "submission_id", "cancel_id"],
+        columns: &[
+            "agent_id", "submission_id", "cancel_id", "event_id", "result",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Durable output parts: append-only; the original commit sequence is
+    // local to the admitting store.
+    TableSpec {
+        name: "subject_output_parts",
+        key: &["agent_id", "stream_id", "message_id", "part_id", "chunk_seq"],
+        columns: &[
+            "agent_id", "stream_id", "request_id", "attempt_id", "message_id",
+            "part_revision", "chunk_seq", "terminal", "content",
+            "content_kind",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Durable seats (SPEC §17.1): a seat record, its leases, its durable
+    // questions and the answer decisions on them form ONE conflict unit
+    // (`seat/…`). A diverged peer can never graft a foreign lease or
+    // decision onto a local seat.
+    TableSpec {
+        name: "seat_records",
+        key: &["seat_id"],
+        columns: &["seat_id", "task_id", "status", "supersedes", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "seat_leases",
+        key: &["lease_id"],
+        columns: &[
+            "lease_id", "seat_id", "holder_task_id", "state", "end_reason",
+            "superseded_by", "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "seat_questions",
+        key: &["question_id"],
+        columns: &["question_id", "seat_id", "task_id", "state", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "seat_answer_decisions",
+        key: &["decision_id"],
+        columns: &["decision_id", "question_id", "seat_id", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Provider quota facts (SPEC §42.5): the admission facts are replicated,
+    // the local admission SEQUENCE is not — the receiving store records its
+    // own, so "the newest snapshot/decision" stays meaningful locally.
+    // Requests and their sends group as `quota_request/…` units.
+    TableSpec {
+        name: "quota_snapshots",
+        key: &["snapshot_id"],
+        columns: &["snapshot_id", "provider_id", "account_scope_ref", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_forecasts",
+        key: &["forecast_id"],
+        columns: &["forecast_id", "based_on_snapshot", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_policies",
+        key: &["policy_id", "revision"],
+        columns: &["policy_id", "revision", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_decisions",
+        key: &["decision_id"],
+        columns: &["decision_id", "policy_id", "policy_revision", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_pacer",
+        key: &["singleton"],
+        columns: &["singleton", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_attempts",
+        key: &["request_id", "provider_id", "account_scope_ref", "window_key", "commit_seq"],
+        columns: &["request_id", "provider_id", "account_scope_ref", "window_key", "commit_seq", "data"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_sends",
+        key: &["send_id"],
+        // `claimed` travels with the send: an armed effect that the peer
+        // already claimed must not be armed again here. `claimed_seq` is the
+        // claiming store's own sequence and stays local.
+        columns: &["send_id", "request_id", "send_seq", "claimed"],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "quota_events",
+        key: &["event_id"],
+        columns: &["event_id", "provider_id", "account_scope_ref", "kind", "data"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Channel runtime facts and record migrations: every fact keeps its
+    // original sequences verbatim; `revision` orders the fact.
+    TableSpec {
+        name: "channel_runtime_facts",
+        key: &["fact_id"],
+        columns: &[
+            "fact_id", "channel", "account", "kind", "state", "subject_ref",
+            "detail", "revision", "created_seq", "updated_seq",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "channel_record_migrations",
+        key: &["record_kind", "record_id"],
+        columns: &[
+            "record_kind", "record_id", "from_version", "to_version",
+            "source_digest", "target_digest", "migrated_seq",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    // Activation records and the live selector (upgrade/activation.rs): the
+    // selector is an armed effect — a peer advances it only with a strictly
+    // greater selector revision, never by arrival order.
+    TableSpec {
+        name: "activation_records",
+        key: &["activation_id"],
+        columns: &["activation_id", "agent_id", "phase", "record_revision", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Revisioned,
+    },
+    TableSpec {
+        name: "activation_selectors",
+        key: &["agent_id"],
+        columns: &["agent_id", "selector_revision", "active_epoch", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Revisioned,
+    },
+    TableSpec {
+        name: "activation_launch_receipts",
+        key: &["launch_id"],
+        columns: &["launch_id", "agent_id", "selector_revision", "data"],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Recording control and priority inputs (media.rs v2): the recording
+    // projection and its immutable control notices. A control notice is the
+    // armed effect behind a recording; the media stream is its anchor.
+    TableSpec {
+        name: "media_recordings",
+        key: &["stream_key", "recording_id"],
+        columns: &[
+            "stream_key", "recording_id", "agent_id", "state", "started_at_ms",
+            "stopped_at_ms", "scope_json", "start_control_id",
+            "stop_control_id", "reason", "event_id", "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_recording_controls",
+        key: &["stream_key", "control_id"],
+        columns: &[
+            "stream_key", "control_id", "recording_id", "action", "state",
+            "data", "event_id", "admitted_at_ms", "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "media_priority_inputs",
+        key: &["stream_key", "priority_id"],
+        columns: &[
+            "stream_key", "priority_id", "kind", "text", "occurred_at_ms",
+            "audio_json", "reason", "data", "event_id", "admitted_at_ms",
+            "admitted_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Playground artifacts (artifacts.rs): the artifact record, its
+    // version manifests and the runtime instances bound to it. Divergent
+    // peer revisions reconcile through the existing baseline/conflict-unit
+    // path; a larger revision alone does not authorize an overwrite.
+    TableSpec {
+        name: "artifact_records",
+        key: &["artifact_id"],
+        columns: &[
+            "artifact_id", "subject_id", "lifecycle", "state_revision",
+            "record_revision", "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "artifact_manifests",
+        key: &["artifact_id", "version_digest"],
+        columns: &[
+            "artifact_id", "version_digest", "record_revision", "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "artifact_runtime_instances",
+        key: &["instance_id"],
+        columns: &[
+            "instance_id", "artifact_id", "state", "record_revision", "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Owner grants and the versioned configuration (config.rs): the
+    // credential digest table (`owner_admin_tokens`) stays local and is
+    // never replicated — a token hash is not a replicated fact.
+    TableSpec {
+        name: "owner_grants",
+        key: &["installation_id"],
+        columns: &[
+            "installation_id",
+            "grant_id",
+            "claim_id",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "config_entries",
+        key: &["namespace", "logical_key"],
+        columns: &[
+            "namespace",
+            "logical_key",
+            "desired_revision",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "config_changes",
+        key: &["change_id"],
+        columns: &[
+            "change_id",
+            "origin_identity",
+            "logical_key",
+            "namespace",
+            "record_revision",
+            "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "config_adoptions",
+        key: &["namespace", "logical_key", "consumer_id"],
+        columns: &[
+            "namespace", "logical_key", "consumer_id", "adopted_revision",
+            "record_revision", "data",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // Contacts person model: every claim revision, every merge or split
+    // event and the admin grants referencing a person form ONE conflict
+    // unit (`person/{agent}/{person}`), so a peer can never graft claims
+    // onto a diverged identity.
+    TableSpec {
+        name: "person_claims",
+        key: &["claim_id"],
+        columns: &[
+            "claim_id", "slot_id", "agent_id", "person_id", "kind", "claim_key",
+            "revision", "payload_json", "provenance_json", "confidence_json",
+            "state", "scope_json", "created_at_ms",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "person_identity_events",
+        key: &["event_id"],
+        columns: &[
+            "event_id", "agent_id", "kind", "source_person_id",
+            "target_person_id", "moved_slot_ids_json", "returned_slot_ids_json",
+            "reason", "provenance_json", "occurred_at_ms",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "admin_facts",
+        key: &["agent_id", "subject_kind", "subject_key"],
+        columns: &[
+            "agent_id", "subject_kind", "subject_key", "granted", "granted_by",
+            "reason", "updated_at_ms",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "life_voiceprint_ranks",
+        key: &["agent_id", "recording_scope", "rank_id", "model_revision"],
+        columns: &[
+            "agent_id", "recording_scope", "rank_id", "model_revision",
+            "cluster_id", "confirmed_identity", "data", "recorded_at_ms",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // The durable stream journal (SPEC §12.5): stream registration plus all
+    // of its journaled units form ONE conflict unit (`stream/…`). Whole
+    // units and chunks stay distinct shapes; the closing facts are part of
+    // the unit, never rewritten.
+    TableSpec {
+        name: "content_streams",
+        key: &["stream_id"],
+        columns: &[
+            "stream_id", "agent_id", "kind", "binding", "state",
+            "opened_commit_ref", "closed_commit_ref",
+        ],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "content_stream_units",
+        key: &["stream_id", "seq"],
+        columns: &["stream_id", "seq", "shape", "content_kind", "data", "terminal"],
+        local_seq: Some("commit_seq"),
+        kind: RowKind::Verbatim,
+    },
+    // The subject's own durable request attempts: one row per request, with
+    // a monotone state ladder (armed -> dispatched -> terminal). The row is
+    // armed BEFORE any wire send, so an armed row proves the request never
+    // dispatched and a dispatched row without terminal evidence stays
+    // recoverable debt.
+    TableSpec {
+        name: "subject_request_attempts",
+        key: &["request_id"],
+        columns: &[
+            "request_id", "agent_id", "step_id", "attempt_id", "send_id",
+            "state", "input_plan_ref", "payload_digest",
+            "provider_binding_digest", "data", "created_commit_seq",
+        ],
+        local_seq: Some("updated_commit_seq"),
+        kind: RowKind::Ladder,
+    },
+    // The subject's obligations: open until a later committed step
+    // completes or cancels them. Both end states are final.
+    TableSpec {
+        name: "subject_obligations",
+        key: &["obligation_id"],
+        columns: &[
+            "obligation_id", "agent_id", "step_id", "origin_event_id",
+            "description", "depends_on_task_id", "resume_condition", "due_at",
+            "state", "decision_ref", "created_seq",
+        ],
+        local_seq: Some("updated_seq"),
+        kind: RowKind::Ladder,
+    },
+    // The subject's own attention decisions: one row per intent. The row is
+    // replaced only by a strictly newer decision, never by arrival order.
+    TableSpec {
+        name: "subject_attention_policies",
+        key: &["intent_id"],
+        columns: &[
+            "intent_id", "agent_id", "step_id", "state", "sources", "reason",
+            "review_after", "decision_ref", "created_seq",
+        ],
+        local_seq: Some("updated_seq"),
+        kind: RowKind::Revisioned,
     },
 ];
 
@@ -828,6 +1481,7 @@ impl Store {
         let git_history = collected.git_history.clone();
         let manifest = CognitionManifest {
             schema: crate::cognition_archive::ARCHIVE_SCHEMA,
+            fact_classes: local_fact_classes(),
             fingerprint,
             source_ledger_id: self.ledger.ledger_id(),
             source_incarnation: self.capabilities.incarnation,
@@ -884,7 +1538,7 @@ impl Store {
         let peer_id = options.peer_id.unwrap_or(EntityId::nil());
         let mut files: Vec<(CognitionFileDescriptor, Vec<u8>)> = Vec::new();
         let mut git_history: Option<(CognitionGitDescriptor, Vec<u8>)> = None;
-        let manifest = {
+        let mut manifest = {
             let mut reader = reader;
             read_archive(
                 &mut reader,
@@ -908,10 +1562,23 @@ impl Store {
             fingerprint == manifest.fingerprint,
             "cognition manifest fingerprint does not match its received rows and verified payload descriptors"
         );
+        // The archive's membership is checked against this reader's own
+        // classes before a single row is applied.
+        check_archive_membership(&manifest)?;
+        // A legacy archive is migrated to the current column layout first:
+        // the layout only grew, so the migration is by name and keeps every
+        // fact's identity.
+        let mut legacy_gaps = Vec::new();
+        if manifest.schema < crate::cognition_archive::ARCHIVE_SCHEMA {
+            legacy_gaps = migrate_legacy_rows(&mut manifest);
+        }
         validate_cognition_rows(&manifest)?;
 
         let mut gaps = manifest.gaps.clone();
+        gaps.extend(legacy_gaps);
         gaps.extend(memory_intent_binding_gaps(&manifest.rows));
+        gaps.extend(crate::media::media_recovery_gaps(&manifest.rows));
+        gaps.extend(archive_membership_gaps(&manifest.rows));
         gaps.extend(self.verify_manifest_closure(&manifest));
         let blocking: Vec<String> = gaps
             .iter()
@@ -1304,7 +1971,7 @@ impl Store {
         allocate_order: bool,
     ) -> Result<Collected> {
         let (rows, derivatives, agent_id, high_water, snapshot_seq) =
-            self.snapshot_rows(allocate_order)?;
+            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
         for row in &rows {
@@ -1334,6 +2001,12 @@ impl Store {
         };
         let mut file_origins = Vec::new();
         let mut gaps = memory_intent_binding_gaps(&rows);
+        gaps.extend(crate::media::media_recovery_gaps(&rows));
+        // The REQUIRED-fact closure: a member row whose anchor is missing
+        // means this store does not hold a complete set of facts, and the
+        // export must say so instead of shipping an archive that claims
+        // recoverability.
+        gaps.extend(archive_membership_gaps(&rows));
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
             collect_files(
@@ -1410,6 +2083,7 @@ impl Store {
     fn snapshot_rows(
         &self,
         allocate_order: bool,
+        local_boundary_preserved: bool,
     ) -> Result<(
         Vec<CognitionRow>,
         Vec<CognitionDerivative>,
@@ -1426,13 +2100,16 @@ impl Store {
         let tx = conn.transaction_with_behavior(behavior).map_err(db)?;
         // The subject boundary request is local controller state, not part of
         // this archive schema. A paused head without its request would strand
-        // the receiver and must never be acknowledged as a complete snapshot.
+        // a peer receiver and must never be acknowledged as a complete
+        // snapshot. The one exception is the documented same-installation
+        // handover: the caller opts in only when the destination installs
+        // the complete paused boundary separately before applying.
         let paused: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM subject_branch_heads WHERE mode='paused')",
             [],
             |row| row.get(0),
         ).map_err(db)?;
-        ensure!(!paused, "cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting");
+        ensure!(!paused || local_boundary_preserved, "cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting");
         let snapshot_seq = if allocate_order {
             let current: Option<i64> = tx
                 .query_row(
@@ -1460,28 +2137,16 @@ impl Store {
             rows.extend(read_table(&tx, spec)?);
         }
         let derivatives = read_derivatives(&tx)?;
-        let agent_id: Option<String> = tx
-            .query_row(
-                "SELECT subject_id FROM subject_genesis LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(db)?;
+        // Replicated genesis rows stay history; the export is labeled by the
+        // subject this installation actually owns, never an arbitrary row.
+        let agent_id: Option<EntityId> =
+            crate::store::read_local_subject_id(&tx, self.ledger.ledger_id())?;
         let high_water: i64 = tx
             .query_row("SELECT COALESCE(MAX(seq),0) FROM commit_log", [], |row| {
                 row.get(0)
             })
             .map_err(db)?;
         tx.commit().map_err(db)?;
-        let agent_id = match agent_id {
-            Some(value) => Some(
-                value
-                    .parse::<EntityId>()
-                    .map_err(|_| anyhow!("invalid stored agent id {value}"))?,
-            ),
-            None => None,
-        };
         Ok((
             rows,
             derivatives,
@@ -1496,13 +2161,25 @@ impl Store {
         &self,
         roots: &[ObjectRef],
     ) -> Result<(Vec<CognitionObjectDescriptor>, Vec<Digest>)> {
-        let mut seen: BTreeSet<String> = BTreeSet::new();
+        // Content membership and JSON expansion are different facts. One
+        // digest can have both opaque and JSON-typed references; encountering
+        // the opaque alias first must not hide a later typed child closure.
+        let mut collected: BTreeMap<String, usize> = BTreeMap::new();
+        let mut expanded: BTreeSet<String> = BTreeSet::new();
         let mut missing: Vec<Digest> = Vec::new();
         let mut out: Vec<CognitionObjectDescriptor> = Vec::new();
         let mut queue: std::collections::VecDeque<ObjectRef> = roots.iter().cloned().collect();
         while let Some(object) = queue.pop_front() {
-            if !seen.insert(object.digest.to_string()) {
-                continue;
+            let key = object.digest.to_string();
+            let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
+            if let Some(&index) = collected.get(&key) {
+                if out[index].bytes != object.bytes {
+                    missing.push(object.digest.clone());
+                    continue;
+                }
+                if !expand {
+                    continue;
+                }
             }
             let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
@@ -1515,24 +2192,35 @@ impl Store {
                 missing.push(object.digest.clone());
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let mut nested: Vec<ObjectRef> = Vec::new();
-                let mut external: Vec<Digest> = Vec::new();
-                collect_references(&json, &mut nested, &mut external);
-                queue.extend(nested);
-                for digest in external {
-                    if let Some(bare) = self.bare_object(&digest) {
-                        queue.push_back(bare);
-                    }
-                }
-            }
-            out.push(CognitionObjectDescriptor {
+            let descriptor = CognitionObjectDescriptor {
                 digest: object.digest.clone(),
                 bytes: object.bytes,
                 media_type: object.media_type.clone(),
                 store_namespace: object.store_namespace.clone(),
                 codec: object.codec.clone(),
-            });
+            };
+            if let Some(&index) = collected.get(&key) {
+                // Preserve the later typed declaration in the manifest too,
+                // so the receiver sees the same expansion authority.
+                out[index] = descriptor;
+            } else {
+                collected.insert(key.clone(), out.len());
+                out.push(descriptor);
+            }
+            if expand {
+                expanded.insert(key);
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut nested: Vec<ObjectRef> = Vec::new();
+                    let mut external: Vec<Digest> = Vec::new();
+                    collect_references(&json, &mut nested, &mut external);
+                    queue.extend(nested);
+                    for digest in external {
+                        if let Some(bare) = self.bare_object(&digest) {
+                            queue.push_back(bare);
+                        }
+                    }
+                }
+            }
         }
         Ok((out, missing))
     }
@@ -1573,41 +2261,70 @@ impl Store {
                 }
             }
         }
-        for descriptor in &manifest.objects {
-            let bytes = match self.cas.read_object(&descriptor.digest) {
+        let mut queue: std::collections::VecDeque<ObjectRef> = roots.into();
+        queue.extend(manifest.objects.iter().map(|descriptor| ObjectRef {
+            digest: descriptor.digest.clone(),
+            bytes: descriptor.bytes,
+            media_type: descriptor.media_type.clone(),
+            store_namespace: descriptor.store_namespace.clone(),
+            locator: String::new(),
+            codec: descriptor.codec.clone(),
+        }));
+        let mut verified: BTreeMap<String, u64> = BTreeMap::new();
+        let mut expanded: BTreeSet<String> = BTreeSet::new();
+        while let Some(object) = queue.pop_front() {
+            let key = object.digest.to_string();
+            if !listed.contains(&key) {
+                gaps.push(CognitionGap {
+                    kind: "missing_object".into(),
+                    detail: key,
+                    blocking: true,
+                });
+                continue;
+            }
+            let expand = is_json_reference(&object.media_type) && !expanded.contains(&key);
+            if let Some(&size) = verified.get(&key) {
+                if size != object.bytes {
+                    gaps.push(CognitionGap {
+                        kind: "corrupt_retained_object".into(),
+                        detail: key,
+                        blocking: true,
+                    });
+                    continue;
+                }
+                if !expand {
+                    continue;
+                }
+            }
+            let bytes = match self.cas.read_object(&object.digest) {
                 Ok(bytes) => bytes,
                 Err(error) => {
                     gaps.push(CognitionGap {
                         kind: "unreadable_retained_object".into(),
-                        detail: format!("{}: {error}", descriptor.digest),
+                        detail: format!("{}: {error}", object.digest),
                         blocking: true,
                     });
                     continue;
                 }
             };
-            if bytes.len() as u64 != descriptor.bytes || Digest::blake3(&bytes) != descriptor.digest
+            if bytes.len() as u64 != object.bytes || Digest::blake3(&bytes) != object.digest
             {
                 gaps.push(CognitionGap {
                     kind: "corrupt_retained_object".into(),
-                    detail: descriptor.digest.to_string(),
+                    detail: key,
                     blocking: true,
                 });
                 continue;
             }
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                let mut nested: Vec<ObjectRef> = Vec::new();
-                let mut _nested_external: Vec<Digest> = Vec::new();
-                collect_references(&json, &mut nested, &mut _nested_external);
-                roots.extend(nested);
-            }
-        }
-        for object in &roots {
-            if !listed.contains(&object.digest.to_string()) {
-                gaps.push(CognitionGap {
-                    kind: "missing_object".into(),
-                    detail: object.digest.to_string(),
-                    blocking: true,
-                });
+            verified.insert(key.clone(), object.bytes);
+            if expand {
+                expanded.insert(key);
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    let mut nested: Vec<ObjectRef> = Vec::new();
+                    let mut external: Vec<Digest> = Vec::new();
+                    collect_references(&json, &mut nested, &mut external);
+                    queue.extend(nested);
+                }
             }
         }
         gaps
@@ -1652,12 +2369,27 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
+                let (media, media_events) = apply_media_streams(&tx, &ordered, peer_id, seq, manifest)?;
+                inserted += media.inserted;
+                updated += media.updated;
+                unchanged += media.unchanged;
+                conflicts.extend(media.conflicts);
                 let referenced_memory_entries: HashSet<&str> = ordered.iter()
                     .filter(|row| row.table == "memory_intents")
                     .filter_map(|row| row.value("entry_id"))
                     .collect();
                 let mut memory_applied = false;
+                let mut task_closure_applied = false;
+                let mut task_owned_rows = HashSet::new();
+                let mut semantic_units_applied = false;
+                let mut unit_owned_rows: HashSet<(&str, &str)> = HashSet::new();
                 for row in &ordered {
+                    if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                        | "media_recordings" | "media_recording_controls" | "media_priority_inputs")
+                        || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
+                    {
+                        continue;
+                    }
                     if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
                         let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
                         inserted += outcome.inserted;
@@ -1666,9 +2398,59 @@ impl Store {
                         conflicts.extend(outcome.conflicts);
                         memory_applied = true;
                     }
+                    // A task and every dependent execution/result fact is ONE
+                    // conflict unit. Importing remote operations, evidence or
+                    // results under a task_id whose local input differs would
+                    // stitch unrelated execution history onto the local task.
+                    if !task_closure_applied
+                        && matches!(row.table.as_str(), "session_events" | "subject_raw_inputs" | "inbox_events"
+                            | "tasks" | "operations" | "attempts" | "evidence_receipts" | "task_results")
+                    {
+                        // raw_sessions and subject_steps have already applied,
+                        // but NO pending/raw/staged delivery has been published.
+                        let (outcome, owned, rejected, rejected_ids) =
+                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest)?;
+                        inserted += outcome.inserted;
+                        updated += outcome.updated;
+                        unchanged += outcome.unchanged;
+                        conflicts.extend(outcome.conflicts);
+                        task_owned_rows = owned;
+                        // Whole-publication boundary: if any consumer
+                        // committed earlier in this transaction (subject
+                        // step's frozen S0, context window chain, manifest
+                        // derivatives) depends on a rejected delivery and the
+                        // dependency cannot be proven removable without
+                        // mutating sealed identities, reject the whole
+                        // import instead of publishing a partial falsehood.
+                        verify_no_rejected_task_consumers(
+                            self, &tx, &ordered, &manifest.derivatives,
+                            &rejected, &rejected_ids,
+                        )?;
+                        task_closure_applied = true;
+                    }
+                    // Semantic conflict units (seats, research epochs, quota
+                    // requests, persons, activation selectors, output parts,
+                    // stream journal): every member of one bound effect is
+                    // applied or refused together.
+                    if !semantic_units_applied && is_unit_table(&row.table) {
+                        let (outcome, owned) =
+                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest)?;
+                        inserted += outcome.inserted;
+                        updated += outcome.updated;
+                        unchanged += outcome.unchanged;
+                        conflicts.extend(outcome.conflicts);
+                        unit_owned_rows = owned;
+                        semantic_units_applied = true;
+                    }
                     if row.table == "memory_intents" || row.table == "memory_intent_bindings"
                         || (row.table == "memory_entries" && referenced_memory_entries.contains(row.key.as_str()))
                     {
+                        continue;
+                    }
+                    if task_owned_rows.contains(&(row.table.as_str(), row.key.as_str())) {
+                        continue;
+                    }
+                    if unit_owned_rows.contains(&(row.table.as_str(), row.key.as_str())) {
                         continue;
                     }
                     let Some(spec) = spec_for(&row.table) else {
@@ -1822,6 +2604,27 @@ impl Store {
                         inserted += 1;
                     } else {
                         unchanged += 1;
+                    }
+                }
+                // Staged inputs can reach prepare_context without traversing
+                // inbox_events again. Recheck the ACTUAL reconciled store,
+                // not only the incoming manifest: if a media conflict rolled
+                // back admission but ordinary history imported its staged
+                // delivery, reject before commit and roll back every SQL row.
+                if ordered.iter().any(|row| matches!(row.table.as_str(),
+                    "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                        | "media_recordings" | "media_recording_controls" | "media_priority_inputs"))
+                {
+                    let mut media_rows = Vec::new();
+                    for spec in TABLES.iter().filter(|spec| matches!(spec.name,
+                        "media_streams" | "media_stream_ends" | "media_segment_revisions"
+                            | "media_recordings" | "media_recording_controls" | "media_priority_inputs"
+                            | "inbox_events" | "session_events" | "subject_raw_inputs"))
+                    {
+                        media_rows.extend(read_table(&tx, spec)?);
+                    }
+                    if let Some(gap) = crate::media::media_recovery_gaps(&media_rows).first() {
+                        bail!("media import would publish a partial recovery binding; SQLite publication rolled back: {}", gap.detail);
                     }
                 }
                 if inserted > 0 || updated > 0 {
@@ -2489,6 +3292,20 @@ fn validate_subject_boundaries(
         let data_mode = value.get("mode").and_then(serde_json::Value::as_str)
             .context("imported subject head has no serialized mode")?;
         let column_mode = incoming.value("mode").context("imported subject head has no mode column")?;
+        // Legacy migration maps columns by name. It must not turn contradictory
+        // index columns and serialized head data into an admitted archive.
+        let head: SubjectBranchHead = serde::Deserialize::deserialize(&value)?;
+        let entity = |name: &str| incoming.value(name).and_then(|value| value.parse::<EntityId>().ok());
+        let number = |name: &str| incoming.value(name).and_then(|value| value.parse::<u64>().ok());
+        ensure!(entity("agent_id") == Some(head.agent_id)
+            && entity("branch_id") == Some(EntityId(head.branch_id.0))
+            && entity("next_step_id") == Some(head.next_step_id)
+            && number("committed_step_no") == Some(head.committed_step_no)
+            && number("record_revision") == Some(head.record_revision.0)
+            && incoming.value("committed_step_id").is_some() == head.committed_step_id.is_some()
+            && entity("committed_step_id") == head.committed_step_id
+            && column_mode == data_mode,
+            "imported subject head column/value mismatch");
         if column_mode == "paused" || data_mode == "paused" {
             ensure!(column_mode == "paused" && data_mode == "paused",
                 "imported paused subject head has inconsistent mode fields");
@@ -2496,7 +3313,6 @@ fn validate_subject_boundaries(
                 .context("imported paused subject head has no local boundary")?;
             ensure!(rows_equivalent(head_spec, &local, &incoming.values),
                 "imported paused subject head differs from the locally retained boundary");
-            let head: SubjectBranchHead = serde_json::from_value(value)?;
             validate_local_paused_successor(conn, &head)?;
         }
     }
@@ -2683,6 +3499,93 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
     TABLES.iter().find(|spec| spec.name == table)
 }
 
+/// The fact classes this reader replicates: the membership every archive
+/// this build writes declares.
+fn local_fact_classes() -> Vec<String> {
+    let mut names: Vec<String> = TABLES.iter().map(|spec| spec.name.to_string()).collect();
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// The archive's membership must be a membership this reader knows, and
+/// every row must belong to it. An archive naming an unknown class, or
+/// carrying a row outside its own declared membership, is refused whole:
+/// the receiver never guesses which facts the archive meant to carry.
+fn check_archive_membership(manifest: &CognitionManifest) -> Result<()> {
+    let known: HashSet<&str> = TABLES.iter().map(|spec| spec.name).collect();
+    for class in &manifest.fact_classes {
+        ensure!(
+            known.contains(class.as_str()),
+            "unsupported cognition fact class {}",
+            class
+        );
+    }
+    if manifest.fact_classes.is_empty() {
+        // An archive of the current schema must declare its membership: a
+        // current archive that hides which fact classes it carries is
+        // refused. An archive written before the membership existed
+        // declares nothing and is admitted under its own older schema.
+        ensure!(
+            manifest.schema < crate::cognition_archive::ARCHIVE_SCHEMA,
+            "current cognition archive must declare its fact classes"
+        );
+        return Ok(());
+    }
+    let declared: HashSet<&str> = manifest.fact_classes.iter().map(|name| name.as_str()).collect();
+    for row in &manifest.rows {
+        ensure!(
+            declared.contains(row.table.as_str()),
+            "cognition row {} is outside the archive's declared membership",
+            row.table
+        );
+    }
+    Ok(())
+}
+
+/// Migrate a legacy archive to the current column layout. The layout only
+/// ever grew: a legacy row has no value for the columns this schema added,
+/// so the migration is by NAME and every fact keeps its identity. A legacy
+/// column this schema no longer knows is reported as a non-blocking gap
+/// instead of disappearing silently.
+fn migrate_legacy_rows(manifest: &mut CognitionManifest) -> Vec<CognitionGap> {
+    let mut gaps = Vec::new();
+    for row in &mut manifest.rows {
+        let Some(spec) = spec_for(&row.table) else {
+            continue;
+        };
+        let mut values: Vec<(String, Option<String>)> = Vec::with_capacity(spec.columns.len());
+        for column in spec.columns {
+            let incoming = row
+                .values
+                .iter()
+                .find(|(name, _)| name == column)
+                .and_then(|(_, value)| value.clone());
+            values.push((column.to_string(), incoming));
+        }
+        let dropped: Vec<String> = row
+            .values
+            .iter()
+            .filter(|(name, _)| !spec.columns.iter().any(|column| *column == name.as_str()))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if !dropped.is_empty() {
+            gaps.push(CognitionGap {
+                kind: "migrated_legacy_column".into(),
+                detail: format!(
+                    "{} {} carried legacy columns {}",
+                    row.table,
+                    row.key,
+                    dropped.join(", ")
+                ),
+                blocking: false,
+            });
+        }
+        row.values = values;
+    }
+    gaps
+}
+
 /// `insert_row` uses positional values while admission and recovery use
 /// labels. Bind those two views, and the primary-key identity, before any
 /// publication. Both supported archive schemas use these same TableSpecs.
@@ -2713,11 +3616,198 @@ fn validate_cognition_rows(manifest: &CognitionManifest) -> Result<()> {
     Ok(())
 }
 
+/// The fact classes whose members cannot exist without their anchor row in
+/// the same archive: a member class, its anchor class, the member column
+/// that carries the binding and the anchor column it must match.
+///
+/// These are the REQUIRED facts of the archive: a durable binding, a
+/// tombstone or an armed effect. A peer that ships a member without its
+/// anchor has not shipped a complete fact, and the receiver must refuse the
+/// archive instead of admitting an orphan that no rule can ever complete.
+const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
+    ("content_stream_units", "content_streams", "stream_id", "stream_id"),
+    ("seat_leases", "seat_records", "seat_id", "seat_id"),
+    ("seat_questions", "seat_records", "seat_id", "seat_id"),
+    ("seat_answer_decisions", "seat_questions", "question_id", "question_id"),
+    ("research_candidates", "research_epochs", "epoch_id", "epoch_id"),
+    ("intervention_bank_entries", "research_epochs", "epoch_id", "epoch_id"),
+    ("intervention_reminders", "research_epochs", "epoch_id", "epoch_id"),
+    ("memory_intent_bindings", "memory_intents", "intent_id", "intent_id"),
+    ("quota_sends", "quota_attempts", "request_id", "request_id"),
+    ("media_recordings", "media_streams", "stream_key", "stream_key"),
+    ("media_recording_controls", "media_streams", "stream_key", "stream_key"),
+    ("media_priority_inputs", "media_streams", "stream_key", "stream_key"),
+    ("artifact_manifests", "artifact_records", "artifact_id", "artifact_id"),
+    ("artifact_runtime_instances", "artifact_records", "artifact_id", "artifact_id"),
+];
+
+/// The REQUIRED-fact closure of an archive: every member row must find its
+/// anchor row in the same archive. A gap here is blocking — the archive
+/// does not describe a complete set of facts.
+fn archive_membership_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
+    let mut gaps = Vec::new();
+    for entry in FACT_CLASS_ANCHORS {
+        let member = entry.0;
+        let anchor = entry.1;
+        let member_column = entry.2;
+        let anchor_column = entry.3;
+        let anchors: HashSet<&str> = rows
+            .iter()
+            .filter(|row| row.table == anchor)
+            .filter_map(|row| row.value(anchor_column))
+            .collect();
+        for row in rows.iter().filter(|row| row.table == member) {
+            let Some(binding) = row.value(member_column) else {
+                continue;
+            };
+            if !anchors.contains(binding) {
+                gaps.push(CognitionGap {
+                    kind: "missing_anchor".into(),
+                    detail: format!(
+                        "{} {} has no {} for {}={}",
+                        member, row.key, anchor, member_column, binding
+                    ),
+                    blocking: true,
+                });
+            }
+        }
+    }
+    // A quota event names the fact it describes by id in its payload, and it
+    // is written in the same transaction as that fact. The archive must
+    // carry the cause, so an event never travels without it.
+    for (field, cause, id_column) in QUOTA_EVENT_CAUSES {
+        let present: HashSet<&str> = rows
+            .iter()
+            .filter(|row| row.table == *cause)
+            .filter_map(|row| row.value(id_column))
+            .collect();
+        if present.is_empty() {
+            continue;
+        }
+        for row in rows.iter().filter(|row| row.table == "quota_events") {
+            let Some(data) = row.value("data") else {
+                continue;
+            };
+            let Ok(event) = serde_json::from_str::<serde_json::Value>(data) else {
+                continue;
+            };
+            let Some(payload) = event.get("payload") else {
+                continue;
+            };
+            let Some(id) = payload.get(*field).and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            if !present.contains(id) {
+                gaps.push(CognitionGap {
+                    kind: "missing_cause".into(),
+                    detail: format!(
+                        "quota event {} has no {} for {}={}",
+                        row.key, cause, field, id
+                    ),
+                    blocking: true,
+                });
+            }
+        }
+    }
+    // An obligation and an attention policy name the sealed decision of the
+    // SAME step that authored them, and an obligation's origin event must
+    // be an event this archive knows. A row whose step or event is missing
+    // is an incomplete fact, not a fact to interpret loosely.
+    let steps: HashMap<&str, &CognitionRow> = rows
+        .iter()
+        .filter(|row| row.table == "subject_steps")
+        .map(|row| (row.key.as_str(), row))
+        .collect();
+    for row in rows.iter().filter(|row| {
+        row.table == "subject_obligations" || row.table == "subject_attention_policies"
+    }) {
+        let Some(step_id) = row.value("step_id") else {
+            continue;
+        };
+        let Some(step) = steps.get(step_id) else {
+            gaps.push(CognitionGap {
+                kind: "missing_step".into(),
+                detail: format!("{} {} has no subject step {}", row.table, row.key, step_id),
+                blocking: true,
+            });
+            continue;
+        };
+        let step_decision = step
+            .value("data")
+            .and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok())
+            .and_then(|step| step.get("decision_ref").cloned())
+            .and_then(|decision| {
+                decision
+                    .get("digest")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            });
+        let row_decision = row.value("decision_ref").and_then(decision_ref_digest);
+        if let (Some(step_decision), Some(row_decision)) = (step_decision, row_decision) {
+            if step_decision != row_decision {
+                gaps.push(CognitionGap {
+                    kind: "decision_mismatch".into(),
+                    detail: format!(
+                        "{} {} names decision {} but its step {} decided {}",
+                        row.table, row.key, row_decision, step_id, step_decision
+                    ),
+                    blocking: true,
+                });
+            }
+        }
+    }
+    let events: HashSet<&str> = rows
+        .iter()
+        .filter(|row| row.table == "inbox_events")
+        .map(|row| row.key.as_str())
+        .collect();
+    for row in rows.iter().filter(|row| row.table == "subject_obligations") {
+        let Some(origin) = row.value("origin_event_id") else {
+            continue;
+        };
+        if !events.contains(origin) {
+            gaps.push(CognitionGap {
+                kind: "missing_origin_event".into(),
+                detail: format!("obligation {} names origin event {}", row.key, origin),
+                blocking: true,
+            });
+        }
+    }
+    gaps
+}
+
+/// The content identity of a sealed decision reference.
+fn decision_ref_digest(value: &str) -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(value).ok()?;
+    parsed
+        .get("digest")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+}
+
+/// The fact a quota event describes: the payload field that names it, the
+/// class that holds it and that class's id column.
+const QUOTA_EVENT_CAUSES: &[(&str, &str, &str)] = &[
+    ("snapshot_id", "quota_snapshots", "snapshot_id"),
+    ("forecast_id", "quota_forecasts", "forecast_id"),
+    ("decision_id", "quota_decisions", "decision_id"),
+    ("policy_id", "quota_policies", "policy_id"),
+];
+
 fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     let mut intents = HashMap::new();
     let mut bindings = HashMap::new();
     let mut entries = HashSet::new();
     let mut gaps = Vec::new();
+    // The subject settles its own memory in one ledger transaction and
+    // intentionally carries no library binding sidecar. That dedicated
+    // representation is valid, not corrupt: it only needs its own facts.
+    let subject_memory_intents: HashSet<&str> = rows
+        .iter()
+        .filter(|row| row.table == "subject_intents")
+        .filter(|row| row.value("kind") == Some("memory"))
+        .filter_map(|row| row.value("intent_id"))
+        .collect();
     for row in rows.iter().filter(|row| row.table == "memory_entries") {
         if row.value("entry_id") != Some(row.key.as_str()) || !entries.insert(row.key.as_str()) {
             gaps.push(CognitionGap {
@@ -2754,11 +3844,18 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
     }
     let mut entry_owners = HashMap::new();
     for (id, intent) in &intents {
-        let library_pending = intent.value("state") == Some("accepted")
+        let subject_owned = subject_memory_intents.contains(*id);
+        let library_pending = !subject_owned
+            && intent.value("state") == Some("accepted")
             && matches!(intent.value("kind"), Some("save" | "correct" | "forget" | "recall"));
         let entry_present = intent.value("entry_id").is_some_and(|id| id.parse::<EntityId>().is_ok());
         let entry_id = intent.value("entry_id");
-        let duplicate_entry = entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
+        // Only producing intents own their entry: a forget *references* the
+        // entry it retires, so a Save→Forget history legitimately binds the
+        // same entry_id twice without sharing a produced identity.
+        let produces_entry = intent.value("kind") != Some("forget");
+        let duplicate_entry = produces_entry
+            && entry_id.is_some_and(|entry| entry_owners.insert(entry, *id).is_some());
         let missing_committed_entry = intent.value("state") == Some("committed")
             && entry_id.is_none_or(|entry| !entries.contains(entry));
         let missing_pending_identity = library_pending
@@ -2779,15 +3876,19 @@ fn memory_intent_binding_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
 }
 
 #[derive(Clone, Copy)]
-enum MemoryRowOutcome {
+enum RecoveryFactOutcome {
     Inserted,
     Updated,
     Unchanged,
     Conflict,
 }
 
-fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> Option<&'a str> {
-    values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
+#[derive(Clone, Copy)]
+enum MemoryRowOutcome {
+    Inserted,
+    Updated,
+    Unchanged,
+    Conflict,
 }
 
 fn apply_memory_row(
@@ -2812,9 +3913,282 @@ fn apply_memory_row(
     Ok(result)
 }
 
-/// A request, immutable reference and associated committed entry are reconciled
-/// together. A locator-only legacy request cannot acquire another source's
-/// digest merely because its intent ID or locator happens to match.
+/// The merge of a peer fact that diverges from the local one, for the fact
+/// classes whose OWN rule decides the outcome. `None` means the class has
+/// no merge rule: the local fact stays and the divergence is a conflict.
+///
+/// Two classes differ from a verbatim copy:
+///   * a retirement is monotone — a peer may retire a live local fact and
+///     may never revive a retired one;
+///   * a record with its own revision is ordered by that revision, so the
+///     peer advances the record only with a strictly greater one. Which
+///     peer answered first never decides.
+fn merge_diverged_fact(
+    tx: &Transaction<'_>,
+    spec: &TableSpec,
+    row: &CognitionRow,
+    local: &[(String, Option<String>)],
+    seq: LedgerSeq,
+) -> Result<Option<RecoveryFactOutcome>> {
+    match spec.kind {
+        RowKind::Monotonic => {
+            let local_retired = row_is_retired(local);
+            let peer_retired = row_is_retired(&row.values);
+            if !peer_retired || local_retired {
+                // A retired local fact keeps its retirement, and two
+                // different retirements of the same fact keep the first.
+                return Ok(None);
+            }
+            match update_row(tx, spec, row, seq) {
+                Ok(()) => Ok(Some(RecoveryFactOutcome::Updated)),
+                Err(error) if is_constraint_violation(&error) => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        RowKind::Revisioned => {
+            let column = revision_column(spec);
+            let local_revision = column.and_then(|column| {
+                local
+                    .iter()
+                    .find(|(name, _)| name == column)
+                    .and_then(|(_, value)| value.as_deref())
+                    .and_then(|value| value.parse::<u64>().ok())
+            });
+            let peer_revision = column
+                .and_then(|column| row.value(column))
+                .and_then(|value| value.parse::<u64>().ok());
+            let ahead = match (local_revision, peer_revision) {
+                (Some(local_revision), Some(peer_revision)) => peer_revision > local_revision,
+                _ => false,
+            };
+            if !ahead {
+                // The peer is behind, or both records claim the same
+                // revision with different content: the local record stays
+                // and the divergence is reported.
+                return Ok(None);
+            }
+            match update_row(tx, spec, row, seq) {
+                Ok(()) => Ok(Some(RecoveryFactOutcome::Updated)),
+                Err(error) if is_constraint_violation(&error) => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        RowKind::Ladder => {
+            let Some(ladder) = state_ladder(spec) else {
+                return Ok(None);
+            };
+            if !ladder_advances(ladder, local, row) {
+                return Ok(None);
+            }
+            match update_row(tx, spec, row, seq) {
+                Ok(()) => Ok(Some(RecoveryFactOutcome::Updated)),
+                Err(error) if is_constraint_violation(&error) => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        _ => Ok(None),
+    }
+}
+
+/// The monotone state ladder of a fact class: the states in the order they
+/// may be reached. A peer may move a row forward along it and never
+/// backward, and a terminal state is never rewritten.
+fn state_ladder(spec: &TableSpec) -> Option<&'static [&'static str]> {
+    match spec.name {
+        // The subject arms a request before any wire send, the broker's
+        // send boundary flips it to dispatched exactly once, and the
+        // terminal provider evidence ends it.
+        "subject_request_attempts" => Some(&["armed", "dispatched", "terminal"]),
+        // An obligation stays open until a later committed step completes
+        // or cancels it; both end states are final.
+        "subject_obligations" => Some(&["open", "completed", "cancelled"]),
+        _ => None,
+    }
+}
+
+/// Does the peer move this row forward along its ladder? A state the class
+/// does not know is never admissible, and a terminal state is never left.
+fn ladder_advances(
+    ladder: &[&str],
+    local: &[(String, Option<String>)],
+    row: &CognitionRow,
+) -> bool {
+    let peer_state = row.value("state").unwrap_or_default();
+    let Some(peer_index) = ladder
+        .iter()
+        .position(|state| *state == ladder_state(peer_state))
+    else {
+        return false;
+    };
+    let local_state = local
+        .iter()
+        .find(|(name, _)| name == "state")
+        .and_then(|(_, value)| value.as_deref())
+        .unwrap_or_default();
+    match ladder
+        .iter()
+        .position(|state| *state == ladder_state(local_state))
+    {
+        Some(local_index) => peer_index > local_index,
+        None => true,
+    }
+}
+
+/// The stored state text of a ladder class. The state is stored as its
+/// serialized form, so the same ladder must read both the bare name and
+/// the quoted one.
+fn ladder_state(value: &str) -> &str {
+    value.trim().trim_matches('"')
+}
+
+/// The columns that carry a retirement marker on a monotone fact class.
+const TOMBSTONE_COLUMNS: &[&str] = &["tombstoned_at_ms", "deleted_at_ms", "superseded_by"];
+
+/// Is this row a retirement of its fact?
+fn row_is_retired(values: &[(String, Option<String>)]) -> bool {
+    values.iter().any(|(name, value)| {
+        TOMBSTONE_COLUMNS
+            .iter()
+            .any(|column| *column == name.as_str())
+            && value.as_deref().is_some_and(|value| !value.is_empty())
+    })
+}
+
+/// The explicit revision column of a revisioned fact class.
+fn revision_column(spec: &TableSpec) -> Option<&'static str> {
+    ["record_revision", "revision", "selector_revision", "created_seq"]
+        .into_iter()
+        .find(|name| spec.columns.contains(name))
+}
+
+fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> Option<&'a str> {
+    values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
+}
+
+fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &CognitionRow) -> bool {
+    let value = |name: &str| local.iter().find(|(column, _)| column == name)
+        .and_then(|(_, value)| value.as_deref());
+    local.iter().all(|(column, local)| {
+        let immutable = match incoming.table.as_str() {
+            "inbox_events" => column != "consumed",
+            "media_stream_ends" => true,
+            "media_recording_controls" | "media_priority_inputs" => true,
+            "media_recordings" => matches!(column.as_str(),
+                "stream_key" | "agent_id" | "recording_id" | "started_at_ms"
+                    | "start_control_id" | "scope_json")
+                || (matches!(value("state"), Some("stopped" | "failed"))
+                    && matches!(column.as_str(),
+                        "state" | "stopped_at_ms" | "stop_control_id" | "reason")),
+            "media_segment_revisions" => column != "superseded_by_revision" || local.is_some(),
+            "media_streams" => matches!(column.as_str(),
+                "stream_key" | "agent_id" | "provider" | "account" | "stream_id" | "opened_at_ms")
+                || (value("open_id").is_some() && matches!(column.as_str(),
+                    "open_id" | "open_event_id" | "open_commit_ref" | "descriptor"))
+                || (matches!(value("state"), Some("ended" | "cancelled"))
+                    && matches!(column.as_str(), "state" | "end_id" | "end_event_id" | "ended_at_ms" | "end_reason")),
+            _ => false,
+        };
+        !immutable || local.as_deref() == incoming.value(column)
+    }) && !(incoming.table == "media_streams" && value("state") == Some("disconnected")
+        && incoming.value("state") == Some("open"))
+}
+
+fn apply_recovery_fact(
+    tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
+) -> Result<RecoveryFactOutcome> {
+    let local = read_existing(tx, spec, row)?;
+    if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions"
+        | "media_recordings" | "media_recording_controls" | "media_priority_inputs" | "inbox_events")
+        && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))
+    {
+        return Ok(RecoveryFactOutcome::Conflict);
+    }
+    let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
+    let result = match local {
+        None => match insert_row(tx, spec, row, seq) {
+            Ok(()) => RecoveryFactOutcome::Inserted,
+            Err(error) if is_constraint_violation(&error) => return Ok(RecoveryFactOutcome::Conflict),
+            Err(error) => return Err(error),
+        },
+        Some(local) if rows_equivalent(spec, &local, &row.values) => RecoveryFactOutcome::Unchanged,
+        Some(local) => {
+            // A class with a monotone state ladder moves forward only: the
+            // peer may advance the row, never rewind it, and a terminal
+            // state is never rewritten.
+            if let Some(ladder) = state_ladder(spec) {
+                if !ladder_advances(ladder, &local, row) {
+                    return Ok(RecoveryFactOutcome::Conflict);
+                }
+            }
+            if baseline
+                .as_ref()
+                .is_some_and(|baseline| rows_equivalent(spec, &local, baseline))
+            {
+                match update_row(tx, spec, row, seq) {
+                    Ok(()) => {}
+                    Err(error) if is_constraint_violation(&error) => {
+                        return Ok(RecoveryFactOutcome::Conflict)
+                    }
+                    Err(error) => return Err(error),
+                }
+                RecoveryFactOutcome::Updated
+            } else {
+                match merge_diverged_fact(tx, spec, row, &local, seq)? {
+                    Some(outcome) => outcome,
+                    None => return Ok(RecoveryFactOutcome::Conflict),
+                }
+            }
+        }
+    };
+    write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
+    Ok(result)
+}
+
+/// One memory intent inside an archive conflict unit: the request, its
+/// durable binding, the local rows it would replace and the per-row apply
+/// results a committed unit reports.
+struct MemoryIntentMember {
+    key: String,
+    parent: CognitionRow,
+    binding: Option<CognitionRow>,
+    local: Option<Vec<(String, Option<String>)>>,
+    local_binding: Option<String>,
+    compatible: bool,
+    results: [Option<MemoryRowOutcome>; 2],
+}
+
+/// Did the unit refuse a peer fact that differs from what this store holds?
+/// An identical row kept by the rejection is not a conflict; a refused
+/// insertion, update or identity-mismatched request is.
+fn memory_member_differs(member: &MemoryIntentMember) -> bool {
+    let parent_differs = match member.results[0] {
+        Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+        Some(MemoryRowOutcome::Unchanged) => false,
+        None => match &member.local {
+            None => true,
+            Some(local) => local != &member.parent.values,
+        },
+    };
+    let binding_differs = match member.results[1] {
+        Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+        Some(MemoryRowOutcome::Unchanged) => false,
+        None => match (&member.local_binding, &member.binding) {
+            (None, None) => false,
+            (Some(_), None) => true,
+            (None, Some(incoming)) => incoming.value("data").is_some(),
+            (Some(local), Some(incoming)) => incoming.value("data") != Some(local.as_str()),
+        },
+    };
+    parent_differs || binding_differs
+}
+
+/// A request, its immutable reference, the produced or targeted entry and
+/// every other intent bound to that same entry are reconciled as one atomic
+/// conflict unit. A locator-only legacy request cannot acquire another
+/// source's digest merely because its intent ID or locator happens to match,
+/// and a refused intent can never publish its effect through a sibling: a
+/// divergent `forget` cannot hide the entry its `save` parent still
+/// protects, and a divergent entry refuses the intents that reference it.
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<CognitionApplyOutcome> {
@@ -2827,12 +4201,17 @@ fn apply_memory_pairs(
     let entries: HashMap<&str, &CognitionRow> = rows.iter()
         .filter(|row| row.table == entry_spec.name)
         .map(|row| (row.key.as_str(), *row)).collect();
-    let mut outcome = CognitionApplyOutcome::default();
+
+    // Group intents by the entry they reference: every intent bound to the
+    // same `entry_id` shares that entry's fate, so the whole group must
+    // reconcile together or not at all. Intents without an entry form their
+    // own unit. Grouping follows manifest order so application and conflict
+    // reporting stay deterministic.
+    let mut units: Vec<(String, Vec<MemoryIntentMember>)> = Vec::new();
+    let mut unit_index: HashMap<String, usize> = HashMap::new();
     for row in rows.iter().filter(|row| row.table == parents.name) {
         let mut parent = effective_row(row, parents)?;
         let mut binding = bindings.get(row.key.as_str()).map(|row| effective_row(row, sidecars)).transpose()?;
-        let entry = parent.value("entry_id").and_then(|id| entries.get(id))
-            .map(|row| effective_row(row, entry_spec)).transpose()?;
         let local = read_existing(tx, parents, &parent)?;
         let local_binding: Option<String> = tx.query_row(
             "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
@@ -2854,7 +4233,20 @@ fn apply_memory_pairs(
             };
             let local_locator = memory_row_value(local, "content_ref");
             match (local_binding.as_deref(), binding.as_mut()) {
-                (None, None) => compatible &= local_locator == parent.value("content_ref"),
+                (None, None) => {
+                    // The dedicated subject representation keeps no binding
+                    // sidecar; compare the content-addressed locator tail,
+                    // never the node-local path (SPEC §12.2: a locator may
+                    // change while the content identity stays).
+                    compatible &= match (local_locator, parent.value("content_ref")) {
+                        (None, None) => true,
+                        (Some(left), Some(right)) => {
+                            crate::memory::portable_locator(left)
+                                == crate::memory::portable_locator(right)
+                        }
+                        _ => false,
+                    };
+                }
                 (Some(local_data), Some(incoming)) => {
                     let incoming_data = incoming.value("data");
                     compatible &= crate::memory::memory_binding_matches_locator(local_data, local_locator)
@@ -2874,42 +4266,690 @@ fn apply_memory_pairs(
             compatible = false;
         }
 
-        let mut results = [None; 3];
-        if compatible {
-            tx.execute("SAVEPOINT memory_intent_pair", []).map_err(db)?;
-            results[0] = Some(apply_memory_row(tx, parents, &parent, peer_id, seq)?);
-            if !matches!(results[0], Some(MemoryRowOutcome::Conflict)) {
-                if let Some(binding) = &binding {
-                    results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+        let unit_key = parent.value("entry_id").unwrap_or(row.key.as_str()).to_string();
+        let index = *unit_index.entry(unit_key.clone()).or_insert_with(|| {
+            units.push((unit_key, Vec::new()));
+            units.len() - 1
+        });
+        units[index].1.push(MemoryIntentMember {
+            key: row.key.clone(),
+            parent,
+            binding,
+            local,
+            local_binding,
+            compatible,
+            results: [None; 2],
+        });
+    }
+
+    let mut outcome = CognitionApplyOutcome::default();
+    for (entry_key, members) in &mut units {
+        let entry = entries
+            .get(entry_key.as_str())
+            .map(|row| effective_row(row, entry_spec))
+            .transpose()?;
+        // One savepoint covers the entry and every referencing intent: any
+        // refused member, or an entry the peer changed past its delivered
+        // baseline, rolls the whole unit back so no partial row or baseline
+        // mirror survives.
+        let mut rejected = members.iter().any(|member| !member.compatible);
+        let mut entry_result = None;
+        if !rejected {
+            tx.execute("SAVEPOINT memory_intent_unit", []).map_err(db)?;
+            for member in members.iter_mut() {
+                member.results[0] = Some(apply_memory_row(tx, parents, &member.parent, peer_id, seq)?);
+                if !matches!(member.results[0], Some(MemoryRowOutcome::Conflict)) {
+                    if let Some(binding) = &member.binding {
+                        member.results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+                    }
                 }
             }
-            if !results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
+            if members.iter().all(|member| {
+                member.results.iter().all(|result| !matches!(result, Some(MemoryRowOutcome::Conflict)))
+            }) {
                 if let Some(entry) = &entry {
-                    results[2] = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                    entry_result = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
                 }
             }
-            if results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict))) {
-                tx.execute("ROLLBACK TO memory_intent_pair", []).map_err(db)?;
-                compatible = false;
+            rejected = entry_result.is_some_and(|result| matches!(result, MemoryRowOutcome::Conflict))
+                || members.iter().any(|member| {
+                    member.results.iter().any(|result| matches!(result, Some(MemoryRowOutcome::Conflict)))
+                });
+            if rejected {
+                tx.execute("ROLLBACK TO memory_intent_unit", []).map_err(db)?;
             }
-            tx.execute("RELEASE memory_intent_pair", []).map_err(db)?;
+            tx.execute("RELEASE memory_intent_unit", []).map_err(db)?;
         }
-        if compatible {
-            for result in results.into_iter().flatten() {
-                match result {
-                    MemoryRowOutcome::Inserted => outcome.inserted += 1,
-                    MemoryRowOutcome::Updated => outcome.updated += 1,
-                    MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
-                    MemoryRowOutcome::Conflict => unreachable!(),
+        if !rejected {
+            for member in members.iter() {
+                for result in member.results.into_iter().flatten() {
+                    match result {
+                        MemoryRowOutcome::Inserted => outcome.inserted += 1,
+                        MemoryRowOutcome::Updated => outcome.updated += 1,
+                        MemoryRowOutcome::Unchanged => outcome.unchanged += 1,
+                        MemoryRowOutcome::Conflict => unreachable!(),
+                    }
                 }
+            }
+            match entry_result {
+                Some(MemoryRowOutcome::Inserted) => outcome.inserted += 1,
+                Some(MemoryRowOutcome::Updated) => outcome.updated += 1,
+                Some(MemoryRowOutcome::Unchanged) => outcome.unchanged += 1,
+                Some(MemoryRowOutcome::Conflict) | None => {}
             }
         } else {
-            let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
-            record_conflict(tx, peer_id, parents.name, &row.key, &detail)?;
-            outcome.conflicts.push(CognitionConflict { table: parents.name.into(), key: row.key.clone(), detail });
+            for member in members.iter() {
+                if !memory_member_differs(member) {
+                    continue;
+                }
+                let detail = "memory intent and its reference conflict; the local identity is kept".to_string();
+                record_conflict(tx, peer_id, parents.name, &member.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict {
+                    table: parents.name.into(),
+                    key: member.key.clone(),
+                    detail,
+                });
+            }
+            if let Some(entry) = &entry {
+                let entry_differs = match entry_result {
+                    Some(MemoryRowOutcome::Conflict | MemoryRowOutcome::Inserted | MemoryRowOutcome::Updated) => true,
+                    Some(MemoryRowOutcome::Unchanged) => false,
+                    None => match read_existing(tx, entry_spec, entry)? {
+                        None => true,
+                        Some(local) => local != entry.values,
+                    },
+                };
+                if entry_differs {
+                    let detail = "the memory entry reconciles with its intents; the local value is kept".to_string();
+                    record_conflict(tx, peer_id, entry_spec.name, &entry.key, &detail)?;
+                    outcome.conflicts.push(CognitionConflict {
+                        table: entry_spec.name.into(),
+                        key: entry.key.clone(),
+                        detail,
+                    });
+                }
+            }
         }
     }
     Ok(outcome)
+}
+
+fn task_row_json(row: &CognitionRow) -> Option<serde_json::Value> {
+    row.value("data").and_then(|data| serde_json::from_str(data).ok())
+}
+
+/// The exact task-owned event shapes produced by native T2 / Playground.
+/// No recursive keyword search: an arbitrary message mentioning a task id
+/// must remain an independent observation.
+fn task_delivery_owner(event: &serde_json::Value) -> Option<String> {
+    let source = event.get("source")?.as_str()?;
+    let payload = event.get("payload")?;
+    if (source == "native-child" && event.get("kind")?.as_str()? == "task_result")
+        || source == "playground"
+    {
+        payload.get("task_id")?.as_str().map(str::to_owned)
+    } else { None }
+}
+
+/// Complete task execution AND delivery facts form one conflict unit.
+/// Parentless executions are rejected, never grafted onto a local task merely
+/// because its deterministic id happens to match. Pending and already-staged
+/// T2 text is applied inside the same savepoint as the original sealed input.
+fn apply_task_closures<'a>(
+    tx: &Transaction<'_>,
+    rows: &[&'a CognitionRow],
+    peer_id: EntityId,
+    seq: LedgerSeq,
+    manifest: &CognitionManifest,
+) -> Result<(
+    CognitionApplyOutcome,
+    HashSet<(&'a str, &'a str)>,
+    HashSet<(&'a str, &'a str)>,
+    HashSet<String>,
+)> {
+    fn add<'a>(
+        groups: &mut HashMap<String, Vec<&'a CognitionRow>>,
+        owned: &mut HashSet<(&'a str, &'a str)>, row: &'a CognitionRow, task: Option<String>,
+    ) -> String {
+        let task = task.unwrap_or_else(|| format!("unbound/{}/{}", row.table, row.key));
+        groups.entry(task.clone()).or_default().push(row);
+        owned.insert((row.table.as_str(), row.key.as_str()));
+        task
+    }
+    let task_spec = spec_for("tasks").expect("task table is registered");
+    let tasks: HashMap<&str, &CognitionRow> = rows.iter().copied().filter(|r| r.table == "tasks")
+        .map(|row| (row.key.as_str(), row)).collect();
+    let mut groups = HashMap::new();
+    let mut owned = HashSet::new();
+    for row in tasks.values().copied() {
+        add(&mut groups, &mut owned, row, Some(row.key.clone()));
+    }
+    let mut operation_owners = HashMap::new();
+    for row in rows.iter().copied().filter(|row| row.table == "operations") {
+        let owner = task_row_json(row).and_then(|data| data.get("task_id")?.as_str().map(str::to_owned));
+        let task = add(&mut groups, &mut owned, row, owner);
+        operation_owners.insert(row.key.as_str(), task);
+    }
+    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(), "attempts" | "evidence_receipts" | "task_results")) {
+        let task = if row.table == "task_results" {
+            row.value("task_id").map(str::to_owned)
+        } else {
+            row.value("operation_id").and_then(|id| operation_owners.get(id)).cloned()
+        };
+        add(&mut groups, &mut owned, row, task);
+    }
+    let mut event_owners = HashMap::new();
+    for row in rows.iter().copied().filter(|row| row.table == "inbox_events") {
+        let data = task_row_json(row);
+        let native = row.value("kind") == Some("task_result") && row.value("source") == Some("native-child");
+        let task = if native {
+            data.as_ref().and_then(|value| value.get("task_id")?.as_str().map(str::to_owned))
+        } else { data.as_ref().and_then(task_delivery_owner) };
+        if native || task.is_some() {
+            let task = add(&mut groups, &mut owned, row, task);
+            event_owners.insert(row.key.as_str(), task);
+        }
+    }
+    let mut raw_owners = HashMap::new();
+    let mut invalid_groups = HashSet::new();
+    for row in rows.iter().copied().filter(|row| row.table == "session_events") {
+        let data = task_row_json(row);
+        let original = data.as_ref().and_then(|data| data.get("inbox_event"));
+        let task = original.and_then(task_delivery_owner);
+        let native = original.is_some_and(|event| event.get("source").and_then(serde_json::Value::as_str) == Some("native-child")
+            && event.get("kind").and_then(serde_json::Value::as_str) == Some("task_result"));
+        if native || task.is_some() {
+            let task = add(&mut groups, &mut owned, row, task);
+            let source = original.and_then(|event| event.get("event_id")).and_then(serde_json::Value::as_str).map(str::to_owned);
+            raw_owners.insert(row.key.as_str(), (task, source));
+        }
+    }
+    for row in rows.iter().copied().filter(|row| row.table == "subject_raw_inputs") {
+        let raw = row.value("raw_event_id").and_then(|id| raw_owners.get(id));
+        let event = row.value("source_event_id").and_then(|id| event_owners.get(id));
+        if raw.is_some() || event.is_some() {
+            let task = raw.map(|(task, _)| task.clone()).or_else(|| event.cloned());
+            let task = add(&mut groups, &mut owned, row, task);
+            if raw.is_none_or(|(_, source)| source.as_deref() != row.value("source_event_id"))
+                || event.is_some_and(|owner| owner != &task)
+            {
+                invalid_groups.insert(task);
+                if let Some(owner) = event { invalid_groups.insert(owner.clone()); }
+            }
+        }
+    }
+    let mut outcome = CognitionApplyOutcome::default();
+    let mut rejected = HashSet::new();
+    let mut rejected_ids = HashSet::new();
+    for (task_id, mut group) in groups {
+        let parent = tasks.get(task_id.as_str()).copied();
+        let mut conflict = parent.is_none() || invalid_groups.contains(&task_id);
+        if let Some(parent) = parent {
+            // An immutable action input cannot change, even if the nil-peer
+            // baseline happens to match the local record from another source.
+            if let Some(local) = read_existing(tx, task_spec, parent)? {
+                let local = memory_row_value(&local, "data").and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok());
+                let incoming = task_row_json(parent);
+                if local.as_ref().is_some_and(|data| data["kind"] == "playground.backend")
+                    || incoming.as_ref().is_some_and(|data| data["kind"] == "playground.backend")
+                {
+                    conflict |= match (&local, &incoming) {
+                        (Some(local), Some(incoming)) => ["task_id", "agent_id", "kind", "definition_version"].iter()
+                            .any(|key| local.get(*key) != incoming.get(*key))
+                            || ["digest", "bytes"].iter().any(|key|
+                                local.get("input_ref").and_then(|input| input.get(*key))
+                                    != incoming.get("input_ref").and_then(|input| input.get(*key))),
+                        _ => true,
+                    };
+                }
+            }
+        }
+        // The same fixed SQL identifier is reused only after RELEASE. UUIDs
+        // are data, never interpolated into SQLite identifiers.
+        tx.execute("SAVEPOINT task_closure", []).map_err(db)?;
+        let mut part = CognitionApplyOutcome::default();
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        if !conflict {
+            for row in &group {
+                let spec = spec_for(&row.table).context("unregistered task recovery table")?;
+                let effective = effective_row(row, spec)?;
+                match apply_recovery_fact(tx, spec, &effective, peer_id, seq)? {
+                    RecoveryFactOutcome::Conflict => { conflict = true; break; }
+                    RecoveryFactOutcome::Inserted => part.inserted += 1,
+                    RecoveryFactOutcome::Updated => part.updated += 1,
+                    RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
+                }
+                record_origin(tx, spec, &effective, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+            }
+        }
+        if conflict { tx.execute("ROLLBACK TO task_closure", []).map_err(db)?; }
+        tx.execute("RELEASE task_closure", []).map_err(db)?;
+        if conflict {
+            rejected_ids.insert(task_id.clone());
+            for row in group {
+                rejected.insert((row.table.as_str(), row.key.as_str()));
+                rejected_ids.insert(row.key.clone());
+                let detail = format!("task {task_id} input/execution/delivery closure conflicts or lacks its incoming parent; the complete local unit is kept");
+                record_conflict(tx, peer_id, &row.table, &row.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict { table: row.table.clone(), key: row.key.clone(), detail });
+            }
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, owned, rejected, rejected_ids))
+}
+
+/// The tables that belong to a multi-row semantic conflict unit. Rows of a
+/// unit are applied inside one savepoint: if any member conflicts, the
+/// WHOLE unit stays local, so a peer can never graft half a bound effect
+/// (a lease without its seat, a send without its request, a question's
+/// decision without its question).
+fn unit_key_for<'a>(
+    row: &'a CognitionRow,
+    question_seats: &HashMap<&'a str, String>,
+) -> Option<String> {
+    let key = match row.table.as_str() {
+        "research_epochs" => Some(format!("epoch/{}", row.key)),
+        "research_candidates" | "intervention_bank_entries" | "intervention_reminders" => {
+            row.value("epoch_id").map(|epoch| format!("epoch/{epoch}"))
+        }
+        "seat_records" => Some(format!("seat/{}", row.key)),
+        "seat_leases" | "seat_questions" => {
+            row.value("seat_id").map(|seat| format!("seat/{seat}"))
+        }
+        "seat_answer_decisions" => row
+            .value("question_id")
+            .and_then(|question| question_seats.get(question))
+            .map(|seat| format!("seat/{seat}")),
+        "quota_attempts" | "quota_sends" => row
+            .value("request_id")
+            .map(|request| format!("quota_request/{request}")),
+        "quota_events" => Some(format!("quota_event/{}", row.key)),
+        "retention_tombstones" => Some(format!("tombstone/{}", row.key)),
+        "web_input_submissions" => Some(format!(
+            "web_input/{}/{}",
+            row.value("agent_id").unwrap_or_default(),
+            row.value("submission_id").unwrap_or_default()
+        )),
+        "web_input_withdrawals" => Some(format!(
+            "web_input/{}/{}",
+            row.value("agent_id").unwrap_or_default(),
+            row.value("submission_id").unwrap_or_default()
+        )),
+        "channel_runtime_facts" => Some(format!("channel_fact/{}", row.key)),
+        "channel_record_migrations" => Some(format!(
+            "channel_migration/{}/{}",
+            row.value("record_kind").unwrap_or_default(),
+            row.value("record_id").unwrap_or_default()
+        )),
+        "subject_request_attempts" => Some(format!("request/{}", row.key)),
+        "subject_obligations" => Some(format!("obligation/{}", row.key)),
+        "subject_attention_policies" => Some(format!("attention/{}", row.key)),
+        "person_claims" => Some(format!(
+            "person/{}/{}",
+            row.value("agent_id").unwrap_or_default(),
+            row.value("person_id").unwrap_or_default()
+        )),
+        "person_identity_events" => Some(format!(
+            "person/{}/{}",
+            row.value("agent_id").unwrap_or_default(),
+            row.value("source_person_id").unwrap_or_default()
+        )),
+        "admin_facts" => (row.value("subject_kind") == Some("person")).then(|| {
+            format!(
+                "person/{}/{}",
+                row.value("agent_id").unwrap_or_default(),
+                row.value("subject_key").unwrap_or_default()
+            )
+        }),
+        "activation_records" | "activation_selectors" | "activation_launch_receipts" => row
+            .value("agent_id")
+            .map(|agent| format!("activation/{agent}")),
+        "subject_output_parts" => Some(format!(
+            "output/{}/{}/{}",
+            row.value("agent_id").unwrap_or_default(),
+            row.value("stream_id").unwrap_or_default(),
+            row.value("message_id").unwrap_or_default()
+        )),
+        "content_streams" => Some(format!("stream/{}", row.key)),
+        "content_stream_units" => row
+            .value("stream_id")
+            .map(|stream| format!("stream/{stream}")),
+        "media_recordings" | "media_recording_controls" | "media_priority_inputs" => row
+            .value("stream_key")
+            .map(|stream| format!("media/{stream}")),
+        "artifact_records" => Some(format!("artifact/{}", row.key)),
+        "artifact_manifests" | "artifact_runtime_instances" => row
+            .value("artifact_id")
+            .map(|artifact| format!("artifact/{artifact}")),
+        "owner_grants" => Some(format!("grant/{}", row.key)),
+        "config_entries" => Some(format!(
+            "config/{}/{}",
+            row.value("namespace").unwrap_or_default(),
+            row.value("logical_key").unwrap_or_default()
+        )),
+        "config_changes" | "config_adoptions" => Some(format!(
+            "config/{}/{}",
+            row.value("namespace").unwrap_or_default(),
+            row.value("logical_key").unwrap_or_default()
+        )),
+        _ => None,
+    };
+    key
+}
+
+/// True when the row's table participates in a semantic conflict unit.
+fn is_unit_table(table: &str) -> bool {
+    matches!(
+        table,
+        "research_epochs"
+            | "research_candidates"
+            | "intervention_bank_entries"
+            | "intervention_reminders"
+            | "retention_tombstones"
+            | "seat_records"
+            | "seat_leases"
+            | "seat_questions"
+            | "seat_answer_decisions"
+            | "quota_attempts"
+            | "quota_sends"
+            | "quota_events"
+            | "channel_runtime_facts"
+            | "channel_record_migrations"
+            | "person_claims"
+            | "person_identity_events"
+            | "admin_facts"
+            | "activation_records"
+            | "activation_selectors"
+            | "activation_launch_receipts"
+            | "subject_output_parts"
+            | "content_streams"
+            | "content_stream_units"
+            | "media_recordings"
+            | "media_recording_controls"
+            | "media_priority_inputs"
+            | "artifact_records"
+            | "artifact_manifests"
+            | "artifact_runtime_instances"
+            | "owner_grants"
+            | "config_entries"
+            | "config_changes"
+            | "config_adoptions"
+            | "subject_request_attempts"
+            | "subject_obligations"
+            | "subject_attention_policies"
+    )
+}
+
+/// Apply every semantic unit of this archive atomically. Each unit is one
+/// savepoint; a member that diverges from the local fact rejects the whole
+/// unit and every member is reported as a conflict, mirroring the task
+/// closure semantics. Returns the outcome plus every row the pass owned.
+fn apply_semantic_units<'a>(
+    tx: &Transaction<'_>,
+    rows: &[&'a CognitionRow],
+    peer_id: EntityId,
+    seq: LedgerSeq,
+    manifest: &CognitionManifest,
+) -> Result<(CognitionApplyOutcome, HashSet<(&'a str, &'a str)>)> {
+    // Answer decisions bind to their question's seat; questions that are not
+    // in this archive resolve through the local store.
+    let mut question_seats: HashMap<&'a str, String> = HashMap::new();
+    for row in rows
+        .iter()
+        .copied()
+        .filter(|row| row.table == "seat_questions")
+    {
+        if let Some(seat) = row.value("seat_id") {
+            question_seats.insert(row.key.as_str(), seat.to_string());
+        }
+    }
+    for row in rows
+        .iter()
+        .copied()
+        .filter(|row| row.table == "seat_answer_decisions")
+    {
+        let Some(question) = row.value("question_id") else { continue };
+        if question_seats.contains_key(question) {
+            continue;
+        }
+        let seat: Option<String> = tx
+            .query_row(
+                "SELECT seat_id FROM seat_questions WHERE question_id=?1",
+                [question],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db)?;
+        if let Some(seat) = seat {
+            question_seats.insert(question, seat);
+        }
+    }
+
+    let mut groups: HashMap<String, Vec<&'a CognitionRow>> = HashMap::new();
+    let mut owned: HashSet<(&'a str, &'a str)> = HashSet::new();
+    for row in rows.iter().copied().filter(|row| is_unit_table(&row.table)) {
+        let key = unit_key_for(row, &question_seats)
+            .unwrap_or_else(|| format!("unbound/{}/{}", row.table, row.key));
+        groups.entry(key).or_default().push(row);
+        owned.insert((row.table.as_str(), row.key.as_str()));
+    }
+
+    let mut outcome = CognitionApplyOutcome::default();
+    for (unit, mut group) in groups {
+        // The same fixed SQL identifier is reused only after RELEASE.
+        tx.execute("SAVEPOINT semantic_unit", []).map_err(db)?;
+        let mut conflict = false;
+        let mut part = CognitionApplyOutcome::default();
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        for row in &group {
+            let Some(spec) = spec_for(&row.table) else {
+                conflict = true;
+                break;
+            };
+            let effective = effective_row(row, spec)?;
+            match apply_recovery_fact(tx, spec, &effective, peer_id, seq)? {
+                RecoveryFactOutcome::Conflict => {
+                    conflict = true;
+                    break;
+                }
+                RecoveryFactOutcome::Inserted => part.inserted += 1,
+                RecoveryFactOutcome::Updated => part.updated += 1,
+                RecoveryFactOutcome::Unchanged => {
+                    part.unchanged += 1;
+                    continue;
+                }
+            }
+            record_origin(
+                tx,
+                spec,
+                &effective,
+                peer_id,
+                &manifest.fingerprint,
+                manifest.source_ledger_id,
+            )?;
+        }
+        if conflict {
+            tx.execute("ROLLBACK TO semantic_unit", []).map_err(db)?;
+        }
+        tx.execute("RELEASE semantic_unit", []).map_err(db)?;
+        if conflict {
+            for row in group {
+                let detail = format!(
+                    "conflict unit {unit} diverges from the local fact; the complete local unit is kept"
+                );
+                record_conflict(tx, peer_id, &row.table, &row.key, &detail)?;
+                outcome.conflicts.push(CognitionConflict {
+                    table: row.table.clone(),
+                    key: row.key.clone(),
+                    detail,
+                });
+            }
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, owned))
+}
+
+/// Every string value and every object key, recursively: window call_states
+/// hold task ids as MAP KEYS, and sealed S0 refs can appear nested anywhere.
+fn json_holds_any_id(value: &serde_json::Value, ids: &HashSet<String>) -> bool {
+    match value {
+        serde_json::Value::Object(map) => map.iter().any(|(key, v)| {
+            ids.contains(key.as_str()) || json_holds_any_id(v, ids)
+        }),
+        serde_json::Value::Array(items) => items.iter().any(|v| json_holds_any_id(v, ids)),
+        serde_json::Value::String(text) => ids.contains(text),
+        _ => false,
+    }
+}
+
+/// A rejected task delivery must not survive through consumers committed in
+/// an earlier table phase. Rather than mutating sealed step/window records
+/// (which would falsify their identity), the ENTIRE import transaction is
+/// rejected when a dependency cannot be established as safe: the peer gets an
+/// honest "publication refused", never a half-applied snapshot or fake ACK.
+fn verify_no_rejected_task_consumers(
+    store: &Store,
+    tx: &Transaction<'_>,
+    rows: &[&CognitionRow],
+    derivatives: &[CognitionDerivative],
+    rejected: &HashSet<(&str, &str)>,
+    rejected_ids: &HashSet<String>,
+) -> Result<()> {
+    if rejected.is_empty() {
+        return Ok(());
+    }
+    let refuse = |what: String| -> Result<()> {
+        bail!("cognition import refused: task closure rejection cannot publish dependent {what}; the complete import is rolled back, nothing was applied")
+    };
+
+    // The seq of every rejected staged raw event, for from/to range tests.
+    let rejected_raw_seqs: Vec<(String, i64)> = {
+        let mut out = Vec::new();
+        for (_table, key) in rejected.iter().filter(|(table, _)| *table == "session_events") {
+            let row: Option<(String, i64)> = rows.iter().copied()
+                .find(|r| r.table == "session_events" && r.key == *key)
+                .and_then(|r| {
+                    Some((r.value("session_id")?.to_owned(), r.value("seq")?.parse::<i64>().ok()?))
+                });
+            if let Some(pair) = row { out.push(pair); }
+        }
+        out
+    };
+
+    // Union of session_ids so a range can only match its own branch.
+    let rejected_sessions: HashSet<&str> =
+        rejected_raw_seqs.iter().map(|(session, _)| session.as_str()).collect();
+
+    // Window bodies by window_id (manifest + existing chain head reads).
+    let window_body = |id: &str| -> Result<Option<serde_json::Value>> {
+        if let Some(body) = rows.iter().copied()
+            .find(|r| r.table == "context_windows" && r.key == id)
+            .and_then(|r| r.value("body"))
+        {
+            return Ok(serde_json::from_str(body).ok());
+        }
+        let body: Option<String> = tx.query_row(
+            "SELECT body FROM context_windows WHERE window_id=?1", [id], |r| r.get(0),
+        ).optional().map_err(db)?;
+        Ok(body.and_then(|body| serde_json::from_str(&body).ok()))
+    };
+
+    // Transitive dirty-window closure: direct id hits, from/to ranges that
+    // cover a rejected raw seq, and base.source_window predecessors.
+    let mut dirty_windows: HashSet<String> = HashSet::new();
+    let mut work: Vec<String> = rows.iter().copied()
+        .filter(|r| r.table == "context_windows")
+        .map(|r| r.key.clone())
+        .collect();
+    // Seed with windows any rejected step's frozen context points at.
+    for row in rows.iter().copied().filter(|r| r.table == "subject_steps") {
+        if let Some(data) = row.value("data").and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok()) {
+            if let Some(id) = data.get("input_plan_ref")
+                .and_then(|o| o.get("digest")).and_then(serde_json::Value::as_str)
+                .and_then(|d| store.cas.read_object(&Digest(d.to_owned())).ok())
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|plan| plan.pointer("/context/source/window_id").and_then(serde_json::Value::as_str).map(str::to_owned))
+            {
+                if json_holds_any_id(&data, rejected_ids) { dirty_windows.insert(id); }
+            }
+        }
+    }
+    while let Some(id) = work.pop() {
+        let Some(body) = window_body(&id)? else { continue };
+        if dirty_windows.contains(&id) {
+            // Propagate to predecessor and to windows naming this as source.
+            if let Some(pred) = body.pointer("/base/source_window").and_then(serde_json::Value::as_str) {
+                if dirty_windows.insert(pred.to_owned()) { work.push(pred.to_owned()); }
+            }
+            continue;
+        }
+        let hit_ids = json_holds_any_id(&body, rejected_ids);
+        let hit_range = rejected_sessions.contains(
+            body.get("scope_id").or_else(|| body.pointer("/base/scope_id")).and_then(serde_json::Value::as_str).unwrap_or(""),
+        ) && {
+            let from = body.pointer("/base/from").or_else(|| body.get("from")).and_then(serde_json::Value::as_i64);
+            let to = body.pointer("/base/to").or_else(|| body.get("to")).and_then(serde_json::Value::as_i64);
+            matches!((from, to), (Some(f), Some(t))
+                if rejected_raw_seqs.iter().any(|(s, seq)| *seq >= f && *seq <= t
+                    && (body.get("scope_id").or_else(|| body.pointer("/base/scope_id"))
+                        .and_then(serde_json::Value::as_str) == Some(s.as_str()))))
+        };
+        if hit_ids || hit_range {
+            dirty_windows.insert(id.clone());
+            if let Some(pred) = body.pointer("/base/source_window").and_then(serde_json::Value::as_str) {
+                work.push(pred.to_owned());
+            }
+            // Successor windows in the same manifest that name this window
+            // as their source inherit the contamination.
+            for candidate in rows.iter().copied().filter(|r| r.table == "context_windows") {
+                if !dirty_windows.contains(candidate.key.as_str()) { work.push(candidate.key.clone()); }
+            }
+        }
+    }
+    // Steps whose frozen S0 selects rejected deliveries or a dirty window.
+    for row in rows.iter().copied().filter(|r| r.table == "subject_steps") {
+        let Some(data) = row.value("data").and_then(|d| serde_json::from_str::<serde_json::Value>(d).ok()) else { continue };
+        let plan: Option<serde_json::Value> = data.get("input_plan_ref")
+            .and_then(|o| o.get("digest")).and_then(serde_json::Value::as_str)
+            .and_then(|d| store.cas.read_object(&Digest(d.to_owned())).ok())
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+        let Some(plan) = plan else {
+            // Cannot verify this step's dependency closure while its own
+            // data mentions rejected facts: refuse rather than guess.
+            if json_holds_any_id(&data, rejected_ids) {
+                return refuse(format!("subject step {} with unresolved input plan", row.key));
+            }
+            continue;
+        };
+        let window = plan.pointer("/context/source/window_id").and_then(serde_json::Value::as_str);
+        if json_holds_any_id(&plan, rejected_ids)
+            || window.is_some_and(|id| dirty_windows.contains(id) || rejected_ids.contains(id))
+        {
+            return refuse(format!("subject step {} frozen input", row.key));
+        }
+    }
+    // Dirty imported windows or any derivative of one fail publication.
+    if !dirty_windows.is_empty() {
+        let mut dirty: Vec<_> = dirty_windows.iter().cloned().collect();
+        dirty.sort();
+        return refuse(format!("context window generations {dirty:?}"));
+    }
+    for derivative in derivatives {
+        if dirty_windows.contains(derivative.window_id.to_string().as_str()) {
+            return refuse(format!("derivative {}:{}", derivative.window_id, derivative.idx));
+        }
+    }
+    // An imported context_window_scopes row naming a rejected window's scope
+    // is safe only when no window became dirty — already covered above.
+    Ok(())
 }
 
 /// The row as it will be stored here.
@@ -2919,7 +4959,11 @@ fn apply_memory_pairs(
 fn effective_row(row: &CognitionRow, spec: &TableSpec) -> Result<CognitionRow> {
     let mut effective = row.clone();
     match spec.kind {
-        RowKind::Verbatim | RowKind::InboxEvent => {}
+        RowKind::Verbatim
+        | RowKind::InboxEvent
+        | RowKind::Monotonic
+        | RowKind::Revisioned
+        | RowKind::Ladder => {}
         RowKind::SubjectIntent => {
             let state = row.value("state").unwrap_or_default().to_string();
             if state == "ready" || state == "claimed" {
@@ -3441,6 +5485,13 @@ fn intent_source_state(values: &[(String, Option<String>)]) -> Option<String> {
     Some(state)
 }
 
+/// Opaque bytes never acquire reference-graph authority by parsing as JSON.
+/// Both export and import use this rule, including later typed aliases of a
+/// digest already visited under an opaque reference.
+fn is_json_reference(media_type: &str) -> bool {
+    media_type == "application/json" || media_type.ends_with("+json")
+}
+
 /// Collect every CAS reference of a JSON value.
 fn collect_references(
     value: &serde_json::Value,
@@ -3455,6 +5506,17 @@ fn collect_references(
             }
             if let Some(digest) = digest_from(map) {
                 external.push(digest);
+                // A map that names a digest but is not a whole object
+                // reference is still a container: descend into it as well,
+                // so a manifest that names its artifact inline does not
+                // hide the objects it points at. The named digest itself is
+                // skipped — it was already recorded as the alias.
+                for (name, nested) in map {
+                    if name == "digest" {
+                        continue;
+                    }
+                    collect_references(nested, roots, external);
+                }
                 return;
             }
             for nested in map.values() {
@@ -3772,7 +5834,81 @@ mod archive_admission_tests {
     use crate::memory::MemoryEntry;
 
     #[test]
+    fn captured_json_stream_does_not_extend_the_recovery_graph() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-opaque-stream-{}", EntityId::new()));
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        let missing = ObjectRef {
+            digest: Digest::blake3(b"guest claims an object that does not exist"),
+            bytes: 48,
+            media_type: "application/json".into(),
+            store_namespace: "guest-claim".into(),
+            locator: String::new(),
+            codec: raw_codec(),
+        };
+        let stream_bytes = serde_json::to_vec(&missing)?;
+        let stream = source.cas.seal_object(
+            &stream_bytes, "application/octet-stream", "wasi-exec-streams", "wasi-stream", 1,
+        )?.object;
+        let (objects, missing) = source.collect_closure(&[stream.clone()])?;
+        assert!(missing.is_empty());
+        assert_eq!(objects.len(), 1);
+        let mut export = source.export_cognition(&Default::default())?;
+        export.manifest.objects = objects;
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+        let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(imported.ack(EntityId::new()).verified);
+        assert_eq!(receiver.cas.read_object(&stream.digest)?, stream_bytes);
+        Ok(())
+    }
+
+    #[test]
+    fn later_typed_alias_expands_its_real_child_on_both_sides() -> Result<()> {
+        let root = std::env::temp_dir().join(format!("shenko-typed-alias-{}", EntityId::new()));
+        fs::create_dir(&root)?;
+        let source = Store::open(root.join("source.db"), root.join("source-cas"))?;
+        let child = source.cas.seal_object(b"retained child", "text/plain", "test", "raw", 1)?.object;
+        let json = serde_json::to_vec(&child)?;
+        let opaque = source.cas.seal_object(&json, "application/octet-stream", "test", "raw", 1)?.object;
+        let typed = source.cas.seal_object(&json, "application/json", "test", "json", 1)?.object;
+        let parent = source.cas.seal_object(
+            &serde_json::to_vec(&typed)?, "application/json", "test", "json", 1,
+        )?.object;
+        // J is collected opaque before the parent's typed reference to J is
+        // expanded. Its child C must still enter the actual export closure.
+        let (mut objects, missing) = source.collect_closure(&[opaque.clone(), parent])?;
+        assert!(missing.is_empty());
+        assert_eq!(objects.len(), 3);
+        assert!(objects.iter().any(|object| object.digest == child.digest));
+        let alias = objects.iter_mut().find(|object| object.digest == opaque.digest).unwrap();
+        assert_eq!(alias.media_type, "application/json");
+        // A valid archive may describe J with its opaque alias while the
+        // retained parent still references its JSON type. Import must follow
+        // that later typed reference, independently of descriptor order.
+        alias.media_type = "application/octet-stream".into();
+        let mut export = source.export_cognition(&Default::default())?;
+        export.manifest.objects = objects;
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive)?;
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas"))?;
+        let imported = receiver.import_cognition_archive(&archive[..], &Default::default())?;
+        assert!(imported.ack(EntityId::new()).verified);
+        assert_eq!(receiver.cas.read_object(&child.digest)?.as_slice(), b"retained child");
+        Ok(())
+    }
+
+    #[test]
     fn reordered_labels_cannot_publish_a_paused_head_or_files() {
+        for schema in [2, crate::cognition_archive::ARCHIVE_SCHEMA] {
+            reject_reordered_head(schema);
+        }
+    }
+
+    fn reject_reordered_head(schema: u32) {
         use shenko_types::commit::CommitRef;
         use shenko_types::ids::{BranchId, ControllerEpoch, RecordRevision, RuntimeGeneration};
         use shenko_types::subject::{GenesisRef, SubjectGenesis, SubjectStep};
@@ -3789,7 +5925,7 @@ mod archive_admission_tests {
         let genesis = SubjectGenesis {
             genesis_id, subject_id: agent, bootstrap_id: EntityId::new(), launch_id: EntityId::new(),
             seed_manifest_ref: object.clone(), initial_profile_ref: object.clone(),
-            home_manifest_ref: object.clone(), bootstrap_event_ref: object, created_commit: commit,
+            home_manifest_ref: object.clone(), bootstrap_event_ref: object.clone(), created_commit: commit,
         };
         let head = SubjectBranchHead {
             agent_id: agent, branch_id: branch.clone(), subject_root_task_id: EntityId::new(),
@@ -3807,17 +5943,24 @@ mod archive_admission_tests {
             model_outcome_ref: None, decision_ref: None, commit_ref: None,
             retry_reason_ref: None, record_revision: RecordRevision(0), created_by_step_id: None,
         };
-        source.initialize_genesis(&genesis, &head, &step).unwrap();
+        let root_task = shenko_types::task::TaskRecord::subject_root(
+            head.subject_root_task_id,
+            agent,
+            object,
+            commit,
+        );
+        source
+            .initialize_genesis(&genesis, &head, &step, &root_task)
+            .unwrap();
         let memory = root.join("source-memory");
         fs::create_dir(&memory).unwrap();
         fs::write(memory.join("remote.txt"), b"must not publish").unwrap();
         let mut export = source.export_cognition(&CognitionSnapshotOptions {
             memory_root: Some(memory), include_git_history: false, ..Default::default()
         }).unwrap();
-        // Schema 2 takes the same admission path. The named fields look active
-        // to a label-based guard, while positional SQL would insert a paused
-        // column and paused serialized head without a local boundary record.
-        export.manifest.schema = 2;
+        // Current schemas reject the noncanonical layout; legacy migration
+        // must still reject the contradictory named columns and head data.
+        export.manifest.schema = schema;
         let row = export.manifest.rows.iter_mut().find(|row| row.table == "subject_branch_heads").unwrap();
         let active = row.value("data").unwrap().to_string();
         let mut paused: serde_json::Value = serde_json::from_str(&active).unwrap();
@@ -3841,7 +5984,11 @@ mod archive_admission_tests {
         let error = receiver.import_cognition_archive(&archive[..], &CognitionImportOptions {
             memory_root: Some(receiver_memory.clone()), ..Default::default()
         }).unwrap_err();
-        assert!(error.to_string().contains("invalid cognition column layout"));
+        assert!(error.to_string().contains(if schema == crate::cognition_archive::ARCHIVE_SCHEMA {
+            "invalid cognition column layout"
+        } else {
+            "imported subject head column/value mismatch"
+        }));
         assert_eq!(receiver.current_commit_seq().unwrap(), before);
         assert!(receiver.get_existing_agent_id().unwrap().is_none());
         assert!(!receiver_memory.join("remote.txt").exists());
@@ -3866,4 +6013,67 @@ mod archive_admission_tests {
         assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
         assert!(receiver.list_memory(10).unwrap().is_empty());
     }
+}
+
+fn apply_media_streams<'a>(
+    tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
+    seq: LedgerSeq, manifest: &CognitionManifest,
+) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
+    let inbox: HashMap<&'a str, &'a CognitionRow> = rows.iter().copied()
+        .filter(|row| row.table == "inbox_events")
+        .map(|row| (row.key.as_str(), row)).collect();
+    let mut groups: HashMap<&'a str, Vec<&'a CognitionRow>> = HashMap::new();
+    let mut media_events: HashSet<&'a str> = HashSet::new();
+    for row in rows.iter().copied().filter(|row| matches!(row.table.as_str(),
+        "media_streams" | "media_stream_ends" | "media_segment_revisions"
+        | "media_recordings" | "media_recording_controls" | "media_priority_inputs"))
+    {
+        let key = row.value("stream_key").context("media stream identity missing")?;
+        let group = groups.entry(key).or_default();
+        group.push(row);
+        if row.table == "media_recordings" {
+            // The latest-state projection re-binds the event of its latest
+            // control notice; the notice owns the delivery identity and its
+            // durable original.
+            continue;
+        }
+        if let Some(id) = row.value(if row.table == "media_streams" { "open_event_id" } else { "event_id" }) {
+            ensure!(media_events.insert(id), "media facts share a delivery identity");
+            group.push(*inbox.get(id).context("media delivery original missing")?);
+        }
+    }
+    let mut outcome = CognitionApplyOutcome::default();
+    for stream in rows.iter().copied().filter(|row| row.table == "media_streams") {
+        let mut group = groups.remove(stream.key.as_str()).context("media closure group missing")?;
+        group.sort_by_key(|row| TABLES.iter().position(|spec| spec.name == row.table));
+        tx.execute("SAVEPOINT media_stream_closure", []).map_err(db)?;
+        let mut part = CognitionApplyOutcome::default();
+        let mut conflict = false;
+        for row in group {
+            let spec = spec_for(&row.table).context("unregistered media recovery table")?;
+            match apply_recovery_fact(tx, spec, row, peer_id, seq)? {
+                RecoveryFactOutcome::Conflict => { conflict = true; break; }
+                RecoveryFactOutcome::Inserted => part.inserted += 1,
+                RecoveryFactOutcome::Updated => part.updated += 1,
+                RecoveryFactOutcome::Unchanged => { part.unchanged += 1; continue; }
+            }
+            record_origin(tx, spec, row, peer_id, &manifest.fingerprint, manifest.source_ledger_id)?;
+        }
+        if conflict {
+            tx.execute("ROLLBACK TO media_stream_closure", []).map_err(db)?;
+        }
+        tx.execute("RELEASE media_stream_closure", []).map_err(db)?;
+        if conflict {
+            let detail = "media stream facts and pending deliveries conflict; the complete local binding is kept".to_owned();
+            record_conflict(tx, peer_id, "media_streams", &stream.key, &detail)?;
+            outcome.conflicts.push(CognitionConflict {
+                table: "media_streams".into(), key: stream.key.clone(), detail,
+            });
+        } else {
+            outcome.inserted += part.inserted;
+            outcome.updated += part.updated;
+            outcome.unchanged += part.unchanged;
+        }
+    }
+    Ok((outcome, media_events))
 }

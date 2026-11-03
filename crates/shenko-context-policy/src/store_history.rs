@@ -25,7 +25,7 @@ use shenko_store::{
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
-use crate::policy::{Derivative, WindowBase};
+use crate::policy::{Derivative, WINDOW_BODY_VERSION, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
 #[derive(Default, Deserialize)]
@@ -194,6 +194,37 @@ pub struct StoreWindowLog {
     scope_id: EntityId,
 }
 
+/// Stored derivative identity without the payload. `bytes` is the durable
+/// byte length the store recorded; `blake3` is the digest the commit-time
+/// writer verified, not a value recomputed by this reader.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DerivativeMeta {
+    pub media_type: String,
+    pub blake3: String,
+    pub bytes: u64,
+}
+
+/// A committed window's durable facts without derivative payloads. Every
+/// non-payload field of [`CommittedWindow`] is preserved verbatim:
+/// `window.derivatives` is empty by construction and `derivatives` carries
+/// the per-frame identity the store recorded.
+#[derive(Debug, Clone)]
+pub struct CommittedWindowMeta {
+    /// Decoded committed body; `derivatives` is always empty here.
+    pub window: CommittedWindow,
+    pub derivatives: Vec<DerivativeMeta>,
+}
+
+/// One bounded page of committed window metadata, newest generation first.
+#[derive(Debug, Clone)]
+pub struct WindowMetaPage {
+    /// Windows committed under the scope, regardless of this page's bounds.
+    pub total: u64,
+    /// More committed windows exist below this page's oldest generation.
+    pub has_older: bool,
+    pub windows: Vec<CommittedWindowMeta>,
+}
+
 impl StoreWindowLog {
     pub fn new(store: Arc<Store>, scope_id: EntityId) -> Self {
         Self { store, scope_id }
@@ -222,6 +253,12 @@ impl StoreWindowLog {
         if window.id != stored.window_id {
             return Err(storage(format!("window row {} holds body of {}", stored.window_id, window.id)));
         }
+        if window.body_version > WINDOW_BODY_VERSION {
+            return Err(storage(format!(
+                "window row {} holds body version {}, this reader understands up to {}",
+                stored.window_id, window.body_version, WINDOW_BODY_VERSION
+            )));
+        }
         window.derivatives = stored
             .derivatives
             .into_iter()
@@ -229,9 +266,57 @@ impl StoreWindowLog {
             .collect();
         Ok(window)
     }
+
+    /// Bounded page of committed window metadata, newest generation first:
+    /// `before` excludes windows with `generation >= before`; at most `limit`
+    /// windows are returned. Unlike [`WindowLog::all`], this never reads
+    /// derivative payloads — the page carries their recorded identity and
+    /// byte length, while bodies still decode through the same committed
+    /// format. Read-only metadata cannot mint windows, so an empty chain
+    /// yields an empty page rather than the lazily persisted genesis.
+    pub fn meta_page(&self, before: Option<u64>, limit: u64) -> Result<WindowMetaPage, StorageError> {
+        let before = before.map(|g| i64::try_from(g).map_err(storage)).transpose()?;
+        let limit = i64::try_from(limit).map_err(storage)?;
+        let page = self
+            .store
+            .context_window_meta_page(self.scope_id, before, limit)
+            .map_err(storage)?;
+        let mut windows = Vec::with_capacity(page.windows.len());
+        for stored in page.windows {
+            let window: CommittedWindow =
+                serde_json::from_str(&stored.body).map_err(storage)?;
+            if window.id != stored.window_id {
+                return Err(storage(format!(
+                    "window row {} holds body of {}",
+                    stored.window_id, window.id
+                )));
+            }
+            windows.push(CommittedWindowMeta {
+                window,
+                derivatives: stored
+                    .derivatives
+                    .into_iter()
+                    .map(|d| DerivativeMeta {
+                        media_type: d.media_type,
+                        blake3: d.blake3,
+                        bytes: d.bytes,
+                    })
+                    .collect(),
+            });
+        }
+        Ok(WindowMetaPage {
+            total: u64::try_from(page.total).map_err(storage)?,
+            has_older: page.has_older,
+            windows,
+        })
+    }
 }
 
 impl WindowLog for StoreWindowLog {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
     fn head(&self) -> Result<CommittedWindow, StorageError> {
         if let Some(head) = self.store.context_window_head(self.scope_id).map_err(storage)? {
             return Self::decode(head);
@@ -326,5 +411,85 @@ impl WindowLog for StoreWindowLog {
             ContextWindowAppend::HeadChanged => Err(storage("context head changed during model rebind")),
             ContextWindowAppend::ModelGenerationChanged { current } => Err(storage(format!("context model generation changed to {current} during rebind"))),
         }
+    }
+
+    /// The highest installation epoch any committed window of this scope was
+    /// prepared under. The bodies are read through the bounded metadata page,
+    /// so no derivative payload is materialized to answer this.
+    fn max_policy_epoch(&self) -> Result<u64, StorageError> {
+        let mut highest = 0u64;
+        let mut before = None;
+        loop {
+            let page = self.meta_page(before, 64)?;
+            for meta in &page.windows {
+                if let Some(base) = meta.window.base.as_ref() {
+                    highest = highest.max(base.policy_epoch);
+                }
+            }
+            if !page.has_older {
+                break;
+            }
+            before = page.windows.last().map(|meta| meta.window.generation);
+            if before.is_none() {
+                break;
+            }
+        }
+        Ok(highest)
+    }
+}
+
+#[cfg(test)]
+mod meta_page_tests {
+    use super::*;
+    use crate::WindowEntry;
+
+    #[test]
+    fn meta_page_bounds_cost_and_preserves_identity_without_payloads() {
+        let dir = std::env::temp_dir().join(format!("shenko-meta-page-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
+        let log = StoreWindowLog::new(store, EntityId::new());
+
+        let genesis = log.head().unwrap();
+        let mut window = CommittedWindow::genesis();
+        window.id = EntityId::new();
+        window.generation = genesis.generation + 1;
+        window.base = Some(WindowBase {
+            source_window: genesis.id,
+            leaf_seq: 7,
+            model_generation: genesis.model_generation,
+            policy_epoch: 0,
+        });
+        window.policy_id = Some("snapcompact".into());
+        window.entries.push(WindowEntry::Image { from: 1, to: 9, derivative: 0, tokens: 7 });
+        window.derivatives.push(Derivative::new("image/png", vec![1, 2, 3]));
+        window.call_states.insert("call-1".into(), vec![(3, CallStatus::Unknown)]);
+        window.cost.window_tokens = 7;
+        assert_eq!(log.append(genesis.id, 0, &window).unwrap(), WindowAppend::Appended);
+
+        // First page: only the newest window, with a truthful older cursor.
+        let page = log.meta_page(None, 1).unwrap();
+        assert_eq!(page.total, 2);
+        assert!(page.has_older);
+        let [meta] = page.windows.as_slice() else { panic!("one window per page") };
+        assert_eq!(meta.window.id, window.id);
+        assert_eq!(meta.window.policy_id.as_deref(), Some("snapcompact"));
+        assert_eq!(meta.window.call_states, window.call_states);
+        assert_eq!(meta.window.cost.window_tokens, 7);
+        // The committed body never carries payloads: identity without bytes.
+        assert!(meta.window.derivatives.is_empty());
+        let [frame] = meta.derivatives.as_slice() else { panic!("one derivative") };
+        assert_eq!(frame.blake3, window.derivatives[0].blake3);
+        assert_eq!(frame.bytes, 3);
+
+        // Cursor below the page's oldest generation reaches only genesis.
+        let rest = log.meta_page(Some(meta.window.generation), 8).unwrap();
+        assert_eq!(rest.total, 2);
+        assert!(!rest.has_older);
+        let [oldest] = rest.windows.as_slice() else { panic!("one older window") };
+        assert_eq!(oldest.window.id, genesis.id);
+        assert!(oldest.derivatives.is_empty());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

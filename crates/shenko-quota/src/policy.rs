@@ -4,6 +4,38 @@
 //! on pacing, never a demand: no request is created to use up a balance.
 use std::collections::{HashMap, HashSet};
 
+/// Which readings of one observation source may feed a forecast, and how.
+/// A source absent from this list is never admitted as evidence; missing
+/// TTL or an unstated stale policy is never guessed as "always fresh".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceObservationPolicy {
+    pub source_kind: crate::model::SourceKind,
+    /// The exact source contract this admission covers, when the policy
+    /// admits one contract of that kind. `None` admits every contract of the
+    /// kind. Two contracts of one kind are different facts: a configured
+    /// limit document and a usage report are never the same evidence.
+    #[serde(default)]
+    pub contract: Option<String>,
+    /// How long a reading from this source stays current.
+    pub ttl: Duration,
+    /// What a reading that is no longer fresh may still plan.
+    pub stale: crate::forecast::StaleUse,
+}
+
+impl SourceObservationPolicy {
+    pub fn options(&self) -> crate::forecast::ForecastOptions {
+        crate::forecast::ForecastOptions { ttl: self.ttl, stale: self.stale }
+    }
+
+    /// Whether this admission covers a reading of the given contract.
+    pub fn admits_contract(&self, contract: &str) -> bool {
+        match &self.contract {
+            None => true,
+            Some(pinned) => pinned == contract,
+        }
+    }
+}
+
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
@@ -93,6 +125,58 @@ pub struct QuotaPolicy {
     pub spending_authority_ref: Option<String>,
     /// How long a decision stays valid before it must be recomputed.
     pub decision_ttl: Duration,
+    /// Which observation sources this policy admits, with their lifetime and
+    /// stale-use rules. An empty list (including older serialized policies)
+    /// admits no observation as forecast evidence; everything stays unknown.
+    #[serde(default)]
+    pub observation_sources: Vec<SourceObservationPolicy>,
+}
+
+impl QuotaPolicy {
+    /// The forecast options bound to one observation source, or None when
+    /// this policy does not admit that source as evidence at all.
+    pub fn forecast_options(&self, source_kind: crate::model::SourceKind)
+        -> Option<crate::forecast::ForecastOptions>
+    {
+        self.observation_sources
+            .iter()
+            .find(|entry| entry.source_kind == source_kind)
+            .map(SourceObservationPolicy::options)
+    }
+
+    /// The forecast options bound to one source contract, or None when this
+    /// policy does not admit that contract as evidence at all.
+    pub fn forecast_options_for(
+        &self,
+        source_kind: crate::model::SourceKind,
+        contract: &str,
+    ) -> Option<crate::forecast::ForecastOptions> {
+        self.observation_sources
+            .iter()
+            .find(|entry| entry.source_kind == source_kind && entry.admits_contract(contract))
+            .map(SourceObservationPolicy::options)
+    }
+
+    /// The admission entry that covers one source contract.
+    pub fn source_admission(
+        &self,
+        source_kind: crate::model::SourceKind,
+        contract: &str,
+    ) -> Option<&SourceObservationPolicy> {
+        self.observation_sources
+            .iter()
+            .find(|entry| entry.source_kind == source_kind && entry.admits_contract(contract))
+    }
+
+    /// The model a decided profile actually runs, for the request seal that
+    /// follows the decision. The decision chooses a profile; the seal binds
+    /// the profile's real model.
+    pub fn model_for_profile(&self, profile_id: &str) -> Option<&str> {
+        self.profiles
+            .iter()
+            .find(|profile| profile.profile_id == profile_id)
+            .map(|profile| profile.model_ref.as_str())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -312,6 +396,15 @@ pub(crate) fn validate(policy: &QuotaPolicy, now: DateTime<Utc>) -> Result<DateT
         }
     }
     let mut names = HashSet::new();
+    for (index, source) in policy.observation_sources.iter().enumerate() {
+        if source.ttl <= Duration::zero()
+            || policy.observation_sources.iter().take(index).any(|earlier| {
+                earlier.source_kind == source.source_kind && earlier.contract == source.contract
+            })
+        {
+            return Err(PolicyError::InvalidAssumption);
+        }
+    }
     let mut windows = HashSet::new();
     for profile in &policy.profiles {
         if profile.profile_id.trim().is_empty() || profile.model_ref.trim().is_empty()
@@ -336,7 +429,9 @@ pub(crate) fn validate(policy: &QuotaPolicy, now: DateTime<Utc>) -> Result<DateT
     Ok(valid_until)
 }
 
-pub(crate) fn policy_digest(policy: &QuotaPolicy) -> Result<Digest, PolicyError> {
+/// Exact content identity of a policy, binding a sealed decision to the
+/// policy bytes it was computed from rather than a reusable revision number.
+pub fn policy_digest(policy: &QuotaPolicy) -> Result<Digest, PolicyError> {
     let mut hash = blake3::Hasher::new();
     serde_json::to_writer(&mut hash, policy).map_err(|_| PolicyError::InvalidSerialization)?;
     Ok(Digest(format!("blake3:{}", hash.finalize().to_hex())))

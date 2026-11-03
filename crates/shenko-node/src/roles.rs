@@ -1,7 +1,7 @@
 //! Runtime roles are mutable facts of one Node, never device subclasses.
 use super::{Node, digest, get, number, text};
 use anyhow::{Context as _, Result, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::ids::EntityId;
@@ -53,8 +53,13 @@ pub struct RuntimeRoleObservation {
 
 impl Node {
     pub fn local_identity(&self) -> Result<Option<super::Identity>> {
-        let value = self
-            .conn
+        Self::stored_identity(&self.conn)
+    }
+
+    /// Identity read on an explicit connection so generation transactions can
+    /// bind it to the same durable snapshot they advance.
+    pub(crate) fn stored_identity(conn: &Connection) -> Result<Option<super::Identity>> {
+        let value = conn
             .query_row("SELECT v FROM meta WHERE k='identity'", [], |r| {
                 r.get::<_, String>(0)
             })
@@ -66,7 +71,13 @@ impl Node {
     }
 
     pub fn local_node_id(&self) -> Result<Option<EntityId>> {
-        self.conn
+        Self::stored_node_id(&self.conn)
+    }
+
+    /// Node ID read on an explicit connection, for the same reason as
+    /// `stored_identity`.
+    pub(crate) fn stored_node_id(conn: &Connection) -> Result<Option<EntityId>> {
+        conn
             .query_row("SELECT v FROM meta WHERE k='node'", [], |r| {
                 r.get::<_, String>(0)
             })
@@ -135,12 +146,19 @@ impl Node {
 
     /// Called by the actual native runtime, separately from model-facing role
     /// assignment. A receipt records what was observed, not future liveness.
+    ///
+    /// The `Primary` role is the only authority-bearing observation: the
+    /// caller must present the current fencing token of a committed election
+    /// (SPEC §5.4.3). A stale token is refused; without a committed claim the
+    /// observation is refused too — an unverified node never records itself
+    /// as the primary of a domain.
     pub fn observe_runtime_roles(
         &mut self,
         runtime_instance_id: EntityId,
         mut roles: Vec<NodeRole>,
         subject_id: Option<EntityId>,
         details: String,
+        fence: Option<&super::FencingToken>,
     ) -> Result<RuntimeRoleObservation> {
         ensure!(
             !details.trim().is_empty(),
@@ -150,6 +168,16 @@ impl Node {
             !roles.contains(&NodeRole::Primary) || subject_id.is_some(),
             "primary observation requires the actual subject identity"
         );
+        if roles.contains(&NodeRole::Primary) {
+            let token = fence.context(
+                "primary observation requires a committed election fencing token",
+            )?;
+            self.check_fencing(token)?;
+            ensure!(
+                self.is_primary()?,
+                "this node is not the committed primary of the domain"
+            );
+        }
         roles.sort();
         roles.dedup();
         let tx = self
@@ -169,32 +197,68 @@ impl Node {
             "INSERT INTO node_runtime_observations(data) VALUES(?1)",
             [text(&observation)?],
         )?;
+        if let Some(token) = fence {
+            tx.execute(
+                "INSERT INTO node_observation_fences(observation_id,data) VALUES(?1,?2)",
+                params![observation.observation_id.to_string(), text(token)?],
+            )?;
+        }
         tx.commit()?;
         Ok(observation)
     }
 
-    pub fn role_status(&self) -> Result<Value> {
-        let node_id = self.local_node_id()?.context("node not initialized")?;
-        let assignment: Option<String> = self
-            .conn
+    /// Latest role intent read on an explicit connection.
+    pub(crate) fn latest_assignment(conn: &Connection) -> Result<Option<RoleAssignment>> {
+        let assignment: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_role_assignments ORDER BY revision DESC LIMIT 1",
                 [],
                 |r| r.get(0),
             )
             .optional()?;
-        let observed: Option<String> = self
-            .conn
+        assignment
+            .map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .transpose()
+    }
+
+    /// Latest runtime observation read on an explicit connection.
+    pub(crate) fn latest_observation(conn: &Connection) -> Result<Option<RuntimeRoleObservation>> {
+        let observed: Option<String> = conn
             .query_row(
                 "SELECT data FROM node_runtime_observations ORDER BY seq DESC LIMIT 1",
                 [],
                 |r| r.get(0),
             )
             .optional()?;
+        observed
+            .map(|s| serde_json::from_str(&s).map_err(Into::into))
+            .transpose()
+    }
+
+    pub fn role_status(&self) -> Result<Value> {
+        let node_id = self.local_node_id()?.context("node not initialized")?;
+        let assignment = Self::latest_assignment(&self.conn)?;
+        let observed = Self::latest_observation(&self.conn)?;
+        let observed_fence = match &observed {
+            Some(observation) => {
+                let raw: Option<String> = self
+                    .conn
+                    .query_row(
+                        "SELECT data FROM node_observation_fences WHERE observation_id=?1",
+                        [observation.observation_id.to_string()],
+                        |r| r.get(0),
+                    )
+                    .optional()?;
+                raw.map(|value| serde_json::from_str::<Value>(&value))
+                    .transpose()?
+            }
+            None => None,
+        };
         Ok(json!({
             "node_id": node_id,
-            "assignment": assignment.map(|s| serde_json::from_str::<RoleAssignment>(&s)).transpose()?,
-            "last_runtime_observation": observed.map(|s| serde_json::from_str::<RuntimeRoleObservation>(&s)).transpose()?,
+            "assignment": assignment,
+            "last_runtime_observation": observed,
+            "last_runtime_observation_fence": observed_fence,
             "persisted_observation_is_liveness": false,
             "device_type_is_role": false,
         }))
@@ -232,6 +296,7 @@ mod tests {
             vec![NodeRole::Executor],
             None,
             "native executor actually installed; subject not started".into(),
+            None,
         )
         .unwrap();
         node.assign_roles(RoleAssignmentRequest {

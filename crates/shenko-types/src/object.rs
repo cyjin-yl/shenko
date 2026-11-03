@@ -23,6 +23,15 @@ impl Digest {
     pub fn hex(&self) -> &str {
         self.0.split(':').nth(1).unwrap_or("")
     }
+
+    /// The canonical digest format this CAS writes and can safely resolve.
+    /// Validate the entire identity, not just the first colon-delimited part.
+    pub fn canonical_blake3_hex(&self) -> Option<&str> {
+        let hex = self.0.strip_prefix("blake3:")?;
+        (hex.len() == 64
+            && hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+            .then_some(hex)
+    }
 }
 
 impl fmt::Display for Digest {

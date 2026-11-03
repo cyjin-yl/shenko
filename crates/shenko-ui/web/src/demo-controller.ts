@@ -46,6 +46,23 @@ function demoState(): UiState {
     connection: 'offline',
     reconnect_seconds: 0,
     server_version: 'demo-only',
+    capabilities: {
+      append: false,
+      steer: false,
+      withdraw: false,
+      actions: false,
+      documents: false,
+      attachments: false,
+      durable_input_receipts: false,
+      committed_replay: false,
+      streaming: false,
+    },
+    append_available: false,
+    durable_receipts: false,
+    committed_replay: false,
+    streaming: false,
+    documents: [],
+    document_errors: [],
     subject_id: 'demo-subject',
     identity: {
       agent_id: 'demo-agent',
@@ -80,6 +97,7 @@ function demoState(): UiState {
     tasks_error: false,
     memory: { items: [], note: '模拟投影不读取真实记忆。' },
     memory_error: false,
+    playground_error: false,
     display,
   };
 }

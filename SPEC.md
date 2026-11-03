@@ -1979,7 +1979,7 @@ D1/D2/D3/D7/D8/D9/D11/D12 已收到用户答案并落实正文；四流 128K 与
 | R126 | 开发 Agent 高度自主，合理默认、实现、验证、修复和范围内集成连续推进，不默认留人类 gate。 | §29、§40 | U37；B41 |
 | R127 | 界面风格与美观参考 Magpie，用具体来源画面、状态与交互质量比较。 | §21.10、§39–40 | U37；B35 |
 | R128 | 正式产品/框架名 Shenko（深刻），记录用户给出的命名来源和读音，无 slogan，实例名称独立。 | §1、§6、§21、§39 | U39；B40 |
-| R129 | 以 Pi Durable 固定 SPEC 为参照提高具体程度，给出实现可据以执行的状态、接口、原子边界、失败交错与验收；真正未定的产品问题可继续问。 | §41；关联 §5/9/10/13/17/35–40 | U40；B03/B04/B20/B24/B37/B38/B39/B41 |
+| R129 | 以 Pi Durable 固定 SPEC 为参照提高具体程度，给出实现可据以执行的状态、接口、原子边界、失败交错与验收；真正未定的产品问题可继续问。 | §41；关联 §5/9/10/13/17/35–40 | U40；B03/B04/B20/B24/B37/B38/B39/B41/B56 |
 | R130 | 以插件观测/估计供应商周期额度，影响模型、effort、主体平均准入次数与任务预算，让主体感知余额；追求跨周期接近用完，本地 AI 优先，云额度后排。 | §42；§13/41 | U41；B42/B19/B20 |
 | R131 | 以 Magpie 和 Alma 的流式体验为参照，正文/滚动/选区/表单稳定，真实流与恢复不抖动、不重复、不串 attempt。 | §21.11、§39–40 | U41；B35/B33 |
 | R132 | 默认 WebUI 仅主体时间线与输入，append/steer 进入同一持久 thought loop；其他能力按需打开，不另建 chat agent。 | §21.12、§41.18 | U42；B35/B03/B38 |
@@ -2013,7 +2013,7 @@ D1/D2/D3/D7/D8/D9/D11/D12 已收到用户答案并落实正文；四流 128K 与
 | R144 | 时间、未竟义务、重复/无聊、维护项目、SNS/IM 与邮件察觉各自原子化并可自解释组合；dreaming 仅社区可选；任意输入形成的 awareness 可即时采用、沉淀、改写或停用，来源与权限不升格。 | §18/38/45 | U54/U56；B52/B45/B47/B39 |
 | R145 | 多设备同步同一自我，较晚新节点撤销独立身份并加入可信既有身份；使用已授权 SSH Key/内网/Tailnet/ZeroTier 与真实设备能力，自主修复环境；异构模型/provider/隐私与实际可达能力决定 child 放置及递归选主，分区经历保留。 | §5.4/9.4/11/22/38/44.1 | U57/U60/U61；B53/B31/B11/B30/B39 |
 | R146 | 所有开发者必读 shenko-dev 哲学 Skill，按需采用兼容 OpenAI/Anthropic 的原子开发 Skill；CLAUDE.md 符号链接到 AGENTS.md，正文单源；完全自主开发、无额外人类 gate，一个增量不新增十个或更多测试。 | §40.5/46 | U55/U58；B54/B41/B49 |
-| R147 | 智能完全失效时仍以确定性控制记录系统日志，并供持有 credentials 的外部工具提取原始记忆/经历；可从磁盘镜像在其他节点恢复或合并，准确保留解密、介质和未决副作用边界。 | §22.2；§5.4/10/38/44 | U62；B55/B04/B05/B37 |
+| R147 | 智能完全失效时仍以确定性控制记录系统日志，并供持有 credentials 的外部工具提取原始记忆/经历；可从磁盘镜像在其他节点恢复或合并，准确保留解密、介质和未决副作用边界。 | §22.2；§5.4/10/38/44 | U62；B55/B04/B05/B37/B56 |
 
 # 33 用户需求原文与追加澄清
 
@@ -3243,6 +3243,7 @@ U63/§5.6 澄清：下文的有限等待是执行器或必要运行机制的有�
 | B53 同一自我的异构设备与自主维护 | U57/U60/U61；REF-USER、REF-SSH、REF-OS、REF-RAFT、REF-DESIGN | 可信较早身份作为新节点加入来源，当前主节点另依实际可达智能能力选择；已授权 SSH/内网/Tailnet/ZeroTier、Android root 与桌面能力按真实权限使用。provider/凭据无需同构复制；隐私与数据去向参与路由。有限 child 自主检测修复环境，旧主 fencing 和经历/unknown 保留。 | §5.4/9.4/11/22/38/44.1；A42/A47/A48；身份迁移、异构派发/递归接管、设备操作与修复证据。 |
 | B54 必读哲学与可移植原子开发 Skill | U55/U58；REF-USER、REF-AGENT-SKILLS、REF-DEV-GOV、REF-DESIGN | 必读 shenko-dev 由 AGENTS.md 入口明确，CLAUDE.md 符号链接共享正文；原子开发 Skill 以兼容的 SKILL.md/name/description 和单源目录供两宿主发现。按需组合、完全自主、无新增人类 gate；一个增量不新增十个或更多测试，完整验收义务不转为每步测试清单。 | §40.5/46；N06/G13；入口读取、symlink/共同内容、实际发现状态与相称验证分别核验。 |
 | B55 无智能时可提取的记忆与离线复活 | U62；REF-USER、REF-STORAGE、REF-DURABLE、REF-DESIGN | 可工作的 OS/控制/存储继续确定性日志与授权导出，读取原始经历无需 LLM；磁盘镜像与版本化读取材料可在其他节点恢复合并。密钥缺失/介质损坏/未复制事实如实，未知效果保留而不盲重放。 | §22.2/5.4/10/38/44；A49；全模型故障、credential 导出、离线镜像和缺口均可复查。 |
+| B56 运行时错误事实与主体自主处置 | 2026-11-01 用户要求；REF-USER、REF-DURABLE、REF-DESIGN | 每个 runtime/engine 错误作为 runtime_error 事实提交进自身分支原始会话，独立事务、fail-soft 计数可见、凭证形态脱敏与有界消息；errors.read 只读本 subject 错误，issue.submit 把主体自主决定落成本地 outbox 草案而非自动上报。 | §45.14/41.14/12.1；journal 往返、计数可见、有界读、digest 去重与 armed 恢复分别核验。 |
 
 ## 39.4 较细的 memory 对照种子
 
@@ -3792,6 +3793,16 @@ StepDecision {
 **首次 head 的合法初值。** 首次初始化以 §44 的 `SubjectGenesis` 作为真实的引导提交：`committed_step_no=0`、`committed_step_id=null`、`committed_at=genesis.created_commit`，并固定 `genesis_ref` 与唯一 `next_step_id`。这不是第 0 轮模型推理。step 1 的 expected parent 是该 genesis commit；首次 S1 后 head 指向真实 step，`committed_step_id` 不再为空。默认单机的 genesis、初始 selector、subject root、head、first step 与 launch receipt 同在 L 一笔事务建立；I/CAS/文件系统的准备另有自己的提交事实。恢复或已有实例导入不重新执行出生路径。
 
 delegated_task_intents 可包含完整 system prompt、所选模型、任务目标、成功/结束条件、工具 scope、已有授权引用、预算和 ReplyGrant；字段通过 capability discovery 提供给主体。实际创建 worker、写文件、SSH、安装、版本提交及发消息仍由执行服务/child 完成。主体 schema 不得包含任意文件/网络执行通道。
+
+有限的单次模型 generation 也走相同 task/operation/attempt 账本，不将保存了 prompt/model
+字段当成已经运行 child。完整语义 prompt 由委派者独立撰写；运行器另绑定真实 role、
+工具 schema 与预算，固定最终 payload/prompt/toolset fingerprint。选择模型形成新的
+确切 binding，不能改写主体的 RequestSeal；同一 transport/资源域的不同 model 继续
+共用 broker 和已配置额度合同。模型名称可为供应商 alias，记录该名称与通路不等于
+证明背后的 checkpoint 不可变。worker 的成功只证明本定义的 generation 终结条件，
+不自动证明自然语言目标已达成；截断、拒绝、Unknown 分开。T1 armed、broker 接纳与
+真实发送不是同一事实。受管 waiter 退出不能丢掉晚到 E1，也不授予晚回调 T2 权限；
+恢复只读原 attempt 的持久证据，未知资源债务从账本重建，不凭 task 取消或本地超时释放。
 
 “主体可读写语义记忆”表现为 memory_intents 与 memory worker 结果，不把 SQL、路径读取或 shell 隐藏在通用插件调用中。运行器保存 SubjectStep 属于基础设施持久化，不是主体的文件工具。
 
@@ -5871,6 +5882,28 @@ ClockProvider 与 EnvironmentProvider 是拟议职责名，不宣称当前已有
 
 技术依据：[Rust Instant](https://doc.rust-lang.org/std/time/struct.Instant.html)、[Linux timekeeping](https://www.kernel.org/doc/html/latest/core-api/timekeeping.html)（2026-10-27 只读核验）；恢复继续参考 §10.6 的固定 Pi Durable，而非另换 harness。
 
+## 45.14 运行时错误事实与主体自主处置
+
+来源：2026-11-01 用户要求；细化 R129/R147，并与 §41.14 结构化错误、§12.1 原始会话事实相接。Why：engine/runtime 错误此前只进 stderr/warn!，主体根本看不见自己坏在哪里；错误是主体自身经历的一部分，应以同样的持久承诺入账。主体读到后是否上报由主体判断，不由内核写死。
+
+### 错误日记的持久承诺
+
+每个 runtime/engine 错误在无法继续或被降级的位置提交为一条 `runtime_error` 原始会话事实，归属该 subject 当前分支的 raw session（session 即 branch_id）。日记写在自己的事务里，不并入失败操作的命运，也不要求调用者持有最新 head——会话在写事务内由持久 head 行解析，调用者内存中的 head 过期时仍能追加到同一已提交历史。`store.journal_runtime_error` 是 fail-soft 入口：日记写失败只计入 `error_journal_dropped` 并 trace，绝不向出错路径传播；之后提交成功的条目携带累计 `journal_dropped_total`，读者能看到中间发生过丢失。
+
+每条事实的 `data` 为 `{v:1, kind, source_module, message, message_truncated, step_no?, task_id?, error_digest, occurred_at, journal_dropped_total, extra}`：message 在成为持久事实前对凭证形态片段做有界尽力脱敏（`key=value`、`key: value` 中凭证含义的键及 bearer token 替换为 `<redacted>`），并以 Unicode 标量数界定 4096 字符上限，超出置 `message_truncated`；`extra` 超过 4096 字节时整体替换为丢弃标记，不逐字段猜。`kind` 是稳定机器可读站点名（`subject_loop`、`native_execute`、`native_reconcile`、`native_settlement`、`native_park`、`native_worker_lost`、`native_dispatcher`、`native_handler_contract`），`error_digest` 是未脱敏原文的 blake3，供判重；两条独立错误即使文本相同也是两行。
+
+### 主体可读接口
+
+`errors.read:1` 是注册的只读 native child（§41.7/§45.10 同一 armed-operation 合同）：只允许读本 subject 自身 raw session 中 `runtime_error` 类型事件；`op=list/search` 返回以命中位置为中心的有界 `data_preview` 及 Unicode 标量起点与截断标志，`op=read` 按 event_id 或 seq 返回一条完整 data。搜索沿用同一 FTS/字面回退；预览不含某内容不证明原文没有。冻结输入 schema_version=1，恢复只重观察原 armed attempt，不抹掉已有 unknown/conflict 证据。prompt_section 只说明这个能力与读法，不规定何时读。
+
+### 主体自主提交的问题草案
+
+`issue.submit:1` 是 armed 外部效果的 native child：主体按正常委派流程给出 `{title, summary, error_refs[]}`（title≤200 字符、summary≤8000 字符、error_refs≤32 条每条≤512 字符），提交即把自己的决定变成效果。冻结输入含 agent_id 与内容 digest；效果是把一份 `{v, digest, created_at, source, audience:local_outbox, issue{...}}` 草案 JSON 经同目录临时文件原子改名写入本地 issues outbox（`data_dir/issues`），同一 digest 的文件即同一提交，绝不重写或产生第二份。回执 normalized_ref 指向该草案 CAS 字节，raw 观察记录路径与 digest。本增量不做网络提交、不持有 GitHub 凭据：对外发布由主体另经已授权渠道完成，outbox 不是送达承诺。是否提交、何时提交、写什么由主体自主决定，内核不因关键词或次数触发。
+
+### 验收与实现边界
+
+实施增量判据：journal 写入→读回往返及脱敏、fail-soft 计数在后续条目中可见、errors.read 只暴露 runtime_error 且有界预览与完整 read、issue.submit armed→resolved 的 outbox 字节与 digest 去重、armed 崩溃后 reconcile 在原 attempt 上结算且证据不重复。测试数保持有界，不新增十个以上场景；真实模型行为与确定性记账分开验收，本增量不宣称主体已学会合适地使用这两个能力。
+
 # 46 完整产品的自主开发与仓库交接
 
 来源：U50–U51/U55/U58、R140–R141/R146、B49/B54；REF-USER、REF-DESIGN、REF-DEV-GOV、REF-AGENT-SKILLS。本章与 §40 一起定义此次完整开发委托；实际工具版本和操作见仓库治理文档。这里的开发 Agent 可以使用兼容的 OpenAI 或 Anthropic 开发环境；既有完整交接对象仍是朋友的 Claude 编程环境。
@@ -6033,3 +6066,45 @@ Provider 可自动依赖以下分别可安装、可查阅的单元，命名为�
 | PV08 | SDK去除方法/类型、加入未知事件，或仅模拟测试成功且真实凭据尚缺 | 编译/codec、适用schema负例、真实流式/工具/代理路径和行为回归分别记录；unknown可追踪；报告如实区分fixture与真实调用，完整目标按适用义务继续推进 |
 
 真实测试采用当前账户支持的 model、API、SDK 与 endpoint，记录精确绑定和被测候选。官方文档支持的行为不等于本产品已经通过；本次只增加规格与研究资料。
+
+# 48 自主主体、运行时能力闭环与正式文档分层
+
+2026-11-01 用户要求在完整阅读本 SPEC 后重新审视已完成与未完成的所有架构，加强自主性、可扩展性、插件化、awareness 与 perception，并完成全部既有要求。另要求撤下 GOAL 等任务交接入口，把真实功能要求整理为正式功能规范，README 回归产品介绍、安装、使用、扩展与导航。本章只追加实现边界与文档解释；§1–47、所有既有 R/B/Ref/验收条目及其原文保持不变，也不将新设计记作已经实现。
+
+## 48.1 自主性与真实约束分开
+
+主体与 child 共用可发现的能力、版本、provider 和恢复协议，按角色执行不同任务。不得因现有模型较小而永久限制模型名称、child 的工具使用、知识种类、认知来源或合理的独立输出预算，也不得用关键词表替主体判断问题与动作。真实 ABI、上下文容量、资源域、owner 硬上限、账户/设备授权和外部效果仍按既有合同保留；不把这些事实改写成日常规划、更新或开发需要人类审批的流程。
+
+## 48.2 单元、服务与运行事实闭合
+
+perception、awareness、Skill 和 code 延用同一安装单元权威。版本、artifact、依赖、启停、试用和本地 readiness 是持久事实，Cordis 服务和能力目录是当前运行代的投影；不再建立平行认知 registry。纯文本单元不需要 daemon，执行单元由生命周期拥有实际资源。能力从安装、装配、发现、选择、持久委派、实际执行、回执到主体可读事实形成闭合链，只有类型或注册不构成实现。
+
+目录变化在安全边界进入后续请求，在途请求保留原来代码/图/profile 的解释和恢复闭包。主请求与 child 请求采用一致的 durable 请求与独立结果回收边界；调用者退出、本地超时、连接断开不自动证明远端计算或副作用结束。
+
+## 48.3 感知、渐进披露与学习
+
+perception 产生带来源、时间、revision、作用范围、置信与未知的观察；awareness 提供可修改的直觉，Skill 提供可查阅的方法。能力卡片与精确版本正文支持按需读取，不要求每轮灌入所有正文，也不由核心词表决定主体能否想到某项知识。
+
+来自原始经历、外部内容和自身反思的学习保留出处、适用范围、反例、修订与 supersession。外部内容不会自动成为权限。自写单元沿用 §45 的真实 sandbox、保留场景与对照行为验收，未验证事实不伪装成已接受能力；测试与策略本身仍可自主改进，不新增人工门禁。暂时 context contribution 有本次使用依据，而原始经历、任务状态、个人知识与外部效果不会随投影或研究 reset 清零。
+
+## 48.4 协议所有权与产品表面
+
+消息插件同时拥有入站分类、来源/账户命名空间、出站 operation 描述、执行与回执。核心不硬编码某个渠道的 target 类型或发送合同；字符串平台 ID 保持不透明。gap、未知发送、附件位置和插件失败可被主体读取，不把心跳/供应商元事件伪造成用户发言。任务完成、provider 接受和用户已读保持区别。
+
+Web 时间线的持续内容来自真实 provider stream，经有序持久记录后发布；事后拆分完整结果不是流式。公开内容、控制语法和未提交动作分开，动作仍按完整解析与 S1/T1 接纳。配置、Playground、seat、媒体与设备插件复用同一任务/效果和实际 actor 机制，不另起一个 UI 主体，也不把状态按钮当作效果证据。
+
+## 48.5 正式规范与历史入口
+
+当前功能边界由 [架构规范](docs/specs/architecture.md) 与 `docs/specs/` 下的领域规范展开；README 提供产品、安装使用、扩展和文档导航。旧任务入口从当前根目录移出并保留原件：`GOAL.md`、`PROMPT.md`、`HANDOFF.md` 对应 `docs/history/entrypoints-20261101/` 下的同名文件；其余历史交接和任务卡由文档索引指向各自归档。原文中指向旧 GOAL 等路径的链接属于旧文档布局，应按本段解释，不为此修改 §1–47，也不保留根目录兼容入口或新增符号链接。既有 `CLAUDE.md → AGENTS.md` 单一开发规则入口保持不变。
+
+文档分层不缩小工作范围。源码存在、构建、受控运行、真实 provider/model、故障恢复与长期观察分别有证据；typed-unavailable、一次 PR、旧候选的回执、仅模拟成功或尚缺真实环境都不替代既有验收。具名 WASM、REPL、OS/Android、选举、在线迁移和所有长期观察目标继续按原合同实现。
+
+## 48.6 上游协作不得阻塞产品开发
+
+2026-11-01 用户明确：cordis-rs 上游是否回应、接受需求或合并 PR，不得成为 Shenko 开发与交付的前置条件。已有补丁可以在可追踪、精确固定的 fork 中继续维护；产品实现、验证和交付与上游协作分别推进，不用等待上游决定代替可做的开发。
+
+面向上游的贡献按通用、可复用的问题与机制组织为功能改进或上游跟进的 issue/PR，而不是要求上游为 Shenko 定制产品架构。拆分依据是各项改动能否独立说明、实现和验证；必须共同成立的原子边界不为缩小 PR 而拆坏。保留实际消费端、复现和既有提交的来源，不以换标题掩盖相同的实现或未满足的合同。原 PR 可以在后续通用方案中关闭或被替代，依赖与证据的接续须明确；这不是停止产品开发的条件。
+
+用户进一步明确允许必要时直接适配 TypeScript 原上游。cordis-rs 当前说明将自身定位为 [cordiverse/cordis](https://github.com/cordiverse/cordis) 的 Rust 移植与重设计；本次核验的原上游为 TypeScript/JavaScript，不把先前口述的“C 库”误写为已存在的 C ABI。实现语言和具体维护者不是新的永久绑定：持续维护必要的 Rust 补丁、跟进 Rust 上游或适配原 TypeScript 实现均可按真实成本与行为证据选择；本条允许后备路线，不宣称已经完成迁移。
+
+本条补充既有 Cordis 实现选择，不降低生命周期、typed service/event、代际清理和恢复要求。终止接纳与并发创建之间的原子边界、所有已接纳插件的真实清理、调用者取消后的完成所有权，以及 Shenko 持久外部效果的独立对账仍须成立。更换实现不得以空适配器、仅签名兼容或丢弃旧行为换取表面可用，也不新增日常开发或自主操作的人类审批门禁。

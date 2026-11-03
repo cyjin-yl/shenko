@@ -41,7 +41,7 @@ async fn budget_window_keeps_unfinished_calls_and_fences_replaced_generations() 
     host.spawn(ContextPolicyHost, registry.clone()).await.unwrap();
     let budget = host.spawn(BudgetCompactPlugin, BudgetConfig::default()).await.unwrap();
     assert_eq!(registry.installed()[0].0.id, POLICY_ID);
-    assert!(registry.should_compact(&history, &caps(), used).unwrap());
+    assert!(registry.should_compact(&caps(), used));
 
     let (prepared, _) = registry.prepare(&history, &caps(), used).unwrap();
     assert_eq!(prepared.carried_calls, vec!["ssh-1".to_string()]);
@@ -75,7 +75,7 @@ async fn budget_window_keeps_unfinished_calls_and_fences_replaced_generations() 
     // Still above the trigger, but re-cutting the same raw history gains
     // nothing against the window the model sees now: refused, not repeated.
     let now: u32 = window.materialize(&history).unwrap().iter().map(WindowEntry::tokens).sum();
-    assert!(registry.should_compact(&history, &caps(), now).unwrap());
+    assert!(registry.should_compact(&caps(), now));
     let again = registry.prepare(&history, &caps(), now).unwrap_err();
     assert_eq!(again.attempts()[0].outcome, Err(PolicyError::NoReduction));
 

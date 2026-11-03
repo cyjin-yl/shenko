@@ -1,0 +1,53 @@
+# toybox → WASI preview1 port (toybox 0.8.15)
+
+A real port of the toybox userspace to WASI preview1, producing one
+standalone `.wasm` per applet installable via `shenko tool install`.
+This is the upstream source referenced by the `toybox` named target.
+
+## Layout
+
+- `wasi-compat.h` — `-include`d shim supplying the small set of types/macros
+  wasi-libc lacks (see "what is stubbed" below; nothing fakes a working
+  syscall — every stub is an `ENOSYS`/`ENOTTY` failure or ambient constant).
+- `patches/` — `#ifdef __wasi__` guards in shared lib helpers and the toy
+  call sites; upstream behavior on other platforms is untouched.
+- `miniconfig.wasi` — the applets that genuinely work under preview1.
+- `build.sh` — builds each applet via upstream `scripts/single.sh`
+  (allnoconfig + one command → standalone binary). It verifies the pinned
+  source archive, claims a fresh persistent run directory, unpacks/patches
+  `<run>/vendor/`, enforces `CPUS=1`, and retains probe/logs/artifacts under
+  that same run. Existing trees and prior artifacts are never build inputs
+  to an upstream cleanup command.
+- `retain-move.c` + patch `0008` — upstream cleanup sites move existing
+  generated files into `<run>/retired/item.*/payload` via dirfd-relative
+  rename with original-path receipts in `INDEX.tsv`. Missing targets are
+  recorded as absent, receipt failures restore the source, ancestor swaps and
+  cross-device moves reject, and no `rm` is suppressed or used as a fallback.
+- `ACQUISITION.md` — pinned upstream tarball + wasi-sdk-34 with checksums.
+- `SMOKE.md` — post-build verification through `shenko tool exec`.
+
+This source recipe has not been built or executed in this slice. The named
+Toybox target remains unresolved until real artifacts and execution evidence
+exist; patch application alone is not a successful port build.
+
+## Design constraints
+
+- **No multiplexer.** `toybox`'s binary re-execs `/proc/self/exe` per applet;
+  WASI has no process self-spawn. `single.sh` builds each NEWTOY command
+  standalone, which is also what the per-tool unit record wants.
+- **Honest failures only.** `fork/exec/socket/termios/mount/chown/mknod`
+  have no preview1 capability; call sites for retained applets error out
+  with a named reason, shared helpers that must still link get explicit
+  `error_exit` stubs, and applets needing them are simply not configured.
+- **umask/users/groups are ambient.** WASI has a single identity and no
+  process umask; `toys.old_umask` is the wasi-libc ambient default (022),
+  user/group lookups synthesize numeric entries, and `--preserve` ownership
+  is skipped while mode/timestamp preservation still runs.
+
+## What is stubbed (compat header)
+
+`getuid/geteuid/getgid/getegid→0`, `umask→022`, `tzset/sync→noop`,
+`fork/vfork/exec*/waitpid/kill/setsid/chroot/daemon/system→ENOSYS`,
+`initgroups/set*id/chown*/mknod/mkfifo/settimeofday/clock_settime→ENOSYS`,
+`tc*/cfmakeraw/cfsetspeed→ENOTTY` + minimal `struct termios`/`winsize` when
+`termios.h`/`ioctl.h` are absent, `mkstemp→O_EXCL` loop (atomicity kept).

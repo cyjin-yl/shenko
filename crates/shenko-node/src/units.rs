@@ -22,7 +22,7 @@
 
 use crate::Node;
 use anyhow::{Context, Result, bail, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use shenko_types::{ids::EntityId, object::Digest};
@@ -66,6 +66,10 @@ CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT N
 /// Bounded limits. Every one of them bounds memory or time; none of them is
 /// a product permission decision.
 pub const MAX_ARTIFACT_BYTES: usize = 1 << 20;
+/// Upper bound of an artifact registered out of line. The bytes are not
+/// copied into the node database, so the bound only refuses an absurd
+/// declared size; the installer still verifies the real bytes.
+pub const MAX_EXTERNAL_ARTIFACT_BYTES: u64 = 1 << 32;
 pub const MAX_PACKAGES: usize = 64;
 pub const MAX_EDGES: usize = 64;
 pub const MAX_PROVIDES: usize = 64;
@@ -80,7 +84,8 @@ pub const MAX_TRIAL_TIMEOUT_MS: u64 = 600_000;
 
 const B64_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn b64_encode(data: &[u8]) -> String {
+/// Encode artifact bytes for a transferable package.
+pub fn b64_encode(data: &[u8]) -> String {
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;
@@ -103,7 +108,8 @@ fn b64_encode(data: &[u8]) -> String {
     out
 }
 
-fn b64_decode(text: &str) -> Result<Vec<u8>> {
+/// Decode the artifact bytes of a transferable package.
+pub fn b64_decode(text: &str) -> Result<Vec<u8>> {
     let mut acc: u32 = 0;
     let mut bits: u32 = 0;
     let mut out: Vec<u8> = Vec::with_capacity(text.len() / 4 * 3);
@@ -167,7 +173,7 @@ pub enum DependencyStrength {
 /// pins at least one of revision or artifact digest; an abstract selector
 /// names a capability or topic and is only satisfied by a unit that actually
 /// declares providing it.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "match", rename_all = "snake_case", deny_unknown_fields)]
 pub enum DependencySelector {
     Exact {
@@ -182,7 +188,7 @@ pub enum DependencySelector {
 }
 
 /// One declared dependency edge of a unit.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DependencySpec {
     pub edge_id: String,
@@ -501,6 +507,221 @@ pub enum UnitRequest {
         after: String,
         limit: u32,
     },
+    /// Register a unit version whose artifact bytes live outside this
+    /// installation's inline object store.
+    ///
+    /// The node records the declared identity — digest, size and the
+    /// installation-local locator — and never copies the bytes. The
+    /// installer verifies the bytes before registering them and the
+    /// executor re-verifies them at run time, so an artifact that does not
+    /// match its descriptor still never executes.
+    ImportExternal {
+        unit: UnitDescriptor,
+        artifact: ExternalArtifact,
+        package_root: String,
+        enable: Option<bool>,
+    },
+    /// Read the exact content of one installed unit version.
+    ///
+    /// The revision is mandatory: a unit keeps several retained versions and
+    /// the caller has to name the one it wants.
+    Read { unit_id: String, revision: String },
+    /// Record how one unit version was judged, and on which evidence.
+    ///
+    /// The decision is a fact about this installation, never a conclusion
+    /// drawn from the unit's text. The node stores the decision, the method
+    /// and the evidence the caller actually observed.
+    RecordAdoption {
+        unit_id: String,
+        revision: String,
+        artifact_digest: Digest,
+        decision: AdoptionDecision,
+        method: AdoptionMethod,
+        /// The evidence the judgement rests on. The node verifies every item
+        /// itself: a trial attempt must exist in this node's own trial store
+        /// for this exact unit version, and a stored observation must exist
+        /// in this node's own object store and be bound to this version.
+        /// An observation is never empirical acceptance.
+        evidence: Vec<AdoptionEvidence>,
+        notes: Option<String>,
+        /// Enable the unit in the same transaction. A rejected or retired
+        /// decision never enables it. Enabling is an installation fact and
+        /// never requires evidence; empirical acceptance is a separate fact
+        /// that the recorded evidence decides.
+        enable: Option<bool>,
+    },
+    /// Open a durable trial attempt for one unit version.
+    ///
+    /// The attempt exists before anything runs, so a crash leaves an
+    /// unresolved attempt instead of a missing fact. The plan records what
+    /// the trial is bound to: the exact artifact, the scenarios, the
+    /// candidate and control configuration and the model binding.
+    BeginTrial {
+        unit_id: String,
+        revision: String,
+        artifact_digest: Digest,
+        /// What kind of trial this is, e.g. `sandbox_comparison`.
+        kind: String,
+        /// The bound facts of the trial. The node digests it and keeps the
+        /// digest with the attempt.
+        plan: Value,
+    },
+    /// Close a trial attempt with the receipts the run produced.
+    ///
+    /// Every receipt is an independent terminal fact of one condition (one
+    /// committed decision, one judge verdict). The node stores them with
+    /// the attempt; it never derives them from a summary.
+    FinishTrial {
+        attempt_id: String,
+        outcome: TrialOutcome,
+        receipts: Vec<Value>,
+    },
+    /// Register an observation about one unit version.
+    ///
+    /// An observation is a recorded fact (a measurement, a report, a note).
+    /// It is stored with its bytes so the node can re-verify them, and it
+    /// is bound to this exact unit version. An observation never becomes
+    /// empirical acceptance by itself.
+    RegisterObservation {
+        unit_id: String,
+        revision: String,
+        artifact_digest: Digest,
+        kind: String,
+        bytes: Vec<u8>,
+    },
+    /// The observations registered for one unit version.
+    Observations { unit_id: String },
+    /// The retained versions of one unit and the supersession relations
+    /// between them.
+    Lineage { unit_id: String },
+}
+
+/// How one unit version was judged on this installation.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AdoptionDecision {
+    /// Kept and usable.
+    Adopted,
+    /// Not kept; the reason and the evidence stay attached to the version.
+    Rejected,
+    /// Kept as history but no longer offered.
+    Retired,
+}
+
+impl AdoptionDecision {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AdoptionDecision::Adopted => "adopted",
+            AdoptionDecision::Rejected => "rejected",
+            AdoptionDecision::Retired => "retired",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self> {
+        Ok(match value {
+            "adopted" => AdoptionDecision::Adopted,
+            "rejected" => AdoptionDecision::Rejected,
+            "retired" => AdoptionDecision::Retired,
+            other => bail!("unknown adoption decision {other}"),
+        })
+    }
+}
+
+/// How the judgement about one unit version was reached.
+///
+/// The method says which kind of work produced the judgement. It never
+/// replaces the evidence: a method the node cannot back with a durable
+/// attempt of its own stays a claim.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AdoptionMethod {
+    /// A finite comparison of the candidate against a disabled baseline in a
+    /// real sandbox, with the scenario and rubric the caller supplied.
+    SandboxComparison,
+    /// A local execution trial of the installed artifact in this node's own
+    /// environment.
+    LocalTrial,
+    /// A statement by the owner or an operator. It records what was said; it
+    /// is not an empirical measurement and never claims one.
+    OperatorStatement,
+}
+
+impl AdoptionMethod {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AdoptionMethod::SandboxComparison => "sandbox_comparison",
+            AdoptionMethod::LocalTrial => "local_trial",
+            AdoptionMethod::OperatorStatement => "operator_statement",
+        }
+    }
+
+    /// Whether this method can ever carry empirical acceptance.
+    ///
+    /// Only a method that runs something can. A statement records intent;
+    /// it is not a measurement.
+    pub fn is_empirical(&self) -> bool {
+        match self {
+            AdoptionMethod::SandboxComparison | AdoptionMethod::LocalTrial => true,
+            AdoptionMethod::OperatorStatement => false,
+        }
+    }
+
+    /// Parse the serialized method name; an unknown method is rejected so a
+    /// misspelt method never becomes an unnamed judgement.
+    pub fn parse(value: &str) -> Result<Self> {
+        Ok(match value {
+            "sandbox_comparison" => AdoptionMethod::SandboxComparison,
+            "local_trial" => AdoptionMethod::LocalTrial,
+            "operator_statement" => AdoptionMethod::OperatorStatement,
+            other => bail!("unknown adoption method {other}"),
+        })
+    }
+}
+
+/// One piece of evidence for a recorded judgement.
+///
+/// The node verifies each item against its own durable state. A trial
+/// attempt is a runner-owned record: the node created it before the run and
+/// closed it with the run's receipts. A stored observation is bytes this
+/// node holds and can re-hash — proof that the bytes exist, never proof
+/// that a measurement produced them.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AdoptionEvidence {
+    /// A trial attempt of this node, bound to this unit version.
+    TrialAttempt { attempt_id: String },
+    /// Bytes this node stores for this unit version.
+    StoredObservation { digest: Digest },
+}
+
+/// An artifact whose bytes live outside the node's inline object store.
+///
+/// `store` names the object store that holds the bytes (`cas` for the
+/// Shenko content-addressed store) and `locator` is the installation-local
+/// address of the object. The digest stays the portable identity: a peer
+/// receives the digest and re-registers the unit against its own bytes.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalArtifact {
+    pub digest: Digest,
+    pub bytes: u64,
+    pub store: String,
+    pub locator: String,
+}
+
+/// Where the bytes of one artifact actually live.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum UnitArtifactSource {
+    /// The bytes are in this installation's inline object store.
+    Inline,
+    /// The bytes live outside the inline store and are addressed by the
+    /// installation-local locator.
+    External {
+        store: String,
+        locator: String,
+        bytes: u64,
+    },
 }
 
 // --------------------------------------------------------------- records ---
@@ -534,6 +755,118 @@ struct InstalledUnit {
     descriptor: UnitDescriptor,
     edges: Vec<ResolvedDependency>,
     materialization: Option<Materialization>,
+}
+
+/// One version another version declares it replaces.
+///
+/// The relation is declared by the replacing version, so it travels with
+/// the package and keeps its reason. It is never guessed from wall-clock
+/// order or from the number of copies a node holds.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SupersededVersion {
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub reason: Option<String>,
+}
+
+/// The public, durable facts of one installed unit version.
+///
+/// This is the single installation authority for perception, awareness,
+/// Skill and code units: version, enable state, dependencies, supersession
+/// and the authored configuration. There is no second registry.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstalledUnitFact {
+    pub unit_id: String,
+    pub kind: UnitKind,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    /// Whether this version is the one this node currently offers.
+    pub current: bool,
+    /// Whether this version is enabled for use.
+    pub enabled: bool,
+    pub imported_at: String,
+    pub origin_node: Option<String>,
+    pub descriptor: UnitDescriptor,
+    pub edges: Vec<ResolvedDependency>,
+    /// Versions this version declares it replaces.
+    pub supersedes: Vec<SupersededVersion>,
+    /// Retained versions that declare they replace this version.
+    pub superseded_by: Vec<SupersededVersion>,
+    /// Where the artifact bytes live.
+    pub artifact_source: UnitArtifactSource,
+    /// The materialization record, when the bytes were copied into a
+    /// package root on this node.
+    pub materialization: Option<MaterializationFact>,
+}
+
+/// The materialization record of a unit version.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MaterializationFact {
+    pub root: String,
+    pub path: String,
+    pub state: String,
+    pub detail: String,
+}
+
+/// The durable facts of one trial attempt.
+///
+/// An attempt is opened before the trial runs and closed with the receipts
+/// the run produced. Its plan digest binds the attempt to the exact unit
+/// version, the scenarios and rubrics, the candidate and control
+/// configuration and the model binding the trial used.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrialAttemptFacts {
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    /// `trial_open` while the trial runs, `finished` when it closed with
+    /// receipts, `unknown` when the owning process disappeared.
+    pub state: String,
+    pub started_at: String,
+    pub kind: Option<String>,
+    pub plan_digest: Option<String>,
+}
+
+/// The exact content of one installed unit version.
+///
+/// `bytes` are the artifact bytes whose digest is `artifact_digest`; the
+/// caller verifies the digest when it matters.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UnitContent {
+    pub unit_id: String,
+    pub kind: UnitKind,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub enabled: bool,
+    pub current: bool,
+    pub bytes: Vec<u8>,
+}
+
+/// Public read-only projection of an installed unit that declares itself a
+/// named tool (`config.tool` manifest). Carries only durable unit facts; the
+/// artifact bytes are fetched separately through `Node::unit_object_bytes`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolUnitFact {
+    pub unit_id: String,
+    pub kind: UnitKind,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub enabled: bool,
+    pub current: bool,
+    /// The unit-authored `config.tool` object: `{name, abi, entrypoint,
+    /// source, imports}` — recorded claims whose executable part
+    /// (`abi`/`imports`) was verified at admission.
+    pub tool: Value,
+    /// Root this node's materialization was written to (e.g. `<data>/tools`).
+    pub materialization_root: Option<String>,
+    /// Exact materialized artifact path, when materialization completed.
+    pub materialization_path: Option<String>,
 }
 
 #[derive(Default)]
@@ -676,6 +1009,53 @@ impl Node {
                 after,
                 limit,
             } => self.unit_evidence(unit_id.as_deref(), &after, limit)?,
+            UnitRequest::ImportExternal {
+                unit,
+                artifact,
+                package_root,
+                enable,
+            } => self.unit_import_external(unit, artifact, &package_root, enable)?,
+            UnitRequest::Read { unit_id, revision } => self.unit_read(&unit_id, &revision)?,
+            UnitRequest::RecordAdoption {
+                unit_id,
+                revision,
+                artifact_digest,
+                decision,
+                method,
+                evidence,
+                notes,
+                enable,
+            } => self.unit_record_adoption(
+                &unit_id,
+                &revision,
+                &artifact_digest,
+                decision,
+                method,
+                &evidence,
+                notes.as_deref(),
+                enable,
+            )?,
+            UnitRequest::BeginTrial {
+                unit_id,
+                revision,
+                artifact_digest,
+                kind,
+                plan,
+            } => self.unit_begin_trial(&unit_id, &revision, &artifact_digest, &kind, &plan)?,
+            UnitRequest::FinishTrial {
+                attempt_id,
+                outcome,
+                receipts,
+            } => self.unit_finish_trial(&attempt_id, outcome, &receipts)?,
+            UnitRequest::RegisterObservation {
+                unit_id,
+                revision,
+                artifact_digest,
+                kind,
+                bytes,
+            } => self.unit_register_observation(&unit_id, &revision, &artifact_digest, &kind, &bytes)?,
+            UnitRequest::Observations { unit_id } => self.unit_observations(&unit_id)?,
+            UnitRequest::Lineage { unit_id } => self.unit_lineage(&unit_id)?,
         };
         if let Some(object) = result.as_object_mut() {
             object.insert("schema".into(), json!(UNIT_SCHEMA));
@@ -704,15 +1084,35 @@ impl Node {
         // digest is rejected as a whole.
         let mut members: Vec<(UnitDescriptor, Vec<u8>, Vec<TrialProvenance>, Option<Vec<ResolvedDependency>>)> = Vec::new();
         for package in &export.packages {
-            let bytes = b64_decode(&package.artifact_base64)?;
-            ensure!(
-                bytes.len() <= MAX_ARTIFACT_BYTES,
-                "unit artifact exceeds the size bound"
-            );
-            ensure!(
-                Digest::blake3(&bytes) == package.unit.artifact_digest,
-                "unit artifact digest mismatch"
-            );
+            let bytes = match external_artifact_of(&package.unit) {
+                Some(external) => {
+                    ensure!(
+                        package.artifact_base64.is_empty(),
+                        "an out-of-line artifact must not carry inline bytes"
+                    );
+                    ensure!(
+                        external.digest == package.unit.artifact_digest,
+                        "out-of-line artifact digest does not match the unit descriptor"
+                    );
+                    ensure!(
+                        external.bytes <= MAX_EXTERNAL_ARTIFACT_BYTES,
+                        "out-of-line artifact exceeds the size bound"
+                    );
+                    Vec::new()
+                }
+                None => {
+                    let bytes = b64_decode(&package.artifact_base64)?;
+                    ensure!(
+                        bytes.len() <= MAX_ARTIFACT_BYTES,
+                        "unit artifact exceeds the size bound"
+                    );
+                    ensure!(
+                        Digest::blake3(&bytes) == package.unit.artifact_digest,
+                        "unit artifact digest mismatch"
+                    );
+                    bytes
+                }
+            };
             ensure!(
                 package.unit.artifact_digest.algorithm() == "blake3",
                 "unsupported artifact digest algorithm"
@@ -729,7 +1129,12 @@ impl Node {
             // This module adds no gate on its content: actual local bindings
             // (environment values, secret files, provider grants) live outside
             // the unit configuration and are never read into a package.
-            members.push((package.unit.clone(), bytes, package.evidence.clone(), package.resolved_dependencies.clone()));
+            // A judgement recorded on another node and the observations bound
+            // to it are local facts of that node: they never travel with the
+            // package and never arrive as an acceptance here.
+            let mut descriptor = package.unit.clone();
+            strip_local_sections(&mut descriptor.config);
+            members.push((descriptor, bytes, package.evidence.clone(), package.resolved_dependencies.clone()));
         }
         let root_index = match (&export.root_revision, &export.root_artifact_digest) {
             (Some(revision), Some(digest)) => {
@@ -795,17 +1200,46 @@ impl Node {
             for (index, ((descriptor, bytes, evidence, carried), edges)) in
                 members.iter().zip(resolutions.iter()).enumerate()
             {
+                let mut descriptor = descriptor.clone();
                 let old_version: Option<String> = tx.query_row(
                     "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
                     params![descriptor.unit_id, descriptor.revision, descriptor.artifact_digest.0], |r| r.get(0),
                 ).optional()?;
                 let old_version: Option<StoredVersion> = old_version.map(|data| serde_json::from_str(&data)).transpose()?;
+                // A recorded adoption is a fact about this installation, not
+                // part of the authored package. Re-importing the same
+                // artifact identity keeps the decision that was already
+                // recorded instead of silently dropping it.
+                if let Some(old) = old_version.as_ref() {
+                    if let Some(adoption) = old.unit.config.pointer("/cognition/adoption").cloned() {
+                        if descriptor.config.pointer("/cognition/adoption").is_none() {
+                            set_config_section(&mut descriptor.config, "cognition", "adoption", adoption);
+                        }
+                    }
+                    // The observations this installation recorded against
+                    // this exact artifact identity are its own facts. A
+                    // re-import of the same bytes must not drop them.
+                    if let Some(observations) =
+                        old.unit.config.pointer("/cognition/observations").cloned()
+                    {
+                        if descriptor.config.pointer("/cognition/observations").is_none() {
+                            set_config_section(
+                                &mut descriptor.config,
+                                "cognition",
+                                "observations",
+                                observations,
+                            );
+                        }
+                    }
+                }
                 // Package bytes reuse the existing inline object store.
-                let stored = crate::seal(&tx, bytes, "application/octet-stream", "unit-package")?;
-                ensure!(
-                    stored.digest == descriptor.artifact_digest,
-                    "stored artifact digest mismatch"
-                );
+                if external_artifact_of(&descriptor).is_none() {
+                    let stored = crate::seal(&tx, bytes, "application/octet-stream", "unit-package")?;
+                    ensure!(
+                        stored.digest == descriptor.artifact_digest,
+                        "stored artifact digest mismatch"
+                    );
+                }
                 let record = StoredVersion {
                     unit: descriptor.clone(),
                     remote_evidence: evidence
@@ -838,13 +1272,28 @@ impl Node {
                 // The first package for an identity chooses its current
                 // version; the declared root is explicitly first among root
                 // versions. Other retained closure members do not overwrite it.
-                let choose_current = index == root_index || (descriptor.unit_id != export.root_unit_id
-                    && !members[..index].iter().any(|(unit, _, _, _)| unit.unit_id == descriptor.unit_id));
+                let current_row: Option<(String, String, i64)> = tx.query_row(
+                    "SELECT revision,artifact_digest,enabled FROM unit_current WHERE unit_id=?1",
+                    params![descriptor.unit_id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                ).optional()?;
+                let already_held = old_version.is_some();
+                let current_revision = current_row.as_ref().map(|row| row.0.clone()).unwrap_or_default();
+                let current_digest = current_row.as_ref().map(|row| row.1.clone()).unwrap_or_default();
+                let current_names_other = current_revision != descriptor.revision
+                    || current_digest != descriptor.artifact_digest.0;
+                let choose_current = (index == root_index || (descriptor.unit_id != export.root_unit_id
+                    && !members[..index].iter().any(|(unit, _, _, _)| unit.unit_id == descriptor.unit_id)))
+                    && !(already_held && current_names_other);
                 if choose_current {
-                    let previous_enabled = tx.query_row(
-                        "SELECT enabled FROM unit_current WHERE unit_id=?1", [&descriptor.unit_id], |r| r.get::<_, i64>(0),
-                    ).optional()?.unwrap_or(0) != 0;
-                    let enabled = if index == root_index { enable.unwrap_or(previous_enabled) } else { previous_enabled };
+                    let previous_enabled = current_row.as_ref().map(|row| row.2 != 0).unwrap_or(false);
+                    let enabled = if already_held {
+                        previous_enabled
+                    } else if index == root_index {
+                        enable.unwrap_or(previous_enabled)
+                    } else {
+                        previous_enabled
+                    };
                     tx.execute(
                     "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
                      VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id) DO UPDATE SET \
@@ -1062,6 +1511,29 @@ impl Node {
         let unit = self
             .installed_unit_version(unit_id, revision, artifact_digest)?
             .context("unit version is not retained on this node")?;
+        if let Some(external) = external_artifact_of(&unit.descriptor) {
+            // The bytes live outside this installation's package store. The
+            // node records where they are; it does not claim a local copy
+            // and it does not call the unit ready because of it.
+            let detail = format!("{}:{}", external.store, external.locator);
+            let tx = self
+                .conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            tx.execute(
+                "INSERT INTO unit_materializations(unit_id,revision,artifact_digest,root,path,state,detail,updated_at) VALUES(?1,?2,?3,?4,'',?5,?6,?7) ON CONFLICT(unit_id,revision,artifact_digest) DO UPDATE SET root=excluded.root,path='',state=excluded.state,detail=excluded.detail,updated_at=excluded.updated_at",
+                params![unit.unit_id, unit.revision, unit.artifact_digest.0, root, "external", detail, now()],
+            )?;
+            tx.commit()?;
+            return Ok(json!({
+                "unit_id": unit.unit_id,
+                "revision": unit.revision,
+                "artifact_digest": unit.artifact_digest,
+                "materialized": false,
+                "state": "external",
+                "package_path": Value::Null,
+                "detail": format!("the artifact bytes live outside this installation: {detail}"),
+            }));
+        }
         let bytes = self.object_bytes(&unit.artifact_digest)?;
         ensure!(
             Digest::blake3(&bytes) == unit.artifact_digest,
@@ -1194,6 +1666,70 @@ impl Node {
         Ok(exports)
     }
 
+    /// Read-only facts of every installed unit carrying a `tool` manifest in
+    /// its declared configuration (`kind` is `Code`). Used by the named-WASM
+    /// tool surface (`shenko tool`, `wasi.exec`): installation authority,
+    /// versioning and replication stay here; the tool layer adds name/ABI
+    /// resolution on top of these facts. Pure query — no schema creation, no
+    /// trial reconciliation, no materialization.
+    pub fn tool_unit_facts(&self) -> Result<Vec<ToolUnitFact>> {
+        let mut facts = Vec::new();
+        let mut statement = self.conn.prepare(
+            "SELECT v.data,c.enabled,(c.revision=v.revision AND c.artifact_digest=v.artifact_digest),m.root,m.path \
+             FROM unit_versions v JOIN unit_current c ON c.unit_id=v.unit_id \
+             LEFT JOIN unit_materializations m ON m.unit_id=v.unit_id AND m.revision=v.revision AND m.artifact_digest=v.artifact_digest \
+             ORDER BY v.unit_id,v.revision,v.artifact_digest"
+        )?;
+        let rows = statement.query_map([], |r| Ok((
+            r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, bool>(2)?,
+            r.get::<_, Option<String>>(3)?, r.get::<_, Option<String>>(4)?,
+        )))?;
+        for row in rows {
+            let (data, enabled, current, root, path) = row?;
+            let stored: StoredVersion = serde_json::from_str(&data)?;
+            if stored.unit.kind != UnitKind::Code {
+                continue;
+            }
+            let Some(tool) = stored.unit.config.get("tool").cloned() else {
+                continue;
+            };
+            facts.push(ToolUnitFact {
+                unit_id: stored.unit.unit_id,
+                kind: stored.unit.kind,
+                revision: stored.unit.revision,
+                artifact_digest: stored.unit.artifact_digest,
+                enabled,
+                current,
+                tool,
+                materialization_root: root,
+                materialization_path: path,
+            });
+        }
+        Ok(facts)
+    }
+
+    /// Read-only access to a retained package's exact bytes, digest-verified.
+    /// This is the authoritative artifact read for code-unit execution; the
+    /// materialized file is a copy for transparency, not the trust root.
+    pub fn unit_object_bytes(&self, digest: &Digest) -> Result<Vec<u8>> {
+        self.object_bytes(digest)
+    }
+
+    /// Every distinct materialization root this installation ever wrote units
+    /// into. Bootstrap uses this to admit (or refuse to adopt) an existing
+    /// tool/package directory before any new installation state is written.
+    pub fn materialization_roots(&self) -> Result<Vec<String>> {
+        let mut roots: Vec<String> = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT root FROM unit_materializations WHERE root<>'' ORDER BY root",
+            )?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        roots.dedup();
+        Ok(roots)
+    }
+
     /// Export a unit and the dependency closure this node can actually offer.
     fn unit_export(&self, unit_id: &str) -> Result<Value> {
         let root = self
@@ -1228,9 +1764,21 @@ impl Node {
             else {
                 continue;
             };
-            let bytes = self.object_bytes(&unit.artifact_digest)?;
+            // An out-of-line artifact is not re-inlined into an export: the
+            // portable identity is its digest, the locator is
+            // installation-local.
+            let bytes = if external_artifact_of(&unit.descriptor).is_some() {
+                Vec::new()
+            } else {
+                self.object_bytes(&unit.artifact_digest)?
+            };
+            // A judgement recorded on this node and the observations bound to
+            // it are facts about this installation. They never travel with a
+            // package: another node must reach its own conclusion.
+            let mut descriptor = unit.descriptor.clone();
+            strip_local_sections(&mut descriptor.config);
             packages.push(UnitPackage {
-                unit: unit.descriptor.clone(),
+                unit: descriptor,
                 artifact_base64: b64_encode(&bytes),
                 evidence: self.local_provenance(&unit.unit_id, &unit.artifact_digest)?,
                 resolved_dependencies: Some(unit.edges.clone()),
@@ -1903,6 +2451,885 @@ impl Node {
         }))
     }
 
+    // ------------------------------------------------- installation facts ---
+
+    /// The durable facts of every unit this node currently offers.
+    pub fn installed_unit_facts(&self) -> Result<Vec<InstalledUnitFact>> {
+        let mut facts = Vec::new();
+        for unit in self.installed_units()? {
+            facts.push(self.unit_fact(&unit, true)?);
+        }
+        Ok(facts)
+    }
+
+    /// The durable facts of every retained version of one unit.
+    ///
+    /// Superseded versions stay visible with the relation that replaced
+    /// them, so a revision history is a fact rather than a guess.
+    pub fn retained_unit_facts(&self, unit_id: &str) -> Result<Vec<InstalledUnitFact>> {
+        let current = self.installed_unit(unit_id)?;
+        let mut facts = Vec::new();
+        for unit in self.retained_unit_versions(unit_id)? {
+            let is_current = current.as_ref().is_some_and(|current| {
+                current.revision == unit.revision && current.artifact_digest == unit.artifact_digest
+            });
+            let enabled = is_current && current.as_ref().is_some_and(|current| current.enabled);
+            facts.push(self.unit_fact_with(&unit, is_current, enabled)?);
+        }
+        Ok(facts)
+    }
+
+    /// The exact content of one installed unit version.
+    ///
+    /// A revision can have several retained artifact digests; the caller
+    /// names one when the revision alone is ambiguous.
+    pub fn unit_content(
+        &self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: Option<&Digest>,
+    ) -> Result<UnitContent> {
+        let rows: Vec<(String, String)> = self
+            .conn
+            .prepare("SELECT revision,artifact_digest FROM unit_versions WHERE unit_id=?1 AND revision=?2 ORDER BY artifact_digest")?
+            .query_map(params![unit_id, revision], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ensure!(!rows.is_empty(), "unit revision is not retained on this node");
+        let selected = match artifact_digest {
+            Some(digest) => rows
+                .iter()
+                .find(|(_, stored)| stored == &digest.0)
+                .cloned()
+                .context("unit revision does not retain the requested artifact digest")?,
+            None => {
+                ensure!(
+                    rows.len() == 1,
+                    "unit revision retains several artifacts; name the artifact digest"
+                );
+                rows[0].clone()
+            }
+        };
+        let digest = Digest(selected.1);
+        let unit = self
+            .installed_unit_version(unit_id, revision, &digest)?
+            .context("unit version is not retained on this node")?;
+        let bytes = self.object_bytes(&digest)?;
+        ensure!(
+            Digest::blake3(&bytes) == digest,
+            "stored artifact corruption"
+        );
+        let current = self.installed_unit(unit_id)?.is_some_and(|current| {
+            current.revision == revision && current.artifact_digest == digest
+        });
+        Ok(UnitContent {
+            unit_id: unit_id.to_string(),
+            kind: unit.descriptor.kind,
+            revision: revision.to_string(),
+            artifact_digest: digest,
+            enabled: unit.enabled,
+            current,
+            bytes,
+        })
+    }
+
+    /// Where the bytes of one artifact actually live.
+    ///
+    /// An artifact registered out of line is not in this installation's
+    /// inline object store; the returned locator says where it is, and the
+    /// executor re-verifies the digest before it runs.
+    pub fn unit_artifact_source(&self, digest: &Digest) -> Result<UnitArtifactSource> {
+        let versions: Vec<String> = self
+            .conn
+            .prepare("SELECT data FROM unit_versions ORDER BY unit_id,revision,artifact_digest")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for data in versions {
+            let stored: StoredVersion = serde_json::from_str(&data)?;
+            if stored.unit.artifact_digest != *digest {
+                continue;
+            }
+            if let Some(external) = external_artifact_of(&stored.unit) {
+                return Ok(UnitArtifactSource::External {
+                    store: external.store,
+                    locator: external.locator,
+                    bytes: external.bytes,
+                });
+            }
+        }
+        let retained: bool = self
+            .conn
+            .query_row("SELECT 1 FROM objects WHERE digest=?1", [&digest.0], |r| {
+                r.get::<_, i64>(0)
+            })
+            .optional()?
+            .is_some();
+        ensure!(retained, "artifact is not retained on this node");
+        Ok(UnitArtifactSource::Inline)
+    }
+
+    /// Register a unit version whose artifact bytes live outside this
+    /// installation's inline object store.
+    ///
+    /// The bytes are never copied into the node database. The declared
+    /// digest is the portable identity: a peer receives it and registers the
+    /// unit against its own bytes.
+    fn unit_import_external(
+        &mut self,
+        unit: UnitDescriptor,
+        artifact: ExternalArtifact,
+        package_root: &str,
+        enable: Option<bool>,
+    ) -> Result<Value> {
+        ensure!(
+            artifact.digest.algorithm() == "blake3",
+            "unsupported artifact digest algorithm"
+        );
+        ensure!(
+            artifact.digest == unit.artifact_digest,
+            "external artifact digest does not match the unit descriptor"
+        );
+        ensure!(
+            artifact.bytes <= MAX_EXTERNAL_ARTIFACT_BYTES,
+            "external artifact exceeds the size bound"
+        );
+        ensure!(!artifact.locator.trim().is_empty(), "external artifact locator is empty");
+        ensure!(!artifact.store.trim().is_empty(), "external artifact store is empty");
+        validate_descriptor(&unit)?;
+        let root = normalize_root(package_root)?;
+        let mut descriptor = unit;
+        descriptor.config["external_artifact"] = json!({
+            "digest": artifact.digest,
+            "bytes": artifact.bytes,
+            "store": artifact.store,
+            "locator": artifact.locator,
+        });
+        let export = UnitExport {
+            schema: UNIT_SCHEMA,
+            root_unit_id: descriptor.unit_id.clone(),
+            root_revision: Some(descriptor.revision.clone()),
+            root_artifact_digest: Some(descriptor.artifact_digest.clone()),
+            origin_node: None,
+            enabled: enable.unwrap_or(false),
+            packages: vec![UnitPackage {
+                unit: descriptor,
+                artifact_base64: String::new(),
+                evidence: vec![],
+                resolved_dependencies: None,
+            }],
+        };
+        let mut outcome = self.unit_import(export, &root, enable)?;
+        if let Some(object) = outcome.as_object_mut() {
+            object.insert(
+                "artifact_source".into(),
+                json!({
+                    "source": "external",
+                    "store": artifact.store,
+                    "locator": artifact.locator,
+                    "bytes": artifact.bytes,
+                }),
+            );
+        }
+        Ok(outcome)
+    }
+
+    /// Read the exact content of one installed unit version.
+    fn unit_read(&self, unit_id: &str, revision: &str) -> Result<Value> {
+        let content = self.unit_content(unit_id, revision, None)?;
+        let text = String::from_utf8(content.bytes.clone()).ok();
+        Ok(json!({
+            "unit_id": content.unit_id,
+            "kind": content.kind,
+            "revision": content.revision,
+            "artifact_digest": content.artifact_digest,
+            "enabled": content.enabled,
+            "current": content.current,
+            "bytes": content.bytes.len(),
+            "content_base64": b64_encode(&content.bytes),
+            "content_text": text,
+        }))
+    }
+
+    /// Record how one unit version was judged, and on which evidence.
+    ///
+    /// The decision is stored under the unit's own configuration as a
+    /// recorded fact. The node never derives a decision from the unit's
+    /// text and never requires one: an unjudged unit stays unjudged.
+    fn unit_record_adoption(
+        &mut self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: &Digest,
+        decision: AdoptionDecision,
+        method: AdoptionMethod,
+        evidence: &[AdoptionEvidence],
+        notes: Option<&str>,
+        enable: Option<bool>,
+    ) -> Result<Value> {
+        ensure!(
+            evidence.len() <= MAX_EDGES,
+            "adoption evidence count out of bounds"
+        );
+        if let Some(notes) = notes {
+            ensure!(notes.len() <= MAX_TEXT_BYTES, "adoption notes exceed the text bound");
+        }
+        if enable == Some(true) {
+            ensure!(
+                decision == AdoptionDecision::Adopted,
+                "only an adopted unit can be enabled"
+            );
+        }
+        let recorded_at = now();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let data: Option<String> = tx
+            .query_row(
+                "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit_id, revision, artifact_digest.0],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else {
+            bail!("unit version is not retained on this node");
+        };
+        let mut stored: StoredVersion = serde_json::from_str(&data)?;
+        // The node verifies every evidence item against its own durable
+        // state. A trial attempt is runner-owned: this node opened it before
+        // the run and closed it with the run's receipts. A stored observation
+        // is bytes this node holds; it proves the bytes exist, never that a
+        // measurement produced them, so it can never carry empirical
+        // acceptance.
+        let mut resolved: Vec<Value> = Vec::new();
+        let mut trial_backed = false;
+        for item in evidence {
+            match item {
+                AdoptionEvidence::TrialAttempt { attempt_id } => {
+                    let attempt_id = attempt_id.trim();
+                    ensure!(
+                        !attempt_id.is_empty() && attempt_id.len() <= MAX_TEXT_BYTES,
+                        "adoption trial attempt id is empty or too long"
+                    );
+                    let facts = Self::trial_attempt_facts(&tx, attempt_id)?;
+                    let Some(facts) = facts else {
+                        bail!("adoption evidence names a trial attempt this node never opened");
+                    };
+                    ensure!(
+                        facts.unit_id == unit_id
+                            && facts.revision == revision
+                            && facts.artifact_digest == *artifact_digest,
+                        "adoption evidence names a trial attempt of a different unit version"
+                    );
+                    ensure!(
+                        facts.state == "finished",
+                        "adoption evidence names a trial attempt that never reached a terminal state"
+                    );
+                    let plan_digest = match facts.plan_digest {
+                        Some(digest) => digest,
+                        None => bail!("the trial attempt carries no bound plan"),
+                    };
+                    trial_backed = true;
+                    resolved.push(json!({
+                        "kind": "trial_attempt",
+                        "attempt_id": attempt_id,
+                        "verified": true,
+                        "plan_digest": plan_digest,
+                        "bound_unit_id": facts.unit_id,
+                        "bound_revision": facts.revision,
+                        "bound_artifact_digest": facts.artifact_digest,
+                    }));
+                }
+                AdoptionEvidence::StoredObservation { digest } => {
+                    ensure!(
+                        Self::observation_bound(&tx, &stored.unit, digest)?,
+                        "adoption evidence names an observation this node does not hold for this unit version"
+                    );
+                    resolved.push(json!({
+                        "kind": "stored_observation",
+                        "digest": digest.0,
+                        "verified": true,
+                        "empirical": false,
+                    }));
+                }
+            }
+        }
+        // The empirical flag says what the evidence can carry. An operator
+        // statement, or an observation without a trial attempt, records what
+        // was said; it never claims a measurement happened.
+        let empirical = trial_backed && method.is_empirical();
+        let adoption = json!({
+            "decision": decision.as_str(),
+            "method": method.as_str(),
+            "evidence": resolved,
+            "evidence_verified": resolved
+                .iter()
+                .all(|item| item.get("verified").and_then(Value::as_bool) == Some(true)),
+            "empirical": empirical,
+            "notes": notes,
+            "recorded_at": recorded_at,
+        });
+        set_config_section(&mut stored.unit.config, "cognition", "adoption", adoption.clone());
+        tx.execute(
+            "INSERT INTO unit_version_history(unit_id,revision,artifact_digest,imported_at,data) SELECT unit_id,revision,artifact_digest,imported_at,data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, artifact_digest.0],
+        )?;
+        tx.execute(
+            "INSERT INTO unit_versions(unit_id,revision,artifact_digest,imported_at,data) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id,revision,artifact_digest) DO UPDATE SET data=excluded.data,imported_at=excluded.imported_at",
+            params![
+                unit_id,
+                revision,
+                artifact_digest.0,
+                stored.imported_at.clone(),
+                serde_json::to_string(&stored)?
+            ],
+        )?;
+        if let Some(enable) = enable {
+            tx.execute(
+                "UPDATE unit_current SET enabled=?2,updated_at=?3 WHERE unit_id=?1",
+                params![unit_id, i64::from(enable), recorded_at],
+            )?;
+        }
+        tx.commit()?;
+        let facts = self.retained_unit_facts(unit_id)?;
+        Ok(json!({
+            "unit_id": unit_id,
+            "revision": revision,
+            "artifact_digest": artifact_digest,
+            "adoption": adoption,
+            "enabled": enable,
+            "versions": facts,
+        }))
+    }
+
+    /// The durable facts of one trial attempt.
+    ///
+    /// A trial attempt is runner-owned: this node opened it before the run
+    /// started and closes it with the receipts the run produced. A caller
+    /// cannot write an attempt row directly, so a report cannot promote
+    /// itself into a measurement.
+    fn trial_attempt_facts(conn: &Connection, attempt_id: &str) -> Result<Option<TrialAttemptFacts>> {
+        let row: Option<(String, String, String, String, String, String)> = conn
+            .prepare(
+                "SELECT unit_id,revision,artifact_digest,state,started_at,data FROM unit_attempts WHERE attempt_id=?1",
+            )?
+            .query_row(params![attempt_id], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            })
+            .optional()?;
+        let Some((unit_id, revision, artifact_digest, state, started_at, data)) = row else {
+            return Ok(None);
+        };
+        let stored: Value = serde_json::from_str(&data).unwrap_or_else(|_| json!({}));
+        Ok(Some(TrialAttemptFacts {
+            unit_id,
+            revision,
+            artifact_digest: Digest(artifact_digest),
+            state,
+            started_at,
+            kind: stored.get("kind").and_then(Value::as_str).map(str::to_string),
+            plan_digest: stored
+                .get("plan_digest")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        }))
+    }
+
+    /// Whether this node holds the observation bytes and binds them to this
+    /// exact unit version.
+    fn observation_bound(
+        conn: &Connection,
+        unit: &UnitDescriptor,
+        digest: &Digest,
+    ) -> Result<bool> {
+        let bound = unit
+            .config
+            .pointer("/cognition/observations")
+            .and_then(Value::as_array)
+            .is_some_and(|entries| {
+                entries.iter().any(|entry| {
+                    entry.get("digest").and_then(Value::as_str) == Some(digest.0.as_str())
+                })
+            });
+        if !bound {
+            return Ok(false);
+        }
+        let bytes: Option<Vec<u8>> = conn.query_row(
+            "SELECT bytes FROM objects WHERE digest=?1",
+            [&digest.0],
+            |r| r.get(0),
+        ).optional()?;
+        Ok(bytes.is_some_and(|bytes| Digest::blake3(&bytes) == *digest))
+    }
+
+    /// Open a durable trial attempt for one unit version.
+    ///
+    /// The attempt exists before anything runs, so a crash leaves an
+    /// unresolved attempt instead of a missing fact. The plan records what
+    /// the trial is bound to: the exact artifact, the scenarios and rubrics,
+    /// the candidate and control configuration and the model binding.
+    fn unit_begin_trial(
+        &mut self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: &Digest,
+        kind: &str,
+        plan: &Value,
+    ) -> Result<Value> {
+        let kind = kind.trim();
+        ensure!(
+            !kind.is_empty() && kind.len() <= MAX_TEXT_BYTES,
+            "the trial kind is empty or too long"
+        );
+        ensure!(plan.is_object(), "the trial plan must be an object");
+        let plan_bytes = serde_json::to_vec(plan)?;
+        ensure!(
+            plan_bytes.len() <= MAX_TEXT_BYTES * 8,
+            "the trial plan exceeds the size bound"
+        );
+        let unit = self
+            .installed_unit(unit_id)?
+            .context("unit is not installed on this node")?;
+        ensure!(
+            unit.revision == revision && unit.artifact_digest == *artifact_digest,
+            "the trial must bind the current version of the unit"
+        );
+        self.retire_open_trials()?;
+        let plan_digest = Digest::blake3(&plan_bytes);
+        let attempt_id = EntityId::new().to_string();
+        let started_at = now();
+        let owner_pid = i64::from(std::process::id());
+        let owner_runtime = runtime_id(&self.conn)?;
+        let data = json!({
+            "kind": kind,
+            "plan": plan,
+            "plan_digest": plan_digest.0,
+            "started_at": started_at,
+        });
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO unit_attempts(attempt_id,unit_id,revision,artifact_digest,environment_digest,state,started_at,finished_at,owner_pid,owner_runtime,data) \
+             VALUES(?1,?2,?3,?4,?5,'trial_open',?6,NULL,?7,?8,?9)",
+            params![
+                attempt_id,
+                unit_id,
+                revision,
+                artifact_digest.0,
+                plan_digest.0,
+                started_at,
+                owner_pid,
+                owner_runtime,
+                serde_json::to_string(&data)?
+            ],
+        )?;
+        tx.commit()?;
+        Ok(json!({
+            "attempt_id": attempt_id,
+            "kind": kind,
+            "plan_digest": plan_digest.0,
+            "state": "trial_open",
+            "unit_id": unit_id,
+            "revision": revision,
+            "artifact_digest": artifact_digest.0,
+        }))
+    }
+
+    /// Close a trial attempt with the receipts the run produced.
+    ///
+    /// Every receipt is an independent terminal fact of one condition. The
+    /// node stores them with the attempt and never derives a measurement from
+    /// a summary the caller wrote.
+    fn unit_finish_trial(
+        &mut self,
+        attempt_id: &str,
+        outcome: TrialOutcome,
+        receipts: &[Value],
+    ) -> Result<Value> {
+        ensure!(
+            receipts.len() <= MAX_EDGES * 4,
+            "too many trial receipts"
+        );
+        for receipt in receipts {
+            ensure!(receipt.is_object(), "a trial receipt must be an object");
+            ensure!(
+                receipt.get("digest").and_then(Value::as_str).is_some(),
+                "a trial receipt must name the digest of the fact it carries"
+            );
+        }
+        let facts = Self::trial_attempt_facts(&self.conn, attempt_id)?
+            .context("this node never opened that trial attempt")?;
+        ensure!(
+            facts.state == "trial_open",
+            "the trial attempt is not open; it was already closed"
+        );
+        let finished_at = now();
+        let data = json!({
+            "kind": facts.kind,
+            "plan_digest": facts.plan_digest,
+            "receipts": receipts,
+            "receipt_count": receipts.len(),
+            "finished_at": finished_at,
+        });
+        let owner_runtime = runtime_id(&self.conn)?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,artifact_bound,artifact_verified,owner_pid,owner_runtime,data) \
+             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,0,0,?9,?10,?11)",
+            params![
+                attempt_id,
+                facts.unit_id,
+                facts.revision,
+                facts.artifact_digest.0,
+                facts.plan_digest.clone().unwrap_or_default(),
+                facts.started_at,
+                finished_at,
+                outcome.as_str(),
+                i64::from(std::process::id()),
+                owner_runtime,
+                serde_json::to_string(&data)?
+            ],
+        )?;
+        tx.execute(
+            "UPDATE unit_attempts SET state='finished',finished_at=?2 WHERE attempt_id=?1",
+            params![attempt_id, finished_at],
+        )?;
+        tx.commit()?;
+        Ok(json!({
+            "attempt_id": attempt_id,
+            "state": "finished",
+            "outcome": outcome.as_str(),
+            "receipt_count": receipts.len(),
+            "unit_id": facts.unit_id,
+            "revision": facts.revision,
+            "artifact_digest": facts.artifact_digest.0,
+        }))
+    }
+
+    /// Register an observation about one unit version.
+    ///
+    /// The bytes are stored with their digest so the node can re-verify them,
+    /// and they are bound to this exact unit version. An observation is a
+    /// recorded fact; it never becomes empirical acceptance by itself.
+    fn unit_register_observation(
+        &mut self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: &Digest,
+        kind: &str,
+        bytes: &[u8],
+    ) -> Result<Value> {
+        let kind = kind.trim();
+        ensure!(
+            !kind.is_empty() && kind.len() <= MAX_TEXT_BYTES,
+            "the observation kind is empty or too long"
+        );
+        ensure!(
+            bytes.len() <= MAX_ARTIFACT_BYTES,
+            "an observation exceeds the inline object bound"
+        );
+        let digest = Digest::blake3(bytes);
+        let recorded_at = now();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let data: Option<String> = tx
+            .query_row(
+                "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit_id, revision, artifact_digest.0],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(data) = data else {
+            bail!("unit version is not retained on this node");
+        };
+        let mut stored: StoredVersion = serde_json::from_str(&data)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO objects(digest,bytes) VALUES(?1,?2)",
+            params![digest.0, bytes],
+        )?;
+        let mut entries = stored
+            .unit
+            .config
+            .pointer("/cognition/observations")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        entries.retain(|entry| {
+            entry.get("digest").and_then(Value::as_str) != Some(digest.0.as_str())
+        });
+        entries.push(json!({
+            "digest": digest.0,
+            "kind": kind,
+            "bytes": bytes.len(),
+            "recorded_at": recorded_at,
+        }));
+        set_config_section(
+            &mut stored.unit.config,
+            "cognition",
+            "observations",
+            Value::Array(entries.clone()),
+        );
+        tx.execute(
+            "INSERT INTO unit_version_history(unit_id,revision,artifact_digest,imported_at,data) SELECT unit_id,revision,artifact_digest,imported_at,data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, artifact_digest.0],
+        )?;
+        tx.execute(
+            "INSERT INTO unit_versions(unit_id,revision,artifact_digest,imported_at,data) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id,revision,artifact_digest) DO UPDATE SET data=excluded.data,imported_at=excluded.imported_at",
+            params![
+                unit_id,
+                revision,
+                artifact_digest.0,
+                stored.imported_at.clone(),
+                serde_json::to_string(&stored)?
+            ],
+        )?;
+        tx.commit()?;
+        Ok(json!({
+            "unit_id": unit_id,
+            "revision": revision,
+            "artifact_digest": artifact_digest.0,
+            "digest": digest.0,
+            "kind": kind,
+            "bytes": bytes.len(),
+            "observations": entries,
+        }))
+    }
+
+    /// The observations registered for one unit version.
+    fn unit_observations(&self, unit_id: &str) -> Result<Value> {
+        let unit = self
+            .installed_unit(unit_id)?
+            .context("unit is not installed on this node")?;
+        let version = self
+            .installed_unit_version(&unit.unit_id, &unit.revision, &unit.artifact_digest)?
+            .context("the current unit version is not retained")?;
+        let entries = version
+            .descriptor
+            .config
+            .pointer("/cognition/observations")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let observations: Vec<Value> = entries
+            .iter()
+            .map(|entry| {
+                let digest = entry
+                    .get("digest")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let held = self
+                    .object_bytes(&Digest(digest.clone()))
+                    .map(|bytes| Digest::blake3(&bytes) == Digest(digest.clone()))
+                    .unwrap_or(false);
+                let mut entry = entry.clone();
+                if let Some(object) = entry.as_object_mut() {
+                    object.insert("bytes_held".into(), json!(held));
+                }
+                entry
+            })
+            .collect();
+        Ok(json!({
+            "unit_id": unit.unit_id,
+            "revision": unit.revision,
+            "artifact_digest": unit.artifact_digest.0,
+            "observations": observations,
+        }))
+    }
+
+    /// Close trial attempts whose owning process is gone.
+    ///
+    /// A trial that never finished is unknown, never a measurement. The
+    /// attempt keeps its plan so a reader can see what was bound.
+    fn retire_open_trials(&mut self) -> Result<u32> {
+        let my_runtime = runtime_id(&self.conn)?;
+        let my_pid = i64::from(std::process::id());
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let pending: Vec<(String, String, String, String, String, i64, String)> = tx
+            .prepare(
+                "SELECT attempt_id,unit_id,revision,artifact_digest,environment_digest,owner_pid,owner_runtime FROM unit_attempts WHERE state='trial_open' ORDER BY started_at",
+            )?
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if pending.is_empty() {
+            tx.commit()?;
+            return Ok(0);
+        }
+        let finished = now();
+        let mut retired = 0u32;
+        for (
+            attempt_id,
+            unit_id,
+            revision,
+            digest,
+            environment,
+            owner_pid,
+            owner_runtime,
+        ) in pending
+        {
+            let mine = owner_runtime == my_runtime && owner_pid == my_pid;
+            if !mine && !process_gone(owner_pid, &owner_runtime) {
+                continue;
+            }
+            tx.execute(
+                "INSERT INTO unit_trials(attempt_id,unit_id,revision,artifact_digest,environment_digest,started_at,finished_at,outcome,artifact_bound,artifact_verified,owner_pid,owner_runtime,data) \
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,'unknown',0,0,?8,?9,?10)",
+                params![
+                    attempt_id,
+                    unit_id,
+                    revision,
+                    digest,
+                    environment,
+                    finished,
+                    finished,
+                    owner_pid,
+                    owner_runtime,
+                    json!({"kind": "unknown", "reason": "the trial attempt was never closed"}).to_string()
+                ],
+            )?;
+            tx.execute(
+                "UPDATE unit_attempts SET state='unknown',finished_at=?2 WHERE attempt_id=?1",
+                params![attempt_id, finished],
+            )?;
+            retired += 1;
+        }
+        tx.commit()?;
+        Ok(retired)
+    }
+
+    /// The retained versions of one unit and their supersession relations.
+    fn unit_lineage(&self, unit_id: &str) -> Result<Value> {
+        let facts = self.retained_unit_facts(unit_id)?;
+        ensure!(!facts.is_empty(), "unit is not installed on this node");
+        Ok(json!({
+            "unit_id": unit_id,
+            "current": facts
+                .iter()
+                .find(|fact| fact.current)
+                .map(|fact| json!({
+                    "revision": fact.revision,
+                    "artifact_digest": fact.artifact_digest,
+                    "enabled": fact.enabled,
+                })),
+            "versions": facts,
+        }))
+    }
+
+    /// Every retained version of one unit.
+    fn retained_unit_versions(&self, unit_id: &str) -> Result<Vec<InstalledUnit>> {
+        let rows: Vec<(String, String)> = self
+            .conn
+            .prepare("SELECT revision,artifact_digest FROM unit_versions WHERE unit_id=?1 ORDER BY revision,artifact_digest")?
+            .query_map(params![unit_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut units = Vec::new();
+        for (revision, digest) in rows {
+            if let Some(unit) = self.load_installed_unit(unit_id, &revision, &Digest(digest), false)? {
+                units.push(unit);
+            }
+        }
+        Ok(units)
+    }
+
+    /// The public projection of one installed version.
+    fn unit_fact(&self, unit: &InstalledUnit, current: bool) -> Result<InstalledUnitFact> {
+        self.unit_fact_with(unit, current, unit.enabled)
+    }
+
+    fn unit_fact_with(
+        &self,
+        unit: &InstalledUnit,
+        current: bool,
+        enabled: bool,
+    ) -> Result<InstalledUnitFact> {
+        let supersedes = declared_supersedes(&unit.descriptor);
+        let mut superseded_by: Vec<SupersededVersion> = Vec::new();
+        for other in self.retained_unit_versions(&unit.unit_id)? {
+            if other.revision == unit.revision && other.artifact_digest == unit.artifact_digest {
+                continue;
+            }
+            for relation in declared_supersedes(&other.descriptor) {
+                if relation.revision == unit.revision && relation.artifact_digest == unit.artifact_digest {
+                    superseded_by.push(SupersededVersion {
+                        revision: other.revision.clone(),
+                        artifact_digest: other.artifact_digest.clone(),
+                        reason: relation.reason,
+                    });
+                }
+            }
+        }
+        let artifact_source = match external_artifact_of(&unit.descriptor) {
+            Some(external) => UnitArtifactSource::External {
+                store: external.store,
+                locator: external.locator,
+                bytes: external.bytes,
+            },
+            None => UnitArtifactSource::Inline,
+        };
+        let imported_at = self
+            .conn
+            .query_row(
+                "SELECT imported_at FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit.unit_id, unit.revision, unit.artifact_digest.0],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .unwrap_or_default();
+        let origin_node = self
+            .conn
+            .query_row(
+                "SELECT json_extract(data,'$.origin_node') FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit.unit_id, unit.revision, unit.artifact_digest.0],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(InstalledUnitFact {
+            unit_id: unit.unit_id.clone(),
+            kind: unit.descriptor.kind,
+            revision: unit.revision.clone(),
+            artifact_digest: unit.artifact_digest.clone(),
+            current,
+            enabled,
+            imported_at,
+            origin_node,
+            descriptor: unit.descriptor.clone(),
+            edges: unit.edges.clone(),
+            supersedes,
+            superseded_by,
+            artifact_source,
+            materialization: unit.materialization.as_ref().map(|materialization| {
+                MaterializationFact {
+                    root: materialization.root.clone(),
+                    path: materialization.path.clone(),
+                    state: materialization.state.clone(),
+                    detail: materialization.detail.clone(),
+                }
+            }),
+        })
+    }
+
     // ------------------------------------------------------- local facts ---
 
     fn installed_units(&self) -> Result<Vec<InstalledUnit>> {
@@ -1919,6 +3346,31 @@ impl Node {
         }
         Ok(units)
     }
+
+    /// Capability names declared by currently enabled units on this node.
+    /// These are declarations for coordination candidacy, not readiness or
+    /// model-evidence claims. Reads on the caller's connection so a
+    /// generation transaction can bind them to its own durable snapshot.
+    pub(crate) fn enabled_provides(conn: &Connection) -> Result<Vec<String>> {
+        let mut provides = Vec::new();
+        let rows: Vec<(String, i64)> = conn
+            .prepare(
+                "SELECT v.data,c.enabled FROM unit_current c JOIN unit_versions v ON v.unit_id=c.unit_id AND v.revision=c.revision AND v.artifact_digest=c.artifact_digest ORDER BY c.unit_id",
+            )?
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (data, enabled) in rows {
+            if enabled == 0 {
+                continue;
+            }
+            let stored: StoredVersion = serde_json::from_str(&data)?;
+            provides.extend(stored.unit.provides);
+        }
+        provides.sort();
+        provides.dedup();
+        Ok(provides)
+    }
+
 
     fn installed_unit(&self, unit_id: &str) -> Result<Option<InstalledUnit>> {
         let row: Option<(String, String, i64)> = self
@@ -2290,6 +3742,87 @@ impl Node {
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+/// Set one key inside a named section of a unit's own configuration.
+///
+/// The configuration is authored by the package; this helper only adds a
+/// node-recorded fact under its own section and never rewrites an authored
+/// value.
+fn set_config_section(config: &mut Value, section: &str, key: &str, value: Value) {
+    if !config.is_object() {
+        *config = json!({});
+    }
+    let root = config.as_object_mut().expect("config is an object");
+    let slot = root.entry(section.to_string()).or_insert_with(|| json!({}));
+    if !slot.is_object() {
+        *slot = json!({});
+    }
+    slot.as_object_mut()
+        .expect("section is an object")
+        .insert(key.to_string(), value);
+}
+
+/// Remove the sections that are facts about one node only.
+///
+/// A recorded judgement and the observations bound to it describe what
+/// happened on this installation. They are stripped from every package so a
+/// peer never inherits an acceptance it did not measure.
+fn strip_local_sections(config: &mut Value) {
+    let empty = {
+        let Some(section) = config.get_mut("cognition").and_then(Value::as_object_mut) else {
+            return;
+        };
+        section.remove("adoption");
+        section.remove("observations");
+        section.is_empty()
+    };
+    if empty {
+        if let Some(root) = config.as_object_mut() {
+            root.remove("cognition");
+        }
+    }
+}
+
+/// The out-of-line artifact a unit version declares, when it declares one.
+fn external_artifact_of(descriptor: &UnitDescriptor) -> Option<ExternalArtifact> {
+    let value = descriptor.config.get("external_artifact")?;
+    let digest = Digest(value.get("digest")?.as_str()?.to_string());
+    let bytes = value.get("bytes")?.as_u64()?;
+    let store = value.get("store")?.as_str()?.to_string();
+    let locator = value.get("locator")?.as_str()?.to_string();
+    Some(ExternalArtifact {
+        digest,
+        bytes,
+        store,
+        locator,
+    })
+}
+
+/// The versions a unit version declares it replaces.
+///
+/// The relation is declared, never inferred: a node that holds two
+/// versions of a unit does not decide by itself which one replaced which.
+fn declared_supersedes(descriptor: &UnitDescriptor) -> Vec<SupersededVersion> {
+    let Some(Value::Array(items)) = descriptor.config.pointer("/cognition/supersedes") else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            let revision = item.get("revision")?.as_str()?.to_string();
+            let artifact_digest = Digest(item.get("artifact_digest")?.as_str()?.to_string());
+            let reason = item
+                .get("reason")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            Some(SupersededVersion {
+                revision,
+                artifact_digest,
+                reason,
+            })
+        })
+        .collect()
 }
 
 fn ensure_unit_schema(conn: &rusqlite::Connection) -> Result<()> {

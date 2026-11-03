@@ -1,0 +1,39 @@
+--- a/lib/portability.c
++++ b/lib/portability.c
+@@ -54,7 +54,13 @@
+ // Get list of mounted filesystems, including stat and statvfs info.
+ // Returns a reversed list, which is good for finding overmounts and such.
+ 
+-#if defined(__APPLE__) || defined(__IsBSD__)
++#if defined(__wasi__)
++// WASI has no mount table: the only filesystems are the granted preopens.
++struct mtab_list *xgetmountlist(char *path)
++{
++  error_exit("xgetmountlist: no mount table on WASI");
++}
++#elif defined(__APPLE__) || defined(__IsBSD__)
+ 
+ #include <sys/mount.h>
+ 
+@@ -517,7 +523,9 @@
+ 
+ int dev_minor(int dev)
+ {
+-#if defined(__linux__)
++#if defined(__wasi__)
++  return dev&0xff;
++#elif defined(__linux__)
+   return ((dev&0xfff00000)>>12)|(dev&0xff);
+ #elif defined(__APPLE__)
+   return dev&0xffffff;
+@@ -531,7 +539,9 @@
+ 
+ int dev_major(int dev)
+ {
+-#if defined(__linux__)
++#if defined(__wasi__)
++  return dev>>8;
++#elif defined(__linux__)
+   return (dev&0xfff00)>>8;
+ #elif defined(__APPLE__)
+   return (dev>>24)&0xff;

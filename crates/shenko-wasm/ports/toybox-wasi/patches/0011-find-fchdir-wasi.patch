@@ -1,0 +1,30 @@
+--- a/toys/posix/find.c
++++ b/toys/posix/find.c
+@@ -106,6 +106,9 @@
+ 
+   // switch to directory for -execdir, or back to top if we have an -execdir
+   // _and_ a normal -exec, or are at top of tree in -execdir
++#ifndef __wasi__
++  // WASI has no fchdir; every -exec/-execdir path below error_exit()s
++  // before a directory change could matter.
+   if (TT.topdir != -1) {
+     if (aa->dir && new && new->parent) {
+       revert++;
+@@ -117,6 +120,7 @@
+       return rc;
+     }
+   }
++#endif
+ 
+   // execdir: accumulated execs in this directory's children.
+   newargs = xmalloc(sizeof(char *)*(aa->arglen+bb->namecount+1));
+@@ -145,7 +149,9 @@
+   bb->names = 0;
+   bb->namecount = 0;
+ 
++#ifndef __wasi__
+   if (revert) revert = fchdir(TT.topdir);
++#endif
+ 
+   return rc;
+ }

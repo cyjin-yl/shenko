@@ -1,0 +1,147 @@
+--- a/lib/xwrap.c
++++ b/lib/xwrap.c
+@@ -187,6 +187,9 @@
+ // note: restarts process from command_main()
+ void xvdaemon(void)
+ {
++#ifdef __wasi__
++  error_exit("daemonize: no fork/setsid on WASI");
++#else
+   int fd;
+ 
+   // vfork and exec /proc/self/exe
+@@ -206,6 +209,7 @@
+     close(fd);
+   }
+   dup2(0, 2);
++#endif // __wasi__
+ }
+ 
+ // This is called through the XVFORK macro because parent/child of vfork
+@@ -226,6 +230,9 @@
+ // with a path isn't a builtin, so /bin/sh won't match the builtin sh.
+ void xexec(char **argv)
+ {
++#ifdef __wasi__
++  error_exit("exec: no execve on WASI");
++#else
+   // Only recurse to builtin when we have multiplexer and !vfork context.
+   if (CFG_TOYBOX && !CFG_TOYBOX_NORECURSE)
+     if (toys.stacktop && !strchr(*argv, '/')) toy_exec(argv);
+@@ -235,6 +242,7 @@
+   perror_msg("exec %s", argv[0]);
+   if (!toys.stacktop) _exit(toys.exitval);
+   xexit();
++#endif // __wasi__
+ }
+ 
+ // Spawn child process, capturing stdin/stdout.
+@@ -246,6 +254,10 @@
+ // return: pid of child process
+ pid_t xpopen_setup(char **argv, int *pipes, void (*callback)(char **argv))
+ {
++#ifdef __wasi__
++  error_exit("subprocess: no fork/exec on WASI");
++  return -1;
++#else
+   int cestnepasun[4], pid;
+ 
+   // Make the pipes?
+@@ -327,6 +339,7 @@
+   }
+ 
+   return pid;
++#endif // __wasi__
+ }
+ 
+ pid_t xpopen_both(char **argv, int *pipes)
+@@ -705,8 +718,12 @@
+ 
+ void xchroot(char *path)
+ {
++#ifdef __wasi__
++  error_exit("chroot: no privilege boundary on WASI");
++#else
+   if (chroot(path)) error_exit("chroot '%s'", path);
+   xchdir("/");
++#endif // __wasi__
+ }
+ 
+ struct passwd *xgetpwuid(uid_t uid)
+@@ -726,6 +743,10 @@
+ 
+ unsigned xgetuid(char *name)
+ {
++#ifdef __wasi__
++  // Numeric ids only; there is no passwd database to resolve names.
++  return estrtol(name, 0, 10);
++#else
+   struct passwd *up = getpwnam(name);
+   char *s = 0;
+   long uid;
+@@ -736,10 +757,14 @@
+   if (!errno && s && !*s && uid>=0 && uid<=UINT_MAX) return uid;
+ 
+   error_exit("bad user '%s'", name);
++#endif // __wasi__
+ }
+ 
+ unsigned xgetgid(char *name)
+ {
++#ifdef __wasi__
++  return estrtol(name, 0, 10);
++#else
+   struct group *gr = getgrnam(name);
+   char *s = 0;
+   long gid;
+@@ -750,6 +775,7 @@
+   if (!errno && s && !*s && gid>=0 && gid<=UINT_MAX) return gid;
+ 
+   error_exit("bad group '%s'", name);
++#endif // __wasi__
+ }
+ 
+ struct passwd *xgetpwnam(char *name)
+@@ -773,8 +799,12 @@
+ 
+ void xsetuser(struct passwd *pwd)
+ {
++#ifdef __wasi__
++  error_exit("setuid: no privilege boundary on WASI");
++#else
+   if (initgroups(pwd->pw_name, pwd->pw_gid) || setgid(pwd->pw_gid)
+       || setuid(pwd->pw_uid)) perror_exit("xsetuser '%s'", pwd->pw_name);
++#endif // __wasi__
+ }
+ 
+ // This can return null (meaning file not found).  It just won't return null
+@@ -986,20 +1016,25 @@
+ }
+ 
+ // Set a signal handler
+-void xsignal_flags(int signal, void *handler, int flags)
++void xsignal_flags(int signum, void *handler, int flags)
+ {
++#ifdef __wasi__
++  // wasi-libc has signal() but not sigaction(); sa_flags have no meaning.
++  if (signal(signum, handler) == SIG_ERR) perror_exit("xsignal %d", signum);
++#else
+   struct sigaction *sa = (void *)libbuf;
+ 
+   memset(sa, 0, sizeof(struct sigaction));
+   sa->sa_handler = handler;
+   sa->sa_flags = flags;
+ 
+-  if (sigaction(signal, sa, 0)) perror_exit("xsignal %d", signal);
++  if (sigaction(signum, sa, 0)) perror_exit("xsignal %d", signum);
++#endif // __wasi__
+ }
+ 
+-void xsignal(int signal, void *handler)
++void xsignal(int signum, void *handler)
+ {
+-  xsignal_flags(signal, handler, 0);
++  xsignal_flags(signum, handler, 0);
+ }
+ 
+ 

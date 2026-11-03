@@ -8,11 +8,16 @@ pub const NOMINAL_FLOWS: u64 = 4;
 #[serde(rename_all = "snake_case")]
 pub enum CapacityPool {
     Compute,
+    /// The context residency pool. It is separate from compute: one context
+    /// may stay resident while another generation runs.
+    ContextKv,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CapacityProvenance {
+    /// Observed from the backend itself.
+    Measured,
     Configured,
     Estimated,
     Unknown,
@@ -43,7 +48,7 @@ impl AdmissionController {
         Self::with_provenance(NOMINAL_FLOWS, CapacityProvenance::Estimated)
     }
 
-    fn with_provenance(max: u64, provenance: CapacityProvenance) -> Self {
+    pub(crate) fn with_provenance(max: u64, provenance: CapacityProvenance) -> Self {
         Self {
             active: Arc::new(AtomicU64::new(0)),
             max,
@@ -61,6 +66,17 @@ impl AdmissionController {
                 counter: Arc::clone(&self.active),
                 released: false,
             })
+    }
+
+    /// An armed request recovered without terminal evidence is already debt,
+    /// not a new admission. It may exceed the configured cap and blocks new
+    /// work until the original request is reconciled.
+    pub(crate) fn recover_unknown(&self) -> AdmissionGuard {
+        self.active.fetch_add(1, Ordering::SeqCst);
+        AdmissionGuard {
+            counter: Arc::clone(&self.active),
+            released: false,
+        }
     }
 
     pub fn active_count(&self) -> u64 {

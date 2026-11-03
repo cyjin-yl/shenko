@@ -103,6 +103,18 @@ impl<'de> Deserialize<'de> for Pacer {
     }
 }
 
+impl Pacer {
+    /// The durable reservation bound to a stable request id, if any.
+    pub fn reservation(&self, request_id: &EntityId) -> Option<&Reservation> {
+        self.reservations.get(request_id)
+    }
+
+    /// Every outstanding reservation, oldest-request ordering by id.
+    pub fn reservations(&self) -> impl Iterator<Item = &Reservation> {
+        self.reservations.values()
+    }
+}
+
 fn profile<'a>(policy: &'a QuotaPolicy, id: &str) -> Option<&'a ModelProfile> {
     policy.profiles.iter().find(|p| p.profile_id == id)
 }
@@ -131,6 +143,35 @@ fn record_admission(pacer: &mut Pacer, admission: QuotaAdmission, outstanding: V
     AdmissionOutcome::Quota(admission)
 }
 
+/// Re-evaluate an already-admitted immutable request under a newer decision.
+/// The charge history, bound attempt rows and dispatch evidence are
+/// preserved verbatim while the admission record is refreshed; the request
+/// is never granted a second budget. Callers must pass the preserved
+/// admission time and pacing obligations.
+fn reconcile_admission(
+    pacer: &mut Pacer,
+    admission: QuotaAdmission,
+    admitted_at: Option<DateTime<Utc>>,
+    paced_windows: Vec<WindowPace>,
+) -> AdmissionOutcome {
+    let Some(reservation) = pacer.reservations.get_mut(&admission.request_id) else {
+        return AdmissionOutcome::Invalid { reason: "reconciled request has no reservation".into() };
+    };
+    let mut refreshed = admission;
+    // The known charge is the preserved outstanding reservation, never a
+    // second estimate: this admission must not double-charge the request.
+    refreshed.estimated_cost = reservation.outstanding.clone();
+    // Bound profile, admission time and pacing obligations are preserved
+    // history, not current eligibility: a request parked in a waiting
+    // state still owes and still paces exactly what its original dispatch
+    // armed, and a later positive decision must find the same profile.
+    refreshed.profile_id = reservation.admission.profile_id.clone();
+    refreshed.admitted_at = admitted_at;
+    refreshed.paced_windows = paced_windows;
+    reservation.admission = refreshed;
+    AdmissionOutcome::Existing { admission: reservation.admission.clone() }
+}
+
 fn valid_pacer(pacer: &Pacer) -> bool {
     let mut original = std::collections::HashSet::new();
     let mut paced = std::collections::HashSet::new();
@@ -144,9 +185,12 @@ fn valid_pacer(pacer: &Pacer) -> bool {
         if admitted && admission.admitted_at.is_none() { return false; }
         if cancelled && reservation.dispatch.is_none() { return false; }
         if admitted && reservation.dispatch == Some(DispatchEvidence::NeverDispatched) { return false; }
-        if !admitted && !cancelled && reservation.dispatch.is_some() { return false; }
+        // Armed dispatch evidence, bound attempt rows and the retained
+        // outstanding charge are HISTORY: they survive any later admission
+        // state. NeverDispatched remains evidence that nothing was sent and
+        // is therefore only legal on a cancelled record.
+        if !cancelled && reservation.dispatch == Some(DispatchEvidence::NeverDispatched) { return false; }
         if reservation.dispatch == Some(DispatchEvidence::NeverDispatched) && !reservation.outstanding.is_empty() { return false; }
-        if !admitted && !cancelled && (admission.admitted_at.is_some() || !admission.paced_windows.is_empty() || !reservation.outstanding.is_empty()) { return false; }
         original.clear();
         for cost in &admission.estimated_cost {
             if cost.unit.is_empty() || Range::new(cost.amount.lower, cost.amount.upper).is_none()
@@ -228,10 +272,15 @@ pub fn admit(
 ) -> AdmissionOutcome {
     let invalid = |reason: &str| AdmissionOutcome::Invalid { reason: reason.into() };
     let (admission_id, revision) = match pacer.reservations.get(&request_id) {
-        Some(previous) if matches!(previous.admission.state, AdmissionState::Admitted | AdmissionState::Cancelled) => {
+        Some(previous) if previous.admission.state == AdmissionState::Cancelled => {
             return if previous.admission.decision_id == decision.decision_id {
                 AdmissionOutcome::Existing { admission: previous.admission.clone() }
             } else { invalid("request already has a terminal or admitted record") };
+        }
+        Some(previous) if previous.admission.state == AdmissionState::Admitted
+            && previous.admission.decision_id == decision.decision_id =>
+        {
+            return AdmissionOutcome::Existing { admission: previous.admission.clone() };
         }
         Some(previous) => {
             let Some(revision) = previous.admission.record_revision.checked_add(1) else { return invalid("admission revision exhausted") };
@@ -239,6 +288,31 @@ pub fn admit(
         }
         None => (EntityId::new(), 0),
     };
+    // A request with durable charge history — admitted, or armed with bound
+    // attempt rows — re-evaluated under a DIFFERENT decision (expired and
+    // recomputed, or superseded by another worker): reconcile the fresh
+    // decision against its preserved history instead of rejecting, so the
+    // request can neither deadlock nor silently acquire a second budget,
+    // and a waiting state cannot erase the armed evidence it carries.
+    let reconcile = pacer
+        .reservations
+        .get(&request_id)
+        .is_some_and(|reservation| {
+            reservation.admission.state == AdmissionState::Admitted
+                || reservation.dispatch == Some(DispatchEvidence::ArmedOrUnknown)
+        });
+    let reconcile_state = reconcile.then(|| {
+        let reservation = pacer
+            .reservations
+            .get(&request_id)
+            .expect("reconcile implies a prior reservation");
+        (
+            reservation.admission.profile_id.clone(),
+            reservation.outstanding.clone(),
+            reservation.admission.admitted_at,
+            reservation.admission.paced_windows.clone(),
+        )
+    });
     let record = |state, profile_id: Option<&str>, next: Option<DateTime<Utc>>, reason: &str, cost| {
         QuotaAdmission {
             admission_id,
@@ -254,6 +328,15 @@ pub fn admit(
             record_revision: revision,
         }
     };
+    // Route every record path through `write`: a reconciled (previously
+    // admitted) request keeps its armed attempt rows and charge history,
+    // while a fresh or waiting record writes through `record_admission`.
+    let write = |pacer: &mut Pacer, admission: QuotaAdmission, outstanding: Vec<WindowCost>| {
+        if let Some((_, _, admitted_at, paced)) = &reconcile_state {
+            return reconcile_admission(pacer, admission, *admitted_at, paced.clone());
+        }
+        record_admission(pacer, admission, outstanding)
+    };
     if crate::policy::validate(policy, now).is_err() {
         return invalid("policy is invalid or unsupported");
     }
@@ -263,7 +346,7 @@ pub fn admit(
     if decision.policy_id != policy.policy_id || decision.policy_revision != policy.revision
         || now < decision.decided_at || now >= decision.valid_until
     {
-        return record_admission(pacer, record(AdmissionState::Eligible, None, None,
+        return write(pacer, record(AdmissionState::Eligible, None, None,
             "decision is stale or from the future; recompute before admitting", vec![]), Vec::new());
     }
     if decision.availability.len() != policy.profiles.len()
@@ -290,7 +373,7 @@ pub fn admit(
             return if any_unknown { AdmissionOutcome::CapacityUnknown { reason: "backend availability is unknown".into() } }
                 else { AdmissionOutcome::CapacityBlocked { reason: "no configured backend can run".into() } };
         }
-        return record_admission(pacer, record(AdmissionState::Eligible, None, None,
+        return write(pacer, record(AdmissionState::Eligible, None, None,
             "backend availability changed; recompute the decision", vec![]), Vec::new());
     }
     match &decision.choice {
@@ -317,7 +400,7 @@ pub fn admit(
                     return invalid("invalid cost, unit, or accounted attempt");
                 }
                 if constraint.next_change.is_some_and(|at| at <= now) {
-                    return record_admission(pacer, record(AdmissionState::Eligible, None, None,
+                    return write(pacer, record(AdmissionState::Eligible, None, None,
                         "window boundary passed; recompute the decision", vec![]), Vec::new());
                 }
                 match constraint.available {
@@ -337,6 +420,39 @@ pub fn admit(
             {
                 return invalid("decision does not bind every cost, unknown window, and pacing rate");
             }
+            // Reconcile an already-admitted immutable request: its request,
+            // bound profile and preserved charge history are kept while the
+            // fresh decision re-authorizes the same profile and still covers
+            // every outstanding window upper bound. The request is never
+            // granted a second budget; a decision that no longer covers the
+            // charge parks the reservation in a wait state instead of
+            // deadlocking it.
+            if let Some((previous_profile, charged, admitted_at, paced)) = &reconcile_state {
+                let covered = previous_profile.as_deref() == Some(profile_id.as_str())
+                    && charged.iter().all(|cost| {
+                        decision.constraints.iter().any(|constraint| {
+                            constraint.window == cost.window && constraint.unit == cost.unit
+                        })
+                    });
+                let next = if covered {
+                    None
+                } else {
+                    decision
+                        .constraints
+                        .iter()
+                        .filter_map(|constraint| constraint.next_change)
+                        .max()
+                };
+                let admission = record(
+                    if covered { AdmissionState::Admitted } else { AdmissionState::QuotaPolicyWait },
+                    previous_profile.as_deref(),
+                    next,
+                    if covered { "decision reconciled against preserved armed charge" }
+                        else { "refreshed decision no longer covers the preserved armed charge" },
+                    vec![],
+                );
+                return reconcile_admission(pacer, admission, *admitted_at, paced.clone());
+            }
             let mut eligible_at = None::<DateTime<Utc>>;
             for constraint in &decision.constraints {
                 for reservation in pacer.reservations.values().filter(|r| r.dispatch != Some(DispatchEvidence::NeverDispatched)) {
@@ -345,7 +461,7 @@ pub fn admit(
                     if cost.unit != constraint.unit { return invalid("previous admission uses a different window unit"); }
                     for pace in reservation.admission.paced_windows.iter().filter(|pace| pace.window == constraint.window) {
                         let Some(next) = pace.not_before else {
-                            return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
+                            return write(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
                                 "pacing interval exceeds the representable clock range", vec![]), Vec::new());
                         };
                         if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
@@ -354,7 +470,7 @@ pub fn admit(
                     // admission, including a bucket-to-period transition.
                     if let Some(rate) = constraint.rate_per_hour {
                         let Some(next) = pacing_deadline(admitted_at, rate) else {
-                            return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
+                            return write(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), None,
                                 "pacing interval exceeds the representable clock range", vec![]), Vec::new());
                         };
                         if now < next { eligible_at = Some(eligible_at.map_or(next, |prior| prior.max(next))); }
@@ -362,7 +478,7 @@ pub fn admit(
                 }
             }
             if let Some(next) = eligible_at {
-                return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), Some(next),
+                return write(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id), Some(next),
                     "paced to each window's sustainable rate", vec![]), Vec::new());
             }
             for constraint in &decision.constraints {
@@ -373,7 +489,7 @@ pub fn admit(
                     return invalid("reservation arithmetic is invalid or overflowing");
                 };
                 if total.upper > limit {
-                    return record_admission(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id),
+                    return write(pacer, record(AdmissionState::QuotaPolicyWait, Some(profile_id),
                         constraint.next_change, "window budget is reserved by outstanding requests", vec![]), Vec::new());
                 }
             }
@@ -384,27 +500,40 @@ pub fn admit(
                 let not_before = pacing_deadline(now, rate);
                 admission.paced_windows.push(WindowPace { window: constraint.window.clone(), not_before });
             }
-            record_admission(pacer, admission, costs)
+            write(pacer, admission, costs)
         }
         Choice::Local { profile_id } => {
             let Some(p) = profile(policy, profile_id) else { return invalid("decided profile no longer configured") };
             if !p.local || !decision.constraints.is_empty() { return invalid("local choice has inconsistent constraints"); }
             if let Some(outcome) = unavailable(availability, profile_id) { return outcome; }
+            if let Some((previous_profile, charged, admitted_at, paced)) = &reconcile_state {
+                let covered = previous_profile.as_deref() == Some(profile_id.as_str())
+                    && charged.is_empty();
+                let admission = record(
+                    if covered { AdmissionState::Admitted } else { AdmissionState::QuotaPolicyWait },
+                    previous_profile.as_deref(),
+                    None,
+                    if covered { "decision reconciled against preserved armed charge" }
+                        else { "refreshed decision no longer covers the preserved armed charge" },
+                    vec![],
+                );
+                return reconcile_admission(pacer, admission, *admitted_at, paced.clone());
+            }
             let admission = record(AdmissionState::Admitted, Some(profile_id), None, "local profile draws no provider quota", vec![]);
-            record_admission(pacer, admission, Vec::new())
+            write(pacer, admission, Vec::new())
         }
         Choice::Wait { until } if until.is_some_and(|at| at <= now) => {
-            record_admission(pacer, record(AdmissionState::Eligible, None, None, "window boundary passed; recompute", vec![]), Vec::new())
+            write(pacer, record(AdmissionState::Eligible, None, None, "window boundary passed; recompute", vec![]), Vec::new())
         }
-        Choice::Wait { until } => record_admission(pacer, record(AdmissionState::QuotaPolicyWait, None, *until, "budget returns after reset", vec![]), Vec::new()),
+        Choice::Wait { until } => write(pacer, record(AdmissionState::QuotaPolicyWait, None, *until, "budget returns after reset", vec![]), Vec::new()),
         Choice::ProviderExhausted { until, .. } if until.is_some_and(|at| at <= now) => {
-            record_admission(pacer, record(AdmissionState::Eligible, None, None, "window boundary passed; recompute", vec![]), Vec::new())
+            write(pacer, record(AdmissionState::Eligible, None, None, "window boundary passed; recompute", vec![]), Vec::new())
         }
         Choice::ProviderExhausted { until, .. } => {
-            record_admission(pacer, record(AdmissionState::ProviderExhausted, None, *until, "provider reports the limit reached", vec![]), Vec::new())
+            write(pacer, record(AdmissionState::ProviderExhausted, None, *until, "provider reports the limit reached", vec![]), Vec::new())
         }
         Choice::ObservationBlocked { .. } => {
-            record_admission(pacer, record(AdmissionState::ObservationBlocked, None, None, "needed quota unobserved; policy blocks", vec![]), Vec::new())
+            write(pacer, record(AdmissionState::ObservationBlocked, None, None, "needed quota unobserved; policy blocks", vec![]), Vec::new())
         }
         Choice::CapacityUnknown { profiles } => {
             if profiles.iter().any(|profile| decision.availability.iter().any(|item|
@@ -531,9 +660,6 @@ pub fn cancel(pacer: &mut Pacer, admission: &QuotaAdmission, evidence: DispatchE
             return Ok((reservation.admission.clone(), reservation.outstanding.clone()));
         }
         if reservation.admission != *admission { return Err(CancellationError::IdentityMismatch); }
-        if evidence == DispatchEvidence::ArmedOrUnknown && admission.state != AdmissionState::Admitted {
-            return Err(CancellationError::InvalidState);
-        }
         if evidence == DispatchEvidence::ArmedOrUnknown && reservation.dispatch != Some(DispatchEvidence::ArmedOrUnknown) {
             return Err(CancellationError::MissingAttempt);
         }

@@ -1,0 +1,195 @@
+--- a/toys/posix/cp.c
++++ b/toys/posix/cp.c
+@@ -277,6 +277,9 @@
+             ? readlinkat0(tfd, try->name, toybuf, sizeof(toybuf)) &&
+               (!unlinkat(cfd, catch, 0) || ENOENT == errno) &&
+               !symlinkat(toybuf, cfd, catch)
++            // WASI: mknodat is an ENOSYS stub, so this branch fails through
++            // the normal error path — a special file is never reported as
++            // created and the source is never unlinked on a failed move.
+             : !mknodat(cfd, catch, try->st.st_mode, try->st.st_rdev))
+         {
+           err = 0;
+@@ -312,6 +315,7 @@
+     // ownership
+     if (TT.pflags & _CP_ownership) {
+ 
++#ifndef __wasi__
+       // permission bits already correct for mknod and don't apply to symlink
+       // If we can't get a filehandle to the actual object, use racy functions
+       if (fdout == AT_FDCWD)
+@@ -324,6 +328,7 @@
+         perror_msg("chown '%s'", pp = dirtree_path(try, 0));
+         free(pp);
+       }
++#endif // __wasi__: no chown capability; mode/timestamp still preserved.
+     }
+ 
+     // timestamp
+@@ -407,7 +412,9 @@
+     }
+     free(pre);
+   }
++#ifndef __wasi__
+   if (TT.pflags & _CP_mode) umask(0);
++#endif
+   if (!TT.callback) TT.callback = cp_node;
+ 
+   // Loop through sources
+@@ -500,8 +507,12 @@
+   cp_node(try);
+ 
+   // No -r so always one level deep, so destname as set by cp_node() is correct
+-  if (FLAG(s) && xrun((char *[]){"strip", "-p", TT.destname, 0}))
+-    toys.exitval = 1;
++  if (FLAG(s))
++#ifdef __wasi__
++    error_exit("cp -s: no strip subprocess on WASI");
++#else
++    if (xrun((char *[]){"strip", "-p", TT.destname, 0})) toys.exitval = 1;
++#endif
+ 
+   return 0;
+ }
+@@ -521,7 +532,12 @@
+       if (mkpathat(AT_FDCWD, *ss, mode, MKPATHAT_MKLAST | MKPATHAT_MAKE))
+         perror_msg_raw(*ss);
+       if (FLAG(g)||FLAG(o))
++#ifndef __wasi__
+         if (lchown(*ss, TT.uid, TT.gid)) perror_msg("chown '%s'", *ss);
++#else
++        // Numeric ids were already parsed; the chown itself can't run on WASI.
++        perror_msg("chown not supported on WASI '%s'", *ss);
++#endif
+       if ((mode&~01777) && chmod(*ss, mode)) perror_msg("chmod '%s'", *ss);
+     }
+ 
+--- a/toys/posix/tar.c
++++ b/toys/posix/tar.c
+@@ -651,11 +651,18 @@
+   } else if (S_ISLNK(ala)) {
+     if (symlink(TT.hdr.link_target, name))
+       return perror_msg("can't link '%s' -> '%s'", name, TT.hdr.link_target);
+-  } else if (mknod(name, ala&~toys.old_umask, TT.hdr.device))
+-    return perror_msg("can't create '%s'", name);
++  } else {
++#ifdef __wasi__
++    return perror_msg("can't create special file '%s' on WASI", name);
++#else
++    if (mknod(name, ala&~toys.old_umask, TT.hdr.device))
++      return perror_msg("can't create '%s'", name);
++#endif
++  }
+ 
+   // Set ownership
+   if (!FLAG(o) && !geteuid()) {
++#ifndef __wasi__
+     int u = TT.hdr.uid, g = TT.hdr.gid;
+ 
+     if (TT.owner) TT.hdr.uid = TT.ouid;
+@@ -671,6 +678,7 @@
+     }
+ 
+     if (lchown(name, u, g)) perror_msg("chown %d:%d '%s'", u, g, name);;
++#endif // __wasi__: no chown; numeric metadata was still resolved above.
+   }
+ 
+   if (!S_ISLNK(ala)) chmod(name, FLAG(p) ? ala : ala&0777&~toys.old_umask);
+@@ -959,11 +967,15 @@
+           xsetenv(xmprintf("TAR_UID=%o", TT.hdr.uid), 0);
+           xsetenv(xmprintf("TAR_GID=%o", TT.hdr.gid), 0);
+ 
++#ifdef __wasi__
++          error_exit("tar --to-command: no subprocess on WASI");
++#else
+           pid = xpopen((char *[]){"sh", "-c", TT.to_command, NULL}, &fd, 0);
+           // TODO: short write exits tar here, other skips data.
+           sendfile_sparse(fd);
+           fd = xpclose_both(pid, 0);
+           if (fd) error_msg("%d: Child returned %d", pid, fd);
++#endif // __wasi__
+         }
+       } else extract_to_disk(name);
+     }
+--- a/toys/posix/env.c
++++ b/toys/posix/env.c
+@@ -55,6 +55,9 @@
+     } else {
+       char *ex = TT.e ? : *ev;
+ 
++#ifdef __wasi__
++      error_exit("env: cannot exec a program on WASI");
++#else
+       // unfortunately, posix has no exec combining p and e, so do p ourselves
+       if (!strchr(ex, '/') && path) {
+          errno = ENOENT;
+@@ -63,6 +66,7 @@
+       } else execve(ex, ev, ee ? : environ);
+       perror_msg("exec %s", ex);
+       _exit(126+(errno == ENOENT));
++#endif // __wasi__
+     }
+   }
+ 
+--- a/toys/posix/find.c
++++ b/toys/posix/find.c
+@@ -135,7 +135,11 @@
+     newargs[pos+rest] = 0;
+   }
+ 
++#ifdef __wasi__
++  error_exit("find -exec: no subprocess on WASI");
++#else
+   rc = xrun(newargs);
++#endif
+ 
+   llist_traverse(bb->names, llist_free_double);
+   bb->names = 0;
+@@ -494,7 +498,11 @@
+                 udl->tm.tv_nsec = nano;
+               }
+             } else if (*s == 'u') udl->uid = xgetuid(arg);
++#ifdef __wasi__
++            else udl->gid = estrtol(arg, 0, 10);  // numeric groups only on WASI
++#else
+             else udl->gid = xgetgid(arg);
++#endif
+           }
+         } else {
+           udl = (void *)llist_pop(&argdata);
+--- a/toys/posix/ln.c
++++ b/toys/posix/ln.c
+@@ -73,6 +73,7 @@
+     // old file in cases we can't replace it (such as hardlink between mounts).
+     oldnew = new;
+     if (FLAG(f)) {
++      // wasi-compat.h supplies mkstemp with real O_EXCL atomicity.
+       new = xmprintf("%s_XXXXXX", new);
+       rc = mkstemp(new);
+       if (rc >= 0) {
+--- a/toys/posix/date.c
++++ b/toys/posix/date.c
+@@ -189,7 +189,11 @@
+     parse_date(setdate, &t);
+     tv.tv_sec = t;
+     tv.tv_usec = TT.nano/1000;
++#ifdef __wasi__
++    perror_msg("cannot set date on WASI");
++#else
+     if (settimeofday(&tv, NULL) < 0) perror_msg("cannot set date");
++#endif
+   }
+ 
+   puts_time(format_string, localtime(&t));
+--- a/toys/other/stat.c
++++ b/toys/other/stat.c
+@@ -180,6 +180,9 @@
+ 
+     // stat the file or filesystem
+     TT.file = toys.optargs[i];
++#ifdef __wasi__
++    if (FLAG(f)) error_exit("stat -f: no statfs on WASI");
++#endif
+     if (FLAG(f) && !statfs(TT.file, (void *)&TT.stat));
+     else if (FLAG(f) || (FLAG(L) ? stat : lstat)(TT.file, (void *)&TT.stat)) {
+       perror_msg("'%s'", TT.file);

@@ -51,6 +51,37 @@ pub struct StoredContextWindow {
     pub derivatives: Vec<StoredDerivative>,
 }
 
+/// Stored derivative identity without its payload. `bytes` is the durable
+/// `length(bytes)` of the stored BLOB; the recorded `blake3` was verified by
+/// the writer at commit, so metadata readers never materialize the payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredDerivativeMeta {
+    pub media_type: String,
+    pub blake3: String,
+    pub bytes: u64,
+}
+
+/// A committed window's stored facts without derivative payloads. `body`
+/// holds every other committed fact (policy, base, entries, call-state
+/// baselines, cost) verbatim.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredWindowMeta {
+    pub window_id: EntityId,
+    pub generation: i64,
+    pub body: String,
+    pub derivatives: Vec<StoredDerivativeMeta>,
+}
+
+/// One bounded page of the scope's window metadata, newest first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredWindowPage {
+    /// Windows committed under this scope, regardless of this page's bounds.
+    pub total: i64,
+    /// More committed windows exist below this page's oldest generation.
+    pub has_older: bool,
+    pub windows: Vec<StoredWindowMeta>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextWindowAppend {
     Appended,
@@ -130,6 +161,78 @@ impl Store {
         .map_err(storage)?
         .map(|(id, generation, body)| read_window(&conn, id, generation, body))
         .transpose()
+    }
+
+    /// Bounded page of the scope's window metadata, newest generation first:
+    /// `before` excludes windows with `generation >= before`; at most `limit`
+    /// windows are returned. Bodies stay JSON text and derivative payloads
+    /// stay untouched — only their recorded media type, blake3 and durable
+    /// byte length are read — so request cost is bounded by the page, not by
+    /// the retained archive.
+    pub fn context_window_meta_page(
+        &self,
+        scope_id: EntityId,
+        before: Option<i64>,
+        limit: i64,
+    ) -> Result<StoredWindowPage, ShenkoError> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .map_err(storage)?;
+        let total: i64 = tx
+            .query_row(
+                "SELECT COUNT(*) FROM context_windows WHERE scope_id = ?1",
+                params![scope_id.to_string()],
+                |r| r.get(0),
+            )
+            .map_err(storage)?;
+        let limit = limit.max(0);
+        // One extra row proves whether older windows remain without a second
+        // scan or another round-trip.
+        let rows = tx
+            .prepare_cached(
+                "SELECT window_id, generation, body FROM context_windows
+                 WHERE scope_id = ?1 AND generation < ?2
+                 ORDER BY generation DESC LIMIT ?3",
+            )
+            .map_err(storage)?
+            .query_map(
+                params![scope_id.to_string(), before.unwrap_or(i64::MAX), limit.saturating_add(1)],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(storage)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(storage)?;
+        let has_older = rows.len() as i64 > limit;
+        let mut windows = Vec::with_capacity(rows.len().min(limit as usize));
+        for (id, generation, body) in rows.into_iter().take(limit as usize) {
+            let window_id = id.parse::<EntityId>().map_err(storage)?;
+            let derivatives = tx
+                .prepare_cached(
+                    "SELECT media_type, blake3, length(bytes) FROM context_window_derivatives
+                     WHERE window_id = ?1 ORDER BY idx",
+                )
+                .map_err(storage)?
+                .query_map(params![window_id.to_string()], |r| {
+                    Ok(StoredDerivativeMeta {
+                        media_type: r.get(0)?,
+                        blake3: r.get(1)?,
+                        bytes: u64::try_from(r.get::<_, i64>(2)?)
+                            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?,
+                    })
+                })
+                .map_err(storage)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(storage)?;
+            windows.push(StoredWindowMeta { window_id, generation, body, derivatives });
+        }
+        Ok(StoredWindowPage { total, has_older, windows })
     }
 
     /// Append `window` as generation `head + 1` only if the current head is

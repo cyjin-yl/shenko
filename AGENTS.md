@@ -8,15 +8,17 @@ Before any Shenko design, implementation, debugging, review, maintenance or hand
 
 ## Mission
 
-Build the complete Shenko（深刻）described by [SPEC.md](SPEC.md), and deliver it through continuously updated upstream PRs. Read [WHY.md](WHY.md) for intent and [GOAL.md](GOAL.md) for the assignment. Implementation is already in progress. Join the existing stack through [PROMPT.md](PROMPT.md) and [community-stack](docs/plans/active/community-stack.md); reuse existing code, candidates and evidence rather than starting over.
+Build the complete Shenko（深刻）described by [SPEC.md](SPEC.md), and deliver it through continuously updated upstream PRs. Read [WHY.md](WHY.md) for intent, [docs/specs/architecture.md](docs/specs/architecture.md) for the current functional boundary, and the domain contract under [docs/specs/](docs/specs/) for the area you are changing. Implementation is already in progress; reuse existing code, candidates and evidence rather than starting over.
 
-The owner explicitly chose unrestricted Claude execution in the friend's own fork. Launch with **`--dangerously-skip-permissions`**, Claude Code's actual flag for `bypassPermissions`. In that fork, autonomously create and merge branches, refactor any component, change development methods, install tools, run experiments, manage CI and use many subagents. GitHub supplies the actual upstream access boundary. Keep developing while PRs await review.
+The owner explicitly chose unrestricted execution in the working fork. Launch Claude with **`--dangerously-skip-permissions`**, Claude Code's actual flag for `bypassPermissions`. In that fork, autonomously create and merge branches, refactor any component, change development methods, install tools, run experiments, manage CI and use many subagents. GitHub supplies the actual upstream access boundary. Keep developing while PRs await review.
 
 ## Find the source of truth
 
-Read this file, WHY, GOAL, the [index](docs/INDEX.md), and [completion contract](docs/governance/COMPLETION.md). Read SPEC §§1–2, 28–29, 40 and 46–47, then the sections and R/B/Ref/cases relevant to the current work. Use [the plan](docs/plans/active/full-product.md), [goal state](docs/state/goal.json) and current Git/runtime facts to resume.
+Read this file, WHY, the [index](docs/INDEX.md), and [completion contract](docs/governance/COMPLETION.md). Read SPEC §§1–2, 28–29, 40, 46–48, then the sections and R/B/Ref/cases relevant to the current work. Use [the implementation map](docs/IMPLEMENTATION_DOCS_MAP.md), [coverage](docs/state/coverage.json) and current Git/runtime facts to resume.
 
-Latest explicit owner decisions control intent. SPEC defines behavior, GOAL defines the complete assignment, and development documents explain methods. Historical drafts retain provenance; current contracts carry the resolved decisions. Keep this hierarchy clear when improving the documents.
+Latest explicit owner decisions control intent. SPEC defines behavior, `docs/specs/` holds the current functional contracts, and development documents explain methods. Historical drafts retain provenance; current contracts carry the resolved decisions. Keep this hierarchy clear when improving the documents.
+
+The root-level task entrypoints (`GOAL.md`, `PROMPT.md`, `HANDOFF.md`), the old progress board and the 22 community task cards were retired on 2026-11-01 and archived byte-for-byte under [docs/history/](docs/history/). They are provenance, not instructions. There is no root compatibility entry and no symlink for them.
 
 ## Preserve the product's identity
 
@@ -55,6 +57,8 @@ Use ultracode and available subagents aggressively when independent work benefit
 
 Coordinate resources shared beyond Git: models, seats, desktops, databases, ports and external accounts. Choose useful concurrency from real capacity. Ultracode is an orchestration capability, not a global hard concurrency limit. Integrate workers' contributions in your fork and verify the combined candidate.
 
+There is no fixed worker-count ceiling. The owner's current directive is to run **many implementation agents at once**; the earlier "one SWE" and "at most 5 workflows" limits recorded in the archived task cards described the environment of that moment and no longer apply. The binding constraints are real ones: actual machine capacity, the shared heavy-work lock for builds, and a single named integration owner per area.
+
 ## Prove behavior
 
 Keep [coverage](docs/state/coverage.json), acceptance mappings and evidence current. Distinguish specification, implementation, build, simulation, real environment and long-run evidence. A complete journey includes the applicable error, cancellation, interruption, recovery, upgrade and composition behavior.
@@ -81,11 +85,11 @@ All formal S1–S5 scope remains in this goal. Completion means the [full contra
 
 A first release or a PR is useful progress; it is not the complete product. Track unfinished integrations, environmental waits and real observation periods accurately and keep advancing available work. Surface actual coverage, results and PR state in the transcript so the native goal evaluator can judge them.
 
-The seed's `python3 scripts/check_docs.py` checks document integrity only. Introduce actual product build and verification commands with their implementation.
+`python3 scripts/check_docs.py` checks document integrity only. Introduce actual product build and verification commands with their implementation.
 
 ## Community continuation
 
-Issue claims are advisory, not exclusive locks. If a contributor goes offline, continue from their last pushed checkpoint on a new branch, preserve authorship and link the original PR; do not wait for release, approval or return, and do not force-push their branch. Keep semantic dependencies distinct from Git stack bases and continue independent work while review is pending. Reconcile unknown external effects instead of blindly replaying them. Entry points: [PROMPT.md](PROMPT.md), [work graph](docs/plans/active/community-stack.md).
+Issue claims are advisory, not exclusive locks. If a contributor goes offline, continue from their last pushed checkpoint on a new branch, preserve authorship and link the original PR; do not wait for release, approval or return, and do not force-push their branch. Keep semantic dependencies distinct from Git stack bases and continue independent work while review is pending. Reconcile unknown external effects instead of blindly replaying them. Entry points: [the index](docs/INDEX.md), [coverage](docs/state/coverage.json) and the open issues.
 
 ## Issue/PR monitoring and three-hour continuation
 

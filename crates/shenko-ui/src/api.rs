@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
-    routing::get,
+    extract::{Path as AxumPath, Query, State},
+    routing::{get, post},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -23,7 +23,21 @@ use serde_json::{Value, json};
 use shenko_store::store::Store;
 
 use crate::playground::PlaygroundState;
+use crate::config_service::{ConfigApplyRequest, ConfigService};
+use crate::owner::{OwnerState, claim_installation};
 use crate::ws::LiveStatus;
+
+/// Live context-policy facts supplied by the same bootstrap that installs the
+/// strategies. `capabilities` is the advertised binding, never inferred.
+#[derive(Clone, Default)]
+pub struct ContextFacts {
+    /// Registry the subject loop actually selects and commits windows through.
+    /// None means no live registry was supplied to this reporter.
+    pub registry: Option<Arc<shenko_context_policy::PolicyRegistry>>,
+    /// Advertised capabilities of the bound model; strategy availability is
+    /// evaluated against exactly this, or reported not_evaluated.
+    pub capabilities: Option<shenko_broker::request::ProviderCapabilities>,
+}
 
 /// Actual provider selection supplied by the production bootstrap. Configured
 /// means a provider can be constructed, not that a probe or capacity succeeded.
@@ -67,6 +81,15 @@ pub struct ApiState {
     /// Provider binding from the same bootstrap that decided whether to start
     /// the subject loop. None means no runtime binding was supplied.
     pub inference: Option<InferenceStatus>,
+    /// Live context-policy wiring for `/api/context`. None means installation
+    /// state is not observed rather than fabricated strategies.
+    pub context: Option<ContextFacts>,
+    /// The configuration service (discover/read/preview/apply). None means
+    /// the installation exposes no configuration namespaces yet.
+    pub config: Option<Arc<ConfigService>>,
+    /// Ownership state (claim + authenticated actor). None means the routes
+    /// report that ownership is not installed rather than fabricating one.
+    pub owner: Option<OwnerState>,
 }
 
 impl ApiState {
@@ -100,6 +123,23 @@ impl ApiState {
         self.inference = Some(inference);
         self
     }
+
+    /// Wire the same registry and advertised capabilities the subject loop
+    /// uses, so `/api/context` can report real installed strategies.
+    pub fn with_context(mut self, facts: ContextFacts) -> Self {
+        self.context = Some(facts);
+        self
+    }
+
+    pub fn with_config(mut self, config: Arc<ConfigService>) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn with_owner(mut self, owner: OwnerState) -> Self {
+        self.owner = Some(owner);
+        self
+    }
 }
 
 /// Mount the JSON API. Registered from [`crate::server::UiServer::run`] so
@@ -110,12 +150,194 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/memory", get(memory_handler))
         .route("/api/config", get(config_handler))
         .route("/api/self", get(self_status_handler))
+        .route("/api/context", get(context_handler))
+        .route("/api/config/namespaces", get(config_namespaces_handler))
+        .route("/api/config/entries/{namespace}/{key}", get(config_entry_handler))
+        .route("/api/config/preview", post(config_preview_handler))
+        .route("/api/config/apply", post(config_apply_handler))
+        .route("/api/config/adoptions/{namespace}/{key}", get(config_adoptions_handler))
+        .route("/api/owner/state", get(owner_state_handler))
+        .route("/api/owner/claim", post(owner_claim_handler))
+        .route("/api/playground", get(playground_surface_handler))
         .with_state(state)
+}
+
+// ---------------------------------------------------------------------------
+// Configuration and ownership — SPEC §43.1, §44.4.
+//
+// Discover/read are open to every session. Preview is open: looking at a
+// change is never privileged. Apply requires an authenticated actor; whether
+// the actor may change a namespace is the handler's decision, not the
+// route's. There is no routine approval gate: a durable change receipt is
+// the record, adoption by consumers is separately observed.
+// ---------------------------------------------------------------------------
+
+/// `GET /api/config/namespaces` → the installed namespaces and their keys.
+async fn config_namespaces_handler(State(state): State<ApiState>) -> Json<Value> {
+    match state.config.as_ref() {
+        Some(config) => Json(json!({
+            "available": true,
+            "namespaces": config.discover(),
+        })),
+        None => Json(json!({ "available": false, "namespaces": [] })),
+    }
+}
+
+async fn config_entry_handler(
+    State(state): State<ApiState>,
+    AxumPath((namespace, key)): AxumPath<(String, String)>,
+) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    match config.read(&namespace, &key) {
+        Ok(view) => Json(json!({ "available": true, "entry": view })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+async fn config_preview_handler(
+    State(state): State<ApiState>,
+    Json(request): Json<ConfigApplyRequest>,
+) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    match config.preview(&request.namespace, &request.logical_key, request.desired.clone(), request.expected_base_revision) {
+        Ok(preview) => Json(json!({ "available": true, "accepted": true, "preview": preview })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+async fn config_apply_handler(
+    State(state): State<ApiState>,
+    headers: axum::http::HeaderMap,
+    Json(mut request): Json<ConfigApplyRequest>,
+) -> Json<Value> {
+    let (Some(config), Some(owner)) = (state.config.as_ref(), state.owner.as_ref()) else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    // The actor is resolved from the request's credentials, never from a
+    // body field: only an owner principal or a delegated subject task may
+    // carry an administrative configuration change.
+    let actor = match owner.actor(&headers) {
+        Ok(actor) => actor,
+        Err(error) => return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED", "error": error.to_string() })),
+    };
+    request.actor = match (&request.actor, actor) {
+        (crate::config_service::ConfigActor::Owner { .. }, authenticated) => match authenticated {
+            crate::owner::AuthenticatedActor::Owner { principal_ref } =>
+                crate::config_service::ConfigActor::Owner { principal_ref },
+            crate::owner::AuthenticatedActor::Participant =>
+                return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED",
+                    "error": "CONFIG_DENIED: an owner actor requires owner authentication" })),
+        },
+        (delegated, _) => delegated.clone(),
+    };
+    match config.apply(request) {
+        Ok(change) => Json(json!({ "available": true, "accepted": true, "change": change })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+async fn config_adoptions_handler(
+    State(state): State<ApiState>,
+    AxumPath((namespace, key)): AxumPath<(String, String)>,
+) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
+    };
+    match config.adoption_state(&namespace, &key) {
+        Ok(adoptions) => Json(json!({ "available": true, "adoptions": adoptions })),
+        Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
+    }
+}
+
+/// `GET /api/owner/state` → whether the installation has an owner and
+/// whether a claim capability is still pending. No credential material is
+/// ever included.
+async fn owner_state_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({ "available": false }));
+    };
+    let status = (|| -> anyhow::Result<(bool, bool)> {
+        let claimed = owner.store.owner_grant(owner.installation_id)?.is_some();
+        let claim_pending = !claimed
+            && crate::owner::load_claim_capability(&owner.data_dir, owner.installation_id)?.is_some();
+        Ok((claimed, claim_pending))
+    })();
+    let (claimed, claim_pending) = match status {
+        Ok(status) => status,
+        Err(error) => return Json(json!({ "available": true, "error": error.to_string() })),
+    };
+    Json(json!({
+        "available": true,
+        "installation_id": owner.installation_id,
+        "claimed": claimed,
+        "claim_pending": claim_pending,
+    }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClaimRequest {
+    capability: String,
+}
+
+/// `POST /api/owner/claim` → the first recognized human presents the install
+/// capability; the response carries the admin bearer exactly once.
+async fn owner_claim_handler(State(state): State<ApiState>, Json(request): Json<ClaimRequest>) -> Json<Value> {
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({ "available": false, "error": "ownership is not installed" }));
+    };
+    match claim_installation(&owner.store, &owner.data_dir, owner.installation_id, &request.capability) {
+        Ok(response) => {
+            let status = if response.outcome == "granted" { "granted" } else { &response.outcome };
+            Json(json!({ "available": true, "outcome": status, "response": response }))
+        }
+        Err(error) => Json(json!({ "available": true, "outcome": "error", "error": error.to_string() })),
+    }
+}
+
+/// `GET /api/playground` → the Proto-UI playground surface projection: the
+/// enumerable roots, every artifact with its durable record and its committed
+/// head. The frontend renders this as a Proto-UI view, not a second page.
+async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(playground) = state.playground.as_ref() else {
+        return Json(json!({ "available": false }));
+    };
+    let artifacts: Vec<Value> = playground.list().into_iter().map(|version| {
+        let durable = playground.durable_record(version.artifact_id).ok().flatten();
+        json!({
+            "artifact_id": version.artifact_id,
+            "title": version.title,
+            "mime": version.mime,
+            "revision": version.revision,
+            "parent_revision": version.parent_revision,
+            "updated_at": version.updated_at,
+            "backend": version.backend.is_some(),
+            "lifecycle": durable.as_ref().map(|record| record.lifecycle.clone()),
+            "record": durable,
+        })
+    }).collect();
+    Json(json!({
+        "available": true,
+        "roots": playground.roots(),
+        "artifacts": artifacts,
+    }))
 }
 
 #[derive(Debug, Deserialize)]
 struct TasksQuery {
     limit: Option<usize>,
+}
+
+/// `/api/context` page bounds: `limit` bounds the metadata page (default 50,
+/// clamped 1–200); `before` requests windows strictly below that generation.
+#[derive(Debug, Deserialize)]
+struct ContextQuery {
+    limit: Option<usize>,
+    before: Option<u64>,
 }
 
 /// `GET /api/tasks` → `{ items: [{task_id, kind, state, created_at}] }`.
@@ -274,4 +496,255 @@ async fn self_status_handler(State(state): State<ApiState>) -> Json<Value> {
         "activities": [],
         "artifacts": artifacts,
     }))
+}
+
+fn availability_json(availability: shenko_context_policy::Availability) -> Value {
+    use shenko_context_policy::Availability::*;
+    match availability {
+        Available => json!({"state": "available"}),
+        Degraded(reason) => json!({"state": "degraded", "reason": reason}),
+        Unavailable(reason) => json!({"state": "unavailable", "reason": reason}),
+    }
+}
+
+/// Window report from the committed record plus stored derivative identity;
+/// `derivatives[].bytes` is the durable stored length, never payload bytes.
+fn context_window_json(meta: &shenko_context_policy::CommittedWindowMeta) -> Value {
+    let window = &meta.window;
+    let kind = |entry: &shenko_context_policy::WindowEntry| match entry {
+        shenko_context_policy::WindowEntry::Verbatim { .. } => "verbatim",
+        shenko_context_policy::WindowEntry::Pointer { .. } => "pointer",
+        shenko_context_policy::WindowEntry::Text { .. } => "text",
+        shenko_context_policy::WindowEntry::Image { .. } => "image",
+    };
+    let mut counts = serde_json::Map::new();
+    for entry in &window.entries {
+        let count = counts.entry(kind(entry).to_string()).or_insert(json!(0));
+        *count = json!(count.as_u64().unwrap_or(0) + 1);
+    }
+    json!({
+        "id": window.id.to_string(),
+        "generation": window.generation,
+        "base": window.base,
+        "policy_id": window.policy_id,
+        "policy_version": window.policy_version,
+        "model_generation": window.model_generation,
+        "covers_through": window.covers_through,
+        "entry_kinds": Value::Object(counts),
+        "call_states": window.call_states,
+        "derivatives": meta
+            .derivatives
+            .iter()
+            .map(|derivative| json!({
+                "media_type": derivative.media_type,
+                "blake3": derivative.blake3,
+                "bytes": derivative.bytes,
+            }))
+            .collect::<Vec<_>>(),
+        // Reported cost, including the conservative reusable-prefix bound;
+        // never a backend KV cache-hit claim (SPEC §12.3.2).
+        "cost": window.cost,
+    })
+}
+
+/// `GET /api/context` → the subject scope's committed window chain, installed
+/// context-policy strategies and their availability against the observed
+/// model capabilities. Every field is a real record: committed windows from
+/// the durable chain, strategies/epochs/preference from the live registry.
+/// `plugins_wired: false` means no live registry was supplied to this reporter
+/// (as in deterministic no-model mode); it never fabricates an install.
+/// `windows` is a bounded metadata page, newest generation first:
+/// `?limit=` (default 50, clamped 1–200) bounds the page and `?before=<generation>`
+/// pages strictly below that generation. `window_total` counts every committed
+/// window under the scope; `has_older`/`next_before` carry the cursor while
+/// older windows remain. Derivative payloads are never read or returned.
+async fn context_handler(
+    State(state): State<ApiState>,
+    Query(query): Query<ContextQuery>,
+) -> Json<Value> {
+    let limit = query.limit.unwrap_or(50).clamp(1, 200) as u64;
+    let mut report = json!({
+        "scope": Value::Null,
+        "plugins_wired": false,
+        "preference": [],
+        "strategies": [],
+        "capabilities": Value::Null,
+        "availability": [],
+        "windows": [],
+    });
+    if let Some(context) = &state.context {
+        report["capabilities"] = context
+            .capabilities
+            .as_ref()
+            .map(|caps| {
+                json!({
+                    "advertised": true,
+                    "model": caps.binding.model(),
+                    "max_context_tokens": caps.max_context_tokens,
+                    "vision": caps.vision,
+                })
+            })
+            .unwrap_or(Value::Null);
+        if let Some(registry) = &context.registry {
+            report["plugins_wired"] = json!(true);
+            report["preference"] = json!(registry.preference());
+            report["strategies"] = registry
+                .installed()
+                .iter()
+                .map(|(manifest, epoch)| json!({
+                    "id": manifest.id,
+                    "version": manifest.version,
+                    "contract": manifest.contract,
+                    "requires": manifest.requires,
+                    "epoch": epoch,
+                }))
+                .collect();
+            report["availability"] = match &context.capabilities {
+                Some(caps) if caps.max_context_tokens.is_some_and(|limit| limit > 0) => {
+                    let caps = shenko_context_policy::ModelCaps {
+                        model_id: caps.binding.model().into(),
+                        max_context: caps.max_context_tokens.unwrap_or(0),
+                        vision: caps.vision.map(|vision| shenko_context_policy::VisionCaps {
+                            max_image_context: vision.max_image_context,
+                            patch_px: vision.patch_px,
+                        }),
+                    };
+                    registry
+                        .availability(&caps)
+                        .into_iter()
+                        .map(|(id, availability)| json!({
+                            "id": id,
+                            "availability": availability_json(availability),
+                        }))
+                        .collect()
+                }
+                _ => {
+                    report["availability_note"] = json!(
+                        "provider capabilities not observed; strategy availability not evaluated"
+                    );
+                    json!([])
+                }
+            };
+        }
+    }
+    let Some(store) = state.store.as_ref() else {
+        report["available"] = json!(false);
+        report["note"] = json!("store 尚未接入 UI server");
+        return Json(report);
+    };
+    let Some(agent_id) = (match store.get_existing_agent_id() {
+        Ok(agent_id) => agent_id,
+        Err(error) => {
+            report["available"] = json!(false);
+            report["note"] = json!(format!("subject identity unreadable: {error}"));
+            return Json(report);
+        }
+    }) else {
+        report["available"] = json!(false);
+        report["note"] = json!("subject 尚未初始化");
+        return Json(report);
+    };
+    let (head, _) = match store.load_subject(agent_id) {
+        Ok(subject) => subject,
+        Err(error) => {
+            report["available"] = json!(false);
+            report["scope"] = json!({"agent_id": agent_id.to_string()});
+            report["note"] = json!(format!("subject head unreadable: {error}"));
+            return Json(report);
+        }
+    };
+    let scope_id = shenko_types::ids::EntityId(head.branch_id.0);
+    report["scope"] = json!({
+        "agent_id": agent_id.to_string(),
+        "branch_id": scope_id.to_string(),
+    });
+    let log = shenko_context_policy::StoreWindowLog::new(Arc::clone(store), scope_id);
+    let scope_facts = (|| -> Result<Value, String> {
+        // Bounded metadata page: bodies stay text, derivative payloads are
+        // never materialized or hashed; `bytes` is the recorded length.
+        let page = log.meta_page(query.before, limit).map_err(|e| e.to_string())?;
+        let next_before = page
+            .windows
+            .last()
+            .filter(|_| page.has_older)
+            .map(|meta| meta.window.generation);
+        Ok(json!({
+            "model_generation": store.context_model_generation(scope_id).map_err(|e| e.to_string())?,
+            "profile_digest": store.context_profile(scope_id).map_err(|e| e.to_string())?.map(|(_, digest)| digest),
+            "window_total": page.total,
+            "has_older": page.has_older,
+            "next_before": next_before,
+            "windows": page
+                .windows
+                .iter()
+                .map(context_window_json)
+                .collect::<Vec<_>>(),
+        }))
+    })();
+    match scope_facts {
+        Ok(facts) => {
+            if let (Some(report), Some(facts)) = (report.as_object_mut(), facts.as_object()) {
+                report.extend(facts.iter().map(|(k, v)| (k.clone(), v.clone())));
+            }
+            report["available"] = json!(true);
+        }
+        Err(error) => {
+            report["available"] = json!(false);
+            report["note"] = json!(format!("context window chain unreadable: {error}"));
+        }
+    }
+    Json(report)
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unwired_context_does_not_invent_plugins_or_windows() {
+        let Json(report) = context_handler(
+            State(ApiState::new()),
+            Query(ContextQuery { limit: None, before: None }),
+        ).await;
+        assert_eq!(report["available"], false);
+        assert_eq!(report["plugins_wired"], false);
+        assert_eq!(report["strategies"], json!([]));
+        assert_eq!(report["windows"], json!([]));
+        assert_eq!(report["capabilities"], Value::Null);
+    }
+
+    #[test]
+    fn window_report_retains_policy_cost_and_derivative_identity_not_payload() {
+        use shenko_context_policy::{
+            CommittedWindow, CommittedWindowMeta, Derivative, DerivativeMeta, WindowEntry,
+        };
+        let mut window = CommittedWindow::genesis();
+        window.policy_id = Some("snapcompact".into());
+        window.policy_version = Some("test-decoder".into());
+        window.entries.push(WindowEntry::Image { from: 1, to: 9, derivative: 0, tokens: 7 });
+        // The stored frame's real identity; the report must show it without
+        // the payload ever reaching the reader.
+        let stored = Derivative::new("image/png", vec![1, 2, 3]);
+        window.cost.window_tokens = 7;
+        window.cost.reusable_prefix_tokens = 0;
+        window.cost.recompute_tokens = 7;
+        let meta = CommittedWindowMeta {
+            window,
+            derivatives: vec![DerivativeMeta {
+                media_type: stored.media_type.clone(),
+                blake3: stored.blake3.clone(),
+                bytes: stored.bytes.len() as u64,
+            }],
+        };
+        let window = &meta.window;
+        let report = context_window_json(&meta);
+        assert_eq!(report["id"], window.id.to_string());
+        assert_eq!(report["policy_id"], "snapcompact");
+        assert_eq!(report["policy_version"], "test-decoder");
+        assert_eq!(report["entry_kinds"]["image"], 1);
+        assert_eq!(report["cost"], json!(window.cost));
+        assert_eq!(report["derivatives"][0]["bytes"], 3);
+        assert_eq!(report["derivatives"][0]["blake3"], meta.derivatives[0].blake3);
+        assert!(report["derivatives"][0].get("payload").is_none());
+    }
 }

@@ -15,8 +15,45 @@ impl EntityId {
         Self(Uuid::new_v4())
     }
 
+    /// A deterministic identity derived from content.
+    ///
+    /// Some identities are facts about content rather than about an event:
+    /// an effect contract, a capability declaration or a help document
+    /// describes one artifact, and two reads of that artifact must name the
+    /// same thing. A random id would make every read look like a new
+    /// declaration.
+    pub fn derived(namespace: &str, content: &[u8]) -> Self {
+        // Fold the namespace into the content so two namespaces cannot
+        // produce the same identity for different content.
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(namespace.as_bytes());
+        hasher.update(&[0]);
+        hasher.update(content);
+        let digest = hasher.finalize();
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest.as_bytes()[..16]);
+        Self(Uuid::from_bytes(bytes))
+    }
+
     pub fn nil() -> Self {
         Self(Uuid::nil())
+    }
+
+    /// A stable, content-derived identity for a durable EXTERNAL fact — the
+    /// same provider event admitted twice must produce the same id, so the
+    /// control ledger's disposition check makes redelivery idempotent.
+    /// This is NOT a globally-unique runtime identity; callers must only
+    /// derive ids from namespaced, replay-stable inputs (source, provider,
+    /// account, platform message id, revision).
+    pub fn from_digest(digest: &[u8; 32]) -> Self {
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        // Set the RFC 4122 version nibble to 5 (SHA-name based): the id is
+        // deterministic in its inputs, which is the property admission relies
+        // on; it never collides with v4 runtime ids by construction path.
+        bytes[6] = (bytes[6] & 0x0f) | 0x50;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        Self(Uuid::from_bytes(bytes))
     }
 
     pub fn as_uuid(&self) -> &Uuid {

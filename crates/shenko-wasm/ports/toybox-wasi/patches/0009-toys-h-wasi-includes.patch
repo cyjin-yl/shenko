@@ -1,0 +1,76 @@
+--- a/toys.h
++++ b/toys.h
+@@ -13,12 +13,23 @@
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
++#ifndef __wasi__
++// wasi-libc has no group database; struct group is in wasi-compat.h and
++// the name lookups are guarded at the call sites.
+ #include <grp.h>
++#endif
+ #include <inttypes.h>
+ #include <limits.h>
+ #include <math.h>
++#ifdef __wasi__
++// wasi-libc ships no paths.h; _PATH_DEFPATH is defined in wasi-compat.h.
++#else
+ #include <paths.h>
++#endif
++#ifndef __wasi__
++// No passwd database on WASI either; struct passwd is in wasi-compat.h.
+ #include <pwd.h>
++#endif
+ #include <regex.h>
+ #include <sched.h>
+ #include <setjmp.h>
+@@ -30,17 +41,35 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <strings.h>
++#ifndef __wasi__
++// <sys/mman.h> #errors on wasip1 unless -D_WASI_EMULATED_MMAN, and no
++// enabled applet can mmap; xmmap() is guarded at the definition.
+ #include <sys/mman.h>
++// <sys/resource.h> #errors without -D_WASI_EMULATED_PROCESS_CLOCKS; no
++// enabled applet calls getrlimit()/setrlimit().
+ #include <sys/resource.h>
++#endif
+ #include <sys/stat.h>
+ #include <sys/statvfs.h>
+ #include <sys/time.h>
++#ifndef __wasi__
++// <sys/times.h> #errors without -D_WASI_EMULATED_PROCESS_CLOCKS; times()
++// has no caller among enabled applets.
+ #include <sys/times.h>
++#endif
+ #include <sys/uio.h>
+ #include <sys/utsname.h>
++#ifndef __wasi__
++// No <sys/wait.h>: waitpid() does not exist on WASI. The W* decoders that
++// xwaitpid() parses live in wasi-compat.h.
+ #include <sys/wait.h>
++// No <syslog.h>: openlog()/vsyslog()/closelog() are absent; loggit() is
++// patched to print to stderr and the LOG_* constants are in wasi-compat.h.
+ #include <syslog.h>
++// No <termios.h>: there is no terminal line discipline. The opaque struct
++// termios and tc*/cf* stubs are in wasi-compat.h.
+ #include <termios.h>
++#endif
+ #include <time.h>
+ #include <unistd.h>
+ #include <utime.h>
+@@ -48,8 +77,13 @@
+ // Posix networking
+ 
+ #include <arpa/inet.h>
++#ifndef __wasi__
++// Neither header exists on wasip1 (preview1 has no resolver and no
++// interface table); lib/net.c is guarded and struct addrinfo lives in
++// wasi-compat.h.
+ #include <netdb.h>
+ #include <net/if.h>
++#endif
+ #include <netinet/in.h>
+ #include <netinet/tcp.h>
+ #include <poll.h>

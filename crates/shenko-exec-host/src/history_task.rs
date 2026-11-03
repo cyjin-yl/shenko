@@ -7,21 +7,26 @@ use shenko_store::{SessionEventFilter, Store, StoredSessionEvent};
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
+    effect::{
+        CheckpointContract, EffectContract, EffectContractBuilder, GuaranteeBasis,
+        IdempotencyGuarantee, LifecycleContract, ResourceAccess,
+    },
     evidence::{DecodeStatus, EvidenceReceipt},
     ids::*,
     object::*,
     operation::*,
+    plugin_runtime::NativeCapabilityDeclaration,
     task::{ImplementationRef, TaskRecord},
 };
 use std::sync::Arc;
 
 const CONTRACT: &[u8] = b"shenko.history.query/v1: immutable own-subject raw session reads; no external effects; bounded linear literal-match previews";
-const MAX_QUERY_BYTES: usize = 4096;
+pub(crate) const MAX_QUERY_BYTES: usize = 4096;
 const MAX_FILTER_VALUES: usize = 8;
 const MAX_FILTER_VALUE_BYTES: usize = 64;
 const MAX_LIMIT: usize = 50;
-const MAX_PREVIEW_CHARS: usize = 400;
-const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
+pub(crate) const MAX_PREVIEW_CHARS: usize = 400;
+pub(crate) const MAX_NORMALIZED_BYTES: usize = 480 * 1024;
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -452,6 +457,49 @@ impl NativeTaskHandler for HistoryHandler {
         }
     }
 
+    /// §36 effect contract of `history.query.v1`.
+    ///
+    /// The definition only reads the caller's own committed raw session. It
+    /// has no external effect, so none of the five actions applies: a read is
+    /// not reset, restored, replayed, cancelled or compensated. The
+    /// declaration says exactly that instead of borrowing another
+    /// operation's guarantee.
+    fn effect_contracts(&self) -> Vec<EffectContract> {
+        let descriptor = self.descriptor();
+        vec![EffectContractBuilder::new(
+            descriptor.implementation_ref.plugin_id,
+            descriptor.implementation(),
+            "history.query.v1",
+            descriptor.definition_version,
+        )
+        .resource("store_raw_session", "own_subject", ResourceAccess::Read)
+        .idempotency(IdempotencyGuarantee::BestEffort)
+        .checkpoint(CheckpointContract {
+            capturable: Vec::new(),
+            excluded: vec!["committed session events".into()],
+            coordinated: false,
+            consistency: "none".into(),
+        })
+        .lifecycle(LifecycleContract {
+            on_upgrade: "an in-flight read is not repeated; its result stays queryable".into(),
+            on_uninstall: "the definition is withdrawn; committed history stays readable".into(),
+            on_crash: "a read has no effect to reconcile; the attempt stays queryable".into(),
+            receipt_readable_after_removal: true,
+        })
+        .basis(GuaranteeBasis::ClaimOnly)
+        .build()]
+    }
+
+    /// The capability this definition offers while it is installed.
+    fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
+        vec![NativeCapabilityDeclaration {
+            capability_id: "native.history.query".into(),
+            version: "1".into(),
+            description: "Search, list and read the caller's own committed raw session events, with bounded previews".into(),
+            usage: Some("delegate:history.query:1 {\"op\":\"search\",\"query\":\"...\",\"from_seq\":0,\"limit\":20}".into()),
+        }]
+    }
+
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         self.run(invocation).await
     }
@@ -482,7 +530,7 @@ impl NativeTaskHandler for HistoryHandler {
     }
 }
 
-fn event_ref(event: &StoredSessionEvent) -> String {
+pub(crate) fn event_ref(event: &StoredSessionEvent) -> String {
     format!(
         "session:{}/event:{}/seq:{}",
         event.session_id, event.event_id, event.seq
@@ -491,7 +539,7 @@ fn event_ref(event: &StoredSessionEvent) -> String {
 
 // FTS/LIKE can match ASCII case-insensitively. KMP keeps this linear even for
 // long repeated inputs; the bounded prefix table never allocates on the heap.
-fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
+pub(crate) fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
     let pattern = query.as_bytes();
     if pattern.is_empty() || pattern.len() > MAX_QUERY_BYTES || !query.is_ascii() {
         return None;
@@ -522,7 +570,7 @@ fn ascii_match_offset(text: &str, query: &str) -> Option<usize> {
     None
 }
 
-fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json::Value {
+pub(crate) fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json::Value {
     // The store can return FTS matches without a byte-identical substring.
     // Center only a literal (or ASCII case-insensitive) match we can locate;
     // otherwise retain the prefix and explicitly report that no match is shown.
@@ -556,7 +604,7 @@ fn event_summary(event: &StoredSessionEvent, query: Option<&str>) -> serde_json:
     })
 }
 
-fn collection_result(
+pub(crate) fn collection_result(
     op: &str,
     session_id: EntityId,
     filter: &SessionEventFilter,
@@ -573,7 +621,7 @@ fn collection_result(
     })
 }
 
-fn read_result(
+pub(crate) fn read_result(
     session_id: EntityId,
     event_id: EntityId,
     seq: Option<i64>,
@@ -749,6 +797,7 @@ mod tests {
             record_revision: RecordRevision(0),
             invocation_id,
             epoch,
+            software_generation: RuntimeGeneration::default(),
             worker_id: EntityId::new(),
             node_id: EntityId::new(),
         };
@@ -767,6 +816,7 @@ mod tests {
                 decision_ref: EntityId::new(),
             },
             input: serde_json::Value::Null,
+            child_tools: None,
         };
         let (mut operation, mut attempt) = handler
             .operation_parts(&invocation, session_id, input_ref)

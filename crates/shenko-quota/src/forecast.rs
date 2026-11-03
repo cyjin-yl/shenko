@@ -84,7 +84,16 @@ pub enum StaleUse {
     LastKnown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Legacy forecasts serialized without an options field default to the most
+/// conservative pair: zero lifetime and stale readings refused, so an old
+/// record can never masquerade as having been made from live evidence.
+impl Default for ForecastOptions {
+    fn default() -> Self {
+        Self { ttl: chrono::Duration::zero(), stale: StaleUse::Refuse }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForecastOptions {
     /// How long a reading from this source stays current.
     pub ttl: chrono::Duration,
@@ -167,9 +176,47 @@ pub struct QuotaForecast {
     /// Legacy forecasts have no source lifetime proof and remain unknown.
     #[serde(default)]
     pub source_validity: SourceValidity,
+    /// The exact lifetime/stale-use inputs this forecast was computed under.
+    /// Legacy rows without it deserialize to the conservative default.
+    #[serde(default)]
+    pub options: ForecastOptions,
     pub windows: Vec<WindowForecast>,
     /// Expected windows with no usable reading: unknown, never full or exhausted.
     pub unobserved: Vec<AbsentWindow>,
+}
+
+/// The material content of a forecast: what a reader would notice.
+///
+/// It is the comparison point for merging repeated notifications. A
+/// recomputation that produces the same planning view stays quiet; a
+/// forecast whose plan moved is a fact the subject may act on.
+pub fn forecast_material(forecast: &QuotaForecast) -> String {
+    let windows = forecast
+        .windows
+        .iter()
+        .map(|window| {
+            format!(
+                "{}|{}|{:?}|{:?}|{}|{}",
+                window.window_key,
+                window.unit,
+                window.basis,
+                window.planning,
+                window.remaining.map(|range| format!("{}..{}", range.lower, range.upper)).unwrap_or_default(),
+                window
+                    .unreflected_own_cost
+                    .map(|range| format!("{}..{}", range.lower, range.upper))
+                    .unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    format!(
+ "{:?}|{:?}|{}|{:?}",
+        forecast.freshness,
+        forecast.source_validity,
+        windows,
+        forecast.unobserved,
+    )
 }
 
 /// Own usage of this account's window that the snapshot does not reflect.
@@ -292,6 +339,7 @@ pub fn forecast(
         computed_at: now,
         freshness,
         source_validity,
+        options,
         windows,
         unobserved: snapshot.absent_windows.clone(),
     }

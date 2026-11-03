@@ -1,525 +1,699 @@
-//! Persistent Playground — SPEC §43.2 (minimal first increment).
+//! Full-stack Playground — SPEC §43.2.
 //!
-//! Artifacts live under `SHENKO_DATA_DIR/playground/<artifact_id>/`:
-//! `content` holds the raw bytes and `meta.json` holds the [`ArtifactRecord`].
-//! Writes are atomic (temp file + rename) and bump `revision`, so closing the
-//! browser, compacting the subject or restarting Shenko never loses a work.
+//! An artifact is a long-lived work with source, build lock, optional
+//! frontend bundle, an executable backend bound to a registered runtime,
+//! persistent business state and a recovery closure. The immutable version
+//! chain below is the artifact's *content* store; the durable facts — the
+//! artifact record, its versioned manifests and the runtime instances — live
+//! in the Store ledger so a peer receives them with the same closure and a
+//! lost workspace can be rebuilt from facts instead of from disk. Backend
+//! actions use the existing native task/operation ledger, not these files.
 //!
-//! Every successful `PUT` emits an [`InboxEvent`] with kind
-//! [`InboxEventKind::ArtifactChanged`] and `source: "playground"`, so changes
-//! reach the one subject inbox the model already reads from.
-//!
-//! TODO(§43.2): real artifact backends are not implemented yet — no
-//! RuntimeProvider execution, action schemas, dedup receipts or persistent
-//! business state. `POST /playground/{id}/backend` only echoes the request.
+//! The subject sees every committed version as a stable inbox fact, so a
+//! process stop before the SQL import still leaves a recoverable record.
 
-use std::collections::HashMap;
-use std::fs;
-use std::io::{self, Write};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-
+use std::{collections::HashMap, fs, io::{self, Write}, path::{Path, PathBuf}, sync::Arc};
 use axum::{
-    body::{Body, Bytes},
-    extract::{Path as AxumPath, Query, State},
+    body::{Body, Bytes}, extract::{Path as AxumPath, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
-    response::{Html, IntoResponse, Json, Response},
-    routing::{get, post},
-    Router,
+    response::{Html, IntoResponse, Json, Redirect, Response}, routing::{get, post}, Router,
 };
 use chrono::{DateTime, Utc};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
+use shenko_store::Store;
+use shenko_store::artifacts::{ArtifactManifest, ArtifactRecord, BackendManifest, FrontendBinding};
+use shenko_subject::{NativeChildService, InboxEvent, InboxEventKind};
+use shenko_types::{ids::EntityId, object::{Digest, ObjectRef}};
 use tokio::sync::mpsc::Sender;
 use uuid::Uuid;
+use crate::playground_backend::{ActionError, BackendActionRequest, BackendBinding, BackendReceipt};
 
-use shenko_subject::inbox::{InboxEvent, InboxEventKind};
-use shenko_types::ids::EntityId;
+pub(crate) const ARTIFACT_SCHEMA: u32 = 2;
 
-/// One mounted Playground artifact. Subset of SPEC §43.2 `ArtifactRecord`.
+/// One immutable content version of an artifact. Content and version records
+/// are immutable; only `meta.json` selects a head. A version is written and
+/// synced before the head changes. This type is the file-backed content
+/// record; the durable business record is `shenko_store::ArtifactRecord`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtifactRecord {
+#[serde(deny_unknown_fields)]
+pub struct ArtifactVersion {
+    pub schema_version: u32,
     pub artifact_id: EntityId,
     pub title: String,
     pub mime: String,
-    /// Absolute path of the artifact's raw bytes on this node.
     pub bytes_path: PathBuf,
+    pub content_ref: ObjectRef,
     pub revision: u64,
+    pub parent_revision: Option<u64>,
+    pub restored_from: Option<u64>,
     pub updated_at: DateTime<Utc>,
-    /// Reserved for the real backend runtime. Not executed yet. TODO(§43.2)
-    pub backend_script: Option<String>,
+    pub backend: Option<BackendBinding>,
 }
 
-/// Filesystem-backed artifact registry shared by the Playground routes.
-///
-/// The map is an in-memory index; `meta.json` is the durable truth. Startup
-/// reloads the index from disk so artifacts survive restarts (SPEC §43.2).
 #[derive(Clone)]
 pub struct PlaygroundState {
-    root: Arc<PathBuf>,
-    inbox_tx: Option<Arc<Sender<InboxEvent>>>,
-    records: Arc<RwLock<HashMap<EntityId, ArtifactRecord>>>,
+    pub(crate) root: Arc<PathBuf>,
+    pub(crate) store: Arc<Store>,
+    pub(crate) agent_id: EntityId,
+    pub(crate) native: Option<Arc<NativeChildService>>,
+    inbox_tx: Option<Sender<InboxEvent>>,
+    records: Arc<RwLock<HashMap<EntityId, ArtifactVersion>>>,
 }
 
 impl PlaygroundState {
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    /// Open the existing artifact tree and recover unimported facts from its
+    /// committed version chain. No Store/subject means no writable Playground.
+    pub fn open(root: PathBuf, store: Arc<Store>) -> anyhow::Result<Self> {
+        let agent_id = store.get_existing_agent_id()?
+            .ok_or_else(|| anyhow::anyhow!("Playground requires an existing subject"))?;
+        store.load_subject(agent_id)?;
+        fs::create_dir_all(&root)?;
         let state = Self {
-            root: Arc::new(root.into()),
-            inbox_tx: None,
+            root: Arc::new(root.canonicalize()?), store, agent_id,
+            native: None, inbox_tx: None,
             records: Arc::new(RwLock::new(HashMap::new())),
         };
-        state.load_from_disk();
-        state
+        state.load()?;
+        state.recover_notifications()?;
+        state.recover_durable()?;
+        Ok(state)
     }
 
-    /// Route artifact changes into the subject inbox. SPEC §43.2.
-    pub fn with_inbox(mut self, inbox_tx: Sender<InboxEvent>) -> Self {
-        self.inbox_tx = Some(Arc::new(inbox_tx));
+    pub fn with_inbox(mut self, tx: Sender<InboxEvent>) -> Self {
+        self.inbox_tx = Some(tx);
         self
     }
 
-    pub fn root(&self) -> &Path {
-        self.root.as_path()
+    pub fn with_native(mut self, native: Arc<NativeChildService>) -> Self {
+        self.native = Some(native);
+        self
     }
 
-    /// Create or replace an artifact's bytes. Revision is monotonic per artifact.
-    pub fn put(
-        &self,
-        artifact_id: EntityId,
-        title: String,
-        mime: String,
-        bytes: &[u8],
-    ) -> io::Result<ArtifactRecord> {
-        // Hold the write lock across the file writes so concurrent PUTs cannot
-        // both read the same base revision. This is sync I/O, no await inside.
-        let mut records = self.records.write();
-        let revision = records
-            .get(&artifact_id)
-            .map_or(1, |previous| previous.revision + 1);
-        let backend_script = records
-            .get(&artifact_id)
-            .and_then(|previous| previous.backend_script.clone());
+    pub fn root(&self) -> &Path { self.root.as_path() }
 
-        let dir = self.root.join(artifact_id.to_string());
-        fs::create_dir_all(&dir)?;
-        let content_path = dir.join("content");
-        atomic_write(&content_path, bytes)?;
+    pub fn store(&self) -> &Arc<Store> { &self.store }
 
-        let record = ArtifactRecord {
-            artifact_id,
-            title,
-            mime,
-            bytes_path: content_path,
-            revision,
-            updated_at: Utc::now(),
-            backend_script,
+    pub(crate) fn artifact_dir(&self, id: EntityId) -> PathBuf {
+        self.root.join(id.to_string())
+    }
+
+    fn version_path(&self, id: EntityId, revision: u64) -> PathBuf {
+        self.artifact_dir(id).join("versions").join(revision.to_string())
+    }
+
+    fn version_record_path(&self, id: EntityId, revision: u64) -> PathBuf {
+        self.artifact_dir(id).join("versions").join(format!("{revision}.json"))
+    }
+
+    fn seal_content(&self, bytes: &[u8], mime: &str) -> io::Result<ObjectRef> {
+        match self.store.cas.seal_object(bytes, mime, "playground", "artifact-content", 1) {
+            Ok(sealed) => Ok(sealed.object),
+            Err(error) => { self.store.close_external_writer(); Err(io::Error::other(error)) }
+        }
+    }
+
+    fn seal_playground_object(&self, value: &impl Serialize, codec: &str) -> io::Result<ObjectRef> {
+        let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
+        match self.store.cas.seal_object(&bytes, "application/json", "playground", codec, 1) {
+            Ok(sealed) => Ok(sealed.object),
+            Err(error) => { self.store.close_external_writer(); Err(io::Error::other(error)) }
+        }
+    }
+
+    /// Allocate beyond orphaned writes too: a crash never authorizes erasing
+    /// an old version's bytes, even when it never became the selected head.
+    fn next_revision(&self, id: EntityId) -> io::Result<u64> {
+        let dir = self.artifact_dir(id).join("versions");
+        let entries = match fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(1),
+            Err(e) => return Err(e),
         };
-        let meta = serde_json::to_vec_pretty(&record).map_err(io::Error::other)?;
-        atomic_write(&dir.join("meta.json"), &meta)?;
+        let mut highest = 0u64;
+        for entry in entries {
+            let name = entry?.file_name();
+            if let Some(number) = name.to_str().and_then(|s| s.trim_end_matches(".json").parse::<u64>().ok()) {
+                highest = highest.max(number);
+            }
+        }
+        highest.checked_add(1).ok_or_else(|| io::Error::other("artifact revision overflow"))
+    }
 
-        records.insert(artifact_id, record.clone());
+    /// Commit immutable bytes + record before selecting the new head. The
+    /// committed record is also the artifact's stable notification outbox.
+    fn commit_version(&self, record: &ArtifactVersion, bytes: &[u8]) -> io::Result<()> {
+        write_immutable(&self.version_path(record.artifact_id, record.revision), bytes)?;
+        write_immutable(&self.version_record_path(record.artifact_id, record.revision),
+            &serde_json::to_vec(record).map_err(io::Error::other)?)?;
+        atomic_write(&self.artifact_dir(record.artifact_id).join("meta.json"),
+            &serde_json::to_vec(record).map_err(io::Error::other)?)
+    }
+
+    pub fn put(&self, id: EntityId, title: String, mime: String, bytes: &[u8]) -> io::Result<ArtifactVersion> {
+        let mut records = self.records.write();
+        let previous = records.get(&id);
+        let revision = self.next_revision(id)?;
+        let record = ArtifactVersion {
+            schema_version: ARTIFACT_SCHEMA, artifact_id: id, title, mime: mime.clone(),
+            bytes_path: self.version_path(id, revision), content_ref: self.seal_content(bytes, &mime)?,
+            revision, parent_revision: previous.map(|r| r.revision), restored_from: None,
+            updated_at: Utc::now(), backend: previous.and_then(|r| r.backend.clone()),
+        };
+        self.commit_version(&record, bytes)?;
+        self.sync_durable(&record).map_err(io::Error::other)?;
+        records.insert(id, record.clone());
+        // A failure here does not undo the committed artifact. The caller sees
+        // an error; reopen/import retries this SAME stable fact, not the write.
+        self.notify_changed(&record).map_err(io::Error::other)?;
         Ok(record)
     }
 
-    pub fn get(&self, artifact_id: &EntityId) -> Option<ArtifactRecord> {
-        self.records.read().get(artifact_id).cloned()
+    pub fn get(&self, id: &EntityId) -> Option<ArtifactVersion> {
+        self.records.read().get(id).cloned()
     }
 
-    /// Newest first — matches the Playground index ordering.
-    pub fn list(&self) -> Vec<ArtifactRecord> {
-        let mut items: Vec<_> = self.records.read().values().cloned().collect();
-        items.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-        items
+    pub fn list(&self) -> Vec<ArtifactVersion> {
+        let mut records: Vec<_> = self.records.read().values().cloned().collect();
+        records.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        records
     }
 
-    pub fn read_content(&self, record: &ArtifactRecord) -> io::Result<Vec<u8>> {
-        fs::read(&record.bytes_path)
+    /// The durable business record of one artifact, when it was synced.
+    pub fn durable_record(&self, id: EntityId) -> anyhow::Result<Option<ArtifactRecord>> {
+        self.store.artifact_record(id)
     }
 
-    /// Notify the subject that a real artifact change happened. SPEC §43.2
-    /// requires these events to land in the same subject Inbox as messages.
-    pub fn notify_changed(&self, record: &ArtifactRecord) {
-        let Some(tx) = &self.inbox_tx else { return };
-        let event = InboxEvent {
-            event_id: EntityId::new(),
-            kind: InboxEventKind::ArtifactChanged,
-            payload: json!({
-                "artifact_id": record.artifact_id.to_string(),
-                "title": record.title,
-                "mime": record.mime,
-                "revision": record.revision,
-            }),
-            created_at: Utc::now(),
-            source: "playground".to_string(),
-        };
-        // Never block a browser request on the subject; full inbox is logged.
-        if let Err(err) = tx.try_send(event) {
-            tracing::warn!(?err, artifact_id=%record.artifact_id, "playground inbox event dropped");
+    /// The enumerable roots this installation selected for its artifacts —
+    /// SPEC §43.2. Roots come from the durable records, not from listing the
+    /// playground directory, so a stray directory is never mistaken for an
+    /// artifact.
+    pub fn roots(&self) -> Vec<(EntityId, PathBuf, Digest)> {
+        self.store.artifact_roots().unwrap_or_default()
+    }
+
+    pub fn read_content(&self, record: &ArtifactVersion) -> io::Result<Vec<u8>> {
+        let bytes = fs::read(self.version_path(record.artifact_id, record.revision))?;
+        if bytes.len() as u64 != record.content_ref.bytes || Digest::blake3(&bytes) != record.content_ref.digest {
+            return Err(io::Error::other("artifact version content digest mismatch"));
         }
+        Ok(bytes)
     }
 
-    fn load_from_disk(&self) {
-        let Ok(entries) = fs::read_dir(self.root.as_path()) else {
-            return;
-        };
-        let mut records = self.records.write();
-        for entry in entries.flatten() {
-            let dir = entry.path();
-            if !dir.is_dir() {
-                continue;
+    pub(crate) fn read_version(&self, id: EntityId, revision: u64) -> io::Result<ArtifactVersion> {
+        let mut record: ArtifactVersion = serde_json::from_slice(
+            &fs::read(self.version_record_path(id, revision))?).map_err(io::Error::other)?;
+        if record.schema_version != ARTIFACT_SCHEMA || record.artifact_id != id || record.revision != revision {
+            return Err(io::Error::other("artifact version identity/schema mismatch"));
+        }
+        record.bytes_path = self.version_path(id, revision);
+        Ok(record)
+    }
+
+    /// Only the committed ancestor chain is history; unrelated orphan writes
+    /// remain on disk but are not silently published as earlier versions.
+    pub fn revisions(&self, id: EntityId) -> io::Result<Vec<u64>> {
+        let Some(head) = self.get(&id) else { return Ok(Vec::new()) };
+        let mut next = Some(head.revision);
+        let mut revisions = Vec::new();
+        while let Some(revision) = next {
+            let record = self.read_version(id, revision)?;
+            if record.parent_revision.is_some_and(|parent| parent >= revision) {
+                return Err(io::Error::other("artifact history is not monotonic"));
             }
-            let Ok(meta) = fs::read(dir.join("meta.json")) else {
-                continue;
-            };
-            let Ok(mut record) = serde_json::from_slice::<ArtifactRecord>(&meta) else {
-                tracing::warn!(path=%dir.display(), "skipping malformed playground meta.json");
-                continue;
-            };
-            // The stored path may come from another mount; rebind locally.
-            record.bytes_path = dir.join("content");
-            records.insert(record.artifact_id, record);
+            revisions.push(revision);
+            next = record.parent_revision;
         }
+        revisions.reverse();
+        Ok(revisions)
+    }
+
+    /// Restore the exact earlier content, MIME, title AND executable binding
+    /// as a new version. Business state lives separately and is never erased.
+    pub fn rollback(&self, id: EntityId, source_revision: u64) -> io::Result<ArtifactVersion> {
+        if !self.revisions(id)?.contains(&source_revision) {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "committed artifact revision not found"));
+        }
+        let mut records = self.records.write();
+        let head = records.get(&id).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "artifact not found"))?;
+        let source = self.read_version(id, source_revision)?;
+        let bytes = self.read_content(&source)?;
+        let revision = self.next_revision(id)?;
+        let record = ArtifactVersion {
+            revision, parent_revision: Some(head.revision), restored_from: Some(source_revision),
+            updated_at: Utc::now(), bytes_path: self.version_path(id, revision), ..source
+        };
+        self.commit_version(&record, &bytes)?;
+        self.sync_durable(&record).map_err(io::Error::other)?;
+        records.insert(id, record.clone());
+        self.notify_changed(&record).map_err(io::Error::other)?;
+        Ok(record)
+    }
+
+    /// Every binding is a new artifact version, including its invocation
+    /// contract and CAS module identity. A code rollback restores this binding
+    /// while keeping all state written by newer code.
+    pub fn bind_backend(&self, id: EntityId, module: &[u8]) -> io::Result<ArtifactVersion> {
+        let binding = BackendBinding::seal(&self.store, module).map_err(io::Error::other)?;
+        let mut records = self.records.write();
+        let previous = records.get(&id).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "artifact not found"))?;
+        let bytes = self.read_content(previous)?;
+        let revision = self.next_revision(id)?;
+        let record = ArtifactVersion {
+            revision, parent_revision: Some(previous.revision), restored_from: None,
+            updated_at: Utc::now(), bytes_path: self.version_path(id, revision),
+            backend: Some(binding), ..previous.clone()
+        };
+        self.commit_version(&record, &bytes)?;
+        self.sync_durable(&record).map_err(io::Error::other)?;
+        records.insert(id, record.clone());
+        self.notify_changed(&record).map_err(io::Error::other)?;
+        Ok(record)
+    }
+
+    /// Build the versioned manifest for one committed content version: the
+    /// real closure is source refs, build lock, runtime binding, state
+    /// bindings, action schemas, operation contracts and the recovery
+    /// closure. The manifest digest binds to its canonical encoding.
+    fn build_manifest(&self, version: &ArtifactVersion) -> anyhow::Result<(ArtifactManifest, ObjectRef, ObjectRef)> {
+        let state_dir = self.artifact_dir(version.artifact_id).join("state");
+        let build_lock = self.seal_playground_object(&json!({
+            "artifact_schema": ARTIFACT_SCHEMA, "mime": version.mime,
+            "invocation_contract": version.backend.as_ref().map(|binding| &binding.invocation_contract),
+        }), "artifact-build-lock")?;
+        let state_bindings = self.seal_playground_object(&json!({
+            "state_root": state_dir, "recovery_domain": "artifact",
+            "code_revision": version.revision, "data_revision_note": "code version and data revision are separate",
+        }), "artifact-state-bindings")?;
+        let action_schemas = self.seal_playground_object(
+            &version.backend.as_ref().map(|binding| json!({"actions": binding.action_schemas()}))
+                .unwrap_or_else(|| json!({"actions": []})),
+            "artifact-action-schemas")?;
+        let operation_contracts = self.seal_playground_object(
+            &json!({"contract": crate::playground_backend::CONTRACT_TEXT}), "artifact-operation-contracts")?;
+        let health_contract = self.seal_playground_object(
+            &json!({"profile": "wasi-p1-isolated-small-state-or-host-process",
+                "guest_exit_zero": true, "bounded_stdout_stderr": true, "state_snapshot": true}),
+            "artifact-health-contract")?;
+        let version_record_ref = self.seal_playground_object(version, "artifact-version-record")?;
+        let recovery_closure = self.seal_playground_object(&json!({
+            "artifact_root": self.artifact_dir(version.artifact_id),
+            "state_root": state_dir,
+            "version_record_ref": version_record_ref,
+            "module_ref": version.backend.as_ref().map(|binding| &binding.module_ref),
+        }), "artifact-recovery-closure")?;
+        let backend = match version.backend.as_ref() {
+            Some(binding) => {
+                // Bindings sealed before the runtime distinction carry no
+                // sealed runtime/contract identity; seal the contract from
+                // the binding itself (content-addressed, so deterministic).
+                let service_contract_ref = match binding.service_contract_ref.clone() {
+                    Some(reference) => reference,
+                    None => self.seal_playground_object(&json!({"contract": binding.invocation_contract}), "artifact-service-contract")?,
+                };
+                Some(BackendManifest {
+                    entry_ref: binding.module_ref.clone(),
+                    runtime_ref: binding.runtime_ref.clone().unwrap_or_else(|| binding.module_ref.clone()),
+                    service_contract_ref,
+                })
+            }
+            None => None,
+        };
+        let frontend = (version.mime == "text/html" || version.mime == "application/javascript").then(|| FrontendBinding {
+            bundle_ref: version.content_ref.clone(),
+            entry: "index.html".into(),
+            surface_contract_ref: operation_contracts.clone(),
+        });
+        let manifest = ArtifactManifest {
+            schema_version: 1,
+            artifact_id: version.artifact_id,
+            version_digest: Digest::blake3(b""), // replaced below after canonical encoding
+            source_refs: vec![version.content_ref.clone()],
+            build_and_dependency_lock_ref: build_lock,
+            frontend,
+            backend,
+            state_bindings_ref: state_bindings,
+            action_schemas_ref: action_schemas,
+            operation_contracts_ref: operation_contracts,
+            secret_handles_ref: None,
+            health_contract_ref: health_contract,
+            recovery_closure_ref: recovery_closure,
+        };
+        let canonical = serde_json::to_vec(&manifest)?;
+        let manifest = ArtifactManifest { version_digest: Digest::blake3(&canonical), ..manifest };
+        let canonical = serde_json::to_vec(&manifest)?;
+        let manifest_ref = match self.store.cas.seal_object(&canonical, "application/json", "playground", "artifact-manifest", 1) {
+            Ok(sealed) => sealed.object,
+            Err(error) => { self.store.close_external_writer(); return Err(error.into()); }
+        };
+        Ok((manifest, manifest_ref, version_record_ref))
+    }
+
+    /// Store the manifest and the durable artifact record for one committed
+    /// content version. Called on every content write so the record is never
+    /// behind the committed head.
+    fn sync_durable(&self, version: &ArtifactVersion) -> anyhow::Result<ArtifactRecord> {
+        let (manifest, manifest_ref, version_record_ref) = self.build_manifest(version)?;
+        self.store.put_artifact_manifest(&manifest)?;
+        let root = self.artifact_dir(version.artifact_id);
+        let root_identity = directory_identity(&root);
+        let record = ArtifactRecord {
+            schema_version: 1,
+            artifact_id: version.artifact_id,
+            subject_id: self.agent_id,
+            creator_task_id: None,
+            title: version.title.clone(),
+            record_revision: 0,
+            active_manifest_ref: Some(manifest_ref.clone()),
+            candidate_manifest_refs: Vec::new(),
+            state_revision: format!("{}:{}", version.revision, &manifest.version_digest.0[..16.min(manifest.version_digest.0.len())]),
+            state_ref: version_record_ref.clone(),
+            lifecycle: "draft".into(),
+            runtime_instance_refs: Vec::new(),
+            desired_lifecycle_ref: manifest_ref.clone(),
+            provenance_and_causation_ref: version_record_ref,
+            artifact_root: root,
+            root_identity,
+            updated_commit: shenko_types::commit::CommitRef::new(EntityId::nil(), shenko_types::ids::LedgerSeq::ZERO),
+        };
+        self.store.put_artifact_record(&record)
+    }
+
+    /// Stage the current head as a candidate manifest without changing the
+    /// active one. Staging is durable and replicated; nothing here executes.
+    pub fn stage_artifact(&self, id: EntityId) -> anyhow::Result<ArtifactRecord> {
+        let version = self.get(&id).ok_or_else(|| anyhow::anyhow!("artifact not found"))?;
+        let (manifest, manifest_ref, _) = self.build_manifest(&version)?;
+        self.store.put_artifact_manifest(&manifest)?;
+        let mut record = self.store.artifact_record(id)?
+            .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
+        if !record.candidate_manifest_refs.contains(&manifest_ref) {
+            record.candidate_manifest_refs.push(manifest_ref);
+        }
+        record.lifecycle = "staged".into();
+        self.store.put_artifact_record(&record)
+    }
+
+    /// Publish one staged candidate as the active manifest. The other
+    /// candidates are demoted, not deleted: a published manifest is the new
+    /// closure other nodes must be able to verify against.
+    pub fn publish_artifact(&self, id: EntityId, manifest_digest: &Digest) -> anyhow::Result<ArtifactRecord> {
+        let mut record = self.store.artifact_record(id)?
+            .ok_or_else(|| anyhow::anyhow!("artifact has no durable record"))?;
+        let published = record.candidate_manifest_refs.iter()
+            .find(|reference| &reference.digest == manifest_digest).cloned()
+            .ok_or_else(|| anyhow::anyhow!("publish requires a staged candidate manifest"))?;
+        record.active_manifest_ref = Some(published);
+        record.candidate_manifest_refs.retain(|reference| &reference.digest != manifest_digest);
+        record.lifecycle = "published".into();
+        self.store.put_artifact_record(&record)
+    }
+
+    fn change_event(&self, record: &ArtifactVersion) -> InboxEvent {
+        let backend = record.backend.as_ref().map(|binding| &binding.module_ref);
+        InboxEvent {
+            event_id: stable_id(&format!("artifact-change/v2:{}:{}", record.artifact_id, record.revision)),
+            kind: InboxEventKind::ArtifactChanged, created_at: record.updated_at, source: "playground".into(),
+            payload: json!({
+                "artifact_id": record.artifact_id, "revision": record.revision,
+                "title": record.title, "mime": record.mime,
+                "parent_revision": record.parent_revision, "restored_from": record.restored_from,
+                "content_digest": record.content_ref.digest, "content_ref": record.content_ref,
+                "backend_module_ref": backend,
+                "explanation": format!("Artifact '{}' committed revision {} ({} bytes, {}). Exact content and executable references are attached; binary content is not treated as text.",
+                    record.title, record.revision, record.content_ref.bytes, record.mime),
+            }),
+        }
+    }
+
+    pub fn notify_changed(&self, record: &ArtifactVersion) -> anyhow::Result<()> {
+        let event = self.change_event(record);
+        self.store.admit_inbox_event(event.event_id, self.agent_id, "artifact_changed", "playground",
+            &serde_json::to_value(&event)?)?;
+        // This is only a wake. C11's pending_inbox_events drains the already
+        // committed full InboxEvent if the queue is full/closed or absent.
+        if let Some(tx) = &self.inbox_tx { let _ = tx.try_send(event); }
+        Ok(())
+    }
+
+    fn recover_notifications(&self) -> anyhow::Result<()> {
+        for artifact in self.list() {
+            for revision in self.revisions(artifact.artifact_id)? {
+                self.notify_changed(&self.read_version(artifact.artifact_id, revision)?)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Reconcile the durable records with the committed version chain after a
+    /// restart: every head that has no durable record yet gets one. The file
+    /// chain is the content truth; the durable record is the business truth.
+    fn recover_durable(&self) -> anyhow::Result<()> {
+        for version in self.list() {
+            if self.store.artifact_record(version.artifact_id)?.is_none() {
+                self.sync_durable(&version)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn load(&self) -> anyhow::Result<()> {
+        for entry in fs::read_dir(self.root.as_path())? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() { continue; }
+            let Some(id) = entry.file_name().to_str().and_then(|name| name.parse::<EntityId>().ok()) else { continue };
+            let meta = entry.path().join("meta.json");
+            let raw = match fs::read(&meta) {
+                Ok(bytes) => bytes,
+                // A content write before first head selection is an orphan,
+                // not an artifact to invent during recovery.
+                Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(e.into()),
+            };
+            let value: Value = serde_json::from_slice(&raw)?;
+            let record = if value.get("schema_version").and_then(Value::as_u64) == Some(ARTIFACT_SCHEMA as u64) {
+                let mut head: ArtifactVersion = serde_json::from_value(value)?;
+                head.bytes_path = self.version_path(id, head.revision);
+                let immutable = self.read_version(id, head.revision)?;
+                anyhow::ensure!(head.artifact_id == id && serde_json::to_value(&head)? == serde_json::to_value(&immutable)?,
+                    "artifact head differs from immutable version");
+                self.read_content(&immutable)?;
+                immutable
+            } else {
+                // Explicit one-way migration of the original flat content /
+                // meta.json layout. Preserve the exact old metadata and content
+                // files; do not execute its old reserved backend_script field.
+                #[derive(Deserialize)]
+                struct Legacy { artifact_id: EntityId, title: String, mime: String, revision: u64, updated_at: DateTime<Utc> }
+                let legacy: Legacy = serde_json::from_slice(&raw)?;
+                anyhow::ensure!(legacy.artifact_id == id, "legacy artifact identity mismatch");
+                let bytes = fs::read(entry.path().join("content"))?;
+                let record = ArtifactVersion {
+                    schema_version: ARTIFACT_SCHEMA, artifact_id: id,
+                    title: legacy.title, mime: legacy.mime.clone(), revision: legacy.revision,
+                    content_ref: self.seal_content(&bytes, &legacy.mime)?, bytes_path: self.version_path(id, legacy.revision),
+                    parent_revision: None, restored_from: None, updated_at: legacy.updated_at, backend: None,
+                };
+                write_immutable(&entry.path().join("legacy-meta.json"), &raw)?;
+                self.commit_version(&record, &bytes)?;
+                record
+            };
+            self.records.write().insert(id, record);
+        }
+        Ok(())
     }
 }
 
-/// Playground routes, merged into the main axum router.
-pub fn router(state: PlaygroundState) -> Router {
-    Router::new()
-        .route("/playground", get(list_handler))
-        .route("/playground/{id}", get(get_handler).put(put_handler))
-        .route("/playground/{id}/backend", post(backend_handler))
-        .with_state(state)
+/// The dev/ino identity of a directory, or a zero digest when it cannot be
+/// read. A zero identity is never equal to a live directory's identity, so a
+/// missing root is always re-verified instead of trusted.
+fn directory_identity(path: &Path) -> Digest {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            if metadata.is_dir() {
+                return Digest::blake3(format!("dir:{}:{}", metadata.dev(), metadata.ino()).as_bytes());
+            }
+        }
+    }
+    Digest::blake3(b"missing-directory")
 }
 
-/// Write `bytes` to `path` atomically: temp file in the same directory, then
-/// rename. A crash leaves either the old or the new content, never a partial.
-fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    fs::create_dir_all(parent)?;
-    let file_name = path
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "artifact".to_string());
-    let tmp = path.with_file_name(format!(".{file_name}.tmp-{}", Uuid::new_v4()));
+pub(crate) fn stable_id(identity: &str) -> EntityId {
+    let hash = blake3::hash(identity.as_bytes());
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&hash.as_bytes()[..16]);
+    EntityId(Uuid::from_bytes(bytes))
+}
 
+pub(crate) fn write_immutable(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| io::Error::other("version parent missing"))?;
+    fs::create_dir_all(parent)?;
+    match fs::OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(mut file) => { file.write_all(bytes)?; file.sync_all()?; }
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            if fs::read(path)? != bytes { return Err(io::Error::other("immutable artifact version conflict")); }
+        }
+        Err(e) => return Err(e),
+    }
+    fs::File::open(parent)?.sync_all()?;
+    if let Some(grandparent) = parent.parent() { fs::File::open(grandparent)?.sync_all()?; }
+    Ok(())
+}
+
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let parent = path.parent().ok_or_else(|| io::Error::other("artifact parent missing"))?;
+    fs::create_dir_all(parent)?;
+    let tmp = parent.join(format!(".artifact-{}.tmp", Uuid::new_v4()));
     let result = (|| {
-        let mut file = fs::File::create(&tmp)?;
+        let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         file.write_all(bytes)?;
         file.sync_all()?;
-        fs::rename(&tmp, path)
+        fs::rename(&tmp, path)?;
+        fs::File::open(parent)?.sync_all()
     })();
-
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
+    if result.is_err() { let _ = fs::remove_file(&tmp); }
     result
 }
 
-async fn list_handler(State(pg): State<PlaygroundState>) -> Html<String> {
-    Html(render_list(&pg.list()))
+pub fn router(state: PlaygroundState) -> Router {
+    Router::new()
+        // The one served UI is the Proto-UI app; the Playground is a view of
+        // it, not a second hand-written page (SPEC §21, §43.2).
+        .route("/playground", get(list_handler))
+        .route("/playground/{id}", get(get_handler).put(put_handler))
+        .route("/playground/{id}/versions", get(versions_handler))
+        .route("/playground/{id}/rollback", post(rollback_handler))
+        .route("/playground/{id}/backend", get(backend_info_handler).put(bind_backend_handler))
+        .route("/playground/{id}/backend/action", post(backend_action_handler).get(action_status_handler))
+        .route("/playground/{id}/manifest", get(manifest_handler))
+        .route("/playground/{id}/stage", post(stage_handler))
+        .route("/playground/{id}/publish", post(publish_handler))
+        .with_state(state)
 }
 
-async fn get_handler(
-    State(pg): State<PlaygroundState>,
-    AxumPath(raw_id): AxumPath<String>,
-) -> Response {
-    let id = match parse_artifact_id(&raw_id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
-    let Some(record) = pg.get(&id) else {
-        return error_response(StatusCode::NOT_FOUND, "artifact not found");
-    };
-    let bytes = match pg.read_content(&record) {
-        Ok(bytes) => bytes,
-        Err(err) => {
-            return error_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("artifact content unreadable: {err}"),
-            );
+async fn stage_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
+    match pg.stage_artifact(id) {
+        Ok(record) => Json(json!({"ok": true, "record": record})).into_response(),
+        Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact stage failed: {e:#}")),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublishRequest {
+    manifest_digest: Digest,
+}
+
+async fn publish_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
+    Json(request): Json<PublishRequest>) -> Response {
+    match pg.publish_artifact(id, &request.manifest_digest) {
+        Ok(record) => Json(json!({"ok": true, "record": record})).into_response(),
+        Err(e) => error_response(StatusCode::CONFLICT, &format!("artifact publish failed: {e:#}")),
+    }
+}
+
+async fn list_handler() -> Redirect {
+    Redirect::temporary("/?view=playground")
+}
+
+async fn get_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
+    let Some(record) = pg.get(&id) else { return error_response(StatusCode::NOT_FOUND, "artifact not found") };
+    match pg.read_content(&record) {
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        Ok(bytes) => {
+            let mut response = Response::new(Body::from(bytes));
+            response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(&record.mime)
+                .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")));
+            if let Ok(value) = HeaderValue::from_str(&record.revision.to_string()) { response.headers_mut().insert("x-artifact-revision", value); }
+            response
         }
-    };
-
-    let mut response = Response::new(Body::from(bytes));
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(&record.mime)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
-    );
-    if let Ok(value) = HeaderValue::from_str(&record.revision.to_string()) {
-        headers.insert("x-artifact-revision", value);
     }
-    if let Ok(value) = HeaderValue::from_str(&record.updated_at.to_rfc3339()) {
-        headers.insert("x-artifact-updated-at", value);
-    }
-    response
 }
 
-async fn put_handler(
-    State(pg): State<PlaygroundState>,
-    AxumPath(raw_id): AxumPath<String>,
-    Query(query): Query<HashMap<String, String>>,
-    headers: HeaderMap,
-    body: Bytes,
-) -> Response {
-    let id = match parse_artifact_id(&raw_id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
-    let title = query
-        .get("title")
-        .cloned()
-        .or_else(|| header_str(&headers, "x-artifact-title"))
+async fn put_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
+    Query(query): Query<HashMap<String, String>>, headers: HeaderMap, bytes: Bytes) -> Response {
+    let title = query.get("title").cloned().or_else(|| header_str(&headers, "x-artifact-title"))
         .unwrap_or_else(|| format!("Artifact {id}"));
-    let mime = query
-        .get("mime")
-        .cloned()
-        .or_else(|| header_str(&headers, header::CONTENT_TYPE.as_str()))
-        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let mime = query.get("mime").cloned().or_else(|| header_str(&headers, header::CONTENT_TYPE.as_str()))
+        .unwrap_or_else(|| "application/octet-stream".into());
+    artifact_response(pg.put(id, title, mime, &bytes))
+}
 
-    match pg.put(id, title, mime, &body) {
-        Ok(record) => {
-            pg.notify_changed(&record);
-            (
-                StatusCode::OK,
-                Json(json!({"ok": true, "artifact": record})),
-            )
-                .into_response()
-        }
-        Err(err) => error_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("artifact write failed: {err}"),
-        ),
+async fn versions_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
+    match pg.revisions(id) {
+        Ok(revisions) if revisions.is_empty() => error_response(StatusCode::NOT_FOUND, "artifact not found"),
+        Ok(revisions) => Json(json!({"ok": true, "revisions": revisions})).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
 
-/// Minimal backend endpoint. A stored `backend_script` is NOT executed yet.
-/// TODO(§43.2): run it through a registered RuntimeProvider with real action
-/// schemas, dedup receipts and persistent state; return unknown on failure.
-async fn backend_handler(
-    State(pg): State<PlaygroundState>,
-    AxumPath(raw_id): AxumPath<String>,
-    body: Bytes,
-) -> Response {
-    let id = match parse_artifact_id(&raw_id) {
-        Ok(id) => id,
-        Err(response) => return response,
-    };
-    let Some(record) = pg.get(&id) else {
-        return error_response(StatusCode::NOT_FOUND, "artifact not found");
-    };
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RollbackRequest { revision: u64 }
+async fn rollback_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>, Json(request): Json<RollbackRequest>) -> Response {
+    artifact_response(pg.rollback(id, request.revision))
+}
 
-    let request = if body.is_empty() {
-        json!({})
-    } else {
-        serde_json::from_slice::<serde_json::Value>(&body)
-            .unwrap_or_else(|_| json!({"raw": String::from_utf8_lossy(&body)}))
-    };
+async fn backend_info_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
+    match pg.get(&id) {
+        Some(record) => Json(json!({"ok": true, "revision": record.revision, "backend": record.backend})).into_response(),
+        None => error_response(StatusCode::NOT_FOUND, "artifact not found"),
+    }
+}
 
-    Json(json!({
-        "ok": true,
-        "echo": {
-            "artifact_id": record.artifact_id.to_string(),
-            "revision": record.revision,
-            "backend_script_present": record.backend_script.is_some(),
-            "request": request,
+async fn bind_backend_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>, bytes: Bytes) -> Response {
+    artifact_response(pg.bind_backend(id, &bytes))
+}
+
+async fn manifest_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>) -> Response {
+    match pg.durable_record(id) {
+        Ok(Some(record)) => Json(json!({"ok": true, "record": record})).into_response(),
+        Ok(None) => error_response(StatusCode::NOT_FOUND, "artifact has no durable record"),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+    }
+}
+
+async fn backend_action_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
+    Json(request): Json<BackendActionRequest>) -> Response {
+    receipt_response(pg.invoke_action(id, request))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusQuery { request_id: String }
+async fn action_status_handler(State(pg): State<PlaygroundState>, AxumPath(id): AxumPath<EntityId>,
+    Query(query): Query<StatusQuery>) -> Response {
+    receipt_response(pg.action_status(id, &query.request_id))
+}
+
+fn receipt_response(receipt: Result<BackendReceipt, ActionError>) -> Response {
+    match receipt {
+        Ok(receipt) => {
+            let status = if receipt.result.is_some() || receipt.evidence.is_some() { StatusCode::OK } else { StatusCode::ACCEPTED };
+            (status, Json(json!({"accepted": true, "receipt": receipt}))).into_response()
         }
-    }))
-    .into_response()
+        Err(error) => error.into_response(),
+    }
 }
 
-fn parse_artifact_id(raw: &str) -> Result<EntityId, Response> {
-    raw.parse::<EntityId>()
-        .map_err(|_| error_response(StatusCode::BAD_REQUEST, "invalid artifact id"))
+fn artifact_response(result: io::Result<ArtifactVersion>) -> Response {
+    match result {
+        Ok(record) => Json(json!({"ok": true, "notified": "durably_admitted", "artifact": record})).into_response(),
+        Err(e) => error_response(if e.kind() == io::ErrorKind::NotFound { StatusCode::NOT_FOUND } else { StatusCode::INTERNAL_SERVER_ERROR },
+            &format!("artifact write/import failed; any committed version is retained for recovery: {e}")),
+    }
 }
 
-fn error_response(status: StatusCode, message: &str) -> Response {
-    (status, Json(json!({"ok": false, "error": message}))).into_response()
+fn error_response(status: StatusCode, error: &str) -> Response {
+    (status, Json(json!({"ok": false, "error": error}))).into_response()
 }
-
 fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string)
-}
-
-fn escape_html(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-/// Index page. Tokens mirror `src/index.html` so the Playground reads as part
-/// of the same Shenko surface rather than a second design system.
-fn render_list(records: &[ArtifactRecord]) -> String {
-    let body = if records.is_empty() {
-        "<p class=\"empty\">还没有作品。通过 <code>PUT /playground/&lt;id&gt;</code> 创建一个。</p>"
-            .to_string()
-    } else {
-        let mut items = String::new();
-        for record in records {
-            let id = record.artifact_id.to_string();
-            items.push_str(&format!(
-                "<li><a href=\"/playground/{id}\">{title}</a>\
-                 <span class=\"meta\">rev {revision} · {mime} · {updated}</span></li>",
-                id = id,
-                title = escape_html(&record.title),
-                revision = record.revision,
-                mime = escape_html(&record.mime),
-                updated = record
-                    .updated_at
-                    .to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-            ));
-        }
-        format!("<ul>{items}</ul>")
-    };
-
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Playground · Shenko</title>
-<style>
-  :root {{
-    --bg:          oklch(13% 0.005 250);
-    --bg-raised:   oklch(17% 0.008 250);
-    --border:      oklch(28% 0.012 250);
-    --text:        oklch(92% 0.006 250);
-    --text-muted:  oklch(58% 0.012 250);
-    --accent:      oklch(68% 0.19  250);
-    --radius-md:   10px;
-    --space-3:     12px;
-    --space-4:     16px;
-    --space-5:     20px;
-  }}
-  @media (prefers-color-scheme: light) {{
-    :root {{
-      --bg:          oklch(97% 0.003 250);
-      --bg-raised:   oklch(100% 0 0);
-      --border:      oklch(84% 0.010 250);
-      --text:        oklch(15% 0.010 250);
-      --text-muted:  oklch(44% 0.015 250);
-      --accent:      oklch(52% 0.21  250);
-    }}
-  }}
-  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-  body {{
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
-    font-size: 15px;
-    line-height: 1.6;
-    min-height: 100dvh;
-    padding: var(--space-5);
-    max-width: 820px;
-    margin: 0 auto;
-  }}
-  header {{
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-3);
-    padding-bottom: var(--space-4);
-    border-bottom: 1px solid var(--border);
-    margin-bottom: var(--space-5);
-  }}
-  h1 {{ font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }}
-  header a {{ color: var(--text-muted); font-size: 13px; text-decoration: none; }}
-  header a:hover {{ color: var(--accent); }}
-  ul {{ list-style: none; display: flex; flex-direction: column; gap: var(--space-3); }}
-  li {{
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: var(--space-3) var(--space-4);
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-3);
-  }}
-  li a {{ color: var(--accent); text-decoration: none; font-weight: 600; }}
-  li a:hover {{ text-decoration: underline; }}
-  .meta {{ color: var(--text-muted); font-size: 12px; }}
-  .empty {{ color: var(--text-muted); font-size: 14px; }}
-  code {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }}
-</style>
-</head>
-<body>
-  <header>
-    <h1>Playground</h1>
-    <a href="/">← 时间线</a>
-  </header>
-  {body}
-</body>
-</html>"#
-    )
+    headers.get(name)?.to_str().ok().map(str::to_string)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn temp_root(label: &str) -> PathBuf {
-        let root = std::env::temp_dir().join(format!(
-            "shenko-playground-{label}-{}",
-            Uuid::new_v4()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        root
-    }
-
-    #[test]
-    fn registry_atomic_write_and_revision_bump() {
-        let root = temp_root("registry");
-        let pg = PlaygroundState::new(root.clone());
-        let id = EntityId::new();
-
-        let first = pg
-            .put(id, "First".into(), "text/plain".into(), b"hello")
-            .unwrap();
-        assert_eq!(first.revision, 1);
-        assert_eq!(fs::read(&first.bytes_path).unwrap(), b"hello");
-        assert_eq!(pg.list().len(), 1);
-
-        let second = pg
-            .put(
-                id,
-                "Second".into(),
-                "text/html".into(),
-                b"<h1>hi</h1>",
-            )
-            .unwrap();
-        assert_eq!(second.revision, 2);
-        assert_eq!(fs::read(&second.bytes_path).unwrap(), b"<h1>hi</h1>");
-
-        // meta.json is the durable truth and reloads after a restart.
-        let meta: ArtifactRecord =
-            serde_json::from_slice(&fs::read(root.join(id.to_string()).join("meta.json")).unwrap())
-                .unwrap();
-        assert_eq!(meta.revision, 2);
-        assert_eq!(meta.title, "Second");
-        assert_eq!(meta.mime, "text/html");
-
-        let reloaded = PlaygroundState::new(root.clone());
-        let record = reloaded.get(&id).expect("record survives restart");
-        assert_eq!(record.revision, 2);
-        assert_eq!(record.title, "Second");
-        assert_eq!(reloaded.read_content(&record).unwrap(), b"<h1>hi</h1>");
-
-        // Atomic writes leave no temp files behind.
-        let leftovers: Vec<_> = fs::read_dir(root.join(id.to_string()))
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().to_string_lossy().contains(".tmp-"))
-            .collect();
-        assert!(leftovers.is_empty(), "temp files remain: {leftovers:?}");
-
-        fs::remove_dir_all(&root).ok();
-    }
-}
+#[path = "playground_tests.rs"]
+mod tests;

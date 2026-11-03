@@ -70,6 +70,12 @@ fn empty_batch_commit_returns_receipt() {
 }
 
 fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
+    initialized_subject_with_bootstrap_event(b"seed")
+}
+
+fn initialized_subject_with_bootstrap_event(
+    bootstrap_event: &[u8],
+) -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::*;
     use shenko_types::subject::{
@@ -91,7 +97,7 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
 
     let dummy_ref = store
         .cas
-        .seal_object(b"seed", "application/json", "test", "raw", 1)
+        .seal_object(bootstrap_event, "application/json", "test", "raw", 1)
         .unwrap()
         .object;
     let genesis_commit = CommitRef::new(ledger_id, LedgerSeq(0));
@@ -149,14 +155,60 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, shenko_types::ids::EntityId) {
     };
 
     // Initialize genesis atomically
-    let receipt = store
-        .initialize_genesis(&genesis, &head, &first_step)
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        dummy_ref,
+        genesis_commit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first_step, &root_task)
         .unwrap();
-    assert_eq!(receipt.updated.len(), 3);
 
     (dir, store, agent_id)
 }
 
+#[test]
+fn bootstrap_identity_survives_reopen_without_an_index_and_rejects_divergence() {
+    use shenko_types::{error::ShenkoError, ids::EntityId};
+    let installation = EntityId::new();
+    let event = serde_json::to_vec(&serde_json::json!({"installation_id": installation})).unwrap();
+    let (dir, store, agent) = initialized_subject_with_bootstrap_event(&event);
+    assert_ne!(installation, store.ledger.ledger_id());
+    drop(store);
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    assert_eq!(reopened.installation_id_for_subject(agent).unwrap(), installation);
+
+    let genesis = reopened.get_subject_genesis(agent).unwrap().unwrap();
+    let foreign = EntityId::new();
+    let conn = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    conn.execute(
+        "INSERT INTO bootstrap_records(bootstrap_id,installation_id,subject_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4,?5)",
+        rusqlite::params![genesis.bootstrap_id.to_string(), foreign.to_string(), agent.to_string(),
+            serde_json::json!({"installation_id": foreign}).to_string(), genesis.created_commit.seq.0 as i64],
+    ).unwrap();
+    assert!(matches!(reopened.installation_id_for_subject(agent), Err(ShenkoError::Conflict(_))));
+    assert_eq!(reopened.cas.read_object(&genesis.bootstrap_event_ref.digest).unwrap(), event);
+}
+
+#[test]
+fn bootstrap_owner_projection_resolves_the_committed_grant_after_reopen() {
+    use shenko_store::config::OwnerGrant;
+    use shenko_types::{ids::EntityId, object::Digest};
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("owner.db"), dir.join("cas")).unwrap();
+    let installation = EntityId::new();
+    let principal = store.seal_config_object(&serde_json::json!({"kind": "principal"}), "principal").unwrap();
+    let authority = store.seal_config_object(&serde_json::json!({"kind": "authority"}), "authority").unwrap();
+    let (_, granted) = store.claim_owner(installation, EntityId::new(), principal, authority,
+        Digest::blake3(b"owner-projection-test-token")).unwrap();
+    drop(store);
+    let reopened = Store::open(dir.join("owner.db"), dir.join("cas")).unwrap();
+    let reference = reopened.get_bootstrap_owner_grant(installation).unwrap().unwrap();
+    let bytes = std::fs::read(reopened.cas.verified_object_path(&reference).unwrap()).unwrap();
+    let projected: OwnerGrant = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(serde_json::to_value(projected).unwrap(), serde_json::to_value(granted.unwrap()).unwrap());
+}
 
 #[test]
 fn boundary_waits_for_recorded_step_and_survives_reopen() {
@@ -271,7 +323,7 @@ fn recorded_result_with_wait(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":10, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "events":[], "provider_selection":{"schema_version":1,"binding":null,"model":null,"profile_id":null,"profile_revision":null,"credential_fingerprint":null,"resource_domain_id":null,"serializer_revision":null}, "request_id":"00000000-0000-0000-0000-000000000000",
         "provider_binding":null, "semantic_wait":semantic_wait, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
@@ -296,7 +348,7 @@ fn recorded_result_with_wait(
     step.record_revision = RecordRevision(1);
     step.input_plan_ref = Some(store.cas.seal_object(
         &serde_json::to_vec(&plan).unwrap(), "application/json", "input_plans",
-        "subject_step_input", 10).unwrap().object);
+        "subject_step_input", 12).unwrap().object);
     store.upsert_step(&step, head, RecordRevision(0)).unwrap();
     step.state = SubjectStepState::AwaitingModel;
     step.record_revision = RecordRevision(2);
@@ -343,9 +395,9 @@ fn committed_candidate(
 ) -> shenko_types::subject::SubjectStep {
     use shenko_types::{ids::*, subject::*};
     let decision = StepDecision {
-        schema_version: 6,
+        schema_version: 8,
         output: shenko_types::output::ParsedOutput {
-            schema_version: 3,
+            schema_version: 5,
             step_id: step.step_id,
             raw_ref: step.model_result_ref.clone().unwrap(),
             text: "继续先前关注".into(),
@@ -359,6 +411,9 @@ fn committed_candidate(
         event_dispositions: vec![EventDisposition {
             event_id: step.step_id,
             disposition: Disposition::Acknowledged,
+            reason: None,
+            priority: None,
+            review_after: None,
         }],
         delegated_task_intents: vec![],
         child_dialogue_intents: vec![],
@@ -366,6 +421,7 @@ fn committed_candidate(
         policy_intents: vec![],
         publication_intents: vec![],
         pending_obligations: vec![],
+        attention_policy: None,
         evidence_refs: vec![],
         successor_step_id: next,
     };
@@ -377,7 +433,7 @@ fn committed_candidate(
                 "application/json",
                 "test",
                 "StepDecision",
-                6,
+                8,
             )
             .unwrap()
             .object,
@@ -428,7 +484,7 @@ fn attach_wait(
                 "application/json",
                 "decisions",
                 "StepDecision",
-                6,
+                8,
             )
             .unwrap()
             .object,
@@ -581,7 +637,7 @@ fn memory_receipt_resolves_the_same_raw_call_after_reopen() {
         intent_id, kind: MemoryIntentKind::Save, scope: "subject".into(), content_ref: Some(content),
     }];
     step.decision_ref = Some(store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
-        "application/json", "decisions", "StepDecision", 6).unwrap().object);
+        "application/json", "decisions", "StepDecision", 8).unwrap().object);
     store.commit_step_and_advance_head(&step, &head, next).unwrap();
     let history = StoreHistory::new(store.clone(), EntityId(head.branch_id.0), Arc::new(estimate_tokens));
     let pending = history.read_range(0, u64::MAX).unwrap();
@@ -976,6 +1032,192 @@ fn recovery_task(
         dispatch_eligibility: DispatchEligibility::Ready, no_progress_crashes: 0,
         first_run_at: None, terminal_at: None, created_commit: commit, updated_commit: commit,
     }
+}
+
+#[test]
+fn child_tool_creation_claim_and_reopen_keep_one_identity() {
+    use shenko_types::{ids::*, task::*};
+    let (dir, store, agent) = initialized_subject();
+    let parent = claimed_native_task(&store, agent).task;
+    let id = EntityId::new();
+    let implementation = parent.implementation_ref.clone();
+    let claim = store.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), implementation.clone(),
+    ).unwrap().unwrap();
+    assert_eq!(claim.task.owner, TaskOwner::Task { id: parent.task_id });
+    assert_eq!(claim.task.record_revision, RecordRevision(1));
+    assert!(matches!(claim.task.state, TaskState::Running { invocation_id, mode: RunMode::Run, .. }
+        if invocation_id == claim.invocation.invocation_id));
+    assert_eq!(claim.task.created_commit, claim.task.updated_commit);
+    let commit = store.current_commit_seq().unwrap();
+    assert!(store.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), implementation.clone(),
+    ).unwrap().is_none());
+    assert_eq!(store.current_commit_seq().unwrap(), commit);
+    drop(store);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    let before = reopened.current_commit_seq().unwrap();
+    assert!(reopened.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), implementation,
+    ).unwrap().is_none());
+    let retained = reopened.external_task(id).unwrap();
+    assert_eq!(retained.state, claim.task.state);
+    assert_eq!(retained.memos, claim.task.memos);
+    assert_eq!(retained.updated_commit, claim.task.updated_commit);
+    assert_eq!(reopened.current_commit_seq().unwrap(), before);
+}
+
+#[test]
+fn failed_child_tool_claim_rolls_back_its_creation() {
+    use shenko_types::ids::*;
+    let (dir, store, agent) = initialized_subject();
+    let parent = claimed_native_task(&store, agent).task;
+    let id = EntityId::new();
+    let connection = rusqlite::Connection::open(dir.join("head.db")).unwrap();
+    connection.execute_batch(&format!(
+        "CREATE TRIGGER fail_tool_claim BEFORE UPDATE ON tasks WHEN NEW.task_id='{id}'
+         BEGIN SELECT RAISE(ABORT,'injected claim failure'); END;"
+    )).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    let error = store.claim_child_tool_task(
+        &parent, id, "host.printf", 1, parent.input_ref.clone(), parent.implementation_ref.clone(),
+    ).unwrap_err();
+    assert!(format!("{error:#}").contains("injected claim failure"));
+    assert!(store.get_task(id).unwrap().is_none());
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+    assert_eq!(store.external_task(parent.task_id).unwrap().state, parent.state);
+}
+
+fn claimed_native_task(
+    store: &Store, agent: shenko_types::ids::EntityId,
+) -> shenko_store::child::NativeTaskClaim {
+    let mut task = recovery_task(store, agent, 1, false);
+    task.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!("object"));
+    let mut batch = WriteBatch::new();
+    batch.task_upserts.push(task.clone());
+    store.commit(batch).unwrap();
+    store.start_subject_dispatcher().unwrap();
+    store.claim_native_task(task.task_id, task.implementation_ref, false)
+        .unwrap().expect("the pending native task has an admitted input")
+}
+
+fn arm_dispatch_probe(
+    store: &Store, invocation: &shenko_store::TaskInvocation, key: &str,
+) -> (shenko_types::ids::EntityId, shenko_types::ids::EntityId) {
+    use shenko_types::{ids::*, object::*, operation::*};
+    let task = store.external_task(invocation.task_id).unwrap();
+    let mut current = invocation.clone();
+    current.record_revision = task.record_revision;
+    let object = task.input_ref;
+    let reader = VersionRef {
+        artifact: ArtifactRef { digest: object.digest.clone(), locator: object.locator.clone() },
+        symbol: "dispatch-probe".into(), schema: object.codec.clone(),
+    };
+    let mut operation = OperationRecord {
+        record_schema_version: 1, operation_id: EntityId::new(), record_revision: RecordRevision(0),
+        task_id: task.task_id, logical_key: key.into(), operation_name: "dispatch.probe".into(),
+        input_schema_version: 1, output_schema_version: 1,
+        final_input_ref: object.clone(), input_digest: object.digest.clone(),
+        contract_ref: OperationContractRef {
+            plugin_id: task.implementation_ref.plugin_id,
+            artifact_digest: object.digest.clone(), contract_digest: object.digest.clone(),
+            receipt_reader_ref: reader.clone(),
+        },
+        resource_bindings_ref: object.clone(),
+        authority_ref: AuthorityRef {
+            delegation_id: task.task_id, delegation_revision: task.record_revision,
+            decision_ref: task.task_id,
+        },
+        acceptance_predicate_ref: object.clone(), retry_contract_ref: object,
+        checkpoint_scope_ref: None, state: OperationState::InFlight, outcome: None,
+        outcome_conflict: false, effect_status: EffectStatus::Unknown, retry_of: None,
+        compensates: None, possible_duplicate_of: vec![], prepared_commit: task.updated_commit,
+        evidence_through: None,
+    };
+    let mut attempt = AttemptRecord {
+        record_schema_version: 1, attempt_id: EntityId::new(), operation_id: operation.operation_id,
+        attempt_no: 1, invocation_id: current.invocation_id, worker_id: current.worker_id,
+        node_id: current.node_id, epoch: current.epoch, implementation_ref: reader,
+        dispatch_stage: AttemptDispatchStage::Armed, armed_commit: task.updated_commit,
+        provider_handle: None, provider_idempotency: None, transport_ref: None,
+        started_at: None, last_observed_at: None, final_receipt_id: None,
+    };
+    assert!(store.arm_external_operation(&current, &mut operation, &mut attempt).unwrap().is_none());
+    (operation.operation_id, attempt.attempt_id)
+}
+
+#[test]
+fn native_dispatch_is_once_per_attempt_across_steps_cancellation_and_reopen() {
+    use shenko_store::child::NativeDispatchTransition::{AlreadyCommitted, Fenced, Won};
+    use shenko_types::{ids::*, operation::AttemptDispatchStage, task::*};
+    let (dir, store, agent) = initialized_subject();
+    let ctx = claimed_native_task(&store, agent).invocation;
+    let first = arm_dispatch_probe(&store, &ctx, "step/0");
+    let second = arm_dispatch_probe(&store, &ctx, "step/1");
+    let cancelled = arm_dispatch_probe(&store, &ctx, "step/2");
+    let before = store.current_commit_seq().unwrap();
+    assert!(store.commit_native_dispatch(&ctx, first.0, second.1).is_err());
+    let mut foreign = ctx.clone();
+    foreign.invocation_id = EntityId::new();
+    assert!(store.commit_native_dispatch(&foreign, first.0, first.1).is_err());
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let racers: Vec<_> = (0..2).map(|_| {
+        let store = Arc::clone(&store);
+        let barrier = Arc::clone(&barrier);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            store.commit_native_dispatch(&ctx, first.0, first.1).unwrap()
+        })
+    }).collect();
+    let results: Vec<_> = racers.into_iter().map(|racer| racer.join().unwrap()).collect();
+    assert_eq!(results.iter().filter(|result| **result == Won).count(), 1);
+    assert_eq!(results.iter().filter(|result| **result == AlreadyCommitted).count(), 1);
+    assert_eq!(store.commit_native_dispatch(&ctx, second.0, second.1).unwrap(), Won);
+    // A send-boundary commit is not a fabricated provider acknowledgement.
+    assert_eq!(store.external_attempt(first.1).unwrap().dispatch_stage, AttemptDispatchStage::Armed);
+    store.request_native_cancellation(ctx.task_id, EntityId::new(), EntityId::new(),
+        "cancel remaining step", AbortScope::Task).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    assert_eq!(store.commit_native_dispatch(&ctx, first.0, first.1).unwrap(), AlreadyCommitted);
+    assert_eq!(store.commit_native_dispatch(&ctx, cancelled.0, cancelled.1).unwrap(), Fenced);
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+    drop(store);
+
+    let reopened = Store::open(dir.join("head.db"), dir.join("cas")).unwrap();
+    reopened.start_subject_dispatcher().unwrap();
+    let before = reopened.current_commit_seq().unwrap();
+    assert_eq!(reopened.commit_native_dispatch(&ctx, first.0, first.1).unwrap(), AlreadyCommitted);
+    assert_eq!(reopened.commit_native_dispatch(&ctx, second.0, second.1).unwrap(), AlreadyCommitted);
+    assert_eq!(reopened.commit_native_dispatch(&ctx, cancelled.0, cancelled.1).unwrap(), Fenced);
+    assert_eq!(reopened.current_commit_seq().unwrap(), before);
+}
+
+#[test]
+fn legacy_unattributed_dispatch_never_authorizes_another_attempt() {
+    use shenko_store::child::{NATIVE_DISPATCH, NativeDispatchTransition::AlreadyCommitted};
+    let (dir, store, agent) = initialized_subject();
+    let ctx = claimed_native_task(&store, agent).invocation;
+    let first = arm_dispatch_probe(&store, &ctx, "step/0");
+    let second = arm_dispatch_probe(&store, &ctx, "step/1");
+    let mut task = store.external_task(ctx.task_id).unwrap();
+    let marker = serde_json::json!({"task_revision": ctx.task_revision,
+        "invocation_id": ctx.invocation_id, "commit": task.updated_commit});
+    task.memos.insert(NATIVE_DISPATCH.into(), marker.clone());
+    rusqlite::Connection::open(dir.join("head.db")).unwrap().execute(
+        "UPDATE tasks SET data=?1 WHERE task_id=?2",
+        rusqlite::params![serde_json::to_string(&task).unwrap(), task.task_id.to_string()],
+    ).unwrap();
+    let before = store.current_commit_seq().unwrap();
+    for (operation, attempt) in [first, second] {
+        assert_eq!(store.commit_native_dispatch(&ctx, operation, attempt).unwrap(), AlreadyCommitted);
+    }
+    assert_eq!(store.current_commit_seq().unwrap(), before);
+    assert_eq!(store.external_task(ctx.task_id).unwrap().memos.get(NATIVE_DISPATCH), Some(&marker));
 }
 
 #[test]

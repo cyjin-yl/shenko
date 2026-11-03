@@ -1,5 +1,11 @@
 //! WebSocket handler — versioned UI DTOs over the real subject inbox/outbox.
 //! SPEC §21: one subject timeline; transport admission is not durable acceptance.
+//!
+//! One socket serves four durable lanes, all cursor-replayable from the
+//! ledger: committed timeline parts (post-S1), public-text stream parts
+//! (pre-S1, only when a real producer is wired — never faked), validated
+//! semantic documents derived from committed text, and web input
+//! receipts/views (§41.18). Capability facts are negotiated per connection.
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 
@@ -13,15 +19,23 @@ use axum::{
 };
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use shenko_subject::inbox::{InboxEvent, InboxEventKind};
 use shenko_subject::outbox::OutboxMessage;
 use shenko_types::ids::EntityId;
-use tokio::sync::{broadcast, mpsc::Sender};
+use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::input::{
+    ActionSubmission, InputReceipt, SubmissionStage, SubmissionView, UserSubmission,
+    WebInputService, WithdrawRequest,
+};
+use crate::presentation::{ClientSurfaceFacts, DegradedDocument, PresentationService, degrade};
+use crate::stream::StreamSink;
+
 /// One committed part on the subject timeline. `observed_at` is the transport
-/// observation time, not a fabricated durable-commit wall clock.
+/// observation time, not a fabricated durable-commit wall clock. `terminal`
+/// marks the final chunk of the part (set on committed messages; stream
+/// chunks carry their own `terminal` flag in the stream DTO).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineMessage {
     pub schema_version: u32,
@@ -39,12 +53,18 @@ pub struct TimelineMessage {
     pub step_id: String,
     pub commit_ref: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attempt_id: Option<String>,
 }
+
+/// The text part identity shared by the committed projection and the stream
+/// sink: `message_id` is the step id, `part_id` names the part within it.
+pub const TEXT_PART_ID: &str = "text/0";
 
 fn committed_timeline_message(out: OutboxMessage) -> TimelineMessage {
     let step_id = out.step_id.to_string();
@@ -55,7 +75,7 @@ fn committed_timeline_message(out: OutboxMessage) -> TimelineMessage {
         role: "subject".to_string(),
         content: out.text,
         message_id: step_id.clone(),
-        part_id: format!("{step_id}/text/0"),
+        part_id: TEXT_PART_ID.to_owned(),
         part_revision: commit_ref.clone(),
         chunk_seq: 0,
         committed_only: true,
@@ -63,12 +83,71 @@ fn committed_timeline_message(out: OutboxMessage) -> TimelineMessage {
         step: out.step,
         step_id,
         commit_ref,
+        terminal: Some(true),
         // The current OutboxMessage has no stream/request/attempt binding.
         // They remain absent rather than being inferred from the step number.
         stream_id: None,
         request_id: None,
         attempt_id: None,
     }
+}
+
+/// Build the committed-decision message(s) for one step.
+///
+/// The committed message always carries the FULL text at chunk_seq 0: every
+/// client, live or replaying, ends with the whole committed truth through the
+/// parts cursor alone. Clients that already received streamed chunks absorb
+/// this message as the S1 binding (commit_ref/step/step_id) instead of
+/// re-appending — chunk_seq 0 sits below their part cursor, so absorption is
+/// idempotent in both delivery orders. No remainder arithmetic happens here;
+/// the only reconciliation is divergence reporting: if the durably stored
+/// streamed prefix does not match the committed text, a corrected part under
+/// a distinct identity follows the base message so clients replace rather
+/// than append.
+fn committed_timeline_messages(state: &WsState, out: OutboxMessage) -> Vec<TimelineMessage> {
+    let mut base = committed_timeline_message(out.clone());
+    let Some(store) = &state.store else {
+        return vec![base];
+    };
+    let Some(subject_id) = state.subject_id else {
+        return vec![base];
+    };
+    match store.output_part_state(subject_id, out.step_id, TEXT_PART_ID) {
+        Ok(Some(position)) if !out.text.starts_with(position.content.as_str()) => {
+            // Streamed content diverges from the committed decision text —
+            // a producer contract violation. The committed truth wins under
+            // a corrected part identity so clients replace, not append.
+            warn!(step = out.step, "streamed part diverges from committed text; emitting corrected part");
+            base.part_id = format!("{TEXT_PART_ID}@{}", base.commit_ref);
+            vec![base]
+        }
+        Ok(_) => vec![base],
+        Err(error) => {
+            warn!(%error, "output part state unreadable; committed message emitted without reconciliation");
+            vec![base]
+        }
+    }
+}
+
+/// Documents derived from one committed output, degraded for this surface.
+#[derive(Debug, Clone, Serialize)]
+struct DocumentMessage {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    source_step_id: String,
+    source_commit: String,
+    degraded: DegradedDocument,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DocumentErrorMessage {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    source_step_id: String,
+    source_commit: String,
+    reason: String,
 }
 
 /// Live facts shared by the WS layer and the read-only `/api/self` endpoint.
@@ -158,13 +237,19 @@ impl Drop for ConnectionGuard {
 #[derive(Clone)]
 pub struct WsState {
     pub subject_tx: std::sync::Arc<broadcast::Sender<TimelineMessage>>,
-    pub inbox_tx: Option<std::sync::Arc<Sender<InboxEvent>>>,
     pub outbox_tx: Option<std::sync::Arc<broadcast::Sender<OutboxMessage>>>,
     pub live: Arc<LiveStatus>,
     pub store: Option<Arc<shenko_store::Store>>,
     /// Real genesis subject identity shared with `/api/self`; never a browser-
     /// supplied actor or a hard-coded "primary" alias.
     pub subject_id: Option<EntityId>,
+    /// Durable web input service (§41.18). Present iff store + subject are.
+    pub input: Option<Arc<WebInputService>>,
+    /// Rich presentation service: document validation, degradation, caps.
+    pub presentation: Option<Arc<PresentationService>>,
+    /// Durable stream sink. Absent = no real producer wired; the UI then
+    /// honestly reports streaming:false and never fabricates chunks.
+    pub stream: Option<Arc<StreamSink>>,
 }
 
 impl WsState {
@@ -172,33 +257,33 @@ impl WsState {
         let (tx, _) = broadcast::channel(256);
         Self {
             subject_tx: std::sync::Arc::new(tx),
-            inbox_tx: None,
             outbox_tx: None,
             live: Arc::new(LiveStatus::new()),
             store: None,
             subject_id: None,
+            input: None,
+            presentation: None,
+            stream: None,
         }
-    }
-
-    pub fn new_with_inbox(inbox_tx: Sender<InboxEvent>) -> Self {
-        let (tx, _) = broadcast::channel(256);
-        Self {
-            subject_tx: std::sync::Arc::new(tx),
-            inbox_tx: Some(std::sync::Arc::new(inbox_tx)),
-            outbox_tx: None,
-            live: Arc::new(LiveStatus::new()),
-            store: None,
-            subject_id: None,
-        }
-    }
-
-    pub fn with_inbox(mut self, inbox_tx: Sender<InboxEvent>) -> Self {
-        self.inbox_tx = Some(std::sync::Arc::new(inbox_tx));
-        self
     }
 
     pub fn with_outbox(mut self, outbox_tx: broadcast::Sender<OutboxMessage>) -> Self {
         self.outbox_tx = Some(std::sync::Arc::new(outbox_tx));
+        self
+    }
+
+    pub fn with_input(mut self, input: Arc<WebInputService>) -> Self {
+        self.input = Some(input);
+        self
+    }
+
+    pub fn with_presentation(mut self, presentation: Arc<PresentationService>) -> Self {
+        self.presentation = Some(presentation);
+        self
+    }
+
+    pub fn with_stream(mut self, stream: Arc<StreamSink>) -> Self {
+        self.stream = Some(stream);
         self
     }
 
@@ -241,78 +326,27 @@ fn browser_origin_matches_host(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-#[derive(Serialize, Clone, Copy)]
-#[serde(rename_all = "snake_case")]
-enum SubmissionStage {
-    Queued,
-    Rejected,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum SubmissionMode {
-    Append,
-    Steer,
-}
-
-#[derive(Serialize)]
-struct SubmissionReceipt<'a> {
-    schema_version: u32,
-    #[serde(rename = "type")]
-    kind: &'static str,
-    submission_id: &'a str,
-    stage: SubmissionStage,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mode: Option<SubmissionMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    durability: Option<&'static str>,
-    detail: &'static str,
-}
-
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct UserSubmission {
+struct SubmissionQuery {
     schema_version: u32,
     #[serde(rename = "type")]
     kind: String,
     submission_id: String,
-    message_id: String,
     subject_id: String,
-    mode: SubmissionMode,
-    content: String,
+    // Client-scoped attempt counter; echoed back, never trusted as ordering
+    // or identity on the server side.
     #[serde(default)]
-    attachment_refs: Vec<serde_json::Value>,
-    #[serde(default)]
-    rich_content_ref: Option<serde_json::Value>,
-    #[serde(default)]
-    observed_step_id: Option<String>,
-    #[serde(default)]
-    observed_request_id: Option<String>,
+    send_epoch: Option<u64>,
 }
 
-fn validate_submission(
-    submission: &UserSubmission,
-    expected_subject: Option<EntityId>,
-) -> Result<(), &'static str> {
-    if submission.schema_version != 2 || submission.kind != "submit" {
-        return Err("不支持的输入协议版本。");
-    }
-    if submission.submission_id.is_empty()
-        || submission.message_id.is_empty()
-        || submission.content.trim().is_empty()
-    {
-        return Err("输入身份或内容为空。");
-    }
-    if submission.mode == SubmissionMode::Steer {
-        return Err("Steer 尚未接入真实 request/placement；未接纳输入。");
-    }
-    if !submission.attachment_refs.is_empty() || submission.rich_content_ref.is_some() {
-        return Err("附件引用解析尚未接入；未接纳输入。");
-    }
-    match expected_subject {
-        Some(expected) if expected.to_string() == submission.subject_id => Ok(()),
-        _ => Err("真实 subject 绑定不匹配或不可用；未接纳输入。"),
-    }
+#[derive(Deserialize)]
+struct ClientHello {
+    schema_version: u32,
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(flatten)]
+    facts: ClientSurfaceFacts,
 }
 
 async fn handle_socket(mut socket: WebSocket, state: WsState) {
@@ -320,18 +354,33 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     let _connection = state.live.connection_added();
     let mut rx = state.subject_tx.subscribe();
     let mut outbox_rx = state.outbox_tx.as_ref().map(|tx| tx.subscribe());
+    let mut stream_rx = state.stream.as_ref().map(|sink| sink.subscribe());
+
+    // Per-connection capability facts. Revision 0 = server baseline before
+    // the client attests its display facts; a client_hello renegotiates.
+    let mut caps = state.presentation.as_ref().map(|presentation| {
+        presentation
+            .capability_provider()
+            .capabilities_for(&ClientSurfaceFacts::default(), 0)
+    });
+    let mut caps_revision = 0u64;
 
     let hello = serde_json::json!({
         "schema_version": 2,
         "type": "hello",
         "server_version": env!("CARGO_PKG_VERSION"),
         "capabilities": {
-            "append": state.inbox_tx.is_some() && state.subject_id.is_some(),
-            "steer": false,
+            "append": state.input.is_some(),
+            "steer": state.input.is_some(),
+            "withdraw": state.input.is_some(),
+            "actions": state.input.is_some() && state.presentation.is_some(),
+            "documents": state.presentation.is_some(),
             "attachments": false,
-            "durable_input_receipts": false,
+            "durable_input_receipts": state.input.is_some(),
             "committed_replay": state.store.is_some(),
-        }
+            "streaming": state.stream.is_some(),
+        },
+        "surface": caps,
     });
     if socket.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;
@@ -339,7 +388,9 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
 
     let mut identity_revision: Option<u64> = None;
     let mut committed_cursor = (0u64, None);
-    let mut history = std::collections::VecDeque::new();
+    let mut committed_history = std::collections::VecDeque::new();
+    let mut stream_cursor = 0u64;
+    let mut stream_history = std::collections::VecDeque::new();
     loop {
         tokio::select! {
             msg = rx.recv() => {
@@ -356,7 +407,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                     Err(_) => break,
                 }
             }
-            out = recv_committed(&state, &mut committed_cursor, &mut history, &mut outbox_rx) => {
+            out = recv_committed(&state, &mut committed_cursor, &mut committed_history, &mut outbox_rx) => {
                 match out {
                     Some(out) => {
                         if out.identity_revision.is_some() && out.identity_revision != identity_revision {
@@ -364,8 +415,57 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                             let note = serde_json::json!({ "type": "identity", "revision": identity_revision });
                             if socket.send(Message::Text(note.to_string().into())).await.is_err() { break; }
                         }
-                        let msg = committed_timeline_message(out);
-                        if let Ok(json) = serde_json::to_string(&msg) {
+                        state.live.record_outbox(out.step);
+                        // Documents derive from the same committed text and
+                        // follow the part message; degradation uses this
+                        // connection's current capability facts.
+                        let text = out.text.clone();
+                        let step_id = out.step_id;
+                        let commit_ref = out.commit_ref;
+                        let document_payloads = match &state.presentation {
+                            Some(presentation) => {
+                                let (documents, errors) = presentation.project(&text, step_id, commit_ref);
+                                let mut payloads = Vec::with_capacity(documents.len() + errors.len());
+                                for error in errors {
+                                    payloads.push(serde_json::to_string(&DocumentErrorMessage {
+                                        schema_version: 1,
+                                        kind: "document_error",
+                                        source_step_id: error.source_step_id.to_string(),
+                                        source_commit: error.source_commit.to_string(),
+                                        reason: error.reason,
+                                    }).expect("document error serialization"));
+                                }
+                                if let Some(caps) = &caps {
+                                    for extracted in documents {
+                                        payloads.push(serde_json::to_string(&DocumentMessage {
+                                            schema_version: 1,
+                                            kind: "document",
+                                            source_step_id: extracted.source_step_id.to_string(),
+                                            source_commit: extracted.source_commit.to_string(),
+                                            degraded: degrade(&extracted.document, caps),
+                                        }).expect("document serialization"));
+                                    }
+                                }
+                                payloads
+                            }
+                            None => Vec::new(),
+                        };
+                        for message in committed_timeline_messages(&state, out) {
+                            if let Ok(json) = serde_json::to_string(&message) {
+                                if socket.send(Message::Text(json.into())).await.is_err() { break; }
+                            }
+                        }
+                        for payload in document_payloads {
+                            if socket.send(Message::Text(payload.into())).await.is_err() { break; }
+                        }
+                    }
+                    None => break,
+                }
+            }
+            chunk = recv_stream(&state, &mut stream_cursor, &mut stream_history, &mut stream_rx) => {
+                match chunk {
+                    Some(chunk) => {
+                        if let Ok(json) = serde_json::to_string(&crate::stream::StreamChunkDto::from(chunk)) {
                             if socket.send(Message::Text(json.into())).await.is_err() { break; }
                         }
                     }
@@ -376,63 +476,107 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         debug!("ws recv {} bytes", text.len());
-                        let parsed = serde_json::from_str::<UserSubmission>(&text);
-                        let (submission_id, mode, stage, durability, detail) = match parsed {
-                            Ok(user_msg) => {
-                                if let Err(detail) = validate_submission(&user_msg, state.subject_id) {
-                                    (user_msg.submission_id, Some(user_msg.mode), SubmissionStage::Rejected, None, detail)
-                                } else {
-                                    let event = InboxEvent {
-                                        event_id: EntityId::new(),
-                                        kind: InboxEventKind::Message,
-                                        payload: serde_json::json!({
-                                            "content": user_msg.content,
-                                            "message_id": user_msg.message_id,
-                                            "submission_id": user_msg.submission_id,
-                                            "subject_id": user_msg.subject_id,
-                                            "mode": "append",
-                                            "attachment_refs": user_msg.attachment_refs,
-                                            "observed_step_id": user_msg.observed_step_id,
-                                            "observed_request_id": user_msg.observed_request_id,
-                                            "role": "user",
-                                        }),
-                                        created_at: Utc::now(),
-                                        source: "web_ui".to_string(),
-                                    };
-                                    // try_send proves only volatile queue admission. It
-                                    // is not durable accepted/selected/committed and no
-                                    // placement is invented for the browser.
-                                    let (stage, detail) = match &state.inbox_tx {
-                                        Some(tx) => match tx.try_send(event) {
-                                            Ok(()) => (SubmissionStage::Queued, "已进入内存队列；尚未持久化、选入或处理。"),
-                                            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => (SubmissionStage::Rejected, "主体输入队列已满，请稍后重试。"),
-                                            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => (SubmissionStage::Rejected, "主体已停止，需要恢复。"),
-                                        },
-                                        None => (SubmissionStage::Rejected, "主体输入未连接。"),
-                                    };
-                                    let durability = matches!(stage, SubmissionStage::Queued).then_some("volatile");
-                                    (user_msg.submission_id, Some(user_msg.mode), stage, durability, detail)
+                        if let Ok(user_msg) = serde_json::from_str::<UserSubmission>(&text) {
+                            let Some(input) = &state.input else {
+                                let reply = InputReceipt {
+                                    schema_version: 2,
+                                    kind: "receipt",
+                                    submission_id: user_msg.submission_id.clone(),
+                                    stage: SubmissionStage::Unavailable,
+                                    mode: Some(user_msg.mode),
+                                    durability: None,
+                                    event_id: None,
+                                    accepted_commit: None,
+                                    replayed: None,
+                                    placement: None,
+                                    detail: "持久输入服务不可用；未接纳，未生成新身份。".to_owned(),
+                                };
+                                if !send_json(&mut socket, &reply).await { break; }
+                                continue;
+                            };
+                            let reply = input.submit(&user_msg);
+                            if !send_json(&mut socket, &reply).await { break; }
+                        } else if let Ok(query) = serde_json::from_str::<SubmissionQuery>(&text) {
+                            let view = if query.schema_version == 2
+                                && query.kind == "query_submission"
+                                && !query.submission_id.is_empty()
+                            {
+                                match &state.input {
+                                    Some(input) => input.get(&query.submission_id, &query.subject_id, query.send_epoch),
+                                    None => SubmissionView {
+                                        result: "temporarily_unavailable",
+                                        ..SubmissionView::unavailable(&query.submission_id, query.send_epoch)
+                                    },
+                                }
+                            } else {
+                                SubmissionView {
+                                    result: "not_admitted",
+                                    ..SubmissionView::unavailable(&query.submission_id, query.send_epoch)
+                                }
+                            };
+                            if !send_json(&mut socket, &view).await { break; }
+                        } else if let Ok(withdraw) = serde_json::from_str::<WithdrawRequest>(&text) {
+                            let view = match &state.input {
+                                Some(input) => input.withdraw(&withdraw),
+                                None => SubmissionView::unavailable(&withdraw.submission_id, None),
+                            };
+                            if !send_json(&mut socket, &view).await { break; }
+                        } else if let Ok(action) = serde_json::from_str::<ActionSubmission>(&text) {
+                            let reply = match (&state.input, &caps) {
+                                (Some(input), Some(caps)) => input.submit_action(&action, caps),
+                                _ => InputReceipt {
+                                    schema_version: 2,
+                                    kind: "receipt",
+                                    submission_id: action.submission_id.clone(),
+                                    stage: SubmissionStage::Rejected,
+                                    mode: None,
+                                    durability: None,
+                                    event_id: None,
+                                    accepted_commit: None,
+                                    replayed: None,
+                                    placement: None,
+                                    detail: "动作服务不可用；未接纳。".to_owned(),
+                                },
+                            };
+                            if !send_json(&mut socket, &reply).await { break; }
+                        } else if let Ok(hello) = serde_json::from_str::<ClientHello>(&text) {
+                            if hello.schema_version == 2 && hello.kind == "client_hello" {
+                                if let Some(presentation) = &state.presentation {
+                                    caps_revision += 1;
+                                    let next = presentation
+                                        .capability_provider()
+                                        .capabilities_for(&hello.facts, caps_revision);
+                                    caps = Some(next.clone());
+                                    let note = serde_json::json!({
+                                        "schema_version": 2,
+                                        "type": "capabilities",
+                                        "surface": next,
+                                    });
+                                    if socket.send(Message::Text(note.to_string().into())).await.is_err() { break; }
                                 }
                             }
-                            Err(_) => {
-                                let submission_id = serde_json::from_str::<serde_json::Value>(&text)
-                                    .ok()
-                                    .and_then(|value| value.get("submission_id")?.as_str().map(ToOwned::to_owned))
-                                    .unwrap_or_else(|| Uuid::new_v4().to_string());
-                                (submission_id, None, SubmissionStage::Rejected, None, "无效或未知字段的输入协议；未接纳输入。")
-                            }
-                        };
-                        let reply = SubmissionReceipt {
-                            schema_version: 2,
-                            kind: "receipt",
-                            submission_id: &submission_id,
-                            stage,
-                            mode,
-                            durability,
-                            detail,
-                        };
-                        let json = serde_json::to_string(&reply).expect("receipt serialization");
-                        if socket.send(Message::Text(json.into())).await.is_err() { break; }
+                        } else {
+                            let submission_id = serde_json::from_str::<serde_json::Value>(&text)
+                                .ok()
+                                .and_then(|value| {
+                                    value.get("submission_id")?.as_str().map(ToOwned::to_owned)
+                                })
+                                .unwrap_or_else(|| Uuid::new_v4().to_string());
+                            let reply = InputReceipt {
+                                schema_version: 2,
+                                kind: "receipt",
+                                submission_id,
+                                stage: SubmissionStage::Rejected,
+                                mode: None,
+                                durability: None,
+                                event_id: None,
+                                accepted_commit: None,
+                                replayed: None,
+                                placement: None,
+                                detail: "无效或未知字段的输入协议；未接纳输入。".to_owned(),
+                            };
+                            if !send_json(&mut socket, &reply).await { break; }
+                        }
                     }
                     Some(Ok(Message::Close(_))) | None => { info!("ws disconnected"); break; }
                     Some(Err(e)) => { warn!(err=%e, "ws error"); break; }
@@ -440,6 +584,13 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                 }
             }
         }
+    }
+}
+
+async fn send_json(socket: &mut WebSocket, value: &impl Serialize) -> bool {
+    match serde_json::to_string(value) {
+        Ok(json) => socket.send(Message::Text(json.into())).await.is_ok(),
+        Err(_) => true,
     }
 }
 
@@ -468,7 +619,6 @@ async fn recv_committed(
     loop {
         if let Some(out) = history.pop_front() {
             *cursor = (out.replay_seq, Some(out.step_id));
-            state.live.record_outbox(out.step);
             return Some(out);
         }
         match shenko_subject::outbox::committed_after(store, cursor.0, cursor.1, 64) {
@@ -484,11 +634,95 @@ async fn recv_committed(
     }
 }
 
+/// Durable stream-part receiver: the store cursor is authoritative; the
+/// broadcast channel only shortens the wait. A lagged or lost wake re-reads
+/// the ledger, so a reconnect never depends on volatile delivery.
+async fn recv_stream(
+    state: &WsState,
+    cursor: &mut u64,
+    history: &mut std::collections::VecDeque<shenko_store::output_parts::StoredOutputPart>,
+    wake: &mut Option<broadcast::Receiver<crate::stream::StreamChunkDto>>,
+) -> Option<shenko_store::output_parts::StoredOutputPart> {
+    let Some(sink) = &state.stream else {
+        return std::future::pending().await;
+    };
+    loop {
+        if let Some(chunk) = history.pop_front() {
+            *cursor = (*cursor).max(chunk.commit_seq);
+            return Some(chunk);
+        }
+        match sink.parts_after(*cursor, 64) {
+            Ok(parts) if !parts.is_empty() => history.extend(parts),
+            Ok(_) => {
+                tokio::select! {
+                    msg = recv_wake(wake) => {
+                        match msg {
+                            Some(()) | None => {}
+                        }
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(150)) => {}
+                }
+            }
+            Err(e) => {
+                tracing::error!(err=%e, "stream part replay failed; no guessed chunks");
+                return None;
+            }
+        }
+    }
+}
+
+/// One broadcast wake. `None` = channel closed; `Some(())` = message or lag,
+/// in both cases the durable cursor re-read is the source of truth.
+async fn recv_wake(rx: &mut Option<broadcast::Receiver<crate::stream::StreamChunkDto>>) -> Option<()> {
+    match rx {
+        Some(rx) => match rx.recv().await {
+            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => Some(()),
+            Err(broadcast::error::RecvError::Closed) => None,
+        },
+        None => std::future::pending().await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::SubmissionMode;
+    use crate::presentation::SurfaceCapabilityProvider;
     use shenko_types::commit::CommitRef;
     use shenko_types::ids::LedgerSeq;
+
+    fn presentation() -> Arc<PresentationService> {
+        PresentationService::new(
+            8,
+            SurfaceCapabilityProvider::new(false, "test-runtime".to_owned()),
+        )
+    }
+
+    fn service_state() -> (
+        std::path::PathBuf,
+        WsState,
+        Arc<WebInputService>,
+        tokio::sync::mpsc::Receiver<shenko_subject::inbox::InboxEvent>,
+    ) {
+        let dir = std::env::temp_dir().join(format!("shenko-web-input-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(shenko_store::Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        let subject_id = EntityId::new();
+        let presentation = presentation();
+        let input = WebInputService::new(
+            Arc::clone(&store),
+            subject_id,
+            Some(Arc::new(tx)),
+            Arc::clone(&presentation),
+        );
+        let mut state = WsState::new();
+        state.store = Some(store);
+        state.subject_id = Some(subject_id);
+        state.input = Some(Arc::clone(&input));
+        state.presentation = Some(presentation);
+        (dir, state, input, rx)
+    }
 
     fn submission(mode: SubmissionMode) -> UserSubmission {
         UserSubmission {
@@ -507,14 +741,97 @@ mod tests {
     }
 
     #[test]
-    fn append_binds_real_subject_and_pseudo_steer_is_rejected() {
-        let subject = EntityId::new();
-        let mut input = submission(SubmissionMode::Append);
-        input.subject_id = subject.to_string();
-        assert!(validate_submission(&input, Some(subject)).is_ok());
-        assert!(validate_submission(&input, Some(EntityId::new())).is_err());
-        input.mode = SubmissionMode::Steer;
-        assert!(validate_submission(&input, Some(subject)).is_err());
+    fn append_and_steer_bind_real_subject_with_next_boundary_placement() {
+        let (dir, state, input, _rx) = service_state();
+        let subject = state.subject_id.unwrap();
+        let mut append = submission(SubmissionMode::Append);
+        append.subject_id = subject.to_string();
+        let accepted = input.submit(&append);
+        assert!(matches!(accepted.stage, SubmissionStage::Accepted));
+        assert!(accepted.placement.is_some());
+        assert_eq!(
+            accepted.placement.as_ref().unwrap().actual,
+            crate::input::PlacementActual::NextBoundary
+        );
+        // Steer is durably admitted like append; without a verified in-request
+        // control capability its placement is honestly next_boundary (UI02).
+        let mut steer = submission(SubmissionMode::Steer);
+        steer.subject_id = subject.to_string();
+        steer.submission_id = "submission-steer".into();
+        steer.message_id = "message-steer".into();
+        let steered = input.submit(&steer);
+        assert!(matches!(steered.stage, SubmissionStage::Accepted));
+        let placement = steered.placement.expect("steer placement recorded");
+        assert_eq!(placement.requested, SubmissionMode::Steer);
+        assert_eq!(placement.actual, crate::input::PlacementActual::NextBoundary);
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn wrong_subject_is_rejected_without_admission() {
+        let (dir, _state, input, _rx) = service_state();
+        let mut input_msg = submission(SubmissionMode::Append);
+        input_msg.subject_id = EntityId::new().to_string();
+        let reply = input.submit(&input_msg);
+        assert!(matches!(reply.stage, SubmissionStage::Rejected));
+        assert!(reply.event_id.is_none());
+        drop(input);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn full_inbox_does_not_delay_durable_acceptance() {
+        let (dir, state, input, _rx) = service_state();
+        let mut first = submission(SubmissionMode::Append);
+        first.subject_id = state.subject_id.unwrap().to_string();
+        // The first wake fills the single-slot inbox while its consumer is
+        // intentionally stopped (the same backpressure as a paused subject).
+        input.submit(&first);
+        let mut next = submission(SubmissionMode::Append);
+        next.subject_id = first.subject_id.clone();
+        next.submission_id = "submission-2".into();
+        next.message_id = "message-2".into();
+        let accepted = input.submit(&next);
+        assert!(matches!(accepted.stage, SubmissionStage::Accepted));
+        assert!(accepted.accepted_commit.is_some());
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn closed_writer_reconciles_lost_ack_from_original_record() {
+        let (dir, state, input, _rx) = service_state();
+        let mut first = submission(SubmissionMode::Append);
+        first.subject_id = state.subject_id.unwrap().to_string();
+        let original = input.submit(&first);
+        state.store.as_ref().unwrap().close_external_writer();
+        let replay = input.submit(&first);
+        assert!(matches!(replay.stage, SubmissionStage::Accepted));
+        assert_eq!(replay.event_id, original.event_id);
+        assert_eq!(replay.accepted_commit, original.accepted_commit);
+        assert_eq!(replay.replayed, Some(true));
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn conflicting_payload_cannot_rewrite_the_original_submission() {
+        let (dir, state, input, _rx) = service_state();
+        let mut first = submission(SubmissionMode::Append);
+        first.subject_id = state.subject_id.unwrap().to_string();
+        input.submit(&first);
+        // The stored admission payload is the canonical dedup record.
+        let payload = state.store.as_ref().unwrap()
+            .web_submission(state.subject_id.unwrap(), &first.submission_id).unwrap().unwrap()
+            .payload;
+        first.content = "不能用原 ID 改写".into();
+        assert!(matches!(input.submit(&first).stage, SubmissionStage::Conflict));
+        let original = state.store.as_ref().unwrap()
+            .web_submission(state.subject_id.unwrap(), &first.submission_id).unwrap().unwrap();
+        assert_eq!(original.payload, payload);
+        drop(state);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -531,13 +848,14 @@ mod tests {
             publications: vec![],
             identity_revision: None,
         };
-        let first = committed_timeline_message(out.clone());
-        let replay = committed_timeline_message(out);
+        let state = WsState::new();
+        let messages = committed_timeline_messages(&state, out);
+        assert_eq!(messages.len(), 1);
+        let first = &messages[0];
         assert_eq!(first.message_id, step_id.to_string());
-        assert_eq!(first.part_id, format!("{step_id}/text/0"));
-        assert_eq!(first.part_id, replay.part_id);
-        assert_eq!(first.part_revision, commit_ref.to_string());
+        assert_eq!(first.part_id, TEXT_PART_ID);
         assert_eq!(first.chunk_seq, 0);
+        assert_eq!(first.terminal, Some(true));
         assert!(first.committed_only);
         assert!(first.request_id.is_none());
         assert!(first.attempt_id.is_none());

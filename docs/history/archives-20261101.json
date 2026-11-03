@@ -1,0 +1,371 @@
+{
+  "schema_version": 1,
+  "purpose": "2026-11-01 文档分层归档清单：记录从现行树移出、保留原件字节的历史文件。清单中的文件是历史来源，不是现行指令；现行合同见 SPEC.md、docs/specs/ 与 docs/governance/。",
+  "base_commit": "78f5f63cc6b51cffb68a0619179e765afdb73913",
+  "archived_file_count": 32,
+  "no_root_compatibility_entry": true,
+  "retired_root_paths": [
+    "GOAL.md",
+    "PROMPT.md",
+    "HANDOFF.md",
+    "docs/governance/HANDOFF.md",
+    "docs/state/goal.json",
+    "docs/plans/README.md",
+    "docs/plans/active/community-stack.json",
+    "docs/plans/active/community-stack.md",
+    "docs/plans/active/full-product.md",
+    "docs/research/full-scope-audit.md",
+    "docs/tasks/C01.md",
+    "docs/tasks/C02.md",
+    "docs/tasks/C03.md",
+    "docs/tasks/C04.md",
+    "docs/tasks/C05.md",
+    "docs/tasks/C06.md",
+    "docs/tasks/C07.md",
+    "docs/tasks/C08.md",
+    "docs/tasks/C09.md",
+    "docs/tasks/C10.md",
+    "docs/tasks/C11.md",
+    "docs/tasks/C12.md",
+    "docs/tasks/C13.md",
+    "docs/tasks/C14.md",
+    "docs/tasks/C15.md",
+    "docs/tasks/C16.md",
+    "docs/tasks/C17.md",
+    "docs/tasks/C18.md",
+    "docs/tasks/C19.md",
+    "docs/tasks/C20.md",
+    "docs/tasks/C21.md",
+    "docs/tasks/C22.md"
+  ],
+  "superseded_directives": [
+    {
+      "topic": "并行实施 Agent 数量上限",
+      "historical_text": "旧任务卡与旧交接稿写有「主控当前环境最多 1 条 / 最多 5 条 workflow」等当时的环境上限。",
+      "current_directive": "2026-11-01 现行指令：同时使用大量实现 Agent，范围由真实机器容量、共享重型工作锁与集成责任划分决定；不再存在 1 条或 5 条 workflow 的固定上限。",
+      "current_source": "AGENTS.md「Parallelize and integrate」与 docs/governance/AUTONOMY.md"
+    }
+  ],
+  "files": [
+    {
+      "group": "entrypoints-20261101",
+      "kind": "root_task_entrypoint",
+      "original_path": "GOAL.md",
+      "archived_path": "docs/history/entrypoints-20261101/GOAL.md",
+      "sha256": "5b67b3680c628b9a8b101fdc0c5f631d5d8f629991825ed76b6e02949e38f267",
+      "bytes": 8036,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 用户要求撤下根目录的任务交接入口；原件按 §48.5 归档保留字节，不保留根目录兼容入口或符号链接。"
+    },
+    {
+      "group": "entrypoints-20261101",
+      "kind": "root_task_entrypoint",
+      "original_path": "PROMPT.md",
+      "archived_path": "docs/history/entrypoints-20261101/PROMPT.md",
+      "sha256": "49b829429d68d598afe7e00c342c95f1e18d2a92b2661f1e5a7dfda03b7672d5",
+      "bytes": 5199,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 用户要求撤下根目录的任务交接入口；原件按 §48.5 归档保留字节，不保留根目录兼容入口或符号链接。"
+    },
+    {
+      "group": "entrypoints-20261101",
+      "kind": "root_task_entrypoint",
+      "original_path": "HANDOFF.md",
+      "archived_path": "docs/history/entrypoints-20261101/HANDOFF.md",
+      "sha256": "7a03b86ac856cb1a2b188202016f7e3f3d743d3237bfeade8c2573b828b58d1e",
+      "bytes": 927,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 用户要求撤下根目录的任务交接入口；原件按 §48.5 归档保留字节，不保留根目录兼容入口或符号链接。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_handoff",
+      "original_path": "docs/governance/HANDOFF.md",
+      "archived_path": "docs/history/progress-20261101/HANDOFF-20261026.md",
+      "sha256": "e8a2c536349c553c53e9f438bbd808e0774c8cda2c8042368f9a3c68150708ac",
+      "bytes": 37950,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_state_snapshot",
+      "original_path": "docs/state/goal.json",
+      "archived_path": "docs/history/progress-20261101/goal-state-20261027.json",
+      "sha256": "86a27f024064b10d7c6fe93d5d6b3d80a4489515e8bf627a32ede49a8f3f24cc",
+      "bytes": 5610,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_plan_index",
+      "original_path": "docs/plans/README.md",
+      "archived_path": "docs/history/progress-20261101/plans/README.md",
+      "sha256": "0aea66c1438f5567fa41a75db960afe7da1d1ab25842964766de2fd4b285aac4",
+      "bytes": 629,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_task_graph",
+      "original_path": "docs/plans/active/community-stack.json",
+      "archived_path": "docs/history/progress-20261101/plans/community-stack.json",
+      "sha256": "0e41f6fc5f1c5c086072c651837d525fb2a0e3c7c5ca6c7c00f427fd46f60a8d",
+      "bytes": 35581,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_task_graph",
+      "original_path": "docs/plans/active/community-stack.md",
+      "archived_path": "docs/history/progress-20261101/plans/community-stack.md",
+      "sha256": "2582219d25c8fdf485168342904687dedd12bef59a2b5d07ea4835936f196c8d",
+      "bytes": 7651,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_plan",
+      "original_path": "docs/plans/active/full-product.md",
+      "archived_path": "docs/history/progress-20261101/plans/full-product.md",
+      "sha256": "a3de731f164c27b6d372e6a5f9e2f6faf5f2da215af0a5d1ad760011844a1c5c",
+      "bytes": 4875,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "progress-20261101",
+      "kind": "progress_governance_draft",
+      "original_path": "docs/research/full-scope-audit.md",
+      "archived_path": "docs/history/progress-20261101/full-scope-audit.md",
+      "sha256": "192249100f8fb00c358c732ca38ed28114bd70869ca9946b09b2d796b04cd780",
+      "bytes": 29120,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：进度板、交接稿、当时的 goal 状态快照、旧计划与编制期治理草案只保留历史来源，不再是现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C01.md",
+      "archived_path": "docs/history/task-cards-20261101/C01.md",
+      "sha256": "58caabd6567845badb7b0c501954ebd465a7db6d750aef62a133a9d68b1af379",
+      "bytes": 12615,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C02.md",
+      "archived_path": "docs/history/task-cards-20261101/C02.md",
+      "sha256": "60519ac3abfd3312f7b8364ec52ac27b714947fa5e2ba23a70ec5725bc0e012f",
+      "bytes": 26772,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C03.md",
+      "archived_path": "docs/history/task-cards-20261101/C03.md",
+      "sha256": "ccf868079bca3402dd7a0acf2bdff67f8b2bc745f401583a20bce2d579299d43",
+      "bytes": 21882,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C04.md",
+      "archived_path": "docs/history/task-cards-20261101/C04.md",
+      "sha256": "7c8d8589809995bf5714d385b315f07e9a1694189e290064f326e4b1c70c7ca9",
+      "bytes": 14287,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C05.md",
+      "archived_path": "docs/history/task-cards-20261101/C05.md",
+      "sha256": "dd2dd5a27d58a1296304c0117bacee7cc5a5b14aa366f6413f38768741d40812",
+      "bytes": 9821,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C06.md",
+      "archived_path": "docs/history/task-cards-20261101/C06.md",
+      "sha256": "ffdc7ae6cc2028805a475c5483e44d2969b7782b82e78302a99c1b13262e0c0b",
+      "bytes": 7100,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C07.md",
+      "archived_path": "docs/history/task-cards-20261101/C07.md",
+      "sha256": "73609df57a48e5fb85f17354474618459a31993d7f9775b24292085670a77e59",
+      "bytes": 17913,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C08.md",
+      "archived_path": "docs/history/task-cards-20261101/C08.md",
+      "sha256": "c990d8df8c6362eb0e0bba6ea7809dd20f92da762dbd7d5cf99afe651350b5f4",
+      "bytes": 11317,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C09.md",
+      "archived_path": "docs/history/task-cards-20261101/C09.md",
+      "sha256": "1bff06ccc086139e978e954ff8ee55b402f01196333543f9a6b97a641783d184",
+      "bytes": 15325,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C10.md",
+      "archived_path": "docs/history/task-cards-20261101/C10.md",
+      "sha256": "9e4976a7f69e377baabd277ce8ea0082a4e68b05d7dba6e2e93844da7427dd1f",
+      "bytes": 20687,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C11.md",
+      "archived_path": "docs/history/task-cards-20261101/C11.md",
+      "sha256": "18ab8e4ff97a9903d9b3590372bec8576411c1a274b8bfc5f46dba7c4fbe0fbf",
+      "bytes": 13724,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C12.md",
+      "archived_path": "docs/history/task-cards-20261101/C12.md",
+      "sha256": "bde18109a4e2a57fdc581c125313e0e00dd3b69509e48554c0873539159c8996",
+      "bytes": 8180,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C13.md",
+      "archived_path": "docs/history/task-cards-20261101/C13.md",
+      "sha256": "38cd1ce31fa16b331ca59a97e5af2d3bafa2887428102bc8df6b2938f871b0ba",
+      "bytes": 10425,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C14.md",
+      "archived_path": "docs/history/task-cards-20261101/C14.md",
+      "sha256": "95cf44b2f05db73b5a2970499e6777f12af258893721f3b478defab29babc1b3",
+      "bytes": 12200,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C15.md",
+      "archived_path": "docs/history/task-cards-20261101/C15.md",
+      "sha256": "515d1a5d06e97722d8425bc91e95c64371128d2c508475210928b7cbadd0ba4e",
+      "bytes": 7026,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C16.md",
+      "archived_path": "docs/history/task-cards-20261101/C16.md",
+      "sha256": "80447c2a9d6d7fea601ce4b35dd6559842e6f0f262e4838359d3904aff881155",
+      "bytes": 6365,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C17.md",
+      "archived_path": "docs/history/task-cards-20261101/C17.md",
+      "sha256": "659aef02c2ab9a7a7a35fcdf54837cb586cac2f22b694a618438279f7317b6c3",
+      "bytes": 17832,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C18.md",
+      "archived_path": "docs/history/task-cards-20261101/C18.md",
+      "sha256": "a35f602972423a5b3880a0a3577ac49178f294ca50c31bc31896ab17e27cb06c",
+      "bytes": 26923,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C19.md",
+      "archived_path": "docs/history/task-cards-20261101/C19.md",
+      "sha256": "1d948058564cd4b24ca87065615551e08caa505c109c077944e3c2b26f775e01",
+      "bytes": 8742,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C20.md",
+      "archived_path": "docs/history/task-cards-20261101/C20.md",
+      "sha256": "167bcfb78c833d02540e14dfe0a3cc33241ffef9b649fbd138d612165dddd740",
+      "bytes": 19901,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C21.md",
+      "archived_path": "docs/history/task-cards-20261101/C21.md",
+      "sha256": "973c7caa403504c20373f80b1c29383dbd595ef5d0f92c9b94e5040ba2d6ede7",
+      "bytes": 12417,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    },
+    {
+      "group": "task-cards-20261101",
+      "kind": "progress_task_card",
+      "original_path": "docs/tasks/C22.md",
+      "archived_path": "docs/history/task-cards-20261101/C22.md",
+      "sha256": "4df6937691662f3b736bb82a5d6e8e1944d6f8b8d98bd9d817e1b7242ed4d0e5",
+      "bytes": 22771,
+      "byte_identical_to_78f5f63": true,
+      "reason": "2026-11-01 归档：22 张社区任务卡只保留当时的范围、判据与来源，不作为现行进度板或现行指令。"
+    }
+  ]
+}

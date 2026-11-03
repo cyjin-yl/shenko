@@ -8,10 +8,16 @@ use shenko_store::Store;
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
+    effect::{
+        CancelContract, CheckpointContract, EffectActionKind, EffectContract,
+        EffectContractBuilder, ExternalEffect, GuaranteeBasis, IdempotencyGuarantee,
+        LifecycleContract, ResourceAccess,
+    },
     evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*,
     object::*,
     operation::*,
+    plugin_runtime::NativeCapabilityDeclaration,
     task::TaskRecord,
 };
 use std::{process::Stdio, sync::Arc, time::Duration};
@@ -306,6 +312,63 @@ impl NativeTaskHandler for HostPrintfHandler {
             authority_refs: vec!["host.process.printf.no_effects/v1".into()],
             prompt_section: None,
         }
+    }
+
+    /// §36 effect contract of `host.printf.v1`.
+    ///
+    /// The definition runs one host process whose stdout becomes evidence.
+    /// There is no reset and no restore (the process left nothing durable),
+    /// no replay (a second run would emit the text again) and no
+    /// compensation (printed output cannot be un-printed). Only cancellation
+    /// before the process starts is a real action, and a cancellation in
+    /// flight does not prove the process stopped.
+    fn effect_contracts(&self) -> Vec<EffectContract> {
+        let descriptor = self.descriptor();
+        vec![EffectContractBuilder::new(
+            descriptor.implementation_ref.plugin_id,
+            descriptor.implementation(),
+            "host.printf.v1",
+            descriptor.definition_version,
+        )
+        .resource("host_process", PRINTF, ResourceAccess::Execute)
+        .action(EffectActionKind::Cancel)
+        .idempotency(IdempotencyGuarantee::None)
+        .external_effect(ExternalEffect {
+            kind: "process_spawn".into(),
+            description: "spawns /usr/bin/printf on the host; its stdout is captured as evidence, not written to a user terminal".into(),
+            reversible: false,
+            compensation_possible: false,
+        })
+        .cancel(CancelContract {
+            can_cancel_before_start: true,
+            can_cancel_in_flight: false,
+            cancel_confirms_stopped: false,
+            may_have_partial_effect: true,
+        })
+        .checkpoint(CheckpointContract {
+            capturable: Vec::new(),
+            excluded: vec!["host process state".into()],
+            coordinated: false,
+            consistency: "none".into(),
+        })
+        .lifecycle(LifecycleContract {
+            on_upgrade: "an in-flight printf is not re-run; the attempt stays queryable".into(),
+            on_uninstall: "the definition is withdrawn; a running printf is not killed and its evidence stays readable".into(),
+            on_crash: "the process may have run; the attempt stays unknown until it is reconciled".into(),
+            receipt_readable_after_removal: true,
+        })
+        .basis(GuaranteeBasis::ClaimOnly)
+        .build()]
+    }
+
+    /// The capability this definition offers while it is installed.
+    fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
+        vec![NativeCapabilityDeclaration {
+            capability_id: "native.host.printf".into(),
+            version: "1".into(),
+            description: "Run the host's /usr/bin/printf with one exact frozen text and read back its stdout as evidence".into(),
+            usage: Some("delegate:host.printf:1 {\"text\":\"...\",\"timeout_secs\":30}".into()),
+        }]
     }
 
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {

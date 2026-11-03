@@ -179,3 +179,174 @@ fn concurrent_equal_admissions_share_one_durable_entry_identity() {
     assert_eq!(facts.len(), 1);
     assert_eq!(facts[0].entry_id, first_id);
 }
+
+/// SPEC §12.4 semantic forget: the durable intent settles the target entry
+/// in one commit, default search/list stop surfacing it, and the original
+/// text stays readable — including after a store reopen. A replay of the
+/// same intent resolves against the committed fact instead of re-forgetting.
+#[test]
+fn forget_hides_from_search_but_keeps_original_text_after_reopen() {
+    let tag = "forget-hides";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let agent = EntityId::new();
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+
+    let save = intent(MemoryIntentKind::Save);
+    let text = "主体的深刻经历：第一次自主整理记忆";
+    memory.accept_intent_with_content(save.clone(), Some(text.into())).unwrap();
+    let entry_id = match memory.process_intent(save.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected save commit, got {other:?}"),
+    };
+    assert_eq!(memory.search("深刻", 10).unwrap().len(), 1);
+
+    // A Forget intent names the entry it retires as its durable binding.
+    let forget = intent(MemoryIntentKind::Forget);
+    assert_eq!(
+        memory.accept_forget(forget.clone(), entry_id).unwrap().status,
+        "accepted"
+    );
+    match memory.process_intent(forget.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => {
+            assert_eq!(entry.entry_id, entry_id);
+            assert!(entry.deleted, "read-back must report the entry forgotten");
+            assert_eq!(entry.content, text);
+        }
+        other => panic!("expected forget commit, got {other:?}"),
+    }
+    assert_eq!(
+        store.memory_intent_state(forget.intent_id).unwrap().as_deref(),
+        Some("committed")
+    );
+
+    // Default recall no longer surfaces it; the original text is still there.
+    assert!(memory.search("深刻", 10).unwrap().is_empty());
+    assert!(memory.list(10).unwrap().is_empty());
+    let kept = memory.read(entry_id).unwrap().expect("forgotten entry stays durable");
+    assert_eq!(kept.content, text);
+    assert!(kept.deleted);
+
+    // Reopen: the forget survives, the replay of the same intent is a no-op.
+    drop(memory);
+    drop(store);
+    let reopened = Arc::new(Store::open(dir.join("intent.db"), dir.join("cas")).unwrap());
+    let memory = MemoryStore::with_store(agent, Arc::clone(&reopened));
+    assert_eq!(
+        memory.accept_forget(forget.clone(), entry_id).unwrap().status,
+        "committed"
+    );
+    assert!(matches!(
+        memory.process_intent(forget.intent_id).unwrap(),
+        ProcessOutcome::AlreadyProcessed(_)
+    ));
+    assert!(memory.search("深刻", 10).unwrap().is_empty());
+    let kept = memory.read(entry_id).unwrap().expect("forgotten entry survives reopen");
+    assert_eq!(kept.content, text);
+    assert!(kept.deleted);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A forget bound to a missing or foreign entry cannot commit; the intent
+/// stays accepted and retryable so a later-arriving replicated entry can
+/// still satisfy it, and no other entry is touched.
+#[test]
+fn forget_of_missing_or_foreign_entry_stays_unsettled() {
+    let store = store("forget-missing");
+    let agent = EntityId::new();
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+
+    let save = intent(MemoryIntentKind::Save);
+    memory
+        .accept_intent_with_content(save.clone(), Some("保留的深刻事实".into()))
+        .unwrap();
+    let kept_id = match memory.process_intent(save.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected save commit, got {other:?}"),
+    };
+
+    // Missing target: no commit, the intent remains accepted for reconciliation.
+    let missing = intent(MemoryIntentKind::Forget);
+    memory.accept_forget(missing.clone(), EntityId::new()).unwrap();
+    assert!(memory.process_intent(missing.intent_id).is_err());
+    assert_eq!(
+        store.memory_intent_state(missing.intent_id).unwrap().as_deref(),
+        Some("accepted")
+    );
+
+    // Foreign target: a forget admitted under one agent cannot retire
+    // another agent's entry.
+    let foreign = MemoryStore::with_store(EntityId::new(), Arc::clone(&store));
+    let foreign_forget = intent(MemoryIntentKind::Forget);
+    foreign
+        .accept_forget(foreign_forget.clone(), kept_id)
+        .unwrap();
+    assert!(foreign.process_intent(foreign_forget.intent_id).is_err());
+    assert_eq!(
+        store.memory_intent_state(foreign_forget.intent_id).unwrap().as_deref(),
+        Some("accepted")
+    );
+
+    let kept = memory.read(kept_id).unwrap().expect("untouched entry");
+    assert!(!kept.deleted);
+    assert_eq!(memory.search("深刻", 10).unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(
+        std::env::temp_dir().join(format!("shenko-intent-{}-forget-missing", std::process::id())),
+    );
+}
+
+/// A terminal forget intent keeps its durable target binding: replaying the
+/// same intent id against a different entry must refuse rather than report
+/// the original terminal status. Otherwise a differently targeted request
+/// would read "committed" while its real target stays searchable — or read
+/// "failed" and be mistaken for its own settled fact.
+#[test]
+fn terminal_forget_replay_with_a_different_target_is_refused() {
+    let tag = "forget-retarget";
+    let dir = std::env::temp_dir().join(format!("shenko-intent-{}-{tag}", std::process::id()));
+    let store = store(tag);
+    let agent = EntityId::new();
+    let memory = MemoryStore::with_store(agent, Arc::clone(&store));
+
+    let save_a = intent(MemoryIntentKind::Save);
+    memory
+        .accept_intent_with_content(save_a.clone(), Some("被遗忘的深刻事实".into()))
+        .unwrap();
+    let entry_a = match memory.process_intent(save_a.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected save commit, got {other:?}"),
+    };
+    let save_b = intent(MemoryIntentKind::Save);
+    memory
+        .accept_intent_with_content(save_b.clone(), Some("仍被保留的深刻事实".into()))
+        .unwrap();
+    let entry_b = match memory.process_intent(save_b.intent_id).unwrap() {
+        ProcessOutcome::Committed(entry) => entry.entry_id,
+        other => panic!("expected save commit, got {other:?}"),
+    };
+
+    // Committed terminal: retargeting the settled intent must refuse, must
+    // not report "committed" for B, and must not process B as forgotten.
+    let committed = intent(MemoryIntentKind::Forget);
+    memory.accept_forget(committed.clone(), entry_a).unwrap();
+    memory.process_intent(committed.intent_id).unwrap();
+    assert!(memory.accept_forget(committed.clone(), entry_b).is_err());
+    assert!(matches!(
+        memory.process_intent(committed.intent_id).unwrap(),
+        ProcessOutcome::AlreadyProcessed(_)
+    ));
+    let kept_b = memory.read(entry_b).unwrap().expect("untargeted entry");
+    assert!(!kept_b.deleted);
+    assert_eq!(memory.search("仍被保留", 10).unwrap().len(), 1);
+
+    // Failed terminal: the same rule holds; the durable binding wins over
+    // the terminal status.
+    let failed = intent(MemoryIntentKind::Forget);
+    memory.accept_forget(failed.clone(), entry_b).unwrap();
+    assert!(matches!(
+        store.fail_memory_intent(failed.intent_id, "synthetic worker failure").unwrap(),
+        shenko_store::MemoryIntentFailure::Failed
+    ));
+    assert!(memory.accept_forget(failed.clone(), entry_a).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

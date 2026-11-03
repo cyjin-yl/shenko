@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 use shenko_broker::{AnthropicProvider, LocalModelProvider, InferenceMessage, InferencePayload,
-    InferencePriority, InferenceRequest, ProviderBinding};
+    InferencePriority, InferenceRequest};
 use shenko_types::ids::{ControllerEpoch, EntityId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -31,11 +31,8 @@ async fn provider_response(body: Value, anthropic: bool) -> Value {
         stream.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
     });
     let local = LocalModelProvider::new(base_url.clone(), "fixture".into());
-    let anthropic_provider = AnthropicProvider { api_key: "fixture".into(), base_url: base_url.clone(), model: "fixture".into() };
-    let binding = if anthropic {
-        ProviderBinding::Anthropic { base_url, model: "fixture".into(), api_version: "2026-10-21".into(),
-            serializer_revision: 3, default_max_tokens: 8192 }
-    } else { local.binding() };
+    let anthropic_provider = AnthropicProvider::with_endpoint("fixture".into(), base_url, "fixture");
+    let binding = if anthropic { anthropic_provider.binding() } else { local.binding() };
     let (result_tx, _) = tokio::sync::oneshot::channel();
     let request = InferenceRequest { request_id: EntityId::new(), agent_id: EntityId::new(),
         conversation_id: EntityId::new(), provider_binding: binding, priority: InferencePriority::Subject,

@@ -85,7 +85,7 @@ fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
     source.admit_memory_intent(&record, Some(&object)).unwrap();
     let mut source_entry = MemoryEntry::new(agent, body);
     source_entry.entry_id = entry_id;
-    source_entry.kind = "save".into();
+    source_entry.kind = "note".into();
     source.commit_memory_intent(&source_entry, intent).unwrap();
     let mut archive = Vec::new();
     source.write_cognition_archive(&Default::default(), None, &mut archive).unwrap();
@@ -95,7 +95,7 @@ fn assert_conflicting_import_cannot_graft_a_binding_onto_a_legacy_intent() {
     assert!(local.content_ref.is_none(), "conflicting source binding must not attach to a legacy local intent");
     let mut wrong = MemoryEntry::new(agent, body);
     wrong.entry_id = local.record.entry_id.unwrap();
-    wrong.kind = "save".into();
+    wrong.kind = "note".into();
     assert!(target.commit_memory_intent(&wrong, intent).is_err());
     assert!(target.list_memory(10).unwrap().is_empty());
 }
@@ -136,7 +136,7 @@ fn assert_binding_conflict_does_not_advance_a_partial_baseline() {
     replace_binding(&original);
     let mut entry = MemoryEntry::new(agent, "original body");
     entry.entry_id = entry_id;
-    entry.kind = "save".into();
+    entry.kind = "note".into();
     source.commit_memory_intent(&entry, intent).unwrap();
     let continued = target.import_cognition_archive(&export()[..], &options).unwrap();
     assert!(continued.ack(EntityId::new()).verified);
@@ -163,7 +163,7 @@ fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
     let entry = |content| {
         let mut entry = MemoryEntry::new(agent, content);
         entry.entry_id = entry_id;
-        entry.kind = "save".into();
+        entry.kind = "note".into();
         entry
     };
     source.commit_memory_intent(&entry("remote B"), intent).unwrap();
@@ -175,6 +175,142 @@ fn assert_conflicting_entry_is_not_exposed_or_overwritten() {
     target.commit_memory_intent(&entry("local A"), intent).unwrap();
     assert_eq!(target.list_memory(10).unwrap()[0].content, "local A");
     assert_eq!(source.list_memory(10).unwrap()[0].content, "remote B");
+}
+
+/// A Save→Forget history binds the same `entry_id` twice: the save produced
+/// the entry, the forget targets it. Archive identity validation must
+/// distinguish those roles — the snapshot is complete, imports verified, and
+/// the tombstone stays durable while default search/list stop surfacing the
+/// entry and `memory_entry` still reads the original text back.
+#[test]
+fn saved_then_forgotten_entry_survives_archive_roundtrip() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let agent = EntityId::new();
+    let save = EntityId::new();
+    let entry_id = EntityId::new();
+    let forget = EntityId::new();
+
+    let record =
+        MemoryIntentRecord::accepted(save, agent, "save", "personal", "被遗忘的正文", None, Some(entry_id));
+    source.admit_memory_intent(&record, None).unwrap();
+    let mut entry = MemoryEntry::new(agent, "被遗忘的正文");
+    entry.entry_id = entry_id;
+    entry.kind = "note".into();
+    source.commit_memory_intent(&entry, save).unwrap();
+
+    let forget_record =
+        MemoryIntentRecord::accepted(forget, agent, "forget", "personal", "", None, Some(entry_id));
+    source.admit_memory_intent(&forget_record, None).unwrap();
+    source.commit_memory_forget(forget).unwrap();
+    assert!(source.memory_entry(entry_id).unwrap().unwrap().deleted);
+
+    let snapshot = source.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    assert!(
+        !snapshot.manifest.gaps.iter().any(|gap| gap.blocking),
+        "a forget targeting its producer's entry is not a shared identity: {:?}",
+        snapshot.manifest.gaps
+    );
+    let mut archive = Vec::new();
+    snapshot.write_archive(&mut archive).unwrap();
+
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
+    let outcome = receiver
+        .import_cognition_archive(&archive[..], &CognitionImportOptions::default())
+        .unwrap();
+    assert!(outcome.conflicts.is_empty(), "verified import: {:?}", outcome.conflicts);
+    assert_eq!(receiver.memory_intent_state(forget).unwrap().as_deref(), Some("committed"));
+    assert!(receiver.search_memory("被遗忘", 10).unwrap().is_empty());
+    assert!(receiver.list_memory(10).unwrap().is_empty());
+    let kept = receiver.memory_entry(entry_id).unwrap().expect("forgotten entry stays durable");
+    assert!(kept.deleted);
+    assert_eq!(kept.content, "被遗忘的正文");
+}
+
+/// An entry, its producing save and the forget that targets it reconcile as
+/// one conflict unit: when the receiver settled the same forget request as
+/// `failed` while the source committed it, the divergent terminal refuses the
+/// whole unit — the rejected forget must not publish its tombstone through
+/// the unchanged save parent, and the producer's committed identity and the
+/// receiver's terminal decision are both kept.
+#[test]
+fn a_rejected_forget_cannot_tombstone_its_shared_entry() {
+    use shenko_store::MemoryIntentRecord;
+    let dir = tmp_dir();
+    let source = Store::open(dir.join("source.db"), dir.join("source-cas")).unwrap();
+    let receiver = Store::open(dir.join("receiver.db"), dir.join("receiver-cas")).unwrap();
+    let agent = EntityId::new();
+    let save = EntityId::new();
+    let entry_id = EntityId::new();
+    let forget = EntityId::new();
+
+    // Source: save produces the entry, then a forget request targets it.
+    let record = MemoryIntentRecord::accepted(
+        save, agent, "save", "personal", "将被裁决的正文", None, Some(entry_id),
+    );
+    source.admit_memory_intent(&record, None).unwrap();
+    let mut entry = MemoryEntry::new(agent, "将被裁决的正文");
+    entry.entry_id = entry_id;
+    entry.kind = "note".into();
+    source.commit_memory_intent(&entry, save).unwrap();
+    let forget_record = MemoryIntentRecord::accepted(
+        forget, agent, "forget", "personal", "", None, Some(entry_id),
+    );
+    source.admit_memory_intent(&forget_record, None).unwrap();
+
+    // Receiver verifies the accepted state: entry live, forget pending.
+    let mut first = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut first).unwrap();
+    let accepted = receiver
+        .import_cognition_archive(&first[..], &CognitionImportOptions::default())
+        .unwrap();
+    assert!(accepted.conflicts.is_empty(), "accepted state import: {:?}", accepted.conflicts);
+    assert_eq!(receiver.memory_intent_state(forget).unwrap().as_deref(), Some("accepted"));
+
+    // The same request diverges: receiver fails it, source commits it.
+    assert_eq!(
+        receiver.fail_memory_intent(forget, "worker refused").unwrap(),
+        shenko_store::MemoryIntentFailure::Failed,
+    );
+    source.commit_memory_forget(forget).unwrap();
+
+    // The follow-up archive carries the committed tombstone through the same
+    // entry the save still produces. Reconciliation must keep the receiver's
+    // terminal decision and every fact it protected.
+    let mut second = Vec::new();
+    source.write_cognition_archive(&Default::default(), None, &mut second).unwrap();
+    let outcome = receiver
+        .import_cognition_archive(&second[..], &CognitionImportOptions::default())
+        .unwrap();
+    assert!(!outcome.conflicts.is_empty(), "a divergent terminal must stay explicit");
+
+    let entry_after = receiver
+        .memory_entry(entry_id)
+        .unwrap()
+        .expect("the rejected unit publishes no partial row");
+    assert!(
+        !entry_after.deleted,
+        "a rejected forget cannot hide the entry through its save parent"
+    );
+    assert_eq!(entry_after.content, "将被裁决的正文");
+    assert_eq!(receiver.list_memory(10).unwrap().len(), 1);
+    assert!(!receiver.search_memory("裁决", 10).unwrap().is_empty());
+    assert_eq!(
+        receiver.memory_intent_state(forget).unwrap().as_deref(),
+        Some("failed"),
+        "the local terminal decision is kept"
+    );
+    assert_eq!(
+        receiver.memory_intent_state(save).unwrap().as_deref(),
+        Some("committed"),
+        "the producer identity survives the refused unit"
+    );
+    let recorded = receiver.cognition_conflicts(10).unwrap();
+    assert!(
+        recorded.iter().any(|conflict| conflict.key == forget.to_string()),
+        "the refused forget must be named: {recorded:?}"
+    );
 }
 
 fn version_ref(name: &str) -> VersionedRef {
@@ -289,7 +425,15 @@ fn seeded_store() -> Seeded {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first_step).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        input.clone(),
+        genesis_commit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first_step, &root_task)
+        .unwrap();
     store
         .initialize_identity(&IdentityProfile {
             agent_id,
@@ -763,15 +907,22 @@ fn divergence_is_kept_and_the_workspace_is_not_recovery_data() {
     let outcome = b
         .import_cognition_archive(&archive[..], &CognitionImportOptions::default())
         .unwrap();
-    assert_eq!(outcome.conflicts.len(), 1, "the divergence must be explicit");
-    assert_eq!(outcome.conflicts[0].table, "tasks");
+    // A task and its execution facts form ONE conflict unit: the local edit to
+    // the task rejects the complete closure rather than grafting the remote
+    // operations/attempts/evidence onto a diverged local task.
+    let conflict_tables: Vec<&str> = outcome.conflicts.iter().map(|c| c.table.as_str()).collect();
+    assert_eq!(
+        conflict_tables,
+        vec!["tasks", "operations", "attempts", "evidence_receipts"],
+        "the divergence must reject the complete task closure"
+    );
     let kept = b.external_task(a.task_id).unwrap();
     assert!(
         kept.memos.contains_key("local_edit"),
         "the local value must be kept"
     );
     let conflicts = b.cognition_conflicts(10).unwrap();
-    assert_eq!(conflicts.len(), 1);
+    assert_eq!(conflicts.len(), 4);
 
     // The memory history travels with the content, and the repository's own
     // configuration never leaves the node.

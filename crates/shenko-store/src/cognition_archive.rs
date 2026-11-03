@@ -30,9 +30,15 @@ use shenko_types::object::{Digest, SchemaRef};
 
 /// Magic line that opens every archive.
 pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
-/// Schema 3 makes memory-intent reference bindings part of recovery.
-/// Schema 2 remains readable after its contents pass current admission.
-pub const ARCHIVE_SCHEMA: u32 = 3;
+/// Schema 5 includes every durable fact class: research epochs, durable
+/// seats and questions, provider quota facts, channel facts, activation
+/// selectors, contact/person facts, output parts and the content stream
+/// journal, plus the media facts of schema 4. Older receivers must reject
+/// rather than omit this closure, and this reader admits only schemas it
+/// can interpret completely — an archive naming a fact class this reader
+/// does not know is refused whole at manifest validation.
+/// Schemas 2/3/4 remain readable after current closure admission.
+pub const ARCHIVE_SCHEMA: u32 = 5;
 
 /// One replicated table row.
 ///
@@ -124,6 +130,19 @@ pub struct CognitionGap {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CognitionManifest {
     pub schema: u32,
+    /// The fact classes this archive was taken from — the MEMBERSHIP of the
+    /// archive, declared by the exporter and checked by the reader.
+    ///
+    /// A class is a durable fact family, not a table with rows: an export
+    /// of a store that has no research epoch still declares the research
+    /// class, because the store's schema knows it. The reader refuses an
+    /// archive that names a class it does not know, and an archive that
+    /// carries a row outside its declared membership.
+    ///
+    /// Archives written before this field existed declare nothing; the
+    /// reader then admits them under their own schema version.
+    #[serde(default)]
+    pub fact_classes: Vec<String>,
     /// Content fingerprint of the snapshot. Equal fingerprints mean equal
     /// recovery content, whatever the ledger sequence is.
     pub fingerprint: Digest,
@@ -213,7 +232,7 @@ where
     let manifest: CognitionManifest =
         serde_json::from_slice(&manifest_bytes).context("decode cognition archive manifest")?;
     ensure!(
-        manifest.schema == 2 || manifest.schema == ARCHIVE_SCHEMA,
+        (2..=ARCHIVE_SCHEMA).contains(&manifest.schema),
         "unsupported cognition archive schema {}",
         manifest.schema
     );

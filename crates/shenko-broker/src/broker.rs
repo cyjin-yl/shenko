@@ -1,24 +1,37 @@
-//! Inference broker — fair asynchronous dispatch over one compute budget.
-//! SPEC §13, §22.1, §41.8–41.10, §47.
+//! Inference broker — fair asynchronous dispatch over one physical resource
+//! domain. SPEC §13, §22.1, §41.8–41.10, §47.
 //!
-//! Provider selection is fixed at construction. No provider is a typed
-//! unavailable binding, never a synthetic successful model response.
+//! Every controlled call — the subject, a child, memory work, compaction,
+//! diagnostics — enters this broker. The provider is resolved from the open
+//! registry against the *sealed* binding, so a request keeps the transport,
+//! model and credential identity it was sent with. A provider that changed
+//! after the seal cannot silently reinterpret the request.
+//!
+//! Compute permits and context residency are separate resources: the compute
+//! budget belongs to the physical domain, the residency pool is described in
+//! [`crate::kv`]. A request whose remote outcome is unknown keeps its
+//! capacity and is quarantined as debt until it is reconciled.
 use anyhow::{Result, anyhow, ensure};
 use serde::Deserialize;
-use std::collections::VecDeque;
-#[cfg(test)]
-use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::collections::{HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
+use shenko_types::ids::EntityId;
+use tokio::sync::{Notify, mpsc};
 use tracing::{info, warn};
 
 use crate::admission::{AdmissionController, AdmissionGuard, CapacitySnapshot};
-use crate::local_provider::LocalModelProvider;
-use crate::provider::AnthropicProvider;
+use crate::capability::BackendCapabilitySnapshot;
+use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
+use crate::execution::{execute_request, now_ms};
+use crate::kv::{AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState};
+use crate::registry::{ProviderRegistry, ProviderRuntime, TokenCount};
 use crate::request::{
-    EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
-    ProviderBinding, ProviderCapabilities, ProviderRejection, ProviderVisionCaps,
-    ProviderWireError, TerminationEvidence, TerminationKind,
+    BrokeredCall, InferencePriority, InferenceRequest, InferenceResponse, InferenceResult,
+    InferenceStatus, ProviderBinding, ProviderCapabilities, ProviderVisionCaps, RequestPurpose,
+    TerminationEvidence, TerminationKind,
 };
+use crate::resource::{CapacitySnapshot as DomainCapacity, ResourceDomain, ResourceDomainIdentity, ResourceDomainRegistry};
+use crate::stream::{BoundedStreamPublisher, PublicStreamSink, StreamIdentity, StreamJournalSink};
 
 #[derive(Deserialize)]
 struct ModelMetadata {
@@ -62,186 +75,95 @@ impl ProviderCapabilities {
     }
 }
 
-async fn metadata_response(request: reqwest::RequestBuilder) -> Result<ModelMetadataList> {
-    let response = request.send().await?;
-    let status = response.status();
-    ensure!(status.is_success(), "model metadata request failed with HTTP {status}");
-    Ok(response.json().await?)
+/// The ledger owner of a request, independent of the caller waiting for it.
+/// It admits no effects itself: T1 must already exist before submission. Late
+/// completion is still recorded when a managed child was stopped/cancelled.
+pub trait InferenceReceiptSink: InferenceRecoverySource {
+    /// One atomic decision at the actual send boundary, synchronized with
+    /// durable cancellation and authority changes. `Send` means the caller
+    /// irrevocably owns the single armed dispatch; `Fenced` means authority
+    /// was verifiably lost before any send; `Unknown` means a dispatch may
+    /// already have committed (e.g. an in-flight original or restart), so the
+    /// request must stay recoverable and must never be marked never-sent.
+    fn may_dispatch(&self) -> Result<DispatchFence>;
+    fn record(&self, result: &InferenceResult) -> Result<()>;
 }
 
-#[cfg(test)]
-#[async_trait::async_trait]
-trait FixtureProvider: Send + Sync {
-    fn binding(&self) -> ProviderBinding;
-    async fn complete(&self, req: &InferenceRequest) -> Result<InferenceResponse>;
+/// Durable send-boundary verdict; distinct outcomes cannot silently swap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DispatchFence {
+    /// This submission won the atomic transition and may send exactly once.
+    Send,
+    /// The authority check failed before any send committed.
+    Fenced,
+    /// A prior dispatch may already have committed; outcome is recoverable debt.
+    Unknown,
 }
 
-#[derive(Clone)]
-enum ActiveProvider {
-    Anthropic(AnthropicProvider),
-    Local(LocalModelProvider),
-    Stub,
-    #[cfg(test)]
-    Fixture(Arc<dyn FixtureProvider>),
+/// Trusted runtime adapter to the original durable ledger, not model input or
+/// a callback's assertion of success. A reader must validate the final E1 CAS,
+/// operation/attempt identities and immutable request before returning evidence.
+/// There is deliberately no raw-id, bool or caller-result release API.
+pub trait InferenceRecoverySource: Send + Sync + 'static {
+    fn request_id(&self) -> EntityId;
+    fn binding(&self) -> &ProviderBinding;
+    fn payload(&self) -> &crate::request::InferencePayload;
+    fn read_terminal_result(&self) -> Result<Option<InferenceResult>>;
 }
 
-impl ActiveProvider {
-    fn binding(&self) -> ProviderBinding {
-        match self {
-            Self::Stub => ProviderBinding::Stub { codec: 2 },
-            Self::Local(provider) => provider.binding(),
-            Self::Anthropic(provider) => ProviderBinding::Anthropic {
-                base_url: provider.base_url.clone(),
-                model: provider.model.clone(),
-                api_version: crate::provider::ANTHROPIC_API_VERSION.into(),
-                serializer_revision: crate::provider::SERIALIZER_REVISION,
-                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
-            },
-            #[cfg(test)]
-            Self::Fixture(provider) => provider.binding(),
-        }
-    }
-
-    fn from_env() -> Result<Self> {
-        if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
-            let provider = LocalModelProvider::from_env()?;
-            info!(model=%provider.model, "local model provider selected (§22.1)");
-            return Ok(Self::Local(provider));
-        }
-        if let Some(provider) = AnthropicProvider::from_env() {
-            info!("Anthropic API key found — real inference enabled");
-            return Ok(Self::Anthropic(provider));
-        }
-        info!("no inference provider configured — typed unavailable mode");
-        Ok(Self::Stub)
-    }
-
-    fn terminal_stop_reason(&self, stop_reason: &str) -> bool {
-        match self {
-            Self::Anthropic(_) => matches!(
-                stop_reason,
-                "end_turn" | "max_tokens" | "stop_sequence" | "tool_use" | "pause_turn" | "refusal"
-            ),
-            Self::Local(_) => matches!(
-                stop_reason,
-                "stop" | "length" | "tool_calls" | "function_call" | "content_filter"
-            ),
-            #[cfg(test)]
-            Self::Fixture(_) => matches!(stop_reason, "end_turn" | "stop" | "length"),
-            Self::Stub => false,
-        }
-    }
-
-    async fn complete(&self, req: &InferenceRequest) -> InferenceResult {
-        if matches!(self, Self::Stub) {
-            return InferenceResult {
-                request_id: req.request_id,
-                status: InferenceStatus::Unavailable,
-                response: None,
-                effective: EffectiveInference::for_request(req),
-                termination: TerminationEvidence::never_dispatched(),
-            };
-        }
-
-        let outcome = match self {
-            Self::Anthropic(provider) => provider.complete(req).await,
-            Self::Local(provider) => provider.complete(req).await,
-            #[cfg(test)]
-            Self::Fixture(provider) => provider.complete(req).await,
-            Self::Stub => unreachable!("unavailable returned above"),
-        };
-        match outcome {
-            Ok(response) => {
-                let terminal = self.terminal_stop_reason(&response.stop_reason);
-                provider_response(req, response, terminal)
-            }
-            Err(error) => failure_result(req, &error),
-        }
-    }
+/// The streaming sinks of one request.
+pub(crate) struct StreamSubmission {
+    pub(crate) identity: StreamIdentity,
+    pub(crate) journal: Option<Arc<dyn StreamJournalSink>>,
+    pub(crate) public: Option<Arc<dyn PublicStreamSink>>,
 }
 
-fn provider_response(
-    req: &InferenceRequest,
-    response: InferenceResponse,
-    terminal: bool,
-) -> InferenceResult {
-    let effective = EffectiveInference::for_request(req);
-    let output_tokens = response.usage.as_ref().and_then(|usage| usage.output_tokens);
-    let termination = if terminal {
-        TerminationEvidence {
-            kind: TerminationKind::ProviderTerminal,
-            stop_reason: Some(response.stop_reason.clone()),
-            max_tokens: Some(effective.max_tokens),
-            output_tokens,
-            length: matches!(response.stop_reason.as_str(), "max_tokens" | "length"),
-        }
-    } else {
-        TerminationEvidence {
-            kind: TerminationKind::Unknown,
-            stop_reason: (!response.stop_reason.is_empty()).then(|| response.stop_reason.clone()),
-            max_tokens: Some(effective.max_tokens),
-            output_tokens,
-            length: false,
-        }
-    };
-    InferenceResult {
-        request_id: req.request_id,
-        status: if terminal {
-            InferenceStatus::Success
-        } else {
-            InferenceStatus::Failed
-        },
-        response: Some(response),
-        effective,
-        termination,
-    }
+struct Submission {
+    request: InferenceRequest,
+    receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
+    purpose: RequestPurpose,
+    stream: Option<StreamSubmission>,
 }
 
-fn failure_status(error: &anyhow::Error) -> InferenceStatus {
-    if let Some(rejection) = error.downcast_ref::<ProviderRejection>() {
-        return InferenceStatus::Rejected {
-            http_status: rejection.http_status,
-        };
-    }
-    if let Some(wire_error) = error.downcast_ref::<ProviderWireError>() {
-        return InferenceStatus::InvalidRequest {
-            code: wire_error.code(),
-        };
-    }
-    InferenceStatus::Failed
+/// One provider/model pair this broker can really run.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AvailableProvider {
+    /// The model this entry serves.
+    pub model: String,
+    /// The profile that describes the binding.
+    pub profile_id: String,
+    pub backend_family: crate::profile::BackendFamily,
+    pub transport: crate::profile::TransportKind,
+    /// The endpoint the binding reaches. It never carries credentials.
+    pub endpoint_origin: String,
+    /// The physical resource domain this binding belongs to.
+    pub resource_domain_id: String,
+    /// Whether this binding is the local OpenAI-compatible transport.
+    pub local: bool,
+    /// The binding itself.
+    pub binding: ProviderBinding,
 }
 
-fn failure_result(req: &InferenceRequest, error: &anyhow::Error) -> InferenceResult {
-    let status = failure_status(error);
-    let termination = match status {
-        InferenceStatus::Rejected { .. } => TerminationEvidence {
-            kind: TerminationKind::TransportRejected,
-            stop_reason: None,
-            max_tokens: None,
-            output_tokens: None,
-            length: false,
-        },
-        InferenceStatus::InvalidRequest { .. } => TerminationEvidence::never_dispatched(),
-        _ => TerminationEvidence::unknown(),
-    };
-    warn!(
-        ?status,
-        "provider inference did not produce a successful terminal result"
-    );
-    InferenceResult {
-        request_id: req.request_id,
-        status,
-        response: None,
-        effective: EffectiveInference::for_request(req),
-        termination,
-    }
-}
+// None: queued or live, with a guard owned by the broker. Some: an uncertain
+// completed/recovered request whose charge survives until original evidence.
+type Accounting = Arc<Mutex<HashMap<EntityId, Option<AdmissionGuard>>>>;
+type RecoverySources = Arc<Mutex<HashMap<EntityId, Arc<dyn InferenceRecoverySource>>>>;
 
 #[derive(Clone)]
 pub struct BrokerHandle {
-    tx: mpsc::UnboundedSender<InferenceRequest>,
+    tx: mpsc::UnboundedSender<Submission>,
     binding: ProviderBinding,
-    admission: AdmissionController,
+    /// The compute budget of this handle's physical domain.
+    pub admission: AdmissionController,
+    domain: Arc<ResourceDomain>,
+    domains: Arc<ResourceDomainRegistry>,
+    registry: Arc<ProviderRegistry>,
+    accounting: Accounting,
+    recovery_sources: RecoverySources,
+    accounting_changed: Arc<Notify>,
+    kv: Arc<KvAllocator>,
+    error_sink: ErrorSinkCell,
+    handoff_closed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl BrokerHandle {
@@ -249,22 +171,305 @@ impl BrokerHandle {
         &self.binding
     }
 
+    /// Same physical scheduling domain and configured transport, distinct
+    /// exact model binding. Existence/availability is decided by the provider,
+    /// not by this selector or an invented model-capability table.
+    pub fn for_model(&self, model: &str) -> Result<Self> {
+        Ok(Self { binding: self.binding.with_model(model)?, ..self.clone() })
+    }
+
+    /// The physical domain this handle dispatches into.
+    pub fn domain(&self) -> &Arc<ResourceDomain> {
+        &self.domain
+    }
+
+    /// The domain registry: the deployment's binding of endpoints, aliases and
+    /// engines to physical resource domains.
+    pub fn domains(&self) -> &Arc<ResourceDomainRegistry> {
+        &self.domains
+    }
+
+    /// The provider bindings this broker can really run. Availability is
+    /// decided by what is installed, never by a catalog of model names.
+    pub fn installed_bindings(&self) -> Vec<ProviderBinding> {
+        self.registry.installed_bindings()
+    }
+
+    /// The installed provider profiles.
+    pub fn profiles(&self) -> Vec<crate::profile::ProviderProfile> {
+        self.registry.profiles()
+    }
+
+    /// The provider/model pairs this broker can really run right now.
+    ///
+    /// This is the live view a routing or quota decision uses. It is decided
+    /// by what is installed and reachable, never by a catalog of model names:
+    /// a model that is not installed here simply does not appear.
+    pub fn available_providers(&self) -> Vec<AvailableProvider> {
+        self.registry
+            .profiles()
+            .into_iter()
+            .map(|profile| {
+                let binding = self.registry.primary_binding_for(&profile).unwrap_or_else(|| profile.binding());
+                AvailableProvider {
+                    model: profile.model_id.clone(),
+                    profile_id: profile.profile_id.clone(),
+                    backend_family: profile.backend_family.clone(),
+                    transport: profile.transport,
+                    endpoint_origin: profile.endpoint_origin.clone(),
+                    resource_domain_id: profile.resource_domain_id.clone(),
+                    local: matches!(binding, ProviderBinding::Local { .. }),
+                    binding,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether this handle can really serve one model on its own transport.
+    ///
+    /// A routing decision resolves the model before the request is sealed, so
+    /// the sealed binding is one the broker can execute. The sealed
+    /// comparison itself stays exact.
+    pub fn serves_model(&self, model: &str) -> bool {
+        self.binding
+            .with_model(model)
+            .ok()
+            .is_some_and(|binding| self.registry.runtime_for(&binding).is_some())
+    }
+
+    /// Restore an original armed request before admitting any new inference.
+    /// Repeated recovery and live requests cannot count the same identity twice.
+    pub fn recover_unknown(&self, request_id: EntityId) {
+        self.accounting.lock().expect("broker accounting poisoned")
+            .entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
+        self.domain
+            .quarantine(request_id, now_ms(), "recovered without terminal evidence");
+    }
+
+    /// Register the original ledger reader while restoring a request. A known
+    /// request keeps the reader installed by its original submit/restore; later
+    /// callers cannot replace it with a bool or a fabricated result source.
+    pub fn register_recovered(&self, source: Arc<dyn InferenceRecoverySource>) -> Result<()> {
+        let id = source.request_id();
+        {
+            let accounting = self.accounting.lock().expect("broker accounting poisoned");
+            let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+            if !sources.contains_key(&id) {
+                ensure!(!accounting.contains_key(&id), "known request has no original recovery reader; preserve unknown charge");
+                sources.insert(id, source);
+            }
+        }
+        self.reconcile_recorded(id)
+    }
+
+    /// A request ID only wakes its already-pinned reader. It is never release
+    /// evidence by itself, and this API accepts no caller-supplied result.
+    pub fn reconcile_recorded(&self, request_id: EntityId) -> Result<()> {
+        let source = self.recovery_sources.lock().expect("broker recovery sources poisoned")
+            .get(&request_id).cloned().ok_or_else(|| anyhow!("request has no original durable recovery reader"))?;
+        let result = source.read_terminal_result()?;
+        if let Some(result) = &result {
+            ensure!(result.request_id == source.request_id()
+                && result.effective.matches_seal(source.binding(), source.payload())
+                && result.termination.kind != TerminationKind::Unknown,
+                "recovered inference lacks matching original terminal evidence");
+        }
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
+        let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+        // Reading the ledger must not hold the broker lock. A real terminal
+        // completion may retire this reader while that read is in progress:
+        // its stale None must not recreate debt after release, nor may an old
+        // reader release a later registration using the same request key.
+        if !sources.get(&request_id).is_some_and(|current| Arc::ptr_eq(current, &source)) {
+            return Ok(());
+        }
+        let Some(result) = result else {
+            accounting.entry(request_id).or_insert_with(|| Some(self.admission.recover_unknown()));
+            return Ok(());
+        };
+        if accounting.get(&source.request_id()).is_some_and(Option::is_some) {
+            let guard = accounting.remove(&source.request_id()).flatten().expect("checked charge");
+            match result.termination.kind {
+                TerminationKind::NeverDispatched => guard.release_never_dispatched(),
+                TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => guard.release_terminal(),
+                TerminationKind::Unknown => unreachable!("terminal evidence checked above"),
+            }
+            self.domain.reconcile_debt(request_id);
+            self.accounting_changed.notify_one();
+        }
+        if !accounting.contains_key(&request_id) {
+            sources.remove(&request_id);
+        }
+        Ok(())
+    }
+
     pub fn active_count(&self) -> u64 {
         self.admission.active_count()
+    }
+
+    /// Close local submission at the accounting lock, then await every
+    /// enqueued/running provider reader and its durable receipt write.
+    /// Unknown remote outcomes stay charged; this is not remote termination.
+    pub async fn quiesce_for_handoff(&self) -> Result<serde_json::Value> {
+        {
+            let _accounting = self.accounting.lock().expect("broker accounting poisoned");
+            self.handoff_closed.store(true, std::sync::atomic::Ordering::Release);
+        }
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            let snapshot = {
+                let accounting = self.accounting.lock().expect("broker accounting poisoned");
+                if accounting.values().any(Option::is_none) { None } else {
+                    let sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+                    let requests = accounting.iter().map(|(id, charge)| {
+                        let source = sources.get(id);
+                        serde_json::json!({
+                            "request_id": id, "state": "unknown", "charged": charge.is_some(),
+                            "binding": source.map(|source| source.binding()),
+                            "sealed_payload": source.map(|source| source.payload()),
+                            "reader_available": source.is_some(),
+                        })
+                    }).collect::<Vec<_>>();
+                    Some(serde_json::json!({
+                        "schema_version": 1, "local_admission_closed": true,
+                        "local_provider_readers_drained": true,
+                        "remote_termination_claimed": false,
+                        "requests": requests,
+                        "domains": self.domains.domains().iter()
+                            .map(|domain| domain.handoff_snapshot()).collect::<Vec<_>>(),
+                    }))
+                }
+            };
+            if let Some(snapshot) = snapshot { return Ok(snapshot); }
+            ensure!(tokio::time::Instant::now() < deadline,
+                "BROKER_HANDOFF_INCOMPLETE: local provider/receipt readers remain; remote debt not released");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    }
+
+    pub fn resume_after_handoff_abort(&self) {
+        let _accounting = self.accounting.lock().expect("broker accounting poisoned");
+        self.handoff_closed.store(false, std::sync::atomic::Ordering::Release);
+        self.accounting_changed.notify_one();
     }
 
     pub fn capacity(&self) -> CapacitySnapshot {
         self.admission.capacity()
     }
 
+    /// The capacity that is actually available now: the configured budget
+    /// minus the quarantined unknown debt and the enforceable external
+    /// reservations of this domain.
+    pub fn effective_capacity(&self) -> DomainCapacity {
+        self.domain.effective_compute_capacity()
+    }
+
+    /// The residency pool of this domain.
+    pub fn kv_snapshot(&self) -> KvPoolState {
+        self.domain.kv().clone()
+    }
+
+    /// Recompute the main/children share of the residency pool.
+    pub fn rebalance_kv(&self) -> Result<AllocationPlan, KvError> {
+        let mut pool = self.domain.kv_mut();
+        self.kv.rebalance(&mut pool)
+    }
+
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, None, purpose, None)
+    }
+
+    /// Install the durable runtime error journal of the owning subject.
+    ///
+    /// The broker journals the errors it cannot continue from, or that force a
+    /// degradation, against the agent and conversation of the actual request.
+    /// The write is fail-soft and never replaces the error it reports.
+    pub fn set_runtime_error_sink(&self, sink: Arc<dyn RuntimeErrorSink>) {
+        if let Ok(mut guard) = self.error_sink.lock() {
+            *guard = Some(sink);
+        }
+    }
+
+    pub fn submit_recorded(&self, req: InferenceRequest, sink: Arc<dyn InferenceReceiptSink>) -> Result<()> {
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, Some(sink), purpose, None)
+    }
+
+    /// Submit a controlled call with its declared purpose.
+    pub fn submit_purpose(&self, call: BrokeredCall) -> Result<()> {
+        self.submit_inner(call.request, None, call.purpose, None)
+    }
+
+    /// Submit a controlled call with its declared purpose and a durable
+    /// receipt owner.
+    pub fn submit_recorded_purpose(
+        &self,
+        call: BrokeredCall,
+        sink: Arc<dyn InferenceReceiptSink>,
+    ) -> Result<()> {
+        self.submit_inner(call.request, Some(sink), call.purpose, None)
+    }
+
+    /// Submit a streamed controlled call.
+    ///
+    /// The stream starts at the provider. Without a durable journal the call
+    /// is refused instead of dropping content silently; the public sink is
+    /// optional, the durable one is not.
+    pub fn submit_stream(
+        &self,
+        call: BrokeredCall,
+        identity: StreamIdentity,
+        journal: Option<Arc<dyn StreamJournalSink>>,
+        public: Option<Arc<dyn PublicStreamSink>>,
+    ) -> Result<()> {
+        ensure!(
+            journal.is_some(),
+            "streamed inference needs a durable journal sink; content is never dropped silently"
+        );
+        self.submit_inner(
+            call.request,
+            None,
+            call.purpose,
+            Some(StreamSubmission { identity, journal, public }),
+        )
+    }
+
+    fn submit_inner(
+        &self,
+        req: InferenceRequest,
+        receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
+        purpose: RequestPurpose,
+        stream: Option<StreamSubmission>,
+    ) -> Result<()> {
         anyhow::ensure!(
             req.provider_binding == self.binding,
             "MODEL_PROVIDER_BINDING_MISMATCH: request not admitted; seal a new revision"
         );
-        self.tx
-            .send(req)
-            .map_err(|error| anyhow::anyhow!("broker: {error}"))
+        ensure!(
+            self.registry.runtime_for(&req.provider_binding).is_some(),
+            "no installed provider runtime can serve this binding"
+        );
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
+        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire),
+            "BROKER_HANDOFF_CLOSED: request rejected before enqueue/send");
+        ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
+        let id = req.request_id;
+        if let Some(sink) = &receipt_sink {
+            ensure!(sink.request_id() == id && sink.binding() == &req.provider_binding
+                && sink.payload() == &req.payload, "receipt owner differs from submitted request seal");
+            let source: Arc<dyn InferenceRecoverySource> = sink.clone();
+            let mut sources = self.recovery_sources.lock().expect("broker recovery sources poisoned");
+            ensure!(!sources.contains_key(&id), "request already has an original receipt owner");
+            sources.insert(id, source);
+        }
+        accounting.insert(id, None);
+        if self.tx.send(Submission { request: req, receipt_sink, purpose, stream }).is_err() {
+            accounting.remove(&id);
+            self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&id);
+            return Err(anyhow!("broker admission closed; request was not enqueued"));
+        }
+        Ok(())
     }
 }
 
@@ -272,7 +477,7 @@ impl BrokerHandle {
 /// priorities. Urgent work can go first but cannot indefinitely starve ordinary
 /// work; ordinary main/child turns alternate whenever both sides are ready.
 struct FairQueue {
-    lanes: [VecDeque<InferenceRequest>; 4],
+    lanes: [VecDeque<Submission>; 4],
     main_next: bool,
     normal_child_next: bool,
     last_was_urgent: bool,
@@ -290,15 +495,15 @@ impl Default for FairQueue {
 }
 
 impl FairQueue {
-    fn push(&mut self, req: InferenceRequest) {
-        self.lanes[req.priority as usize].push_back(req);
+    fn push(&mut self, req: Submission) {
+        self.lanes[req.request.priority as usize].push_back(req);
     }
 
     fn is_empty(&self) -> bool {
         self.lanes.iter().all(VecDeque::is_empty)
     }
 
-    fn pop(&mut self) -> Option<InferenceRequest> {
+    fn pop(&mut self) -> Option<Submission> {
         let urgent_ready = !self.lanes[3].is_empty();
         let main_ready = !self.lanes[2].is_empty();
         let normal_ready = !self.lanes[1].is_empty();
@@ -337,15 +542,22 @@ impl FairQueue {
 }
 
 struct CompletedRequest {
-    req: InferenceRequest,
+    request: InferenceRequest,
+    receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     result: InferenceResult,
     guard: AdmissionGuard,
 }
 
 pub struct Broker {
-    rx: mpsc::UnboundedReceiver<InferenceRequest>,
-    admission: AdmissionController,
-    provider: ActiveProvider,
+    rx: mpsc::UnboundedReceiver<Submission>,
+    domain: Arc<ResourceDomain>,
+    domains: Arc<ResourceDomainRegistry>,
+    registry: Arc<ProviderRegistry>,
+    accounting: Accounting,
+    recovery_sources: RecoverySources,
+    accounting_changed: Arc<Notify>,
+    kv: Arc<KvAllocator>,
+    error_sink: ErrorSinkCell,
 }
 
 impl Broker {
@@ -359,99 +571,208 @@ impl Broker {
         Self::from_env_with_admission(AdmissionController::new(max))
     }
 
-    fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
-        let provider = ActiveProvider::from_env()?;
+    pub fn with_local_provider(provider: crate::local_provider::LocalModelProvider, max: u64) -> Result<(Self, BrokerHandle)> {
         provider.binding().validate_endpoint()?;
-        Ok(Self::with_provider(provider, admission))
+        let domain = default_domain(AdmissionController::new(max))?;
+        Self::with_runtime(Arc::new(provider), domain)
     }
 
-    /// Explicit offline construction; does not inspect ambient credentials and
-    /// returns typed Unavailable rather than a fabricated successful completion.
-    pub fn offline() -> (Self, BrokerHandle) {
-        Self::with_provider(ActiveProvider::Stub, AdmissionController::nominal())
+    /// Bind an explicitly configured real Anthropic provider without reading
+    /// ambient credentials. Credentials stay separate from the validated
+    /// endpoint; dispatch shares the ordinary broker queue and compute budget.
+    pub fn with_anthropic_provider(
+        provider: crate::provider::AnthropicProvider,
+        max: u64,
+    ) -> Result<(Self, BrokerHandle)> {
+        provider.binding().validate_endpoint()?;
+        let domain = default_domain(AdmissionController::new(max))?;
+        Self::with_runtime(Arc::new(provider), domain)
     }
 
-    /// Read one bounded native metadata response before dispatch. The model
-    /// must match exactly; no first-card fallback or capability name table.
-    pub async fn discover_capabilities(&self) -> Result<ProviderCapabilities> {
-        let binding = self.provider.binding();
-        let metadata = match &self.provider {
-            ActiveProvider::Local(provider) => {
-                let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(10));
-                if provider.allow_invalid_certs {
-                    builder = builder.danger_accept_invalid_certs(true);
-                }
-                let client = builder.build()?;
-                let models = metadata_response(client.get(format!(
-                    "{}/v1/models", provider.base_url.trim_end_matches('/'),
-                ))).await?;
-                (models, None)
-            }
-            ActiveProvider::Anthropic(provider) => {
-                let client = reqwest::Client::builder()
-                    .timeout(std::time::Duration::from_secs(10)).build()?;
-                let models = metadata_response(client.get(format!(
-                    "{}/v1/models", provider.base_url.trim_end_matches('/'),
-                ))
-                    .header("x-api-key", &provider.api_key)
-                    .header("anthropic-version", crate::provider::ANTHROPIC_API_VERSION)
-                    .query(&[("limit", "1000")])).await?;
-                (models, Some("incomplete metadata page; refusing an inexact match"))
-            }
-            ActiveProvider::Stub => return Err(anyhow!("offline binding has no model metadata")),
-            #[cfg(test)]
-            ActiveProvider::Fixture(_) => return Err(anyhow!("fixture binding has no model metadata")),
-        };
-        let (models, incomplete) = metadata;
-        let mut matches = models.data.into_iter().filter(|model| model.id == binding.model());
-        let metadata = matches.next().ok_or_else(|| anyhow!(
-            "bound model metadata not found{}", incomplete.filter(|_| models.has_more == Some(true)).unwrap_or(""),
-        ))?;
-        ensure!(matches.next().is_none(), "duplicate metadata for bound model");
-        ProviderCapabilities::from_metadata(binding, metadata)
+    /// Bind one installed provider runtime to one physical resource domain.
+    ///
+    /// This is the open path: the runtime may be any installed provider, and
+    /// the domain is the deployment's explicit binding of that endpoint to the
+    /// engine it really reaches.
+    pub fn with_runtime(
+        runtime: Arc<dyn ProviderRuntime>,
+        domain: Arc<ResourceDomain>,
+    ) -> Result<(Self, BrokerHandle)> {
+        runtime.binding().validate_endpoint()?;
+        let registry = Arc::new(ProviderRegistry::new());
+        registry.install(Arc::clone(&runtime));
+        Ok(Self::with_registry(registry, domain))
     }
 
-    fn with_provider(
-        provider: ActiveProvider,
-        admission: AdmissionController,
+    /// Bind a whole registry of installed provider runtimes to one physical
+    /// resource domain. The broker serves the bindings the registry can run.
+    pub fn with_registry(
+        registry: Arc<ProviderRegistry>,
+        domain: Arc<ResourceDomain>,
+    ) -> (Self, BrokerHandle) {
+        let domains = Arc::new(ResourceDomainRegistry::new());
+        let _ = domains.register(Arc::clone(&domain));
+        Self::assemble(registry, domain, domains)
+    }
+
+    fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
+        let runtime = env_runtime()?;
+        let domain = default_domain(admission.clone())?;
+        let registry = Arc::new(ProviderRegistry::new());
+        registry.install(Arc::clone(&runtime));
+        Ok(Self::assemble(registry, domain, Arc::new(ResourceDomainRegistry::new())))
+    }
+
+    fn assemble(
+        registry: Arc<ProviderRegistry>,
+        domain: Arc<ResourceDomain>,
+        domains: Arc<ResourceDomainRegistry>,
     ) -> (Self, BrokerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
-        let binding = provider.binding();
+        // The binding comes from the installed runtime, not from a profile
+        // table: the runtime is what actually executes the request.
+        let binding = registry
+            .primary_binding()
+            .unwrap_or(ProviderBinding::Stub { codec: 2 });
+        // The compute budget belongs to the physical domain; the handle and
+        // the broker must observe the same counter.
+        let admission = domain.admission().clone();
+        let accounting = Arc::new(Mutex::new(HashMap::new()));
+        let recovery_sources = Arc::new(Mutex::new(HashMap::new()));
+        let accounting_changed = Arc::new(Notify::new());
+        let kv = Arc::new(KvAllocator::new(
+            Box::new(AutomaticKvPolicy::default()),
+            KvCapabilities::default(),
+        ));
+        let error_sink = new_error_sink_cell();
         (
             Self {
                 rx,
-                admission: admission.clone(),
-                provider,
+                domain: Arc::clone(&domain),
+                domains: Arc::clone(&domains),
+                registry: Arc::clone(&registry),
+                accounting: Arc::clone(&accounting),
+                recovery_sources: Arc::clone(&recovery_sources),
+                accounting_changed: Arc::clone(&accounting_changed),
+                kv: Arc::clone(&kv),
+                error_sink: Arc::clone(&error_sink),
             },
             BrokerHandle {
                 tx,
                 binding,
                 admission,
+                domain,
+                domains,
+                registry,
+                accounting,
+                recovery_sources,
+                accounting_changed,
+                kv,
+                error_sink,
+                handoff_closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
         )
     }
 
-    #[cfg(test)]
-    fn with_fixture_provider(provider: Arc<dyn FixtureProvider>, max: u64) -> (Self, BrokerHandle) {
-        Self::with_provider(
-            ActiveProvider::Fixture(provider),
-            AdmissionController::new(max),
-        )
+    /// Explicit offline construction; does not inspect ambient credentials and
+    /// returns typed Unavailable rather than a fabricated successful completion.
+    pub fn offline() -> (Self, BrokerHandle) {
+        let registry = Arc::new(ProviderRegistry::new());
+        registry.install(Arc::new(OfflineRuntime));
+        let domain = default_domain(AdmissionController::nominal())
+            .expect("the default domain is constructible");
+        let domains = Arc::new(ResourceDomainRegistry::new());
+        let _ = domains.register(Arc::clone(&domain));
+        Self::assemble(registry, domain, domains)
     }
 
-    fn finish(completed: CompletedRequest, unknown_allocations: &mut Vec<AdmissionGuard>) {
-        let CompletedRequest { req, result, guard } = completed;
+    /// Observe what the bound backend actually offers.
+    pub async fn probe_capabilities(&self) -> Result<BackendCapabilitySnapshot> {
+        let binding = self
+            .registry
+            .primary_binding()
+            .ok_or_else(|| anyhow!("no provider runtime is installed"))?;
+        let runtime = self.runtime_for(&binding)?;
+        runtime.probe().await
+    }
+
+    /// Read one bounded native metadata response before dispatch. The model
+    /// must match exactly; no first-card fallback or capability name table.
+    pub async fn discover_capabilities(&self) -> Result<ProviderCapabilities> {
+        let binding = self
+            .registry
+            .primary_binding()
+            .ok_or_else(|| anyhow!("no provider runtime is installed"))?;
+        let runtime = self.runtime_for(&binding)?;
+        let snapshot = runtime.probe().await?;
+        let binding = runtime.binding();
+        let metadata = snapshot
+            .raw_evidence
+            .iter()
+            .filter_map(|document| serde_json::from_value::<ModelMetadataList>(document.clone()).ok())
+            .flat_map(|list| list.data)
+            .find(|model| model.id == binding.model())
+            .ok_or_else(|| anyhow!("bound model metadata not found"))?;
+        ProviderCapabilities::from_metadata(binding, metadata)
+    }
+
+    /// Count the tokens one request would send, when the binding supports it.
+    pub async fn count_tokens(&self, request: &InferenceRequest) -> Result<TokenCount> {
+        let runtime = self.runtime_for(&request.provider_binding)?;
+        runtime.count_tokens(request).await
+    }
+
+    fn runtime_for(&self, binding: &ProviderBinding) -> Result<Arc<dyn ProviderRuntime>> {
+        self.registry
+            .runtime_for(binding)
+            .ok_or_else(|| anyhow!("no installed provider runtime can serve this binding"))
+    }
+
+    fn finish(&self, completed: CompletedRequest) {
+        let CompletedRequest { request, receipt_sink, result, guard } = completed;
+        let request_id = request.request_id;
+        if let Some(sink) = receipt_sink {
+            if let Err(error) = sink.record(&result) {
+                warn!(request_id=%request_id, %error, "model receipt not durably recorded; retaining unknown charge");
+                self.accounting.lock().expect("broker accounting poisoned")
+                    .insert(request_id, Some(guard));
+                return;
+            }
+        }
         let termination = result.termination.kind;
         // Dropping the receiver does not cancel the already executing provider
         // future. Its actual completion is still accounted before this guard.
-        let _ = req.result_tx.send(result);
+        let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
         match termination {
             TerminationKind::ProviderTerminal | TerminationKind::TransportRejected => {
+                accounting.remove(&request_id);
+                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
+                self.domain.reconcile_debt(request_id);
                 guard.release_terminal();
             }
-            TerminationKind::NeverDispatched => guard.release_never_dispatched(),
-            TerminationKind::Unknown => unknown_allocations.push(guard),
+            TerminationKind::NeverDispatched => {
+                accounting.remove(&request_id);
+                self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&request_id);
+                self.domain.reconcile_debt(request_id);
+                guard.release_never_dispatched();
+            }
+            TerminationKind::Unknown => {
+                accounting.insert(request_id, Some(guard));
+                crate::error_sink::journal_runtime_error(
+                    &self.error_sink,
+                    &report_for(&request, result.purpose, "INFERENCE_OUTCOME_UNKNOWN", "provider outcome unknown"),
+                );
+                self.domain.quarantine(
+                    request_id,
+                    now_ms(),
+                    "the provider outcome could not be determined",
+                );
+            }
         }
+        drop(accounting);
+        // The caller may have disappeared; the durable receipt above does not
+        // depend on it.
+        let _ = request.result_tx.send(result);
     }
 
     pub async fn run(mut self) {
@@ -461,28 +782,44 @@ impl Broker {
         let mut input_closed = false;
         let mut inflight = 0_u64;
         let mut prefer_input = false;
-        // Unknown outcomes remain charged for the broker lifetime. Dropping this
-        // vector is also non-releasing; reconciliation must supply real proof.
-        let mut unknown_allocations = Vec::new();
-
         enum Event {
             Completed(Option<CompletedRequest>),
-            Incoming(Option<InferenceRequest>),
+            Incoming(Option<Submission>),
+            AccountingChanged,
         }
 
         loop {
             // Fill only currently available slots. A full budget leaves the
             // request in FairQueue instead of losing it or failing it spuriously.
             while !queue.is_empty() {
-                let Some(guard) = self.admission.try_admit() else {
+                let Some(guard) = self.domain.admission().try_admit() else {
                     break;
                 };
-                let req = queue.pop().expect("queue checked non-empty");
-                let provider = self.provider.clone();
+                let submission = queue.pop().expect("queue checked non-empty");
+                let registry = Arc::clone(&self.registry);
+                let domain = Arc::clone(&self.domain);
+                let kv = Arc::clone(&self.kv);
+                let error_sink = Arc::clone(&self.error_sink);
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
-                    let result = provider.complete(&req).await;
-                    let _ = completed_tx.send(CompletedRequest { req, result, guard });
+                    let Submission { request, receipt_sink, purpose, stream } = submission;
+                    let result = execute_request(
+                        &request,
+                        receipt_sink.as_ref(),
+                        purpose,
+                        stream,
+                        &registry,
+                        &domain,
+                        &kv,
+                        &error_sink,
+                    )
+                    .await;
+                    let _ = completed_tx.send(CompletedRequest {
+                        request,
+                        receipt_sink,
+                        result,
+                        guard,
+                    });
                 });
                 inflight += 1;
             }
@@ -499,6 +836,7 @@ impl Broker {
                     biased;
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
+                    _ = self.accounting_changed.notified() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             } else {
@@ -506,6 +844,7 @@ impl Broker {
                     biased;
                     completed = completed_rx.recv(), if inflight > 0 => Event::Completed(completed),
                     incoming = self.rx.recv(), if !input_closed => Event::Incoming(incoming),
+                    _ = self.accounting_changed.notified() => Event::AccountingChanged,
                     else => std::future::pending::<Event>().await,
                 }
             };
@@ -513,7 +852,7 @@ impl Broker {
                 Event::Completed(completed) => {
                     if let Some(completed) = completed {
                         inflight -= 1;
-                        Self::finish(completed, &mut unknown_allocations);
+                        self.finish(completed);
                     }
                     prefer_input = true;
                 }
@@ -524,9 +863,106 @@ impl Broker {
                     }
                     prefer_input = false;
                 }
+                Event::AccountingChanged => {}
             }
         }
         info!("inference broker stopped");
+    }
+}
+
+/// The provider runtime selected from the environment.
+fn env_runtime() -> Result<Arc<dyn ProviderRuntime>> {
+    if std::env::var("SHENKO_USE_LOCAL_MODEL").as_deref() == Ok("1") {
+        let provider = crate::local_provider::LocalModelProvider::from_env()?;
+        info!(model=%provider.model, "local model provider selected (§22.1)");
+        return Ok(Arc::new(provider));
+    }
+    if let Some(provider) = crate::provider::AnthropicProvider::from_env() {
+        info!("Anthropic API key found — real inference enabled");
+        return Ok(Arc::new(provider));
+    }
+    info!("no inference provider configured — typed unavailable mode");
+    Ok(Arc::new(OfflineRuntime))
+}
+
+/// The default physical domain of an unclassified deployment.
+///
+/// The engine identity is unknown, so the domain offers no hard guarantee; it
+/// only keeps one conservative budget for everything this deployment runs. A
+/// deployment that knows its engines binds them explicitly.
+fn default_domain(admission: AdmissionController) -> Result<Arc<ResourceDomain>> {
+    let capacity = admission.capacity();
+    Ok(ResourceDomain::new(
+        ResourceDomainIdentity {
+            domain_id: "default.unclassified".into(),
+            engine_identity: "unclassified".into(),
+            engine_incarnation: None,
+            epoch: 1,
+        },
+        capacity.value.unwrap_or(1),
+        capacity.provenance,
+        None,
+        crate::admission::CapacityProvenance::Unknown,
+    ))
+}
+
+/// The typed unavailable runtime.
+struct OfflineRuntime;
+
+#[async_trait::async_trait]
+impl ProviderRuntime for OfflineRuntime {
+    fn profile(&self) -> &crate::profile::ProviderProfile {
+        static PROFILE: std::sync::LazyLock<crate::profile::ProviderProfile> = std::sync::LazyLock::new(|| crate::profile::ProviderProfile {
+            profile_id: "provider.unavailable".into(),
+            revision: 2,
+            backend_family: crate::profile::BackendFamily::Other("unavailable".into()),
+            transport: crate::profile::TransportKind::HttpJson,
+            endpoint_origin: "http://127.0.0.1:0".into(),
+            model_id: "stub".into(),
+            api_version: None,
+            sdk: None,
+            request_schema_revision: 2,
+            response_schema_revision: 2,
+            gateway_profile: None,
+            beta_features: Vec::new(),
+            sampling: crate::profile::SamplingCapabilities::default(),
+            auth: crate::profile::AuthBinding::none(),
+            usage: crate::profile::UsageFieldMapping::default(),
+            native_namespaces: Vec::new(),
+            resource_domain_id: "default.unclassified".into(),
+            engine_incarnation: None,
+            default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+            serializer_revision: 2,
+        });
+        &PROFILE
+    }
+
+    fn binding(&self) -> ProviderBinding {
+        ProviderBinding::Stub { codec: 2 }
+    }
+
+    fn available(&self) -> bool {
+        false
+    }
+
+    async fn complete(&self, request: &InferenceRequest) -> Result<InferenceResponse> {
+        Err(anyhow!("no provider is configured"))
+    }
+
+    async fn stream(
+        &self,
+        _request: &InferenceRequest,
+        _publisher: &BoundedStreamPublisher,
+    ) -> Result<crate::stream::StreamOutcome> {
+        Err(anyhow!("no provider is configured"))
+    }
+
+    async fn count_tokens(&self, _request: &InferenceRequest) -> Result<TokenCount> {
+        Err(anyhow!("no provider is configured"))
+    }
+
+    async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
+        Err(anyhow!("no provider is configured"))
     }
 }
 
@@ -535,10 +971,15 @@ mod tests {
     use super::*;
     use crate::admission::{CapacityPool, CapacityProvenance};
     use crate::request::{
-        InferenceMessage, InferencePayload, InferencePriority, TokenUsage, WireErrorCode,
+        InferenceMessage, InferencePayload, TokenUsage, WireErrorCode,
+    };
+    use crate::stream::{
+        SseDecoder, SseFrame, StreamBatch, StreamEvent, StreamSinkError,
+        parse_anthropic_frame, parse_openai_frame,
     };
     use shenko_types::ids::{ControllerEpoch, EntityId};
     use std::collections::BTreeMap;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -587,7 +1028,38 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl FixtureProvider for ControlledProvider {
+    impl ProviderRuntime for ControlledProvider {
+        fn profile(&self) -> &crate::profile::ProviderProfile {
+            static PROFILE: std::sync::LazyLock<crate::profile::ProviderProfile> = std::sync::LazyLock::new(|| crate::profile::ProviderProfile {
+                profile_id: "local.openai.chat_completions".into(),
+                revision: crate::local_provider::SERIALIZER_REVISION,
+                backend_family: crate::profile::BackendFamily::OpenAiCompatible,
+                transport: crate::profile::TransportKind::HttpJson,
+                endpoint_origin: "http://127.0.0.1".into(),
+                model_id: "controlled-fixture".into(),
+                api_version: None,
+                sdk: None,
+                request_schema_revision: crate::local_provider::SERIALIZER_REVISION,
+                response_schema_revision: crate::local_provider::SERIALIZER_REVISION,
+                gateway_profile: None,
+                beta_features: Vec::new(),
+                sampling: crate::profile::SamplingCapabilities::default(),
+                auth: crate::profile::AuthBinding::none(),
+                usage: crate::profile::UsageFieldMapping {
+                    input_tokens_path: Some("usage.prompt_tokens".into()),
+                    output_tokens_path: Some("usage.completion_tokens".into()),
+                    cache_read_tokens_path: None,
+                    cache_write_tokens_path: None,
+                },
+                native_namespaces: Vec::new(),
+                resource_domain_id: "default.unclassified".into(),
+                engine_incarnation: None,
+                default_max_tokens: crate::request::DEFAULT_MAX_TOKENS,
+                serializer_revision: crate::local_provider::SERIALIZER_REVISION,
+            });
+            &PROFILE
+        }
+
         fn binding(&self) -> ProviderBinding {
             self.binding.clone()
         }
@@ -617,7 +1089,97 @@ mod tests {
                     cache_read_tokens: None,
                     cache_write_tokens: None,
                 }),
+                ratelimit_headers: Vec::new(),
+                citations: Vec::new(),
             })
+        }
+
+        async fn stream(
+            &self,
+            _request: &InferenceRequest,
+            _publisher: &BoundedStreamPublisher,
+        ) -> Result<crate::stream::StreamOutcome> {
+            Err(anyhow!("the fixture does not stream"))
+        }
+
+        async fn count_tokens(&self, _request: &InferenceRequest) -> Result<TokenCount> {
+            Err(anyhow!("the fixture does not count tokens"))
+        }
+
+        async fn probe(&self) -> Result<BackendCapabilitySnapshot> {
+            Err(anyhow!("the fixture does not probe"))
+        }
+    }
+
+    /// A durable journal that records exactly what the publisher wrote.
+    struct RecordingJournal {
+        opened: Mutex<Vec<ProviderBinding>>,
+        batches: Mutex<Vec<StreamBatch>>,
+        terminals: Mutex<Vec<TerminationEvidence>>,
+        closed: AtomicU64,
+    }
+
+    impl RecordingJournal {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                opened: Mutex::new(Vec::new()),
+                batches: Mutex::new(Vec::new()),
+                terminals: Mutex::new(Vec::new()),
+                closed: AtomicU64::new(0),
+            })
+        }
+
+        /// Every journaled event across all batches, in wire order.
+        fn journaled_events(&self) -> Vec<StreamEvent> {
+            self.batches
+                .lock()
+                .expect("journal batches poisoned")
+                .iter()
+                .flat_map(|batch| batch.events.clone())
+                .collect()
+        }
+    }
+
+    impl StreamJournalSink for RecordingJournal {
+        fn open_stream(
+            &self,
+            _request_id: EntityId,
+            binding: &ProviderBinding,
+        ) -> Result<(), StreamSinkError> {
+            self.opened
+                .lock()
+                .expect("journal opens poisoned")
+                .push(binding.clone());
+            Ok(())
+        }
+
+        fn append_batch(
+            &self,
+            _request_id: EntityId,
+            batch: &StreamBatch,
+        ) -> Result<(), StreamSinkError> {
+            self.batches
+                .lock()
+                .expect("journal batches poisoned")
+                .push(batch.clone());
+            Ok(())
+        }
+
+        fn append_terminal(
+            &self,
+            _request_id: EntityId,
+            terminal: &TerminationEvidence,
+        ) -> Result<(), StreamSinkError> {
+            self.terminals
+                .lock()
+                .expect("journal terminals poisoned")
+                .push(terminal.clone());
+            Ok(())
+        }
+
+        fn close_stream(&self, _request_id: EntityId) -> Result<(), StreamSinkError> {
+            self.closed.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -652,7 +1214,7 @@ mod tests {
 
         // C=1: continuous Subject work cannot starve Low children.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_fixture_provider(provider.clone(), 1);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(1)).unwrap()).unwrap();
         let (subject_one, subject_one_rx) = submit(&handle, InferencePriority::Subject);
         let (low_one, low_one_rx) = submit(&handle, InferencePriority::Low);
         let (subject_two, subject_two_rx) = submit(&handle, InferencePriority::Subject);
@@ -685,7 +1247,7 @@ mod tests {
 
         // C=2: two same-tier futures really overlap and start in FIFO order.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_fixture_provider(provider.clone(), 2);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(2)).unwrap()).unwrap();
         assert_eq!(handle.capacity().pool, CapacityPool::Compute);
         assert_eq!(handle.capacity().value, Some(2));
         assert_eq!(handle.capacity().provenance, CapacityProvenance::Configured);
@@ -721,7 +1283,7 @@ mod tests {
 
         // C=0: work stays pending instead of receiving synthetic capacity failure.
         let (provider, mut starts) = ControlledProvider::new();
-        let (broker, handle) = Broker::with_fixture_provider(provider.clone(), 0);
+        let (broker, handle) = Broker::with_runtime(provider.clone(), default_domain(AdmissionController::new(0)).unwrap()).unwrap();
         let (_, mut pending_rx) = submit(&handle, InferencePriority::Subject);
         let run = tokio::spawn(broker.run());
         assert!(
@@ -784,9 +1346,9 @@ mod tests {
             socket.shutdown().await.unwrap();
         });
 
-        let provider = LocalModelProvider::new(format!("http://{address}"), "fixture-local".into());
+        let provider = crate::local_provider::LocalModelProvider::new(format!("http://{address}"), "fixture-local".into());
         let (broker, handle) =
-            Broker::with_provider(ActiveProvider::Local(provider), AdmissionController::new(1));
+            Broker::with_local_provider(provider, 1).expect("the local provider binds");
         let binding = handle.binding().clone();
         let payload = InferencePayload {
             system_prompt: "fixture system".into(),
@@ -914,6 +1476,307 @@ mod tests {
                 .await
                 .is_err()
         );
+        let observer = handle.clone();
+        drop(handle);
+        run.abort();
+        let _ = run.await;
+        assert_eq!(observer.active_count(), 1);
+    }
+
+    /// Feed one body exactly the way the provider readers do: split on `\n`,
+    /// keep the terminator on every line.
+    fn feed_body(decoder: &mut SseDecoder, body: &str) -> Vec<SseFrame> {
+        let mut frames = Vec::new();
+        let mut buffer: Vec<u8> = body.as_bytes().to_vec();
+        while let Some(position) = buffer.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = buffer.drain(..=position).collect();
+            frames.extend(
+                decoder.feed_line(&String::from_utf8_lossy(&line)),
+            );
+        }
+        if !buffer.is_empty() {
+            frames.extend(decoder.feed_line(&String::from_utf8_lossy(&buffer)));
+        }
+        frames
+    }
+
+    /// PR132 regression: the callers feed newline-retaining lines, so the
+    /// frame separator arrives as `"\n"` (LF) or `"\r\n"` (CRLF). A boundary
+    /// check that trimmed only `\r` never saw a blank line: no frame, no
+    /// event, no stop reason — a valid stream ended as an empty unknown
+    /// outcome that still held its admission charge. Both line endings must
+    /// decode, and a genuinely empty stream must stay honestly empty.
+    #[tokio::test(flavor = "current_thread")]
+    async fn sse_frame_boundary_decodes_newline_retained_provider_lines() {
+        // Decoder level: the real OpenAI wire shape, newline-retaining LF.
+        let openai_body = concat!(
+            "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n",
+            "\n",
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],",
+            "\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}\n",
+            "\n",
+            "data: [DONE]\n",
+            "\n",
+        );
+        let mut decoder = SseDecoder::new();
+        let frames = feed_body(&mut decoder, openai_body);
+        assert_eq!(frames.len(), 5, "newline-retained separators end frames");
+        assert_eq!(frames[4].data, "[DONE]");
+        let events: Vec<StreamEvent> = frames
+            .iter()
+            .map(parse_openai_frame)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::TextDelta { text: "Hel".into() },
+                StreamEvent::TextDelta { text: "lo".into() },
+                StreamEvent::Usage {
+                    usage: TokenUsage {
+                        input_tokens: Some(11),
+                        output_tokens: Some(7),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }
+                },
+                StreamEvent::MessageStop { stop_reason: "stop".into() },
+            ],
+            "events and stop reason decode from newline-retained lines"
+        );
+
+        // Decoder level: Anthropic event names over CRLF separators.
+        let anthropic_body = concat!(
+            "event: content_block_delta\r\n",
+            "data: {\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\r\n",
+            "\r\n",
+            "event: message_delta\r\n",
+            "data: {\"delta\":{\"stop_reason\":\"end_turn\"},",
+            "\"usage\":{\"output_tokens\":4}}\r\n",
+            "\r\n",
+        );
+        let mut decoder = SseDecoder::new();
+        let frames = feed_body(&mut decoder, anthropic_body);
+        assert_eq!(frames.len(), 2, "CRLF separators end frames");
+        assert_eq!(frames[0].event.as_deref(), Some("content_block_delta"));
+        assert_eq!(
+            frames[0].data,
+            "{\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}"
+        );
+        let events: Vec<StreamEvent> = frames
+            .iter()
+            .map(parse_anthropic_frame)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            events,
+            vec![
+                StreamEvent::TextDelta { text: "hi".into() },
+                StreamEvent::Usage {
+                    usage: TokenUsage {
+                        input_tokens: None,
+                        output_tokens: Some(4),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }
+                },
+                StreamEvent::MessageStop { stop_reason: "end_turn".into() },
+            ]
+        );
+
+        // A genuinely empty stream emits nothing; nothing is fabricated.
+        let mut decoder = SseDecoder::new();
+        assert_eq!(decoder.feed_line("\n"), None);
+        assert_eq!(decoder.feed_line("\r\n"), None);
+        assert_eq!(feed_body(&mut decoder, ": keepalive\n\n").len(), 0);
+
+        // Broker level: the same SSE body over a real socket. Before the fix
+        // this returned Success=false with an empty response, empty stop
+        // reason and TerminationKind::Unknown while the charge stayed held.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let bodies = [
+            openai_body.to_string(),
+            // Keepalive comments only: a valid stream with no events.
+            ": keepalive\n: keepalive\n\n".to_string(),
+        ];
+        let server = tokio::spawn(async move {
+            for body in bodies {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                let mut body_start = None;
+                let mut body_length = 0_usize;
+                loop {
+                    let mut chunk = [0_u8; 1024];
+                    let read = socket.read(&mut chunk).await.unwrap();
+                    assert_ne!(read, 0, "request ended before complete headers/body");
+                    bytes.extend_from_slice(&chunk[..read]);
+                    if body_start.is_none() {
+                        if let Some(header_end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let start = header_end + 4;
+                            let headers = String::from_utf8(bytes[..header_end].to_vec()).unwrap();
+                            body_length = headers
+                                .lines()
+                                .find_map(|line| {
+                                    let (name, value) = line.split_once(':')?;
+                                    name.eq_ignore_ascii_case("content-length")
+                                        .then(|| value.trim().parse().ok())
+                                        .flatten()
+                                })
+                                .unwrap();
+                            body_start = Some(start);
+                        }
+                    }
+                    if body_start.is_some_and(|start| bytes.len() >= start + body_length) {
+                        break;
+                    }
+                }
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                socket.write_all(response.as_bytes()).await.unwrap();
+                socket.shutdown().await.unwrap();
+            }
+        });
+
+        let provider = crate::local_provider::LocalModelProvider::new(
+            format!("http://{address}"),
+            "fixture-local".into(),
+        );
+        let (broker, handle) =
+            Broker::with_local_provider(provider, 1).expect("the local provider binds");
+        let binding = handle.binding().clone();
+        let journal = RecordingJournal::new();
+        let payload = InferencePayload {
+            system_prompt: "fixture system".into(),
+            messages: vec![InferenceMessage::text("user", "fixture input")],
+            max_tokens: Some(16),
+            tools: vec![],
+            native_options: BTreeMap::new(),
+        };
+        let submit_stream = |payload: InferencePayload| {
+            let request_id = EntityId::new();
+            let (result_tx, result_rx) = oneshot::channel();
+            handle
+                .submit_stream(
+                    BrokeredCall {
+                        purpose: RequestPurpose::Subject,
+                        request: InferenceRequest {
+                            request_id,
+                            agent_id: EntityId::new(),
+                            conversation_id: EntityId::new(),
+                            provider_binding: binding.clone(),
+                            priority: InferencePriority::Subject,
+                            epoch: ControllerEpoch(1),
+                            payload,
+                            result_tx,
+                        },
+                    },
+                    StreamIdentity::default(),
+                    Some(journal.clone()),
+                    None,
+                )
+                .unwrap();
+            (request_id, result_rx)
+        };
+        let run = tokio::spawn(broker.run());
+
+        let (request_id, result_rx) = submit_stream(payload.clone());
+        let result = tokio::time::timeout(Duration::from_secs(3), result_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.request_id, request_id);
+        assert_eq!(result.status, InferenceStatus::Success);
+        assert_eq!(result.termination.kind, TerminationKind::ProviderTerminal);
+        assert_eq!(result.termination.stop_reason.as_deref(), Some("stop"));
+        let response = result.response.expect("decoded frames assemble a response");
+        assert_eq!(response.content, "Hello");
+        assert_eq!(response.stop_reason, "stop");
+        assert_eq!(
+            response.usage,
+            Some(TokenUsage {
+                input_tokens: Some(11),
+                output_tokens: Some(7),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            })
+        );
+        let evidence = result.stream.expect("a streamed call keeps its evidence");
+        assert_eq!(evidence.events, 4);
+        assert_eq!(evidence.public_chunks, 2);
+        assert!(evidence.journaled);
+        assert_eq!(
+            journal.journaled_events(),
+            vec![
+                StreamEvent::TextDelta { text: "Hel".into() },
+                StreamEvent::TextDelta { text: "lo".into() },
+                StreamEvent::Usage {
+                    usage: TokenUsage {
+                        input_tokens: Some(11),
+                        output_tokens: Some(7),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }
+                },
+                StreamEvent::MessageStop { stop_reason: "stop".into() },
+            ],
+            "the durable journal records the decoded wire, nothing else"
+        );
+        assert_eq!(
+            journal.terminals.lock().expect("terminals poisoned").as_slice(),
+            &[TerminationEvidence {
+                kind: TerminationKind::ProviderTerminal,
+                stop_reason: Some("stop".into()),
+                max_tokens: Some(16),
+                output_tokens: Some(7),
+                length: false,
+            }]
+        );
+
+        // An empty stream is not rescued by the boundary fix: no frames, no
+        // events, an honest unknown outcome that keeps its charge.
+        let (_, result_rx) = submit_stream(payload.clone());
+        let result = tokio::time::timeout(Duration::from_secs(3), result_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.status, InferenceStatus::Failed);
+        assert_eq!(result.termination.kind, TerminationKind::Unknown);
+        let response = result.response.expect("an empty stream keeps an empty response");
+        assert!(response.content.is_empty(), "no fabricated content");
+        assert!(response.stop_reason.is_empty(), "no fabricated stop reason");
+        assert_eq!(response.usage, None);
+        let evidence = result.stream.expect("a streamed call keeps its evidence");
+        assert_eq!(evidence.events, 0);
+        assert_eq!(evidence.public_chunks, 0);
+        assert!(evidence.journaled);
+        assert_eq!(
+            journal.journaled_events().len(),
+            4,
+            "the empty stream journaled no event"
+        );
+        assert_eq!(journal.closed.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            handle.active_count(),
+            1,
+            "the unknown outcome still holds its admission charge"
+        );
+
+        server.await.unwrap();
+        drop(submit_stream);
         let observer = handle.clone();
         drop(handle);
         run.abort();

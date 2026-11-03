@@ -1,0 +1,26 @@
+[package]
+name = "shenko-mobile"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Android perception/execution plugins: replaceable root/Shizuku/Dhizuku/accessibility adapters, APK bundle composition contract — SPEC §24.5/§24.5.1"
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+shenko-store = { path = "../shenko-store" }
+shenko-subject = { path = "../shenko-subject" }
+blake3 = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+png = { workspace = true }
+rusqlite = { workspace = true }
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"

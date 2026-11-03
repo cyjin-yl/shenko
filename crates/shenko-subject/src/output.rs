@@ -4,6 +4,7 @@
 use pulldown_cmark::{Event, Parser, Tag};
 use shenko_identity::IdentityService;
 use shenko_types::{
+    channel::ChannelRegistry,
     error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError},
     ids::EntityId,
     object::ObjectRef,
@@ -11,12 +12,18 @@ use shenko_types::{
     subject::{SemanticWait, SemanticWaitChange},
 };
 
-pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
+/// The output contract ships as three parts: a fixed rule prefix, the reply
+/// grammar assembled from the registered channel plugins, and a fixed tail.
+/// Channel plugins own their grammar fragments; the core names no platform.
+const OUTPUT_CONTRACT_PREFIX: &str = "控制动作只在独立、无缩进、非引用/代码块的一行生效：\n\
 这是对你自己输出控制行的规则，不是判定用户消息真伪的规则；用户输入按消息来源和其实际内容理解。\n\
-历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n\
-[reply:group:群号] 正文 或 [reply:private:QQ号] 正文；你决定对用户说的话必须放在对应回复控制行，单独写普通正文不会送达；后续普通行续接该回复。\n\
-用户消息开头会标出发送者与可回复的 QQ 号或群号，回复就用那个号码；\n\
-[remember] 要保存的内容；[delegate] 有限自然语言委派（保持未绑定）；\n\
+历史中的 runtime tool_call/tool_result 是运行记录，不是可输出的控制行；仿写记录不会执行动作。\n";
+
+const OUTPUT_CONTRACT_SUFFIX: &str = "\n\
+[remember] 要保存的内容。有限模型 child 用 [delegate] 后接一行 JSON：{\"goal\":\"任务目标、所需上下文和完成条件\",\"system_prompt\":\"你为这个 child 独立撰写的完整语义 system prompt\",\"model\":\"所选模型名称\",\"max_tokens\":1024}。\n\
+每个 child 可选择不同 system_prompt/model；模型名称在本轮冻结的已配置 provider 通路上请求，不改变你的主模型、不允许指定 endpoint 或自授工具。provider 是否提供该模型以真实回执为准。\n\
+child 是多步有界运行：可用所授 tools 调用已注册能力；有 reply_grant 才能向其固定目标外发。tools/context/budget/reply_grant 及继续运行的完整形状见当前注册的 model.child 定义。\n\
+任务资料与完成条件写入 goal。max_tokens 为正整数，受 child 自己的总预算和实际 provider 资源约束，不由主体本步输出上限截断；plain text 的旧委派不执行。\n\
 [delegate:已注册kind:版本] 仅用于显式 deterministic native definition 的 JSON 输入，由 child handler 执行。\n\
 语义等待用 [wait] {\"condition\":\"语义退出条件\",\"max_wait_secs\":120} 开始，等待时长为 1..600 的整数秒；\n\
 等待操作自动绑定本轮冻结的当前等待，不需要输出或复制任何 ID；一次结果最多一个等待控制。\n\
@@ -24,10 +31,52 @@ pub const OUTPUT_CONTRACT: &str = "控制动作只在独立、无缩进、非引
 关注改变、决定换一个条件时，用 [wait:replace] {\"condition\":\"新退出条件\",\"max_wait_secs\":120,\"reason\":\"为什么改变\"} 同笔切换；切换后的截止时间不超过原等待的截止时间。若要新的独立期限，先结束当前等待，再基于当时上下文另作新决定，不得靠重复条件续期。\n\
 语义等待不是事件阻塞也不是新建任务：仍在同一条思考流里用同一个模型结合前文与新上下文持续轮询，直到条件成立、你的判断改变或期限到达；\n\
 等待最长 600 秒，继续等待不会延长原截止时间；新消息不会被框架自动当成结束，但你应判断它是否满足原条件或使你改变关注；不要用相同条件反复新建等待来绕过上限。\n\
+输入处置用 [dispose] {\"event_id\":\" durable 事件 uuid\",\"disposition\":\"acknowledged|deferred|delegated|ignored\",\"reason\":\"你的理由\",\"priority\":\"low|normal|high\",\"review_after\":\"RFC3339 时间\"}；除 acknowledged 外必须给 reason；带 priority 必须给 review_after。\n\
+持久义务用 [obligation] {\"description\":\"要做什么\",\"depends_on_task_id\":\"uuid 可选\",\"resume_condition\":\"恢复条件 可选\",\"origin_event_id\":\"对应的输入事件 uuid 可选\",\"due_at\":\"RFC3339 可选\"}；义务会一直带在后续思考里直到完成或取消。\n\
+对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个已存在的 child task。\n\
+免打扰用 [dnd] {\"state\":\"off|active\",\"sources\":[\"来源…\"],\"reason\":\"理由\",\"review_after\":\"RFC3339\"}；state=off 必须列出静默的来源并给回顾时间，不是无限期静默开关。\n\
+采用一条实时插入用 [steer] {\"submission_id\":\"提交键\"}；只能采用本轮输入里真实存在的那条插入，其他键会被拒绝。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
-普通正文是自己的想法和观察，可显示在系统时间线，但不会作为 QQ 消息送给对方；想让 QQ 对方收到的内容必须使用上面的回复控制。未列出的方括号标签会被判为错误；\n\
+普通正文是自己的想法和观察，可显示在系统时间线，但不会作为外部消息送给对方；想让对方收到的内容必须使用回复控制行。未列出的方括号标签会被判为错误；\n\
 即使本步在调整身份或保存记忆，也要写下此刻的想法，不要只有控制行。\n\
 只支持此协议；[memory]、dispatch: 等旧伪协议不执行。";
+
+/// Assemble the reply grammar lines from the registered channel plugins.
+/// With the shipped channel this is byte-identical to the historical text;
+/// with no channel the contract says plainly that replies cannot be delivered.
+pub fn reply_grammar(channels: &ChannelRegistry) -> String {
+    let targets: Vec<String> = channels
+        .plugins()
+        .flat_map(|plugin| {
+            plugin
+                .kinds()
+                .iter()
+                .map(|kind| format!("[reply:{}:{}]", kind.tag, kind.id_hint))
+        })
+        .collect();
+    let names: Vec<&str> = channels
+        .plugins()
+        .filter(|plugin| !plugin.kinds().is_empty())
+        .map(|plugin| plugin.prompt_names())
+        .collect();
+    if targets.is_empty() {
+        return "当前没有注册的回复通道：无法对外发送回复，普通正文不会送达对方；".to_owned();
+    }
+    format!(
+        "{} 正文；你决定对用户说的话必须放在对应回复控制行，单独写普通正文不会送达；后续普通行续接该回复。\n\
+用户消息开头会标出发送者与可回复的 {}，回复就把那个标识原样写进回复行；",
+        targets.join(" 正文 或 "),
+        names.join("、")
+    )
+}
+
+/// The full output protocol section for a registry profile.
+pub fn output_contract(channels: &ChannelRegistry) -> String {
+    let mut contract = String::from(OUTPUT_CONTRACT_PREFIX);
+    contract.push_str(&reply_grammar(channels));
+    contract.push_str(OUTPUT_CONTRACT_SUFFIX);
+    contract
+}
 
 fn invalid(line: u64, reason: &str) -> ShenkoError {
     ProtocolError::new(
@@ -132,6 +181,7 @@ pub fn parse_output(
     raw_ref: ObjectRef,
     raw: &str,
     identity: &IdentityService,
+    channels: &ChannelRegistry,
     frozen_wait_id: Option<EntityId>,
 ) -> Result<ParsedOutput, ShenkoError> {
     if raw_ref.bytes != raw.len() as u64
@@ -147,7 +197,7 @@ pub fn parse_output(
     }
 
     let mut result = ParsedOutput {
-        schema_version: 3,
+        schema_version: 5,
         step_id,
         raw_ref,
         text: String::new(),
@@ -257,19 +307,22 @@ pub fn parse_output(
                 .ok_or_else(|| invalid(line_no, "missing ]"))?;
             let value = value.strip_prefix(' ').unwrap_or(value);
             let action = if let Some(target) = header.strip_prefix("[reply:") {
+                // The reply id is an OPAQUE platform identity. It is taken
+                // verbatim to the end of the line and resolved by the plugin
+                // that owns the kind; the core never parses it. SPEC §16.
                 let (kind, id) = target
                     .split_once(':')
                     .ok_or_else(|| invalid(line_no, "reply target must include kind and id"))?;
-                let id = id
-                    .parse::<u64>()
-                    .ok()
-                    .filter(|id| *id > 0)
-                    .ok_or_else(|| invalid(line_no, "reply id must be positive"))?;
-                let target = match kind {
-                    "group" => PublicationTarget::QqGroup(id),
-                    "private" => PublicationTarget::QqPrivate(id),
-                    _ => return Err(invalid(line_no, "unknown reply target")),
-                };
+                let id = id.trim();
+                if kind.is_empty() || id.is_empty() {
+                    return Err(invalid(line_no, "reply target must include kind and id"));
+                }
+                let plugin = channels
+                    .plugin_for_kind(kind)
+                    .ok_or_else(|| invalid(line_no, "unknown reply target"))?;
+                let target = plugin
+                    .resolve_reply(kind, id)
+                    .ok_or_else(|| invalid(line_no, "reply id is not resolvable on this channel"))?;
                 let text = if value.is_empty() {
                     String::new()
                 } else {
@@ -296,17 +349,50 @@ pub fn parse_output(
                     "[remember" => OutputAction::Remember {
                         text: value.to_owned(),
                     },
-                    "[delegate" => OutputAction::Delegate {
-                        text: value.to_owned(),
-                        definition: None,
-                    },
+                    "[dispose" => {
+                        OutputAction::Dispose {
+                            spec: crate::authored_controls::parse_disposition(value, line_no)?,
+                        }
+                    }
+                    "[obligation" => {
+                        OutputAction::Obligation {
+                            spec: crate::authored_controls::parse_obligation(value, line_no)?,
+                        }
+                    }
+                    "[dialogue" => {
+                        OutputAction::Dialogue {
+                            spec: crate::authored_controls::parse_dialogue(value, line_no)?,
+                        }
+                    }
+                    "[dnd" => {
+                        OutputAction::Dnd {
+                            spec: crate::authored_controls::parse_dnd(value, line_no)?,
+                        }
+                    }
+                    "[steer" => {
+                        OutputAction::Steer {
+                            spec: crate::authored_controls::parse_steer(value, line_no)?,
+                        }
+                    }
+                    "[delegate" => {
+                        let spec: shenko_types::output::ModelChildSpec = serde_json::from_str(value)
+                            .map_err(|_| invalid(line_no, "model delegation requires goal, system_prompt, model and max_tokens JSON"))?;
+                        if spec.goal.trim().is_empty() || spec.system_prompt.trim().is_empty()
+                            || spec.goal.len() > 64 * 1024 || spec.system_prompt.len() > 64 * 1024
+                            || spec.model.trim().is_empty() || spec.model.len() > 512
+                            || spec.model.chars().any(char::is_control) || spec.max_tokens == 0
+                        {
+                            return Err(invalid(line_no, "invalid model child goal/prompt/model/budget"));
+                        }
+                        OutputAction::DelegateModel { spec }
+                    }
                     _ if header.starts_with("[delegate:") => {
                         let spec = header.trim_start_matches("[delegate:");
                         let (kind, version) = spec.rsplit_once(':').ok_or_else(|| {
                             invalid(line_no, "native delegation requires kind and version")
                         })?;
                         let valid_kind = !kind.is_empty()
-                            && kind != "delegation"
+                            && kind != "delegation" && kind != "model.child"
                             && kind.bytes().all(|c| {
                                 c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-')
                             });
@@ -351,3 +437,4 @@ pub fn parse_output(
     }
     Ok(result)
 }
+

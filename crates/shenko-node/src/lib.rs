@@ -17,11 +17,17 @@ pub use peers::*;
 mod admission;
 pub mod units;
 pub use units::*;
+mod capability;
+pub use capability::*;
+mod selection;
+pub use selection::*;
+mod election;
+pub use election::*;
 
 pub const MAX_NODE_REQUEST: usize = 16 * 1024 * 1024;
 
 const SCHEMA: u32 = 1; // Record/wire schema; storage migrations are separate.
-const STORAGE_SCHEMA: u32 = 4;
+const STORAGE_SCHEMA: u32 = 6;
 const APPLICATION_ID: u32 = 0x53484e4b; // SHNK, not a filename-based adoption rule.
 const NODE_TABLES: &str = "
 CREATE TABLE meta(k TEXT PRIMARY KEY,v TEXT NOT NULL);
@@ -112,7 +118,7 @@ pub struct ResultReceipt {
 
 /// Restricted to an OS/SSH account with installation control. A future registry
 /// adapter must derive this from authenticated IPC, never model tool arguments.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Request {
     Initialize {
@@ -168,8 +174,56 @@ pub enum Request {
         request: RoleAssignmentRequest,
     },
     Roles,
+    /// This Node's current self-declared capability advertisement.
+    Capabilities,
+    /// Newest verified capability fact per known source.
+    CapabilityFacts,
+    /// Deterministic candidacy ordering of the known member set; not an election.
+    Coordination,
     Units {
         request: UnitRequest,
+    },
+    /// The committed election, membership and authority facts of this Node.
+    ElectionStatus,
+    /// The committed member configuration and its quorum requirement.
+    Members,
+    /// Propose a membership change; the votes are counted separately.
+    MemberChange {
+        request: MemberChangeRequest,
+    },
+    /// Record one verified vote for a campaign or membership proposal.
+    RecordVote {
+        request: VoteRequest,
+        response: VoteResponse,
+    },
+    /// Count the votes of a campaign term and commit the primary on quorum.
+    Tally {
+        term: String,
+    },
+    /// Count the votes of a membership proposal and commit it on quorum.
+    TallyMemberChange {
+        proposal: MemberProposal,
+    },
+    /// Answer a vote request from another member of the domain.
+    Vote {
+        request: VoteRequest,
+    },
+    /// Replicate committed control entries from the domain leader.
+    Append {
+        request: AppendRequest,
+    },
+    /// Adopt the member configuration published by an existing member.
+    PushConfig {
+        config: MemberConfiguration,
+        entries: Vec<ControlEntry>,
+    },
+    /// Adopt an existing self; the local experience is retained.
+    Adopt {
+        request: AdoptRequest,
+    },
+    /// Merge a peer's verified experience as parallel facts.
+    Reconcile {
+        request: PeerExperience,
     },
 }
 
@@ -178,6 +232,43 @@ pub struct Node {
     failed: bool,
 }
 impl Node {
+    /// Read-only inspection of an existing installation: opens the node
+    /// database without creating it, without admitting foreign directories
+    /// (the caller scopes the directory) and — crucially for read paths like
+    /// `shenko tool list` — without running schema migrations or durable
+    /// writes. Returns `Ok(None)` when no node installation exists at `dir`.
+    pub fn open_inspect(dir: &Path) -> Result<Option<Self>> {
+        use std::os::unix::fs::MetadataExt;
+        let db = dir.join("node.sqlite3");
+        if !db.try_exists()? {
+            return Ok(None);
+        }
+        let directory = std::fs::symlink_metadata(dir)?;
+        let main = std::fs::symlink_metadata(&db)?;
+        ensure!(directory.is_dir() && !directory.file_type().is_symlink(), "node directory must not be a symlink");
+        ensure!(main.is_file() && main.nlink() == 1 && !main.file_type().is_symlink(),
+            "node main must be one private regular file with one link");
+        // Do not call validate_existing here: its interrupted-journal path
+        // performs recovery. A genuinely read-only opener reports that
+        // recovery is needed rather than mutating even a known installation.
+        let conn = Connection::open_with_flags(
+            &db,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        // Inspection still requires a validated, current installation: an
+        // older schema reports as such instead of silently reading past a
+        // needed migration.
+        ensure!(
+            validate_installation(&conn)? == STORAGE_SCHEMA,
+            "node installation predates the current storage schema; open it through Node::open"
+        );
+        Ok(Some(Self {
+            conn,
+            failed: false,
+        }))
+    }
+
     pub fn open(dir: &Path) -> Result<Self> {
         use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
         if !dir.exists() {
@@ -290,6 +381,15 @@ impl Node {
             if locked == 3 {
                 units::migrate_v3_edges(&tx)?;
             }
+            // Schema 5 introduced the capability tables; schema 6 adds the
+            // election, membership, branch and reconciliation tables. Each
+            // step only creates the tables that version did not have yet.
+            if locked <= 4 {
+                tx.execute_batch(capability::CAPABILITY_SCHEMA)?;
+            }
+            if locked <= 5 {
+                tx.execute_batch(election::ELECTION_SCHEMA)?;
+            }
             tx.pragma_update(None, "application_id", APPLICATION_ID)?;
             tx.pragma_update(None, "user_version", STORAGE_SCHEMA)?;
             tx.commit()?;
@@ -319,6 +419,9 @@ impl Node {
                 Ok(serde_json::to_value(self.assign_roles(request)?)?)
             }
             Request::Roles => self.role_status(),
+            Request::Capabilities => Ok(serde_json::to_value(self.capability_profile()?)?),
+            Request::CapabilityFacts => Ok(json!({"facts": self.capability_facts()?})),
+            Request::Coordination => self.coordination_candidates(),
             Request::Units { request } => self.handle_unit_request(request),
             Request::Initialize { node_id, identity } => {
                 let tx = self
@@ -363,18 +466,17 @@ impl Node {
                     "wrong managed node"
                 );
                 ensure!(
-                    manifest.schema == SCHEMA
-                        && manifest.os == std::env::consts::OS
-                        && manifest.arch == std::env::consts::ARCH,
+                    manifest.schema == SCHEMA,
                     "incompatible artifact/schema"
                 );
                 ensure!(
-                    manifest.source_revision.len() == 40
-                        && manifest
-                            .source_revision
-                            .bytes()
-                            .all(|b| b.is_ascii_hexdigit()),
-                    "source revision required"
+                    manifest.source_revision == "unbound"
+                        || (manifest.source_revision.len() == 40
+                            && manifest
+                                .source_revision
+                                .bytes()
+                                .all(|b| b.is_ascii_hexdigit())),
+                    "source revision must be a clean product commit or the explicit unbound marker"
                 );
                 ensure!(manifest == actual, "running artifact/source mismatch");
                 let old: Option<Identity> = get(&tx, "identity")?;
@@ -631,6 +733,44 @@ impl Node {
                 }).collect::<Result<Vec<_>>>()?;
                 Ok(json!({"receipts":receipts,"through":through,"profile":"process_crash"}))
             }
+            Request::ElectionStatus => Ok(self.election_status()?),
+            Request::Members => {
+                let config = self.member_configuration()?;
+                Ok(json!({
+                    "member_configuration": config,
+                    "quorum": config.as_ref().map(|config| config.quorum()),
+                    "quorum_basis": "committed_member_configuration",
+                    "visible_nodes_are_not_the_quorum": true,
+                }))
+            }
+            Request::MemberChange { request } => {
+                Ok(serde_json::to_value(self.propose_member_change(request)?)?)
+            }
+            Request::RecordVote { request, response } => Ok(
+                serde_json::to_value(self.record_vote_response(&request, &response)?)?,
+            ),
+            Request::Tally { term } => {
+                let term = number(&term)?;
+                Ok(serde_json::to_value(self.tally(term)?)?)
+            }
+            Request::TallyMemberChange { proposal } => Ok(
+                serde_json::to_value(self.tally_member_change(&proposal)?)?,
+            ),
+            Request::Vote { request } => {
+                Ok(serde_json::to_value(self.handle_vote_request(&request)?)?)
+            }
+            Request::Append { request } => {
+                Ok(serde_json::to_value(self.append_control_entries(&request)?)?)
+            }
+            Request::PushConfig { config, entries } => Ok(
+                serde_json::to_value(self.adopt_member_configuration(&config, &entries)?)?,
+            ),
+            Request::Adopt { request } => {
+                Ok(serde_json::to_value(self.adopt_identity(request)?)?)
+            }
+            Request::Reconcile { request } => Ok(
+                serde_json::to_value(self.reconcile_peer_experience(&request)?)?,
+            ),
         }
     }
     fn execute(&mut self, lease: Ticket, input: Vec<u8>) -> Result<Value> {
@@ -817,6 +957,30 @@ impl Node {
         if lease.record_revision != current.record_revision {
             return evidence_only(tx, receipt_seq, "stale_owner", "stale_record_revision");
         }
+        // A result armed under an older election epoch is fenced: the source
+        // fact survives as evidence, but it does not settle the task once a
+        // newer election committed (SPEC §5.4.3).
+        let fence: Option<(String, String)> = tx
+            .query_row(
+                "SELECT election_term,election_epoch FROM node_assignment_fences WHERE task=?1 AND epoch=?2",
+                params![t.task_id.to_string(), lease.epoch],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((fence_term, fence_epoch)) = fence {
+            let claim: Option<PrimaryClaim> = election::get_state(&tx, "primary")?;
+            if let Some(claim) = claim {
+                if fence_epoch != claim.epoch.to_string() || fence_term != claim.term.to_string()
+                {
+                    return evidence_only(
+                        tx,
+                        receipt_seq,
+                        "fenced_by_election",
+                        "evidence_only_fenced_by_election",
+                    );
+                }
+            }
+        }
         if t.kind != KIND
             || lease.contract_digest != contract()
             || lease.input_digest != t.input_ref.digest
@@ -934,6 +1098,12 @@ fn validate_installation(conn: &Connection) -> Result<u32> {
         } else {
             units::UNIT_TABLES
         })?;
+    }
+    if version >= 5 {
+        expected.execute_batch(capability::CAPABILITY_SCHEMA)?;
+    }
+    if version >= 6 {
+        expected.execute_batch(election::ELECTION_SCHEMA)?;
     }
     fn schema(conn: &Connection) -> Result<Vec<(String, String, String)>> {
         Ok(conn.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name")?
@@ -1178,6 +1348,17 @@ fn assignment(tx: &Transaction<'_>, ticket: &Ticket) -> Result<()> {
     tx.execute(
         "INSERT INTO assignments VALUES(?1,?2,?3)",
         params![ticket.task_id.to_string(), ticket.epoch, text(ticket)?],
+    )?;
+    // Bind the assignment to the election epoch it was armed under. A writer
+    // armed under an older epoch is fenced when a newer election commits.
+    let claim: Option<PrimaryClaim> = election::get_state(tx, "primary")?;
+    let (term, epoch) = match claim {
+        Some(claim) => (claim.term.to_string(), claim.epoch.to_string()),
+        None => ("0".into(), "0".into()),
+    };
+    tx.execute(
+        "INSERT OR REPLACE INTO node_assignment_fences(task,epoch,election_term,election_epoch) VALUES(?1,?2,?3,?4)",
+        params![ticket.task_id.to_string(), ticket.epoch, term, epoch],
     )?;
     Ok(())
 }

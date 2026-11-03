@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "evidence_id": "c19-longrun-observation-tooling-20261029",
+  "issues": [
+    "https://github.com/cyjin-yl/shenko/issues/24"
+  ],
+  "requirements": ["R021"],
+  "cases_reference_only": ["G11", "G08", "N05"],
+  "full_cases_passed": [],
+  "status": "short_native_tooling_verified_no_long_run_data",
+  "product_commit": "17ccbd923133ba2df21a93d58a2e89073241570e",
+  "product_commit_scope": "Schema-2 tool source exercised by the parent in the development container under the shared heavy-work lock; not an actual Shenko long-run result.",
+  "reviewed_head": "17ccbd923133ba2df21a93d58a2e89073241570e",
+  "base_commit": "5959e455af637fd1edd55fbeb2e94af725131b74",
+  "what_it_is": "A stdlib-only Linux observation tool. Schema 2 binds one directory/run to an intact matching header and manifest, requires gap-free samples and same-boot uptime corroboration, refuses damaged-log continuation, and associates restart boundaries with samples. Verification below is bounded native procfs plus labeled synthetic evidence copies, not long-run stability.",
+  "what_it_proves": [
+    "Nine permanent scenarios passed and documentation integrity reported no errors.",
+    "Actual short-lived procfs sampling retained real boot/process identity and correctly left 7/30-day windows unobserved with require-observed exit 3.",
+    "The external consumer passed 44 assertions over real process observations and explicitly synthetic gap/header/torn-tail/boundary-retry copies; original captured bytes were retained."
+  ],
+  "native_receipt": "build/c19-observation-native-20261029/native-17ccbd92-67b907cd/summary.json",
+  "tool_sha256": "45171d011be2f64d3592943e022136be96be84a63de82c89f16edc6b4e7f06e0",
+  "source_repairs": [
+    "Known sampler gaps disqualify every declared window; endpoint span is diagnostic only. Uptime corroboration prevents a wall-clock step from manufacturing elapsed coverage; discontinuous or unverifiable clocks do not qualify.",
+    "One first matching schema/header/run/manifest/recorder binding is required. Missing headers, drift, foreign runs, unknown or malformed records, missing/duplicate sample sequences and unverifiable live-process identities do not qualify.",
+    "Any unterminated tail, including parseable JSON without its newline, is refused before another append; damaged bytes remain unchanged.",
+    "Kernel boot ID comes from /proc/sys/kernel/random/boot_id. PID changes are classified before same-PID starttime changes; zombie/dead processes do not count as alive or accumulate live-process uptime.",
+    "Restart boundaries carry sample_seq. A complete boundary followed by a failed sample write is reused on retry, and reports count only unique sample-corroborated transitions. Unmatched boundaries remain integrity gaps.",
+    "Acknowledged appends fsync both file and containing directory, including newly created log entries and retries.",
+    "The permanent suite now contains exactly 9 independent scenarios. Redundant old cases were removed rather than regrouped. Schema-1 evidence is retained as bytes, not inferred into the new format."
+  ],
+  "scenario_inventory": [
+    "intact synthetic window boundary",
+    "known sampling gap across a thirty-day endpoint span",
+    "missing run header",
+    "torn append refusal with byte preservation",
+    "kernel boot-id path",
+    "one PID replacement with a failed sample write and retry",
+    "log creation directory fsync",
+    "zombie subject",
+    "sample sequence discontinuity"
+  ],
+  "historical_execution": {
+    "candidate": "a57261a9167729fd13f38e53960e6e759ee8cb10",
+    "source": "Original C19Evidence handoff; not rerun by the repair worker",
+    "author_reported_commands": [
+      "python3 -I scripts/observe_longrun_test.py",
+      "python3 scripts/check_docs.py",
+      "python3 -I scripts/observe_longrun.py --help"
+    ],
+    "scope_correction": "The old four function names concealed at least ten independent behaviors. Those reported passes do not validate the repaired source, prove the nine reviewed properties, or establish physical durability."
+  },
+  "what_it_does_not_prove": [
+    "The observed subject was a controlled sleep process, not the Shenko model-driven subject.",
+    "No 7-day or 30-day run has been performed or observed; no candidate long-run data exists.",
+    "No RSS/drift/uptime/failure-distribution numbers for any Shenko candidate.",
+    "No router/Android/multi-node profiles, physical power-loss RPO, or subject behavioral correctness (continuous thinking or no message loss).",
+    "Samples are points in time. Between-sample behavior is not proven; restarts require the actual new PID. Cross-boot continuity is conservatively rejected.",
+    "One writer per run is required. Local evidence is unsigned and candidate metadata is caller-supplied; the sampler does not attest that a PID executed the declared binary."
+  ],
+  "environment": {
+    "repair_execution": "Source edits and DCO commit only; no builds/tests/formatters/services/network/model calls by the repair worker",
+    "parent_execution": "Development container shenko-dev-persistent-20261026 under the canonical shared heavy-work lock",
+    "tool_executed": true,
+    "product_executed": false
+  },
+  "executed_parent_checks": [
+    "python3 -I scripts/observe_longrun_test.py",
+    "python3 scripts/check_docs.py",
+    "A bounded real-PID capture: check non-null boot ID against /proc/sys/kernel/random/boot_id, live facts, absent long-run verdict, and --require-observed exit 3.",
+    "A bounded native fault exercise for missing headers, torn tails and failure after a complete boundary but before its sample; also observe a real PID replacement. This is not 7/30-day or physical power-loss evidence."
+  ],
+  "bounds": {
+    "claimed_requirement_delta": "R021 remains partial and satisfied=false; source/tooling references only",
+    "long_run_obligations_remaining": "All actual 7/30-day windows, device RSS targets, router/Android/multi-node profiles and real failure-injection evidence remain unobserved."
+  }
+}
