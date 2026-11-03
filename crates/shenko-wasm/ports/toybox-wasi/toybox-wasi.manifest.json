@@ -1,0 +1,753 @@
+{
+  "schema": 1,
+  "set": "toybox-wasi",
+  "version": "0.8.15",
+  "name_prefix": "toybox",
+  "source": {
+    "uri": "https://landley.net/toybox/",
+    "release": "0.8.15",
+    "provenance": "source_build:wasi-sdk-34",
+    "source_sha256": "52452b68a6cf50f9a9728b0f844b03c4dd1f70463675b202e6cf0475bda3934f"
+  },
+  "license": {
+    "spdx": "BSD-3-Clause",
+    "file": "LICENSE",
+    "notice": null
+  },
+  "abi": "wasi_preview1",
+  "build": {
+    "toolchain": "wasi-sdk-34.0 (clang 23.1.0, wasi-libc 2e6fb9d8ee0c)",
+    "receipt": "build/c06-port-run-final-r1/BUILD-RECEIPT.txt",
+    "recipe": "crates/shenko-wasm/ports/toybox-wasi/build.sh"
+  },
+  "tools": [
+    {
+      "name": "toybox-arch",
+      "applet": "arch",
+      "file": "arch",
+      "bytes": 554928,
+      "sha256": "7a1fa2432f634b62d256b28963154d7e19725effbd1962965281bac377c0a6bc",
+      "entrypoint": "/tools/toybox-arch"
+    },
+    {
+      "name": "toybox-ascii",
+      "applet": "ascii",
+      "file": "ascii",
+      "bytes": 554373,
+      "sha256": "6e5550023c91ff7ebec0b069ae6ab1d63c832354fbcc6f2b779ed4152162df9b",
+      "entrypoint": "/tools/toybox-ascii"
+    },
+    {
+      "name": "toybox-base32",
+      "applet": "base32",
+      "file": "base32",
+      "bytes": 571142,
+      "sha256": "00d93e5e3afad6da5d719a081cbc3ab98903ac0e1c0b958a79ecad87f8a956e9",
+      "entrypoint": "/tools/toybox-base32"
+    },
+    {
+      "name": "toybox-base64",
+      "applet": "base64",
+      "file": "base64",
+      "bytes": 571192,
+      "sha256": "803596cfc44410fb368c675d9f3bd014f719e4737707ecbff0f5c8e68545c3f2",
+      "entrypoint": "/tools/toybox-base64"
+    },
+    {
+      "name": "toybox-basename",
+      "applet": "basename",
+      "file": "basename",
+      "bytes": 565297,
+      "sha256": "fc0c25c00d68a52ddbf54d1a1aa2e702b607451cd9f8b600dfb3adfb9422d297",
+      "entrypoint": "/tools/toybox-basename"
+    },
+    {
+      "name": "toybox-cal",
+      "applet": "cal",
+      "file": "cal",
+      "bytes": 572219,
+      "sha256": "ab4c393d3b446156e41473914ca73149f90379cb99ebdebaa75c0fcb0f41427e",
+      "entrypoint": "/tools/toybox-cal"
+    },
+    {
+      "name": "toybox-cat",
+      "applet": "cat",
+      "file": "cat",
+      "bytes": 570994,
+      "sha256": "d8d0619a3a4cb7311c331e6f0b7f136b99d9f95acc3ef34703b02f17162d0d0e",
+      "entrypoint": "/tools/toybox-cat"
+    },
+    {
+      "name": "toybox-cksum",
+      "applet": "cksum",
+      "file": "cksum",
+      "bytes": 571018,
+      "sha256": "0fb785f1208d506f03176c4c06846edf7e84cbc500f125acecdab5cc79d49174",
+      "entrypoint": "/tools/toybox-cksum"
+    },
+    {
+      "name": "toybox-cmp",
+      "applet": "cmp",
+      "file": "cmp",
+      "bytes": 571585,
+      "sha256": "840e4d5f1801fefe23156f4a44bd1ef55df47d647e0b9e127c8c814d3d160742",
+      "entrypoint": "/tools/toybox-cmp"
+    },
+    {
+      "name": "toybox-comm",
+      "applet": "comm",
+      "file": "comm",
+      "bytes": 572651,
+      "sha256": "30ad23e0fefa89a4e1cf622447e883a0c184d392eff93ebc71847fc8c851e49f",
+      "entrypoint": "/tools/toybox-comm"
+    },
+    {
+      "name": "toybox-count",
+      "applet": "count",
+      "file": "count",
+      "bytes": 568448,
+      "sha256": "b1f4802e3d72818965c31d9b7a60b991dce803fe22a5d3661196b6e6edaf6fa2",
+      "entrypoint": "/tools/toybox-count"
+    },
+    {
+      "name": "toybox-cp",
+      "applet": "cp",
+      "file": "cp",
+      "bytes": 595634,
+      "sha256": "f5fba81f9bc7b5d21dfd4ea5c2369b52ff72ae576a72905646b04788d80e4059",
+      "entrypoint": "/tools/toybox-cp"
+    },
+    {
+      "name": "toybox-crc32",
+      "applet": "crc32",
+      "file": "crc32",
+      "bytes": 559891,
+      "sha256": "6208eb0ef6da83f82d1357a1bf7841f09db965725098d3dbf3a7ff3595bd9ad9",
+      "entrypoint": "/tools/toybox-crc32"
+    },
+    {
+      "name": "toybox-cut",
+      "applet": "cut",
+      "file": "cut",
+      "bytes": 631432,
+      "sha256": "649c395fb5c531a72a05bbd258284b316eda8774adef4dff839e85593c3f01e5",
+      "entrypoint": "/tools/toybox-cut"
+    },
+    {
+      "name": "toybox-date",
+      "applet": "date",
+      "file": "date",
+      "bytes": 596126,
+      "sha256": "d62e8c0a3961630d525666b273b721f52aa811ca3b4e06c2409996dfaa5b73ab",
+      "entrypoint": "/tools/toybox-date"
+    },
+    {
+      "name": "toybox-dd",
+      "applet": "dd",
+      "file": "dd",
+      "bytes": 574961,
+      "sha256": "2e809ebc8c03874224174370844bbef7fac84d71ffd8eaab74f55723ccccb5ab",
+      "entrypoint": "/tools/toybox-dd"
+    },
+    {
+      "name": "toybox-dirname",
+      "applet": "dirname",
+      "file": "dirname",
+      "bytes": 566283,
+      "sha256": "008708059f3c9952801ff41d22f9863fcc8d3bec04cfe82667042c7ca3d8a2a4",
+      "entrypoint": "/tools/toybox-dirname"
+    },
+    {
+      "name": "toybox-dos2unix",
+      "applet": "dos2unix",
+      "file": "dos2unix",
+      "bytes": 564804,
+      "sha256": "8c0bbadddb255642b83f736d6147b71ed5436904a99f743a20adb6cad5ea3fa2",
+      "entrypoint": "/tools/toybox-dos2unix"
+    },
+    {
+      "name": "toybox-du",
+      "applet": "du",
+      "file": "du",
+      "bytes": 577489,
+      "sha256": "adf98e5577d24f09b65d094e73de405dd2e21fd8225c56846fd42f2dfa3e4bd9",
+      "entrypoint": "/tools/toybox-du"
+    },
+    {
+      "name": "toybox-echo",
+      "applet": "echo",
+      "file": "echo",
+      "bytes": 579816,
+      "sha256": "967bf13eb06035d95f72b8a09aa88b23f8fa8c17a74bb3fed4f702c74bec55e6",
+      "entrypoint": "/tools/toybox-echo"
+    },
+    {
+      "name": "toybox-egrep",
+      "applet": "egrep",
+      "file": "egrep",
+      "bytes": 628433,
+      "sha256": "0c97e83308e3cca68794b9fe80fdbba9d84e7d027f919f7d214579e882d002e1",
+      "entrypoint": "/tools/toybox-egrep"
+    },
+    {
+      "name": "toybox-env",
+      "applet": "env",
+      "file": "env",
+      "bytes": 570248,
+      "sha256": "1f322ddc8a20fe1c513219cb82117d564051ea7663e4f48cf382d717ff694286",
+      "entrypoint": "/tools/toybox-env"
+    },
+    {
+      "name": "toybox-expand",
+      "applet": "expand",
+      "file": "expand",
+      "bytes": 582952,
+      "sha256": "c98115948b4f4cb298a0ec3e52dfb1e376b2a41b8ac038d4190785e16f0c3246",
+      "entrypoint": "/tools/toybox-expand"
+    },
+    {
+      "name": "toybox-factor",
+      "applet": "factor",
+      "file": "factor",
+      "bytes": 569513,
+      "sha256": "aea0baefedf0f402b0684ca2deba64e258a1b5ba41199dfc6b4c24a678099ba0",
+      "entrypoint": "/tools/toybox-factor"
+    },
+    {
+      "name": "toybox-false",
+      "applet": "false",
+      "file": "false",
+      "bytes": 553228,
+      "sha256": "d8be1bb67cdd5ba686e2750f2399a5a72adc56214a525d2b1f77a5527416ec2d",
+      "entrypoint": "/tools/toybox-false"
+    },
+    {
+      "name": "toybox-fgrep",
+      "applet": "fgrep",
+      "file": "fgrep",
+      "bytes": 628433,
+      "sha256": "23ab2041a1d1c6050e85c3bf01264ea1c9ab956ccbf498c1a0975980ede2f407",
+      "entrypoint": "/tools/toybox-fgrep"
+    },
+    {
+      "name": "toybox-find",
+      "applet": "find",
+      "file": "find",
+      "bytes": 638691,
+      "sha256": "e02fb2be60b883abcbb62efebcfb2067aef35291e2a3d90c1df0639cf918de89",
+      "entrypoint": "/tools/toybox-find"
+    },
+    {
+      "name": "toybox-fmt",
+      "applet": "fmt",
+      "file": "fmt",
+      "bytes": 578867,
+      "sha256": "d95cbe66a5ea61b2233528f524a58e949ad22f1656843729a71fe198c61ef3d7",
+      "entrypoint": "/tools/toybox-fmt"
+    },
+    {
+      "name": "toybox-fold",
+      "applet": "fold",
+      "file": "fold",
+      "bytes": 578128,
+      "sha256": "16bbd2153e45d9d2a95412cbac12c49405032832f07175c60e3c0ed383bcee8e",
+      "entrypoint": "/tools/toybox-fold"
+    },
+    {
+      "name": "toybox-fsync",
+      "applet": "fsync",
+      "file": "fsync",
+      "bytes": 571404,
+      "sha256": "797d725ac93113029f3486f2b2712056d27bc0f1d12b8b851fb192ca1d662a99",
+      "entrypoint": "/tools/toybox-fsync"
+    },
+    {
+      "name": "toybox-getconf",
+      "applet": "getconf",
+      "file": "getconf",
+      "bytes": 575837,
+      "sha256": "940d7fed5009a51ac431d62dd3368c1e14e64b030766950491a305ad20569412",
+      "entrypoint": "/tools/toybox-getconf"
+    },
+    {
+      "name": "toybox-grep",
+      "applet": "grep",
+      "file": "grep",
+      "bytes": 649037,
+      "sha256": "b1714ea579375970cc221052a1773292c531fc7ecb52c414eb5e57926a701439",
+      "entrypoint": "/tools/toybox-grep"
+    },
+    {
+      "name": "toybox-gunzip",
+      "applet": "gunzip",
+      "file": "gunzip",
+      "bytes": 580997,
+      "sha256": "a8e7d37a693a2aca4ae7ff4d5b8f8473b38b5baa5b54957893b4da523137ed47",
+      "entrypoint": "/tools/toybox-gunzip"
+    },
+    {
+      "name": "toybox-gzip",
+      "applet": "gzip",
+      "file": "gzip",
+      "bytes": 580949,
+      "sha256": "0c0255c5f79c555976c5550cd053267fb0c56f9829f657f7b6d0712c68f5bc3c",
+      "entrypoint": "/tools/toybox-gzip"
+    },
+    {
+      "name": "toybox-head",
+      "applet": "head",
+      "file": "head",
+      "bytes": 571078,
+      "sha256": "28ba413411abb0b0c3913ea035eaded44e6aa35d4e22c7c52a85cd2f85b81814",
+      "entrypoint": "/tools/toybox-head"
+    },
+    {
+      "name": "toybox-help",
+      "applet": "help",
+      "file": "help",
+      "bytes": 567119,
+      "sha256": "bd7f8aa2d502f00ca4a1a2239436e6439ba9331224f4609c6bf2fa1d68a28bba",
+      "entrypoint": "/tools/toybox-help"
+    },
+    {
+      "name": "toybox-iconv",
+      "applet": "iconv",
+      "file": "iconv",
+      "bytes": 730826,
+      "sha256": "fdc6d38bd298ef640f2bb596f90a0e70b93d73375213b753e2e317bd29c53d82",
+      "entrypoint": "/tools/toybox-iconv"
+    },
+    {
+      "name": "toybox-link",
+      "applet": "link",
+      "file": "link",
+      "bytes": 569416,
+      "sha256": "1c3c00a870e1719ef7f0ff7a47d98582bd8f00d5c1142ed140b0896c7348eb98",
+      "entrypoint": "/tools/toybox-link"
+    },
+    {
+      "name": "toybox-ln",
+      "applet": "ln",
+      "file": "ln",
+      "bytes": 579015,
+      "sha256": "2686b158cdc2a5ba660ac05e225b85419db5f66deec103ef5a07876830ef88c4",
+      "entrypoint": "/tools/toybox-ln"
+    },
+    {
+      "name": "toybox-ls",
+      "applet": "ls",
+      "file": "ls",
+      "bytes": 611123,
+      "sha256": "9e97ccfcebe48721eb4d0b6e0be99a908f9a8ff5adf6217282af63a8ab18d2fa",
+      "entrypoint": "/tools/toybox-ls"
+    },
+    {
+      "name": "toybox-mcookie",
+      "applet": "mcookie",
+      "file": "mcookie",
+      "bytes": 570987,
+      "sha256": "d89e13e1ab053a6c36b3d35dfc2425168e06895da8a4d4b7f1ba5fc83ad5977e",
+      "entrypoint": "/tools/toybox-mcookie"
+    },
+    {
+      "name": "toybox-md5sum",
+      "applet": "md5sum",
+      "file": "md5sum",
+      "bytes": 581153,
+      "sha256": "06026baa1a6a8eee15e0deba2b2727a009080488ddfc841f4547677b68705fb1",
+      "entrypoint": "/tools/toybox-md5sum"
+    },
+    {
+      "name": "toybox-mkdir",
+      "applet": "mkdir",
+      "file": "mkdir",
+      "bytes": 571620,
+      "sha256": "8e595ea31103c344bd4598e658e82f413cba10920c2398199fddd98ec8400215",
+      "entrypoint": "/tools/toybox-mkdir"
+    },
+    {
+      "name": "toybox-mv",
+      "applet": "mv",
+      "file": "mv",
+      "bytes": 596738,
+      "sha256": "8cb728d59bcb12084bdd34cb0098e49c1b6b44a45672e8719065517d02072eaa",
+      "entrypoint": "/tools/toybox-mv"
+    },
+    {
+      "name": "toybox-nl",
+      "applet": "nl",
+      "file": "nl",
+      "bytes": 623144,
+      "sha256": "9b0c65377e3628076019c1faad445072c95f3355a102613f7f3cf99b3ff64e0c",
+      "entrypoint": "/tools/toybox-nl"
+    },
+    {
+      "name": "toybox-od",
+      "applet": "od",
+      "file": "od",
+      "bytes": 574298,
+      "sha256": "2cac151a394ed7a0c6bd846b86f91eb160db15b413f9d7d9b8e716bede077e75",
+      "entrypoint": "/tools/toybox-od"
+    },
+    {
+      "name": "toybox-paste",
+      "applet": "paste",
+      "file": "paste",
+      "bytes": 578045,
+      "sha256": "838c01b2aef5011a83c1014e20f448941bbc1a12d972992b75609b6a4697adaf",
+      "entrypoint": "/tools/toybox-paste"
+    },
+    {
+      "name": "toybox-patch",
+      "applet": "patch",
+      "file": "patch",
+      "bytes": 585570,
+      "sha256": "2ca70e20bd5d9694c05c37a7bbacb94fd2a292a40f03c00caf65c764474f1476",
+      "entrypoint": "/tools/toybox-patch"
+    },
+    {
+      "name": "toybox-printenv",
+      "applet": "printenv",
+      "file": "printenv",
+      "bytes": 565098,
+      "sha256": "44f6dcbf5d57797b49517307a0562b5a5bb5fba8096280ce7488b526144d6dcb",
+      "entrypoint": "/tools/toybox-printenv"
+    },
+    {
+      "name": "toybox-printf",
+      "applet": "printf",
+      "file": "printf",
+      "bytes": 566834,
+      "sha256": "ee8487b55bd4949b99f6e39b76f0b19f1cba0fd835e72088fcb12821790aadd0",
+      "entrypoint": "/tools/toybox-printf"
+    },
+    {
+      "name": "toybox-pwd",
+      "applet": "pwd",
+      "file": "pwd",
+      "bytes": 570244,
+      "sha256": "0d08b2955b1a66f983b80827375041d902da8dd4cd52ec9ae3fcffef84d38aaa",
+      "entrypoint": "/tools/toybox-pwd"
+    },
+    {
+      "name": "toybox-readlink",
+      "applet": "readlink",
+      "file": "readlink",
+      "bytes": 574680,
+      "sha256": "b8e0007e68e9a3c692c169d14f8c3b038b689c71c295fd95cac7561f99abcf01",
+      "entrypoint": "/tools/toybox-readlink"
+    },
+    {
+      "name": "toybox-realpath",
+      "applet": "realpath",
+      "file": "realpath",
+      "bytes": 574671,
+      "sha256": "a4a62d4165d71774ad33cb145d0ba880774a6e0ea4fe32cda57b33ac9429ba21",
+      "entrypoint": "/tools/toybox-realpath"
+    },
+    {
+      "name": "toybox-rev",
+      "applet": "rev",
+      "file": "rev",
+      "bytes": 561834,
+      "sha256": "374ec82e9356cad72fcd0c96e95afbd3ce18afd231c1ec9b9b7244512c4197f1",
+      "entrypoint": "/tools/toybox-rev"
+    },
+    {
+      "name": "toybox-rm",
+      "applet": "rm",
+      "file": "rm",
+      "bytes": 579994,
+      "sha256": "b2338e33f54d2e1ff980ea2cee89f871407c5696ee075b7ab40af70c13625d99",
+      "entrypoint": "/tools/toybox-rm"
+    },
+    {
+      "name": "toybox-rmdir",
+      "applet": "rmdir",
+      "file": "rmdir",
+      "bytes": 569601,
+      "sha256": "1a1f619a3d25ecb85a2fbb03f4f3461f189e9c0c0ed007f94578f4d64aad93ce",
+      "entrypoint": "/tools/toybox-rmdir"
+    },
+    {
+      "name": "toybox-sed",
+      "applet": "sed",
+      "file": "sed",
+      "bytes": 654218,
+      "sha256": "323d4a30236d6158f2978df0525b6b2f0a4eadedbae9aa859a5d00a8b53416d8",
+      "entrypoint": "/tools/toybox-sed"
+    },
+    {
+      "name": "toybox-seq",
+      "applet": "seq",
+      "file": "seq",
+      "bytes": 577408,
+      "sha256": "ccfec2243b945b9a8be9e5bc84437870f9942fd83f607209b9a7d6417e2402b8",
+      "entrypoint": "/tools/toybox-seq"
+    },
+    {
+      "name": "toybox-sha1sum",
+      "applet": "sha1sum",
+      "file": "sha1sum",
+      "bytes": 581154,
+      "sha256": "827df4235b44c11d74c5f43778573e82e90e4e2e3bbbbaf102c2886d7906967a",
+      "entrypoint": "/tools/toybox-sha1sum"
+    },
+    {
+      "name": "toybox-sha224sum",
+      "applet": "sha224sum",
+      "file": "sha224sum",
+      "bytes": 581156,
+      "sha256": "4b8e4c712e6e533bfa12274ef61cb63057da183545b1d0fa82c0e09428d00a7e",
+      "entrypoint": "/tools/toybox-sha224sum"
+    },
+    {
+      "name": "toybox-sha256sum",
+      "applet": "sha256sum",
+      "file": "sha256sum",
+      "bytes": 581156,
+      "sha256": "9b9fa1a23a01b7470fa077aa5bbd3c1fb03e4b55306aa2b47f87db1f6eb5ce2b",
+      "entrypoint": "/tools/toybox-sha256sum"
+    },
+    {
+      "name": "toybox-sha384sum",
+      "applet": "sha384sum",
+      "file": "sha384sum",
+      "bytes": 581156,
+      "sha256": "ec2d0d945d001339f4a2153624de57d26187e63c0f72fb18d93a080670ffa12a",
+      "entrypoint": "/tools/toybox-sha384sum"
+    },
+    {
+      "name": "toybox-sha3sum",
+      "applet": "sha3sum",
+      "file": "sha3sum",
+      "bytes": 572689,
+      "sha256": "fddcbcad129cd5828415f0510bb236bf5a323d7e82096de01e528af8169c8231",
+      "entrypoint": "/tools/toybox-sha3sum"
+    },
+    {
+      "name": "toybox-sha512sum",
+      "applet": "sha512sum",
+      "file": "sha512sum",
+      "bytes": 581156,
+      "sha256": "4485432e54d5572c0d38fd712c05ce6baaf99f8b37ea272af2dba421dccce571",
+      "entrypoint": "/tools/toybox-sha512sum"
+    },
+    {
+      "name": "toybox-shuf",
+      "applet": "shuf",
+      "file": "shuf",
+      "bytes": 577322,
+      "sha256": "376c99546798e9a51974406380eeb70b3a078a2a432f9be0271e46f11eac45d7",
+      "entrypoint": "/tools/toybox-shuf"
+    },
+    {
+      "name": "toybox-sleep",
+      "applet": "sleep",
+      "file": "sleep",
+      "bytes": 566817,
+      "sha256": "17b3d5cc2a338c486185aec9aad21397a8822fd924026229b88051fd84b20078",
+      "entrypoint": "/tools/toybox-sleep"
+    },
+    {
+      "name": "toybox-sort",
+      "applet": "sort",
+      "file": "sort",
+      "bytes": 582467,
+      "sha256": "b48ffec404baf9219b3c9478b22b22166d0d29af52c935d7bd6ea23d14c458a9",
+      "entrypoint": "/tools/toybox-sort"
+    },
+    {
+      "name": "toybox-split",
+      "applet": "split",
+      "file": "split",
+      "bytes": 572161,
+      "sha256": "107f9cc3b7737b3966d508d0d3d330d372c7080734e66448544c9891b7b110ae",
+      "entrypoint": "/tools/toybox-split"
+    },
+    {
+      "name": "toybox-stat",
+      "applet": "stat",
+      "file": "stat",
+      "bytes": 582444,
+      "sha256": "5421e2f4fb83f0b135451ea009ce4c4a6ac453d0743458e79a980303e93832c4",
+      "entrypoint": "/tools/toybox-stat"
+    },
+    {
+      "name": "toybox-strings",
+      "applet": "strings",
+      "file": "strings",
+      "bytes": 570980,
+      "sha256": "c0b82cfd38cfdb16e6ad4336b6c830262ef49f3841484736c315d4f686bdad38",
+      "entrypoint": "/tools/toybox-strings"
+    },
+    {
+      "name": "toybox-tail",
+      "applet": "tail",
+      "file": "tail",
+      "bytes": 577849,
+      "sha256": "0cee04803ac6c2e4458b6c35aa679cc95395af9daed035ae19d934775678c19a",
+      "entrypoint": "/tools/toybox-tail"
+    },
+    {
+      "name": "toybox-tar",
+      "applet": "tar",
+      "file": "tar",
+      "bytes": 662373,
+      "sha256": "67013f8fa25e5185e78f910689cb299204bcdd0b87401f5ba7ef156edb827158",
+      "entrypoint": "/tools/toybox-tar"
+    },
+    {
+      "name": "toybox-tee",
+      "applet": "tee",
+      "file": "tee",
+      "bytes": 570816,
+      "sha256": "7b4016b600d1c434a813510347036b93407cde8589d3b5b79d6a7bfd6ad01ee6",
+      "entrypoint": "/tools/toybox-tee"
+    },
+    {
+      "name": "toybox-test",
+      "applet": "test",
+      "file": "test",
+      "bytes": 615794,
+      "sha256": "5766f2d2a4ea25f042d2e8c69d05014dbcb24d63107f96a7405a1d9ad01cef81",
+      "entrypoint": "/tools/toybox-test"
+    },
+    {
+      "name": "toybox-touch",
+      "applet": "touch",
+      "file": "touch",
+      "bytes": 596904,
+      "sha256": "3880697c91d86174d4a47e7dd1db724615530e745bbc56c42eac049e2a269c96",
+      "entrypoint": "/tools/toybox-touch"
+    },
+    {
+      "name": "toybox-true",
+      "applet": "true",
+      "file": "true",
+      "bytes": 553231,
+      "sha256": "727c668417c33e9936bc54acbc74f30968d936738c359b038a5e082153d7ebf2",
+      "entrypoint": "/tools/toybox-true"
+    },
+    {
+      "name": "toybox-truncate",
+      "applet": "truncate",
+      "file": "truncate",
+      "bytes": 572741,
+      "sha256": "cbae94ba8d8821c11f1606c035120862e878cd57950011756f0cda39ac6aea40",
+      "entrypoint": "/tools/toybox-truncate"
+    },
+    {
+      "name": "toybox-ts",
+      "applet": "ts",
+      "file": "ts",
+      "bytes": 575366,
+      "sha256": "1809e3925083b11a1ba4108e2fd108ffafedf7867eccbecbc02f22366c00af39",
+      "entrypoint": "/tools/toybox-ts"
+    },
+    {
+      "name": "toybox-tsort",
+      "applet": "tsort",
+      "file": "tsort",
+      "bytes": 578805,
+      "sha256": "83566f1739d4b4b4a8a78cdb757d56429e7d6eaf3952e339d15a13003425ba3a",
+      "entrypoint": "/tools/toybox-tsort"
+    },
+    {
+      "name": "toybox-uname",
+      "applet": "uname",
+      "file": "uname",
+      "bytes": 566234,
+      "sha256": "e6c4bed8c336bfb2d71aac11d27414280586f131c022f14e740d95fdb5106226",
+      "entrypoint": "/tools/toybox-uname"
+    },
+    {
+      "name": "toybox-unicode",
+      "applet": "unicode",
+      "file": "unicode",
+      "bytes": 581129,
+      "sha256": "8534ba183a16071106569768d9bc68ce19f5f7e03c111a05531b6ad761f676f7",
+      "entrypoint": "/tools/toybox-unicode"
+    },
+    {
+      "name": "toybox-uniq",
+      "applet": "uniq",
+      "file": "uniq",
+      "bytes": 572798,
+      "sha256": "28b0bde48ac4e67b18fedad9975b0739df8f8f3580a4ab14e3b7ffbcebec8f2f",
+      "entrypoint": "/tools/toybox-uniq"
+    },
+    {
+      "name": "toybox-unix2dos",
+      "applet": "unix2dos",
+      "file": "unix2dos",
+      "bytes": 564804,
+      "sha256": "901bc4b383a78d898f5779415fc17bb7527de98aab0834a61954fca1d86a6530",
+      "entrypoint": "/tools/toybox-unix2dos"
+    },
+    {
+      "name": "toybox-unlink",
+      "applet": "unlink",
+      "file": "unlink",
+      "bytes": 569300,
+      "sha256": "27025fd1c43a89f3641d871d0147af45a72a82b7590e33ccdb5e1f4b2f883d49",
+      "entrypoint": "/tools/toybox-unlink"
+    },
+    {
+      "name": "toybox-usleep",
+      "applet": "usleep",
+      "file": "usleep",
+      "bytes": 567901,
+      "sha256": "308b75627e85d55000636f61c0ffc1f67a38835f68babb1c5d509d56112b658a",
+      "entrypoint": "/tools/toybox-usleep"
+    },
+    {
+      "name": "toybox-uuidgen",
+      "applet": "uuidgen",
+      "file": "uuidgen",
+      "bytes": 570798,
+      "sha256": "90993e2df71d1e694859b5aeba4b1f138a672b4c5c358101fe283e7e5a69f9f6",
+      "entrypoint": "/tools/toybox-uuidgen"
+    },
+    {
+      "name": "toybox-wc",
+      "applet": "wc",
+      "file": "wc",
+      "bytes": 578524,
+      "sha256": "cd3b3cf49d95d397ae1178479937e3cb1810d618e112746cbec06a5d0908e48e",
+      "entrypoint": "/tools/toybox-wc"
+    },
+    {
+      "name": "toybox-which",
+      "applet": "which",
+      "file": "which",
+      "bytes": 572062,
+      "sha256": "ce1e222cc133228be3aadf538950391ce9933edfeb9c36550e37ca3b9244265e",
+      "entrypoint": "/tools/toybox-which"
+    },
+    {
+      "name": "toybox-xxd",
+      "applet": "xxd",
+      "file": "xxd",
+      "bytes": 594178,
+      "sha256": "d30e1b799db696e3fa2e38f666a9edc1c777abfd9e8ab03bd035fe73d9a9c0b9",
+      "entrypoint": "/tools/toybox-xxd"
+    },
+    {
+      "name": "toybox-yes",
+      "applet": "yes",
+      "file": "yes",
+      "bytes": 554158,
+      "sha256": "2c1c56f35db533fe443d38d0aefff07d0bc9edbeed61a954a3c87fac472fdd0d",
+      "entrypoint": "/tools/toybox-yes"
+    },
+    {
+      "name": "toybox-zcat",
+      "applet": "zcat",
+      "file": "zcat",
+      "bytes": 580994,
+      "sha256": "b10495b798f491584f614c2accaaaaa1f2123cf1926b7bd95ac39bf3fab2b4d7",
+      "entrypoint": "/tools/toybox-zcat"
+    }
+  ]
+}

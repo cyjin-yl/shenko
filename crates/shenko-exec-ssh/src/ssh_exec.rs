@@ -17,6 +17,7 @@ const PANE_FORMAT: &str = "#{session_name}\t#{window_index}\t#{pane_index}\t#{pa
 const EXIT_PANE_MISSING: i32 = 66;
 const EXIT_PANE_DEAD: i32 = 67;
 const EXIT_PROGRAM_CHANGED: i32 = 68;
+const EXIT_PANE_REPLACED: i32 = 69;
 
 /// Tmux pane identity — needed for seat discovery. SPEC §35.5
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +90,9 @@ pub enum SeatRefusal {
     PaneMissing,
     PaneDead,
     ProgramChanged,
+    /// The pane now hosts a different root process: the pane was reused
+    /// after the observation, so the answer would land on another program.
+    PaneReplaced,
 }
 
 impl std::fmt::Display for SeatRefusal {
@@ -97,6 +101,7 @@ impl std::fmt::Display for SeatRefusal {
             Self::PaneMissing => "pane 已不存在，旧的 pane_id 不能作为目标",
             Self::PaneDead => "pane 已 dead：进程退出，输入不会到达原 agent",
             Self::ProgramChanged => "pane 前台程序已变化，输入可能落到 shell 或其它程序",
+            Self::PaneReplaced => "pane 的根进程已更换：同一个 pane_id 已被另一个程序接管",
         };
         f.write_str(text)
     }
@@ -232,15 +237,31 @@ fn classify_seat(processes: &[String]) -> Option<SeatKind> {
 
 /// 单条远端命令：校验 pane 仍存在、未 dead、前台程序与期望一致后才 send-keys。
 /// 退出码区分拒绝原因；keys 为已 shell-quote 的 send-keys 参数串。
-fn guarded_send_command(pane_id: &str, expected_command: &str, send_args: &str) -> String {
+fn guarded_send_command(
+    pane_id: &str,
+    expected_command: &str,
+    expected_pid: Option<u32>,
+    send_args: &str,
+) -> String {
     let pane = shell_quote(pane_id);
-    let info = "tmux list-panes -a -F '#{pane_id}\t#{pane_dead}\t#{pane_current_command}'";
+    let info = "tmux list-panes -a -F '#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{pane_pid}'";
     let match_line = format!("$({info} | awk -F '\\t' -v id={pane} '$1 == id {{print; exit}}')");
+    // The pane's root process is the target-side incarnation fence: a pane
+    // that was reused by another program after the observation is refused
+    // on the far side, not only in the local pre-check.
+    let pid_guard = match expected_pid {
+        Some(pid) if pid > 0 => format!(
+            "[ \"$(printf '%s' \"$line\" | cut -f4)\" = {expected} ] || {{ echo seat:replaced >&2; exit {EXIT_PANE_REPLACED}; }}; ",
+            expected = shell_quote(&pid.to_string()),
+        ),
+        _ => String::new(),
+    };
     format!(
         "line={match_line}; \
          [ -n \"$line\" ] || {{ echo seat:missing >&2; exit {EXIT_PANE_MISSING}; }}; \
          [ \"$(printf '%s' \"$line\" | cut -f2)\" = \"0\" ] || {{ echo seat:dead >&2; exit {EXIT_PANE_DEAD}; }}; \
          [ \"$(printf '%s' \"$line\" | cut -f3)\" = {expected} ] || {{ echo seat:changed >&2; exit {EXIT_PROGRAM_CHANGED}; }}; \
+         {pid_guard}\
          tmux send-keys -t {pane} {send_args}",
         expected = shell_quote(expected_command),
     )
@@ -252,6 +273,7 @@ fn refusal_or_success(result: &ExecResult) -> Result<()> {
         EXIT_PANE_MISSING => Err(SeatRefusal::PaneMissing.into()),
         EXIT_PANE_DEAD => Err(SeatRefusal::PaneDead.into()),
         EXIT_PROGRAM_CHANGED => Err(SeatRefusal::ProgramChanged.into()),
+        EXIT_PANE_REPLACED => Err(SeatRefusal::PaneReplaced.into()),
         _ => result.require_success(),
     }
 }
@@ -543,8 +565,9 @@ impl TmuxSeat {
         pane_id: &str,
         keys: &str,
         expected_command: &str,
+        expected_pid: Option<u32>,
     ) -> Result<ExecResult> {
-        let cmd = guarded_send_command(pane_id, expected_command, &shell_quote(keys));
+        let cmd = guarded_send_command(pane_id, expected_command, expected_pid, &shell_quote(keys));
         let result = self.executor.run_command(&cmd).await?;
         refusal_or_success(&result)?;
         Ok(result)
@@ -556,9 +579,10 @@ impl TmuxSeat {
         pane_id: &str,
         text: &str,
         expected_command: &str,
+        expected_pid: Option<u32>,
     ) -> Result<ExecResult> {
         let send_args = format!("{} Enter", shell_quote(text));
-        let cmd = guarded_send_command(pane_id, expected_command, &send_args);
+        let cmd = guarded_send_command(pane_id, expected_command, expected_pid, &send_args);
         let result = self.executor.run_command(&cmd).await?;
         refusal_or_success(&result)?;
         Ok(result)

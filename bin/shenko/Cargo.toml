@@ -9,14 +9,21 @@ license.workspace = true
 name = "shenko"
 path = "src/main.rs"
 
+[lib]
+name = "shenko"
+path = "src/lib.rs"
+
 [dependencies]
+async-trait = { workspace = true }
 cordis-core.workspace = true
+shenko-mobile = { path = "../../crates/shenko-mobile" }
 shenko-identity = { path = "../../crates/shenko-identity" }
 shenko-types = { path = "../../crates/shenko-types" }
 shenko-kernel = { path = "../../crates/shenko-kernel" }
 shenko-store = { path = "../../crates/shenko-store" }
 shenko-node = { path = "../../crates/shenko-node" }
 shenko-exec-host = { path = "../../crates/shenko-exec-host" }
+shenko-repl = { path = "../../crates/shenko-repl" }
 shenko-exec-ssh = { path = "../../crates/shenko-exec-ssh" }
 shenko-broker = { path = "../../crates/shenko-broker" }
 shenko-subject = { path = "../../crates/shenko-subject" }
@@ -28,6 +35,7 @@ shenko-compact-snap = { path = "../../crates/shenko-compact-snap" }
 shenko-memory = { path = "../../crates/shenko-memory" }
 shenko-ui = { path = "../../crates/shenko-ui" }
 shenko-seed = { path = "../../crates/shenko-seed" }
+shenko-update = { path = "../../crates/shenko-update" }
 shenko-wasm = { path = "../../crates/shenko-wasm" }
 shenko-channel-napcat = { path = "../../crates/shenko-channel-napcat" }
 shenko-media = { path = "../../crates/shenko-media" }
@@ -42,6 +50,7 @@ serde_json = { workspace = true }
 clap = { version = "4", features = ["derive", "env"] }
 uuid = { workspace = true }
 chrono = { workspace = true }
+parking_lot = { workspace = true }
 dirs-next = "2"
 libc = "0.2"
 

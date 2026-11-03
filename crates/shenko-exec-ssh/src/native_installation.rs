@@ -242,7 +242,7 @@ impl ExplicitFileOpener {
         // is not a claim that aborting Rust can cancel every filesystem driver.
         #[cfg(unix)]
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
-        let file = options.open(&self.path).await.map_err(|_| NativeSshError::CredentialUnavailable)?;
+        let mut file = options.open(&self.path).await.map_err(|_| NativeSshError::CredentialUnavailable)?;
         let metadata = file.metadata().await.map_err(|_| NativeSshError::CredentialUnavailable)?;
         if !metadata.is_file() || metadata.len() > MAX_KEY_BYTES {
             return Err(NativeSshError::CredentialUnavailable);
@@ -253,11 +253,20 @@ impl ExplicitFileOpener {
                 return Err(NativeSshError::CredentialUnavailable);
             }
         }
-        let mut bytes = Zeroizing::new(Vec::new());
-        file.take(MAX_KEY_BYTES + 1).read_to_end(&mut bytes).await
-            .map_err(|_| NativeSshError::CredentialUnavailable)?;
-        if bytes.len() as u64 > MAX_KEY_BYTES { return Err(NativeSshError::CredentialUnavailable); }
-        let text = std::str::from_utf8(&bytes).map_err(|_| NativeSshError::CredentialUnavailable)?;
+        // Allocate before admitting secret bytes, as the current native exec
+        // loader does. Growing a zeroized Vec can leave earlier allocations.
+        let mut bytes = Zeroizing::new(vec![0_u8; (MAX_KEY_BYTES + 1) as usize].into_boxed_slice());
+        let mut used = 0;
+        while used < bytes.len() {
+            match file.read(&mut bytes[used..]).await {
+                Ok(0) => break,
+                Ok(count) => used += count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => return Err(NativeSshError::CredentialUnavailable),
+            }
+        }
+        if used as u64 > MAX_KEY_BYTES { return Err(NativeSshError::CredentialUnavailable); }
+        let text = std::str::from_utf8(&bytes[..used]).map_err(|_| NativeSshError::CredentialUnavailable)?;
         // No passphrase source is configured. Never consult ambient env/agent
         // or select another identity when this exact key cannot be unlocked.
         let key = russh::keys::decode_secret_key(text, None)

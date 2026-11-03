@@ -1,0 +1,52 @@
+{
+  "bundle": "org.shenko.node",
+  "kind": "apk",
+  "spec": ["SPEC §24.5", "SPEC §24.5.1", "SPEC §5.4"],
+  "units": [
+    {
+      "id": "shenko-mobile-core",
+      "provides": [
+        "mobile.device.probe/v1",
+        "mobile.screen.observe/v1",
+        "mobile.control.lease/v1",
+        "mobile.control.input/v1",
+        "mobile.shell.exec/v1",
+        "mobile.appdb.snapshot/v1"
+      ],
+      "applicability": { "os": "android", "min_sdk": 26 },
+      "note": "Authority-gated Android perception/execution handlers. Bundled ≠ available ≠ OS-authorized: every handler reports the typed unavailable fact for any mechanism the device has not actually granted."
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "dev.rikka.shizuku:api",
+      "version": "13.1.5",
+      "license": "Apache-2.0",
+      "role": "Shizuku binder API (bindUserService, permission check)",
+      "source_head": "a27f6e41"
+    },
+    {
+      "id": "dev.rikka.shizuku:provider",
+      "version": "13.1.5",
+      "license": "Apache-2.0",
+      "role": "Shizuku binder provider",
+      "source_head": "a27f6e41"
+    },
+    {
+      "id": "io.github.iamr0s:Dhizuku-API",
+      "version": "2.7.0",
+      "license": "MIT",
+      "role": "Shared DeviceOwner delegate API (newProcess, bindUserService)",
+      "source_head": "2a62cadc",
+      "note": "The Dhizuku manager app is GPL-3.0 and user-installed; only the MIT API library is bundled. This APK never declares the Shizuku permission."
+    }
+  ],
+  "rust_targets": [
+    "aarch64-linux-android",
+    "armv7-linux-androideabi",
+    "x86_64-linux-android"
+  ],
+  "rust_shell": "mobile/rust-shell (cdylib shenko_android; hosts bin/shenko lib target via JNI)",
+  "min_sdk": 26,
+  "target_sdk": 35
+}

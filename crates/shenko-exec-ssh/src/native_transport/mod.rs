@@ -9,6 +9,10 @@ mod stream;
 mod trust;
 pub use trust::NativeSshTarget;
 
+/// Interactive PTY channel for seat observation (SPEC §17.5).
+mod pty;
+pub use pty::*;
+
 use russh::{Channel, ChannelId, ChannelMsg, ChannelOpenFailure, client, keys::{
     HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate,
 }};
@@ -28,6 +32,7 @@ pub enum NativeSshError {
     #[error("native SSH connection or host verification failed")] Connect,
     #[error("native SSH authentication failed")] Authentication,
     #[error("native SSH deadline elapsed")] Deadline,
+    #[error("native SSH channel transport failed")] Transport,
 }
 
 /// Not serializable: a connected authenticated protocol session is not durable
@@ -127,7 +132,7 @@ pub struct NativeCommandLimits {
     pub stdout_bytes: usize,
     pub stderr_bytes: usize,
 }
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NativeExit { Status { code: u32 }, Signal { name: String, core_dumped: bool } }
 #[derive(Debug, Serialize, PartialEq, Eq)]

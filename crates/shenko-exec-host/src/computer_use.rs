@@ -1,21 +1,32 @@
-//! Real X11 desktop Computer Use backend (SPEC §24.3/§24.4, A22/A23).
+//! Real desktop Computer Use backend (SPEC §24.1/§24.3/§24.4, A22/A23).
 //!
-//! Real mechanisms only: a session opens an actual X11 client connection, an
-//! observation reads the server framebuffer through GetImage and binds stable
-//! display/frame identity to a recomputed layout fingerprint plus a hash of
-//! the actually captured pixels, and input is injected through the real XTEST
-//! extension. The write lease is a per-display-domain state machine enforced
-//! by this product; XInput2 raw events whose source device is not a known
-//! XTEST slave count as external (typically human) input and revoke the
-//! machine epoch exactly like an explicit takeover.
+//! Real mechanisms only. The product layer (`ComputerUseBackend`) owns the
+//! operation ledger, the durable observation record and the input writer
+//! contract; every platform fact comes from a real provider:
+//!
+//! - `X11Provider` (this file): a session opens an actual X11 client
+//!   connection, an observation reads the server framebuffer through
+//!   GetImage and binds stable display/frame identity to a recomputed
+//!   layout fingerprint plus a hash of the actually captured pixels, and
+//!   input is injected through the real XTEST extension. XInput2 raw
+//!   events whose source device is not a known XTEST slave count as
+//!   external (typically human) input and revoke the machine epoch
+//!   exactly like an explicit takeover.
+//! - `WindowsDesktopProvider`: Win32 framebuffer capture and SendInput.
+//! - `MacOsDesktopProvider`: CoreGraphics capture and CGEvent injection.
+//!
+//! The write lease is a per-display-domain state machine enforced by this
+//! product; the lease algorithm is shared (`desktop::apply_lease_op`) so no
+//! two providers can drift into different takeover semantics.
 //!
 //! Honest limits, by design:
 //! - XTEST FakeInput ACK is transport delivery, never an application-level
 //!   effect. Nothing is replayed; a lost connection leaves effects Unknown.
 //! - The lease cannot stop a human or an unmanaged X client from typing; it
 //!   only invalidates this product's stale controller epoch.
-//! - Wayland, VNC/RDP, Android and macOS/Windows providers are typed
-//!   unavailable, not fake-bound.
+//! - A platform whose provider cannot reach a real display returns a typed
+//!   unavailable result naming the missing capability, never a fake-bound
+//!   session.
 use anyhow::{Result, ensure};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -37,6 +48,15 @@ use std::{
     },
     thread::JoinHandle,
     time::Duration,
+};
+use crate::desktop::{
+    DesktopAction, DesktopActionReceipt, DesktopCapability, DesktopCapabilityFact,
+    DesktopCloseOutcome, DesktopCoordinateTransform, DesktopDisplay, DesktopError,
+    DesktopFrame, DesktopInjectOutcome, DesktopInjectRequest, DesktopLease, DesktopLeaseOp,
+    DesktopLeaseOutcome, DesktopLeaseState, DesktopObservation, DesktopOpenRequest,
+    DesktopPixelFormat, DesktopPress, DesktopProvider, DesktopReconcileOutcome,
+    DesktopSession, DesktopSessionHandle, apply_lease_op, encode_png, hex_digest,
+    HumanInputFanout, platform_default_provider,
 };
 use x11rb::{
     connection::{Connection, RequestConnection},
@@ -77,8 +97,9 @@ enum SessionVerb {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SessionInput {
-    /// "x11" selects the real X11 backend; "auto" behaves like "x11". Any
-    /// other value resolves to a typed-unavailable backend, never a fake.
+    /// "x11" | "windows" | "macos" select a real provider; "auto" resolves
+    /// to this platform's native provider. Any other value resolves to a
+    /// typed-unavailable backend, never a fake.
     backend: Option<String>,
     /// Explicit X11 display address (e.g. ":99"). Falls back to `$DISPLAY`;
     /// never guessed toward a human desktop.
@@ -91,10 +112,12 @@ struct SessionInput {
 
 #[derive(Debug, Clone, Serialize)]
 struct SessionFrozen {
-    backend_x11: bool,
+    /// The resolved provider id ("x11", "windows", "macos").
     backend_name: String,
     display: Option<String>,
     screen: Option<i32>,
+    /// Set by the close verb: which session to close.
+    session_id: Option<EntityId>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,45 +134,19 @@ struct ObserveFrozen {
     region: Option<[i32; 4]>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum LeaseOp {
-    Acquire,
-    Release,
-    Takeover,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LeaseInput {
     session_id: EntityId,
-    op: LeaseOp,
+    op: DesktopLeaseOp,
     lease_token: Option<EntityId>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 struct LeaseFrozen {
     session_id: EntityId,
-    op: LeaseOp,
+    op: DesktopLeaseOp,
     lease_token: Option<EntityId>,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum PressKind {
-    /// One press followed by one release.
-    Tap,
-    Down,
-    Up,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum ActionInput {
-    PointerMove { x: i32, y: i32 },
-    Button { button: u8, press: PressKind },
-    Key { key: String, press: Option<PressKind> },
-    Text { text: String },
 }
 
 #[derive(Debug, Deserialize)]
@@ -160,7 +157,7 @@ struct InjectInput {
     /// `blake3:<hex>` digest of the sealed DesktopObservation this batch is
     /// bound to; re-verified before any event is sent.
     observation_id: String,
-    actions: Vec<ActionInput>,
+    actions: Vec<DesktopAction>,
     /// Also re-capture the observed region and require an exact pixel match.
     /// Default false: layout fingerprint re-verification always applies.
     require_pixel_fresh: Option<bool>,
@@ -171,8 +168,32 @@ struct InjectFrozen {
     session_id: EntityId,
     lease_token: EntityId,
     observation_id: String,
-    actions: Vec<ActionInput>,
+    actions: Vec<DesktopAction>,
     require_pixel_fresh: bool,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum VmVerb {
+    Start,
+    Stop,
+    State,
+    CommitReceipt,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VmInput {
+    /// start/stop mutate the VM lifecycle; state and commit_receipt read.
+    op: VmVerb,
+    /// VM name this operation owns; only VMs named here are ever touched.
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct VmFrozen {
+    op: VmVerb,
+    name: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -211,50 +232,6 @@ struct WindowShape {
     map_state: u8,
 }
 
-/// The sealed durable observation; its digest is the `observation_id` that
-/// later input must carry. Content-bound: identical bytes ⇒ identical id.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DesktopObservation {
-    session_id: EntityId,
-    domain_id: String,
-    display: String,
-    screen_num: usize,
-    frame_id: u64,
-    captured_at_ms: i64,
-    lease_epoch_at_capture: u64,
-    /// Captured rectangle in root coordinates [x, y, w, h].
-    region: [i32; 4],
-    viewport: [u16; 2],
-    dpi_x: f64,
-    dpi_y: f64,
-    /// X11 has no compositor-level fractional scale; physical px == logical.
-    scale_factor: f64,
-    layout_fingerprint: String,
-    pixel_hash: String,
-    pixel_format: PixelFormatInfo,
-    raw_pixels_ref: ObjectRef,
-    png_preview_ref: ObjectRef,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PixelFormatInfo {
-    depth: u8,
-    bits_per_pixel: u8,
-    byte_order: String,
-    visual_id: u32,
-    red_mask: u32,
-    green_mask: u32,
-    blue_mask: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct ActionReceipt {
-    index: usize,
-    kind: String,
-    /// "acked" = the X server accepted the request; never an app effect.
-    transport: &'static str,
-    observed_effect: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 struct LeaseNormalized {
@@ -310,6 +287,58 @@ impl DriveOutcome {
             normalized,
         }
     }
+
+    /// Same as `unavailable` for provider-supplied (non-static) reasons.
+    fn unavailable_owned(reason: &str, detail: &str) -> Self {
+        Self {
+            outcome: Some(OperationOutcome::Failed),
+            effect: EffectStatus::None,
+            level: None,
+            decode: DecodeStatus::Decoded,
+            normalized: serde_json::json!({
+                "result": "unavailable",
+                "reason": reason,
+                "detail": detail,
+            }),
+        }
+    }
+
+    /// Same as `rejected` for provider-supplied (non-static) reasons.
+    fn rejected_owned(reason: &str, detail: &str) -> Self {
+        Self {
+            outcome: Some(OperationOutcome::Failed),
+            effect: EffectStatus::None,
+            level: Some(ObservationLevel::RemoteCompleted),
+            decode: DecodeStatus::Decoded,
+            normalized: serde_json::json!({
+                "result": "rejected",
+                "reason": reason,
+                "detail": detail,
+            }),
+        }
+    }
+}
+
+fn desktop_error_outcome(error: &DesktopError) -> DriveOutcome {
+    match error {
+        DesktopError::Unavailable { .. } => {
+            DriveOutcome::unavailable_owned(error.reason(), error.detail())
+        }
+        DesktopError::Rejected { .. } => {
+            DriveOutcome::rejected_owned(error.reason(), error.detail())
+        }
+        DesktopError::Lost { .. } => DriveOutcome {
+            outcome: Some(OperationOutcome::Interrupted),
+            effect: EffectStatus::Unknown,
+            level: None,
+            decode: DecodeStatus::Uninterpreted,
+            normalized: serde_json::json!({
+                "result": "incomplete",
+                "reason": "transport_lost",
+                "detail": error.detail(),
+            }),
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +356,7 @@ enum HeldInput {
 /// send boundary, so it can never block a takeover for the session.
 struct SessionShared {
     next_frame: u64,
+    next_revision: u64,
     /// Sent-event counts per operation for reconcile reporting.
     send_log: BTreeMap<EntityId, usize>,
 }
@@ -335,9 +365,17 @@ struct SessionShared {
 /// same display/root shares this lease, epoch and held-input set, so a
 /// sibling session can never become a second writer on one desktop.
 struct DomainState {
-    /// Monotonic domain epoch; takeover/release/detected-external bump it.
-    lease_epoch: u64,
-    lease: Option<DomainLease>,
+    /// The display domain identity this state guards, in the shared
+    /// `x11/{socket_endpoint_key}/root{root:08x}` spelling other providers
+    /// (browser) bind to.
+    domain_id: String,
+    /// Where external-input detections are dispatched after the lease
+    /// revoke + held-input release (handover fence first, notify second).
+    fanout: Arc<HumanInputFanout>,
+    /// The shared lease truth of this display domain. The algorithm that
+    /// mutates it is `desktop::apply_lease_op`, so no provider can drift
+    /// into a different takeover semantic.
+    lease_state: DesktopLeaseState,
     /// Machine-held inputs on this domain; released on takeover/release/close.
     /// Entries are ONLY holds this product originated — a press repeated over
     /// a foreign (caller/human) hold is never adopted for cleanup.
@@ -359,15 +397,6 @@ struct DomainState {
     /// Stop flag for the watcher thread; set when the backend is dropped so
     /// the thread exits instead of blocking forever on poll.
     watch_stop: Arc<AtomicBool>,
-}
-
-struct DomainLease {
-    /// The admitted controller instance holding the epoch.
-    holder_instance: EntityId,
-    /// The session through which the holder wrote; losing THIS session
-    /// revokes the epoch — a non-holding sibling's close does not.
-    holder_session: EntityId,
-    token: EntityId,
 }
 
 struct X11Session {
@@ -413,11 +442,11 @@ impl X11Session {
         if self.closed.load(Ordering::Relaxed) {
             return Err(SendError::Rejected("session_closed"));
         }
-        match &domain.lease {
+        match &domain.lease_state.holder {
             Some(lease)
                 if lease.token == token
                     && lease.holder_session == self.session_id
-                    && domain.lease_epoch == epoch => {
+                    && domain.lease_state.epoch == epoch => {
                 Ok(domain)
             }
             _ => Err(SendError::Rejected("lease_revoked")),
@@ -435,12 +464,13 @@ impl Drop for X11Session {
         if let Ok(mut domain) = self.domain_locked() {
             domain.session_ids.remove(&self.session_id);
             let holder_gone = domain
-                .lease
+                .lease_state
+                .holder
                 .as_ref()
                 .is_some_and(|l| l.holder_session == self.session_id);
             if domain.session_ids.is_empty() || holder_gone {
-                domain.lease = None;
-                domain.lease_epoch += 1;
+                domain.lease_state.holder = None;
+                domain.lease_state.epoch += 1;
                 let held: Vec<HeldInput> =
                     std::mem::take(&mut domain.held).into_iter().collect();
                 let remapped = std::mem::take(&mut domain.remapped);
@@ -453,17 +483,43 @@ impl Drop for X11Session {
     }
 }
 
-struct BackendState {
+/// Live state of the X11 provider: its sessions and the display domains it
+/// owns. One domain id is one shared focus/mouse/keyboard domain.
+struct X11State {
     sessions: BTreeMap<EntityId, Arc<X11Session>>,
     /// One shared lease state per display domain id (`x11/<display>/<root>`).
     domains: BTreeMap<String, Arc<Mutex<DomainState>>>,
 }
 
-/// Shared live state behind the four Cordis-registered handler kinds, so
-/// lease authority and session identity are one truth across task kinds.
+/// The real X11 desktop provider (SPEC §24.1, §24.3): a genuine X11
+/// connection, genuine GetImage observation and genuine XTEST input.
+pub struct X11Provider {
+    state: Mutex<X11State>,
+    /// Human-input observation fanout shared with the product backend so
+    /// browser/mobile peers bound to a display domain get the same event.
+    fanout: Arc<HumanInputFanout>,
+}
+
+/// One live desktop session owned by the product backend.
+struct DesktopSessionEntry {
+    provider: Arc<dyn DesktopProvider>,
+    handle: DesktopSessionHandle,
+}
+
+/// Shared live state behind the Cordis-registered handler kinds, so lease
+/// authority and session identity are one truth across task kinds AND
+/// across platforms (SPEC §24.3).
 pub struct ComputerUseBackend {
     store: Arc<Store>,
-    state: Mutex<BackendState>,
+    providers: BTreeMap<String, Arc<dyn DesktopProvider>>,
+    sessions: Mutex<BTreeMap<EntityId, DesktopSessionEntry>>,
+    /// Human-input observations from display domains dispatch here (SPEC
+    /// §24.3/§24.6.2); the browser provider registers its observer.
+    human_input: Arc<HumanInputFanout>,
+    /// Original LayerFS on a qualified Linux VM (SPEC §10.2.1): every
+    /// Store operation runs through the pinned original SDK inside the
+    /// guest; this adapter only drives the VM lifecycle.
+    layerfs: Arc<crate::layerfs::LayerFsAdapter>,
 }
 
 struct CapturedFrame {
@@ -472,7 +528,7 @@ struct CapturedFrame {
     rect: [i32; 4],
     image_width: u16,
     image_height: u16,
-    pixel_format: PixelFormatInfo,
+    pixel_format: DesktopPixelFormat,
     visual: xproto::Visualtype,
 }
 
@@ -482,6 +538,9 @@ struct DriveCtx {
     /// native tasks (CallContext.caller_instance_id); session ownership and
     /// lease holding bind this, not a finite task id.
     caller: EntityId,
+    /// The durable task this operation belongs to; a committed cancel
+    /// intent on it stops further input (SPEC §10.6).
+    task_id: EntityId,
 }
 
 struct SendResult {
@@ -492,8 +551,8 @@ struct SendResult {
 }
 
 impl SendResult {
-    fn receipt(self, index: usize) -> ActionReceipt {
-        ActionReceipt {
+    fn receipt(self, index: usize) -> DesktopActionReceipt {
+        DesktopActionReceipt {
             index,
             kind: self.kind,
             transport: "acked",
@@ -521,14 +580,43 @@ struct MappedKey {
 }
 
 impl ComputerUseBackend {
+    /// The product backend owns the operation ledger and the observation
+    /// record; every platform fact comes from a registered provider.
     pub fn new(store: Arc<Store>) -> Self {
+        let human_input = Arc::new(HumanInputFanout::new());
+        let mut providers: BTreeMap<String, Arc<dyn DesktopProvider>> = BTreeMap::new();
+        providers.insert(
+            "x11".into(),
+            Arc::new(X11Provider::with_fanout(Arc::clone(&human_input))),
+        );
+        #[cfg(target_os = "windows")]
+        providers.insert(
+            "windows".into(),
+            Arc::new(crate::desktop_windows::WindowsDesktopProvider::new()),
+        );
+        #[cfg(target_os = "macos")]
+        providers.insert(
+            "macos".into(),
+            Arc::new(crate::desktop_macos::MacOsDesktopProvider::new()),
+        );
         Self {
             store,
-            state: Mutex::new(BackendState {
-                sessions: BTreeMap::new(),
-                domains: BTreeMap::new(),
-            }),
+            providers,
+            sessions: Mutex::new(BTreeMap::new()),
+            human_input,
+            layerfs: Arc::new(crate::layerfs::LayerFsAdapter::new(
+                crate::layerfs::LayerFsAdapterConfig::from_env(),
+            )),
         }
+    }
+
+    /// Register a peer provider (browser, mobile) that reacts to human
+    /// input on a shared display domain.
+    pub fn register_human_input_observer(
+        &self,
+        observer: Arc<dyn crate::desktop::HumanInputObserver>,
+    ) {
+        self.human_input.register(observer);
     }
 
     fn seal<T: Serialize>(&self, value: &T, schema: &str) -> Result<ObjectRef> {
@@ -549,7 +637,87 @@ impl ComputerUseBackend {
         }
     }
 
-    fn state(&self) -> Result<MutexGuard<'_, BackendState>> {
+    /// The real providers this build contains. "auto" resolves to the
+    /// platform's native provider; a provider that is not compiled for this
+    /// platform is reported as such, never silently replaced.
+    fn provider_for(&self, name: &str) -> Result<Arc<dyn DesktopProvider>, DesktopError> {
+        let resolved = match name {
+            "auto" => platform_default_provider().to_string(),
+            other => other.to_string(),
+        };
+        match self.providers.get(&resolved) {
+            Some(provider) => Ok(Arc::clone(provider)),
+            None => Err(DesktopError::unavailable(
+                "backend_not_available_on_this_build",
+                format!(
+                    "no {resolved} provider is compiled into this build (available: {})",
+                    self.providers
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )),
+        }
+    }
+
+    /// Real, probed capabilities of every registered provider — the
+    /// user-facing discovery surface (SPEC §24.1).
+    fn provider_capabilities(&self) -> Vec<serde_json::Value> {
+        self.providers
+            .values()
+            .map(|provider| {
+                serde_json::json!({
+                    "provider": provider.provider_id(),
+                    "capabilities": provider.capabilities(),
+                })
+            })
+            .collect()
+    }
+
+    fn session_entry(
+        &self,
+        session_id: EntityId,
+    ) -> Result<(Arc<dyn DesktopProvider>, DesktopSessionHandle), DesktopError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| DesktopError::unavailable("backend_state_poisoned", ""))?;
+        match sessions.get(&session_id) {
+            Some(entry) => {
+                if entry.handle.session.is_closed() {
+                    return Err(DesktopError::unavailable("session_closed", ""));
+                }
+                Ok((
+                    Arc::clone(&entry.provider),
+                    DesktopSessionHandle {
+                        session_id: entry.handle.session_id,
+                        session: Arc::clone(&entry.handle.session),
+                        owner_instance: entry.handle.owner_instance,
+                    },
+                ))
+            }
+            None => Err(DesktopError::unavailable("session_unknown", "")),
+        }
+    }
+}
+
+impl X11Provider {
+    pub fn new() -> Self {
+        Self::with_fanout(Arc::new(HumanInputFanout::new()))
+    }
+
+    pub fn with_fanout(fanout: Arc<HumanInputFanout>) -> Self {
+        Self {
+            state: Mutex::new(X11State {
+                sessions: BTreeMap::new(),
+                domains: BTreeMap::new(),
+            }),
+            fanout,
+        }
+    }
+
+    fn state(&self) -> Result<MutexGuard<'_, X11State>> {
         self.state
             .lock()
             .map_err(|_| anyhow::anyhow!("computer-use backend state poisoned"))
@@ -570,7 +738,9 @@ impl ComputerUseBackend {
             None => Err("session_unknown"),
         }
     }
+}
 
+impl ComputerUseBackend {
     // ------------------------------------------------------------------
     // T1/E1/T2 drive: arm precedes any external effect; X11 work is blocking.
     // ------------------------------------------------------------------
@@ -681,6 +851,7 @@ impl ComputerUseBackend {
         let ctx = DriveCtx {
             operation_id: invocation.operation_id,
             caller: invocation.context.caller_instance_id,
+            task_id: invocation.task_invocation.task_id,
         };
         let backend = Arc::clone(self);
         let outcome = tokio::task::spawn_blocking(move || work(&backend, &ctx))
@@ -716,9 +887,11 @@ impl ComputerUseBackend {
             outcome.effect,
         )
     }
+}
 
+impl X11Provider {
     // ------------------------------------------------------------------
-    // Session open/close (T1 already armed)
+    // Session open/close — trait implementation of `DesktopProvider`.
     // ------------------------------------------------------------------
 
     /// Connect a dedicated watcher client, negotiate XI on THAT connection
@@ -796,27 +969,18 @@ impl ComputerUseBackend {
         ))
     }
 
-    fn open_session(&self, frozen: &SessionFrozen, owner_instance: EntityId) -> DriveOutcome {
-        if !frozen.backend_x11 {
-            return DriveOutcome::unavailable(
-                "backend_unavailable",
-                format!(
-                    "no implemented computer-use backend {:?}; only x11 is real",
-                    frozen.backend_name
-                ),
-            );
-        }
-        let display = frozen
+    fn open_provider_session(&self, request: &DesktopOpenRequest, owner_instance: EntityId) -> Result<DesktopSessionHandle, DesktopError> {
+        let display = request
             .display
             .clone()
             .filter(|d| !d.trim().is_empty())
             .or_else(|| std::env::var("DISPLAY").ok())
             .unwrap_or_default();
         if display.trim().is_empty() {
-            return DriveOutcome::unavailable(
+            return Err(DesktopError::unavailable(
                 "no_display_address",
                 "no explicit display and $DISPLAY unset".to_string(),
-            );
+            ));
         };
         // Parse the display BEFORE connecting. The u16 `6000 + display`
         // bound applies ONLY when the resolver's address list actually
@@ -827,10 +991,10 @@ impl ComputerUseBackend {
         ) {
             Ok(p) => p,
             Err(_) => {
-                return DriveOutcome::unavailable(
+                return Err(DesktopError::unavailable(
                     "display_address_invalid",
                     format!("unparseable display {display:?}"),
-                )
+                ))
             }
         };
         // Mirror connect_addresses: TCP targets exist only for a non-local
@@ -842,37 +1006,37 @@ impl ComputerUseBackend {
             && parsed.host != "unix")
             || (parsed.protocol.is_none() && parsed.host.is_empty());
         if parsed.display > 59535 && wants_tcp {
-            return DriveOutcome::unavailable(
+            return Err(DesktopError::unavailable(
                 "display_address_invalid",
                 format!("display {} exceeds resolver TCP range", parsed.display),
-            );
+            ));
         }
         let (conn, default_screen) = match RustConnection::connect(Some(display.as_str())) {
             Ok(pair) => pair,
             Err(error) => {
                 let kind = connect_error_kind(&error);
-                return DriveOutcome::unavailable(kind, error.to_string());
+                return Err(DesktopError::unavailable(kind, error.to_string()));
             }
         };
         let setup = conn.setup();
         // Negative screen numbers are invalid input, not an alias for 0.
-        if let Some(screen) = frozen.screen {
+        if let Some(screen) = request.screen {
             if screen < 0 {
-                return DriveOutcome::unavailable(
+                return Err(DesktopError::unavailable(
                     "screen_invalid",
                     format!("negative screen {screen}"),
-                );
+                ));
             }
         }
         let screen_index = usize::try_from(
-            frozen.screen.unwrap_or(default_screen as i32),
+            request.screen.unwrap_or(default_screen as i32),
         )
         .unwrap_or(usize::MAX);
         let Some(screen) = setup.roots.get(screen_index).cloned() else {
-            return DriveOutcome::unavailable(
+            return Err(DesktopError::unavailable(
                 "screen_invalid",
                 format!("{} screens present", setup.roots.len()),
-            );
+            ));
         };
         // Real capability probing via extension presence + version replies.
         let xtest_version = match conn.extension_information(xtest::X11_EXTENSION_NAME) {
@@ -911,7 +1075,7 @@ impl ComputerUseBackend {
         let normalized_display = match socket_endpoint_key(&conn) {
             Ok(endpoint) => endpoint,
             Err(error) => {
-                return DriveOutcome::unavailable("display_endpoint_unknown", error.to_string())
+                return Err(DesktopError::unavailable("display_endpoint_unknown", error.to_string()))
             }
         };
         let domain_id = format!("x11/{}/root{:08x}", normalized_display, screen.root);
@@ -932,8 +1096,9 @@ impl ComputerUseBackend {
                 Some(existing) => Arc::clone(existing),
                 None => {
                     let domain = Arc::new(Mutex::new(DomainState {
-                        lease_epoch: 0,
-                        lease: None,
+                        domain_id: domain_id.clone(),
+                        fanout: Arc::clone(&self.fanout),
+                        lease_state: DesktopLeaseState::new(),
                         held: BTreeSet::new(),
                         remapped: vec![],
                         session_ids: BTreeSet::new(),
@@ -947,7 +1112,7 @@ impl ComputerUseBackend {
                     domain
                 }
             },
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
         // Domain watcher, at most one LIVE thread per domain — creation,
         // liveness check and publication all happen inside the domain lock
@@ -993,7 +1158,7 @@ impl ComputerUseBackend {
                     }
                 }
             }
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         }
         let info = SessionInfo {
             session_id,
@@ -1023,6 +1188,7 @@ impl ComputerUseBackend {
             screen,
             shared: Arc::new(Mutex::new(SessionShared {
                 next_frame: 1,
+                next_revision: 1,
                 send_log: BTreeMap::new(),
             })),
             domain: Arc::clone(&domain),
@@ -1032,30 +1198,23 @@ impl ComputerUseBackend {
                 if let Ok(mut locked) = domain.lock() {
                     locked.session_ids.insert(session_id);
                 }
-                state.sessions.insert(session_id, session);
+                state.sessions.insert(session_id, Arc::clone(&session));
             }
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         }
-        DriveOutcome::done(
-            EffectStatus::None,
-            ObservationLevel::PostconditionVerified,
-            serde_json::json!({
-                "result": "opened",
-                "session": info,
-            }),
-        )
+        Ok(DesktopSessionHandle::new(session_id, session, owner_instance))
     }
 
-    fn close_session(&self, session_id: EntityId, caller_instance: EntityId) -> DriveOutcome {
+    fn close_session(&self, session_id: EntityId, caller_instance: EntityId) -> Result<DesktopCloseOutcome, DesktopError> {
         let session = match self.session(session_id) {
             Ok(s) => s,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
         if session.owner_instance != caller_instance {
-            return DriveOutcome::rejected(
+            return Err(DesktopError::rejected(
                 "not_session_owner",
-                serde_json::json!({"session_id": session_id}),
-            );
+                format!("session {session_id} belongs to another controller"),
+            ));
         }
         // Liveness does not contend with injection. Session lookup and a
         // concurrent takeover never wait for the current Text action.
@@ -1063,35 +1222,33 @@ impl ComputerUseBackend {
         // Revoke only when this exact session held the writer lease, or the
         // last session leaves. A non-holding sibling can close without
         // invalidating an active writer from the same controller.
-        let (released, revoked) = match session.domain_locked() {
+        let outcome = match session.domain_locked() {
             Ok(mut domain) => {
                 domain.session_ids.remove(&session_id);
                 let holder_gone = domain
-                    .lease
+                    .lease_state
+                    .holder
                     .as_ref()
                     .is_some_and(|l| l.holder_session == session_id);
                 if domain.session_ids.is_empty() || holder_gone {
                     let (released, _) = Self::revoke_locked(&session, &mut domain);
-                    (released, true)
+                    Ok(DesktopCloseOutcome {
+                        held_released: released,
+                        lease_revoked: true,
+                    })
                 } else {
-                    (0, false)
+                    Ok(DesktopCloseOutcome {
+                        held_released: 0,
+                        lease_revoked: false,
+                    })
                 }
             }
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
         if let Ok(mut state) = self.state() {
             state.sessions.remove(&session_id);
         }
-        DriveOutcome::done(
-            EffectStatus::None,
-            ObservationLevel::PostconditionVerified,
-            serde_json::json!({
-                "result": "closed",
-                "session_id": session_id,
-                "held_released": released,
-                "lease_revoked": revoked,
-            }),
-        )
+        outcome
     }
 
     // ------------------------------------------------------------------
@@ -1215,7 +1372,8 @@ impl ComputerUseBackend {
             rect: [x, y, w, h],
             image_width,
             image_height,
-            pixel_format: PixelFormatInfo {
+            pixel_format: DesktopPixelFormat {
+                name: "x11_zpixmap".into(),
                 depth: image_depth,
                 bits_per_pixel: format.bits_per_pixel,
                 byte_order: format!("{:?}", session.conn.setup().image_byte_order),
@@ -1228,10 +1386,10 @@ impl ComputerUseBackend {
         })
     }
 
-    fn observe(&self, frozen: &ObserveFrozen) -> DriveOutcome {
-        let session = match self.session(frozen.session_id) {
+    fn observe_session(&self, session_id: EntityId, region: Option<[i32; 4]>) -> Result<DesktopFrame, DesktopError> {
+        let session = match self.session(session_id) {
             Ok(s) => s,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
         // Close/capture fence: the domain lock is held from liveness check
         // through publication. `close` stores `closed` before touching the
@@ -1242,18 +1400,18 @@ impl ComputerUseBackend {
         // session whose close already returned.
         let domain_guard = match session.domain_locked() {
             Ok(domain) => domain,
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
         if session.closed.load(Ordering::Relaxed) {
-            return DriveOutcome::unavailable("session_closed", String::new());
+            return Err(DesktopError::unavailable("session_closed", ""));
         }
         // The bound epoch is taken BEFORE reading pixels; the domain lock
         // already prevents any epoch change mid-capture, and the explicit
         // post-capture comparison keeps that contract visible.
-        let epoch_before = domain_guard.lease_epoch;
+        let epoch_before = domain_guard.lease_state.epoch;
         // Default region means the whole CURRENT root, not the open-time
         // snapshot: a RandR-grown root must be observed in full.
-        let region = match frozen.region {
+        let region = match region {
             Some(r) => r,
             None => {
                 let live = xproto::get_geometry(&session.conn, session.screen.root)
@@ -1267,10 +1425,10 @@ impl ComputerUseBackend {
                         i32::from(g.height),
                     ],
                     None => {
-                        return DriveOutcome::unavailable(
+                        return Err(DesktopError::unavailable(
                             "root_geometry_failed",
-                            String::new(),
-                        )
+                            "",
+                        ))
                     }
                 }
             }
@@ -1282,17 +1440,17 @@ impl ComputerUseBackend {
         let (fingerprint_before, _) =
             match Self::layout_fingerprint(&session.conn, session.screen.root) {
                 Ok(pair) => pair,
-                Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+                Err(reason) => return Err(DesktopError::unavailable(reason, "")),
             };
         let frame = match Self::capture_region(&session, region) {
             Ok(f) => f,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
-        if domain_guard.lease_epoch != epoch_before {
-            return DriveOutcome::unavailable(
+        if domain_guard.lease_state.epoch != epoch_before {
+            return Err(DesktopError::unavailable(
                 "epoch_changed_during_capture",
                 format!("epoch changed mid-capture on {}", session.info.domain_id),
-            );
+            ));
         }
         // Final liveness fence before anything derived from this session is
         // published: close cannot have completed while we held the domain
@@ -1300,84 +1458,51 @@ impl ComputerUseBackend {
         // earlier check and now — but still could not finish, so refusing is
         // the only honest answer either way.
         if session.closed.load(Ordering::Relaxed) {
-            return DriveOutcome::unavailable("session_closed", String::new());
+            return Err(DesktopError::unavailable("session_closed", ""));
         }
         let (fingerprint, shapes) = match Self::layout_fingerprint(&session.conn, session.screen.root) {
             Ok(pair) => pair,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
         if fingerprint != fingerprint_before {
-            return DriveOutcome::unavailable(
+            return Err(DesktopError::unavailable(
                 "layout_changed_during_capture",
                 format!("window layout changed mid-capture on {}", session.info.domain_id),
-            );
+            ));
         }
-        let pixel_hash = hex_digest(&frame.data);
         let rgb = match image_to_rgb8(&frame) {
             Ok(rgb) => rgb,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
-        let png = match encode_png(
-            u32::from(frame.image_width),
-            u32::from(frame.image_height),
-            &rgb,
-        ) {
-            Ok(png) => png,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
-        };
-        let raw_ref = match self.seal_media(
-            &frame.data,
-            "application/x-x11-zpixmap",
-            "computer-use-pixels",
-        ) {
-            Ok(r) => r,
-            Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
-        };
-        let png_ref = match self.seal_media(&png, "image/png", "computer-use-preview") {
-            Ok(r) => r,
-            Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
-        };
-        let frame_id = match session.locked() {
+        let (frame_id, revision) = match session.locked() {
             Ok(mut shared) => {
-                let id = shared.next_frame;
+                let frame_id = shared.next_frame;
                 shared.next_frame += 1;
-                id
+                let revision = shared.next_revision;
+                shared.next_revision += 1;
+                (frame_id, revision)
             }
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
-        let observation = DesktopObservation {
-            session_id: frozen.session_id,
-            domain_id: session.info.domain_id.clone(),
-            display: session.info.display.clone(),
-            screen_num: session.info.screen_num,
-            frame_id,
-            captured_at_ms: chrono::Utc::now().timestamp_millis(),
-            lease_epoch_at_capture: epoch_before,
+        Ok(DesktopFrame {
             region: frame.rect,
-            viewport: [frame.image_width, frame.image_height],
+            width: u32::from(frame.image_width),
+            height: u32::from(frame.image_height),
+            raw_pixels: frame.data,
+            rgb,
+            pixel_format: frame.pixel_format.clone(),
+            layout_fingerprint: fingerprint,
             dpi_x: session.info.dpi_x,
             dpi_y: session.info.dpi_y,
             scale_factor: 1.0,
-            layout_fingerprint: fingerprint,
-            pixel_hash,
-            pixel_format: frame.pixel_format.clone(),
-            raw_pixels_ref: raw_ref,
-            png_preview_ref: png_ref,
-        };
-        let observation_ref = match self.seal(&observation, "computer-use-observation-record") {
-            Ok(r) => r,
-            Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
-        };
-        DriveOutcome::done(
-            EffectStatus::None,
-            ObservationLevel::PostconditionVerified,
-            serde_json::json!({
-                "result": "observed",
-                "observation_id": observation_ref.digest.0,
-                "observation": observation,
+            frame_id,
+            revision,
+            lease_epoch: epoch_before,
+            screen_num: session.info.screen_num,
+            detail: serde_json::json!({
                 "top_level_windows": shapes,
             }),
-        )
+        })
     }
 
     // ------------------------------------------------------------------
@@ -1387,10 +1512,9 @@ impl ComputerUseBackend {
     /// Revoke the current machine epoch on the shared domain. Bumping
     /// `lease_epoch` invalidates every bound token and observation epoch;
     /// held inputs are released on the real connection.
-    fn revoke_locked(session: &X11Session, domain: &mut DomainState) -> (usize, u64) {
-        domain.lease = None;
-        domain.lease_epoch += 1;
-        let epoch = domain.lease_epoch;
+    /// Release provider-side held inputs and remapped rows without touching
+    /// the epoch. The caller is responsible for the lease-state mutation.
+    fn release_provider_state(session: &X11Session, domain: &mut DomainState) -> usize {
         let held: Vec<HeldInput> = std::mem::take(&mut domain.held).into_iter().collect();
         // The X calls run while holding `domain`; that is the point of the
         // lock: a concurrent injection action cannot slip events between the
@@ -1398,224 +1522,140 @@ impl ComputerUseBackend {
         release_held(&session.conn, session.screen.root, &held);
         let remapped = std::mem::take(&mut domain.remapped);
         restore_keymap(&session.conn, &remapped);
-        (held.len(), epoch)
+        held.len()
     }
 
-    fn lease_op(&self, frozen: &LeaseFrozen, caller_instance: EntityId) -> DriveOutcome {
-        let session = match self.session(frozen.session_id) {
+    /// Revoke the current machine epoch on the shared domain. Bumping
+    /// `lease_epoch` invalidates every bound token and observation epoch;
+    /// held inputs are released on the real connection.
+    fn revoke_locked(session: &X11Session, domain: &mut DomainState) -> (usize, u64) {
+        domain.lease_state.holder = None;
+        domain.lease_state.epoch += 1;
+        let epoch = domain.lease_state.epoch;
+        (Self::release_provider_state(session, domain), epoch)
+    }
+
+    fn lease_op_session(&self, session_id: EntityId, op: DesktopLeaseOp, token: Option<EntityId>, caller_instance: EntityId) -> Result<DesktopLeaseOutcome, DesktopError> {
+        let session = match self.session(session_id) {
             Ok(s) => s,
-            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
         let mut domain = match session.domain_locked() {
             Ok(s) => s,
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
         if session.closed.load(Ordering::Relaxed) {
-            return DriveOutcome::rejected("session_closed", serde_json::json!({}));
+            return Err(DesktopError::rejected("session_closed", "session is closed"));
         }
-        match frozen.op {
-            LeaseOp::Acquire => {
-                if let Some(lease) = &domain.lease {
-                    if lease.holder_instance == caller_instance
-                        && lease.holder_session == frozen.session_id
-                    {
-                        return DriveOutcome::done(
-                            EffectStatus::None,
-                            ObservationLevel::RemoteCompleted,
-                            serde_json::json!({
-                                "result": "held",
-                                "lease": LeaseNormalized {
-                                    lease_token: Some(lease.token),
-                                    epoch: domain.lease_epoch,
-                                    held_released: 0,
-                                },
-                            }),
-                        );
-                    }
-                    return DriveOutcome::rejected(
-                        "lease_conflict",
-                        serde_json::json!({
-                            "lease": LeaseNormalized {
-                                lease_token: None,
-                                epoch: domain.lease_epoch,
-                                held_released: 0,
-                            },
-                        }),
-                    );
-                }
-                let token = EntityId::new();
-                domain.lease = Some(DomainLease {
-                    holder_instance: caller_instance,
-                    holder_session: frozen.session_id,
-                    token,
-                });
-                DriveOutcome::done(
-                    EffectStatus::None,
-                    ObservationLevel::RemoteCompleted,
-                    serde_json::json!({
-                        "result": "acquired",
-                        "lease": LeaseNormalized {
-                            lease_token: Some(token),
-                            epoch: domain.lease_epoch,
-                            held_released: 0,
-                        },
-                    }),
-                )
-            }
-            LeaseOp::Release => {
-                let owns = domain
-                    .lease
-                    .as_ref()
-                    .is_some_and(|l| Some(l.token) == frozen.lease_token);
-                if !owns {
-                    return DriveOutcome::rejected(
-                        "lease_token_mismatch",
-                        serde_json::json!({
-                            "lease": LeaseNormalized {
-                                lease_token: None,
-                                epoch: domain.lease_epoch,
-                                held_released: 0,
-                            },
-                        }),
-                    );
-                }
-                let (released, epoch) = Self::revoke_locked(&session, &mut domain);
-                DriveOutcome::done(
-                    EffectStatus::None,
-                    ObservationLevel::RemoteCompleted,
-                    serde_json::json!({
-                        "result": "released",
-                        "lease": LeaseNormalized {
-                            lease_token: None,
-                            epoch,
-                            held_released: released,
-                        },
-                    }),
-                )
-            }
-            LeaseOp::Takeover => {
-                // Human/explicit takeover: revoke the old epoch so late input
-                // from the previous controller is rejected, then grant the
-                // caller a fresh lease. Never a no-op even without a holder.
-                let (released, _) = Self::revoke_locked(&session, &mut domain);
-                let token = EntityId::new();
-                domain.lease = Some(DomainLease {
-                    holder_instance: caller_instance,
-                    holder_session: frozen.session_id,
-                    token,
-                });
-                DriveOutcome::done(
-                    EffectStatus::None,
-                    ObservationLevel::RemoteCompleted,
-                    serde_json::json!({
-                        "result": "taken_over",
-                        "lease": LeaseNormalized {
-                            lease_token: Some(token),
-                            epoch: domain.lease_epoch,
-                            held_released: released,
-                        },
-                    }),
-                )
-            }
+        let (mut outcome, revoke) = apply_lease_op(&mut domain.lease_state, op, token, caller_instance, session_id)?;
+        if revoke {
+            // Handover fence: release held inputs and restore remapped rows
+            // under the same domain lock, so no new writer can emit input
+            // while the old one's unpaired presses are still down.
+            outcome.held_released = Self::release_provider_state(&session, &mut domain);
         }
+        Ok(outcome)
     }
 
     // ------------------------------------------------------------------
     // Input injection (observation-bound, lease-gated, never replayed)
     // ------------------------------------------------------------------
 
-    fn verify_observation(
-        &self,
+    /// Provider-side half of observation verification. The product layer
+    /// already read the sealed observation from the CAS and checked its
+    /// identity and freshness window; here the live domain state must still
+    /// match the observation's capture-time facts.
+    fn verify_observation_state(
         session: &X11Session,
-        observation_id: &str,
+        observation: &DesktopObservation,
         require_pixel_fresh: bool,
-    ) -> Result<DesktopObservation, &'static str> {
-        let bytes = self
-            .store
-            .cas
-            .read_object(&Digest(observation_id.to_string()))
-            .map_err(|_| "observation_unknown")?;
-        let observation: DesktopObservation =
-            serde_json::from_slice(&bytes).map_err(|_| "observation_corrupt")?;
+    ) -> Result<(), DesktopError> {
         if observation.session_id != session.session_id {
-            return Err("observation_session_mismatch");
+            return Err(DesktopError::rejected("observation_session_mismatch", ""));
         }
         if observation.domain_id != session.info.domain_id {
-            return Err("observation_domain_mismatch");
-        }
-        let now = chrono::Utc::now().timestamp_millis();
-        if now.saturating_sub(observation.captured_at_ms) > MAX_OBSERVATION_AGE_MS {
-            return Err("observation_expired");
+            return Err(DesktopError::rejected("observation_domain_mismatch", ""));
         }
         // A takeover/release bumps the domain epoch; an observation captured
         // under an older epoch was made against coordinates the holder no
         // longer controls and must be re-taken.
         match session.domain_locked() {
             Ok(domain) => {
-                if domain.lease_epoch != observation.lease_epoch_at_capture {
-                    return Err("observation_stale_epoch");
+                if domain.lease_state.epoch != observation.lease_epoch_at_capture {
+                    return Err(DesktopError::rejected("observation_stale_epoch", ""));
                 }
             }
-            Err(_) => return Err("backend_state_poisoned"),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         }
         let (fingerprint, _) = Self::layout_fingerprint(&session.conn, session.screen.root)
-            .map_err(|_| "layout_query_failed")?;
+            .map_err(|_| DesktopError::unavailable("layout_query_failed", ""))?;
         if fingerprint != observation.layout_fingerprint {
-            return Err("observation_stale_layout");
+            return Err(DesktopError::rejected("observation_stale_layout", ""));
         }
         if require_pixel_fresh {
-            let frame = Self::capture_region(session, observation.region)?;
+            let frame = Self::capture_region(session, observation.region)
+                .map_err(|reason| DesktopError::unavailable(reason, ""))?;
             if hex_digest(&frame.data) != observation.pixel_hash {
-                return Err("observation_stale_pixels");
+                return Err(DesktopError::rejected("observation_stale_pixels", ""));
             }
         }
-        Ok(observation)
+        Ok(())
     }
 
-    fn inject(&self, frozen: &InjectFrozen, ctx: &DriveCtx) -> DriveOutcome {
-        let session = match self.session(frozen.session_id) {
+    fn inject_session(&self, session_id: EntityId, mut request: DesktopInjectRequest, operation_id: EntityId) -> Result<DesktopInjectOutcome, DesktopError> {
+        let session = match self.session(session_id) {
             Ok(s) => s,
-            Err(reason) => return DriveOutcome::rejected(reason, serde_json::json!({})),
+            Err(reason) => return Err(DesktopError::unavailable(reason, "")),
         };
         // Lease check on the shared domain: the token must match the current
         // holder, and it is re-verified before EVERY action — the domain lock
         // is released between actions so an external-input watcher or an
         // explicit takeover can revoke the epoch mid-batch and stop the rest.
         let bound_epoch = match session.domain_locked() {
-            Ok(domain) => match &domain.lease {
-                Some(lease) if lease.token == frozen.lease_token => domain.lease_epoch,
+            Ok(domain) => match &domain.lease_state.holder {
+                Some(lease) if lease.token == request.lease_token => domain.lease_state.epoch,
                 _ => {
-                    return DriveOutcome::rejected(
-                        if domain.lease.is_some() {
-                            "lease_revoked"
-                        } else {
-                            "no_lease"
-                        },
-                        serde_json::json!({"epoch": domain.lease_epoch}),
-                    );
+                    let reason = if domain.lease_state.holder.is_some() {
+                        "lease_revoked"
+                    } else {
+                        "no_lease"
+                    };
+                    return Err(DesktopError::rejected(reason, format!("epoch {}", domain.lease_state.epoch)));
                 }
             },
-            Err(_) => return DriveOutcome::unavailable("backend_state_poisoned", String::new()),
+            Err(_) => return Err(DesktopError::unavailable("backend_state_poisoned", "")),
         };
-        if let Err(reason) =
-            self.verify_observation(&session, &frozen.observation_id, frozen.require_pixel_fresh)
-        {
-            return DriveOutcome::rejected(reason, serde_json::json!({"epoch": bound_epoch}));
-        }
+        Self::verify_observation_state(&session, &request.observation, request.require_pixel_fresh)
+            .map_err(|error| match error {
+                DesktopError::Rejected { reason, detail } => DesktopError::Rejected {
+                    reason,
+                    detail: format!("epoch {bound_epoch} {detail}"),
+                },
+                other => other,
+            })?;
         if let Ok(mut shared) = session.locked() {
-            shared.send_log.insert(ctx.operation_id, 0);
+            shared.send_log.insert(operation_id, 0);
         }
-        let mut receipts: Vec<ActionReceipt> = vec![];
+        let mut receipts: Vec<DesktopActionReceipt> = vec![];
         let mut sent = 0usize;
         let mut unverifiable = 0usize;
         let mut lost = false;
+        let mut cancelled = false;
         let mut failure: Option<&'static str> = None;
-        for (index, action) in frozen.actions.iter().enumerate() {
+        for (index, action) in request.actions.iter().enumerate() {
             // Each action re-validates the lease under the domain lock —
             // per-pointer-event, per-button-action and per-KEYSYM inside
             // Text — so a takeover or external input revokes between any
             // two atomic send units, never only between actions.
-            let result = send_action(&session, frozen.lease_token, bound_epoch, action);
+            if (request.checkpoint)().is_err() {
+                // Durable cancel intent committed by the caller (SPEC §10.6):
+                // stop the batch, release nothing here — the lease guard in
+                // the in-flight action still fences against a takeover.
+                cancelled = true;
+                failure = Some("cancelled");
+                break;
+            }
+            let result = send_action(&session, request.lease_token, bound_epoch, action, &mut *request.checkpoint);
             match result {
                 Ok(receipt) => {
                     sent += receipt.events_sent;
@@ -1627,9 +1667,9 @@ impl ComputerUseBackend {
                 Err((SendError::Rejected(reason), partial)) => {
                     // Events ACKed inside this action still count.
                     sent += partial;
-                    receipts.push(ActionReceipt {
+                    receipts.push(DesktopActionReceipt {
                         index,
-                        kind: action_kind(action).into(),
+                        kind: action.kind().into(),
                         transport: "rejected",
                         observed_effect: Some(reason.into()),
                     });
@@ -1639,9 +1679,9 @@ impl ComputerUseBackend {
                 Err((SendError::Lost, partial)) => {
                     sent += partial;
                     lost = true;
-                    receipts.push(ActionReceipt {
+                    receipts.push(DesktopActionReceipt {
                         index,
-                        kind: action_kind(action).into(),
+                        kind: action.kind().into(),
                         transport: "lost",
                         observed_effect: None,
                     });
@@ -1649,73 +1689,39 @@ impl ComputerUseBackend {
                 }
             }
             if let Ok(mut shared) = session.locked() {
-                shared.send_log.insert(ctx.operation_id, sent);
+                shared.send_log.insert(operation_id, sent);
             }
         }
         let pointer_post = xproto::query_pointer(&session.conn, session.screen.root)
             .ok()
             .and_then(|c| c.reply().ok())
             .map(|p| [p.root_x, p.root_y]);
-        if let Ok(mut shared) = session.locked() {
-            shared.send_log.insert(ctx.operation_id, sent);
-        }
-        let base = serde_json::json!({
-            "lease_epoch": bound_epoch,
-            "actions": receipts,
-            "pointer_post": pointer_post,
-            "sent_events": sent,
-        });
-        if lost {
-            // Delivered-or-not is unprovable per action once the connection
-            // died mid-batch: the whole operation stays Unknown, never retried.
-            let mut n = base;
-            n["result"] = serde_json::json!("incomplete");
-            n["reason"] = serde_json::json!("transport_lost");
-            return DriveOutcome {
-                outcome: Some(OperationOutcome::Interrupted),
-                effect: EffectStatus::Unknown,
-                level: None,
-                decode: DecodeStatus::Uninterpreted,
-                normalized: n,
-            };
-        }
-        if let Some(reason) = failure {
-            // Events already left the process before the rejection: None is a
-            // lie — the batch is a partial effect with a failed outcome.
-            if sent > 0 {
-                let mut n = base;
-                n["result"] = serde_json::json!("rejected");
-                n["reason"] = serde_json::json!(reason);
-                return DriveOutcome {
-                    outcome: Some(OperationOutcome::Failed),
-                    effect: EffectStatus::Partial,
-                    level: Some(ObservationLevel::RemoteCompleted),
-                    decode: DecodeStatus::Decoded,
-                    normalized: n,
-                };
+        if cancelled {
+            // SPEC §24.3: on cancellation the plugin releases every key and
+            // button it still holds so no modifier stays pressed.
+            if let Ok(mut domain) = session.domain_locked() {
+                Self::release_provider_state(&session, &mut domain);
             }
-            return DriveOutcome::rejected(reason, base);
         }
-        // Transport ACK is not an application effect: a batch containing any
-        // action without a provable postcondition resolves Partial.
-        let effect = if unverifiable == 0 && sent > 0 {
-            EffectStatus::Complete
-        } else if sent > 0 {
-            EffectStatus::Partial
-        } else {
-            EffectStatus::None
-        };
-        let mut n = base;
-        n["result"] = serde_json::json!("sent");
-        DriveOutcome::done(
-            effect,
-            if unverifiable == 0 && sent > 0 {
-                ObservationLevel::PostconditionVerified
+        if let Ok(mut shared) = session.locked() {
+            shared.send_log.insert(operation_id, sent);
+        }
+        Ok(DesktopInjectOutcome {
+            receipts,
+            sent_events: sent,
+            postcondition_verified: unverifiable == 0 && sent > 0,
+            stopped_reason: if lost {
+                Some("transport_lost".to_string())
             } else {
-                ObservationLevel::RemoteCompleted
+                failure.map(str::to_string)
             },
-            n,
-        )
+            detail: serde_json::json!({
+                "lease_epoch": bound_epoch,
+                "pointer_post": pointer_post,
+                "sent_events": sent,
+                "cancelled": cancelled,
+            }),
+        })
     }
 
     // ------------------------------------------------------------------
@@ -1750,9 +1756,25 @@ impl ComputerUseBackend {
             _ => (None, EffectStatus::Unknown, note),
         }
     }
+
+    fn reconcile_session(&self, session_id: EntityId, operation_id: EntityId) -> DesktopReconcileOutcome {
+        let session = self.session(session_id).ok();
+        let (outcome, effect, note) = self.reconcile_input(operation_id);
+        let _ = session;
+        DesktopReconcileOutcome {
+            sent_events: note["sent_events_before_recovery"].as_u64().map(|v| v as usize),
+            session_alive: note["session_alive_in_memory"].as_bool().unwrap_or(false),
+            process_stop_proven: false,
+            detail: serde_json::json!({
+                "outcome": outcome.map(|o| format!("{o:?}")),
+                "effect_status": format!("{effect:?}"),
+                "note": note,
+            }),
+        }
+    }
 }
 
-impl Drop for ComputerUseBackend {
+impl Drop for X11Provider {
     fn drop(&mut self) {
         // Signal every domain watcher to stop, then join each thread so the
         // backend never leaves a live watcher polling a dead state map.
@@ -1890,10 +1912,15 @@ fn send_action(
     session: &X11Session,
     token: EntityId,
     epoch: u64,
-    action: &ActionInput,
+    action: &DesktopAction,
+    checkpoint: &mut dyn FnMut() -> Result<(), DesktopError>,
 ) -> Result<SendResult, SendFail> {
+    // Cancellation is checked before the action's atomic send unit; a
+    // durable cancel intent stops input without waiting for the lease
+    // to change.
+    checkpoint().map_err(|_| (SendError::Rejected("cancelled"), 0))?;
     match action {
-        ActionInput::PointerMove { x, y } => {
+        DesktopAction::PointerMove { x, y } => {
             let x = (*x).clamp(0, i32::from(i16::MAX)) as i16;
             let y = (*y).clamp(0, i32::from(i16::MAX)) as i16;
             {
@@ -1920,7 +1947,7 @@ fn send_action(
                 })
             }
         }
-        ActionInput::Button { button, press } => {
+        DesktopAction::Button { button, press } => {
             if !(1..=7).contains(button) {
                 return Err((SendError::Rejected("button_out_of_range"), 0));
             }
@@ -1928,7 +1955,7 @@ fn send_action(
             // press/release pair cannot be split by a revoke.
             let mut domain = session.lease_guard(token, epoch).map_err(|e| (e, 0))?;
             match press {
-                PressKind::Tap => {
+                DesktopPress::Tap => {
                     // The probe and press must not race another XTEST
                     // client's press on this same shared injection slave.
                     let _grab = ServerGrab::acquire(&session.conn).map_err(|e| (e, 0))?;
@@ -1952,7 +1979,7 @@ fn send_action(
                         detail: None,
                     })
                 }
-                PressKind::Down => {
+                DesktopPress::Down => {
                     // Adopt the hold for cleanup ONLY if it wasn't already
                     // down on this XTEST slave (foreign holds stay foreign).
                     let _grab = ServerGrab::acquire(&session.conn).map_err(|e| (e, 0))?;
@@ -1967,7 +1994,7 @@ fn send_action(
                         detail: None,
                     })
                 }
-                PressKind::Up => {
+                DesktopPress::Up => {
                     bounded_input(session, &mut domain, BUTTON_RELEASE_EVENT, *button, 0, 0, false)
                         .map_err(|e| (e, 0))?;
                     Ok(SendResult {
@@ -1979,21 +2006,22 @@ fn send_action(
                 }
             }
         }
-        ActionInput::Key { key, press } => {
+        DesktopAction::Key { key, press } => {
             let keysym =
                 parse_key_name(key).ok_or((SendError::Rejected("key_name_unknown"), 0))?;
-            let press = press.unwrap_or(PressKind::Tap);
-            send_keysym(session, token, epoch, keysym, press, "key")
+            let press = press.unwrap_or(DesktopPress::Tap);
+            send_keysym(session, token, epoch, keysym, press, "key", checkpoint)
         }
-        ActionInput::Text { text } => {
+        DesktopAction::Text { text } => {
             // Per-CHARACTER boundary: a mid-text takeover stops the rest of
             // the string, and a partial failure keeps the already-sent count.
             let mut sent = 0usize;
             for ch in text.chars() {
+                checkpoint().map_err(|_| (SendError::Rejected("cancelled"), sent))?;
                 let Some(keysym) = char_to_keysym(ch) else {
                     return Err((SendError::Rejected("text_char_unmappable"), sent));
                 };
-                match send_keysym(session, token, epoch, keysym, PressKind::Tap, "text") {
+                match send_keysym(session, token, epoch, keysym, DesktopPress::Tap, "text", checkpoint) {
                     Ok(result) => sent += result.events_sent,
                     Err((e, partial)) => return Err((e, sent + partial)),
                 }
@@ -2016,9 +2044,11 @@ fn send_keysym(
     token: EntityId,
     epoch: u64,
     keysym: Keysym,
-    press: PressKind,
+    press: DesktopPress,
     kind: &str,
+    checkpoint: &mut dyn FnMut() -> Result<(), DesktopError>,
 ) -> Result<SendResult, SendFail> {
+    checkpoint().map_err(|_| (SendError::Rejected("cancelled"), 0))?;
     // One lease-guarded domain section per keysym: keymap resolution (which
     // may mutate the server-global map), the physical down-state probes,
     // and the whole event sequence stay atomic against revocation — the
@@ -2050,16 +2080,16 @@ fn send_keysym(
         emit!(KEY_PRESS_EVENT, shift_code, true); // only reached when Shift was free — ours to clean up
     }
     match press {
-        PressKind::Tap => {
+        DesktopPress::Tap => {
             emit!(KEY_PRESS_EVENT, mapped.code, !key_down);
             if !key_down {
                 emit!(KEY_RELEASE_EVENT, mapped.code, false);
             }
         }
-        PressKind::Down => {
+        DesktopPress::Down => {
             emit!(KEY_PRESS_EVENT, mapped.code, !key_down);
         }
-        PressKind::Up => {
+        DesktopPress::Up => {
             emit!(KEY_RELEASE_EVENT, mapped.code, false);
         }
     }
@@ -2303,15 +2333,6 @@ fn parse_key_name(name: &str) -> Option<Keysym> {
     Some(keysym)
 }
 
-fn action_kind(action: &ActionInput) -> &'static str {
-    match action {
-        ActionInput::PointerMove { .. } => "pointer_move",
-        ActionInput::Button { .. } => "button",
-        ActionInput::Key { .. } => "key",
-        ActionInput::Text { .. } => "text",
-    }
-}
-
 fn raw_watch_loop(
     conn: RustConnection,
     root: u32,
@@ -2344,9 +2365,9 @@ fn raw_watch_loop(
                         // Non-XTEST source device: external input. Revoke the
                         // machine epoch and release machine-held inputs.
                         if let Some(strong) = shared.upgrade() {
-                            if let Ok(mut locked) = strong.lock() {
-                                locked.lease = None;
-                                locked.lease_epoch += 1;
+                            let notified = if let Ok(mut locked) = strong.lock() {
+                                locked.lease_state.holder = None;
+                                locked.lease_state.epoch += 1;
                                 let held: Vec<HeldInput> = std::mem::take(&mut locked.held).into_iter().collect();
                                 let remapped = std::mem::take(&mut locked.remapped);
                                 // Handover fence: all old unpaired presses
@@ -2354,6 +2375,12 @@ fn raw_watch_loop(
                                 // another lease can acquire this domain.
                                 release_held(&conn, root, &held);
                                 restore_keymap(&conn, &remapped);
+                                Some((locked.domain_id.clone(), Arc::clone(&locked.fanout)))
+                            } else {
+                                None
+                            };
+                            if let Some((domain_id, fanout)) = notified {
+                                fanout.dispatch(&domain_id);
                             }
                         }
                     }
@@ -2438,10 +2465,6 @@ fn socket_endpoint_key(conn: &RustConnection) -> std::io::Result<String> {
     }
 }
 
-fn hex_digest(data: &[u8]) -> String {
-    blake3::hash(data).to_hex().to_string()
-}
-
 fn find_visual(screen: &xproto::Screen, id: u32) -> Option<xproto::Visualtype> {
     for depth in &screen.allowed_depths {
         for visual in &depth.visuals {
@@ -2486,22 +2509,533 @@ fn image_to_rgb8(frame: &CapturedFrame) -> Result<Vec<u8>, &'static str> {
     Ok(rgb)
 }
 
-fn encode_png(width: u32, height: u32, rgb: &[u8]) -> Result<Vec<u8>, &'static str> {
-    let mut png = Vec::new();
-    {
-        let mut encoder = png::Encoder::new(&mut png, width, height);
-        encoder.set_color(png::ColorType::Rgb);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().map_err(|_| "png_header")?;
-        writer.write_image_data(rgb).map_err(|_| "png_data")?;
-    }
-    Ok(png)
-}
-
 fn computer_use_plugin_id() -> EntityId {
     "5f8b2a1d-9e3c-4a7b-8c1d-2e4f5a6b7c8d"
         .parse()
         .expect("fixed computer-use plugin UUID")
+}
+
+// ---------------------------------------------------------------------------
+// The X11 provider behind the neutral contract
+// ---------------------------------------------------------------------------
+
+impl DesktopSession for X11Session {
+    fn session_id(&self) -> EntityId {
+        self.session_id
+    }
+
+    fn provider_id(&self) -> &'static str {
+        "x11"
+    }
+
+    fn domain_id(&self) -> String {
+        self.info.domain_id.clone()
+    }
+
+    fn display(&self) -> DesktopDisplay {
+        let info = &self.info;
+        let capabilities = vec![
+            DesktopCapabilityFact {
+                capability: DesktopCapability::ScreenRead,
+                available: true,
+                detail: "X11 GetImage ZPixmap".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::Input,
+                available: info.xtest_version.is_some(),
+                detail: format!(
+                    "XTEST {}",
+                    info.xtest_version.clone().unwrap_or_else(|| "unavailable".into())
+                ),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::ExternalInputDetection,
+                available: info.external_takeover_detection,
+                detail: "XInput2 raw events from non-XTEST source devices".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::LayoutRevision,
+                available: true,
+                detail: "window tree + live root geometry fingerprint".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::PixelFreshness,
+                available: true,
+                detail: "GetImage re-capture pixel hash".into(),
+            },
+        ];
+        DesktopDisplay {
+            provider: "x11".into(),
+            domain_id: info.domain_id.clone(),
+            display_id: info.display.clone(),
+            session_kind: "x11_display".into(),
+            width_px: info.width_px,
+            height_px: info.height_px,
+            dpi_x: info.dpi_x,
+            dpi_y: info.dpi_y,
+            scale_factor: 1.0,
+            depth: info.depth,
+            capabilities,
+            detail: serde_json::json!({
+                "backend": info.backend,
+                "display": info.display,
+                "screen_num": info.screen_num,
+                "root_window": info.root_window,
+                "width_px": info.width_px,
+                "height_px": info.height_px,
+                "width_mm": info.width_mm,
+                "height_mm": info.height_mm,
+                "dpi_x": info.dpi_x,
+                "dpi_y": info.dpi_y,
+                "depth": info.depth,
+                "xtest_version": info.xtest_version,
+                "xinput2_version": info.xinput2_version,
+                "xtest_source_device_ids": info.xtest_source_device_ids,
+                "domain_id": info.domain_id,
+                "external_takeover_detection": info.external_takeover_detection,
+            }),
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+}
+
+impl DesktopProvider for X11Provider {
+    fn provider_id(&self) -> &'static str {
+        "x11"
+    }
+
+    fn capabilities(&self) -> Vec<DesktopCapabilityFact> {
+        // Static declaration: live probing happens per session open and is
+        // reported in the session's own capability facts.
+        vec![
+            DesktopCapabilityFact {
+                capability: DesktopCapability::ScreenRead,
+                available: true,
+                detail: "X11 GetImage".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::Input,
+                available: true,
+                detail: "XTEST FakeInput".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::ExternalInputDetection,
+                available: true,
+                detail: "XInput2 raw events; requires XI >= 2.1, negotiated per session".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::LayoutRevision,
+                available: true,
+                detail: "window tree fingerprint".into(),
+            },
+            DesktopCapabilityFact {
+                capability: DesktopCapability::PixelFreshness,
+                available: true,
+                detail: "re-capture pixel hash".into(),
+            },
+        ]
+    }
+
+    fn open(
+        &self,
+        request: &DesktopOpenRequest,
+        owner_instance: EntityId,
+    ) -> Result<DesktopSessionHandle, DesktopError> {
+        self.open_provider_session(request, owner_instance)
+    }
+
+    fn observe(
+        &self,
+        handle: &DesktopSessionHandle,
+        region: Option<[i32; 4]>,
+    ) -> Result<DesktopFrame, DesktopError> {
+        self.observe_session(handle.session_id, region)
+    }
+
+    fn lease_op(
+        &self,
+        handle: &DesktopSessionHandle,
+        op: DesktopLeaseOp,
+        token: Option<EntityId>,
+        caller_instance: EntityId,
+    ) -> Result<DesktopLeaseOutcome, DesktopError> {
+        self.lease_op_session(handle.session_id, op, token, caller_instance)
+    }
+
+    fn inject(
+        &self,
+        handle: &DesktopSessionHandle,
+        request: DesktopInjectRequest,
+        operation_id: EntityId,
+    ) -> Result<DesktopInjectOutcome, DesktopError> {
+        self.inject_session(handle.session_id, request, operation_id)
+    }
+
+    fn close(
+        &self,
+        handle: &DesktopSessionHandle,
+        caller_instance: EntityId,
+    ) -> Result<DesktopCloseOutcome, DesktopError> {
+        self.close_session(handle.session_id, caller_instance)
+    }
+
+    fn reconcile(
+        &self,
+        handle: &DesktopSessionHandle,
+        operation_id: EntityId,
+    ) -> DesktopReconcileOutcome {
+        self.reconcile_session(handle.session_id, operation_id)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Product-level dispatch: operation outcomes across providers
+// ---------------------------------------------------------------------------
+
+impl ComputerUseBackend {
+    fn open_session(&self, frozen: &SessionFrozen, owner_instance: EntityId) -> DriveOutcome {
+        let provider = match self.provider_for(&frozen.backend_name) {
+            Ok(provider) => provider,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        let request = DesktopOpenRequest {
+            display: frozen.display.clone(),
+            screen: frozen.screen,
+        };
+        match provider.open(&request, owner_instance) {
+            Ok(handle) => {
+                let display = handle.session.display();
+                let mut session_json = serde_json::Map::new();
+                session_json.insert("session_id".into(), serde_json::json!(handle.session_id.to_string()));
+                session_json.insert("provider".into(), serde_json::json!(display.provider));
+                session_json.insert("domain_id".into(), serde_json::json!(display.domain_id));
+                session_json.insert("display_id".into(), serde_json::json!(display.display_id));
+                session_json.insert("session_kind".into(), serde_json::json!(display.session_kind));
+                session_json.insert("width_px".into(), serde_json::json!(display.width_px));
+                session_json.insert("height_px".into(), serde_json::json!(display.height_px));
+                session_json.insert("dpi_x".into(), serde_json::json!(display.dpi_x));
+                session_json.insert("dpi_y".into(), serde_json::json!(display.dpi_y));
+                session_json.insert("scale_factor".into(), serde_json::json!(display.scale_factor));
+                session_json.insert("depth".into(), serde_json::json!(display.depth));
+                session_json.insert("capabilities".into(), serde_json::json!(display.capabilities));
+                // Provider-specific facts keep their historical top-level
+                // names (xtest_version, ...) so existing consumers and
+                // receipts stay valid.
+                if let Some(detail) = display.detail.as_object() {
+                    for (key, value) in detail {
+                        session_json.insert(key.clone(), value.clone());
+                    }
+                }
+                let entry = DesktopSessionEntry {
+                    provider,
+                    handle: DesktopSessionHandle::new(
+                        handle.session_id,
+                        Arc::clone(&handle.session),
+                        handle.owner_instance,
+                    ),
+                };
+                if let Ok(mut sessions) = self.sessions.lock() {
+                    sessions.insert(entry.handle.session_id, entry);
+                }
+                DriveOutcome::done(
+                    EffectStatus::None,
+                    ObservationLevel::PostconditionVerified,
+                    serde_json::json!({
+                        "result": "opened",
+                        "session": serde_json::Value::Object(session_json),
+                    }),
+                )
+            }
+            Err(error) => desktop_error_outcome(&error),
+        }
+    }
+
+    fn close_session(&self, frozen: &SessionFrozen, caller_instance: EntityId) -> DriveOutcome {
+        let Some(session_id) = frozen.session_id else {
+            return DriveOutcome::rejected("session_id_required", serde_json::json!({}));
+        };
+        let (provider, handle) = match self.session_entry(session_id) {
+            Ok(pair) => pair,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        match provider.close(&handle, caller_instance) {
+            Ok(outcome) => {
+                if let Ok(mut sessions) = self.sessions.lock() {
+                    sessions.remove(&session_id);
+                }
+                DriveOutcome::done(
+                    EffectStatus::None,
+                    ObservationLevel::PostconditionVerified,
+                    serde_json::json!({
+                        "result": "closed",
+                        "session_id": session_id,
+                        "held_released": outcome.held_released,
+                        "lease_revoked": outcome.lease_revoked,
+                    }),
+                )
+            }
+            Err(error) => desktop_error_outcome(&error),
+        }
+    }
+
+    fn observe(&self, frozen: &ObserveFrozen) -> DriveOutcome {
+        let (provider, handle) = match self.session_entry(frozen.session_id) {
+            Ok(pair) => pair,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        let frame = match provider.observe(&handle, frozen.region) {
+            Ok(frame) => frame,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        // Seal the raw pixels, the normalized preview and the observation
+        // record itself; the record digest is the durable observation id.
+        let raw_ref = match self.seal_media(&frame.raw_pixels, "application/x-x11-zpixmap", "computer-use-pixels") {
+            Ok(reference) => reference,
+            Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
+        };
+        let png = match encode_png(frame.width, frame.height, &frame.rgb) {
+            Ok(png) => png,
+            Err(reason) => return DriveOutcome::unavailable(reason, String::new()),
+        };
+        let png_ref = match self.seal_media(&png, "image/png", "computer-use-preview") {
+            Ok(reference) => reference,
+            Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
+        };
+        let display = handle.session.display();
+        let observation = DesktopObservation {
+            session_id: handle.session_id,
+            provider: display.provider.clone(),
+            domain_id: display.domain_id.clone(),
+            display: display.display_id.clone(),
+            display_id: display.display_id.clone(),
+            screen_num: frame.screen_num,
+            frame_id: frame.frame_id,
+            revision: frame.revision,
+            captured_at_ms: chrono::Utc::now().timestamp_millis(),
+            lease_epoch_at_capture: frame.lease_epoch,
+            region: frame.region,
+            viewport: [
+                u16::try_from(frame.width).unwrap_or(u16::MAX),
+                u16::try_from(frame.height).unwrap_or(u16::MAX),
+            ],
+            dpi_x: frame.dpi_x,
+            dpi_y: frame.dpi_y,
+            scale_factor: frame.scale_factor,
+            coordinate_transform: DesktopCoordinateTransform {
+                scale_x: 1.0 / frame.scale_factor,
+                scale_y: 1.0 / frame.scale_factor,
+                offset_x: 0,
+                offset_y: 0,
+            },
+            layout_fingerprint: frame.layout_fingerprint.clone(),
+            pixel_hash: hex_digest(&frame.raw_pixels),
+            pixel_format: frame.pixel_format.clone(),
+            raw_pixels_ref: raw_ref,
+            png_preview_ref: png_ref,
+        };
+        let observation_ref = match self.seal(&observation, "computer-use-observation-record") {
+            Ok(reference) => reference,
+            Err(_) => return DriveOutcome::unavailable("cas_unavailable", String::new()),
+        };
+        DriveOutcome::done(
+            EffectStatus::None,
+            ObservationLevel::PostconditionVerified,
+            serde_json::json!({
+                "result": "observed",
+                "observation_id": observation_ref.digest.0,
+                "observation": observation,
+                "detail": frame.detail,
+            }),
+        )
+    }
+
+    fn lease_op(&self, frozen: &LeaseFrozen, caller_instance: EntityId) -> DriveOutcome {
+        let (provider, handle) = match self.session_entry(frozen.session_id) {
+            Ok(pair) => pair,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        match provider.lease_op(&handle, frozen.op, frozen.lease_token, caller_instance) {
+            Ok(outcome) => DriveOutcome::done(
+                EffectStatus::None,
+                ObservationLevel::RemoteCompleted,
+                serde_json::json!({
+                    "result": outcome.result,
+                    "lease": LeaseNormalized {
+                        lease_token: outcome.lease_token,
+                        epoch: outcome.epoch,
+                        held_released: outcome.held_released,
+                    },
+                    "revoked": outcome.revoked,
+                }),
+            ),
+            Err(error) => desktop_error_outcome(&error),
+        }
+    }
+
+    /// Read the sealed observation and check the provider-neutral identity
+    /// and freshness window; the provider still checks the live domain
+    /// state (epoch, layout, pixels) before any event is sent.
+    fn read_observation(&self, observation_id: &str) -> Result<DesktopObservation, DesktopError> {
+        let bytes = self
+            .store
+            .cas
+            .read_object(&Digest(observation_id.to_string()))
+            .map_err(|_| DesktopError::rejected("observation_unknown", "not sealed in this CAS"))?;
+        serde_json::from_slice(&bytes).map_err(|_| DesktopError::rejected("observation_corrupt", "sealed bytes do not parse"))
+    }
+
+    /// Recovery view of one injected batch across every live provider
+    /// session: in-memory progress only, never replayed or auto-resolved.
+    fn reconcile_injected_batch(
+        &self,
+        operation_id: EntityId,
+    ) -> (Option<OperationOutcome>, EffectStatus, serde_json::Value) {
+        let mut sent: Option<usize> = None;
+        let mut alive = false;
+        if let Ok(sessions) = self.sessions.lock() {
+            for entry in sessions.values() {
+                let report = entry.provider.reconcile(&entry.handle, operation_id);
+                if let Some(count) = report.sent_events {
+                    sent = Some(count);
+                }
+                alive |= report.session_alive;
+            }
+        }
+        let note = serde_json::json!({
+            "observation": "controller recovered without a conclusive XTEST result",
+            "sent_events_before_recovery": sent,
+            "session_alive_in_memory": alive,
+            "process_stop_proven": false,
+        });
+        match sent {
+            // The batch never reached the transport: interrupted, no effects.
+            Some(0) => (Some(OperationOutcome::Interrupted), EffectStatus::None, note),
+            _ => (None, EffectStatus::Unknown, note),
+        }
+    }
+
+    fn inject(&self, frozen: &InjectFrozen, ctx: &DriveCtx) -> DriveOutcome {
+        let (provider, handle) = match self.session_entry(frozen.session_id) {
+            Ok(pair) => pair,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        let observation = match self.read_observation(&frozen.observation_id) {
+            Ok(observation) => observation,
+            Err(error) => return desktop_error_outcome(&error),
+        };
+        if observation.session_id != handle.session_id {
+            return DriveOutcome::rejected("observation_session_mismatch", serde_json::json!({}));
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        if now.saturating_sub(observation.captured_at_ms) > MAX_OBSERVATION_AGE_MS {
+            return DriveOutcome::rejected("observation_expired", serde_json::json!({}));
+        }
+        // The durable cancel probe: a committed abort intent on this task
+        // stops the batch between atomic send units.
+        let store = Arc::clone(&self.store);
+        let task_id = ctx.task_id;
+        let checkpoint = Box::new(move || {
+            match store.get_task(task_id) {
+                Ok(Some(task)) if task.abort_request.is_some() => Err(DesktopError::rejected(
+                    "cancelled",
+                    "durable cancel intent committed on the task",
+                )),
+                Ok(_) => Ok(()),
+                Err(error) => Err(DesktopError::unavailable("store_read_failed", error.to_string())),
+            }
+        });
+        let request = DesktopInjectRequest {
+            lease_token: frozen.lease_token,
+            actions: frozen.actions.clone(),
+            observation,
+            require_pixel_fresh: frozen.require_pixel_fresh,
+            checkpoint,
+        };
+        match provider.inject(&handle, request, ctx.operation_id) {
+            Ok(outcome) => {
+                let cancelled = outcome
+                    .stopped_reason
+                    .as_deref()
+                    .is_some_and(|reason| reason == "cancelled");
+                let lost = outcome
+                    .stopped_reason
+                    .as_deref()
+                    .is_some_and(|reason| reason == "transport_lost");
+                let mut normalized = serde_json::json!({
+                    "actions": outcome.receipts,
+                    "sent_events": outcome.sent_events,
+                });
+                if let Some(detail) = outcome.detail.as_object() {
+                    for (key, value) in detail {
+                        normalized[key] = value.clone();
+                    }
+                }
+                if lost {
+                    normalized["result"] = serde_json::json!("incomplete");
+                    normalized["reason"] = serde_json::json!("transport_lost");
+                    return DriveOutcome {
+                        outcome: Some(OperationOutcome::Interrupted),
+                        effect: EffectStatus::Unknown,
+                        level: None,
+                        decode: DecodeStatus::Uninterpreted,
+                        normalized,
+                    };
+                }
+                if let Some(reason) = outcome.stopped_reason {
+                    if cancelled {
+                        // SPEC §10.6: the cancel intent stops new input; the
+                        // events already delivered stay a partial fact.
+                        normalized["result"] = serde_json::json!("cancelled");
+                        normalized["reason"] = serde_json::json!("durable_cancel");
+                        return DriveOutcome {
+                            outcome: Some(OperationOutcome::Interrupted),
+                            effect: if outcome.sent_events > 0 {
+                                EffectStatus::Partial
+                            } else {
+                                EffectStatus::None
+                            },
+                            level: Some(ObservationLevel::RemoteCompleted),
+                            decode: DecodeStatus::Decoded,
+                            normalized,
+                        };
+                    }
+                    if outcome.sent_events > 0 {
+                        normalized["result"] = serde_json::json!("rejected");
+                        normalized["reason"] = serde_json::json!(reason);
+                        return DriveOutcome {
+                            outcome: Some(OperationOutcome::Failed),
+                            effect: EffectStatus::Partial,
+                            level: Some(ObservationLevel::RemoteCompleted),
+                            decode: DecodeStatus::Decoded,
+                            normalized,
+                        };
+                    }
+                    return DriveOutcome::rejected_owned(&reason, "");
+                }
+                normalized["result"] = serde_json::json!("sent");
+                let effect = if outcome.postcondition_verified && outcome.sent_events > 0 {
+                    EffectStatus::Complete
+                } else if outcome.sent_events > 0 {
+                    EffectStatus::Partial
+                } else {
+                    EffectStatus::None
+                };
+                DriveOutcome::done(
+                    effect,
+                    if outcome.postcondition_verified && outcome.sent_events > 0 {
+                        ObservationLevel::PostconditionVerified
+                    } else {
+                        ObservationLevel::RemoteCompleted
+                    },
+                    normalized,
+                )
+            }
+            Err(error) => desktop_error_outcome(&error),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2527,6 +3061,15 @@ const SESSION_PROMPT: &str = "computer.use.session opens/closes a real X11 deskt
 const OBSERVE_PROMPT: &str = "computer.use.observe captures a real framebuffer region via X11 GetImage {\"session_id\":uuid,\"region\":[x,y,w,h]|null}. Returns observation_id binding stable session/display identity, frame_id, layout fingerprint, pixel hash, viewport and DPI. Coordinates are only valid while that observation re-verifies.";
 const INPUT_PROMPT: &str = "computer.use.input injects through the real XTEST extension {\"session_id\":uuid,\"lease_token\":uuid,\"observation_id\":\"blake3:…\",\"actions\":[pointer_move|button|key|text],\"require_pixel_fresh\":bool?}. The observation re-verifies and the lease epoch must be live before any event; ACK is recorded separately from observed effects, dropped delivery stays unknown, nothing replays.";
 const LEASE_PROMPT: &str = "computer.use.lease manages the single write lease of one shared display domain {\"session_id\":uuid,\"op\":\"acquire\"|\"release\"|\"takeover\",\"lease_token\":uuid?}. One domain has one writer; takeover revokes the old epoch so late machine input is rejected and held keys/buttons are released. Read-only observation never needs a lease.";
+const CAPABILITIES_PROMPT: &str = "computer.use.capabilities reports the real desktop providers compiled into this build and their declared capability facts {\"backend\":\"x11\"|\"windows\"|\"macos\"|\"auto\"|null}. Declared facts are probed live per session at open; a provider absent from this build is named unavailable, never silently replaced.";
+const VM_PROMPT: &str = "computer.use.vm drives the ORIGINAL LayerFS SDK v1.0.0 pinned at 2aaf2552 inside a qualified Linux VM (BoxLite optional; SPEC §10.2.1) {\"op\":\"start\"|\"stop\"|\"state\"|\"commit_receipt\",\"name\":\"vm-name\"}. Never re-implements the Store: every Store/branch/workspace operation runs the upstream SDK in the guest via the companion. layerfs_committed is the upstream commit receipt only, never product_durable. A missing SDK path or VM provider is typed-unavailable evidence, not completion.";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CapabilitiesInput {
+    /// One provider id, or null/absent for every registered provider.
+    backend: Option<String>,
+}
 
 pub struct ComputerUseSessionHandler {
     backend: Arc<ComputerUseBackend>,
@@ -2540,6 +3083,152 @@ pub struct ComputerUseInputHandler {
 pub struct ComputerUseLeaseHandler {
     backend: Arc<ComputerUseBackend>,
 }
+pub struct ComputerUseCapabilitiesHandler {
+    backend: Arc<ComputerUseBackend>,
+}
+pub struct ComputerUseVmHandler {
+    backend: Arc<ComputerUseBackend>,
+}
+
+impl ComputerUseVmHandler {
+    pub fn new(backend: Arc<ComputerUseBackend>) -> Self {
+        Self { backend }
+    }
+
+    async fn exec(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        let input: VmInput = serde_json::from_value(invocation.input.clone())?;
+        ensure!(!input.name.is_empty() && input.name.len() <= 128, "vm name must be 1..=128 chars");
+        ensure!(
+            input.name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.')),
+            "vm name must be [a-zA-Z0-9._-]+"
+        );
+        let frozen = VmFrozen {
+            op: input.op,
+            name: input.name.clone(),
+        };
+        self.backend
+            .drive(
+                invocation,
+                "computer.use.vm",
+                "computer-use-vm",
+                frozen.clone(),
+                "computer-use-vm-input",
+                serde_json::json!({
+                    "mechanism": "original LayerFS SDK via companion process on a qualified Linux VM",
+                    "sdk_pin": crate::layerfs::LAYERFS_SDK_PIN,
+                }),
+                "the named VM state reported by the companion is what the provider actually returned; missing SDK/provider is named typed-unavailable",
+                move |backend, _ctx| match frozen.op {
+                    VmVerb::Start => {
+                        vm_outcome(backend.layerfs.start_vm(&frozen.name))
+                    }
+                    VmVerb::Stop => vm_outcome(backend.layerfs.stop_vm(&frozen.name)),
+                    VmVerb::State => vm_outcome(backend.layerfs.vm_state(&frozen.name)),
+                    VmVerb::CommitReceipt => {
+                        match backend.layerfs.commit_receipt(&frozen.name) {
+                            Ok(receipt) => DriveOutcome::done(
+                                EffectStatus::None,
+                                ObservationLevel::RemoteCompleted,
+                                serde_json::json!({
+                                    "result": "committed",
+                                    "layerfs_committed": true,
+                                    "receipt": receipt,
+                                    "note": "layerfs_committed only; product_durable requires this product's own durable publication",
+                                }),
+                            ),
+                            Err(error) => desktop_error_outcome(&error),
+                        }
+                    }
+                },
+            )
+            .await
+    }
+}
+
+fn vm_outcome(result: Result<crate::layerfs::LayerFsVmState, DesktopError>) -> DriveOutcome {
+    match result {
+        Ok(state) => DriveOutcome::done(
+            EffectStatus::None,
+            ObservationLevel::RemoteCompleted,
+            serde_json::json!({
+                "result": match state.state.as_str() {
+                    "running" => "started",
+                    "stopped" => "stopped",
+                    other => other,
+                },
+                "vm": state,
+            }),
+        ),
+        Err(error) => desktop_error_outcome(&error),
+    }
+}
+
+impl ComputerUseCapabilitiesHandler {
+    pub fn new(backend: Arc<ComputerUseBackend>) -> Self {
+        Self { backend }
+    }
+
+    async fn exec(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        let input: CapabilitiesInput = serde_json::from_value(invocation.input.clone())?;
+        if let Some(name) = input.backend.clone() {
+            ensure!(name.len() <= 64, "backend name too long");
+        }
+        let frozen = serde_json::json!({ "backend": input.backend });
+        self.backend
+            .drive(
+                invocation,
+                "computer.use.capabilities",
+                "computer-use-capabilities",
+                frozen.clone(),
+                "computer-use-capabilities-input",
+                serde_json::json!({"mechanism": "compiled-in provider registry"}),
+                "every returned provider id resolves through the registry; unknown providers are reported unavailable by name",
+                move |backend, _ctx| {
+                    let requested = frozen_backend(&frozen);
+                    let providers = match requested {
+                        Some(name) => match backend.provider_for(&name) {
+                            Ok(provider) => vec![serde_json::json!({
+                                "provider": provider.provider_id(),
+                                "capabilities": provider.capabilities(),
+                                "probe": "declared; probed live at session open",
+                            })],
+                            Err(error) => vec![serde_json::json!({
+                                "provider": name,
+                                "available": false,
+                                "reason": error.reason(),
+                                "detail": error.detail(),
+                            })],
+                        },
+                        None => backend
+                            .provider_capabilities()
+                            .into_iter()
+                            .map(|mut entry| {
+                                entry["probe"] = serde_json::json!("declared; probed live at session open");
+                                entry
+                            })
+                            .collect(),
+                    };
+                    DriveOutcome::done(
+                        EffectStatus::None,
+                        ObservationLevel::PostconditionVerified,
+                        serde_json::json!({
+                            "result": "available",
+                            "platform_default": platform_default_provider(),
+                            "providers": providers,
+                        }),
+                    )
+                },
+            )
+            .await
+    }
+}
+
+fn frozen_backend(frozen: &serde_json::Value) -> Option<String> {
+    frozen
+        .get("backend")
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+}
 
 impl ComputerUseSessionHandler {
     pub fn new(backend: Arc<ComputerUseBackend>) -> Self {
@@ -2552,10 +3241,10 @@ impl ComputerUseSessionHandler {
                 let name = parsed.backend.clone().unwrap_or_else(|| "auto".into());
                 ensure!(name.len() <= 64, "backend name too long");
                 let frozen = SessionFrozen {
-                    backend_x11: matches!(name.as_str(), "x11" | "auto"),
                     backend_name: name.clone(),
                     display: parsed.display.clone(),
                     screen: parsed.screen,
+                    session_id: None,
                 };
                 self.backend
                     .drive(
@@ -2574,16 +3263,22 @@ impl ComputerUseSessionHandler {
                 let Some(session_id) = parsed.session_id else {
                     return Err(anyhow::anyhow!("close requires session_id"));
                 };
+                let frozen = SessionFrozen {
+                    backend_name: String::new(),
+                    display: None,
+                    screen: None,
+                    session_id: Some(session_id),
+                };
                 self.backend
                     .drive(
                         invocation,
                         "computer.use.session",
                         "computer-use-session",
-                        serde_json::json!({"op":"close","session_id":session_id}),
+                        frozen.clone(),
                         "computer-use-session-input",
                         serde_json::json!({"mechanism": "x11rb RustConnection close"}),
                         "the session's X11 connection is dropped and its lease epoch revoked",
-                        move |backend, ctx| backend.close_session(session_id, ctx.caller),
+                        move |backend, ctx| backend.close_session(&frozen, ctx.caller),
                     )
                     .await
             }
@@ -2622,6 +3317,52 @@ impl ComputerUseObserveHandler {
     }
 }
 
+#[async_trait]
+impl NativeTaskHandler for ComputerUseCapabilitiesHandler {
+    fn descriptor(&self) -> NativeTaskDescriptor {
+        descriptor_for(
+            "computer.use.capabilities",
+            "computer_use.capabilities/v1",
+            CAPABILITIES_PROMPT,
+        )
+    }
+
+    async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        self.exec(invocation).await
+    }
+
+    async fn reconcile(
+        &self,
+        task: &TaskRecord,
+        operation_id: EntityId,
+    ) -> Result<OperationRecord> {
+        reconcile_any(&self.backend, task, operation_id, "computer.use.capabilities").await
+    }
+}
+
+#[async_trait]
+impl NativeTaskHandler for ComputerUseVmHandler {
+    fn descriptor(&self) -> NativeTaskDescriptor {
+        descriptor_for(
+            "computer.use.vm",
+            "computer_use.layerfs.vm/v1",
+            VM_PROMPT,
+        )
+    }
+
+    async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
+        self.exec(invocation).await
+    }
+
+    async fn reconcile(
+        &self,
+        task: &TaskRecord,
+        operation_id: EntityId,
+    ) -> Result<OperationRecord> {
+        reconcile_any(&self.backend, task, operation_id, "computer.use.vm").await
+    }
+}
+
 impl ComputerUseInputHandler {
     pub fn new(backend: Arc<ComputerUseBackend>) -> Self {
         Self { backend }
@@ -2633,7 +3374,7 @@ impl ComputerUseInputHandler {
             "actions must be 1..=64"
         );
         for action in &input.actions {
-            if let ActionInput::Text { text } = action {
+            if let DesktopAction::Text { text } = action {
                 ensure!(
                     !text.is_empty() && text.chars().count() <= MAX_TEXT_CHARS,
                     "text must be 1..=4096 chars"
@@ -2799,7 +3540,7 @@ impl ComputerUseInputHandler {
         if attempt.dispatch_stage == AttemptDispatchStage::Ended {
             return Ok(operation);
         }
-        let (outcome, effect, note) = self.backend.reconcile_input(operation_id);
+        let (outcome, effect, note) = self.backend.reconcile_injected_batch(operation_id);
         let raw = self.backend.seal(&note, "computer-use-recovery")?;
         let evidence = EvidenceReceipt {
             record_schema_version: 1,

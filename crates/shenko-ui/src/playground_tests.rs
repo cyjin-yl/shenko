@@ -42,7 +42,10 @@ fn fixture(label: &str) -> (PathBuf, Arc<Store>, EntityId) {
         model_result_ref: None, model_outcome_ref: None, decision_ref: None, commit_ref: None,
         retry_reason_ref: None, record_revision: RecordRevision(0), created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &step).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id, agent, genesis.seed_manifest_ref.clone(), zero,
+    );
+    store.initialize_genesis(&genesis, &head, &step, &root_task).unwrap();
     store.start_subject_dispatcher().unwrap();
     (root, store, agent)
 }
@@ -80,7 +83,7 @@ async fn drive_until(native: &Arc<NativeChildService>, done: impl Fn() -> bool) 
     .expect("playground action did not converge");
 }
 
-fn request(record: &ArtifactRecord, key: &str) -> BackendActionRequest {
+fn request(record: &ArtifactVersion, key: &str) -> BackendActionRequest {
     BackendActionRequest { request_id: key.into(), backend_digest: record.backend.as_ref().unwrap().module_digest.clone(),
         action: "increment".into(), input: json!({"amount":1}) }
 }
@@ -139,7 +142,7 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     assert_eq!(http(&app, "PUT", &format!("/playground/{id}"), b"binary counter application".to_vec()).await.0, StatusCode::OK);
     let (status, bound) = http(&app, "PUT", &format!("/playground/{id}/backend"), COUNTER.to_vec()).await;
     assert_eq!(status, StatusCode::OK);
-    let record: ArtifactRecord = serde_json::from_value(bound["artifact"].clone()).unwrap();
+    let record: ArtifactVersion = serde_json::from_value(bound["artifact"].clone()).unwrap();
     let action = request(&record, "lost-response");
     let uri = format!("/playground/{id}/backend/action");
     let (status, accepted) = http(&app, "POST", &uri, serde_json::to_vec(&action).unwrap()).await;
@@ -152,6 +155,8 @@ async fn public_action_executes_wasi_and_reopen_replays_original_receipt() {
     let (_, result) = http(&app, "GET", &format!("{uri}?request_id=lost-response"), Vec::new()).await;
     assert_eq!(result["receipt"]["state"], "executed");
     assert_eq!(result["receipt"]["result"]["result"]["output"], json!({"ok":true}));
+    assert_eq!(result["receipt"]["operation"]["outcome"], "succeeded");
+    assert_eq!(result["receipt"]["result"]["result"]["exit_code"], 0);
     assert_eq!(result["receipt"]["result"]["result"]["change_count"], 1);
     assert_eq!(fs::read(pg.artifact_dir(id).join("state/counter.bin")).unwrap(), vec![1]);
     let ready = store.ready_native_results(agent, 10).unwrap();

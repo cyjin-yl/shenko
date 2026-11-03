@@ -1,4 +1,5 @@
-use crate::mount::{MountMode, MountSpec, validate_mounts};
+use crate::mount::{MountMode, MountSpec, admit_mounts, validate_mounts};
+use crate::p1::{P1Host, StdioStreams};
 use anyhow::{Context, Result, anyhow, bail};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -10,8 +11,7 @@ use wasmtime::{
     Config, Engine, Error as WasmtimeError, Instance, Linker, Module, Store, UpdateDeadline,
     Val,
 };
-use wasmtime_wasi::p1::{self, WasiP1Ctx};
-use wasmtime_wasi::{DirPerms, FilePerms, I32Exit, WasiCtxBuilder};
+use wasmtime_wasi::I32Exit;
 pub use wasmtime_wasi::cli::{InputFile, OutputFile, StdinStream, StdoutStream};
 use std::io;
 use std::pin::Pin;
@@ -203,6 +203,9 @@ pub const HOME_GUEST_PATH: &str = "/home";
 pub struct WasiCommand<I, O, E> {
     pub arguments: Vec<String>,
     pub environment: Vec<(String, String)>,
+    /// Total guest instruction fuel and linear-memory ceiling for this store.
+    pub limits: WasiResourceLimits,
+    pub replay_io: Option<crate::replay_io::ReplayIo>,
     /// Optional execution controls; `WasiRunControl::default()` runs without
     /// a deadline or cancellation, exactly as before.
     pub control: WasiRunControl,
@@ -221,6 +224,8 @@ impl<I, O, E> WasiCommand<I, O, E> {
         Self {
             arguments: Vec::new(),
             environment: Vec::new(),
+            limits: WasiResourceLimits::default(),
+            replay_io: None,
             control: WasiRunControl::default(),
             stdin,
             stdout,
@@ -244,6 +249,12 @@ impl<I, O, E> WasiCommand<I, O, E> {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WasiResourceLimits {
+    pub max_fuel: Option<u64>,
+    pub max_memory_bytes: Option<usize>,
 }
 
 /// Real WASM runtime backed by wasmtime-45.
@@ -274,6 +285,9 @@ pub struct WasmRuntime {
 }
 
 impl WasmRuntime {
+    pub fn invocation_digest(&self, arguments: &[String], environment: &[(String, String)]) -> Result<String> {
+        crate::replay_io::invocation_digest(arguments, environment, &self.mounts, &self.home_dir)
+    }
     /// Create a runtime with a default-config engine and a fresh empty store.
     pub fn new() -> Result<Self> {
         info!("WASM runtime init (wasmtime-45)");
@@ -284,8 +298,10 @@ impl WasmRuntime {
         // masquerade as leaked invocation threads.
         let mut config = Config::new();
         config.parallel_compilation(false);
+        config.consume_fuel(true);
         let engine = Engine::new(&config)?;
-        let store = Store::new(&engine, ());
+        let mut store = Store::new(&engine, ());
+        store.set_fuel(u64::MAX).map_err(|e| anyhow!("initialize module fuel: {e}"))?;
         Ok(Self {
             engine,
             store: Some(store),
@@ -339,9 +355,12 @@ impl WasmRuntime {
     /// Run a WASI preview1 command module and return its typed outcome.
     ///
     /// `wasm_or_wat` may be either a binary module or WAT text. Every preopen
-    /// comes from `self.mounts` with its declared RO/RW permissions. Wasmtime
-    /// currently reopens the checked pathname, so an ancestor swap can still
-    /// redirect a preopen; do not treat validation as a capability binding.
+    /// comes from `self.mounts` with its declared RO/RW/COW permissions. Each
+    /// mount is admitted once into an owned directory capability before the
+    /// guest exists, and the guest's preview1 host resolves every path from
+    /// those handles: no host pathname is re-resolved for the guest, so an
+    /// ancestor swap between validation and use cannot redirect a preopen
+    /// (SPEC §8.3, A08).
     /// The command supplies exact argv, environment and streams, without a
     /// shell or inherited process state. A normal return is exit code 0 and a
     /// `proc_exit(n)` trap is exit code `n`; other traps are errors, and any
@@ -409,6 +428,7 @@ impl WasmRuntime {
                 let mut config = Config::new();
                 config.epoch_interruption(true);
                 config.parallel_compilation(false);
+                config.consume_fuel(true);
                 self.control_engine = Some(
                     Engine::new(&config)
                         .map_err(|e| anyhow!("create epoch-enabled engine: {e}"))?,
@@ -485,10 +505,19 @@ impl WasmRuntime {
 /// typed outcome the callback committed to, so the caller can distinguish a
 /// deliberate kill from an ordinary guest trap.
 struct ControlledCtx {
-    wasi: WasiP1Ctx,
+    host: P1Host,
+    limits: wasmtime::StoreLimits,
     cancel: Option<WasiCancellation>,
     deadline: Option<Instant>,
     stop: Option<WasiRunOutcome>,
+}
+
+fn store_limits(limits: WasiResourceLimits) -> wasmtime::StoreLimits {
+    let mut builder = wasmtime::StoreLimitsBuilder::new();
+    if let Some(bytes) = limits.max_memory_bytes {
+        builder = builder.memory_size(bytes).memories(1);
+    }
+    builder.trap_on_grow_failure(true).build()
 }
 
 /// Map a `_start` call result onto an exit code, preserving the preexisting
@@ -504,7 +533,14 @@ fn wasi_exit(result: wasmtime::Result<()>) -> Result<WasiRunOutcome> {
     }
 }
 
-/// Instantiate a WASI preview1 command with the home preopen and run `_start`.
+/// Instantiate a WASI preview1 command with the admitted mount closure and
+/// run `_start`.
+///
+/// The mount closure is admitted once, before the guest exists: every mount
+/// is opened into an owned directory capability and the guest's preview1
+/// host resolves paths from those handles only. No host pathname is
+/// re-resolved for the guest, so an ancestor swap between validation and
+/// use cannot redirect a preopen (SPEC §8.3, A08).
 fn run_wasi_blocking<I, O, E>(
     engine: &Engine,
     home: &Path,
@@ -519,45 +555,33 @@ where
     E: StdoutStream + 'static,
 {
     let controlled = deadline_at.is_some() || command.control.cancel.is_some();
+    let resource_limits = command.limits;
     let cancel = command.control.cancel.clone();
-    let canonical_sources = validate_mounts(mounts, home)?;
+    if let Some(io) = &command.replay_io {
+        let invocation = crate::replay_io::invocation_digest(&command.arguments, &command.environment, mounts, home)?;
+        io.verify_execution(wasm_or_wat, &invocation)?;
+    }
+    validate_mounts(mounts, home)?;
     let module =
         Module::new(engine, wasm_or_wat).map_err(|e| anyhow!("compile WASI module: {e}"))?;
 
-    let mut builder = WasiCtxBuilder::new();
-    builder
-        .args(&command.arguments)
-        .envs(&command.environment)
-        .stdin(command.stdin)
-        .stdout(command.stdout)
-        .stderr(command.stderr);
-    for (mount, source) in mounts.iter().zip(canonical_sources.iter()) {
-        let (dir_perms, file_perms) = match mount.mode {
-            MountMode::ReadOnly => (DirPerms::READ, FilePerms::READ),
-            MountMode::ReadWrite => (DirPerms::all(), FilePerms::all()),
-            MountMode::CopyOnWrite => unreachable!("validated COW must fail before preopen"),
-        };
-        // wasmtime 45 has its own `Error` type (not `std::error::Error`), so
-        // `anyhow::Context` does not apply here; embed the binding in the message.
-        builder
-            .preopened_dir(source, &mount.guest_path, dir_perms, file_perms)
-            .map_err(|e| {
-                anyhow!(
-                    "preopen {} at {} ({:?}): {e}",
-                    source.display(),
-                    mount.guest_path,
-                    mount.mode
-                )
-            })?;
-    }
-    let wasi = builder.build_p1();
+    let bindings = admit_mounts(mounts, home)?;
+    let stdio = StdioStreams::from_async(command.stdin.async_stream(),
+        command.stdout.async_stream(), command.stderr.async_stream());
+    let mut host = P1Host::new(bindings, stdio, command.arguments, command.environment)?;
+    host.set_replay_io(command.replay_io);
 
     if !controlled {
-        let mut linker: Linker<WasiP1Ctx> = Linker::new(engine);
-        p1::add_to_linker_sync(&mut linker, |cx| cx)
+        let mut linker: Linker<ControlledCtx> = Linker::new(engine);
+        crate::p1::add_to_linker_sync(&mut linker, |cx| &mut cx.host)
             .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
-        let mut store = Store::new(engine, wasi);
+        let mut store = Store::new(engine, ControlledCtx {
+            host, limits: store_limits(resource_limits), cancel: None, deadline: None, stop: None,
+        });
+        store.limiter(|cx| &mut cx.limits);
+        store.set_fuel(resource_limits.max_fuel.unwrap_or(u64::MAX))
+            .map_err(|e| anyhow!("set WASI fuel: {e}"))?;
         let instance = linker
             .instantiate(&mut store, &module)
             .map_err(|e| anyhow!("instantiate WASI module: {e}"))?;
@@ -571,14 +595,18 @@ where
     let mut store = Store::new(
         engine,
         ControlledCtx {
-            wasi,
+            host,
+            limits: store_limits(resource_limits),
             cancel,
             deadline: deadline_at,
             stop: None,
         },
     );
+    store.limiter(|cx| &mut cx.limits);
+    store.set_fuel(resource_limits.max_fuel.unwrap_or(u64::MAX))
+        .map_err(|e| anyhow!("set WASI fuel: {e}"))?;
     let mut linker: Linker<ControlledCtx> = Linker::new(engine);
-    p1::add_to_linker_sync(&mut linker, |cx| &mut cx.wasi)
+    crate::p1::add_to_linker_sync(&mut linker, |cx| &mut cx.host)
         .map_err(|e| anyhow!("configure wasi preview1 linker: {e}"))?;
 
     // The epoch deadline is one check interval, not the caller's wall-clock
@@ -833,11 +861,9 @@ mod tests {
         Ok(())
     }
 
-    /// One focused mount-semantics scenario: a real guest cannot create a file
-    /// through a RO preopen, and requesting unimplemented COW fails instead of
-    /// silently becoming direct RW.
+    /// A real guest cannot create a file through a read-only preopen.
     #[test]
-    fn read_only_and_cow_mounts_keep_their_semantics() -> Result<()> {
+    fn read_only_mount_rejects_guest_writes() -> Result<()> {
         let home = temp_home("modes-home");
         let read_only = temp_home("modes-ro");
         let mut rt = WasmRuntime::with_mounts(vec![
@@ -880,19 +906,6 @@ mod tests {
             WasiRunOutcome::Exited(0)
         );
         assert!(!read_only.join("blocked.txt").exists());
-
-        let error = WasmRuntime::with_mounts(vec![MountSpec::new(
-            home,
-            HOME_GUEST_PATH,
-            MountMode::CopyOnWrite,
-            true,
-            true,
-        )])
-        .err()
-        .map(|error| error.to_string())
-        .unwrap_or_default();
-        assert!(error.contains("MOUNT_MODE_UNSUPPORTED"), "{error}");
-        assert!(error.contains("no direct-RW fallback"), "{error}");
         Ok(())
     }
 

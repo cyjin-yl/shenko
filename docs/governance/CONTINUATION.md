@@ -1,6 +1,6 @@
 # 持续开发与恢复
 
-完整任务包含 [GOAL.md](../../GOAL.md) 与 [完成合同](COMPLETION.md) 的全部正式 S1–S5。朋友在自己的 fork 中自主开发、合并分支、重构、装工具、配置可管理的权限与 CI，并持续更新 upstream PR。授权和产品目标随着 session、模型和 worker 更换继续存在；review 等待不暂停开发。
+完整任务包含 [GOAL.md](../history/entrypoints-20261101/GOAL.md) 与 [完成合同](COMPLETION.md) 的全部正式 S1–S5。朋友在自己的 fork 中自主开发、合并分支、重构、装工具、配置可管理的权限与 CI，并持续更新 upstream PR。授权和产品目标随着 session、模型和 worker 更换继续存在；review 等待不暂停开发。
 
 ## 产品目标与 native goal
 

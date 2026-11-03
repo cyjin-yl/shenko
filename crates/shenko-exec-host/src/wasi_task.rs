@@ -14,10 +14,16 @@ use shenko_store::Store;
 use shenko_subject::{NativeTaskDescriptor, NativeTaskHandler, NativeTaskInvocation};
 use shenko_types::{
     commit::CommitRef,
+    effect::{
+        CancelContract, CheckpointContract, EffectActionKind, EffectContract,
+        EffectContractBuilder, ExternalEffect, GuaranteeBasis, IdempotencyGuarantee,
+        LifecycleContract, ResourceAccess,
+    },
     evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
     ids::*,
     object::*,
     operation::*,
+    plugin_runtime::NativeCapabilityDeclaration,
     task::*,
 };
 use shenko_wasm::{
@@ -839,6 +845,71 @@ impl NativeTaskHandler for WasiExecHandler {
         }
     }
 
+    /// §36 effect contract of `wasi.exec.v2`.
+    ///
+    /// The guest runs inside the real WASM runtime with the mount closure the
+    /// home manifest declares. A read-only profile withdraws every write
+    /// capability, so the guest's reach is the declared one; a managed home
+    /// with writable mounts may change files, and that change is not undone
+    /// by a reset of the run. Cancellation takes effect at a guest epoch
+    /// checkpoint; a blocked host call is not promised a hard deadline.
+    fn effect_contracts(&self) -> Vec<EffectContract> {
+        let descriptor = self.descriptor();
+        vec![EffectContractBuilder::new(
+            descriptor.implementation_ref.plugin_id,
+            descriptor.implementation(),
+            "wasi.exec.v2",
+            descriptor.definition_version,
+        )
+        .resource("wasm_module", "installed_tool_unit", ResourceAccess::Execute)
+        .resource("managed_home_mounts", "mount_profile", ResourceAccess::ReadWrite)
+        .action(EffectActionKind::Cancel)
+        .action(EffectActionKind::Reset)
+        .idempotency(IdempotencyGuarantee::None)
+        .external_effect(ExternalEffect {
+            kind: "guest_file_write".into(),
+            description: "the guest may write into the declared managed-home mounts; a read_only profile withdraws that reach, a managed_home profile keeps it".into(),
+            reversible: false,
+            compensation_possible: false,
+        })
+        .external_effect(ExternalEffect {
+            kind: "guest_process".into(),
+            description: "the guest runs real WASI code inside the WasmRuntime; its side effects happen under the guest, not in the host ledger".into(),
+            reversible: false,
+            compensation_possible: false,
+        })
+        .cancel(CancelContract {
+            can_cancel_before_start: true,
+            can_cancel_in_flight: true,
+            cancel_confirms_stopped: false,
+            may_have_partial_effect: true,
+        })
+        .checkpoint(CheckpointContract {
+            capturable: vec!["guest epoch checkpoint".into()],
+            excluded: vec!["host mounts outside the declared closure".into()],
+            coordinated: false,
+            consistency: "guest_epoch".into(),
+        })
+        .lifecycle(LifecycleContract {
+            on_upgrade: "an in-flight guest is not re-run; the attempt stays queryable".into(),
+            on_uninstall: "the definition is withdrawn; a running guest is joined before the worker exits and its evidence stays readable".into(),
+            on_crash: "the guest may have written files; the attempt stays unknown until it is reconciled".into(),
+            receipt_readable_after_removal: true,
+        })
+        .basis(GuaranteeBasis::ClaimOnly)
+        .build()]
+    }
+
+    /// The capability this definition offers while it is installed.
+    fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
+        vec![NativeCapabilityDeclaration {
+            capability_id: "native.wasi.exec".into(),
+            version: "2".into(),
+            description: "Run an installed named WASI preview1 tool in the real WasmRuntime under the declared mount closure".into(),
+            usage: Some("delegate:wasi.exec:2 {\"tool\":\"name@version\",\"args\":[],\"mount_profile\":\"read_only\"}".into()),
+        }]
+    }
+
     async fn execute(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         self.run(invocation).await
     }
@@ -911,6 +982,7 @@ mod tests {
     fn invocation(input: serde_json::Value) -> NativeTaskInvocation {
         let task_id = EntityId::new();
         NativeTaskInvocation {
+            child_tools: None,
             context: CallContext {
                 caller_instance_id: EntityId::new(),
                 role_revision: "native-wasi-exec/2".into(),

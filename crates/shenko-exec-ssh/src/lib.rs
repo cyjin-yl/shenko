@@ -23,3 +23,14 @@ pub mod native_transport;
 
 mod native_installation;
 pub use native_installation::*;
+/// Terminal screen state machine for seat observation (SPEC §17.5).
+pub mod terminal;
+pub use terminal::*;
+
+/// Seat adapters: tmux, managed OMP JSONL RPC, managed Claude Code.
+pub mod seat;
+pub use seat::*;
+
+/// Installed native task authority for SSH exec/PTY and seat observe/respond.
+pub mod native;
+pub use native::*;

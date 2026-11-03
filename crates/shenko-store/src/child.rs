@@ -1,7 +1,7 @@
 //! Durable finite native-child dispatch on the existing task/operation ledger.
 //! No second task platform: S1 owns intent, this module owns CAS transitions,
 //! and native handlers own real execution plus E1 evidence.
-use crate::Store;
+use crate::{Store, intents::insert_task};
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -37,15 +37,47 @@ pub const NATIVE_ASSIGNMENT: &str = "native_execution_assignment";
 pub const NATIVE_SETTLEMENT_ONLY: &str = "native_settlement_only";
 pub const NATIVE_DISPATCH: &str = "native_dispatch_committed";
 pub const COGNITION_IMPORTED: &str = "cognition_imported";
+/// The contract of a real child dialogue delivery: the owner's message is
+/// bound to one live endpoint task and delivered into that endpoint's inbox.
+/// A dialogue intent with this contract is never left blocked for a missing
+/// dispatcher.
+pub const CHILD_DIALOGUE_CONTRACT: &str = "shenko.child/dialogue/1";
+/// The task memo that holds the messages delivered to this endpoint.
+pub const DIALOGUE_INBOX: &str = "child_dialogue_inbox";
+
+/// One delivered message, bound to the endpoint it was delivered to.
+///
+/// The binding is the endpoint's own identity at delivery time: its task id,
+/// its record revision, the invocation it was running under and the
+/// authority it ran with. A message delivered to an endpoint that has since
+/// finished or been cancelled is a late fact, never a delivery to a newer
+/// authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DialogueDelivery {
+    pub intent_id: EntityId,
+    pub target_task_id: EntityId,
+    pub message: String,
+    pub in_reply_to: Option<EntityId>,
+    /// The subject step that authored the message: the causal revision.
+    pub sender_step_id: EntityId,
+    /// The endpoint's record revision the message was bound to.
+    pub target_revision: u64,
+    /// The endpoint's invocation at delivery time, when it was running.
+    pub target_invocation_id: Option<EntityId>,
+    /// The authority the endpoint ran under.
+    pub authority_delegation_id: Option<EntityId>,
+    pub delivered_at: chrono::DateTime<chrono::Utc>,
+}
 
 /// Atomic send-boundary transition recorded in the task ledger itself.
 /// Serialization with `request_native_cancellation` and authority changes is
 /// the immediate write transaction, so exactly one side wins the race.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeDispatchTransition {
-    /// The caller now durably owns the single armed send for this invocation.
+    /// The caller now durably owns the single armed send for this attempt.
     Won,
-    /// A dispatch commit already exists for this task; the caller must not
+    /// This attempt has a dispatch commit, or a legacy task-wide commit cannot
+    /// be attributed to an attempt. The caller must not
     /// send again and must keep the original attempt recoverable.
     AlreadyCommitted,
     /// The invocation lost authority (cancellation, stale revision/generation,
@@ -67,6 +99,15 @@ pub struct NativeTaskClaim {
 pub struct TaskCancellation {
     pub cancelled: Vec<EntityId>,
     pub already_terminal: Vec<EntityId>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DispatchCommit {
+    operation_id: EntityId,
+    invocation_id: EntityId,
+    task_revision: TaskRevision,
+    commit: CommitRef,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +139,66 @@ pub fn park_reason(task: &TaskRecord) -> Option<&str> {
 }
 
 impl Store {
+    /// The messages delivered to this endpoint that it has not taken yet.
+    /// They are durable facts on the task row, not an in-memory queue.
+    pub fn pending_child_dialogue(&self, task_id: EntityId) -> Result<Vec<DialogueDelivery>> {
+        let task = self.external_task(task_id)?;
+        let Some(value) = task.memos.get(DIALOGUE_INBOX) else {
+            return Ok(vec![]);
+        };
+        Ok(serde_json::from_value(value.clone())?)
+    }
+
+    /// The endpoint took the delivered messages. The intent rows become
+    /// settled: the message was processed, not merely written.
+    pub fn consume_child_dialogue(
+        &self,
+        task_id: EntityId,
+        intent_ids: &[EntityId],
+    ) -> Result<usize> {
+        if intent_ids.is_empty() {
+            return Ok(0);
+        }
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                self.check_dispatch_owner(&tx)?;
+                let Some(mut task) = read_task(&tx, task_id)? else {
+                    return Ok(0);
+                };
+                let mut inbox: Vec<DialogueDelivery> = task
+                    .memos
+                    .get(DIALOGUE_INBOX)
+                    .and_then(|value| serde_json::from_value(value.clone()).ok())
+                    .unwrap_or_default();
+                let before = inbox.len();
+                inbox.retain(|delivery| !intent_ids.contains(&delivery.intent_id));
+                if inbox.len() == before {
+                    return Ok(0);
+                }
+                task.memos
+                    .insert(DIALOGUE_INBOX.into(), serde_json::to_value(&inbox)?);
+                task.record_revision = task.record_revision.next();
+                let seq = self.ledger.allocate_seq(&tx)?;
+                let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+                task.updated_commit = commit;
+                write_task(&tx, &task)?;
+                child_log(&tx, self, commit, 1)?;
+                for intent_id in intent_ids {
+                    tx.execute(
+                        "UPDATE subject_intents SET state='settled',updated_seq=?2 \
+                         WHERE intent_id=?1 AND kind='dialogue' AND state='claimed'",
+                        params![intent_id.to_string(), seq.0 as i64],
+                    )?;
+                }
+                tx.commit()?;
+                Ok(before - inbox.len())
+            },
+            storage_failure,
+        )
+    }
+
     /// Recover only finite native work. Old unbound running delegations are
     /// quarantined as pending/parked; their raw input and effects stay intact.
     pub fn recover_native_tasks(&self) -> Result<usize> {
@@ -205,7 +306,10 @@ impl Store {
                 let Some(mut task) = read_task(&tx, task_id)? else {
                     return Ok(false);
                 };
-                if task.is_terminal()
+                // The continuous subject owns its own root lifecycle. A
+                // finite-child scan or a stale caller cannot park that root.
+                if task.kind == "subject_root"
+                    || task.is_terminal()
                     || matches!(task.state, TaskState::Completing { .. })
                     || task.record_revision != expected_revision
                 {
@@ -262,139 +366,251 @@ impl Store {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 self.check_dispatch_owner(&tx)?;
-                let Some(mut task) = read_task(&tx, task_id)? else {
-                    return Ok(None);
-                };
-                if task.memos.contains_key(COGNITION_IMPORTED) {
-                    // Replication is not a continuation decision. This fence
-                    // covers fresh execution and settlement/reconciliation.
-                    return Ok(None);
-                }
-                if task.is_terminal()
-                    || task.abort_request.is_some()
-                    || !matches!(task.state, TaskState::Pending { .. })
-                    || !task.memos.contains_key(NATIVE_INPUT)
-                {
-                    return Ok(None);
-                }
-                if memo_flag(&task, NATIVE_CHILD) {
-                    ensure!(
-                        task.implementation_ref.plugin_id == implementation.plugin_id
-                            && task.implementation_ref.artifact_digest
-                                == implementation.artifact_digest,
-                        "native_implementation_unavailable"
-                    );
-                }
-                let bound_implementation = if memo_flag(&task, NATIVE_CHILD) {
-                    task.implementation_ref.clone()
-                } else {
-                    implementation.clone()
-                };
-                let operation_id =
-                    memo_uuid(&task, NATIVE_OPERATION_ID).unwrap_or_else(EntityId::new);
-                let result_id = memo_uuid(&task, NATIVE_RESULT_ID).unwrap_or_else(EntityId::new);
-                let operation_exists = operation_exists(&tx, operation_id)?;
-                let recovery = memo_flag(&task, NATIVE_RECOVERY);
-                if settlement_only {
-                    ensure!(
-                        recovery && operation_exists,
-                        "settlement_requires_original_operation"
-                    );
-                } else {
-                    let eligible = match &task.dispatch_eligibility {
-                        DispatchEligibility::Ready => true,
-                        DispatchEligibility::Parked { .. } => matches!(
-                            park_reason(&task),
-                            Some("handler_unavailable" | "reconciling")
-                        ),
-                        DispatchEligibility::Blocked { .. } => false,
-                    };
-                    if !eligible || (recovery && operation_exists) {
-                        return Ok(None);
-                    }
-                }
-                let head = read_head(&tx, task.agent_id)?;
-                // A subject-only pause closes new claims, not evidence from
-                // work that was admitted before the boundary.
-                if head.mode != SubjectMode::Active {
-                    return Ok(None);
-                }
-                ensure_owner_active(&tx, &task, &head)?;
-                if task.owner
-                    != (TaskOwner::Conversation {
-                        id: task.conversation_id,
-                    })
-                {
-                    ensure!(
-                        !task.background,
-                        "background_task_must_be_conversation_owned"
-                    );
-                }
+                let claim =
+                    self.claim_native_task_tx(&tx, task_id, &implementation, settlement_only)?;
+                tx.commit()?;
+                Ok(claim)
+            },
+            storage_failure,
+        )
+    }
 
-                let old_revision = task.record_revision;
-                let invocation_id = EntityId::new();
-                let checkpoint = pending_checkpoint(&task.state);
+    /// The claim CAS itself, usable inside an existing immediate transaction.
+    /// A model child's tool call needs its subtask created and claimed in ONE
+    /// atomic step: a separately inserted task could be taken by the general
+    /// dispatcher before the child claimed it.
+    fn claim_native_task_tx(
+        &self,
+        tx: &Transaction<'_>,
+        task_id: EntityId,
+        implementation: &ImplementationRef,
+        settlement_only: bool,
+    ) -> Result<Option<NativeTaskClaim>> {
+        let Some(mut task) = read_task(tx, task_id)? else {
+            return Ok(None);
+        };
+        if task.memos.contains_key(COGNITION_IMPORTED) {
+            // Replication is not a continuation decision. This fence
+            // covers fresh execution and settlement/reconciliation.
+            return Ok(None);
+        }
+        if task.is_terminal()
+            || task.abort_request.is_some()
+            || !matches!(task.state, TaskState::Pending { .. })
+            || !task.memos.contains_key(NATIVE_INPUT)
+        {
+            return Ok(None);
+        }
+        if memo_flag(&task, NATIVE_CHILD) {
+            ensure!(
+                task.implementation_ref.plugin_id == implementation.plugin_id
+                    && task.implementation_ref.artifact_digest
+                        == implementation.artifact_digest,
+                "native_implementation_unavailable"
+            );
+        }
+        let bound_implementation = if memo_flag(&task, NATIVE_CHILD) {
+            task.implementation_ref.clone()
+        } else {
+            (*implementation).clone()
+        };
+        let operation_id =
+            memo_uuid(&task, NATIVE_OPERATION_ID).unwrap_or_else(EntityId::new);
+        let result_id = memo_uuid(&task, NATIVE_RESULT_ID).unwrap_or_else(EntityId::new);
+        let operation_exists = operation_exists(tx, operation_id)?;
+        let recovery = memo_flag(&task, NATIVE_RECOVERY);
+        if settlement_only {
+            ensure!(
+                recovery && operation_exists,
+                "settlement_requires_original_operation"
+            );
+        } else {
+            let eligible = match &task.dispatch_eligibility {
+                DispatchEligibility::Ready => true,
+                DispatchEligibility::Parked { .. } => matches!(
+                    park_reason(&task),
+                    Some("handler_unavailable" | "reconciling")
+                ),
+                DispatchEligibility::Blocked { .. } => false,
+            };
+            if !eligible || (recovery && operation_exists) {
+                return Ok(None);
+            }
+        }
+        let head = read_head(tx, task.agent_id)?;
+        // A subject-only pause closes new claims, not evidence from
+        // work that was admitted before the boundary.
+        if head.mode != SubjectMode::Active {
+            return Ok(None);
+        }
+        ensure_owner_active(tx, &task, &head)?;
+        if task.owner
+            != (TaskOwner::Conversation {
+                id: task.conversation_id,
+            })
+        {
+            ensure!(
+                !task.background,
+                "background_task_must_be_conversation_owned"
+            );
+        }
+
+        let old_revision = task.record_revision;
+        let invocation_id = EntityId::new();
+        let checkpoint = pending_checkpoint(&task.state);
+        let seq = self.ledger.allocate_seq(tx)?;
+        let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        let invocation = crate::external::TaskInvocation {
+            task_id,
+            task_revision: task.task_revision,
+            record_revision: old_revision.next(),
+            invocation_id,
+            epoch: head.controller_epoch,
+            software_generation: head.software_generation.clone(),
+            worker_id: self.capabilities.incarnation,
+            node_id: self.ledger.ledger_id(),
+        };
+        task.state = TaskState::Running {
+            checkpoint_ref: checkpoint,
+            invocation_id,
+            mode: RunMode::Run,
+            epoch: head.controller_epoch,
+        };
+        task.record_revision = old_revision.next();
+        task.updated_commit = commit;
+        task.first_run_at.get_or_insert_with(chrono::Utc::now);
+        task.implementation_ref = bound_implementation.clone();
+        task.dispatch_eligibility = DispatchEligibility::Ready;
+        task.memos.insert(NATIVE_CHILD.into(), true.into());
+        task.memos.insert(
+            NATIVE_OPERATION_ID.into(),
+            serde_json::Value::String(operation_id.to_string()),
+        );
+        task.memos.insert(
+            NATIVE_RESULT_ID.into(),
+            serde_json::Value::String(result_id.to_string()),
+        );
+        task.memos.remove(NATIVE_PARK);
+        task.memos.remove("native_diagnostic");
+        let assignment = ExecutionAssignment {
+            worker_id: invocation.worker_id,
+            node_id: invocation.node_id,
+            invocation_id,
+            epoch: invocation.epoch,
+            implementation_ref: bound_implementation,
+            assigned_commit: commit,
+        };
+        task.memos
+            .insert(NATIVE_ASSIGNMENT.into(), serde_json::to_value(&assignment)?);
+        if settlement_only {
+            task.memos
+                .insert(NATIVE_SETTLEMENT_ONLY.into(), true.into());
+        } else {
+            task.memos.remove(NATIVE_SETTLEMENT_ONLY);
+        }
+        write_task(tx, &task)?;
+        child_log(tx, self, commit, 1)?;
+        Ok(Some(NativeTaskClaim {
+            task,
+            invocation,
+            operation_id,
+            result_id,
+            software_generation: head.software_generation,
+            settlement_only,
+        }))
+    }
+
+    /// Create and claim one durable native subtask for a model child's tool
+    /// call, in a single immediate transaction.
+    ///
+    /// The subtask is owned by the finite parent child task, so the existing
+    /// owner chain, cancellation scope, completion and T2 rules apply
+    /// unchanged: a cancelled parent fences the call, and the tool's own
+    /// operation/attempt/evidence stay on the same ledger. The tool's frozen
+    /// input object must already be sealed in CAS.
+    ///
+    /// The caller supplies the deterministic subtask id. An existing record
+    /// with that id is never re-created: the caller reads its durable result
+    /// instead, so one tool call is never executed twice.
+    pub fn claim_child_tool_task(
+        &self,
+        parent: &TaskRecord,
+        tool_task_id: EntityId,
+        kind: &str,
+        definition_version: u32,
+        input_ref: ObjectRef,
+        implementation: ImplementationRef,
+    ) -> Result<Option<NativeTaskClaim>> {
+        self.ledger.with_mutation(
+            || {
+                let mut conn = self.ledger.conn.lock();
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                self.check_dispatch_owner(&tx)?;
+                let Some(current_parent) = read_task(&tx, parent.task_id)? else {
+                    return Ok(None);
+                };
+                ensure!(
+                    current_parent.abort_request.is_none() && !current_parent.is_terminal(),
+                    "child_tool_parent_inactive"
+                );
+                ensure!(
+                    current_parent.task_revision == parent.task_revision
+                        && current_parent.record_revision == parent.record_revision,
+                    "stale_child_tool_parent"
+                );
+                if read_task(&tx, tool_task_id)?.is_some() {
+                    // The call already exists durably. Its result is read
+                    // instead of running the tool a second time.
+                    return Ok(None);
+                }
+                let head = read_head(&tx, current_parent.agent_id)?;
+                ensure!(head.mode == SubjectMode::Active, "child_tool_parent_inactive");
+                ensure_owner_active(&tx, &current_parent, &head)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                let invocation = crate::external::TaskInvocation {
-                    task_id,
-                    task_revision: task.task_revision,
-                    record_revision: old_revision.next(),
-                    invocation_id,
-                    epoch: head.controller_epoch,
-                    software_generation: head.software_generation.clone(),
-                    worker_id: self.capabilities.incarnation,
-                    node_id: self.ledger.ledger_id(),
+                let task = TaskRecord {
+                    record_schema_version: 1,
+                    task_id: tool_task_id,
+                    task_revision: TaskRevision(0),
+                    record_revision: RecordRevision(0),
+                    agent_id: current_parent.agent_id,
+                    conversation_id: current_parent.conversation_id,
+                    owner: TaskOwner::Task {
+                        id: current_parent.task_id,
+                    },
+                    background: false,
+                    kind: kind.to_string(),
+                    definition_version,
+                    implementation_ref: implementation.clone(),
+                    input_ref,
+                    state: TaskState::Pending {
+                        checkpoint_ref: None,
+                    },
+                    abort_request: None,
+                    memos: serde_json::Map::from_iter([
+                        (
+                            NATIVE_INPUT.into(),
+                            serde_json::Value::String("object".into()),
+                        ),
+                        (
+                            "child_tool_parent".into(),
+                            serde_json::json!(current_parent.task_id.to_string()),
+                        ),
+                    ]),
+                    residual_case_ids: vec![],
+                    created_by_step_id: current_parent.created_by_step_id,
+                    dispatch_eligibility: DispatchEligibility::Ready,
+                    no_progress_crashes: 0,
+                    first_run_at: None,
+                    terminal_at: None,
+                    created_commit: commit,
+                    updated_commit: commit,
                 };
-                task.state = TaskState::Running {
-                    checkpoint_ref: checkpoint,
-                    invocation_id,
-                    mode: RunMode::Run,
-                    epoch: head.controller_epoch,
-                };
-                task.record_revision = old_revision.next();
-                task.updated_commit = commit;
-                task.first_run_at.get_or_insert_with(chrono::Utc::now);
-                task.implementation_ref = bound_implementation.clone();
-                task.dispatch_eligibility = DispatchEligibility::Ready;
-                task.memos.insert(NATIVE_CHILD.into(), true.into());
-                task.memos.insert(
-                    NATIVE_OPERATION_ID.into(),
-                    serde_json::Value::String(operation_id.to_string()),
-                );
-                task.memos.insert(
-                    NATIVE_RESULT_ID.into(),
-                    serde_json::Value::String(result_id.to_string()),
-                );
-                task.memos.remove(NATIVE_PARK);
-                task.memos.remove("native_diagnostic");
-                let assignment = ExecutionAssignment {
-                    worker_id: invocation.worker_id,
-                    node_id: invocation.node_id,
-                    invocation_id,
-                    epoch: invocation.epoch,
-                    implementation_ref: bound_implementation,
-                    assigned_commit: commit,
-                };
-                task.memos
-                    .insert(NATIVE_ASSIGNMENT.into(), serde_json::to_value(&assignment)?);
-                if settlement_only {
-                    task.memos
-                        .insert(NATIVE_SETTLEMENT_ONLY.into(), true.into());
-                } else {
-                    task.memos.remove(NATIVE_SETTLEMENT_ONLY);
-                }
-                write_task(&tx, &task)?;
-                child_log(&tx, self, commit, 1)?;
+                insert_task(&tx, &task, commit)?;
+                let claim =
+                    self.claim_native_task_tx(&tx, tool_task_id, &implementation, false)?;
                 tx.commit()?;
-                Ok(Some(NativeTaskClaim {
-                    task,
-                    invocation,
-                    operation_id,
-                    result_id,
-                    software_generation: head.software_generation,
-                    settlement_only,
-                }))
+                Ok(claim)
             },
             storage_failure,
         )
@@ -602,15 +818,18 @@ impl Store {
         self.native_invocation_current_tx(&tx, &task, ctx)
     }
 
-    /// One atomic dispatch commit, serialized with `request_native_cancellation`
+    /// One atomic dispatch commit per attempt, serialized with `request_native_cancellation`
     /// and owner/authority changes by the immediate write transaction. Exactly
-    /// one caller can win `Won`; any later caller sees `AlreadyCommitted` (the
+    /// one caller can win `Won` for that attempt; later callers see `AlreadyCommitted` (the
     /// original send may be in flight and stays recoverable, never re-sent and
     /// never marked never-dispatched) and a cancelled/stale invocation is
-    /// `Fenced` before any send exists.
+    /// `Fenced` before that attempt's send exists. Separate model steps have
+    /// separate attempts even while sharing one task invocation.
     pub fn commit_native_dispatch(
         &self,
         ctx: &crate::external::TaskInvocation,
+        operation_id: EntityId,
+        attempt_id: EntityId,
     ) -> Result<NativeDispatchTransition> {
         self.ledger.with_mutation(
             || {
@@ -621,22 +840,53 @@ impl Store {
                     Some(task) => task,
                     None => return Ok(NativeDispatchTransition::Fenced),
                 };
-                if task.memos.contains_key(NATIVE_DISPATCH) {
-                    return Ok(NativeDispatchTransition::AlreadyCommitted);
+                let operation: OperationRecord = read_json(
+                    &tx, "SELECT data FROM operations WHERE operation_id=?1", operation_id,
+                )?.context("dispatch operation missing")?;
+                let attempt: AttemptRecord = read_json(
+                    &tx, "SELECT data FROM attempts WHERE attempt_id=?1", attempt_id,
+                )?.context("dispatch attempt missing")?;
+                ensure!(operation.operation_id == operation_id && operation.task_id == ctx.task_id
+                    && attempt.attempt_id == attempt_id && attempt.operation_id == operation_id
+                    && attempt.invocation_id == ctx.invocation_id && attempt.epoch == ctx.epoch,
+                    "dispatch operation/attempt belongs to another invocation");
+                let attempt_key = attempt_id.to_string();
+                if let Some(marker) = task.memos.get(NATIVE_DISPATCH) {
+                    // Old commits do not identify the attempted send. They
+                    // remain unresolved, never a license to send a new attempt.
+                    if marker.get("schema_version").is_none() {
+                        return Ok(NativeDispatchTransition::AlreadyCommitted);
+                    }
+                    ensure!(marker.get("schema_version").and_then(|v| v.as_u64()) == Some(2),
+                        "unsupported native dispatch marker");
+                    let attempts = marker.get("attempts").and_then(|v| v.as_object())
+                        .context("invalid native dispatch attempt ledger")?;
+                    if let Some(value) = attempts.get(&attempt_key) {
+                        let previous = DispatchCommit::deserialize(value)?;
+                        ensure!(previous.operation_id == operation_id
+                            && previous.invocation_id == ctx.invocation_id
+                            && previous.task_revision == ctx.task_revision,
+                            "native dispatch commit identity mismatch");
+                        return Ok(NativeDispatchTransition::AlreadyCommitted);
+                    }
                 }
                 if !self.native_invocation_current_tx(&tx, &task, ctx)? {
                     return Ok(NativeDispatchTransition::Fenced);
                 }
+                ensure!(operation.state == OperationState::InFlight
+                    && attempt.dispatch_stage == AttemptDispatchStage::Armed
+                    && attempt.final_receipt_id.is_none(),
+                    "native dispatch attempt is not armed");
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                task.memos.insert(
-                    NATIVE_DISPATCH.into(),
-                    serde_json::json!({
-                        "task_revision": task.task_revision,
-                        "invocation_id": ctx.invocation_id,
-                        "commit": commit,
-                    }),
-                );
+                task.memos.entry(NATIVE_DISPATCH).or_insert_with(||
+                    serde_json::json!({"schema_version": 2, "attempts": {}}))
+                    .get_mut("attempts").and_then(|v| v.as_object_mut())
+                    .context("invalid native dispatch attempt ledger")?
+                    .insert(attempt_key, serde_json::to_value(DispatchCommit {
+                        operation_id, invocation_id: ctx.invocation_id,
+                        task_revision: ctx.task_revision, commit,
+                    })?);
                 task.record_revision = task.record_revision.next();
                 task.updated_commit = commit;
                 write_task(&tx, &task)?;
@@ -817,7 +1067,8 @@ impl Store {
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
              WHERE i.agent_id=?1 AND i.kind='task_result' AND i.source='native-child'
-               AND (d.disposition IS NULL OR d.disposition='\"deferred\"')
+               AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')
              ORDER BY i.rowid LIMIT ?2",
         )?;
         let rows = query
@@ -1055,7 +1306,7 @@ fn read_candidates_tx(
         .unwrap_or_default();
     let mut query = conn.prepare(
         "SELECT data, created_at FROM tasks
-         WHERE json_extract(data,'$.kind')!='subject_publication'
+         WHERE json_extract(data,'$.kind') NOT IN ('subject_publication','subject_root')
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
            AND (?1='' OR created_at>?1 OR (created_at=?1 AND task_id>?2))
@@ -1076,7 +1327,7 @@ fn read_candidates_tx(
 fn read_scan_upper_tx(conn: &rusqlite::Connection) -> Result<Option<(String, EntityId)>> {
     let row = conn.query_row(
         "SELECT data, created_at FROM tasks
-         WHERE json_extract(data,'$.kind')!='subject_publication'
+         WHERE json_extract(data,'$.kind') NOT IN ('subject_publication','subject_root')
            AND json_extract(data,'$.memos.cognition_imported') IS NULL
            AND json_extract(data,'$.state.status') IN ('pending','running','completing')
          ORDER BY created_at DESC, task_id DESC LIMIT 1",
@@ -1119,7 +1370,7 @@ fn read_all_tasks(conn: &rusqlite::Connection) -> Result<Vec<TaskRecord>> {
         .collect()
 }
 
-fn read_task(conn: &rusqlite::Connection, id: EntityId) -> Result<Option<TaskRecord>> {
+pub(crate) fn read_task(conn: &rusqlite::Connection, id: EntityId) -> Result<Option<TaskRecord>> {
     read_json(conn, "SELECT data FROM tasks WHERE task_id=?1", id)
 }
 
@@ -1155,7 +1406,7 @@ fn read_result_for_task(
     )
 }
 
-fn write_task(tx: &Transaction<'_>, task: &TaskRecord) -> Result<()> {
+pub(crate) fn write_task(tx: &Transaction<'_>, task: &TaskRecord) -> Result<()> {
     let changed = tx.execute(
         "UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4
          WHERE task_id=?1 AND record_revision=?5",

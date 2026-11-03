@@ -59,7 +59,12 @@ impl ToolMountProfile {
         declared.iter().map(|mount| {
             let mut actual = mount.clone();
             if self == Self::ReadOnly {
-                actual.mode = crate::MountMode::ReadOnly;
+                // Withdraw the guest's write permission without relabelling
+                // the mount: a managed COW mount must keep showing the
+                // branch's overlay over its base, so a read-only profile is
+                // a read-only *view of the branch*, not a direct mount over
+                // the base (SPEC §8.3 / A08).
+                actual.withdraw_write();
             }
             actual
         }).collect()
@@ -141,6 +146,16 @@ pub struct ToolDescriptor {
     /// "wasi_snapshot_preview1.fd_write"). Recorded evidence, not a promise.
     #[serde(default)]
     pub imports: Vec<String>,
+    /// SPDX license identifier of the upstream project the artifact comes
+    /// from. Recorded so an installed tool never loses the license it is
+    /// distributed under.
+    #[serde(default)]
+    pub license: Option<String>,
+    /// Where the artifact bytes live and how they are identified. Absent for
+    /// units written before out-of-line artifacts existed; those are inline
+    /// by definition.
+    #[serde(default)]
+    pub artifact: Option<crate::artifact::ToolArtifactRef>,
 }
 
 /// Result of inspecting the actual module bytes: what the artifact really is
@@ -290,53 +305,133 @@ pub fn inspect_module(artifact: &[u8]) -> Result<ModuleInspection> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamedToolTarget {
     pub name: &'static str,
+    /// Which installed tools count as this target.
+    pub matches: TargetMatch,
+    /// The upstream project a real artifact would come from.
+    pub upstream: &'static str,
+    /// SPDX license of that upstream project. An installed tool keeps it.
+    pub license: &'static str,
+    /// The SPEC §8.2 compatibility class the target really has: W0 standard
+    /// component, W1 extended POSIX userland, W2 dedicated host imports, H
+    /// host adaptation, R remote environment.
+    pub compatibility: &'static str,
+    /// Host imports or runtime features the artifact needs beyond WASI
+    /// preview1. Empty when preview1 alone is enough.
+    pub required_capabilities: &'static [&'static str],
     /// None while no verified upstream artifact exists for our runtime.
     pub unresolved_reason: Option<&'static str>,
+}
+
+/// How an installed tool counts towards a named target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetMatch {
+    /// The installed tool's name is exactly this name.
+    Exact(&'static str),
+    /// The target is a ported *set*: the installed tools are named
+    /// `<prefix><applet>`, and the target counts as installed when at least
+    /// one applet of the set is installed.
+    Set(&'static str),
+}
+
+impl TargetMatch {
+    /// Whether an installed tool's name satisfies this target.
+    pub fn accepts(&self, tool_name: &str) -> bool {
+        match self {
+            Self::Exact(name) => tool_name == *name,
+            Self::Set(prefix) => tool_name.starts_with(prefix),
+        }
+    }
 }
 
 /// Declared named targets. Order is the SPEC §8.2 order.
 pub const NAMED_TARGETS: &[NamedToolTarget] = &[
     NamedToolTarget {
         name: "toybox",
+        matches: TargetMatch::Set("toybox-"),
+        upstream: "landley/toybox 0.8.15",
+        license: "BSD-3-Clause",
+        compatibility: "W0",
+        required_capabilities: &[],
         unresolved_reason: Some(
-            "no upstream WASI release exists; landley/toybox 0.8.15 is ported \
-             from source under crates/shenko-wasm/ports/toybox-wasi/ and must \
-             be built with wasi-sdk-34 then installed per applet",
+            "the toybox 0.8.15 port's applets exist and the tool-set manifest \
+             ships in crates/shenko-wasm/ports/toybox-wasi/, but no toybox \
+             applet is installed in this installation yet; install the set \
+             with `shenko tool install-set`",
         ),
     },
     NamedToolTarget {
         name: "gcc-wasm",
+        matches: TargetMatch::Exact("gcc-wasm"),
+        upstream: "wasi-sdk 34 (clang/lld) and GCC hosted/target builds",
+        license: "Apache-2.0 WITH LLVM-exception (clang), GPL-3.0-or-later (gcc)",
+        compatibility: "W0",
+        required_capabilities: &[],
         unresolved_reason: Some(
-            "no verified WASM compiler artifact; hosted-vs-target meaning is \
-             unresolved per SPEC §8.2",
+            "no verified WASM-hosted compiler artifact exists yet; the \
+             retained wasi-sdk toolchain runs on the host and *produces* \
+             wasm32-wasip1 modules, which is the target side of SPEC §8.2, \
+             not a compiler that runs inside WASM. This target stays open \
+             until a real artifact exists",
         ),
     },
     NamedToolTarget {
         name: "git",
+        matches: TargetMatch::Exact("git"),
+        upstream: "git/git",
+        license: "GPL-2.0-only",
+        compatibility: "W2",
+        required_capabilities: &["wasi-sockets", "no-process-spawn"],
         unresolved_reason: Some(
-            "no verified wasm32-wasip1 Git client artifact; WASIX ports need a \
-             WASIX runtime",
+            "no verified wasm32-wasip1 Git client artifact exists yet; \
+             clone/pull/push need sockets (the wasi-sdk 34 wasip1 sysroot \
+             declares no socket() at all) and the credential helper chain \
+             needs a process spawn (wasip1 has no fork/exec), so a working \
+             private-remote Git needs a WASIX runtime or dedicated host \
+             imports. This target stays open until a real artifact exists",
         ),
     },
     NamedToolTarget {
         name: "gh",
+        matches: TargetMatch::Exact("gh"),
+        upstream: "cli/cli",
+        license: "MIT",
+        compatibility: "W2",
+        required_capabilities: &["wasi-sockets", "host-http", "no-process-spawn"],
         unresolved_reason: Some(
-            "wasi-gh exists but requires dedicated host HTTP/exec imports this \
-             runtime does not provide (SPEC §8.2 W2)",
+            "no verified artifact exists yet: wasi-gh needs dedicated host \
+             HTTP/exec imports this runtime does not provide (SPEC §8.2 W2), \
+             and a Go GOOS=wasip1 build links without sockets and therefore \
+             cannot talk to an API. This target stays open until a real \
+             artifact exists",
         ),
     },
     NamedToolTarget {
         name: "tea",
+        matches: TargetMatch::Exact("tea"),
+        upstream: "go-gitea/gitea tea",
+        license: "MIT",
+        compatibility: "W2",
+        required_capabilities: &["wasi-sockets", "host-http", "no-process-spawn"],
         unresolved_reason: Some(
-            "no verified Gitea CLI WASM artifact found",
+            "no verified Gitea CLI WASM artifact exists yet; like gh it needs \
+             sockets for its API calls, so preview1 alone cannot make it \
+             work. This target stays open until a real artifact exists",
         ),
     },
     NamedToolTarget {
         name: "ssh",
+        matches: TargetMatch::Exact("ssh"),
+        upstream: "openssh/openssh (WASIX port) / ssh WASM client",
+        license: "BSD-3-Clause (OpenSSH)",
+        compatibility: "W1",
+        required_capabilities: &["wasi-sockets", "wasi-random", "wasi-clock"],
         unresolved_reason: Some(
             "OpenSSH WASIX ports need a WASIX runtime and socket imports; \
              wasmtime-45 preview1 provides neither; the host ssh client is not \
-             a WASM SSH (SPEC §8.2/R019)",
+             a WASM SSH (SPEC §8.2/R019). A real SSH client must run the \
+             protocol and authentication inside the module, with the host \
+             only supplying sockets, entropy and clock. No such artifact \
+             exists yet; this target stays open until one does",
         ),
     },
 ];
@@ -372,6 +467,12 @@ pub struct ToolRecord {
     pub enabled: bool,
     pub current: bool,
     pub unit_id: String,
+    /// Where the artifact bytes live. The digest here is the blake3 identity
+    /// of the module bytes; the upstream receipt's sha256 is provenance and
+    /// never an identity.
+    pub artifact: crate::artifact::ToolArtifactRef,
+    /// SPDX license identifier of the upstream project, when recorded.
+    pub license: Option<String>,
     /// Host-side materialized path (`<tools>/units/.../package.bin`) when the
     /// materialization completed; informational — execution reads the
     /// verified object bytes, never this copy.
@@ -391,6 +492,13 @@ fn record_from_fact(fact: &ToolUnitFact) -> Result<ToolRecord> {
     ensure!(fact.unit_id == format!("{TOOL_UNIT_PREFIX}{}", descriptor.name)
         && fact.revision == descriptor.version,
         "TOOL_RECORD_CORRUPT:{}: tool manifest does not match its unit identity", fact.unit_id);
+    // A unit written before out-of-line artifacts existed carries no
+    // artifact reference: its bytes are the node's inline object for the
+    // unit's own digest. The length is not recorded by the unit fact, so
+    // the size check is skipped and only the digest is verified.
+    let artifact = descriptor.artifact.clone().unwrap_or_else(|| {
+        crate::artifact::ToolArtifactRef::node_inline(fact.artifact_digest.clone(), 0, None)
+    });
     Ok(ToolRecord {
         name: descriptor.name,
         version: descriptor.version,
@@ -402,6 +510,8 @@ fn record_from_fact(fact: &ToolUnitFact) -> Result<ToolRecord> {
         enabled: fact.enabled,
         current: fact.current,
         unit_id: fact.unit_id.clone(),
+        artifact,
+        license: descriptor.license.clone(),
         materialized_path: fact.materialization_path.clone(),
     })
 }
@@ -415,23 +525,97 @@ pub fn installed_tools(node: &Node) -> Result<Vec<ToolRecord>> {
         .collect()
 }
 
+/// The real state of one declared named target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamedTargetStatus {
+    pub name: String,
+    pub upstream: String,
+    pub license: String,
+    /// The SPEC §8.2 compatibility class the target really has.
+    pub compatibility: String,
+    /// Host imports or runtime features needed beyond WASI preview1.
+    pub required_capabilities: Vec<String>,
+    /// `installed` when a verified artifact is installed right now,
+    /// `unresolved` otherwise.
+    pub state: String,
+    /// The installed artifacts (`name@version digest`), empty when
+    /// unresolved.
+    pub installed: Vec<String>,
+    /// Why the target is unresolved, empty when installed.
+    pub reason: String,
+}
+
 /// Real availability of every declared named target right now.
 pub fn named_target_report(records: &[ToolRecord]) -> BTreeMap<String, String> {
-    let mut report = BTreeMap::new();
-    for target in NAMED_TARGETS {
-        let installed: Vec<String> = records
-            .iter()
-            .filter(|record| record.name == target.name)
-            .map(|record| format!("{}@{}", record.version, record.digest))
-            .collect();
-        let status = if installed.is_empty() {
-            format!("unresolved: {}", target.unresolved_reason.unwrap_or(""))
-        } else {
-            format!("installed: {}", installed.join(", "))
-        };
-        report.insert(target.name.to_string(), status);
-    }
-    report
+    named_target_status(records)
+        .into_iter()
+        .map(|status| {
+            let detail = if status.state == "installed" {
+                format!("installed: {}", status.installed.join(", "))
+            } else {
+                let joined;
+                let needed = if status.required_capabilities.is_empty() {
+                    "nothing beyond wasi preview1"
+                } else {
+                    joined = status.required_capabilities.join(", ");
+                    &joined
+                };
+                format!(
+                    "unresolved [{}, needs {}]: {}",
+                    status.compatibility,
+                    needed,
+                    status.reason
+                )
+            };
+            (status.name, detail)
+        })
+        .collect()
+}
+
+/// The machine-readable state of every declared named target.
+pub fn named_target_status(records: &[ToolRecord]) -> Vec<NamedTargetStatus> {
+    NAMED_TARGETS
+        .iter()
+        .map(|target| {
+            let installed: Vec<String> = records
+                .iter()
+                .filter(|record| target.matches.accepts(&record.name))
+                .map(|record| {
+                    format!(
+                        "{}@{} {} ({}, {})",
+                        record.name,
+                        record.version,
+                        record.digest,
+                        record.artifact.kind.name(),
+                        record.license.as_deref().unwrap_or("license-unrecorded")
+                    )
+                })
+                .collect();
+            let (state, reason) = if installed.is_empty() {
+                (
+                    "unresolved".to_string(),
+                    target.unresolved_reason.unwrap_or("unresolved").to_string(),
+                )
+            } else {
+                ("installed".to_string(), String::new())
+            };
+            NamedTargetStatus {
+                name: target.name.to_string(),
+                upstream: target.upstream.to_string(),
+                license: target.license.to_string(),
+                compatibility: target.compatibility.to_string(),
+                required_capabilities: target
+                    .required_capabilities
+                    .iter()
+                    .map(|capability| capability.to_string())
+                    .collect(),
+                state,
+                installed,
+                reason,
+            }
+        })
+        .collect()
 }
 
 /// Resolve a tool name (optionally `name@version`) to its installed record.
@@ -466,6 +650,21 @@ pub fn resolve_tool<'f>(
     let (record, fact) = match matched.len() {
         0 => {
             if let Some(target) = named_target(name) {
+                // A target that is a ported set is installed under the names
+                // of its applets; asking for the set's own name must say
+                // which applets exist, not claim the target is unsupported.
+                let set_members: Vec<String> = facts
+                    .iter()
+                    .filter_map(|fact| record_from_fact(fact).ok())
+                    .filter(|record| target.matches.accepts(&record.name))
+                    .map(|record| record.name)
+                    .collect();
+                ensure!(
+                    set_members.is_empty(),
+                    "TOOL_UNAVAILABLE:{spec}: {name} is an installed tool set; name one of \
+                     its tools, for example {}",
+                    set_members.first().map(String::as_str).unwrap_or(name)
+                );
                 let any_version = facts.iter().filter_map(|f| record_from_fact(f).ok()).any(|r| r.name == name);
                 ensure!(
                     !any_version,
@@ -500,15 +699,49 @@ pub fn resolve_tool<'f>(
     Ok((record, fact))
 }
 
-/// Fetch and verify the selected unit's executable bytes. Generic package
-/// imports/replication may carry authored metadata, so recheck the real ABI
-/// at execution too; imported claims cannot acquire preview1 authority.
-/// Returns the verified bytes plus the *actual* inspection — the imports a
-/// sealed execution record reports must come from this, never from the
-/// authored `config.tool` descriptor which can lie.
+/// Fetch and verify the selected unit's executable bytes from the node's
+/// inline unit object store. Generic package imports/replication may carry
+/// authored metadata, so recheck the real ABI at execution too; imported
+/// claims cannot acquire preview1 authority. Returns the verified bytes plus
+/// the *actual* inspection — the imports a sealed execution record reports
+/// must come from this, never from the authored `config.tool` descriptor
+/// which can lie.
 pub fn tool_module(node: &Node, record: &ToolRecord) -> Result<(Vec<u8>, ModuleInspection)> {
+    ensure!(
+        record.artifact.kind == crate::artifact::ToolArtifactKind::NodeInline,
+        "TOOL_ARTIFACT_OUT_OF_LINE:{}: this tool's bytes live in the installation's content \
+         store; resolve it through a content store, not the inline unit store",
+        record.name
+    );
     let bytes = node.unit_object_bytes(&record.digest)?;
     ensure!(bytes.len() as u64 <= TOOL_ARTIFACT_MAX_BYTES, "TOOL_ARTIFACT_TOO_LARGE:{}", record.name);
+    record.artifact.verify_bytes(&bytes)?;
+    let inspection = inspect_module(&bytes)?;
+    ensure!(inspection.runnable && record.abi == ToolAbi::WasiPreview1,
+        "TOOL_ABI_UNSUPPORTED:{}: {:?}", record.name, inspection.detail);
+    ensure!(
+        declared_imports_match(&record.imports, &inspection.imports),
+        "TOOL_IMPORT_MISMATCH:{}: declared imports {:?} do not match the \
+         module's actual imports {:?}",
+        record.name,
+        record.imports,
+        inspection.imports
+    );
+    Ok((bytes, inspection))
+}
+
+/// Fetch and verify the selected unit's executable bytes from wherever the
+/// artifact actually lives: the node's inline unit object store, or the
+/// installation's content store for an artifact that was staged out of
+/// line. The bytes are verified against the artifact's recorded identity
+/// before they can reach a guest, and the real ABI is re-inspected, so an
+/// authored claim never becomes execution authority.
+pub fn tool_module_with_store(
+    node: &Node,
+    record: &ToolRecord,
+    store: &dyn crate::artifact::ToolContentStore,
+) -> Result<(Vec<u8>, ModuleInspection)> {
+    let bytes = crate::artifact::resolve_artifact_bytes(node, &record.digest, &record.artifact, store)?;
     let inspection = inspect_module(&bytes)?;
     ensure!(inspection.runnable && record.abi == ToolAbi::WasiPreview1,
         "TOOL_ABI_UNSUPPORTED:{}: {:?}", record.name, inspection.detail);
@@ -527,6 +760,15 @@ pub fn tool_module(node: &Node, record: &ToolRecord) -> Result<(Vec<u8>, ModuleI
         actual
     );
     Ok((bytes, inspection))
+}
+
+/// The authored import list and the module's actual imports must agree.
+fn declared_imports_match(declared: &[String], actual: &[String]) -> bool {
+    let mut declared = declared.to_vec();
+    let mut actual = actual.to_vec();
+    declared.sort();
+    actual.sort();
+    declared == actual
 }
 
 #[cfg(test)]
@@ -677,6 +919,8 @@ mod tests {
         let facts = inspect.tool_unit_facts()?;
         let (record, _) = resolve_tool(&facts, "fixture.echo")?;
         assert_eq!(record.version, "1.0.0");
+        // The artifact of this fixture is carried inline by its unit, so the
+        // inline resolution is the one that applies.
         let (bytes, inspection) = tool_module(&inspect, &record)?;
         assert_eq!(Digest::blake3(&bytes), digest);
         assert_eq!(inspection.imports, record.imports);

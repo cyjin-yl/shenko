@@ -1,35 +1,88 @@
-# Shenko 文档盘点与阅读地图
+# Shenko 文档索引
+
+本索引是文档导航，不是进度板。每条入口说明**它是什么、谁拥有它、当前状态如何**；状态判定只依据仓库实际内容与已保存证据，不依据计划或意图。
 
 ## 权威关系
 
-现行产品规格只有根目录 [SPEC.md](../SPEC.md)，版本 v0.6.2。v0.6.1 从 ChatGPT Page v0.5.1 sequence 8 完整导入，并追加 U50–U53/R140–R142/B49–B50、完整开发交接 §46 与协议演进 §47；v0.6.2 继续追加 U54–U62/R143–R147/B51–B55，展开持续主体、从输入形成 awareness、异构节点容灾与无模型恢复，以及必读开发 Skill。Page 原快照保留在 [history](history/spec-v0.5.1.md)。后续工程变更以 Git 版本为事实入口，Page 作为讨论/历史来源，不并行维护第二份工程主版本。
+现行产品规格只有根目录 [SPEC.md](../SPEC.md)。§1–47 与所有 R/B/Ref/验收条目保持不变；§48 是 2026-11-01 追加的自主主体与文档分层章节。
 
-README 负责入口，WHY 解释意图，AGENTS 和 CLAUDE 负责开发规则，GOAL 定义本次完整委托；[治理目录](governance/AUTONOMY.md)展开操作方法。机器可读索引对应相同 SPEC，生成或编辑后需保持一致；历史草稿不能覆盖现行用户裁决。
+- [SPEC.md](../SPEC.md) — 产品行为依据：147 项需求、56 组行为、59 条来源、216 条具名验收，保留 U01–U63 用户原话。行号只用于本次导入定位，变更后按标题检索。
+- [docs/specs/architecture.md](../docs/specs/architecture.md) — 当前功能边界与各层事实归属（父级拥有）。
+- [docs/specs/](specs/) — 各领域的功能合同，由该领域代码拥有者撰写。
+- [WHY.md](../WHY.md) — 设计意图与已确定取舍；AGENTS.md — 开发与协作规则；CONTRIBUTING.md — 贡献约定。
+- [docs/governance/](governance/) — 自主边界、完整交付合同、许可与接续规则。
+- [docs/requirements/](requirements/) — 同一 SPEC 的机器可读索引。
+- [docs/evidence/](evidence/) — 已保存的真实运行证据与其边界。
+- [docs/state/coverage.json](state/coverage.json) — 每项需求的实现与证据状态。
+- [docs/history/](history/) — 历史来源，不是现行指令。
 
-## 当前文件组
+历史草稿不能覆盖现行用户裁决；机器可读索引与 SPEC 必须保持一致。
 
-持续推理的上下文投影保留历史 user/assistant 的真实角色；窗口以已完成的
-assistant 回合结束时，另附明确标注「运行时连续思考提示；不是新外部消息」的
-user-role 传输回合，避免将已完成回答作为 Anthropic assistant prefill。
-新用户输入或工具结果已构成末尾 user-role 回合时不追加该提示。提示只属于
-推理投影，不写成新的 inbox/raw 事实；其文本照常计入输入预算，S0 冻结与恢复
-仍使用已封存 payload。离线 wire/reopen 回归位于
-`crates/shenko-subject/src/recovery_tests.rs`；此变更尚待协调者执行验证，不代表线上事件或所有 provider 均有同一故障。
+## 现行文档
 
-| 组 | 内容与状态 |
-| --- | --- |
-| 主 SPEC | 47章，147 R、55 B、59 Ref记录（含历史拼写别名）、216具名case、U01–U62原话及 U63 协作席记录 |
-| 原主稿快照 | 完整 v0.5.1，139 R / 48 B / 56 Ref / 189 case，不再是现行工程版本 |
-| 阅读与治理 | README、WHY、AGENTS、CLAUDE、GOAL、HANDOFF；AUTONOMY、COMPLETION、GITHUB、CLAUDE、CONTINUATION |
-| 开发 Skill | [.agents/skills/shenko-dev](../.agents/skills/shenko-dev/SKILL.md) 必读哲学与8个独立原子；`.claude/skills` 指向同一正文，根 `CLAUDE.md` 符号链接到 `AGENTS.md` |
-| 结构化追踪 | requirements/behaviors/sources/acceptance-cases JSON；coverage 逐项区分 partial、实际证据与未完成义务，不以 focused 通过冒充全产品 |
-| 交接研究与依据 | [8组上游治理](research/agent-development-governance.md)、[Claude/GitHub核验](research/claude-handoff.md)、[编制期完整范围审计（已合入）](research/full-scope-audit.md)、[Claude API迁移](research/claude-api-2026-10-21.md) |
-| 历史研究和专题稿 | 下表逐文件保留，共 46 份；均标记历史/已合入，仍有旧建议或早期未决状态 |
-| 执行与接续 | [完整计划](plans/active/full-product.md)、[goal状态](state/goal.json)、[coverage](state/coverage.json)、[证据入口](evidence/README.md) |
+| 文档 | 内容 | 所有者 | 状态 |
+| --- | --- | --- | --- |
+| [SPEC.md](../SPEC.md) | v0.6.2 + §48 完整规格 | 父级（§1–47 字节不变） | 现行行为依据 |
+| [docs/specs/architecture.md](../docs/specs/architecture.md) | 自主主体与可替换能力架构 | 父级 | 现行 |
+| [docs/specs/](specs/) | 27 份领域功能合同 | 各领域代码拥有者 | 逐份撰写中 |
+| [WHY.md](../WHY.md) | 设计为什么成立 | 父级 | 现行 |
+| [AGENTS.md](../AGENTS.md) | 自主开发、并行协作、验证与接续规则 | 父级 | 现行 |
+| [CLAUDE.md](../CLAUDE.md) | 指向 AGENTS.md 的符号链接 | 父级 | 现行，保持不变 |
+| [CONTRIBUTING.md](../CONTRIBUTING.md) | 贡献与认领约定 | 父级 | 现行 |
+| [CONTRIBUTORS.md](../CONTRIBUTORS.md) | 贡献来源与署名归属 | 父级 | 现行 |
+| [docs/governance/AUTONOMY.md](governance/AUTONOMY.md) | 自主决定边界与何时才需要人裁决 | 父级 | 现行 |
+| [docs/governance/COMPLETION.md](governance/COMPLETION.md) | 完整交付合同：什么才算完成、如何证明 | 父级 | 现行 |
+| [docs/governance/GITHUB.md](governance/GITHUB.md) | 身份、fork 与持续 PR | 父级 | 现行 |
+| [docs/governance/CLAUDE.md](governance/CLAUDE.md) | Claude 启动与恢复的实际参数 | 父级 | 现行 |
+| [docs/governance/CONTINUATION.md](governance/CONTINUATION.md) | 跨 session 与 worker 接续 | 父级 | 现行 |
+| [docs/governance/DCO.md](governance/DCO.md) | 贡献来源与提交权声明 | 父级 | 现行 |
+| [docs/governance/CONTRIBUTOR_LICENSE.md](governance/CONTRIBUTOR_LICENSE.md) | 贡献者再许可（保留署名，非转让） | 父级 | 现行 |
+| [docs/governance/LICENSING.md](governance/LICENSING.md) | 项目许可：AGPL-3.0-or-later + owner 双许可 | 父级 | 现行，已采用 |
+| [docs/governance/LICENSE-INVENTORY.md](governance/LICENSE-INVENTORY.md) | 依赖与许可实测清单 | 父级 | 实测记录 |
+| [docs/requirements/](requirements/) | R/B/Ref/case 机器索引与说明 | 父级 | 与 SPEC 同步 |
+| [docs/evidence/](evidence/) | 真实运行证据 | 各切片 | 逐项保存 |
+| [docs/state/coverage.json](state/coverage.json) | 需求级实现与证据状态 | 父级 | 逐项推进 |
+| [docs/development/](development/) | 局部开发合同与验收 recipe | 各切片作者 | 现行 |
+| [docs/decisions/](decisions/) | 已采用的决定记录 | 父级 | 现行 |
+| [scripts/check_docs.py](../scripts/check_docs.py) | 文档与归档完整性检查 | 父级 | 现行 |
+
+## 领域功能合同（docs/specs/）
+
+每份文档只由该领域的代码拥有者撰写，写的是**稳定的功能、接口、理由、错误与恢复合同**，不是任务列表或进度。
+
+| 领域 | 文档 | 主要 SPEC 章节 |
+| --- | --- | --- |
+| 主体运行时 | [subject-runtime.md](specs/subject-runtime.md) | §5–6、13.8、41.5–6、44 |
+| 模型子 Agent | [model-children.md](specs/model-children.md) | §5.3、5.5、6、14.5、41.5 |
+| 插件与内核装配 | [plugins.md](specs/plugins.md) | §7、18、36、37、41.2、41.8、45 |
+| 认知与安装单元 | [cognition-units.md](specs/cognition-units.md) | §18、38、45 |
+| 上下文与压缩策略 | [context-policies.md](specs/context-policies.md) | §12.3、13、37、41.7–8 |
+| 记忆 | [memory.md](specs/memory.md) | §10.3、10.5、12、45.12 |
+| 研究与保留 | [research-memory.md](specs/research-memory.md) | §14、12.4、10.5 |
+| 消息通道 | [channels.md](specs/channels.md) | §15–16、35.6、41.6 |
+| 其他渠道适配器 | [channel-adapters.md](specs/channel-adapters.md) | §15.3、16、35.6 |
+| 联系人与身份 | [contacts.md](specs/contacts.md) | §6、15.2、15.2.1、16、20 |
+| 媒体 | [media.md](specs/media.md) | §20、35.3、41.6 |
+| WASM 家园 | [wasm-home.md](specs/wasm-home.md) | §8–10、41.3、44 |
+| WASM 工具 | [wasm-tools.md](specs/wasm-tools.md) | §8.2、18.8、35、44 |
+| 远程 seat | [remote-seats.md](specs/remote-seats.md) | §17、35.5、41.11 |
+| REPL | [repl.md](specs/repl.md) | §19、19.1、41.3 |
+| 节点与选举 | [nodes.md](specs/nodes.md) | §5.4、22、38、41、44 |
+| 自升级 | [self-update.md](specs/self-update.md) | §9、10、35.8、41.12、44 |
+| 桌面执行 | [desktop-runtime.md](specs/desktop-runtime.md) | §10.2.1、22、24、34 |
+| 移动端 | [mobile-runtime.md](specs/mobile-runtime.md) | §24.5、24.5.1、5.4 |
+| 浏览器 | [browser.md](specs/browser.md) | §24.6、19.1、41 |
+| Web 界面 | [web-interface.md](specs/web-interface.md) | §21、41.6、43 |
+| 配置与 Playground | [configuration-playground.md](specs/configuration-playground.md) | §21、23、41.9、41.10、43、44 |
+| 额度与资源 | [quota-resources.md](specs/quota-resources.md) | §13、42、47.5 |
+| 持久状态 | [durable-state.md](specs/durable-state.md) | §10、12、36、41.1、41.4 |
+| 文档体系 | [documentation.md](specs/documentation.md) | 全部 SPEC 与用户文档重构要求 |
+| 验证与证据 | [verification.md](specs/verification.md) | §23、27、28–29、40、46 及全部验收表 |
+| 推理与物理资源 | [inference.md](specs/inference.md) | §13、25–26、42、47 |
 
 ## 主 SPEC 章节
 
-以下全部属于同一主 SPEC，不是47份相互竞争的规格。行号只用于本次导入定位，变更后按标题检索；路径和章节名是阅读入口。
+以下全部属于同一主 SPEC。路径和章节名是阅读入口。
 
 | 章节 | 导入行号 |
 | --- | ---: |
@@ -57,9 +110,9 @@ user-role 传输回合，避免将已完成回答作为 Anthropic assistant pref
 | [22 部署和资源目标](../SPEC.md#22-部署和资源目标) | 1269 |
 | [23 验收与发布阻断项](../SPEC.md#23-验收与发布阻断项) | 1306 |
 | [24 Computer Use 与完整操作系统节点](../SPEC.md#24-computer-use-与完整操作系统节点) | 1365 |
-| [25 NInfer 接入教程 中文与 English](../SPEC.md#25-ninfer-接入教程-中文与-english) | 1407 |
-| [26 Strata 接入教程 中文与 English](../SPEC.md#26-strata-接入教程-中文与-english) | 1477 |
-| [27 共同排障与接入验收 Common troubleshooting](../SPEC.md#27-共同排障与接入验收-common-troubleshooting) | 1526 |
+| [25 NInfer 接入教程](../SPEC.md#25-ninfer-接入教程-中文与-english) | 1407 |
+| [26 Strata 接入教程](../SPEC.md#26-strata-接入教程-中文与-english) | 1477 |
+| [27 共同排障与接入验收](../SPEC.md#27-共同排障与接入验收-common-troubleshooting) | 1526 |
 | [28 规格裁决记录与仍未决的问题](../SPEC.md#28-规格裁决记录与仍未决的问题) | 1543 |
 | [29 交付路线与阶段验收](../SPEC.md#29-交付路线与阶段验收) | 1566 |
 | [30 DeepSeek 与 Gemini 建议的采纳记录](../SPEC.md#30-deepseek-与-gemini-建议的采纳记录) | 1600 |
@@ -67,7 +120,7 @@ user-role 传输回合，避免将已完成回答作为 Anthropic assistant pref
 | [32 需求追踪矩阵](../SPEC.md#32-需求追踪矩阵) | 1678 |
 | [33 用户需求原文与追加澄清](../SPEC.md#33-用户需求原文与追加澄清) | 1860 |
 | [34 BoxLite：可选完整 Linux Runtime 插件评估](../SPEC.md#34-boxlite可选完整-linux-runtime-插件评估) | 2338 |
-| [35 首版开发者发行：可继续开发自身的完整闭环](../SPEC.md#35-首版开发者发行可继续开发自身的完整闭环) | 2432 |
+| [35 首版开发者发行](../SPEC.md#35-首版开发者发行可继续开发自身的完整闭环) | 2432 |
 | [36 插件的副作用、重置与恢复边界](../SPEC.md#36-插件的副作用重置与恢复边界) | 2562 |
 | [37 cordis-rs 主干上的注入时序与 API 兼容](../SPEC.md#37-cordis-rs-主干上的注入时序与-api-兼容) | 2661 |
 | [38 内置、可替换的自解释插件](../SPEC.md#38-内置可替换的自解释插件) | 2790 |
@@ -80,91 +133,32 @@ user-role 传输回合，避免将已完成回答作为 Anthropic assistant pref
 | [45 可独立安装的 Awareness、感知与依赖装配](../SPEC.md#45-可独立安装的-awareness感知与依赖装配) | 5255 |
 | [46 完整产品的自主开发与仓库交接](../SPEC.md#46-完整产品的自主开发与仓库交接) | 5545 |
 | [47 Provider 协议版本、SDK 演进与自主迁移](../SPEC.md#47-provider-协议版本sdk-演进与自主迁移) | 5602 |
+| [48 自主主体、运行时能力闭环与正式文档分层](../SPEC.md#48-自主主体运行时能力闭环与正式文档分层) | 6070 |
 
-## 历版与专题稿盘点
+## 历史与归档
 
-v0.1、v0.2.0、v0.3.0 是实际存在的旧整稿；spec_v020_review 是旧审阅副本。v0.4 的本地文件是增量/专题稿，不能把它们声称为另一份完整最新SPEC。当前bootstrap、awareness、hook和provider草稿已由现行主稿吸收或修订。
+[docs/history/](history/) 保留来源，不保留现行指令。归档清单与字节校验见 [archives-20261101.json](history/archives-20261101.json)。
 
-| 文件 | 原始主题 | 地位 |
-| --- | --- | --- |
-| [agent_bot_spec_v0_1.md](research/archive/agent_bot_spec_v0_1.md) | 1 文档状态与产品定义 | 历史证据；以现行SPEC为准 |
-| [external_review_channels.md](research/archive/external_review_channels.md) | 外部建议复审：竞品、Proto、远程 Agent 与媒体 | 历史证据；以现行SPEC为准 |
-| [external_review_inference.md](research/archive/external_review_inference.md) | 外部建议审查：主体 Harness、Memory、KV 与 27B 插件认知 | 历史证据；以现行SPEC为准 |
-| [external_review_wasm.md](research/archive/external_review_wasm.md) | 外部建议审查：WASM、文件系统、恢复与核心自改 | 历史证据；以现行SPEC为准 |
-| [kv_policy_spec.md](research/archive/kv_policy_spec.md) | 多上下文驻留与 KV 调度规格 | 历史证据；以现行SPEC为准 |
-| [personal_agent_scope_audit.md](research/archive/personal_agent_scope_audit.md) | 个人 Agent 最小框架定位与需求覆盖审查 | 历史证据；以现行SPEC为准 |
-| [personal_agent_spec_v0_2_0.md](research/archive/personal_agent_spec_v0_2_0.md) | Personal Agent 最小框架 · 产品 SPEC v0.2.0（研究与裁决稿） | 历史证据；以现行SPEC为准 |
-| [personal_agent_spec_v0_3_0.md](research/archive/personal_agent_spec_v0_3_0.md) | Personal Agent 最小框架 · 产品 SPEC v0.3.0（研究与裁决稿） | 历史证据；以现行SPEC为准 |
-| [remote_agent_spec.md](research/archive/remote_agent_spec.md) | 远程 Agent Seat 插件：研究与产品规格补充 | 历史证据；以现行SPEC为准 |
-| [requirements_audit.md](research/archive/requirements_audit.md) | 产品 SPEC 需求覆盖审查 | 历史证据；以现行SPEC为准 |
-| [requirements_traceability.md](research/archive/requirements_traceability.md) | 需求追踪附录 | 历史证据；以现行SPEC为准 |
-| [research_boxlite_integration.md](research/archive/research_boxlite_integration.md) | BoxLite 插件集成核验 | 历史证据；以现行SPEC为准 |
-| [research_boxlite_runtime.md](research/archive/research_boxlite_runtime.md) | BoxLite：运行时、持久化与接入边界核验 | 历史证据；以现行SPEC为准 |
-| [research_compaction_codex_omp.md](research/archive/research_compaction_codex_omp.md) | Codex budget compact 与 OMP snapcompact：源码核验增量 | 历史证据；以现行SPEC为准 |
-| [research_competitors.md](research/archive/research_competitors.md) | 竞品与通信接入研究（中间研究笔记） | 历史证据；以现行SPEC为准 |
-| [research_dynamic_ui.md](research/archive/research_dynamic_ui.md) | Dynamic Response / Intelligent UI：官方核验与个人 Agent 动态界面规格补充 | 历史证据；以现行SPEC为准 |
-| [research_forgetting.md](research/archive/research_forgetting.md) | 研究补充：Scaling Discovery Requires Forgetting 与研究子 agent 的可控重启 | 历史证据；以现行SPEC为准 |
-| [research_harness.md](research/archive/research_harness.md) | Harness、历史与本地推理调度研究笔记 | 历史证据；以现行SPEC为准 |
-| [research_interrupt_dnd_d3.md](research/archive/research_interrupt_dnd_d3.md) | D3 增量：外部打断、主体决定免打扰、误过滤自主修复 | 历史证据；以现行SPEC为准 |
-| [research_layerfs_vm_self_port.md](research/archive/research_layerfs_vm_self_port.md) | LayerFS 原版进入 Linux VM；WASM 独立状态层与自主移植闭环 | 历史证据；以现行SPEC为准 |
-| [research_migration_retention_election.md](research/archive/research_migration_retention_election.md) | D7 / D8 / D9 / D11 增量协议建议 | 历史证据；以现行SPEC为准 |
-| [research_native_inference_vllm.md](research/archive/research_native_inference_vllm.md) | 原生推理后端接入研究：vLLM、1Cat-vLLM、NInfer、Strata | 历史证据；以现行SPEC为准 |
-| [research_omp_delivery_d2.md](research/archive/research_omp_delivery_d2.md) | OMP D2：子 Agent 的有限直接发布核验 | 历史证据；以现行SPEC为准 |
-| [research_pi_durable_capability.md](research/archive/research_pi_durable_capability.md) | Pi Durable 与工具能力自改进核验 | 历史证据；以现行SPEC为准 |
-| [research_plugin_cognition.md](research/archive/research_plugin_cognition.md) | 插件发现、正确使用与本地 27B 模型的认知负担 | 历史证据；以现行SPEC为准 |
-| [research_proactive_memory.md](research/archive/research_proactive_memory.md) | Proactive Memory Agent：论文、代码核验与产品规格建议 | 历史证据；以现行SPEC为准 |
-| [research_repl.md](research/archive/research_repl.md) | Python / Bun / Node：WASM 内可恢复 REPL 规格研究 | 历史证据；以现行SPEC为准 |
-| [research_wasm.md](research/archive/research_wasm.md) | WASM、持久化与可恢复 Agent：研究记录 | 历史证据；以现行SPEC为准 |
-| [scheduler_audit.md](research/archive/scheduler_audit.md) | 调度与历史规格审核清单 | 历史证据；以现行SPEC为准 |
-| [shenko_awareness_dependencies_draft.md](research/archive/shenko_awareness_dependencies_draft.md) | §45 增量：可安装单元与依赖装配 | 历史证据；以现行SPEC为准 |
-| [shenko_awareness_draft.md](research/archive/shenko_awareness_draft.md) | §45 可安装的 Awareness：给 Agent 补上该想到的事 | 历史证据；以现行SPEC为准 |
-| [shenko_bootstrap_draft.md](research/archive/shenko_bootstrap_draft.md) | Shenko 首次启动与种子发行规范草案 | 历史证据；以现行SPEC为准 |
-| [shenko_runtime_contracts_v0_4.md](research/archive/shenko_runtime_contracts_v0_4.md) | Shenko 运行合同增量：主体、事件、推理、Seat 与升级交接 | 历史证据；以现行SPEC为准 |
-| [shenko_section41_merged.md](research/archive/shenko_section41_merged.md) | 41 首版规范执行合同 | 历史证据；以现行SPEC为准 |
-| [shenko_section41_plugin_protocols_draft.md](research/archive/shenko_section41_plugin_protocols_draft.md) | §41 规范接口补充：插件操作、注入、自解释与版本交接 | 历史证据；以现行SPEC为准 |
-| [shenko_section42_provider_quota_draft.md](research/archive/shenko_section42_provider_quota_draft.md) | §42 后期增量：Provider 周期额度与自适应模型预算 | 历史证据；以现行SPEC为准 |
-| [shenko_spec_v0_4_0_additions.md](research/archive/shenko_spec_v0_4_0_additions.md) | 21.10 Magpie 视觉参照与比较方法 | 历史证据；以现行SPEC为准 |
-| [shenko_streaming_ui_contract.md](research/archive/shenko_streaming_ui_contract.md) | 21.11 流式输出的阅读稳定性：Magpie 与 Alma 参照 | 历史证据；以现行SPEC为准 |
-| [shenko_u42_u43_ui_config_playground.md](research/archive/shenko_u42_u43_ui_config_playground.md) | U42 / U43 规范增量：主体 Web 输入、对话配置与持久 Playground | 历史证据；以现行SPEC为准 |
-| [shenko_v1_durable_contract_draft.md](research/archive/shenko_v1_durable_contract_draft.md) | Shenko V1：持久执行与自升级合同草案 | 历史证据；以现行SPEC为准 |
-| [shenko_v1_protocol_preface.md](research/archive/shenko_v1_protocol_preface.md) | 41 首版规范执行合同 | 历史证据；以现行SPEC为准 |
-| [spec_questions.md](research/archive/spec_questions.md) | 第二轮产品规格追问 | 历史证据；以现行SPEC为准 |
-| [spec_v020_review.md](research/archive/spec_v020_review.md) | Personal Agent 最小框架 · 产品 SPEC v0.2.0（研究与裁决稿） | 历史证据；以现行SPEC为准 |
-| [thought_loop_spec.md](research/archive/thought_loop_spec.md) | 唯一主体的持续 Thought Loop 规格补充 | 历史证据；以现行SPEC为准 |
-| [thought_ui_notes.md](research/archive/thought_ui_notes.md) | 单一持续 Thought Loop：产品语义、界面与新增规格矛盾 | 历史证据；以现行SPEC为准 |
-| [user_requirements_verbatim.md](research/archive/user_requirements_verbatim.md) | 33 用户需求原文与追加澄清 | 历史证据；以现行SPEC为准 |
+| 归档 | 内容 |
+| --- | --- |
+| [history/spec-v0.5.1.md](history/spec-v0.5.1.md) | 导入自 ChatGPT Page 的 v0.5.1 完整快照（原规格哈希见 manifest） |
+| [history/manifest.json](history/manifest.json) | 46 份旧规格/研究稿的 SHA-256 清单 |
+| [history/entrypoints-20261101/](history/entrypoints-20261101/) | 原 `GOAL.md`、`PROMPT.md`、`HANDOFF.md` 原件 |
+| [history/progress-20261101/](history/progress-20261101/) | 旧进度板、交接稿、goal 状态快照、旧计划与编制期治理草案 |
+| [history/task-cards-20261101/](history/task-cards-20261101/) | 22 张社区任务卡（C01–C22） |
+| [history/acceptance-source-v0.5.1.json](history/acceptance-source-v0.5.1.json) | v0.5.1 的 189 条具名验收原始定义 |
+| [docs/research/archive/](research/archive/) | 46 份历史研究与专题稿 |
+
+2026-11-01 起的现行规则：根目录不再有 `GOAL.md`、`PROMPT.md`、`HANDOFF.md`，也不保留兼容符号链接；旧入口只在归档中可查。SPEC §1–47 内部指向旧路径的链接属于旧文档布局，按 §48.5 解释，不为此改动原文字节。
+
+**并行实施规模**：旧任务卡与交接稿中的"最多 1 条 / 最多 5 条 workflow"是当时的环境上限，已被取代。现行指令是同时使用大量实现 Agent，范围由真实机器容量、共享重型工作锁与集成责任划分决定——见 [AGENTS.md](../AGENTS.md) 的「Parallelize and integrate」与 [docs/governance/AUTONOMY.md](governance/AUTONOMY.md)。
+
+## 现行实现地图
+
+[docs/IMPLEMENTATION_DOCS_MAP.md](IMPLEMENTATION_DOCS_MAP.md) 按实现范围列出必读文档，并标注每项在**源码**中的真实状态（接线、未接线或仅有类型）。它描述源码事实，不构成运行验收。
 
 ## 验证记录
 
-[history/manifest.json](history/manifest.json)记录原稿大小和SHA-256；原始U01–U49逐字保留，并追加U50–U62及协作席记录的U63。`python3 scripts/check_docs.py`检查覆盖ID、原始U01–U49、U50–U63标题、原稿hash、本地链接、必读Skill及符号链接；它不核验U63原始会话，也不是产品测试。现有文档没有声称本次已经实现或完成设备/性能验收。
+[docs/evidence/](evidence/) 保存各切片的源码/工件绑定证据，每条区分候选、实际输入、环境、方法、结果与尚未覆盖的范围。已保存的证据包括：文档完整性报告、[统一 Node 与认知恢复](evidence/node-sync-cognition-20261026.json)、[C02 有限 child 运行时](evidence/c02-finite-child-runtime-20261025.json)、[C07 原生 SSH](evidence/c07-native-ssh-20261025.json)、[C17 首条独立节点旅程](evidence/c17-native-first-journey-20261025.json)、[C19 长跑观察工具](evidence/c19-longrun-observation-tooling-20261029.json) 等。
 
-当前跨包接线入口：[统一 Node 与恢复合同](development/managed-node.md)、
-[#71 源码/工件/原生运行证据](evidence/node-sync-cognition-20261026.json)。
-映射 [C17](tasks/C17.md)、[C10](tasks/C10.md)、[C09](tasks/C09.md)、
-[C01](tasks/C01.md)、[C03](tasks/C03.md)；完整包与 S1–S5 仍按各自剩余验收继续。
-
-模型驱动行为的验收方法：[本地模型行为验收](development/local-model-behavior.md)。
-提示词、控制协议或事件投影改变后，用真实本地模型采样成功率；确定性测试不能代替
-“这个本地模型会不会做对”。
-
-能力编写原则：[内核零业务，能力优先写成 perception + awareness](development/awareness-first-plugins.md)。
-内核只做机制，判断交给可安装的觉察与视角；不用关键词表强制动作。
-
-持续媒体转写修订 ingress：[transcript revision ingress 合同、HTTP/原生接入与验收 recipe](development/media-transcript-ingress.md)。
-同一主体、原始修订事实与有效观察原子提交；不含真实 ASR/音频设备实现。
-Playground 后端冒烟配方：[WASI 后端原生 HTTP + 重开核验](development/playground-backend-smoke.md)。
-
-## 社区任务栈
-
-- [朋友可复制PROMPT](../PROMPT.md)
-- [当前工作包与已发布issues](plans/active/community-stack.md)
-- [R/B/case归属与依赖JSON](plans/active/community-stack.json)
-
-## 2026-10-27 非阻塞 thought 与时间环境感知设计澄清
-
-协作席报告的用户原话追加为 [SPEC U63](../SPEC.md#u63-非阻塞-thought时间环境感知与插件化)，不改写 U01–U62；原始会话尚未由集成席独立回读。
-正式合同位于 [§5.6](../SPEC.md#56-非阻塞-thought-接口与事实投影) 与
-[§45.13](../SPEC.md#4513-可替换的时间与环境感知)，§37.8 同步澄清机制有限等待与 thought 非阻塞的边界。
-这是既有 R048/R051/R099/R143/R138/R144 的细化，不新增 R/B/case ID 或改变机器索引分母、完成状态。
-[C02](tasks/C02.md) 与 [C10](tasks/C10.md) 记录现有 case 的增量判据、跨包依赖和未实施部分；
-Pi Durable 恢复来源继续沿用 §10.6/§41。当前源码的局部能力与拟议接口严格区分，本次文档变更不是产品运行证据。
+`python3 scripts/check_docs.py` 校验需求/行为/来源/验收编号与 SPEC 一致、原稿逐字保留、归档字节未变、本地链接有效、必读 Skill 与符号链接完好。它不检查产品行为是否通过；产品验收由实际实现提供。

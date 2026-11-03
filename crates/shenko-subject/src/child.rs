@@ -20,6 +20,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_trait::async_trait;
 use cordis_core::{Context, InjectSpec, Plugin, Service};
 use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use shenko_store::{
     Store, TaskCancellation,
     child::{
@@ -29,9 +30,11 @@ use shenko_store::{
 };
 use shenko_types::{
     agent::CallContext,
+    effect::EffectContract,
     ids::{EntityId, RecordRevision, RuntimeGeneration},
     object::Digest,
-    operation::{AuthorityRef, OperationRecord, OperationState},
+    operation::{AuthorityRef, OperationOutcome, OperationRecord, OperationState},
+    plugin_runtime::NativeCapabilityDeclaration,
     subject::{DelegationIntent, StepDecision},
     task::*,
 };
@@ -117,6 +120,28 @@ pub struct NativeTaskDescriptor {
     pub prompt_section: Option<String>,
 }
 
+impl NativeTaskDescriptor {
+    /// The versioned identity of this definition's implementation.
+    ///
+    /// One construction, so the live provider view, the effect contract of
+    /// an operation and the artifact digest in the ledger all name the same
+    /// implementation of the same definition.
+    pub fn implementation(&self) -> shenko_types::object::VersionedRef {
+        shenko_types::object::VersionedRef {
+            artifact: shenko_types::object::ArtifactRef {
+                digest: self.implementation_ref.artifact_digest.clone(),
+                locator: format!("native:{}", self.kind),
+            },
+            symbol: format!("native.{}.execute", self.kind),
+            schema: shenko_types::object::SchemaRef {
+                name: format!("native-task/{}", self.kind),
+                major: self.definition_version,
+                digest: self.implementation_ref.artifact_digest.clone(),
+            },
+        }
+    }
+}
+
 pub struct NativeTaskInvocation {
     pub context: CallContext,
     pub task_invocation: shenko_store::TaskInvocation,
@@ -124,11 +149,109 @@ pub struct NativeTaskInvocation {
     pub operation_id: EntityId,
     pub authority: AuthorityRef,
     pub input: serde_json::Value,
+    /// The shared native runtime as seen by a finite model child. It is
+    /// present only for handlers that may call other handlers; a tool
+    /// subtask receives the same runtime, so a nested child keeps working.
+    pub child_tools: Option<Arc<dyn ChildToolRuntime>>,
+}
+
+/// One tool call a finite model child asks the shared native runtime for.
+/// The call names a registered native definition; the runtime owns the
+/// authority, the execution and the receipts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildToolCall {
+    /// The child's own call identity, stable across a restart.
+    pub call_id: String,
+    /// The durable subtask identity this call runs as.
+    pub task_id: EntityId,
+    pub kind: String,
+    pub definition_version: u32,
+    pub input: serde_json::Value,
+}
+
+/// What the shared runtime actually did with one tool call.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChildToolOutcome {
+    pub call_id: String,
+    pub kind: String,
+    pub definition_version: u32,
+    pub task_id: EntityId,
+    pub operation_id: EntityId,
+    /// `succeeded`, `failed`, `cancelled`, `unknown` or `unavailable`.
+    pub outcome: String,
+    pub result: Option<serde_json::Value>,
+    pub evidence_ref: Option<shenko_types::object::ObjectRef>,
+}
+
+/// The shared native runtime as seen by a finite model child. A child may
+/// only call handlers that are actually registered: the runtime owns their
+/// authority and their durable effects.
+#[async_trait]
+pub trait ChildToolRuntime: Send + Sync + 'static {
+    /// The installed description of every allowed tool that is actually
+    /// registered. An allowed tool the registry does not have is not
+    /// offered: the child's catalog is the runtime's truth, not a wish.
+    fn describe_tools(
+        &self,
+        allowed: &[shenko_types::output::ModelChildTool],
+    ) -> Vec<(String, u32, String)>;
+
+    async fn call_tool(
+        &self,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+    ) -> anyhow::Result<ChildToolOutcome>;
+}
+
+/// The runtime handle handed to a child. It is the very service that owns
+/// the registry, so a child calls the same handlers the subject can call.
+pub struct NativeToolRuntime {
+    service: Arc<NativeChildService>,
+}
+
+#[async_trait]
+impl ChildToolRuntime for NativeToolRuntime {
+    fn describe_tools(
+        &self,
+        allowed: &[shenko_types::output::ModelChildTool],
+    ) -> Vec<(String, u32, String)> {
+        self.service.describe_tools(allowed)
+    }
+
+    async fn call_tool(
+        &self,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+    ) -> anyhow::Result<ChildToolOutcome> {
+        self.service.call_tool(call, parent, authority).await
+    }
 }
 
 #[async_trait]
 pub trait NativeTaskHandler: Send + Sync + 'static {
     fn descriptor(&self) -> NativeTaskDescriptor;
+
+    /// The §36 effect contract of this definition's operations.
+    ///
+    /// A declaration is bound to the implementation that produced it, so the
+    /// recovery planner reads the real boundary of the operation it is about
+    /// to run. A definition with no external effect may leave this empty; the
+    /// runtime then publishes the definition without an effect contract
+    /// instead of pretending one exists.
+    fn effect_contracts(&self) -> Vec<EffectContract> {
+        Vec::new()
+    }
+
+    /// The capabilities this definition offers while it is installed.
+    ///
+    /// The declaration is a description of what the implementation can
+    /// actually do; it never grants a permission and never becomes a
+    /// keyword filter over the subject's requests.
+    fn capabilities(&self) -> Vec<NativeCapabilityDeclaration> {
+        Vec::new()
+    }
 
     /// T1 and external effects belong to the handler. The returned operation is
     /// evidence, not authority to mark the task complete by itself.
@@ -477,10 +600,11 @@ impl NativeChildService {
         let _guard = self.run_lock.lock().await;
         // Defensive: the barrier should have drained these, but a worker can
         // never be re-admitted without a clean book regardless.
-        let leftover: Vec<Worker> = {
+        let (reactivating, leftover): (bool, Vec<Worker>) = {
             let mut executions = self.executions.lock();
+            let reactivating = executions.apply_epoch != 0;
             executions.apply_epoch += 1;
-            executions.workers.drain().map(|(_, worker)| worker).collect()
+            (reactivating, executions.workers.drain().map(|(_, worker)| worker).collect())
         };
         for worker in &leftover {
             worker.handle.abort();
@@ -488,7 +612,12 @@ impl NativeChildService {
         for worker in leftover {
             let _ = worker.handle.await;
         }
-        self.store.recover_native_tasks()?;
+        // First publication only installs the catalog. A running composition
+        // root explicitly recovers after it owns the dispatcher; discovery
+        // must not need or acquire that durable authority.
+        if reactivating {
+            self.store.recover_native_tasks()?;
+        }
         let mut executions = self.executions.lock();
         executions.closed = false;
         Ok(executions.apply_epoch)
@@ -518,14 +647,19 @@ impl NativeChildService {
             executions.closed = true;
             executions.workers.drain().map(|(_, worker)| worker).collect()
         };
+        self.join_workers(workers).await;
+    }
+
+    /// Abort and join drained managed executions. An aborted worker reports
+    /// cancelled and leaves its task Running: durable truth, reconciled on
+    /// the next pass/generation — never replayed. A panicked worker gets the
+    /// same explicit reconciling park as a reclaimed one so no execution
+    /// disappears without a durable record.
+    async fn join_workers(&self, workers: Vec<Worker>) {
         for worker in &workers {
             worker.handle.abort();
         }
         for worker in workers {
-            // An aborted worker reports cancelled and leaves its task Running:
-            // durable truth, reconciled on the next generation. A panicked
-            // worker gets the same explicit reconciling park as a reclaimed
-            // one so no execution disappears without a durable record.
             match worker.handle.await {
                 Ok(()) => {}
                 Err(error) if error.is_cancelled() => {}
@@ -556,6 +690,79 @@ impl NativeChildService {
         }
     }
 
+    /// Upgrade handoff quiesce — SPEC §45 upgrade seam: close admission and
+    /// drain every managed execution EXCEPT the excluded orchestration
+    /// workers (the caller runs inside one of them and must not join
+    /// itself). Admission stays closed until `resume_after_handoff_abort`
+    /// (same-generation reopen on abort) or the service is torn down /
+    /// reopened by the succeeding generation.
+    ///
+    /// Do not abort outer futures: an outer future can own a spawn_blocking
+    /// guest whose JoinHandle drop does NOT stop that guest or its receipt
+    /// writer. Await actual finite workers; on timeout retain their handles
+    /// and ownership so the same runtime can resume without replay.
+    pub async fn quiesce_for_handoff(
+        &self,
+        excluded_task_ids: &[EntityId],
+    ) -> Result<serde_json::Value> {
+        let _guard = self.run_lock.lock().await;
+        let excluded: std::collections::HashSet<EntityId> =
+            excluded_task_ids.iter().copied().collect();
+        for task in excluded_task_ids {
+            let task = self.store.external_task(*task)?;
+            anyhow::ensure!(task.kind == "update.control",
+                "only an explicit update.control continuation can be excluded from handoff drain");
+        }
+        let apply_epoch = {
+            let mut executions = self.executions.lock();
+            executions.closed = true;
+            executions.apply_epoch
+        };
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
+        loop {
+            let ready = {
+                let executions = self.executions.lock();
+                executions.workers.iter().filter(|(id, _)| !excluded.contains(id))
+                    .all(|(_, worker)| worker.handle.is_finished())
+            };
+            if ready { break; }
+            anyhow::ensure!(tokio::time::Instant::now() < deadline,
+                "NATIVE_HANDOFF_INCOMPLETE: actual workers still own execution; no cancellation/termination claimed");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let drained = {
+            let mut executions = self.executions.lock();
+            let ids = executions.workers.keys().filter(|id| !excluded.contains(id)).copied().collect::<Vec<_>>();
+            ids.into_iter().filter_map(|id| executions.workers.remove(&id)).collect::<Vec<_>>()
+        };
+        // All handles are finished. The shared join path cannot abandon a
+        // live guest here, and still parks panics with their original debt.
+        self.join_workers(drained).await;
+        let executions = self.executions.lock();
+        Ok(serde_json::json!({
+            "v": 1,
+            "kind": "native_child_handoff_quiesce",
+            "instance_id": self.instance_id,
+            "apply_epoch": apply_epoch,
+            "closed": executions.closed,
+            "retained_task_ids": executions.workers.keys().collect::<Vec<_>>(),
+            "excluded_task_ids": excluded_task_ids,
+        }))
+    }
+
+    /// Reopen admission after a handoff was aborted. Unlike `reopen()` this
+    /// does NOT bump `apply_epoch`: no new Cordis apply ran, so a pending
+    /// teardown effect of this generation must not be made stale by the
+    /// resume. The excluded orchestration worker is still live and stayed in
+    /// the map; durable recovery reconciles the debt the quiesce left.
+    pub async fn resume_after_handoff_abort(&self) -> Result<()> {
+        let _guard = self.run_lock.lock().await;
+        // A timeout retained live handles: do not reclassify those durable
+        // claims as recovery work while their original workers still run.
+        self.executions.lock().closed = false;
+        Ok(())
+    }
+
     /// Deterministic guidance from currently installed handlers, ordered by
     /// frozen kind/version. No registry entry means no advertised capability.
     pub fn installed_prompt_sections(&self) -> Vec<String> {
@@ -579,6 +786,195 @@ impl NativeChildService {
             .collect()
     }
 
+    /// The runtime handle a finite model child receives. It is this very
+    /// service, so a child calls the same registered handlers the subject
+    /// can delegate to, with the same authority and the same ledger.
+    pub fn tool_runtime(self: &Arc<Self>) -> Arc<dyn ChildToolRuntime> {
+        Arc::new(NativeToolRuntime {
+            service: self.clone(),
+        })
+    }
+
+    /// The installed description of every allowed tool that is actually
+    /// registered. An allowed tool the registry does not have is not
+    /// offered: the child's catalog is the runtime's truth.
+    pub fn describe_tools(
+        &self,
+        allowed: &[shenko_types::output::ModelChildTool],
+    ) -> Vec<(String, u32, String)> {
+        allowed
+            .iter()
+            .filter_map(|tool| {
+                self.handler(&tool.kind, tool.definition_version)
+                    .map(|registered| {
+                        (
+                            tool.kind.clone(),
+                            tool.definition_version,
+                            registered.descriptor.prompt_section.unwrap_or_default(),
+                        )
+                    })
+            })
+            .collect()
+    }
+
+    /// Execute one tool call of a finite model child as a durable native
+    /// subtask.
+    ///
+    /// The tool runs the very handler the subject could delegate to; its own
+    /// operation, attempt, evidence and T2 land on the same ledger, and the
+    /// subtask is owned by the child task, so cancelling the child fences it.
+    /// The call is never executed twice: an existing subtask id is read, not
+    /// re-run.
+    pub async fn call_tool(
+        self: &Arc<Self>,
+        call: &ChildToolCall,
+        parent: &TaskRecord,
+        authority: &AuthorityRef,
+    ) -> anyhow::Result<ChildToolOutcome> {
+        let unavailable = |reason: String, result: serde_json::Value| ChildToolOutcome {
+            call_id: call.call_id.clone(),
+            kind: call.kind.clone(),
+            definition_version: call.definition_version,
+            task_id: call.task_id,
+            operation_id: EntityId::nil(),
+            outcome: reason,
+            result: Some(result),
+            evidence_ref: None,
+        };
+        let Some(registered) = self.handler(&call.kind, call.definition_version) else {
+            return Ok(unavailable(
+                "unavailable".into(),
+                serde_json::json!({
+                    "reason": "no registered native definition for this tool",
+                    "kind": call.kind,
+                    "definition_version": call.definition_version,
+                }),
+            ));
+        };
+        // An existing subtask is read, never re-run.
+        if let Some(existing) = self.store.get_task(call.task_id)? {
+            let result = self.store.native_task_result(call.task_id)?;
+            let outcome = match &result {
+                Some(result) => match result.outcome {
+                    TaskOutcome::Succeeded => "succeeded",
+                    TaskOutcome::Cancelled => "cancelled",
+                    TaskOutcome::Failed { .. } => "failed",
+                    TaskOutcome::Interrupted => "unknown",
+                },
+                None => {
+                    if existing.abort_request.is_some() {
+                        "cancelled"
+                    } else {
+                        "unknown"
+                    }
+                }
+            };
+            return Ok(ChildToolOutcome {
+                call_id: call.call_id.clone(),
+                kind: call.kind.clone(),
+                definition_version: call.definition_version,
+                task_id: call.task_id,
+                operation_id: result
+                    .as_ref()
+                    .map(|result| result.operation_id)
+                    .unwrap_or_else(EntityId::nil),
+                outcome: outcome.into(),
+                result: result.as_ref().and_then(|result| result.result.clone()),
+                evidence_ref: result.map(|result| result.evidence_ref),
+            });
+        }
+        // Freeze the tool input as the subtask's sealed input object.
+        let bytes = serde_json::to_vec(&call.input)?;
+        let sealed = self
+            .store
+            .cas
+            .seal_object(
+                &bytes,
+                "application/json",
+                "model-child-tool",
+                "model-child-tool-input",
+                1,
+            )
+            .map_err(|error| {
+                self.store.close_external_writer();
+                error
+            })?;
+        let Some(claim) = self.store.claim_child_tool_task(
+            parent,
+            call.task_id,
+            &call.kind,
+            call.definition_version,
+            sealed.object,
+            registered.descriptor.implementation_ref.clone(),
+        )?
+        else {
+            return Ok(unavailable(
+                "unknown".into(),
+                serde_json::json!({
+                    "reason": "the tool subtask already exists; read its durable result",
+                    "kind": call.kind,
+                }),
+            ));
+        };
+        let context = CallContext {
+            caller_instance_id: self.instance_id,
+            role_revision: registered.descriptor.role_revision.clone(),
+            task_id: Some(call.task_id),
+            expected_task_revision: Some(claim.invocation.task_revision.0),
+            invocation_id: Some(claim.invocation.invocation_id),
+            controller_epoch: claim.invocation.epoch,
+            software_generation: claim.software_generation.clone(),
+            authority_refs: registered.descriptor.authority_refs.clone(),
+            trace_id: EntityId::new(),
+        };
+        let invocation = NativeTaskInvocation {
+            context,
+            task_invocation: claim.invocation.clone(),
+            task: claim.task.clone(),
+            operation_id: claim.operation_id,
+            authority: authority.clone(),
+            input: call.input.clone(),
+            child_tools: Some(self.tool_runtime()),
+        };
+        let operation = match registered.handler.execute(invocation).await {
+            Ok(operation) => operation,
+            Err(error) => {
+                park_managed(
+                    &self.store,
+                    &claim.task,
+                    "handler_failed",
+                    &format!("tool handler did not produce a settled result: {error}"),
+                    true,
+                );
+                return Ok(unavailable(
+                    "failed".into(),
+                    serde_json::json!({
+                        "reason": format!("tool handler failed: {error}"),
+                        "kind": call.kind,
+                    }),
+                ));
+            }
+        };
+        let outcome = match operation.outcome {
+            Some(OperationOutcome::Succeeded) => "succeeded",
+            Some(OperationOutcome::Cancelled) => "cancelled",
+            Some(OperationOutcome::Failed) | Some(OperationOutcome::Interrupted) => "failed",
+            None => "unknown",
+        };
+        // T2 binds the resolved operation to the durable result entry.
+        let settled = self.store.complete_native_task(&claim, &operation)?;
+        Ok(ChildToolOutcome {
+            call_id: call.call_id.clone(),
+            kind: call.kind.clone(),
+            definition_version: call.definition_version,
+            task_id: call.task_id,
+            operation_id: operation.operation_id,
+            outcome: outcome.into(),
+            result: settled.as_ref().and_then(|result| result.result.clone()),
+            evidence_ref: settled.as_ref().map(|result| result.evidence_ref.clone()),
+        })
+    }
+
     /// Crate-visible view of the in-memory scan position for tests and
     /// diagnostics. It is scheduling state only — never a completion
     /// watermark and never consulted for durable truth.
@@ -597,7 +993,7 @@ impl NativeChildService {
     /// `NoCapacity` means the worker budget ran out BEFORE this candidate was
     /// touched — the caller must stop the scan without advancing the cursor
     /// past it, so it is retried first on the next pass.
-    fn process(&self, task: &TaskRecord) -> Result<Visit> {
+    fn process(self: &Arc<Self>, task: &TaskRecord) -> Result<Visit> {
         if task.memos.contains_key(COGNITION_IMPORTED) {
             // Do not even rewrite the import into an ordinary retryable park.
             // Only an explicit local continuation may remove this marker.
@@ -783,6 +1179,7 @@ impl NativeChildService {
             operation_id: claim.operation_id,
             authority,
             input,
+            child_tools: Some(self.tool_runtime()),
         };
         let task_id = claim.task.task_id;
         if !self.spawn_execution(
@@ -831,10 +1228,11 @@ impl NativeChildService {
             Some("subject_decision") => {
                 let decision: StepDecision = serde_json::from_slice(&bytes)?;
                 // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6 and model children schema 7;
-                // all bind the same native
-                // delegation field without rewriting the historical CAS object.
-                ensure!(matches!(decision.schema_version, 4 | 6 | 7), "unsupported_decision_schema");
+                // S1 decision. Waits use schema 6, model children schema 7 and
+                // the current committed decision schema 8; all bind the same
+                // native delegation field without rewriting the historical
+                // CAS object.
+                ensure!(matches!(decision.schema_version, 4 | 6 | 7 | 8), "unsupported_decision_schema");
                 let intent = decision
                     .delegated_task_intents
                     .iter()
@@ -1157,9 +1555,8 @@ impl Plugin for NativeChildPlugin {
     async fn apply(&self, ctx: Context, service: &Self::Input) -> Result<(), Self::ApplyError> {
         // Same-Fiber restart reuses this sealed service: reactivate only after
         // any in-flight close barrier and after aborted Running claims were
-        // recovered into query-only reconciliation. On first publication the
-        // drain is empty and recovery only normalizes claims orphaned by a
-        // previous process — the same thing callers already do via recover().
+        // recovered into query-only reconciliation. On first publication,
+        // recovery belongs to the owning composition root, not catalog discovery.
         let epoch = service
             .reopen()
             .await
@@ -1210,6 +1607,122 @@ impl Plugin for NativeTaskHandlerPlugin {
             .map_err(std::io::Error::other)?;
         ctx.effect_sync(move || service.uninstall(&key, epoch))
             .map_err(std::io::Error::other)?;
+        // Live registration: while this definition is installed the runtime's
+        // discovery view names it, its effect contracts and its capabilities.
+        // The withdrawal runs in the same generation teardown, so an
+        // uninstall cannot leave a stale provider or capability behind.
+        register_native_definition(&ctx, handler.as_ref())?;
         Ok(())
     }
+}
+
+/// Publish one installed native definition in the live runtime registry.
+///
+/// The provider view names the exact implementation, the §36 effect
+/// contracts of the definition's operations, the capabilities it offers and
+/// the §18.2 usability package of every capability. Everything registered
+/// here is withdrawn in the same generation teardown, so an uninstall cannot
+/// leave a stale provider, capability or help document behind.
+fn register_native_definition(
+    ctx: &Context,
+    handler: &dyn NativeTaskHandler,
+) -> Result<(), std::io::Error> {
+    let runtime = match ctx.try_service::<shenko_kernel::runtime::PluginRuntime>() {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            // The definition itself is installed; the live discovery view is
+            // not. This is an assembly fact, not a silent success.
+            tracing::warn!(
+                kind = %handler.descriptor().kind,
+                %error,
+                "native definition installed without a live runtime registry"
+            );
+            return Ok(());
+        }
+    };
+    let descriptor = handler.descriptor();
+    let implementation = descriptor.implementation();
+    let provider_id = format!("native.{}", descriptor.kind);
+    let declarations = handler.capabilities();
+    let operations = handler
+        .effect_contracts()
+        .into_iter()
+        .map(|contract| shenko_types::plugin_runtime::OperationEffectView {
+            operation_name: contract.operation_name.clone(),
+            effect_contract: contract,
+        })
+        .collect();
+    let provider = runtime
+        .register_provider(shenko_kernel::runtime::ProviderRegistration {
+            provider_id: provider_id.clone(),
+            kind: "native.task".into(),
+            version: descriptor.definition_version.to_string(),
+            plugin_id: descriptor.implementation_ref.plugin_id,
+            implementation: implementation.clone(),
+            description: descriptor.prompt_section.clone().unwrap_or_else(|| {
+                format!("native task definition {}", descriptor.kind)
+            }),
+            operations,
+            capabilities: declarations
+                .iter()
+                .map(|declaration| declaration.capability_id.clone())
+                .collect(),
+            health: shenko_types::plugin_runtime::ProviderHealth::Installed,
+        })
+        .map_err(std::io::Error::other)?;
+    let mut capability_handles = Vec::new();
+    let mut help_handles = Vec::new();
+    for declaration in &declarations {
+        let handle = runtime
+            .register_capability(shenko_kernel::runtime::CapabilityRegistration {
+                capability_id: declaration.capability_id.clone(),
+                version: declaration.version.clone(),
+                description: declaration.description.clone(),
+                plugin_id: descriptor.implementation_ref.plugin_id,
+                provider_id: Some(provider_id.clone()),
+                enabled: true,
+            })
+            .map_err(std::io::Error::other)?;
+        capability_handles.push(handle);
+        // §18.2 usability package: what the capability is for, when it
+        // applies and where its own limits are. The text comes from the
+        // installed implementation, not from a product feature list.
+        let help = runtime
+            .register_help(shenko_kernel::runtime::HelpRegistration {
+                capability_id: declaration.capability_id.clone(),
+                version: declaration.version.clone(),
+                purpose: declaration.description.clone(),
+                key_methods: declaration.usage.clone().into_iter().collect(),
+                applies_when: vec![format!(
+                    "the definition {}@{} is installed in this runtime",
+                    descriptor.kind, descriptor.definition_version
+                )],
+                does_not_apply_when: vec![format!(
+                    "the definition {} is not installed",
+                    descriptor.kind
+                )],
+                schema_help: Some(format!(
+                    "native task definition {} schema version {}",
+                    descriptor.kind, descriptor.definition_version
+                )),
+                limitations: Vec::new(),
+                recovery: None,
+                implementation: implementation.clone(),
+            })
+            .map_err(std::io::Error::other)?;
+        help_handles.push(help);
+    }
+    let teardown_runtime = runtime.clone();
+    let teardown_provider = provider.clone();
+    ctx.effect_sync(move || {
+        for handle in &capability_handles {
+            teardown_runtime.withdraw_capability(handle);
+        }
+        for handle in &help_handles {
+            teardown_runtime.withdraw_help(handle);
+        }
+        teardown_runtime.withdraw_provider(&teardown_provider);
+    })
+    .map_err(std::io::Error::other)?;
+    Ok(())
 }

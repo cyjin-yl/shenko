@@ -468,6 +468,7 @@ mod tests {
                 delegation_id: task_id, delegation_revision: RecordRevision(0), decision_ref: EntityId::new(),
             },
             input: serde_json::Value::Null,
+            child_tools: None,
         };
         let (mut operation, mut attempt) = handler.operation_parts(&invocation, &frozen, input_ref).unwrap();
         assert!(store.arm_external_operation(&task_invocation, &mut operation, &mut attempt).unwrap().is_none());

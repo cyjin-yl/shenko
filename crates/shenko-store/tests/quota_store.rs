@@ -55,6 +55,9 @@ fn policy() -> QuotaPolicy {
         decision_ttl: chrono::Duration::minutes(20),
         observation_sources: vec![SourceObservationPolicy {
             source_kind: SourceKind::ApiHeaders,
+            // This policy admits every contract of the API-header source
+            // kind: the reading it plans from is the header reading.
+            contract: None,
             ttl: chrono::Duration::minutes(5),
             stale: StaleUse::Refuse,
         }],
@@ -486,7 +489,15 @@ fn initialized_subject() -> (PathBuf, Arc<Store>, EntityId) {
         record_revision: RecordRevision(0),
         created_by_step_id: None,
     };
-    store.initialize_genesis(&genesis, &head, &first_step).unwrap();
+    let root_task = shenko_types::task::TaskRecord::subject_root(
+        head.subject_root_task_id,
+        agent_id,
+        dummy_ref,
+        genesis_commit,
+    );
+    store
+        .initialize_genesis(&genesis, &head, &first_step, &root_task)
+        .unwrap();
     (dir, store, agent_id)
 }
 
@@ -506,7 +517,7 @@ fn preparing_step(
     let window = ledger.current().unwrap();
     store.stage_subject_inputs(head, &step, &[]).unwrap();
     let plan = serde_json::json!({
-        "schema_version":11, "step_id":step.step_id, "step_no":step.step_no, "events":[],
+        "schema_version":12, "step_id":step.step_id, "step_no":step.step_no, "events":[],
         "provider_binding":null, "semantic_wait":null, "identity":null,
         "identity_provider_revision":"shenko.identity/default@1",
         "context":{"source":{"scope_id":EntityId(head.branch_id.0),
@@ -537,7 +548,7 @@ fn preparing_step(
                 "application/json",
                 "input_plans",
                 "subject_step_input",
-                10,
+                12,
             )
             .unwrap()
             .object,

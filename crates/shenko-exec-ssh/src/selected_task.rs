@@ -527,12 +527,16 @@ mod tests {
             decision_ref: None, commit_ref: None, retry_reason_ref: None,
             record_revision: RecordRevision(0), created_by_step_id: None,
         };
-        f.store.initialize_genesis(&genesis, &head, &step).unwrap();
+        let root_task = shenko_types::task::TaskRecord::subject_root(
+            head.subject_root_task_id, head.agent_id, task.input_ref.clone(), zero,
+        );
+        f.store.initialize_genesis(&genesis, &head, &step, &root_task).unwrap();
         f.store.start_subject_dispatcher().unwrap();
         task.state = TaskState::Pending { checkpoint_ref: None };
         task.memos.remove(NATIVE_ASSIGNMENT);
         task.memos.insert(shenko_store::child::NATIVE_INPUT.into(), serde_json::json!({"fixture": true}));
         let implementation = task.implementation_ref.clone();
+        task.record_revision = RecordRevision(task.record_revision.0 + 1);
         let mut batch = WriteBatch::new();
         if with_parent {
             let mut parent = task.clone();

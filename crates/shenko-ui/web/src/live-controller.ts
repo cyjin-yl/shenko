@@ -8,6 +8,9 @@ import {
   type IdentityView,
   type ProjectionController,
   type ReadingState,
+  type DegradedDocument,
+  type DocumentErrorView,
+  type ServerCapabilities,
   type Submission,
   type SubmissionPayload,
   type TimelinePart,
@@ -22,7 +25,7 @@ const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
 const THEME_KEY = 'shenko.theme.v1';
 const RECEIPT_REFRESH_MS = 2000;
 const RECONNECT_BASE = [1, 2, 4, 8, 15];
-const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config']);
+const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config', 'playground']);
 const VALID_READING = new Set<ReadingState>([
   'following_latest',
   'reading_history',
@@ -152,9 +155,23 @@ function initialState(): UiState {
     source: 'live',
     connection: 'connecting',
     reconnect_seconds: 0,
+    capabilities: {
+      append: false,
+      steer: false,
+      withdraw: false,
+      actions: false,
+      documents: false,
+      attachments: false,
+      durable_input_receipts: false,
+      committed_replay: false,
+      streaming: false,
+    },
     append_available: false,
     durable_receipts: false,
     committed_replay: false,
+    streaming: false,
+    documents: [],
+    document_errors: [],
     subject_id: null,
     wanted_identity_revision: null,
     step: null,
@@ -165,6 +182,7 @@ function initialState(): UiState {
     self_error: false,
     tasks_error: false,
     memory_error: false,
+    playground_error: false,
     display,
   };
 }
@@ -175,6 +193,28 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function validRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+interface TimelineChunk extends Record<string, unknown> {
+  message_id: string;
+  part_id: string;
+  part_revision: string;
+  commit_ref: string;
+  content: string;
+  step: number;
+  chunk_seq: number;
+}
+
+function isTimelineChunk(data: Record<string, unknown>): data is TimelineChunk {
+  return data.schema_version === 2 &&
+    data.committed_only === true &&
+    data.role === 'subject' &&
+    typeof data.message_id === 'string' &&
+    typeof data.part_id === 'string' &&
+    typeof data.part_revision === 'string' &&
+    typeof data.commit_ref === 'string' &&
+    typeof data.content === 'string' &&
+    validRevision(data.step) && validRevision(data.chunk_seq);
 }
 
 function wsUrl(): string {
@@ -203,7 +243,7 @@ class LiveController implements ProjectionController {
   private selfSeq = 0;
   private selfApplied = 0;
   private abort = new AbortController();
-  private pendingChunks = new Map<string, Map<number, Record<string, unknown>>>();
+  private pendingChunks = new Map<string, Map<number, TimelineChunk>>();
 
   constructor() {
     document.documentElement.dataset.theme = this.state.display.theme;
@@ -261,6 +301,7 @@ class LiveController implements ProjectionController {
           this.emit();
           if (view === 'tasks') void this.loadTasks();
           if (view === 'memory') void this.loadMemory();
+          if (view === 'playground') void this.loadPlayground();
           if (view === 'config') {
             void this.loadConfig();
             void this.loadSelf();
@@ -325,8 +366,27 @@ class LiveController implements ProjectionController {
         }
         break;
       case 'composer.append':
-        this.sendAppend();
+        this.sendWithMode('append');
         break;
+      case 'composer.steer':
+        this.sendSteer();
+        break;
+      case 'submission.withdraw': {
+        const id = action.payload?.submission_id;
+        const submission = this.state.submissions.find((row) => row.payload.submission_id === id);
+        if (submission && !submission.withdrawal) this.sendWithdraw(submission);
+        break;
+      }
+      case 'document.action': {
+        const documentId = action.payload?.document_id;
+        const actionId = action.payload?.action_id;
+        const document = this.state.documents.find((row) => row.document_id === documentId);
+        const option = document?.options.find((row) => row.action_id === actionId);
+        if (document && option && this.state.subject_id) {
+          this.sendAction(document.document_id, option);
+        }
+        break;
+      }
       case 'submission.retry': {
         const id = action.payload?.submission_id;
         const submission = this.state.submissions.find((row) => row.payload.submission_id === id);
@@ -373,10 +433,22 @@ class LiveController implements ProjectionController {
     }
   }
 
-  private sendAppend(): void {
+  // Steer is admitted exactly like append; without a verified in-request
+  // control capability the server's placement is next_boundary (UI02). The
+  // client does not promise live injection.
+  private sendSteer(): void {
+    this.sendWithMode('steer');
+  }
+
+  private sendWithMode(mode: 'append' | 'steer'): void {
     const content = this.state.draft.trim();
     const subjectId = this.state.subject_id;
     if (!content || !subjectId || this.state.connection !== 'online') return;
+    if (mode === 'steer' && !this.state.capabilities.steer) {
+      this.state.display.notice = '当前服务器未提供 steer 能力；输入未发送。';
+      this.emit();
+      return;
+    }
     const latestStep = [...this.state.timeline].reverse().find((part) => part.step_id);
     const payload: SubmissionPayload = {
       schema_version: 2,
@@ -384,7 +456,7 @@ class LiveController implements ProjectionController {
       submission_id: uid(),
       message_id: uid(),
       subject_id: subjectId,
-      mode: 'append',
+      mode,
       content,
       attachment_refs: [],
       ...(latestStep ? { observed_step_id: latestStep.step_id } : {}),
@@ -444,6 +516,67 @@ class LiveController implements ProjectionController {
     this.scheduleReceiptRefresh();
   }
 
+  // Withdrawal is a durable control record, not a delete: the admitted input
+  // stays in the ledger and the server reports withdrawal_queued vs
+  // withdrawn_before_presentation through the next submission_view.
+  private sendWithdraw(submission: Submission): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (!this.state.capabilities.withdraw) {
+      this.state.display.notice = '当前服务器未提供撤回能力。';
+      this.emit();
+      return;
+    }
+    try {
+      socket.send(
+        JSON.stringify({
+          schema_version: 2,
+          type: 'withdraw',
+          submission_id: submission.payload.submission_id,
+          subject_id: submission.payload.subject_id,
+          cancel_id: uid(),
+        }),
+      );
+    } catch {
+      // onclose schedules the reconnect; the pending record stays durable.
+    }
+  }
+
+  // An action click admits a durable input; execution authority comes from
+  // the subject's disposition of that input, never from the click (§21.8).
+  private sendAction(documentId: string, option: {
+    action_id: string;
+    nonce: string;
+    revision: string;
+    payload: Record<string, unknown>;
+  }): void {
+    const socket = this.socket;
+    const subjectId = this.state.subject_id;
+    if (!socket || socket.readyState !== WebSocket.OPEN || !subjectId) return;
+    if (!this.state.capabilities.actions) {
+      this.state.display.notice = '当前服务器未提供动作能力。';
+      this.emit();
+      return;
+    }
+    try {
+      socket.send(
+        JSON.stringify({
+          schema_version: 2,
+          type: 'action',
+          submission_id: uid(),
+          document_id: documentId,
+          action_id: option.action_id,
+          revision: option.revision,
+          nonce: option.nonce,
+          subject_id: subjectId,
+          payload: option.payload,
+        }),
+      );
+    } catch {
+      // onclose schedules the reconnect; nothing was durably admitted here.
+    }
+  }
+
   private clearReconnectTimers(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.countdownTimer) clearInterval(this.countdownTimer);
@@ -497,6 +630,23 @@ class LiveController implements ProjectionController {
       this.reconnectAttempt = 0;
       this.clearReconnectTimers();
       this.setConnection('online');
+      // Attest this connection's display facts so the server degrades
+      // documents to what THIS surface can actually render (§21.5).
+      try {
+        socket.send(
+          JSON.stringify({
+            schema_version: 2,
+            type: 'client_hello',
+            viewport: [window.innerWidth, window.innerHeight],
+            language: navigator.language,
+            theme: this.state.display.theme,
+            reduced_motion: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true,
+          }),
+        );
+      } catch {
+        // A failed attestation only means baseline capabilities; the socket
+        // itself is still usable for committed replay and input receipts.
+      }
       this.refreshSubmissions();
       void this.loadSelf();
     };
@@ -532,12 +682,55 @@ class LiveController implements ProjectionController {
       if (data.type === 'hello') {
         if (typeof data.server_version === 'string') this.state.server_version = data.server_version;
         const capabilities = isObject(data.capabilities) ? data.capabilities : {};
+        const caps: ServerCapabilities = {
+          append: capabilities.append === true,
+          steer: capabilities.steer === true,
+          withdraw: capabilities.withdraw === true,
+          actions: capabilities.actions === true,
+          documents: capabilities.documents === true,
+          attachments: capabilities.attachments === true,
+          durable_input_receipts: capabilities.durable_input_receipts === true,
+          committed_replay: capabilities.committed_replay === true,
+          streaming: capabilities.streaming === true,
+        };
+        this.state.capabilities = caps;
+        if (isObject(data.surface)) this.state.surface = data.surface;
         this.state.append_available = capabilities.append === true;
         this.state.durable_receipts = capabilities.durable_input_receipts === true;
         this.state.committed_replay = capabilities.committed_replay === true;
+        // Streaming is real only when the server advertises a durable sink;
+        // the client never fabricates a typewriter from this flag alone.
+        this.state.streaming = caps.streaming;
         this.refreshSubmissions();
         this.scheduleReceiptRefresh();
         this.emit();
+        return;
+      }
+      if (data.type === 'capabilities') {
+        // Renegotiated surface facts (client_hello answer or server change).
+        if (isObject(data.surface)) {
+          this.state.surface = data.surface;
+          const surface = data.surface as { streaming?: unknown };
+          if (typeof surface.streaming === 'boolean') this.state.streaming = surface.streaming;
+        }
+        this.emit();
+        return;
+      }
+      if (data.type === 'document') {
+        this.handleDocument(data);
+        return;
+      }
+      if (data.type === 'document_error') {
+        if (typeof data.reason === 'string') {
+          const view: DocumentErrorView = {
+            source_step_id: String(data.source_step_id ?? ''),
+            source_commit: String(data.source_commit ?? ''),
+            reason: data.reason,
+          };
+          this.state.document_errors = [...this.state.document_errors, view].slice(-16);
+          this.state.display.notice = `文档未能呈现：${data.reason}`;
+          this.emit();
+        }
         return;
       }
       if (data.type === 'identity') {
@@ -562,6 +755,10 @@ class LiveController implements ProjectionController {
       }
       if (data.type === 'timeline_part') {
         this.handleTimelinePart(data);
+        return;
+      }
+      if (data.type === 'stream_part') {
+        this.handleStreamPart(data);
       }
     } catch {
       // One malformed DTO or projection is contained; transport stays alive.
@@ -575,8 +772,30 @@ class LiveController implements ProjectionController {
     const submission = this.state.submissions.find(
       (row) => row.payload.submission_id === data.submission_id,
     );
-    if (!submission) return;
+    if (!submission) {
+      // Action receipts use submission IDs the composer never persisted; the
+      // server detail is the only honest feedback surface for them.
+      if (data.stage === 'rejected' && typeof data.detail === 'string') {
+        this.state.display.notice = data.detail;
+        this.emit();
+      }
+      return;
+    }
     const detail = typeof data.detail === 'string' ? data.detail : undefined;
+    if (isObject(data.placement)) {
+      const placement = data.placement;
+      submission.placement = {
+        requested: placement.requested === 'steer' ? 'steer' : 'append',
+        actual: placement.actual === 'next_boundary'
+          || placement.actual === 'live_steer'
+          || placement.actual === 'cancel_reseal'
+          ? placement.actual
+          : 'pending',
+        ...(typeof placement.target_request_id === 'string'
+          ? { target_request_id: placement.target_request_id }
+          : {}),
+      };
+    }
     if (data.stage === 'accepted' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
       // Durable acceptance, not selection or disposition. The same ID replayed
@@ -671,6 +890,16 @@ class LiveController implements ProjectionController {
     }
     if (data.result === 'found' && typeof data.event_id === 'string'
       && typeof data.accepted_commit === 'string') {
+      if (isObject(data.withdrawal)) {
+        const withdrawal = data.withdrawal;
+        submission.withdrawal = {
+          cancel_id: String(withdrawal.cancel_id ?? ''),
+          commit_ref: String(withdrawal.commit_ref ?? ''),
+          result: withdrawal.result === 'withdrawal_queued'
+            ? 'withdrawal_queued'
+            : 'withdrawn_before_presentation',
+        };
+      }
       submission.event_id = typeof data.event_id === 'string' ? data.event_id : submission.event_id;
       submission.accepted_commit =
         typeof data.accepted_commit === 'string' ? data.accepted_commit : submission.accepted_commit;
@@ -726,44 +955,97 @@ class LiveController implements ProjectionController {
 
   private handleTimelinePart(data: Record<string, unknown>): void {
     if (
-      data.schema_version !== 2 ||
-      data.committed_only !== true ||
-      data.role !== 'subject' ||
-      typeof data.message_id !== 'string' ||
-      typeof data.part_id !== 'string' ||
-      typeof data.part_revision !== 'string' ||
-      typeof data.commit_ref !== 'string' ||
-      typeof data.content !== 'string' ||
+      !isTimelineChunk(data) ||
       typeof data.step_id !== 'string' ||
-      !validRevision(data.step) ||
-      data.step < 1 ||
-      !validRevision(data.chunk_seq)
+      data.step < 1
     ) {
       return;
     }
-    if (this.state.step === null || data.step > this.state.step) this.state.step = data.step;
+    this.applyChunk(data, false);
+  }
+
+  // Shared part/chunk contract for committed and streamed chunks. Identity
+  // is (message_id, part_id) plus, when present, (stream_id, request_id,
+  // attempt_id). A committed chunk carries no stream facts: it either binds
+  // S1 identity onto an already-streamed part (absorption, idempotent in
+  // both delivery orders) or starts the part with the full committed text.
+  private applyChunk(data: TimelineChunk, isStream: boolean): void {
+    if (!isStream && (this.state.step === null || data.step > this.state.step)) {
+      this.state.step = data.step;
+    }
     const key = this.partKey(data);
-    const existing = this.state.timeline.find(
+    const streamFacts = {
+      stream: String(data.stream_id ?? ''),
+      request: String(data.request_id ?? ''),
+      attempt: String(data.attempt_id ?? ''),
+    };
+    let existing = this.state.timeline.find(
       (part) =>
         part.message_id === data.message_id &&
         part.part_id === data.part_id &&
-        (part.stream_id ?? '') === String(data.stream_id ?? '') &&
-        (part.request_id ?? '') === String(data.request_id ?? '') &&
-        (part.attempt_id ?? '') === String(data.attempt_id ?? ''),
+        (part.stream_id ?? '') === streamFacts.stream &&
+        (part.request_id ?? '') === streamFacts.request &&
+        (part.attempt_id ?? '') === streamFacts.attempt,
     );
+    if (!existing && !isStream && typeof data.step_id === 'string') {
+      // Committed binding for a part this client watched stream in: absorb
+      // the S1 identity instead of re-appending the full text at seq 0.
+      const streamed = this.state.timeline.find(
+        (part) =>
+          part.message_id === data.message_id &&
+          part.part_id === data.part_id &&
+          part.stream_id !== undefined,
+      );
+      if (streamed) {
+        if (data.chunk_seq < streamed.next_chunk_seq) {
+          streamed.commit_ref = data.commit_ref;
+          streamed.part_revision = data.part_revision;
+          streamed.step = data.step;
+          streamed.step_id = data.step_id;
+          streamed.terminal = true;
+          streamed.gap = false;
+          this.pendingChunks.delete(key);
+          this.emit();
+          return;
+        }
+        // Committed text beyond the streamed prefix: the producer contract
+        // guarantees prefix equality, so continue appending below.
+        existing = streamed;
+      }
+    }
+    if (!existing && isStream) {
+      // Stream chunk arriving after the committed base: the text is already
+      // complete; adopt the stream facts so later chunks dedup exactly.
+      const base = this.state.timeline.find(
+        (part) =>
+          part.message_id === data.message_id &&
+          part.part_id === data.part_id &&
+          part.stream_id === undefined,
+      );
+      if (base && data.chunk_seq < base.next_chunk_seq) {
+        base.stream_id = String(data.stream_id ?? base.stream_id);
+        base.request_id = String(data.request_id ?? base.request_id);
+        base.attempt_id = String(data.attempt_id ?? base.attempt_id);
+        this.emit();
+        return;
+      }
+      if (base) existing = base;
+    }
     const chunkSeq = data.chunk_seq;
     if (existing && chunkSeq < existing.next_chunk_seq) {
-      // Committed replay and reconnect duplicates are idempotent. No browser-
-      // visible step counter is used as a substitute for message/part identity.
+      // Committed replay and reconnect duplicates are idempotent. No
+      // browser-visible step counter substitutes for message/part identity.
       this.emit();
       return;
     }
     if (chunkSeq > (existing?.next_chunk_seq ?? 0)) {
-      const pending = this.pendingChunks.get(key) ?? new Map<number, Record<string, unknown>>();
+      const pending = this.pendingChunks.get(key) ?? new Map<number, TimelineChunk>();
       pending.set(chunkSeq, data);
       this.pendingChunks.set(key, pending);
       if (existing) existing.gap = true;
-      this.state.display.notice = '已提交 part 存在序号空洞；等待补读，未拼接后到内容。';
+      this.state.display.notice = isStream
+        ? '流 part 存在序号空洞；等待补读，未拼接后到内容。'
+        : '已提交 part 存在序号空洞；等待补读，未拼接后到内容。';
       this.emit();
       return;
     }
@@ -774,6 +1056,7 @@ class LiveController implements ProjectionController {
       existing.next_chunk_seq += 1;
       existing.part_revision = data.part_revision;
       existing.observed_at = typeof data.observed_at === 'string' ? data.observed_at : existing.observed_at;
+      if (data.terminal === true || !isStream) existing.terminal = true;
       this.applyPending(existing, key);
       this.state.timeline = this.state.timeline.map((part) => (part === existing ? { ...existing } : part));
     } else {
@@ -785,12 +1068,13 @@ class LiveController implements ProjectionController {
         part_revision: data.part_revision,
         next_chunk_seq: 1,
         step: data.step,
-        step_id: data.step_id,
+        step_id: typeof data.step_id === 'string' ? data.step_id : data.message_id,
         commit_ref: data.commit_ref,
         observed_at: typeof data.observed_at === 'string' ? data.observed_at : '',
         ...(typeof data.stream_id === 'string' ? { stream_id: data.stream_id } : {}),
         ...(typeof data.request_id === 'string' ? { request_id: data.request_id } : {}),
         ...(typeof data.attempt_id === 'string' ? { attempt_id: data.attempt_id } : {}),
+        terminal: data.terminal === true || !isStream,
         gap: false,
       };
       this.applyPending(part, key);
@@ -809,13 +1093,41 @@ class LiveController implements ProjectionController {
     if (!pending) return;
     while (pending.has(part.next_chunk_seq)) {
       const next = pending.get(part.next_chunk_seq)!;
-      part.content += String(next.content ?? '');
+      part.content += next.content;
       part.next_chunk_seq += 1;
-      part.part_revision = String(next.part_revision ?? part.part_revision);
+      part.part_revision = next.part_revision;
       pending.delete(part.next_chunk_seq - 1);
     }
     part.gap = pending.size > 0;
     if (pending.size === 0) this.pendingChunks.delete(key);
+  }
+
+  // A validated semantic document already degraded for this connection's
+  // attested capabilities. Replaced by (document_id, revision); a stale
+  // revision never overwrites a newer one.
+  private handleDocument(data: Record<string, unknown>): void {
+    if (data.schema_version !== 1 || !isObject(data.degraded)) return;
+    const degraded = data.degraded as unknown as DegradedDocument;
+    if (typeof degraded.document_id !== 'string' || typeof degraded.revision !== 'string') return;
+    if (!Array.isArray(degraded.options)) return;
+    const rest = this.state.documents.filter(
+      (row) => !(row.document_id === degraded.document_id),
+    );
+    this.state.documents = [...rest, degraded];
+    if (this.state.display.reading === 'following_latest') {
+      this.state.display.scroll_request += 1;
+    }
+    this.emit();
+  }
+
+  // Stream parts obey the same part/chunk contract as committed parts, with
+  // two honest relaxations: step may be 0 (no committed step exists yet —
+  // the client never invents one) and chunks may merge into a committed base
+  // part when the server projected exactly the streamed prefix. A chunk that
+  // does not fit is buffered as a gap, never patched over.
+  private handleStreamPart(data: Record<string, unknown>): void {
+    if (!this.state.streaming || !isTimelineChunk(data)) return;
+    this.applyChunk(data, true);
   }
 
   private async fetchJson(path: string): Promise<unknown> {
@@ -919,6 +1231,29 @@ class LiveController implements ProjectionController {
       if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
       this.state.memory = undefined;
       this.state.memory_error = true;
+    }
+    if (!this.disposed) this.emit();
+  }
+
+  private async loadPlayground(): Promise<void> {
+    try {
+      const [surface, namespaces] = await Promise.all([
+        this.fetchJson('/api/playground'),
+        this.fetchJson('/api/config/namespaces').catch(() => undefined),
+      ]);
+      if (!isObject(surface)) throw new Error('invalid playground surface');
+      const namespaceList = isObject(namespaces) && 'namespaces' in namespaces && Array.isArray(namespaces.namespaces)
+        ? namespaces.namespaces
+        : undefined;
+      this.state.playground = {
+        ...(surface as Record<string, unknown>),
+        namespaces: namespaceList,
+      } as UiState['playground'];
+      this.state.playground_error = false;
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.playground = undefined;
+      this.state.playground_error = true;
     }
     if (!this.disposed) this.emit();
   }
