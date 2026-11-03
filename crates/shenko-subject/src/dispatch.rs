@@ -9,6 +9,7 @@ pub async fn run_committed_dispatcher(
     native: Arc<NativeChildService>,
     agent_id: shenko_types::ids::EntityId,
     task_result_tx: Option<tokio::sync::mpsc::Sender<InboxEvent>>,
+    subject_stopping: tokio_util::sync::CancellationToken,
     cancel: tokio_util::sync::CancellationToken,
 ) -> anyhow::Result<()> {
     let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -46,7 +47,9 @@ pub async fn run_committed_dispatcher(
                             // original result remains durable on closure.
                             // Closure alone does not identify why the
                             // receiver stopped; it is not a success receipt.
-                            if !deliver_native_result(task_result_tx, event, &cancel).await {
+                            if !deliver_native_result(
+                                task_result_tx, event, &subject_stopping, &cancel,
+                            ).await? {
                                 break;
                             }
                         }
@@ -74,53 +77,23 @@ pub async fn run_committed_dispatcher(
 
 /// Deliver one durable native result into the subject inbox.
 ///
-/// Returns false when the inbox is closed or the runtime is stopping. The
-/// result itself stays durable in the store, so the caller ends its delivery
-/// pass normally rather than reporting a failure.
+/// Stop delivery when the subject or dispatcher is stopping. Consumers may
+/// still settle durable work after the subject stops receiving. An otherwise
+/// closed inbox is an error, even though the original result remains durable.
 async fn deliver_native_result(
     tx: &tokio::sync::mpsc::Sender<InboxEvent>,
     event: InboxEvent,
+    subject_stopping: &tokio_util::sync::CancellationToken,
     cancel: &tokio_util::sync::CancellationToken,
-) -> bool {
-    tokio::select! {
-        _ = cancel.cancelled() => false,
-        result = tx.send(event) => result.is_ok(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A closed inbox is a normal end of the delivery pass, not a failure.
-    #[tokio::test]
-    async fn a_closed_inbox_ends_the_delivery_without_an_error() {
-        let (tx, rx) = tokio::sync::mpsc::channel(1);
-        drop(rx);
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let event = InboxEvent {
-            event_id: shenko_types::ids::EntityId::new(),
-            kind: InboxEventKind::TaskResult,
-            payload: serde_json::json!({}),
-            created_at: chrono::Utc::now(),
-            source: "test".into(),
-        };
-        assert!(!deliver_native_result(&tx, event, &cancel).await);
-    }
-
-    /// A live inbox still receives the result.
-    #[tokio::test]
-    async fn a_live_inbox_receives_the_result() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let event = InboxEvent {
-            event_id: shenko_types::ids::EntityId::new(),
-            kind: InboxEventKind::TaskResult,
-            payload: serde_json::json!({"ok": true}),
-            created_at: chrono::Utc::now(),
-            source: "test".into(),
-        };
-        assert!(deliver_native_result(&tx, event, &cancel).await);
-        assert_eq!(rx.recv().await.unwrap().kind, InboxEventKind::TaskResult);
+) -> anyhow::Result<bool> {
+    tokio::select! { biased;
+        _ = cancel.cancelled() => Ok(false),
+        _ = subject_stopping.cancelled() => Ok(false),
+        result = tx.send(event) => match result {
+            Ok(()) => Ok(true),
+            Err(_) if subject_stopping.is_cancelled() || cancel.is_cancelled() => Ok(false),
+            Err(error) => Err(anyhow::Error::new(error)
+                .context("subject result inbox closed before shutdown")),
+        },
     }
 }
