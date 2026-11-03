@@ -473,27 +473,6 @@ impl PolicyRegistry {
         self.state.lock().candidate.clone()
     }
 
-    /// Whether the published candidate would be adopted against this exact
-    /// history: the binding matches, no later raw event arrived, and it fits
-    /// under its own prepared limits. A fitting request that runs while such
-    /// a candidate waits must not seal an oversized payload.
-    pub fn adoptable_against(&self, history: &dyn HistorySource) -> bool {
-        let Some(candidate) = self.state.lock().candidate.clone() else {
-            return false;
-        };
-        if self.verify_binding(&candidate).is_err() {
-            return false;
-        }
-        let Ok(leaf) = history.leaf_seq() else { return false };
-        if leaf.is_none_or(|leaf| leaf > candidate.binding.leaf_seq) {
-            return false;
-        }
-        let Ok(tail) = tail_tokens(history, candidate.binding.leaf_seq) else { return false };
-        let total: u32 = candidate.window.entries.iter().map(WindowEntry::tokens).sum::<u32>()
-            + tail;
-        total <= candidate.request_limit()
-    }
-
     /// Prepare and publish in one call — the off-S0 entry point.
     ///
     /// The slow work happens here: the whole raw history is read and the new
