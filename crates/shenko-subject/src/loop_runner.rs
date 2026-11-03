@@ -1176,6 +1176,29 @@ async fn execute_step(
                 })?;
             }
         }
+        // A disposition may only name an event this step actually selected.
+        // The model naming an event it was never given is an invalid
+        // control, not a broken runtime: it travels the same sourced
+        // correction path as any other invalid control, so the subject is
+        // told and can correct it instead of the whole loop stopping and
+        // waiting for a reopen.
+        for control in &output.controls {
+            if let OutputAction::Dispose { spec } = &control.action {
+                if !input.events.iter().any(|event| event.event_id == spec.event_id) {
+                    return Err(ShenkoError::Protocol(
+                        shenko_types::error::ProtocolError::new(
+                            "CONTROL_PROTOCOL_INVALID",
+                            shenko_types::error::ErrorScope::Request,
+                            shenko_types::error::RetryStrategy::NewRevision,
+                        )
+                        .with_details(serde_json::json!({
+                            "line": control.spans.first().map(|span| span.line),
+                            "reason": "disposition names an event that was not selected into this step",
+                        })),
+                    ));
+                }
+            }
+        }
         let mut delegations = Vec::new();
         for control in &output.controls {
             let intent = match &control.action {
@@ -1361,11 +1384,6 @@ async fn execute_step(
     let mut authored: std::collections::HashMap<EntityId, EventDisposition> =
         std::collections::HashMap::new();
     for (_action_id, spec) in &disposition_specs {
-        if !events.iter().any(|event| event.event_id == spec.event_id) {
-            return Err(ShenkoError::conflict(
-                "disposition names an event that was not selected into this step",
-            ));
-        }
         authored.insert(
             spec.event_id,
             EventDisposition {

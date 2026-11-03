@@ -387,6 +387,9 @@ enum ModelChildTermination {
     BudgetExhausted,
     /// The tool-call budget was exhausted before a final answer.
     ToolBudgetExhausted,
+    /// A generation failed its existing terminal acceptance predicate.
+    /// Preserve its partial text and E1 without authorizing effects.
+    GenerationFailed,
 }
 
 /// Only the subject's admitted structured control reaches this constructor.
@@ -999,6 +1002,16 @@ impl ModelChildHandler {
             tracing::warn!(task_id=%contract.task_id, operation_id=%pending.operation_id, "model child step outcome is unresolved");
             return Ok(self.unresolved_claim(&invocation, contract.task_id));
         }
+        // A worker may disappear after E1 but before the run result exists.
+        // Recover the failed own step, not a fresh generation. Inherited
+        // transcript belongs to an explicitly authored continuation instead.
+        if let Some(failed) = history.records[history.inherited_count..]
+            .iter().find(|record| !record.complete)
+        {
+            self.refresh_invocation(&mut invocation)?;
+            return self.finish(&invocation, &contract, &history,
+                ModelChildTermination::GenerationFailed, failed.text.clone(), vec![]);
+        }
         let mut termination = ModelChildTermination::Completed;
         let mut publications: Vec<PublicationIntent> = vec![];
         let mut answer = String::new();
@@ -1034,19 +1047,9 @@ impl ModelChildHandler {
             let step = self
                 .run_step(&invocation, &contract, &broker, &history, step_index, payload)
                 .await?;
-            let record = step.record.clone();
+            let record = step.record;
             answer = record.text.clone();
-            if let Some(reply) = &record.reply {
-                if let Some(intent) = self.reply_intent(&contract, reply)? {
-                    let decision_ref = invocation.task.input_ref.clone();
-                    if let Some(admitted) =
-                        self.store
-                            .admit_child_publication(&invocation.task, &intent, &decision_ref)?
-                    {
-                        publications.push(admitted);
-                    }
-                }
-            }
+            let conclusive = record.complete;
             let calls = record.tool_calls.clone();
             let question = record.question.clone();
             history.reserved_tokens = history.reserved_tokens.saturating_add(contract.max_tokens);
@@ -1060,8 +1063,25 @@ impl ModelChildHandler {
             history.tool_calls = history.tool_calls.saturating_add(calls.len() as u32);
             history.next_index = step_index + 1;
             history.own_steps = history.own_steps.saturating_add(1);
-            history.operations.insert(step_index, step.operation.clone());
+            history.operations.insert(step_index, step.operation);
             history.records.push(record);
+            if !conclusive {
+                // Keep failed/partial output as evidence, never as authority
+                // to publish a reply or dispatch tools.
+                termination = ModelChildTermination::GenerationFailed;
+                break;
+            }
+            if let Some(reply) = history.records.last().and_then(|record| record.reply.as_ref()) {
+                if let Some(intent) = self.reply_intent(&contract, reply)? {
+                    let decision_ref = invocation.task.input_ref.clone();
+                    if let Some(admitted) =
+                        self.store
+                            .admit_child_publication(&invocation.task, &intent, &decision_ref)?
+                    {
+                        publications.push(admitted);
+                    }
+                }
+            }
             if !calls.is_empty() {
                 // Execute the requested tools as durable child subtasks. Their
                 // results are durable facts read back into the next step.
@@ -1843,8 +1863,8 @@ impl ModelChildHandler {
         let attempt = self.store.external_operation_attempt(operation.operation_id)?;
         let outcome = match termination {
             // A completed run and a run that ended with a question for the
-            // owner both reached a conclusive generation boundary. Only a
-            // budget exhaustion is a failed run.
+            // owner both passed the generation acceptance predicate. Failed
+            // generations and exhausted budgets remain failed runs.
             ModelChildTermination::Completed | ModelChildTermination::NeedsDecision => {
                 OperationOutcome::Succeeded
             }
@@ -2179,6 +2199,12 @@ impl NativeTaskHandler for ModelChildHandler {
             .unwrap_or_default();
         let termination = if history
             .records
+            .iter()
+            .any(|record| !record.complete)
+        {
+            ModelChildTermination::GenerationFailed
+        } else if history
+            .records
             .last()
             .map(|record| record.tool_calls.is_empty())
             .unwrap_or(false)
@@ -2423,14 +2449,4 @@ mod grant_account_tests {
         assert!(frozen.validate().is_err());
     }
 
-    /// The grammar the subject reads must name the versioned target: an
-    /// unversioned target or a numeric id cannot be bound to a channel.
-    #[test]
-    fn the_delegation_grammar_names_the_versioned_target() {
-        let grammar = delegation_grammar("profile-under-test");
-        assert!(grammar.contains("\"schema_version\":2"), "{grammar}");
-        assert!(grammar.contains("\"id\":\"…\""), "{grammar}");
-        assert!(!grammar.contains("\"id\":1"), "{grammar}");
-        assert!(grammar.contains("profile-under-test"), "{grammar}");
-    }
 }

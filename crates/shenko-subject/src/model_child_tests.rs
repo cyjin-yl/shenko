@@ -59,6 +59,185 @@ fn child_step(store: &Store, task_id: EntityId) -> shenko_types::operation::Oper
         .expect("the child run has at least one model step")
 }
 
+/// A terminal provider refusal is a Failed generation, never an empty
+/// successful run. The step keeps its original E1 and the run-result
+/// operation settles Failed with the refusal as its durable record.
+#[tokio::test]
+async fn a_rejected_generation_settles_the_run_as_failed_with_its_original_e1() {
+    for truncated in [false, true] {
+        assert_failed_generation(truncated).await;
+    }
+}
+
+async fn assert_failed_generation(truncated: bool) {
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (wires_tx, mut wires_rx) = tokio::sync::mpsc::unbounded_channel();
+    let server = tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            let wire = read_wire(&mut socket).await;
+            wires_tx.send(wire).unwrap();
+            let (status, body) = if truncated {
+                ("200 OK", serde_json::json!({"choices":[{"message":{"role":"assistant",
+                    "content":"[reply] incomplete answer must not publish"},"finish_reason":"length"}]}).to_string())
+            } else {
+                ("404 Not Found", serde_json::json!({"error":"no such model"}).to_string())
+            };
+            socket.write_all(format!("HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            socket.shutdown().await.unwrap();
+        }
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    let spec = serde_json::json!({"model":"rejected-child", "system_prompt":"Report only observed facts.",
+        "goal":"Return this finite review.", "max_tokens":64,
+        "reply_grant":{"target":{"schema_version":2,"channel":"qq","kind":"group","id":"12345","account":"qq:9"},
+            "allowed_message_types":["text"],"expires_at":chrono::Utc::now()+chrono::Duration::hours(1)}});
+    commit_output(&store, &mut subject, 1, &[], &format!("[delegate] {spec}")).await;
+    let native = service(&store, handle.clone(), subject.head.software_generation.clone());
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let run = tokio::spawn(broker.run());
+    drive_until(&native, || store.native_task_result(task.task_id).is_ok_and(|result| result.is_some()),
+        || format!("operations={:?}", store.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).map(|rows| rows.len()))).await;
+    let step = child_step(&store, task.task_id);
+    assert!(matches!(step.outcome, Some(shenko_types::operation::OperationOutcome::Failed)),
+        "a rejected generation is a failed step, not a successful one: {:?}", step.outcome);
+    let attempt = store.external_operation_attempt(step.operation_id).unwrap();
+    let receipt = store.external_evidence(attempt.final_receipt_id.expect("the refusal is durable evidence")).unwrap();
+    let raw: serde_json::Value = serde_json::from_slice(
+        &store.cas.read_object(&receipt.raw_ref.digest).unwrap()).unwrap();
+    if truncated {
+        assert_eq!(raw["response"]["content"], "[reply] incomplete answer must not publish");
+        assert_eq!(raw["response"]["stop_reason"], "length");
+    } else {
+        assert_eq!(raw["status"]["rejected"]["http_status"], 404);
+        assert_eq!(raw["termination"]["kind"], "transport_rejected");
+        assert!(raw["response"].is_null(), "a refused request has no provider text to adopt");
+    }
+    let result = store.native_task_result(task.task_id).unwrap().unwrap();
+    assert!(matches!(result.outcome, TaskOutcome::Failed { .. }), "a failed generation cannot settle a successful run: {:?}", result.outcome);
+    assert_eq!(result.result.as_ref().unwrap()["termination"], "generation_failed");
+    assert_eq!(result.result.as_ref().unwrap()["publications"], serde_json::json!([]));
+    assert!(store.committed_intents(Some("publication"), None, 1).unwrap().is_empty(),
+        "a partial reply must not enter the publication ledger");
+    assert_eq!(wires_rx.len(), 1, "a refused generation is terminal: no second request");
+    native.close_and_join(0).await;
+    drop(native); drop(subject);
+    run.abort(); let _ = run.await;
+    drop(handle);
+    server.abort();
+    let _ = server.await;
+    drop(store);
+    // This is a reload of an already settled result, not run reconciliation.
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    reopened.start_subject_dispatcher().unwrap();
+    let (_, next) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
+    let (head, _) = reopened.load_subject(agent).unwrap();
+    let restored = service(&reopened, next.clone(), head.software_generation);
+    restored.recover().unwrap();
+    assert!(matches!(reopened.native_task_result(task.task_id).unwrap().unwrap().outcome, TaskOutcome::Failed { .. }),
+        "a durable failed run must not become successful after a reopen");
+    restored.close_and_join(0).await;
+    drop(restored); drop(next);
+}
+
+#[tokio::test]
+async fn failed_generation_reopens_after_e1_without_a_second_send() {
+    use crate::{NativeTaskHandler, NativeTaskInvocation};
+    let (dir, store, agent) = fixture();
+    store.start_subject_dispatcher().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (sent, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let (release, wait) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(async move {
+        let mut wait = Some(wait);
+        loop {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            sent.send(read_wire(&mut socket).await).unwrap();
+            if let Some(wait) = wait.take() { wait.await.unwrap(); }
+            let body = b"{\"error\":\"no such model\"}";
+            socket.write_all(format!("HTTP/1.1 404 Not Found\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+            socket.shutdown().await.unwrap();
+        }
+    });
+    let (broker, handle) = Broker::with_local_provider(LocalModelProvider::new(endpoint.clone(), "subject-model".into()), 1).unwrap();
+    let mut subject = state(store.clone(), agent).unwrap().with_broker(handle.clone());
+    commit_output(&store, &mut subject, 1, &[], &delegation("failed-child", "Keep the original evidence.", "Report the provider outcome.", 64)).await;
+    let task = store.native_task_candidates_after(None, 8).unwrap().pop().unwrap().1;
+    let handler = Arc::new(ModelChildHandler::new(store.clone(), handle.clone(), cordis_core::Context::new()).unwrap());
+    let descriptor = handler.descriptor();
+    let native = Arc::new(NativeChildService::new(store.clone(), subject.head.software_generation.clone()));
+    native.install(handler.clone()).unwrap();
+    let claim = store.claim_native_task(task.task_id, descriptor.implementation_ref, false).unwrap().unwrap();
+    let decision: shenko_types::subject::StepDecision = serde_json::from_slice(&store.cas.read_object(&task.input_ref.digest).unwrap()).unwrap();
+    let input = decision.delegated_task_intents.iter().find(|intent| intent.intent_id == task.task_id).unwrap().definition.as_ref().unwrap().input.clone();
+    let invocation = NativeTaskInvocation {
+        context: shenko_types::agent::CallContext {
+            caller_instance_id: store.capabilities.incarnation, role_revision: descriptor.role_revision,
+            task_id: Some(task.task_id), expected_task_revision: Some(claim.invocation.task_revision.0),
+            invocation_id: Some(claim.invocation.invocation_id), controller_epoch: claim.invocation.epoch,
+            software_generation: claim.software_generation.clone(), authority_refs: descriptor.authority_refs, trace_id: EntityId::new(),
+        },
+        task_invocation: claim.invocation.clone(), task: claim.task.clone(), operation_id: claim.operation_id,
+        authority: shenko_types::operation::AuthorityRef {
+            delegation_id: task.task_id, delegation_revision: RecordRevision(claim.invocation.task_revision.0),
+            decision_ref: task.created_by_step_id.unwrap(),
+        },
+        input, child_tools: Some(native.tool_runtime()),
+    };
+    let broker_run = tokio::spawn(broker.run());
+    let mut execution = Box::pin(handler.execute(invocation));
+    tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::select! {
+            result = &mut execution => panic!("child ended before provider release: {result:?}"),
+            wire = received.recv() => assert_eq!(wire.unwrap()["model"], "failed-child"),
+        }
+    }).await.unwrap();
+    release.send(()).unwrap();
+    // Do not poll the worker again: the real broker records E1 independently.
+    tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            if child_step(&store, task.task_id).state == OperationState::Resolved { break; }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }).await.unwrap();
+    let step = child_step(&store, task.task_id);
+    let attempt = store.external_operation_attempt(step.operation_id).unwrap();
+    let evidence = store.external_evidence(attempt.final_receipt_id.unwrap()).unwrap();
+    let raw = store.cas.read_object(&evidence.raw_ref.digest).unwrap();
+    assert_eq!(step.outcome, Some(shenko_types::operation::OperationOutcome::Failed));
+    assert!(store.get_operation(claim.operation_id).unwrap().is_none());
+    assert!(store.native_task_result(task.task_id).unwrap().is_none());
+    drop(execution);
+    native.close_and_join(0).await;
+    drop(native); drop(handler); drop(subject);
+    broker_run.abort(); let _ = broker_run.await;
+    drop(handle); drop(store);
+
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    reopened.start_subject_dispatcher().unwrap();
+    let (broker, next) = Broker::with_local_provider(LocalModelProvider::new(endpoint, "subject-model".into()), 1).unwrap();
+    let (head, _) = reopened.load_subject(agent).unwrap();
+    let restored = service(&reopened, next.clone(), head.software_generation);
+    let broker_run = tokio::spawn(broker.run());
+    drive_until(&restored, || reopened.native_task_result(task.task_id).unwrap().is_some(),
+        || format!("task={:?}", reopened.external_task(task.task_id).map(|task| task.state))).await;
+    let result = reopened.native_task_result(task.task_id).unwrap().unwrap();
+    assert!(matches!(result.outcome, TaskOutcome::Failed { .. }));
+    assert_eq!(result.result.unwrap()["termination"], "generation_failed");
+    assert_eq!(reopened.external_task_operations(task.task_id, MODEL_CHILD_STEP_OPERATION).unwrap().len(), 1);
+    assert_eq!(reopened.external_operation_attempt(step.operation_id).unwrap().final_receipt_id, attempt.final_receipt_id);
+    assert_eq!(reopened.cas.read_object(&evidence.raw_ref.digest).unwrap(), raw);
+    assert!(received.try_recv().is_err(), "recovery sent a second generation");
+    restored.close_and_join(0).await;
+    broker_run.abort(); let _ = broker_run.await;
+    server.abort(); let _ = server.await;
+}
+
 async fn converge_with_bounds<F, Fut, D, S>(
     mut step: F,
     mut done: D,
