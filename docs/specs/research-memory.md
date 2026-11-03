@@ -79,6 +79,13 @@ The handler seals the complete environment body as a CAS object and stores
 its `environment_ref` on the candidate. Its creation timestamp belongs to
 the frozen input, so reconciliation does not invent a later creation time.
 
+Candidate replay requires the same epoch, artifact, score, verifier source,
+environment reference and Store notes. Reusing the ID with different evidence
+is a conflict, not a successful acknowledgement of the new values. An identical
+write retains the first stored creation timestamp and does not advance the
+ledger. It remains replayable after a reset freezes the candidate, without
+thawing it or replacing the evidence.
+
 ## Durable bank (research.bank)
 
 Ops: `put | list | supersede | tombstone`. Entries have `kind`
@@ -97,6 +104,15 @@ including tombstoned rows, without restoring eligibility for injection.
 The reset's excluded-failure count includes retired failure entries retained
 in the archive. Default PMA bank observations use the active `all` view.
 Bank-entry creation time is frozen once, independently of reconciliation.
+
+Bank replay requires the same epoch, kind, content, provenance references,
+scope, confidence, base revision and reset ancestry (`carried_from`). A supplied
+`supersedes` target must match the retained relation; an original write without
+a target may replay after an explicit correction link. Replay neither changes
+those links nor removes a tombstone, and retains the first creation timestamp.
+Conflicting evidence or a different explicit correction target refuses before
+allocating a new ledger commit. Changing an existing relation or retiring an
+entry uses the explicit lifecycle operations, not a repeated `put`.
 
 ## PMA intervention worker (pma.evaluate)
 
