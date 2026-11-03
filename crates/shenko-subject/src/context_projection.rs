@@ -1,6 +1,7 @@
 //! The S0 boundary: durable raw facts -> committed window -> native payload.
 use std::sync::Arc;
 
+use futures::FutureExt;
 use serde::{Deserialize, Serialize};
 use shenko_broker::request::{InferenceMessage, InferencePart, InferencePayload, ProviderCapabilities};
 use shenko_context_policy::{
@@ -23,8 +24,8 @@ pub const IDLE_CONTINUATION_PROMPT: &str = "[运行时连续思考提示；不�
 pub(super) enum ContextSelection {
     Unavailable { reason: String },
     Retained,
-    /// Compaction is preparing off the S0 path; this step keeps the current
-    /// window. The next step adopts the prepared candidate when it verifies.
+    /// Compaction is preparing off the S0 path. A fitting step keeps the
+    /// current window; an oversized step waits before sealing any S0.
     Preparing { attempts: Vec<Attempt> },
     NoUsablePolicy { attempts: Vec<Attempt> },
     Compacted { attempts: Vec<Attempt> },
@@ -158,32 +159,66 @@ fn adopt_error(error: shenko_context_policy::CommitError) -> ShenkoError {
     }
 }
 
-/// The slow compaction work (raw history render, per-policy attempts,
-/// window cut) runs on the blocking pool, never inside an S0 seal. The
-/// candidate publishes when done; a later step adopts it when it verifies
-/// against that step's bounded history. Failure is logged, not propagated:
-/// the current window stays live and the next over-budget step retries.
+#[derive(PartialEq, Eq)]
+struct PreparationSource {
+    window_id: EntityId,
+    model_generation: u64,
+    leaf: Option<u64>,
+    configuration_revision: u64,
+    used_tokens: u32,
+}
+
+type PreparationResult = Result<
+    Result<shenko_context_policy::PreparedCandidate, shenko_context_policy::PrepareError>,
+    tokio::task::JoinError,
+>;
+
+/// One owned worker. Only the live subject publishes its result; aborting a
+/// running blocking task cannot preempt strategy code, but dropping its owner
+/// cannot leave a worker that later publishes into the registry.
+pub(super) struct ContextPreparer {
+    source: PreparationSource,
+    task: tokio::task::JoinHandle<
+        Result<shenko_context_policy::PreparedCandidate, shenko_context_policy::PrepareError>,
+    >,
+    completed: Option<PreparationResult>,
+}
+
+impl Drop for ContextPreparer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 fn launch_context_preparer(
     registry: &Arc<shenko_context_policy::PolicyRegistry>,
     store: Arc<Store>,
     scope_id: EntityId,
     caps: ModelCaps,
-    used_tokens: u32,
-) {
+    source: PreparationSource,
+) -> ContextPreparer {
     let registry = Arc::clone(registry);
-    tokio::task::spawn_blocking(move || {
+    let used_tokens = source.used_tokens;
+    let task = tokio::task::spawn_blocking(move || {
         let history =
             StoreHistory::new(store, scope_id, Arc::new(estimate_tokens));
-        // Prepare and publish are one off-S0 step: the candidate binds itself
-        // to the live scope/window/model/policy revisions it was cut from, so
-        // a later adoption can verify every one of them.
-        match registry.prepare_and_publish(&history, &caps, used_tokens) {
-            Ok(_) => {}
-            Err(error) => {
-                tracing::warn!(%error, "context preparer produced no publishable candidate");
-            }
-        }
+        registry.prepare_candidate(&history, &caps, used_tokens)
     });
+    ContextPreparer { source, task, completed: None }
+}
+
+/// Wait without an inference permit or S0 seal. Keep completion until the
+/// next projection, which rechecks the live source before admitting it.
+pub(super) async fn wait_for_context_preparer(
+    state: &mut SubjectLoopState,
+    cancel: &tokio_util::sync::CancellationToken,
+) {
+    let Some(preparer) = state.context_preparer.as_mut() else { return };
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => { state.context_preparer.take(); }
+        result = &mut preparer.task => { preparer.completed = Some(result); }
+    }
 }
 
 /// Bound the append-only source before selecting/projecting a window. A later
@@ -659,7 +694,7 @@ pub(super) fn project_payload_stable(
 pub(super) fn prepare_context(
     state: &mut SubjectLoopState,
     events: &[InboxEvent],
-) -> Result<PreparedContextInput, ShenkoError> {
+) -> Result<Option<PreparedContextInput>, ShenkoError> {
     // Observe the durable cap before taking this new S0 snapshot. New input is
     // evidence for the model, not an automatic semantic-wait exit.
     state.semantic_wait = state.store.observe_semantic_wait(&state.head)?;
@@ -784,6 +819,65 @@ pub(super) fn prepare_context(
             .observe_pressure(caps, trigger_budget_input_tokens)
             .map_err(storage)?;
     }
+    // A preparation published for this exact source binds the step to its
+    // eventual adoption: committing S0 against the oversized payload while a
+    // fitting window is already published would make every earlier check a
+    // formality. The candidate itself is not consumed here.
+    if history.leaf.is_none() && registry.adoptable_against(&history) {
+        return Ok(None);
+    }
+    let preparation_source = PreparationSource {
+        window_id: window.id,
+        model_generation,
+        leaf: history.leaf,
+        configuration_revision: registry.configuration_revision(),
+        used_tokens: trigger_budget_input_tokens,
+    };
+    let completed = state.context_preparer.as_mut().and_then(|preparer|
+        preparer.completed.take().or_else(|| (&mut preparer.task).now_or_never()));
+    let mut preparation_error = None;
+    let mut failed_attempts = Vec::new();
+    let mut published_current_source = false;
+    if let Some(completed) = completed {
+        let preparer = state.context_preparer.take().expect("completed owned preparer");
+        let result = match completed {
+            Ok(Ok(candidate)) => {
+                let result = registry.publish(candidate)
+                    .map_err(shenko_context_policy::PrepareError::Publish);
+                published_current_source = result.is_ok() && preparer.source == preparation_source;
+                result
+            }
+            Ok(Err(error)) => Err(error),
+            Err(error) => {
+                tracing::warn!(%error, "context preparer stopped without a candidate");
+                if preparer.source == preparation_source {
+                    preparation_error = Some(ShenkoError::other(format!("context preparer failed: {error}")));
+                }
+                Ok(())
+            }
+        };
+        if let Err(error) = result {
+            tracing::warn!(%error, "context preparer produced no publishable candidate");
+            // Stale candidates are not failures of the new projection. A
+            // failed old configuration likewise cannot condemn its successor.
+            let stale = matches!(&error, shenko_context_policy::PrepareError::Publish(
+                shenko_context_policy::PublishError::StaleSource { .. }
+                | shenko_context_policy::PublishError::ModelGenerationChanged { .. }
+                | shenko_context_policy::PublishError::StalePolicy { .. }
+            ));
+            if !stale && preparer.source == preparation_source {
+                preparation_error = Some(match &error {
+                    shenko_context_policy::PrepareError::Storage(error) => storage(error),
+                    shenko_context_policy::PrepareError::Publish(
+                        shenko_context_policy::PublishError::Storage(error)) => storage(error),
+                    _ => ShenkoError::conflict(format!("context preparation refused: {error}")),
+                });
+                if let shenko_context_policy::PrepareError::NoUsablePolicy { attempts } = error {
+                    failed_attempts = attempts;
+                }
+            }
+        }
+    }
     let selection = match &caps {
         None => ContextSelection::Unavailable { reason: "model_context_limit_not_observed".into() },
         Some(caps) => {
@@ -795,8 +889,9 @@ pub(super) fn prepare_context(
             } else {
                 // The slow strategy work (history render, policy attempts,
                 // window cut) happens OFF the S0 path: a prior step's
-                // preparer published a candidate, or this step launches one
-                // and keeps the current window. Adoption re-verifies scope,
+                // preparer returned a candidate, or this step launches one.
+                // A fitting request can keep the current window; otherwise
+                // it waits before S0. Adoption re-verifies scope,
                 // source window, model generation, policy epoch and leaf
                 // against this exact bounded history.
                 match registry.adopt_prepared(&history).map_err(adopt_error)? {
@@ -808,14 +903,24 @@ pub(super) fn prepare_context(
                         ContextSelection::Compacted { attempts }
                     }
                     None => {
-                        launch_context_preparer(
-                            &registry,
-                            Arc::clone(&state.store),
-                            scope_id,
-                            caps.clone(),
-                            trigger_budget_input_tokens,
-                        );
-                        ContextSelection::Preparing { attempts: Vec::new() }
+                        if published_current_source && registry.last_preparation().is_some_and(|diagnostic|
+                            diagnostic.outcome != shenko_context_policy::PreparationOutcome::Adopted)
+                        {
+                            preparation_error = Some(ShenkoError::conflict(
+                                "prepared context window was refused for the unchanged source",
+                            ));
+                        }
+                        if preparation_error.is_some() {
+                            ContextSelection::NoUsablePolicy { attempts: failed_attempts }
+                        } else {
+                            if state.context_preparer.is_none() {
+                                state.context_preparer = Some(launch_context_preparer(
+                                    &registry, Arc::clone(&state.store), scope_id,
+                                    caps.clone(), preparation_source,
+                                ));
+                            }
+                            ContextSelection::Preparing { attempts: Vec::new() }
+                        }
                     }
                 }
             }
@@ -882,11 +987,17 @@ pub(super) fn prepare_context(
         Some(caps.max_context)
     });
     if input_limit.is_some_and(|limit| selected_budget_input_tokens > limit || final_estimate > limit) {
+        if matches!(selection, ContextSelection::Preparing { .. }) {
+            return Ok(None);
+        }
+        if let Some(error) = preparation_error {
+            return Err(error);
+        }
         return Err(ShenkoError::conflict(format!(
             "projected input budget {selected_budget_input_tokens} exceeds available context {input_limit:?}; no dispatch"
         )));
     }
-    Ok(PreparedContextInput {
+    Ok(Some(PreparedContextInput {
         events: recovered, semantic_wait: state.semantic_wait.clone(),
         payload,
         contributions,
@@ -907,5 +1018,5 @@ pub(super) fn prepare_context(
             token_counter: "heuristic:cjk-1-other-4@1; not a provider tokenizer".into(),
             policy_contract: CONTRACT_VERSION, selection,
         },
-    })
+    }))
 }
