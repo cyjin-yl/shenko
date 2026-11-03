@@ -132,6 +132,29 @@ bounded observation of the epoch's bank + attempts, asks the installed
 No personal-interest relevance gate and no approval step: the policy is the
 only authority, the decision is bounded, durable and reproducible.
 
+### The decision and its settlement are one fact
+
+The bounded call produces one decision, and that decision *is* the effect of
+the operation:
+
+- the provider's answer becomes durable E1 evidence on its own
+  (`record_intervention_provider_evidence`). The operation stays unresolved
+  while the policy still has to read the answer, so no path can settle the
+  attempt as a success before a decision exists;
+- the decision row and the settlement that accepts it commit in one ledger
+  transaction (`record_intervention_settlement`): a successful intervention
+  and its durable decision are one fact, and neither exists without the
+  other. The settlement names the decision it carries, and the row keeps the
+  first writer's clock when the same decision is replayed;
+- an answer that carries no usable decision is a failed bounded call. It
+  settles as a failure, keeps the original answer as evidence, and never
+  becomes a fabricated silence;
+- recovery re-derives the decision from the frozen observation and the sealed
+  answer, so a call that stopped between the answer and its decision commits
+  the same decision instead of being replayed. The observation is frozen with
+  the request for exactly that reason; a sealed input of an older revision
+  parks the attempt instead of inventing a decision.
+
 ## Retention (retention.apply)
 
 `{"request_id", "mechanism", "target_refs", "reason", ...}`.
@@ -166,3 +189,8 @@ idempotent write → sealed E1 evidence (`record_external_evidence`) → resolve
 operation. Crash before the write: reconcile re-runs the frozen write (safe
 by idempotency). Unknown/conflict evidence is authoritative and is never
 erased by a later success.
+
+The memory-intervention worker settles in that order with one extra step:
+answer → the policy reads the answer → decision row + settlement in one
+transaction. An answer alone never resolves the operation, and a decision
+without its settlement never becomes visible.

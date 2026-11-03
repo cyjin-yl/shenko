@@ -150,7 +150,7 @@ pub fn ensure_research_schema(conn: &Connection) -> Result<(), ShenkoError> {
         .map_err(|error| ShenkoError::storage(format!("research schema: {error}")))
 }
 
-fn research_storage_failure(error: &ShenkoError) -> bool {
+pub(crate) fn research_storage_failure(error: &ShenkoError) -> bool {
     matches!(
         error,
         ShenkoError::Storage(_) | ShenkoError::Io(_) | ShenkoError::Serde(_)
@@ -183,6 +183,26 @@ fn parse_id(value: &str) -> Result<EntityId, ShenkoError> {
     value
         .parse()
         .map_err(|error| ShenkoError::storage(format!("invalid research id: {error}")))
+}
+
+/// Whether two recorded decisions describe the same decision.
+///
+/// The creation clock and the expiry are the first writer's, and the
+/// consumption receipt is a later projection of the same row, so a replay
+/// under one identity keeps the first row instead of conflicting with it.
+fn same_decision(existing: &InterventionReminder, incoming: &InterventionReminder) -> bool {
+    existing.epoch_id == incoming.epoch_id
+        && existing.lineage_id == incoming.lineage_id
+        && existing.decision == incoming.decision
+        && existing.policy == incoming.policy
+        && existing.policy_revision == incoming.policy_revision
+        && existing.content == incoming.content
+        && existing.provenance == incoming.provenance
+        && existing.relevance == incoming.relevance
+        && existing.scope == incoming.scope
+        && existing.reason == incoming.reason
+        && existing.transient == incoming.transient
+        && existing.bank_entry_ids == incoming.bank_entry_ids
 }
 
 fn optional_id(value: Option<String>) -> Result<Option<EntityId>, ShenkoError> {
@@ -1584,48 +1604,30 @@ impl Store {
         Ok(())
     }
 
-    /// Record one intervention decision. A silent decision is recorded as
-    /// well: a missed reminder is a fact, not an absence.
-    pub fn record_intervention(
-        &self,
+    /// The accepting E1 transaction owns this write. A decision must never
+    /// become visible independently of its operation's successful settlement.
+    pub(crate) fn insert_intervention(
+        tx: &rusqlite::Transaction<'_>,
         reminder: &InterventionReminder,
-    ) -> Result<(), ShenkoError> {
-        self.ledger.with_mutation(
-            || self.try_record_intervention(reminder),
-            research_storage_failure,
-        )
-    }
-
-    fn try_record_intervention(&self, reminder: &InterventionReminder) -> Result<(), ShenkoError> {
-        let mut conn = self.ledger.conn.lock();
-        let tx = conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        ensure_research_schema(&tx)?;
-        // One bounded call produces one decision: a replay records it once.
-        let existing: Option<String> = tx
-            .query_row(
-                "SELECT decision FROM intervention_reminders WHERE reminder_id=?1",
-                params![reminder.reminder_id.to_string()],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        if let Some(decision) = existing {
-            let same = decision
-                == match reminder.decision {
-                    InterventionDecisionKind::Remind => "remind",
-                    InterventionDecisionKind::Silent => "silent",
-                };
-            return if same {
-                Ok(())
+    ) -> Result<bool, ShenkoError> {
+        ensure_research_schema(tx)?;
+        if let Some(existing) = read_reminder_by(
+            tx,
+            "SELECT reminder_id FROM intervention_reminders WHERE reminder_id=?1",
+            params![reminder.reminder_id.to_string()],
+        )? {
+            // A replay of the same decision keeps the first stored row: the
+            // creation clock and the expiry are the first writer's, and the
+            // consumption receipt is a later projection of the same row.
+            // A different decision under one identity is a conflict.
+            return if same_decision(&existing, reminder) {
+                Ok(false)
             } else {
                 Err(ShenkoError::conflict(
-                    "intervention decision identity exists with a different decision",
+                    "intervention decision identity exists with different evidence",
                 ))
             };
         }
-        let seq = self.ledger.allocate_seq(&tx)?;
         tx.execute(
             "INSERT INTO intervention_reminders
              (reminder_id,epoch_id,lineage_id,decision,policy,policy_revision,content,provenance,
@@ -1660,10 +1662,7 @@ impl Store {
             ],
         )
         .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        self.write_commit_log(&tx, seq)?;
-        tx.commit()
-            .map_err(|error| ShenkoError::storage(error.to_string()))?;
-        Ok(())
+        Ok(true)
     }
 
     /// One recorded decision.
