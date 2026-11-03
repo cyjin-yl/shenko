@@ -152,8 +152,9 @@ provider delivery.
 
 Reminder delivery is resolved from **committed epoch and task ownership**, not
 from the address string alone. `subject` and `epoch:<id>` are addresses; the
-collection scope is derived from them: the epoch's owning task is walked to its
-nearest model child, or to the subject root. A model child owns the task scope
+`subject` address resolves through the epoch's owning task's agent to its
+current subject branch. For `epoch:<id>`, the epoch's owning task is walked to
+its nearest model child, or to the subject root. A model child owns the task scope
 `{ scope_id: task_id, task_id: Some(task_id) }`; the subject root owns the
 scope-wide branch scope `{ scope_id: branch_id, task_id: None }`.
 
@@ -163,8 +164,8 @@ prepared for a scope nobody reads: the decision was durable and the reminder
 was still unreachable. An epoch-directed reminder now reaches the worker that
 owns the epoch, and a subject-directed reminder reaches the subject's own
 branch scope. The scope string `subject` is not a global broadcast address,
-and an epoch-directed reminder does not also receive subject-directed
-reminders. Preparation selects active epochs and retains the existing expiry
+and a child's collection does not also receive subject-directed reminders.
+Preparation selects active epochs and retains the existing expiry
 and consumption filters. Historical epochs without an owning task remain
 readable, but cannot establish a delivery scope; the producer does not guess
 an owner from whichever subject happens to run. A malformed ownership chain is
