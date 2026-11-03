@@ -74,9 +74,10 @@ pub struct DialogueDelivery {
 /// the immediate write transaction, so exactly one side wins the race.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeDispatchTransition {
-    /// The caller now durably owns the single armed send for this invocation.
+    /// The caller now durably owns the single armed send for this attempt.
     Won,
-    /// A dispatch commit already exists for this task; the caller must not
+    /// This attempt has a dispatch commit, or a legacy task-wide commit cannot
+    /// be attributed to an attempt. The caller must not
     /// send again and must keep the original attempt recoverable.
     AlreadyCommitted,
     /// The invocation lost authority (cancellation, stale revision/generation,
@@ -98,6 +99,15 @@ pub struct NativeTaskClaim {
 pub struct TaskCancellation {
     pub cancelled: Vec<EntityId>,
     pub already_terminal: Vec<EntityId>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DispatchCommit {
+    operation_id: EntityId,
+    invocation_id: EntityId,
+    task_revision: TaskRevision,
+    commit: CommitRef,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -596,7 +606,7 @@ impl Store {
                     created_commit: commit,
                     updated_commit: commit,
                 };
-                write_task(&tx, &task)?;
+                insert_task(&tx, &task, commit)?;
                 let claim =
                     self.claim_native_task_tx(&tx, tool_task_id, &implementation, false)?;
                 tx.commit()?;
@@ -808,15 +818,18 @@ impl Store {
         self.native_invocation_current_tx(&tx, &task, ctx)
     }
 
-    /// One atomic dispatch commit, serialized with `request_native_cancellation`
+    /// One atomic dispatch commit per attempt, serialized with `request_native_cancellation`
     /// and owner/authority changes by the immediate write transaction. Exactly
-    /// one caller can win `Won`; any later caller sees `AlreadyCommitted` (the
+    /// one caller can win `Won` for that attempt; later callers see `AlreadyCommitted` (the
     /// original send may be in flight and stays recoverable, never re-sent and
     /// never marked never-dispatched) and a cancelled/stale invocation is
-    /// `Fenced` before any send exists.
+    /// `Fenced` before that attempt's send exists. Separate model steps have
+    /// separate attempts even while sharing one task invocation.
     pub fn commit_native_dispatch(
         &self,
         ctx: &crate::external::TaskInvocation,
+        operation_id: EntityId,
+        attempt_id: EntityId,
     ) -> Result<NativeDispatchTransition> {
         self.ledger.with_mutation(
             || {
@@ -827,22 +840,53 @@ impl Store {
                     Some(task) => task,
                     None => return Ok(NativeDispatchTransition::Fenced),
                 };
-                if task.memos.contains_key(NATIVE_DISPATCH) {
-                    return Ok(NativeDispatchTransition::AlreadyCommitted);
+                let operation: OperationRecord = read_json(
+                    &tx, "SELECT data FROM operations WHERE operation_id=?1", operation_id,
+                )?.context("dispatch operation missing")?;
+                let attempt: AttemptRecord = read_json(
+                    &tx, "SELECT data FROM attempts WHERE attempt_id=?1", attempt_id,
+                )?.context("dispatch attempt missing")?;
+                ensure!(operation.operation_id == operation_id && operation.task_id == ctx.task_id
+                    && attempt.attempt_id == attempt_id && attempt.operation_id == operation_id
+                    && attempt.invocation_id == ctx.invocation_id && attempt.epoch == ctx.epoch,
+                    "dispatch operation/attempt belongs to another invocation");
+                let attempt_key = attempt_id.to_string();
+                if let Some(marker) = task.memos.get(NATIVE_DISPATCH) {
+                    // Old commits do not identify the attempted send. They
+                    // remain unresolved, never a license to send a new attempt.
+                    if marker.get("schema_version").is_none() {
+                        return Ok(NativeDispatchTransition::AlreadyCommitted);
+                    }
+                    ensure!(marker.get("schema_version").and_then(|v| v.as_u64()) == Some(2),
+                        "unsupported native dispatch marker");
+                    let attempts = marker.get("attempts").and_then(|v| v.as_object())
+                        .context("invalid native dispatch attempt ledger")?;
+                    if let Some(value) = attempts.get(&attempt_key) {
+                        let previous = DispatchCommit::deserialize(value)?;
+                        ensure!(previous.operation_id == operation_id
+                            && previous.invocation_id == ctx.invocation_id
+                            && previous.task_revision == ctx.task_revision,
+                            "native dispatch commit identity mismatch");
+                        return Ok(NativeDispatchTransition::AlreadyCommitted);
+                    }
                 }
                 if !self.native_invocation_current_tx(&tx, &task, ctx)? {
                     return Ok(NativeDispatchTransition::Fenced);
                 }
+                ensure!(operation.state == OperationState::InFlight
+                    && attempt.dispatch_stage == AttemptDispatchStage::Armed
+                    && attempt.final_receipt_id.is_none(),
+                    "native dispatch attempt is not armed");
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
-                task.memos.insert(
-                    NATIVE_DISPATCH.into(),
-                    serde_json::json!({
-                        "task_revision": task.task_revision,
-                        "invocation_id": ctx.invocation_id,
-                        "commit": commit,
-                    }),
-                );
+                task.memos.entry(NATIVE_DISPATCH).or_insert_with(||
+                    serde_json::json!({"schema_version": 2, "attempts": {}}))
+                    .get_mut("attempts").and_then(|v| v.as_object_mut())
+                    .context("invalid native dispatch attempt ledger")?
+                    .insert(attempt_key, serde_json::to_value(DispatchCommit {
+                        operation_id, invocation_id: ctx.invocation_id,
+                        task_revision: ctx.task_revision, commit,
+                    })?);
                 task.record_revision = task.record_revision.next();
                 task.updated_commit = commit;
                 write_task(&tx, &task)?;
