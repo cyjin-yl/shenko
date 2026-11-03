@@ -23,11 +23,11 @@ tokio = { version = "1", features = ["full"] }
 
 Then have a look at the examples:
 
-- [simple client](russh/examples/client_exec_simple.rs)
-- [interactive PTY client](russh/examples/client_exec_interactive.rs)
-- [server](russh/examples/echoserver.rs)
-- [SFTP client](russh/examples/sftp_client.rs)
-- [SFTP server](russh/examples/sftp_server.rs)
+- [simple client](examples/client_exec_simple.rs)
+- [interactive PTY client](examples/client_exec_interactive.rs)
+- [server](examples/echoserver.rs)
+- [SFTP client](examples/sftp_client.rs)
+- [SFTP server](examples/sftp_server.rs)
 
 API documentation is on [docs.rs](https://docs.rs/russh)
 
@@ -144,7 +144,7 @@ Exceptions are reviewed and justified manually.
 
 ## Ecosystem
 
-- [russh-sftp](https://crates.io/crates/russh-sftp) - server-side and client-side SFTP subsystem support for `russh`; see `russh/examples/sftp_server.rs` or `russh/examples/sftp_client.rs`.
+- [russh-sftp](https://crates.io/crates/russh-sftp) - server-side and client-side SFTP subsystem support for `russh`; see `examples/sftp_server.rs` or `examples/sftp_client.rs`.
 - [async-ssh2-tokio](https://crates.io/crates/async-ssh2-tokio) - simple high-level API for running commands over SSH.
 
 ## Adopters

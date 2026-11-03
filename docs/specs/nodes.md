@@ -80,7 +80,8 @@ CLI (`shenko sync` in `bin/shenko/src/node_sync.rs`):
   member configuration; the candidacy ordering (`coordination` request)
   remains explicitly `is_election: false`.
 
-Startup wiring (`bin/shenko/src/main.rs`): before the subject loop spawns,
+Startup wiring (`bin/shenko/src/lib.rs`, called by the thin `main.rs`):
+before the subject loop spawns,
 `node_sync::establish_primary` ensures the genesis/committed configuration,
 campaigns, solicits votes and commits the claim; the returned
 `Option<FencingToken>` is passed to `observe`. `None` (partitioned, no
