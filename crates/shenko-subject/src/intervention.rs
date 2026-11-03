@@ -286,7 +286,11 @@ impl PmaEvaluateHandler {
             policy.name() == frozen.policy_name && policy.revision() == frozen.policy_revision,
             "the installed intervention policy changed after the request was sealed"
         );
-        Ok(policy.interpret(observation, reply)?)
+        let decision = policy.interpret(observation, reply)?;
+        if let InterventionDecision::Remind { scope, .. } = &decision {
+            shenko_store::validate_intervention_scope(frozen.epoch_id, scope)?;
+        }
+        Ok(decision)
     }
 
     /// Record the decision and, for a reminder, publish it into the request
@@ -351,9 +355,10 @@ impl PmaEvaluateHandler {
             bank_entry_ids: observation
                 .bank
                 .iter()
+                .take(observation.budget.max_bank_entries)
                 .filter(|entry| {
                     decision_provenance(decision).iter().any(|reference| {
-                        reference == &entry.entry_id.to_string()
+                        reference.parse::<EntityId>().ok() == Some(entry.entry_id)
                             || entry.source_refs.iter().any(|source| source == reference)
                     })
                 })
