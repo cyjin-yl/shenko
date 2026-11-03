@@ -886,7 +886,7 @@ pub fn run_owned(command: Command, data_dir: PathBuf) -> Result<()> {
         });
         // Reject an unrelated target before creating any owner or store file.
         bootstrap.validate_target()?;
-        std::fs::create_dir_all(&data_dir)?;
+        create_data_directory(&data_dir)?;
         let data_dir = data_dir.canonicalize()?;
         let owner = update_control::acquire_launch_owner(&data_dir)?;
         // Recheck after obtaining the guard: another starter may have finished
@@ -1009,7 +1009,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         }
         Command::Context { command } => context_policy::command(&data_dir, command)?,
         Command::Admin { command } => {
-            tokio::fs::create_dir_all(&data_dir).await?;
+            create_data_directory_async(&data_dir).await?;
             let store =
                 shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
             let agent_id = store
@@ -1045,7 +1045,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             }
         }
         Command::Contacts { command } => {
-            tokio::fs::create_dir_all(&data_dir).await?;
+            create_data_directory_async(&data_dir).await?;
             let store =
                 shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
             let agent_id = store
@@ -1162,7 +1162,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 ..Default::default()
             });
             bootstrap.validate_target()?;
-            tokio::fs::create_dir_all(&data_dir).await?;
             let store = open_installation_store(&data_dir)?;
             println!(
                 "Store: OK (SQLite {}, WAL={}, FTS5={})",
@@ -1202,7 +1201,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             expected_revision,
             history,
         } => {
-            tokio::fs::create_dir_all(&data_dir).await?;
             let store = open_installation_store(&data_dir)?;
             let agent_id = store
                 .get_existing_agent_id()?
@@ -1286,7 +1284,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             //    The store lives in the live slot the durable pointer names
             //    (`versions/<gen>/`); a data dir without any slot published
             //    yet is itself the live slot (first run).
-            tokio::fs::create_dir_all(&data_dir).await?;
+            create_data_directory_async(&data_dir).await?;
             let live_slot = shenko_update::slots::resolve_live_slot(&data_dir)?
                 .unwrap_or_else(|| data_dir.clone());
             let db_path = live_slot.join(shenko_update::SLOT_DB_FILENAME);
@@ -2366,7 +2364,7 @@ async fn browser_batch(data_dir: &std::path::Path, file: Option<&std::path::Path
         buffer
     };
     let steps: Vec<serde_json::Value> = serde_json::from_str(&input)?;
-    tokio::fs::create_dir_all(data_dir).await?;
+    create_data_directory_async(data_dir).await?;
     let store = shenko_store::store::Store::open(data_dir.join("shenko.db"), data_dir.join("cas"))?;
     let provider = Arc::new(BrowserProvider::new(Arc::new(store), data_dir.join("browser")));
     let caller = shenko_types::ids::EntityId::new();
@@ -3026,6 +3024,7 @@ impl shenko_kernel::ErrorSink for StoreErrorSink {
 /// Open the store of the live slot the durable pointer names. A data dir
 /// that has never published a slot is itself the live slot (first run).
 fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store> {
+    create_data_directory(data_dir)?;
     let live_slot = shenko_update::slots::resolve_live_slot(data_dir)?
         .unwrap_or_else(|| data_dir.to_path_buf());
     Ok(shenko_store::store::Store::open(
@@ -3034,6 +3033,57 @@ fn open_installation_store(data_dir: &Path) -> Result<shenko_store::store::Store
         // installation and always lives at <data_dir>/cas.
         data_dir.join("cas"),
     )?)
+}
+
+// Specify access when creating each new directory, not by chmod after it is
+// exposed. Inherited default ACLs otherwise bypass the process umask. Existing
+// directories and ancestors are untouched; owner-control still admits them.
+fn create_data_directory(path: &Path) -> std::io::Result<()> {
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(path)
+}
+
+async fn create_data_directory_async(path: &Path) -> std::io::Result<()> {
+    let mut builder = tokio::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    builder.mode(0o700);
+    builder.create(path).await
+}
+
+#[cfg(all(test, unix))]
+mod data_directory_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn new_data_roots_are_private_without_chmod_of_existing_directories() -> Result<()> {
+        let parent = std::env::temp_dir().join(format!(
+            "shenko-private-data-{}", shenko_types::ids::EntityId::new()
+        ));
+        std::fs::create_dir(&parent)?;
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o770))?;
+        for asynchronous in [false, true] {
+            let path = parent.join(if asynchronous { "async" } else { "sync" }).join("data");
+            if asynchronous { create_data_directory_async(&path).await?; }
+            else { create_data_directory(&path)?; }
+            for new_directory in [path.as_path(), path.parent().unwrap()] {
+                assert_eq!(new_directory.metadata()?.permissions().mode() & 0o777, 0o700);
+            }
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o770))?;
+            if asynchronous { create_data_directory_async(&path).await?; }
+            else { create_data_directory(&path)?; }
+            assert_eq!(path.metadata()?.permissions().mode() & 0o777, 0o770);
+        }
+        assert_eq!(parent.metadata()?.permissions().mode() & 0o777, 0o770);
+        Ok(())
+    }
 }
 
 /// Ensure genesis exists for this installation. Returns agent_id. SPEC §44.6.

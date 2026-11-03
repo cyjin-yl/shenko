@@ -967,7 +967,6 @@ fn push_all(data_dir: &Path, store: &Store, cancel: &CancellationToken) -> Resul
 }
 
 pub async fn run(command: SyncCommand, data_dir: PathBuf) -> Result<()> {
-    tokio::fs::create_dir_all(&data_dir).await?;
     let store = Arc::new(crate::open_installation_store(&data_dir)?);
     // Adoption is the divergence-reconciliation entry: it opens the node
     // without the binding gate (a diverged installation must still be able
@@ -1295,7 +1294,6 @@ pub fn observe(
 }
 
 pub fn node_command(data_dir: &Path) -> Result<()> {
-    std::fs::create_dir_all(data_dir)?;
     let store = crate::open_installation_store(data_dir)?;
     let mut bytes = Vec::new();
     std::io::stdin()

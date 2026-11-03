@@ -15,6 +15,14 @@ composition root: `bin/shenko/src/lib.rs`.
   opens reject symlinks, hardlinks, unsafe permissions and special files
   before reading. The native runtime does not fall back to unprotected
   plaintext storage on unsupported platforms.
+- The data root itself is created with mode 0700 at creation time, not by
+  tightening it afterwards. A shared parent may carry a default ACL that
+  grants group or named-user access; inheriting it would leave the root
+  writable by others, and owner-control would then refuse the installation.
+  New directories therefore carry their own restrictive mode, and an existing
+  data root keeps the permissions it already had: a root that is writable by
+  others is reported as such instead of being silently rewritten or repaired
+  behind the owner's back.
 - Plaintext never enters stdout/stderr, logs, model context, CAS or replicated
   tables. Startup reports only the control-file path. Delivery publishes
   atomically without replacement, before its verifier; restarting between
