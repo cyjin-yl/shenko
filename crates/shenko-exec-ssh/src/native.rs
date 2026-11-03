@@ -152,7 +152,7 @@ impl NativeTaskHandler for SshExecHandler {
                 "account_identity": frozen.binding.target.user,
                 "trust_digest": frozen.binding.known_hosts.digest,
             }),
-            "one exact remote command executed over the pinned trust binding; complete means the remote reported an exit status or a protocol interruption, not that application postconditions hold",
+            "one exact remote command executed over the pinned trust binding; complete means an accepted, closed exchange reported a remote exit; missing or contradictory completion remains unknown, and a reported exit does not prove application postconditions",
             "query only the original observation receipt under its frozen operation; unknown stays unknown, never resend the command",
         )?;
         if let Some(existing) = self
@@ -249,17 +249,30 @@ fn exec_payload(
     observation: &ExecObservation,
 ) -> (serde_json::Value, Option<OperationOutcome>, EffectStatus) {
     match observation {
-        ExecObservation::Executed(Ok(observation)) => (
-            serde_json::json!({
-                "schema_version": 1,
-                "status": "executed",
-                "target_id": frozen.binding.target_id,
-                "trust_digest": frozen.binding.known_hosts.digest,
-                "observation": observation,
-            }),
-            Some(OperationOutcome::Succeeded),
-            EffectStatus::Complete,
-        ),
+        ExecObservation::Executed(Ok(observation)) => {
+            // execute() returns a transport observation even after a deadline,
+            // disconnect or protocol failure. Local session shutdown is not
+            // evidence that an accepted remote command stopped. Only a coherent
+            // accepted/closed exchange with a remote exit is conclusive here.
+            // OutputLimit retains that exit after draining; it does not erase it.
+            let conclusive = observation.exec_request_queued
+                && observation.exec_accepted
+                && observation.channel_closed
+                && observation.exit.is_some()
+                && matches!(observation.interruption.as_ref(),
+                    None | Some(NativeInterruption::OutputLimit));
+            (
+                serde_json::json!({
+                    "schema_version": 1,
+                    "status": if conclusive { "executed" } else { "unknown" },
+                    "target_id": frozen.binding.target_id,
+                    "trust_digest": frozen.binding.known_hosts.digest,
+                    "observation": observation,
+                }),
+                conclusive.then_some(OperationOutcome::Succeeded),
+                if conclusive { EffectStatus::Complete } else { EffectStatus::Unknown },
+            )
+        },
         ExecObservation::Executed(Err(error)) => (
             serde_json::json!({
                 "schema_version": 1,
@@ -939,5 +952,64 @@ impl NativeTaskHandler for SeatRespondHandler {
             "seat-respond-recovery",
             "controller recovered; the typed input effect is not provably undone — read the durable seat decision facts (decision_state / question_state), never re-answer automatically",
         )
+    }
+}
+
+
+#[cfg(test)]
+mod exec_observation_tests {
+    use super::*;
+    use crate::native_transport::NativeExit;
+
+    // Only receipt projection is under test. This synthetic binding is never
+    // admitted, opened or connected, and contains no credential or real path.
+    fn frozen() -> ExecFrozen {
+        let digest = Digest("0".repeat(64));
+        ExecFrozen {
+            schema_version: 1,
+            binding: SshBinding {
+                target_id: "projection-fixture".into(),
+                target: crate::SshTarget::default(),
+                receipt_root: "/unused-projection-fixture".into(),
+                known_hosts: ObjectRef {
+                    digest: digest.clone(), bytes: 0, media_type: "text/plain".into(),
+                    store_namespace: "fixture-only".into(), locator: "not-admitted".into(),
+                    codec: SchemaRef { name: "fixture".into(), major: 1, digest },
+                },
+            },
+            command: "never-executed".into(), stdin_b64: String::new(),
+            deadline_ms: 100, shutdown_grace_ms: 100, stdout_bytes: 32, stderr_bytes: 32,
+        }
+    }
+
+    #[test]
+    fn accepted_deadline_without_exit_remains_unknown() {
+        let observation = NativeCommandObservation {
+            schema: "ssh.native-transport.v1", stdout: b"partial".to_vec(), stderr: vec![],
+            exit: None, exec_request_queued: true, exec_accepted: true,
+            channel_closed: false, interruption: Some(NativeInterruption::Deadline),
+            session_end_observed: true,
+        };
+        let (payload, outcome, effect) = exec_payload(&frozen(), &ExecObservation::Executed(Ok(observation)));
+        assert_eq!(outcome, None, "a local protocol end does not prove the remote command ended");
+        assert_eq!(effect, EffectStatus::Unknown);
+        assert_eq!(payload["observation"]["interruption"], "deadline");
+        assert!(payload["observation"]["exit"].is_null());
+        assert_eq!(payload["observation"]["stdout"], serde_json::json!(b"partial".to_vec()));
+    }
+
+    #[test]
+    fn bounded_output_with_exit_255_retains_conclusive_transport_result() {
+        let observation = NativeCommandObservation {
+            schema: "ssh.native-transport.v1", stdout: b"bounded".to_vec(), stderr: vec![],
+            exit: Some(NativeExit::Status { code: 255 }),
+            exec_request_queued: true, exec_accepted: true, channel_closed: true,
+            interruption: Some(NativeInterruption::OutputLimit), session_end_observed: true,
+        };
+        let (payload, outcome, effect) = exec_payload(&frozen(), &ExecObservation::Executed(Ok(observation)));
+        assert_eq!(outcome, Some(OperationOutcome::Succeeded));
+        assert_eq!(effect, EffectStatus::Complete);
+        assert_eq!(payload["observation"]["exit"]["code"], 255);
+        assert_eq!(payload["observation"]["interruption"], "output_limit");
     }
 }
