@@ -116,10 +116,11 @@ entry uses the explicit lifecycle operations, not a repeated `put`.
 
 ## PMA intervention worker (pma.evaluate)
 
-`PmaEvaluateHandler` (shenko-subject) drains
-`store.pending_intervention_reminders(agent_id, now_ms, limit)` — the
-agent-scoped reminder queue, a different durable set from the library memory
-intents (`store/src/memory.rs::pending_library_memory_intents`). It builds a
+`PmaEvaluateHandler` (shenko-subject) evaluates the requested research epoch;
+it does not drain the reminder queue. The queue reader
+`store.pending_intervention_reminders(agent_id, now_ms, limit)` is separate
+from both this evaluation and the library memory intents
+(`store/src/memory.rs::pending_library_memory_intents`). The handler builds a
 bounded observation of the epoch's bank + attempts, asks the installed
 `MemoryInterventionPolicy`, and executes the decision:
 
@@ -131,6 +132,19 @@ bounded observation of the epoch's bank + attempts, asks the installed
 
 No personal-interest relevance gate and no approval step: the policy is the
 only authority, the decision is bounded, durable and reproducible.
+
+Prepared PMA contributions use the common `ContributionPayload { v, text }`
+reader contract. The sealed object also retains reminder identity, provenance,
+relevance and bank references; these metadata fields are not injected as model
+text. The producer revision is `pma.intervention/v2` and the reminder-body
+codec is version 2; original sealed objects are never rewritten.
+
+A transient reminder with a deadline uses `ThisRequestUntilMillis`: it expires
+if still unused at that deadline and is consumed when an accepted S0 first
+adopts it. Re-publication and replay of S0 usage do not revive it. Ordinary
+`ExpiresAtMillis` remains reusable until its deadline. This contribution-level
+contract does not by itself prove default-runtime producer installation,
+correct subject routing or provider delivery.
 
 ### The decision and its settlement are one fact
 

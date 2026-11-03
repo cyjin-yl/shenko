@@ -127,7 +127,7 @@ ContextContribution { key, slot, source, scope, input_revision, lifetime,
 ```
 
 - `source` 绑定真实生产者：`plugin_id`、`plugin_version`、`artifact_digest`（没有工件的生产者用 `None` 并把 `kind` 记为 `Reminder`）、`kind`。
-- `scope` 标明适用的分支与任务；`lifetime` 是 `ThisRequest` / `UntilEventRevision` / `ExpiresAtMillis`。
+- `scope` 标明适用的分支与任务；`lifetime` 是 `ThisRequest` / `ThisRequestUntilMillis` / `UntilEventRevision` / `ExpiresAtMillis`。`ThisRequestUntilMillis` 同时保留单次消费和未消费时的到期时间；TTL 不代表可以重复使用。
 - `required` 的贡献不能被当作可选项跳过：无法纳入时进入 `missing_required`，由调用方决定含义，注册表不静默丢弃。
 
 ### 合并规则只有一条
@@ -144,7 +144,7 @@ ContextContribution { key, slot, source, scope, input_revision, lifetime,
 
 最终载荷检查按**完整载荷**收费，而不是按追加贡献之前的前缀：追加的贡献正文用同一条启发式重新估算，与生产者声明成本取较大者，加到所选窗口的估算上；所选窗口的图像估算被保留，不因按 vision=0 重扫而丢失。上限比较同时看这项完整估算和被校准的预算输入——绑定一致时，上一次 provider 实测输入的增量基准以完整载荷的估算为基数。容量没有观测到时仍然是未知，不按模型名臆造上限。
 
-`record_usage(usage)` 投影已提交 S0 采用的完整准备身份，并消费与其匹配的单次项（`ThisRequest`）。消费身份在注销、重新注册、重新发布以及恢复先于发布时都保留；改变准备时间不会制造新材料。另一作用域或较新输入修订不会被旧请求一并消费。同一请求的相同记录是幂等重放，改变其封口或内容会返回 `UsageConflict`，不覆盖旧证据。
+`record_usage(usage)` 投影已提交 S0 采用的完整准备身份，并消费与其匹配的单次项（`ThisRequest`、`ThisRequestUntilMillis`）。消费身份在注销、重新注册、重新发布以及恢复先于发布时都保留；改变准备时间不会制造新材料。另一作用域或较新输入修订不会被旧请求一并消费。同一请求的相同记录是幂等重放，改变其封口或内容会返回 `UsageConflict`，不覆盖旧证据。
 
 用量证据（`ContributionUsage`）带请求 id、请求修订、输入修订、封口摘要、发送项、遗漏项与总 token。主体只在 Store 接受 `planned → preparing` 后登记消费；仅写完 CAS 对象、过期快照被拒或 S0 事务失败都不消费。恢复和服务实例替换从该分支**全部已有封口的步骤**重建，包括早于当前 head 的步骤与退役尝试，而不只读取最新一步。一次步骤固定同一个已恢复的注册表实例。
 
