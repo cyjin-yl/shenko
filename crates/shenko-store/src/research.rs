@@ -1613,6 +1613,7 @@ impl Store {
         tx: &rusqlite::Transaction<'_>,
         reminder: &InterventionReminder,
     ) -> Result<bool, ShenkoError> {
+        validate_intervention_scope(reminder.epoch_id, &reminder.scope)?;
         ensure_research_schema(tx)?;
         if let Some(existing) = read_reminder_by(
             tx,
@@ -2275,6 +2276,19 @@ const REMINDER_COLUMNS: &str = "reminder_id,epoch_id,lineage_id,decision,policy,
      content,provenance,relevance,scope,expires_at_ms,transient,bank_entry_ids,reason,created_at_ms,\
      used_step_id,used_at_ms";
 
+/// Validate a reminder address before accepting it as a durable decision.
+/// Ownership routing is separate: neither prose nor another epoch is a
+/// destination, even when the reminder text itself is useful.
+pub fn validate_intervention_scope(epoch: EntityId, address: &str) -> Result<(), ShenkoError> {
+    if address == "subject"
+        || address.strip_prefix("epoch:").and_then(|id| id.parse::<EntityId>().ok()) == Some(epoch)
+    {
+        Ok(())
+    } else {
+        Err(ShenkoError::conflict("reminder names a different or invalid scope"))
+    }
+}
+
 /// One SQL snapshot; the optional agent binding avoids scanning other agents
 /// for each prepared scope. Callers keep the connection lock through routing.
 fn pending_scope_reminders(
@@ -2307,9 +2321,7 @@ fn reminder_delivery_scope(
     epoch: EntityId,
     address: &str,
 ) -> Result<Option<ContributionScope>, ShenkoError> {
-    if address != "subject" && address != format!("epoch:{epoch}") {
-        return Err(ShenkoError::conflict("reminder names a different or invalid scope"));
-    }
+    validate_intervention_scope(epoch, address)?;
     let binding: Option<(String, String)> = conn.query_row(
         "SELECT t.data,h.data FROM research_epochs e
          JOIN tasks t ON t.task_id=e.task_id

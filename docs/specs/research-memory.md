@@ -137,6 +137,22 @@ bounded observation of the epoch's bank + attempts, asks the installed
 No personal-interest relevance gate and no approval step: the policy is the
 only authority, the decision is bounded, durable and reproducible.
 
+The model observation names its `allowed_reminder_scopes`: `subject` and
+`epoch:<current epoch_id>`. A scope is a delivery address, not prose describing
+the work, and cannot name another epoch or append a lineage description.
+When a visible bank is present, provenance must identify a visible entry or
+one of that entry's exact source references. Only the budget-visible bank
+prefix can supply the persisted `bank_entry_ids`; hidden entries do not become
+evidence merely because the unbounded observation contained them.
+
+Address validation occurs in the model policy, again for an arbitrary installed
+policy's reminder, and before Store accepts a decision transaction. An unusable
+address therefore fails the bounded call while retaining the original provider
+answer; it cannot first commit a successful operation and then fail during
+publication. This checks routing, not whether the model's advice is correct.
+Previously accepted malformed decisions are not rewritten or silently assigned
+a destination: their original facts and explicit recovery conflicts remain.
+
 Prepared PMA contributions use the common `ContributionPayload { v, text }`
 reader contract. The sealed object also retains reminder identity, provenance,
 relevance and bank references; these metadata fields are not injected as model
@@ -273,3 +289,53 @@ The memory-intervention worker settles in that order with one extra step:
 answer → the policy reads the answer → decision row + settlement in one
 transaction. An answer alone never resolves the operation, and a decision
 without its settlement never becomes visible.
+
+### Bounded native observations (2026-11-03)
+
+The live PMA observer uses the real Store, native task dispatcher, broker,
+policy/parser and contribution plugin. The served model was
+`swift-qwen3.8-27b-nvfp4`, rooted at
+`Merkyor-Coder390-NVFP4-W4A16-3e644f23`. Four synthetic cases each received three
+fresh model calls and one SilentPolicy control, separately before and after
+the address fix. The two consumers have identical source bytes
+(`158dfc02b30b44b1c48a67871c6b1735b8782c1c36c3f12d7cc58c390f3142f7`).
+Whole-worktree membership/content manifests, resolved Cargo package paths,
+compiler-artifact messages and retained executable hashes bind each arm to
+its own product source and target directory.
+
+| Observed outcome | Before | Address fix |
+| --- | ---: | ---: |
+| Model tasks settled successfully | 10/12 | 12/12 |
+| Malformed address committed; task without terminal result | 2/12 | 0/12 |
+| SilentPolicy controls settled silently | 4/4 | 4/4 |
+
+In the fixed arm all six reminder decisions produced a prepared contribution;
+the other six model decisions were silent, with no projection or teardown
+error. This is not proof of delivery to a later model request or autonomous
+default-CLI initiation. It is also not a claim of perfect advice: the first
+identifier-loss sample suggested BigInt without preserving the original
+decimal spelling; numeric equivalence does not generally preserve lexical IDs.
+No hard-coded semantic filter was added. The earlier diagnostic trial exposed
+case labels in source references and is retained only as a defect diagnostic,
+not an unbiased efficacy measurement. The matched trials use unrelated UUID
+source references and do not replay the earlier requests.
+
+Evidence roots under `build/spec-architecture-20261101/`:
+`pma-live-neutral-{before,after}-r1/`, `pma-neutral-matched-assessment.json`,
+and `pma-address-verification-r1/` (contribution 4, settlement 4, Store 21
+regressions passed). These bounded synthetic observations do not close general
+model efficacy, autonomous initiation, or long-duration acceptance.
+
+A separate default-CLI mechanism observation binds both CLI and Store reader
+to merge `c37307c` with a complete source manifest and an independent target.
+The first run, `epoch-sourcebound-r1/`, failed before any provider request:
+an inherited default ACL made the newly created data root group-writable, and
+owner-control rejected it. `epoch-private-r1/` reuses the exact retained
+executables without rebuilding and uses a fresh, precreated 0700 data root.
+Its seven checks passed: five recorded child steps, committed reminder,
+single target-child delivery, no reminder in rolling tool history or subject
+requests, one PMA call, and no scripted-provider error. Native CLI and Store
+readback exited zero, with source/executable hashes unchanged. This proves the
+delivery mechanism with scripted responses, not live-model judgment; it does
+not repair the first-run directory initialization defect or upgrade the older
+source-limited receipts into complete proofs.
