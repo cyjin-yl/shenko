@@ -405,6 +405,16 @@ impl Store {
         }
         let definition = intent.definition.as_ref().ok_or_else(invalid)?;
         let input = &definition.input;
+        // The frozen child contract version decides how the outbound account
+        // was derived when the contract was sealed. Both known versions stay
+        // admissible; an unknown version is never reinterpreted.
+        let contract_schema = input
+            .get("schema_version")
+            .and_then(|value| value.as_u64())
+            .ok_or_else(invalid)?;
+        if !matches!(contract_schema, 2 | 3) {
+            return Err(invalid());
+        }
         // A continued run may only continue a FINISHED model child of the
         // same subject. Its recorded transcript is reused, so the owner
         // answers a real question instead of starting a second discussion.
@@ -431,11 +441,15 @@ impl Store {
         let granted = match (&spec.reply_grant, &intent.reply_grant) {
             (None, None) => None,
             (Some(grant), Some(bound)) => {
-                let granted_account = grant
-                    .account
-                    .clone()
-                    .unwrap_or_else(|| grant.target.kind.clone());
-                if bound.task_id != intent.intent_id
+                let granted_account = match contract_schema {
+                    2 => grant
+                        .account
+                        .clone()
+                        .unwrap_or_else(|| grant.target.kind.clone()),
+                    _ => grant.account_namespace().to_string(),
+                };
+                if (contract_schema != 2 && grant.contradicts_target_account())
+                    || bound.task_id != intent.intent_id
                     || bound.target_provider != grant.target.channel
                     || bound.target_account != granted_account
                     || bound.target_conversation != grant.target.id.to_string()
@@ -457,7 +471,6 @@ impl Store {
         if plan.get("schema_version").and_then(|value| value.as_u64()) != Some(12)
             || plan.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || definition.definition_version != 1
-            || input.get("schema_version").and_then(|value| value.as_u64()) != Some(2)
             || input.get("task_id") != Some(&serde_json::to_value(intent.intent_id)?)
             || input.get("created_by_step_id") != Some(&serde_json::to_value(step.step_id)?)
             || input.get("software_generation") != Some(&serde_json::to_value(&head.software_generation)?)
