@@ -44,11 +44,29 @@ label alone is not a reproducible environment.
   recorded); surviving bank entries are carried; the new brief carries
   constraints/budget/effects forward **without the old failure narrative**
   (failed entries stay in the frozen epoch, excluded by count).
+- The candidate pool includes both candidates created in the current epoch
+  and candidates retained in its sealed brief and reset ancestry. This also
+  recovers candidates omitted by older reset writers, without rewriting their
+  historical briefs or reading mutable historical candidate rows. Only
+  candidate evidence is recovered from ancestors: old bank entries and failure
+  narratives are not restored. Each snapshot's digest, identity and parent
+  binding must verify; the ancestry must remain in the same lineage and reach
+  epoch 1 through consecutive epoch numbers. Missing ancestors, cycles and
+  conflicting evidence refuse the reset rather than publish a partial pool.
+  This verification reads the sealed ancestor snapshots on each new reset.
+  Consecutive resets preserve candidate identities, artifact references, scores
+  and their sources, and environment references; they do not create duplicate
+  candidate rows. The inherited best is revalidated on every reset. An invalid implicit best is
+  reported in the validation receipt, not presented as the new starting point;
+  an explicitly requested invalid best still refuses the reset. A missing or
+  inconsistent required brief is an error, not an empty inheritance set.
 - Triggers: `stagnation | isomorphic_proposal | evidence_direction_changed |
   planned_round | subject_request`.
 - Idempotent on `request_id` (epochs.reset_request_id UNIQUE). A replay
-  returns the same epoch. Old epochs are never deleted; the reset changes what
-  a new worker sees, not what the ledger remembers.
+  returns the same epoch identity and the sealed candidate set, carried bank
+  IDs and excluded-failure count. Later bank mutations do not rewrite that
+  result. Old epochs are never deleted; the reset changes what a new worker
+  sees, not what the ledger remembers.
 
 ## Candidates (research.candidate)
 
@@ -72,7 +90,12 @@ kind does not survive reset and tombstoned entries are not carried.
 
 `list` accepts `selection=all|carried|failures` and an optional exact scope
 filter. `all` returns non-tombstoned entries; `carried` selects requirements,
-environment facts and open goals; `failures` selects attempts and diagnoses.
+environment facts and open goals that are not tombstoned; `failures` is an
+explicit audit view of attempts and diagnoses, including tombstoned entries.
+The Store's `bank_entry(id)` API keeps every kind readable by identity,
+including tombstoned rows, without restoring eligibility for injection.
+The reset's excluded-failure count includes retired failure entries retained
+in the archive. Default PMA bank observations use the active `all` view.
 Bank-entry creation time is frozen once, independently of reconciliation.
 
 ## PMA intervention worker (pma.evaluate)

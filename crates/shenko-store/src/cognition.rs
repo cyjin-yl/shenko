@@ -173,6 +173,15 @@ pub struct CognitionSnapshotOptions {
     pub workspace_roots: Vec<PathBuf>,
     /// Capture the memory repository history. On by default.
     pub include_git_history: bool,
+    /// The caller guarantees the paused local subject boundary is preserved
+    /// at the destination before this archive is applied. Only the
+    /// same-installation A/B handover sets this: its importer installs the
+    /// complete paused head/successor/quiesce state through
+    /// `copy_paused_activation_boundary` before applying the archive, so a
+    /// paused head is a snapshot the receiver is equipped to carry, never a
+    /// stranded one. Peer replication must leave this unset — a peer archive
+    /// cannot deliver a local boundary safely.
+    pub local_boundary_preserved: bool,
 }
 
 impl Default for CognitionSnapshotOptions {
@@ -181,6 +190,7 @@ impl Default for CognitionSnapshotOptions {
             memory_root: None,
             workspace_roots: Vec::new(),
             include_git_history: true,
+            local_boundary_preserved: false,
         }
     }
 }
@@ -1961,7 +1971,7 @@ impl Store {
         allocate_order: bool,
     ) -> Result<Collected> {
         let (rows, derivatives, agent_id, high_water, snapshot_seq) =
-            self.snapshot_rows(allocate_order)?;
+            self.snapshot_rows(allocate_order, options.local_boundary_preserved)?;
         let mut roots: Vec<ObjectRef> = Vec::new();
         let mut external: Vec<Digest> = Vec::new();
         for row in &rows {
@@ -2073,6 +2083,7 @@ impl Store {
     fn snapshot_rows(
         &self,
         allocate_order: bool,
+        local_boundary_preserved: bool,
     ) -> Result<(
         Vec<CognitionRow>,
         Vec<CognitionDerivative>,
@@ -2089,13 +2100,16 @@ impl Store {
         let tx = conn.transaction_with_behavior(behavior).map_err(db)?;
         // The subject boundary request is local controller state, not part of
         // this archive schema. A paused head without its request would strand
-        // the receiver and must never be acknowledged as a complete snapshot.
+        // a peer receiver and must never be acknowledged as a complete
+        // snapshot. The one exception is the documented same-installation
+        // handover: the caller opts in only when the destination installs
+        // the complete paused boundary separately before applying.
         let paused: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM subject_branch_heads WHERE mode='paused')",
             [],
             |row| row.get(0),
         ).map_err(db)?;
-        ensure!(!paused, "cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting");
+        ensure!(!paused || local_boundary_preserved, "cognition snapshot unavailable while a local subject boundary is paused; preserve the complete store or resume before exporting");
         let snapshot_seq = if allocate_order {
             let current: Option<i64> = tx
                 .query_row(

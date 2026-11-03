@@ -50,6 +50,12 @@ pub fn import_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Resul
     let export = source.export_cognition(&CognitionSnapshotOptions {
         memory_root: source_memory.is_dir().then_some(source_memory),
         workspace_roots: Vec::new(), include_git_history: true,
+        // This is the same-installation handover, not a peer replication:
+        // the final catch-up legitimately runs while the subject is
+        // quiesced, and `copy_paused_activation_boundary` below installs
+        // the complete paused boundary at the destination before the
+        // archive is applied.
+        local_boundary_preserved: true,
     })?;
     let archive_path = target_root.join(format!("activation-import-{}.shka", EntityId::new()));
     let mut archive = std::fs::OpenOptions::new().create_new(true).write(true).read(true).open(archive_path)?;

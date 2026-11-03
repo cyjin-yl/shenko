@@ -342,7 +342,7 @@ pub fn load_private_key(path: &std::path::Path) -> Result<PrivateKeyWithHashAlg>
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    let file = options.open(path).map_err(|_| unavailable())?;
+    let mut file = options.open(path).map_err(|_| unavailable())?;
     let metadata = file.metadata().map_err(|_| unavailable())?;
     if !metadata.is_file() || metadata.len() > MAX_SELECTED_KEY_BYTES {
         return Err(unavailable());
@@ -353,12 +353,24 @@ pub fn load_private_key(path: &std::path::Path) -> Result<PrivateKeyWithHashAlg>
             return Err(unavailable());
         }
     }
-    let mut bytes = zeroize::Zeroizing::new(Vec::new());
-    file.take(MAX_SELECTED_KEY_BYTES + 1).read_to_end(&mut bytes)
-        .map_err(|_| unavailable())?;
-    if bytes.len() as u64 > MAX_SELECTED_KEY_BYTES { return Err(unavailable()); }
+    // Allocate before reading secret bytes, then read only into this fixed
+    // slice. Zeroizing<Vec<_>> cannot scrub copies left by reallocation;
+    // read_to_end may grow even a preallocated Vec while probing for EOF.
+    let mut bytes = zeroize::Zeroizing::new(
+        vec![0_u8; (MAX_SELECTED_KEY_BYTES + 1) as usize].into_boxed_slice(),
+    );
+    let mut used = 0;
+    while used < bytes.len() {
+        match file.read(&mut bytes[used..]) {
+            Ok(0) => break,
+            Ok(read) => used += read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err(unavailable()),
+        }
+    }
+    if used as u64 > MAX_SELECTED_KEY_BYTES { return Err(unavailable()); }
     // Do not preserve path/parse-error context in a receipt-visible error.
-    let key = russh::keys::PrivateKey::from_openssh(&bytes).map_err(|_| unavailable())?;
+    let key = russh::keys::PrivateKey::from_openssh(&bytes[..used]).map_err(|_| unavailable())?;
     if key.is_encrypted() { return Err(unavailable()); }
     let hash = if key.algorithm().is_rsa() {
         Some(russh::keys::HashAlg::Sha512)
