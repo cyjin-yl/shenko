@@ -1094,19 +1094,12 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
         source: "batch-fixture".into(), created_at: chrono::Utc::now(),
     }).collect();
     let cancel = tokio_util::sync::CancellationToken::new();
-    // No raw append exists yet, so the first projection publishes a candidate
-    // for the current window and the oversized batch waits behind it.
+    // The whole fresh batch must remain verbatim, even after compaction.
+    // Wait for preparation without adding unrelated events to move its source.
     assert!(execute_step(1, &events, &mut subject, &cancel).await.unwrap().is_none());
-    store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
-        &serde_json::json!({"v":1,"text":"stale the first candidate"})).unwrap();
     let error = execute_step(1, &[], &mut subject, &cancel).await.err().unwrap();
     assert!(matches!(error, ShenkoError::Conflict(_)));
     assert!(subject.step.input_plan_ref.is_none());
-    // Without this append the first projection above publishes an adoptable
-    // candidate for the current window; every later fitting step would wait
-    // on it instead of exercising the oversized-batch refusal this test pins.
-    store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
-        &serde_json::json!({"v":1,"text":"source advanced after refusal"})).unwrap();
     let pending = store.stage_subject_inputs(&subject.head, &subject.step, &[]).unwrap();
     let original: Vec<_> = pending.iter().map(|record| (record.event_id, record.data.clone())).collect();
     assert_eq!(original.len(), events.len());
@@ -1129,7 +1122,6 @@ async fn oversized_fresh_batch_stays_pending_across_reopen() {
 #[tokio::test]
 async fn compaction_wait_refuses_when_prepared_window_cannot_fit() {
     let (mut subject, _gate, release) = gated_context_subject(16384, false);
-    subject.context_registry.uninstall("policy.budget-compact", 1);
     subject.context_registry.install(Arc::new(WindowOverheadPolicy {
         budget: shenko_compact_budget::BudgetCompact::new(
             shenko_compact_budget::BudgetConfig { trigger_ratio: 0.1, recent_ratio: 0.01 }),
@@ -1151,9 +1143,8 @@ async fn compaction_wait_late_arrivals_retry_without_stale_refusal() {
     let (mut subject, gate, release) = gated_context_subject(16384, false);
     assert!(crate::context_projection::prepare_context(&mut subject, &[]).unwrap().is_none());
     gate.entered.notified().await;
-    // The S0 CAS of the eventual seal already rejects a late raw fact, but
-    // the waiting step itself must resnapshot the same Planned step from the
-    // durable originals, never refuse an unchanged failure.
+    // A candidate may carry a newer raw tail when the complete payload fits;
+    // the late event must appear in that projection without another worker.
     subject.store.append_subject_raw_fact(&subject.head, EntityId::new(), "user",
         &serde_json::json!({"v":1,"text":"arrived during preparation"})).unwrap();
     release.release();
@@ -1161,6 +1152,9 @@ async fn compaction_wait_late_arrivals_retry_without_stale_refusal() {
         &tokio_util::sync::CancellationToken::new()).await;
     let projected = crate::context_projection::prepare_context(&mut subject, &[]).unwrap().unwrap();
     assert!(matches!(projected.context.selection, crate::context_projection::ContextSelection::Compacted { .. }));
+    assert!(projected.payload.messages.iter().flat_map(|message| &message.parts).any(|part|
+        matches!(part, shenko_broker::request::InferencePart::Text { text }
+            if text.contains("arrived during preparation"))));
     assert_eq!(gate.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     let (_, pending) = subject.store.load_subject(subject.agent_id).unwrap();
     assert_eq!(pending.state, SubjectStepState::Planned);

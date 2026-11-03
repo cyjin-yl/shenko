@@ -819,13 +819,6 @@ pub(super) fn prepare_context(
             .observe_pressure(caps, trigger_budget_input_tokens)
             .map_err(storage)?;
     }
-    // A preparation published for this exact source binds the step to its
-    // eventual adoption: committing S0 against the oversized payload while a
-    // fitting window is already published would make every earlier check a
-    // formality. The candidate itself is not consumed here.
-    if history.leaf.is_none() && registry.adoptable_against(&history) {
-        return Ok(None);
-    }
     let preparation_source = PreparationSource {
         window_id: window.id,
         model_generation,
@@ -904,7 +897,7 @@ pub(super) fn prepare_context(
                     }
                     None => {
                         if published_current_source && registry.last_preparation().is_some_and(|diagnostic|
-                            diagnostic.outcome != shenko_context_policy::PreparationOutcome::Adopted)
+                            diagnostic.outcome == shenko_context_policy::PreparationOutcome::Refused)
                         {
                             preparation_error = Some(ShenkoError::conflict(
                                 "prepared context window was refused for the unchanged source",
