@@ -167,7 +167,7 @@ fn armed_reservation_survives_reopen() {
         reopened.quota_send_ids(sealed).unwrap(),
         vec![(admission.request_id, 0)]
     );
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// A never-dispatched cancellation cannot downgrade armed evidence: it is
@@ -187,7 +187,7 @@ fn armed_cancel_rejects_contradictory_never_dispatched() {
     let after = pacer_reservation(&store, admission.request_id);
     assert_eq!(after.dispatch, Some(DispatchEvidence::ArmedOrUnknown));
     assert_eq!(after.outstanding[0].amount.upper, 1.0);
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// The honest armed cancellation retains [0, upper] until coverage; the
@@ -215,7 +215,7 @@ fn armed_cancel_retains_unknown_charge() {
         AdmissionOutcome::Existing { admission }
             if admission.state == AdmissionState::Cancelled
     ));
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// With no recorded policy the unconfigured provider path stays open: the
@@ -233,7 +233,7 @@ fn awaiting_model_cas_open_without_quota_policy() {
         .upsert_step(&awaiting, &head, preparing.record_revision)
         .unwrap();
     drop(store);
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// With a recorded policy the same transition is gated: an unarmed request
@@ -269,7 +269,7 @@ fn awaiting_model_cas_requires_armed_reservation() {
         .upsert_step_claiming_send(&blocked, &head, preparing.record_revision, send_id)
         .unwrap();
     drop(store);
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// An admitted-but-never-armed request releases its reservation on
@@ -309,7 +309,7 @@ fn never_dispatched_releases_reservation() {
         &retried.outcome,
         AdmissionOutcome::Quota(a) if a.state == AdmissionState::Admitted
     ));
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// A decision whose cited forecast was computed under options the policy's
@@ -335,7 +335,7 @@ fn decision_requires_policy_admitted_source_options() {
     let decision =
         decide(&policy, std::slice::from_ref(&forecast), &availability(), None, now()).unwrap();
     assert!(store.record_quota_decision(&decision).is_err());
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// An already-admitted request re-evaluated under a DIFFERENT recorded
@@ -373,7 +373,7 @@ fn admitted_request_reconciles_under_refreshed_decision() {
     let (rearmed, _) = store.arm_quota_send(sealed, &reservation.admission).unwrap();
     assert_eq!(rearmed.state, AdmissionState::Admitted);
     assert_eq!(store.quota_attempts("anthropic", "sub").unwrap().len(), 1);
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 
@@ -424,7 +424,7 @@ fn coverage_proof_discounts_but_never_erases_reservation() {
     let retained = pacer_reservation(&store, admission.request_id);
     assert_eq!(retained.admission, armed);
     assert_eq!(retained.attempts[0].ledger_commit, bound);
-    std::fs::remove_dir_all(dir).unwrap();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 fn initialized_subject() -> (PathBuf, Arc<Store>, EntityId) {

@@ -274,7 +274,7 @@ impl Store {
         staged
             .persist_noclobber(output)
             .context("publish recovered database without overwriting existing data")?;
-        fs::File::open(parent)?.sync_all()?;
+        crate::cas::sync_directory(parent)?;
         Ok(source)
     }
 

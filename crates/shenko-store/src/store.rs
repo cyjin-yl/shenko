@@ -1543,6 +1543,7 @@ fn read_installation_binding(conn: &Connection) -> Result<InstallationBinding> {
 /// One staging attempt for `inspect_installation_binding`: copy the tuple,
 /// validate the staged copy, read the binding, then confirm the live tuple
 /// did not move during the read.
+#[cfg(target_os = "linux")]
 fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBinding> {
     let staging = tempfile::Builder::new()
         .prefix("shenko-inspect-")
@@ -1569,6 +1570,17 @@ fn inspect_installation_binding_once(db_path: &Path) -> Result<InstallationBindi
         "installation database changed during inspection"
     );
     Ok(binding)
+}
+
+/// The staged copy above depends on Linux-only primitives (fork, pipe2,
+/// O_NOFOLLOW reads through a child fd, inode-bound signatures). Elsewhere
+/// there is no equivalent that keeps the POSIX-lock and identity guarantees,
+/// so inspection is refused outright instead of degrading to an unsafe copy.
+#[cfg(not(target_os = "linux"))]
+fn inspect_installation_binding_once(_db_path: &Path) -> Result<InstallationBinding> {
+    anyhow::bail!(
+        "staged installation inspection is not supported on this platform (requires Linux)"
+    )
 }
 
 /// The subject this installation actually owns, if exactly one exists.
@@ -1630,6 +1642,7 @@ pub(crate) fn read_local_subject_id(
     }
 }
 
+#[cfg(target_os = "linux")]
 fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
     let mut name = db_path.as_os_str().to_os_string();
     name.push(suffix);
@@ -1641,6 +1654,7 @@ fn sidecar_path(db_path: &Path, suffix: &str) -> PathBuf {
 /// regular file is rejected rather than followed. Nanosecond timestamps and
 /// ctime keep a same-second checkpoint/WAL-reset or a rename swap-back from
 /// looking identical.
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
 struct MemberSig {
@@ -1653,6 +1667,7 @@ struct MemberSig {
     ctime_ns: i64,
 }
 
+#[cfg(target_os = "linux")]
 fn member_sig(meta: &std::fs::Metadata) -> MemberSig {
     use std::os::unix::fs::MetadataExt;
     MemberSig {
@@ -1666,6 +1681,7 @@ fn member_sig(meta: &std::fs::Metadata) -> MemberSig {
     }
 }
 
+#[cfg(target_os = "linux")]
 fn tuple_signature(path: &Path) -> Result<Option<MemberSig>> {
     match std::fs::symlink_metadata(path) {
         Ok(meta) => {
@@ -1682,6 +1698,7 @@ fn tuple_signature(path: &Path) -> Result<Option<MemberSig>> {
 }
 
 /// Report the copy child writes back over the pipe.
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 struct CopyReport {
@@ -1699,6 +1716,7 @@ struct CopyReport {
 // Runs in the forked child only. Async-signal-safe by construction: every
 // call is a libc syscall on preallocated stack data and inherited fds — no
 // allocator, lock, formatting, panic or destructor path may run here.
+#[cfg(target_os = "linux")]
 #[inline]
 unsafe fn copy_child_errno(report: &mut CopyReport) {
     unsafe {
@@ -1707,6 +1725,7 @@ unsafe fn copy_child_errno(report: &mut CopyReport) {
     }
 }
 
+#[cfg(target_os = "linux")]
 unsafe fn copy_child_body(
     path_ptr: *const libc::c_char,
     out_fd: libc::c_int,
@@ -1813,6 +1832,7 @@ unsafe fn copy_child_body(
 /// and reports the real fd signatures over a pipe; the parent only reaps,
 /// reads the report and compares. Failure or unverifiable input is an honest
 /// error, never a fabricated signature.
+#[cfg(target_os = "linux")]
 fn copy_member(src: &Path, dst: &Path, admitted: MemberSig) -> Result<MemberSig> {
     use std::io::Read;
     use std::os::unix::ffi::OsStrExt;
@@ -1907,6 +1927,7 @@ fn copy_member(src: &Path, dst: &Path, admitted: MemberSig) -> Result<MemberSig>
 /// Stage a consistent copy of the db tuple (main, -journal, -wal) under
 /// `staged` and return the live signatures captured during the copy. -shm is
 /// derived and never copied; the staged reader rebuilds it.
+#[cfg(target_os = "linux")]
 fn copy_stable_tuple(
     db_path: &Path,
     staged: &Path,
@@ -1930,6 +1951,7 @@ fn copy_stable_tuple(
 }
 
 /// True when the live tuple still matches the signatures captured at copy.
+#[cfg(target_os = "linux")]
 fn unchanged_tuple(db_path: &Path, recorded: &[Option<MemberSig>]) -> Result<bool> {
     for (suffix, recorded_sig) in ["", "-journal", "-wal"].iter().zip(recorded.iter()) {
         if &tuple_signature(&sidecar_path(db_path, suffix))? != recorded_sig {
@@ -2071,7 +2093,7 @@ fn update_step(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod staged_inspection_tests {
     //! Native copy/inspection behavior against real SQLite file tuples. No
     //! wrappers: these call the private helpers directly so a copied snapshot

@@ -224,6 +224,16 @@ recovered node replays the same units instead of re-streaming.
 
 ## Error and recovery notes
 
+- Staged installation inspection is Linux-only: its confined snapshot path
+  uses Linux `pipe2`, errno and fork behavior. Other targets return an
+  unsupported error rather than substituting an unconfined copy.
+- Directory publication uses the shared `sync_directory` boundary for both
+  CAS objects and restored recovery databases. Unix retains directory
+  `fsync`; non-Unix returns `io::ErrorKind::Unsupported`. Journaling is not
+  a replacement for this requested durability barrier. A failure must not
+  be reported as durable success and does not promise rollback of files
+  already created. This change does not make Windows Store usable or prove
+  crash/power-loss recovery on any platform.
 - `ObjectClosureIncomplete` and `Conflict` on the generic path roll the
   whole batch back; nothing partial commits.
 - A conflicting unit keeps the complete local unit and reports every
