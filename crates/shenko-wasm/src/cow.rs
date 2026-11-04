@@ -246,7 +246,10 @@ impl BranchStore {
                     .map_err(|e| anyhow!("read tombstones {}: {e}", rel_tombstones.display()))?;
                 Tombstones::load(&bytes)?
             }
-            Err(_) => Tombstones::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Tombstones::default(),
+            Err(e) => {
+                return Err(anyhow!("open tombstones {}: {e}", rel_tombstones.display()));
+            }
         };
         let overlay = OwnedDir::admit_relative(home, &rel_overlay)
             .with_context(|| format!("admit overlay {}", rel_overlay.display()))?;
@@ -534,28 +537,42 @@ pub enum CowLocation {
 fn diff_trees(base: &Path, overlay: &Path, tombstones: &Tombstones) -> Result<CowDiff> {
     let mut diff = CowDiff::default();
     let mut visited: BTreeSet<String> = BTreeSet::new();
+    let mut replaced_directories: BTreeSet<PathBuf> = BTreeSet::new();
     walk_tree(base, Path::new(""), 0, &mut |rel, meta| {
         let key = rel_slash(rel);
         if !visited.insert(key.clone()) {
             return Ok(());
         }
-        if tombstones.is_removed(rel) {
+        if tombstones.is_removed(rel)
+            || rel.ancestors().skip(1).any(|ancestor| replaced_directories.contains(ancestor))
+        {
             diff.removed.insert(key);
         } else {
             let over = overlay.join(rel);
             match fs::symlink_metadata(&over) {
                 Ok(om) => {
+                    // A file or symlink replaces this directory entry. Its
+                    // old base subtree stays hidden even when following the
+                    // link makes a later overlay lookup return NotFound.
+                    if meta.is_dir() && !om.is_dir() {
+                        replaced_directories.insert(rel.to_path_buf());
+                    }
                     let same_kind = om.is_dir() == meta.is_dir();
                     let same = same_kind
                         && (meta.is_dir()
                             || (om.len() == meta.len()
-                                && fs::read(&over).ok().as_deref()
-                                    == fs::read(&base.join(rel)).ok().as_deref()));
+                                && file_contents_equal(&over, &base.join(rel))?));
                     if !same {
                         diff.modified.insert(key);
                     }
                 }
-                _ => { diff.removed.insert(key); }
+                // No overlay entry leaves the base visible. A non-directory
+                // overlay ancestor instead masks this base descendant.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotADirectory => {
+                    diff.removed.insert(key);
+                }
+                Err(e) => return Err(anyhow!("stat overlay {}: {e}", over.display())),
             }
         }
         Ok(())
@@ -563,8 +580,15 @@ fn diff_trees(base: &Path, overlay: &Path, tombstones: &Tombstones) -> Result<Co
     walk_tree(overlay, Path::new(""), 0, &mut |rel, _meta| {
         let key = rel_slash(rel);
         if visited.insert(key.clone()) {
-            if !tombstones.is_removed(rel) && fs::symlink_metadata(base.join(rel)).is_err() {
-                diff.added.insert(key);
+            if !tombstones.is_removed(rel) {
+                let original = base.join(rel);
+                match fs::symlink_metadata(&original) {
+                    Ok(_) => {}
+                    Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
+                        diff.added.insert(key);
+                    }
+                    Err(e) => return Err(anyhow!("stat base {}: {e}", original.display())),
+                }
             }
         }
         Ok(())
@@ -572,12 +596,54 @@ fn diff_trees(base: &Path, overlay: &Path, tombstones: &Tombstones) -> Result<Co
     // Base paths hidden by tombstones that no longer exist anywhere still
     // count as removed (they were removed from the view).
     for key in tombstones.removed.iter() {
+        if diff.removed.contains(key) {
+            continue;
+        }
         let rel = Path::new(key);
-        if fs::symlink_metadata(base.join(rel)).is_ok() {
-            diff.removed.insert(key.clone());
+        let original = base.join(rel);
+        match fs::symlink_metadata(&original) {
+            Ok(_) => { diff.removed.insert(key.clone()); }
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {}
+            Err(e) => return Err(anyhow!("stat removed base {}: {e}", original.display())),
         }
     }
     Ok(diff)
+}
+
+fn file_contents_equal(left: &Path, right: &Path) -> Result<bool> {
+    use std::io::Read;
+
+    fn read_chunk(file: &mut fs::File, bytes: &mut [u8]) -> std::io::Result<usize> {
+        let mut filled = 0;
+        while filled < bytes.len() {
+            match file.read(&mut bytes[filled..]) {
+                Ok(0) => break,
+                Ok(count) => filled += count,
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(filled)
+    }
+
+    let mut left_file = fs::File::open(left)
+        .with_context(|| format!("open compared file {}", left.display()))?;
+    let mut right_file = fs::File::open(right)
+        .with_context(|| format!("open compared file {}", right.display()))?;
+    let mut left_bytes = [0u8; 8192];
+    let mut right_bytes = [0u8; 8192];
+    loop {
+        let left_count = read_chunk(&mut left_file, &mut left_bytes)
+            .with_context(|| format!("read compared file {}", left.display()))?;
+        let right_count = read_chunk(&mut right_file, &mut right_bytes)
+            .with_context(|| format!("read compared file {}", right.display()))?;
+        if left_count != right_count || left_bytes[..left_count] != right_bytes[..right_count] {
+            return Ok(false);
+        }
+        if left_count == 0 {
+            return Ok(true);
+        }
+    }
 }
 
 fn walk_tree(
@@ -596,7 +662,6 @@ fn walk_tree(
     };
     let entries = match dir {
         Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(anyhow!("walk {}: {e}", root.display())),
     };
     let mut count = 0usize;
