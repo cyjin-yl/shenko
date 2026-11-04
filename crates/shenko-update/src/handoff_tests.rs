@@ -94,11 +94,12 @@ fn installation() -> Installation {
     let cas_dir = data_dir.join("cas");
     let store = Arc::new(Store::open(live_slot.join(SLOT_DB_FILENAME), cas_dir).unwrap());
     let ledger_id = store.ledger.ledger_id();
+    let generation = RuntimeGeneration::default();
 
-    // The retained executable of the genesis generation: never launched,
-    // but its bytes must match the committed route digest.
-    let executable = data_dir.join("shenko-program");
-    fs::write(&executable, b"seed executable fixture\n").unwrap();
+    // The retained executable of the genesis generation: a real program that
+    // answers the bounded smoke command for this generation, so a rollback
+    // can smoke-launch the retained closure exactly like a forward candidate.
+    let executable = write_executable(&data_dir, "shenko-program", &smoke_script(&generation.0));
 
     let agent_id = EntityId::new();
     let genesis_id = EntityId::new();
@@ -126,7 +127,6 @@ fn installation() -> Installation {
         ),
         created_commit: CommitRef::new(ledger_id, LedgerSeq(0)),
     };
-    let generation = RuntimeGeneration::default();
     let first_step_id = EntityId::new();
     let head = SubjectBranchHead {
         agent_id,
@@ -321,15 +321,34 @@ fn smoke_report(
     }
 }
 
-#[cfg(unix)]
 fn write_executable(dir: &Path, name: &str, script: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);
     fs::write(&path, script).unwrap();
-    let mut permissions = fs::metadata(&path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&path, permissions).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&path, permissions).unwrap();
+    }
     path
+}
+
+/// A real program that answers the bounded candidate smoke command for one
+/// generation: it prints the report the candidate itself would print and
+/// exits zero. It never drives a subject or sends an outbox message.
+fn smoke_script(generation: &str) -> String {
+    let report = serde_json::json!({
+        "schema_version": smoke::SMOKE_SCHEMA_VERSION,
+        "generation": generation,
+        "checks": [{ "name": "state_copy", "passed": true, "detail": null }],
+        "passed": true,
+        "exit_code": 0,
+        "stdout_tail": "",
+        "stderr_tail": "",
+        "launched_at": "2026-11-02T00:00:00Z",
+    });
+    format!("#!/bin/sh\ncat <<'SHENKO_SMOKE_EOF'\n{report}\nSHENKO_SMOKE_EOF\nexit 0\n")
 }
 
 /// A failed smoke outcome — non-zero exit, no usable report, or an
