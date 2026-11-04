@@ -20,6 +20,7 @@ pub const NAME: &str = "compat.artifact.read";
 /// inline result bound with header room to spare.
 pub const MAX_RANGE_BYTES: u64 = 128 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+const PRODUCER_CHUNK_BYTES: u64 = 1024 * 1024;
 const CONTRACT: &[u8] = b"shenko.compat.artifact/v1: read an installation CAS object in authenticated ranges; accepts a plain object up to 1 MiB or a compat-indexed-observation manifest; returns at most 131072 bytes per call; no remote effect";
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,6 +44,10 @@ impl Runtime {
         ensure!(object_bytes <= MAX_MANIFEST_BYTES, "object exceeds the bounded read bound; only manifest-indexed artifacts are supported");
         let raw = self.store.cas.read_object(&input.digest)?;
         ensure!(raw.len() as u64 == object_bytes, "CAS object size mismatch");
+        // The root is untrusted until its full bytes authenticate. A
+        // same-size corruption must fail here, never return bytes that look
+        // authenticated by the original digest.
+        ensure!(Digest::blake3(&raw) == input.digest, "CAS object digest mismatch");
         let manifest: Option<Value> = serde_json::from_slice::<Value>(&raw).ok()
             .filter(|value: &Value| value["format"] == "compat-indexed-observation" && value["schema_version"] == 1);
         let bound = if input.limit == 0 { MAX_RANGE_BYTES } else { input.limit.min(MAX_RANGE_BYTES) };
@@ -57,11 +62,16 @@ impl Runtime {
                 "content_base64":base64::engine::general_purpose::STANDARD.encode(body)}));
         };
         let digest: Digest = serde_json::from_value(manifest["artifact_digest"].clone())?;
+        ensure!(digest.canonical_blake3_hex().is_some(), "artifact manifest artifact_digest is not canonical blake3");
         let bytes = manifest["bytes"].as_u64().context("artifact manifest size missing")?;
-        let chunk_bytes = manifest["chunk_bytes"].as_u64().context("artifact manifest chunk size missing")? as usize;
+        let chunk_bytes = manifest["chunk_bytes"].as_u64().context("artifact manifest chunk size missing")?;
+        // The producer emits 1 MiB chunks; reject unsupported sizes before
+        // any division, so a forged chunk_bytes:0 cannot panic.
+        ensure!(chunk_bytes == PRODUCER_CHUNK_BYTES, "artifact manifest chunk size is not supported");
+        let chunk_bytes = chunk_bytes as usize;
         let chunks: Vec<Digest> = serde_json::from_value(manifest["chunks"].clone())?;
-        ensure!(chunks.iter().all(|d| d.canonical_blake3_hex().is_some())
-            && chunks.len() as u64 == bytes.div_ceil(chunk_bytes as u64), "artifact manifest coverage mismatch");
+        ensure!(chunks.iter().all(|d| d.canonical_blake3_hex().is_some()), "artifact manifest chunk digest is not canonical blake3");
+        ensure!(chunks.len() as u64 == bytes.div_ceil(chunk_bytes as u64), "artifact manifest coverage mismatch");
         ensure!(input.offset <= bytes, "artifact read offset out of range");
         let end = bytes.min(input.offset.saturating_add(bound));
         let mut body = Vec::with_capacity((end - input.offset) as usize);
