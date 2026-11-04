@@ -37,6 +37,18 @@ pub struct UsageDigestInput {
     #[serde(default)] pub window: Window,
     /// "method" or "method+status".
     pub grouping: Grouping,
+    /// Opaque continuation cursor from a previous `next_cursor`. Absent on
+    /// the first page; the reader resumes at strictly older observations.
+    #[serde(default)] pub cursor: Option<Cursor>,
+}
+
+/// Continuation in descending (observed_at, receipt_id) order. A bounded
+/// scan can return no matches but still advance past its last candidate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cursor {
+    pub observed_at_rfc3339: Option<String>,
+    pub receipt_id: EntityId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -119,51 +131,61 @@ impl Runtime {
         let since = input.window.since_rfc3339.as_deref()
             .map(|raw| chrono::DateTime::parse_from_rfc3339(raw).map(|parsed| parsed.with_timezone(&chrono::Utc)))
             .transpose().context("window.since_rfc3339 is not an RFC 3339 timestamp")?;
-        let mut scanned = 0usize;
-        let mut truncated = false;
+        let cursor_at = match input.cursor.as_ref() {
+            Some(cursor) => match cursor.observed_at_rfc3339.as_deref() {
+                Some(raw) => Some(chrono::DateTime::parse_from_rfc3339(raw)
+                    .map(|parsed| parsed.with_timezone(&chrono::Utc))
+                    .context("cursor.observed_at_rfc3339 is not an RFC 3339 timestamp")?),
+                None => None,
+            },
+            None => None,
+        };
+        let before = input.cursor.as_ref().map(|cursor| (cursor_at, cursor.receipt_id));
+        let mut candidates = self.store.external_observations_before(
+            &OPERATION_KINDS, since, before,
+            if input.window.max_records == 0 { 0 } else { MAX_SCANNED_OPERATIONS + 1 },
+        )?;
+        // One metadata-only lookahead establishes whether the bounded scan
+        // has more candidates. No CAS payload is read for that lookahead.
+        let truncated = candidates.len() > MAX_SCANNED_OPERATIONS;
+        candidates.truncate(MAX_SCANNED_OPERATIONS);
+        let scanned = candidates.len();
+        let last_scanned = candidates.last().map(|(_, receipt)| Cursor {
+            observed_at_rfc3339: receipt.observed_at.map(|seen| seen.to_rfc3339()),
+            receipt_id: receipt.receipt_id,
+        });
         let mut verified = BTreeSet::<String>::new();
         let mut records = Vec::new();
-        'scan: for kind in OPERATION_KINDS {
-            let mut after = None;
-            loop {
-                let operations = self.store.external_operations_after(kind, after, 256)?;
-                let Some(last) = operations.last() else { break; };
-                after = Some(last.operation_id);
-                let full = operations.len() == 256;
-                for operation in operations {
-                    scanned += 1;
-                    if scanned > MAX_SCANNED_OPERATIONS { truncated = true; break 'scan; }
-                    let frozen = self.frozen_input(&operation).unwrap_or(Value::Null);
-                    if input.unit.as_ref().is_some_and(|filter| !Self::unit_matches(&frozen, filter)) { continue; }
-                    let receipts = self.store.external_operation_evidence(operation.operation_id)?;
-                    let Some(receipt) = receipts.last() else { continue; };
-                    match (since, receipt.observed_at) {
-                        (Some(since), seen) if seen.is_none_or(|seen| seen < since) => continue,
-                        _ => {}
-                    }
-                    let normalized = self.normalized_result(receipt, &mut verified).unwrap_or(Value::Null);
-                    let method = normalized["observation"]["protocol"]["method"].as_str()
-                        .or_else(|| frozen["request"]["method"].as_str())
-                        .unwrap_or(kind);
-                    let status = match operation.outcome {
-                        Some(OperationOutcome::Succeeded) => "succeeded",
-                        Some(OperationOutcome::Failed) => "failed",
-                        Some(OperationOutcome::Cancelled) => "cancelled",
-                        Some(OperationOutcome::Interrupted) => "interrupted",
-                        None => "unknown",
-                    };
-                    records.push(Record { observed_at: receipt.observed_at, receipt_id: receipt.receipt_id,
-                        method: method.chars().take(MAX_METHOD_CHARS).collect(), status: status.into(),
-                        normalized: receipt.normalized_ref.as_ref().map(|reference| reference.digest.clone()) });
-                }
-                if !full { break; }
-            }
+        let mut matched = 0usize;
+        for (operation, receipt) in candidates {
+            let frozen = self.frozen_input(&operation).unwrap_or(Value::Null);
+            if input.unit.as_ref().is_some_and(|filter| !Self::unit_matches(&frozen, filter)) { continue; }
+            matched += 1;
+            if records.len() >= input.window.max_records as usize { continue; }
+            let normalized = self.normalized_result(&receipt, &mut verified).unwrap_or(Value::Null);
+            let method = normalized["observation"]["protocol"]["method"].as_str()
+                .or_else(|| frozen["request"]["method"].as_str())
+                .unwrap_or(&operation.operation_name);
+            let status = match operation.outcome {
+                Some(OperationOutcome::Succeeded) => "succeeded",
+                Some(OperationOutcome::Failed) => "failed",
+                Some(OperationOutcome::Cancelled) => "cancelled",
+                Some(OperationOutcome::Interrupted) => "interrupted",
+                None => "unknown",
+            };
+            records.push(Record { observed_at: receipt.observed_at, receipt_id: receipt.receipt_id,
+                method: method.chars().take(MAX_METHOD_CHARS).collect(), status: status.into(),
+                normalized: receipt.normalized_ref.as_ref().map(|reference| reference.digest.clone()) });
         }
-        // Latest first; receipt identity makes equal timestamps deterministic.
-        records.sort_by(|left, right| right.observed_at.cmp(&left.observed_at)
-            .then_with(|| right.receipt_id.cmp(&left.receipt_id)));
-        let matched = records.len();
-        records.truncate(input.window.max_records as usize);
+        // Preserve matching records excluded by the output window. Once all
+        // matches fit, advance beyond every scanned candidate, even on an
+        // empty page, so rare units remain reachable past unrelated traffic.
+        let next_cursor = if matched > records.len() {
+            records.last().map(|last| Cursor {
+                observed_at_rfc3339: last.observed_at.map(|seen| seen.to_rfc3339()),
+                receipt_id: last.receipt_id,
+            })
+        } else if truncated { last_scanned } else { None };
         let mut groups = BTreeMap::<(String, Option<String>), (u64, Vec<chrono::DateTime<chrono::Utc>>, Vec<Digest>)>::new();
         for record in &records {
             let key = (record.method.clone(),
@@ -189,6 +211,7 @@ impl Runtime {
             "scanned_operations":scanned,"scan_truncated":truncated,
             "matched_records":matched,"windowed_records":records.len(),
             "max_records":input.window.max_records,"groups_truncated":groups_truncated,"groups":groups,
+            "next_cursor":next_cursor,
             "observations_only":true,
             "adoption":"observations only; derive learning by cognition.unit.write with derived_from={\"kind\":\"cas_object\",\"digest\":<exemplar digest>}; a unit learned from these exemplars remains a candidate"}))
     }
@@ -218,7 +241,7 @@ fn descriptor() -> NativeTaskDescriptor {
             plugin_id: "6f1a2b3c-9d4e-4a5b-8c7d-1e2f3a4b5c6d".parse().expect("fixed usage digest identity"),
             artifact_digest: Digest::blake3(CONTRACT), registry_revision: 0 },
         role_revision: "native-child/1".into(), authority_refs: vec!["compat.usage/v1".into()],
-        prompt_section: Some("Summarize durable compat adapter observations. Input {\"unit\"?:{\"unit_id\"?,\"revision\"?,\"artifact_digest\"?},\"window\"?:{\"max_records\"?:<=200,\"since_rfc3339\"?},\"grouping\":\"method\"|\"method+status\"}. Groups the latest observations by request method and outcome status; each group reports count, first/latest UTC and up to 3 CAS-verified exemplar digests readable via compat.artifact.read. Read-only observations; adoption stays cognition.unit.write.".into()) }
+        prompt_section: Some("Summarize durable compat adapter observations. Input {\"unit\"?:{\"unit_id\"?,\"revision\"?,\"artifact_digest\"?},\"window\"?:{\"max_records\"?:<=200,\"since_rfc3339\"?},\"grouping\":\"method\"|\"method+status\",\"cursor\"?:<previous next_cursor>}. Scans at most 3072 candidates newest first. Continue with next_cursor until null, including empty pages; counts describe this scan. Groups the latest observations by request method and outcome status; each group reports count, first/latest UTC and up to 3 CAS-verified exemplar digests readable via compat.artifact.read. Read-only observations; adoption stays cognition.unit.write.".into()) }
 }
 
 struct Handler(Arc<Runtime>);

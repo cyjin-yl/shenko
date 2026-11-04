@@ -171,6 +171,10 @@ chunk_bytes:1048576,chunks:[每 1 MiB 块的 blake3]}`。清单对象同时是 E
 `learning_source.digest`——学习来源保持小对象且可按块取回，归一化结果里的
 `observation` 变成 `{"status":"observation_outlined","artifact":{digest,bytes},
 "read":{handler:"compat.artifact.read",...}}`，不再内嵌原始字节。
+读取前先对根对象做完整 blake3 认证：同长度损坏不能再借用原始摘要返回字节。清单字段
+（`artifact_digest` 规范性、`chunk_bytes` 必须为 1 MiB、每块摘要规范性、覆盖数一致）在读
+取前校验；不支持的 `chunk_bytes`（含 0）结算 failed 而非 panic。逐块认证保持不变：单个
+块损坏只让覆盖该块的读取 failed，其他范围仍可读。
 
 MCP 代际同时注册 native 定义 `compat.artifact.read`（定义版本 1，同一 T1/E1 机制）：
 
@@ -180,17 +184,30 @@ MCP 代际同时注册 native 定义 `compat.artifact.read`（定义版本 1，�
   （`format:"compat-indexed-observation"`），返回 `{status:"received",total_bytes,offset,
   next_offset,content_base64}`，`next_offset` 为 null 即到末尾。
 - 单个块损坏只让**覆盖该块的读取**结算 failed 且不返回字节，其他范围仍可读；无效摘要、
-  对象缺失、超限 limit、越界 offset 同样结算 failed，不 panic、不变 unknown。读取只发生在
+  对象缺失、超限 limit、越界 offset、根摘要不匹配、不支持的分块大小同样结算 failed，不
+  panic、不变 unknown。读取只发生在
   本安装 CAS：digest 不授予远端读取权限，handler 没有外部效果。
 
 ### 使用摘要：聚合观察，不代为采纳
 
 同一 MCP 代际再注册 `compat.usage.digest`（定义版本 1）。它对本安装账本里三类适配器操作
 （`compat.mcp.request`、`compat.skill.source`、`compat.artifact.read`）的最新 E1 证据做**有界
-确定性聚合**：输入 `{unit?,window?,grouping}`，`window.max_records` ≤ 200 且缺省 200，
+确定性聚合**：输入 `{unit?,window?,grouping,cursor?}`，`window.max_records` ≤ 200 且缺省 200，
 `since_rfc3339` 过滤更早观察，`grouping` 为 `method` 或 `method+status`（方法取归一化观察的
 `protocol.method`，否则取冻结输入的 `request.method`；状态是已结算操作结果：succeeded、
 failed、cancelled、interrupted 或 unknown）。
+
+Store 在三类操作之间统一选择各操作最后追加的 E1，按 UTC 观察时间降序排列，保留纳秒
+精度；时间相同时按 receipt_id 降序，无时间戳的观察排在末尾。每次处理至多 3072 条候选，
+包括随后不匹配 unit 的候选；另取一条 SQL 元数据判断是否还有候选，不读取其 CAS 内容。
+这限制返回元数据和 CAS 扫描量，不承诺 SQLite 查询的常数时间成本。`since_rfc3339` 和
+`cursor` 在候选选择时生效；游标严格续读更旧的 `(observed_at,receipt_id)`。
+
+输出窗口装不下本次匹配记录时，`next_cursor` 指向最后一条已返回记录，保留被窗口排除的
+匹配记录；本次匹配全部装下而候选扫描未结束时，游标推进到最后一条已扫描候选。因此即使
+本页匹配为零，也可能带有非空游标；调用方须继续到游标为 null，才能确认扫描结束。稀有
+Skill 观察可在大量 MCP 观察之后的后续页到达。`scanned_operations` 与 `matched_records`
+都是本次扫描的计数，不是全库总量。`max_records:0` 不扫描，返回空分组和 null 游标。
 
 每个分组返回 `{method,status,count,first_seen_utc,latest_occurrence_utc,exemplar_digests}`：
 至多 200 组、每组至多 3 个归一化结果摘要。**每个摘要先在本安装 CAS 重新认证才进入结果**——
@@ -209,6 +226,8 @@ failed、cancelled、interrupted 或 unknown）。
   连接取消与进程 join 可能晚于写入；底层 I/O 阻塞时，轮询间隔也不是实际清理的墙钟上限。
 - 每次调用都是既有 native handler：T1 武装 → 真实派发 → E1 回执。调用者取消只放弃等待，
   已武装的外部尝试仍由该代际的 worker 收尾，不会被静默改成成功。
+- 握手期间的取消：`Session::connect` 可能耗时长于武装前的取消检查。获取会话读锁后、发送请求
+  前再次检查 durable abort；若已取消，结算 Cancelled + EffectStatus::None，不发送请求。
 - reconcile 只查询原始回执，绝不重新派发；进程替换后未结束的尝试保持 unknown。
 - 卸载/代际清理：先关闭接纳，再 join 已接纳 worker，最后取消并关闭所有自有会话；清理失败
   不得被报告成成功卸载。

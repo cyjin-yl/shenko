@@ -62,6 +62,12 @@ impl McpRuntime {
         let result = {
             let slot = connection.session.read().await;
             let session = slot.as_ref().context("MCP connection was retired")?;
+            // Recheck a durable abort after the handshake: a cancellation
+            // committed while Session::connect awaited negotiation must not
+            // still dispatch tools/call once the read lease is held.
+            if self.store.external_task(task_id)?.abort_request.is_some() || connection.stop.is_cancelled() {
+                return Ok((session.server_info()?, Response::Unknown { reason: "cancelled_before_request_dispatch" }));
+            }
             server = session.server_info()?;
             let request = session.request(request, Duration::from_secs(input.timeout_secs), &cancellation);
             tokio::pin!(request);
@@ -114,6 +120,7 @@ impl McpRuntime {
                 (json!({"status":"received","result":result,"server":server}), Some(outcome), Some(ObservationLevel::RemoteCompleted))
             }
             Ok((server, Response::Rejected { error })) => (json!({"status":"rejected","error":error,"server":server}), Some(OperationOutcome::Failed), Some(ObservationLevel::RemoteCompleted)),
+            Ok((server, Response::Unknown { reason: "cancelled_before_request_dispatch" })) => (json!({"status":"cancelled_before_dispatch","server":server}), Some(OperationOutcome::Cancelled), None),
             Ok((server, Response::Unknown { reason })) => (json!({"status":"unknown","reason":reason,"server":server}), None, None),
             Err(error) => (json!({"status":"unknown","reason":error.to_string()}), None, None),
         };
@@ -121,7 +128,11 @@ impl McpRuntime {
         // business goal. A response completes that exchange even if isError
         // reports failure or the result describes an ongoing server task.
         // Absence of a response never becomes a completed exchange.
-        let effect = if outcome.is_some() { EffectStatus::Complete } else { EffectStatus::Unknown };
+        let effect = match outcome {
+            Some(OperationOutcome::Cancelled) => EffectStatus::None,
+            Some(_) => EffectStatus::Complete,
+            None => EffectStatus::Unknown,
+        };
         call.observe(&self.store, json!({"source":input.unit,"protocol":value,
             "effect_scope":"protocol_exchange","remote_business_success_proven":false,
             "remote_business_effect_status":"not_independently_verified"}), outcome, effect, level)
