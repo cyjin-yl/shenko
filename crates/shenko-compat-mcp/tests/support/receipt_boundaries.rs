@@ -200,7 +200,7 @@ async fn receipt_boundary_usage_window_reaches_rare_units_and_latest_evidence() 
         ensure!(latest_body["groups"][0]["method"] == "fixture/latest", "latest window followed UUID order: {latest_body}");
         let mut cursor = Value::Null;
         let mut pages = Vec::new();
-        let mut found = None;
+        let mut selected = Vec::new();
         for _ in 0..4 {
             let mut input = json!({"grouping":"method","unit":{"unit_id":"skill.rare"},"window":{"max_records":1}});
             if !cursor.is_null() { input["cursor"] = cursor; }
@@ -209,16 +209,106 @@ async fn receipt_boundary_usage_window_reaches_rare_units_and_latest_evidence() 
             let body = result.result.as_ref().context("page result")?["observation"].clone();
             ensure!(body["scanned_operations"].as_u64().context("scan count")? <= 3072, "scan exceeded bound");
             cursor = body["next_cursor"].clone();
-            if body["windowed_records"].as_u64() == Some(1) { found = Some(body["groups"][0].clone()); }
+            if body["windowed_records"].as_u64() == Some(1) {
+                selected.push(body["groups"][0]["method"].as_str().context("selected method")?.to_string());
+            }
             pages.push(body);
             if cursor.is_null() { break; }
         }
-        std::fs::write(fixture.root.join("receipt.json"), serde_json::to_vec_pretty(&json!({"latest":latest_body,"rare_pages":pages,"selected":found}))?)?;
-        ensure!(found.as_ref().is_some_and(|group| group["method"] == "skill/latest") && pages.len() >= 2,
-            "bounded pagination lost the rare unit or its nanosecond latest observation: {pages:?}");
+        std::fs::write(fixture.root.join("receipt.json"), serde_json::to_vec_pretty(&json!({"latest":latest_body,"rare_pages":pages,"selected":selected}))?)?;
+        ensure!(selected == ["skill/latest", "skill/older"] && cursor.is_null(),
+            "bounded pagination omitted, repeated, reordered, or failed to finish rare observations: {pages:?}");
+        ensure!(pages[0]["scanned_operations"] == 3072 && pages[0]["windowed_records"] == 0
+            && pages[0]["scan_truncated"] == true && !pages[0]["next_cursor"].is_null(),
+            "excluded traffic escaped the scan budget or an empty page lost continuation: {pages:?}");
         let empty = fixture.native.call_tool(&digest(json!({"grouping":"method","window":{"max_records":0}})),
             &fixture.parent, &fixture.authority).await?;
-        ensure!(empty.result.as_ref().context("empty result")?["observation"]["groups"] == json!([]), "zero window returned groups");
+        let empty = &empty.result.as_ref().context("empty result")?["observation"];
+        ensure!(empty["groups"] == json!([]) && empty["scanned_operations"] == 0 && empty["next_cursor"].is_null(),
+            "zero window scanned or consumed observations: {empty}");
+        Ok(())
+    }.await;
+    fixture.finish(outcome).await
+}
+
+#[tokio::test]
+async fn receipt_boundary_usage_cursor_orders_ties_missing_times_and_latest_appended_evidence() -> Result<()> {
+    let fixture = BoundaryFixture::open("usage-cursor-order", false).await?;
+    let outcome = async {
+        let seed = fixture.native.call_tool(&call(&fixture.unit, "record"), &fixture.parent, &fixture.authority).await?;
+        let seed_operation = fixture.store.external_operation(seed.operation_id)?;
+        let seed_attempt = fixture.store.external_operation_attempt(seed.operation_id)?;
+        let seed_evidence = fixture.store.external_operation_evidence(seed.operation_id)?.pop().context("seed evidence")?;
+        let rows = [
+            ("missing-low", None),
+            ("missing-high", None),
+            ("millisecond", Some("2029-01-01T00:00:00.123Z")),
+            ("nano-low", Some("2029-01-01T00:00:00.123000001Z")),
+            ("nano-high", Some("2029-01-01T00:00:00.123000001Z")),
+            ("latest", Some("2029-01-01T00:00:00.124Z")),
+        ];
+        let mut batch = shenko_types::store::WriteBatch::new();
+        for (index, (method, observed)) in rows.into_iter().enumerate() {
+            let input = fixture.store.cas.seal_object(&serde_json::to_vec(&json!({"unit":{"unit_id":"fixture.order"}}))?,
+                "application/json", "fixture", "frozen", 1)?.object;
+            let normalized = fixture.store.cas.seal_object(&serde_json::to_vec(&json!({"observation":{"protocol":{"method":method}}}))?,
+                "application/json", "fixture", "normalized", 1)?.object;
+            let mut operation = seed_operation.clone();
+            operation.operation_id = format!("00000000-0000-4000-8001-{index:012x}").parse()?;
+            operation.logical_key = format!("cursor-order:{index}");
+            operation.record_revision = RecordRevision(0);
+            operation.operation_name = ["compat.mcp.request", "compat.skill.source", shenko_compat::artifact::NAME][index % 3].into();
+            operation.input_digest = input.digest.clone();
+            operation.final_input_ref = input;
+            let mut attempt = seed_attempt.clone();
+            attempt.attempt_id = EntityId::new();
+            attempt.operation_id = operation.operation_id;
+            let mut evidence = seed_evidence.clone();
+            evidence.receipt_id = format!("00000000-0000-4000-9001-{index:012x}").parse()?;
+            evidence.operation_id = Some(operation.operation_id);
+            evidence.attempt_id = Some(attempt.attempt_id);
+            evidence.observed_at = observed.map(|raw| serde_json::from_value(json!(raw))).transpose()?;
+            evidence.normalized_ref = Some(normalized);
+            attempt.final_receipt_id = Some(evidence.receipt_id);
+            if method == "latest" {
+                // An earlier receipt with a later observation time must not
+                // replace the operation's last appended receipt.
+                let mut earlier = evidence.clone();
+                earlier.receipt_id = EntityId::new();
+                earlier.observed_at = Some(serde_json::from_value(json!("2040-01-01T00:00:00Z"))?);
+                batch.evidence_upserts.push(earlier);
+            }
+            batch.operation_upserts.push(operation);
+            batch.attempt_upserts.push(attempt);
+            batch.evidence_upserts.push(evidence);
+        }
+        fixture.store.commit(batch)?;
+        let mut cursor = Value::Null;
+        let mut selected = Vec::new();
+        let mut pages = Vec::new();
+        for _ in 0..8 {
+            let mut input = json!({"grouping":"method","unit":{"unit_id":"fixture.order"},"window":{"max_records":1}});
+            if !cursor.is_null() { input["cursor"] = cursor; }
+            let result = fixture.native.call_tool(&BoundaryFixture::tool(USAGE_DIGEST, input), &fixture.parent, &fixture.authority).await?;
+            ensure!(result.outcome == "succeeded", "cursor page failed: {result:?}");
+            let body = result.result.context("cursor page result")?["observation"].clone();
+            if body["windowed_records"] == 1 {
+                selected.push(body["groups"][0]["method"].as_str().context("selected method")?.to_string());
+            }
+            cursor = body["next_cursor"].clone();
+            pages.push(body);
+            if cursor.is_null() { break; }
+        }
+        ensure!(selected == ["latest", "nano-high", "nano-low", "millisecond", "missing-high", "missing-low"]
+            && cursor.is_null(), "timestamp, receipt tie, latest-append, or missing-time pagination failed: {pages:?}");
+        let filtered = fixture.native.call_tool(&BoundaryFixture::tool(USAGE_DIGEST,
+            json!({"grouping":"method","unit":{"unit_id":"fixture.order"},
+                "window":{"since_rfc3339":"2029-01-01T00:00:00.123000001Z"}})),
+            &fixture.parent, &fixture.authority).await?;
+        let filtered = &filtered.result.as_ref().context("since result")?["observation"];
+        ensure!(filtered["windowed_records"] == 3 && filtered["scanned_operations"] == 3
+            && filtered["next_cursor"].is_null(), "since filter lost nanoseconds or admitted missing timestamps: {filtered}");
+        std::fs::write(fixture.root.join("receipt.json"), serde_json::to_vec_pretty(&json!({"selected":selected,"pages":pages,"since":filtered}))?)?;
         Ok(())
     }.await;
     fixture.finish(outcome).await

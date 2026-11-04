@@ -192,16 +192,22 @@ MCP 代际同时注册 native 定义 `compat.artifact.read`（定义版本 1，�
 
 同一 MCP 代际再注册 `compat.usage.digest`（定义版本 1）。它对本安装账本里三类适配器操作
 （`compat.mcp.request`、`compat.skill.source`、`compat.artifact.read`）的最新 E1 证据做**有界
-确定性聚合**：输入 `{unit?,window?,grouping}`，`window.max_records` ≤ 200 且缺省 200，
+确定性聚合**：输入 `{unit?,window?,grouping,cursor?}`，`window.max_records` ≤ 200 且缺省 200，
 `since_rfc3339` 过滤更早观察，`grouping` 为 `method` 或 `method+status`（方法取归一化观察的
 `protocol.method`，否则取冻结输入的 `request.method`；状态是已结算操作结果：succeeded、
 failed、cancelled、interrupted 或 unknown）。
 
-扫描上限 3072 只计**匹配**操作（通过 unit/since 过滤的），不把不匹配的操作算进预算，
-所以 3073 条 MCP 观察不会耗尽扫描上限而遗漏后续 Skill 观察。按观察时间（RFC 3339 纳秒）
-降序排列，时间戳相同时按 receipt_id 确定顺序。`next_cursor` 在一页满且可能还有匹配记录时
-返回；调用方用它继续读取被当前页窗口排除的记录，不需要重新扫描已返回的记录。`cursor` 输
-入字段省略时从最新记录开始；提供时跳过游标处及之前的记录。`max_records:0` 返回空分组。
+Store 在三类操作之间统一选择各操作最后追加的 E1，按 UTC 观察时间降序排列，保留纳秒
+精度；时间相同时按 receipt_id 降序，无时间戳的观察排在末尾。每次处理至多 3072 条候选，
+包括随后不匹配 unit 的候选；另取一条 SQL 元数据判断是否还有候选，不读取其 CAS 内容。
+这限制返回元数据和 CAS 扫描量，不承诺 SQLite 查询的常数时间成本。`since_rfc3339` 和
+`cursor` 在候选选择时生效；游标严格续读更旧的 `(observed_at,receipt_id)`。
+
+输出窗口装不下本次匹配记录时，`next_cursor` 指向最后一条已返回记录，保留被窗口排除的
+匹配记录；本次匹配全部装下而候选扫描未结束时，游标推进到最后一条已扫描候选。因此即使
+本页匹配为零，也可能带有非空游标；调用方须继续到游标为 null，才能确认扫描结束。稀有
+Skill 观察可在大量 MCP 观察之后的后续页到达。`scanned_operations` 与 `matched_records`
+都是本次扫描的计数，不是全库总量。`max_records:0` 不扫描，返回空分组和 null 游标。
 
 每个分组返回 `{method,status,count,first_seen_utc,latest_occurrence_utc,exemplar_digests}`：
 至多 200 组、每组至多 3 个归一化结果摘要。**每个摘要先在本安装 CAS 重新认证才进入结果**——

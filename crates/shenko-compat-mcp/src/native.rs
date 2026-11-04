@@ -65,11 +65,8 @@ impl McpRuntime {
             // Recheck a durable abort after the handshake: a cancellation
             // committed while Session::connect awaited negotiation must not
             // still dispatch tools/call once the read lease is held.
-            if let Ok(task) = self.store.external_task(task_id) {
-                if task.abort_request.is_some() {
-                    let server = session.server_info().unwrap_or(Value::Null);
-                    return Ok((server, Response::Unknown { reason: "cancelled_before_request_dispatch" }));
-                }
+            if self.store.external_task(task_id)?.abort_request.is_some() || connection.stop.is_cancelled() {
+                return Ok((session.server_info()?, Response::Unknown { reason: "cancelled_before_request_dispatch" }));
             }
             server = session.server_info()?;
             let request = session.request(request, Duration::from_secs(input.timeout_secs), &cancellation);

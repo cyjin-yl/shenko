@@ -826,6 +826,9 @@ CREATE TABLE IF NOT EXISTS evidence_receipts (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_evidence_operation ON evidence_receipts(operation_id);
+CREATE INDEX IF NOT EXISTS idx_operations_name ON operations(json_extract(data,'$.operation_name'));
+
 CREATE TABLE IF NOT EXISTS agent_profiles (
     agent_id TEXT PRIMARY KEY,
     data TEXT NOT NULL,
