@@ -2453,6 +2453,27 @@ impl Node {
 
     // ------------------------------------------------- installation facts ---
 
+    /// The current version of one unit, without enumerating unrelated units
+    /// or loading every retained historical version.
+    pub fn installed_unit_fact(&self, unit_id: &str) -> Result<Option<InstalledUnitFact>> {
+        self.installed_unit(unit_id)?
+            .as_ref()
+            .map(|unit| self.unit_fact(unit, true))
+            .transpose()
+    }
+
+    /// One exact retained version, with its actual current/enabled projection.
+    pub fn retained_unit_fact(&self, unit_id: &str, revision: &str, digest: &Digest) -> Result<Option<InstalledUnitFact>> {
+        let current = self.installed_unit(unit_id)?;
+        if let Some(unit) = current.as_ref().filter(|unit| unit.revision == revision && unit.artifact_digest == *digest) {
+            return self.unit_fact(unit, true).map(Some);
+        }
+        self.load_installed_unit(unit_id, revision, digest, false)?
+            .as_ref()
+            .map(|unit| self.unit_fact_with(unit, false, false))
+            .transpose()
+    }
+
     /// The durable facts of every unit this node currently offers.
     pub fn installed_unit_facts(&self) -> Result<Vec<InstalledUnitFact>> {
         let mut facts = Vec::new();

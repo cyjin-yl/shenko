@@ -1,0 +1,23 @@
+[package]
+name = "shenko-compat-skill"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-compat = { path = "../shenko-compat" }
+shenko-types = { path = "../shenko-types" }
+shenko-node = { path = "../shenko-node" }
+shenko-store = { path = "../shenko-store" }
+shenko-subject = { path = "../shenko-subject" }
+shenko-awareness-core = { path = "../shenko-awareness-core" }
+async-trait.workspace = true
+cordis-core.workspace = true
+parking_lot.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+blake3.workspace = true
+serde_yaml_ng = "=0.10.0"

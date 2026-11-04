@@ -57,6 +57,7 @@
 | 插件与内核装配 | [plugins.md](specs/plugins.md) | §7、18、36、37、41.2、41.8、45 |
 | 认知与安装单元 | [cognition-units.md](specs/cognition-units.md) | §18、38、45 |
 | 上下文与压缩策略 | [context-policies.md](specs/context-policies.md) | §12.3、13、37、41.7–8 |
+| 第三方生态适配器 | [ecosystem-adapters.md](specs/ecosystem-adapters.md) | §49（新增章节；`docs/state/coverage.json` 仍索引 R1–R147） |
 | 记忆 | [memory.md](specs/memory.md) | §10.3、10.5、12、45.12 |
 | 研究与保留 | [research-memory.md](specs/research-memory.md) | §14、12.4、10.5 |
 | 消息通道 | [channels.md](specs/channels.md) | §15–16、35.6、41.6 |

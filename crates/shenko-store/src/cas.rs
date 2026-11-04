@@ -1,7 +1,7 @@
 //! Content-addressed object store. SPEC §41.2.2
 //! Objects are immutable; locators may change.
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use anyhow::Result;
 use shenko_types::object::{Digest, ObjectRef, SchemaRef, SealedObjectRef};
@@ -12,6 +12,15 @@ pub struct ContentStore {
 }
 
 impl ContentStore {
+    /// Attach to an existing object directory without creating or syncing it.
+    /// Used by inspection commands that must not initialize installation state.
+    pub fn open_existing(base: PathBuf) -> Result<Self, ShenkoError> {
+        if !base.is_dir() {
+            return Err(ShenkoError::not_found("CAS directory does not exist"));
+        }
+        Ok(Self { base })
+    }
+
     pub fn new(base: PathBuf) -> Result<Self, ShenkoError> {
         fs::create_dir_all(&base)
             .map_err(|error| ShenkoError::storage(format!("CAS directory creation: {error}")))?;
@@ -155,6 +164,45 @@ impl ContentStore {
     pub fn read_object(&self, digest: &Digest) -> Result<Vec<u8>, ShenkoError> {
         let path = self.object_path(digest)?;
         fs::read(&path).map_err(|e| ShenkoError::not_found(format!("cas read {digest}: {e}")))
+    }
+
+    /// Read at most 1 MiB authenticated by a separately trusted index. This
+    /// verifies the requested range, NOT the unread remainder of the object.
+    /// Resolve only in this CAS; an exported locator is never a read authority.
+    pub fn read_indexed_range(
+        &self,
+        object: &Digest,
+        object_bytes: u64,
+        offset: u64,
+        bytes: usize,
+        range_digest: &Digest,
+    ) -> Result<Vec<u8>, ShenkoError> {
+        if bytes > 1024 * 1024 || offset.checked_add(bytes as u64).is_none_or(|end| end > object_bytes) {
+            return Err(ShenkoError::conflict("CAS indexed range exceeds its bounds"));
+        }
+        let path = self.object_path(object)?;
+        let result = (|| -> io::Result<Vec<u8>> {
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+            }
+            let mut file = options.open(path)?;
+            let metadata = file.metadata()?;
+            if !metadata.is_file() || metadata.len() != object_bytes {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "CAS indexed object size/type mismatch"));
+            }
+            file.seek(SeekFrom::Start(offset))?;
+            let mut result = vec![0; bytes];
+            file.read_exact(&mut result)?;
+            if Digest::blake3(&result) != *range_digest {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, "CAS indexed range digest mismatch"));
+            }
+            Ok(result)
+        })();
+        result.map_err(|error| ShenkoError::storage(format!("CAS indexed read: {error}")))
     }
 
     /// Resolve immutable content in THIS store, never a historical locator.

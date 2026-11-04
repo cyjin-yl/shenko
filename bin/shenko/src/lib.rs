@@ -11,6 +11,7 @@ use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
 pub mod node_sync;
+mod compat;
 mod runtime_owner;
 mod context_policy;
 mod inference_runtime;
@@ -128,6 +129,13 @@ pub enum Command {
     /// live registry, so the printed providers, capabilities, effect contracts
     /// and hook contracts are the ones this process would use.
     Capabilities,
+    /// Optional third-party ecosystem adapters — MCP and Agent Skills are two
+    /// separate plugins. Neither ships a vendor service, Skill, dependency or
+    /// account grant, and neither is enabled by installing it.
+    Compat {
+        #[command(subcommand)]
+        command: CompatCommand,
+    },
     /// Inspect and manage the installed context strategies — SPEC §12.3.1.
     Context {
         #[command(subcommand)]
@@ -168,6 +176,79 @@ pub enum Command {
     Update {
         #[command(subcommand)]
         command: UpdateCli,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CompatCommand {
+    /// Installed plugins, their enable state and the external units a previous
+    /// import recorded. Reads only; never connects or imports anything.
+    Status,
+    /// Offer or withdraw one adapter unit. The two plugins are independent.
+    Enable { unit_id: String },
+    Disable { unit_id: String },
+    /// External MCP connections, described by an operator-supplied file.
+    #[cfg(feature = "compat-mcp")]
+    Mcp {
+        #[command(subcommand)]
+        command: CompatMcpCommand,
+    },
+    /// Agent Skills source material, preserved exactly as selected.
+    #[cfg(feature = "compat-skill")]
+    Skill {
+        #[command(subcommand)]
+        command: CompatSkillCommand,
+    },
+}
+
+#[cfg(feature = "compat-mcp")]
+#[derive(Subcommand, Debug)]
+pub enum CompatMcpCommand {
+    /// Record one endpoint as an ordinary unit. Does not start the server,
+    /// read a credential or make a request.
+    Import {
+        /// JSON file: description, provenance_refs and a stdio or
+        /// streamable_http connection. Credentials are environment-variable
+        /// names, never values.
+        file: PathBuf,
+        /// Unit identity to install under, e.g. `mcp.example-search`.
+        #[arg(long)]
+        unit_id: String,
+        /// Offer the connection to the subject after importing it.
+        #[arg(long)]
+        enabled: bool,
+    },
+}
+
+#[cfg(feature = "compat-skill")]
+#[derive(Subcommand, Debug)]
+pub enum CompatSkillCommand {
+    /// Copy one directory of Skill material into the installation. Symbolic
+    /// links are refused; the original files and executable bits are kept.
+    Import {
+        root: PathBuf,
+        #[arg(long)]
+        unit_id: String,
+        #[arg(long)]
+        enabled: bool,
+    },
+    /// List the original members, or print one member's exact bytes.
+    Read {
+        unit_id: String,
+        #[arg(long)]
+        revision: String,
+        /// Exact retained artifact digest. Required if a revision is ambiguous.
+        #[arg(long)]
+        artifact_digest: Option<String>,
+        #[arg(long)]
+        path: Option<String>,
+        /// Byte offset with --path; member ordinal for a listing.
+        #[arg(long, default_value_t = 0)]
+        offset: u64,
+        /// Return one bounded page (1..131072 bytes). Without this option,
+        /// --path streams the complete remainder of the original file.
+        #[arg(long)]
+        limit: Option<u32>,
     },
 }
 
@@ -982,6 +1063,19 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 wasi_mounts,
             )
             .await?;
+            // Discovery runs the same installation path as the agent: an
+            // adapter this installation has enabled is registered here too,
+            // so the printed providers are the ones the process would use.
+            let discovery_node = Arc::new(parking_lot::Mutex::new(node_sync::open_node(
+                &data_dir,
+                &store,
+            )?));
+            let _compat_plugins = compat::spawn_adapters(
+                &supervisor,
+                Arc::clone(&store),
+                discovery_node,
+            )
+            .await?;
             let view = supervisor.runtime.view();
             let contracts = supervisor.hooks.contracts();
             let binding = supervisor.hooks.binding();
@@ -1031,6 +1125,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         Command::Context { command } => context_policy::command(&data_dir, command)?,
+        Command::Compat { command } => compat::command(&data_dir, command).await?,
         Command::Admin { command } => {
             create_data_directory_async(&data_dir).await?;
             let store =
@@ -1524,6 +1619,16 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     info!(unit = %unit, "legacy awareness unit installed");
                 }
             }
+            // Optional ecosystem adapters. MCP and Agent Skills are two
+            // independent units over the same installation authority: each is
+            // resident only while its own unit is enabled, and neither brings
+            // a third-party service, Skill, dependency or account with it.
+            let _compat_plugins = compat::spawn_adapters(
+                &supervisor,
+                Arc::clone(&store),
+                Arc::clone(&cognition_node),
+            )
+            .await?;
             // Exact-version unit reads and authored unit writes are native
             // children on the same Cordis root: the subject can inspect what
             // it has and write down what it actually learned, with the
