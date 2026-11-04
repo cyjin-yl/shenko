@@ -15,6 +15,9 @@ pub use browser::*;
 pub mod history_task;
 pub use history_task::*;
 
+pub mod net_probe;
+pub use net_probe::*;
+
 pub mod memory_task;
 pub use memory_task::*;
 

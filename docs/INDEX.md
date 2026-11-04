@@ -158,6 +158,10 @@
 
 [docs/IMPLEMENTATION_DOCS_MAP.md](IMPLEMENTATION_DOCS_MAP.md) 按实现范围列出必读文档，并标注每项在**源码**中的真实状态（接线、未接线或仅有类型）。它描述源码事实，不构成运行验收。
 
+## 通路观察
+
+[docs/specs/network-observation.md](specs/network-observation.md) 记录 `net.probe` 的测量边界：DNS/TCP/HTTP 状态行、按次有界、负结果也是观察、无凭据无重定向。
+
 ## 验证记录
 
 [docs/evidence/](evidence/) 保存各切片的源码/工件绑定证据，每条区分候选、实际输入、环境、方法、结果与尚未覆盖的范围。已保存的证据包括：文档完整性报告、[统一 Node 与认知恢复](evidence/node-sync-cognition-20261026.json)、[C02 有限 child 运行时](evidence/c02-finite-child-runtime-20261025.json)、[C07 原生 SSH](evidence/c07-native-ssh-20261025.json)、[C17 首条独立节点旅程](evidence/c17-native-first-journey-20261025.json)、[C19 长跑观察工具](evidence/c19-longrun-observation-tooling-20261029.json) 等。
