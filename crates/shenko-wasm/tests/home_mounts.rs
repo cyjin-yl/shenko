@@ -1,6 +1,6 @@
 //! Integration coverage for the persistent WASM home and mount contract
-//! (SPEC §8.3, C05 slice D): real preview1 guests against the public
-//! `WasmRuntime` API only. Each guest is an actual compiled module; no host
+//! (SPEC §8.3, C05 slice D): real preview1 guests and the public branch
+//! lifecycle APIs. Each guest is an actual compiled module; no host
 //! path is substituted for a declared mount and nothing is mocked.
 //!
 //! Scenarios, each independently verifiable:
@@ -21,12 +21,16 @@ use shenko_wasm::{
     mount_key,
 };
 use shenko_wasm::mount::OwnedDir;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
+    let root = std::env::var_os("SHENKO_WASM_TEST_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let dir = root
         .join(format!("shenko-wasm-home-{tag}-{}", shenko_types::ids::EntityId::new()));
     fs::create_dir_all(&dir).expect("create temp dir");
     dir
@@ -324,6 +328,9 @@ fn cow_mount_keeps_base_unchanged_and_isolates_branches() -> Result<()> {
     fs::write(base.join("gone.txt"), b"base-gone\n")?;
     fs::create_dir_all(base.join("sub"))?;
     fs::write(base.join("sub/nested.txt"), b"base-nested\n")?;
+    fs::create_dir_all(base.join("untouched"))?;
+    let preserved = [0x00, 0xff, 0x80, 0x0a, 0x0d, 0x42];
+    fs::write(base.join("untouched/preserved.bin"), preserved)?;
 
     let cow_mount = |branch: &str| {
         MountSpec::cow(
@@ -355,6 +362,7 @@ fn cow_mount_keeps_base_unchanged_and_isolates_branches() -> Result<()> {
     assert_eq!(fs::read(base.join("keep.txt"))?, b"base-keep\n");
     assert_eq!(fs::read(base.join("gone.txt"))?, b"base-gone\n");
     assert_eq!(fs::read(base.join("sub/nested.txt"))?, b"base-nested\n");
+    assert_eq!(fs::read(base.join("untouched/preserved.bin"))?, preserved);
     assert!(
         !base.join("newdir").exists(),
         "guest must not create paths in the readonly base"
@@ -375,11 +383,15 @@ fn cow_mount_keeps_base_unchanged_and_isolates_branches() -> Result<()> {
     );
     // The effective-view diff names exactly the guest's changes.
     let diff = branch.diff_abs(&home, &key, &base)?;
-    assert!(diff.added.contains("newdir"));
-    assert!(diff.added.contains("newdir/added.txt"));
-    assert!(diff.modified.contains("keep.txt"));
-    assert!(diff.modified.contains("sub/nested.txt"));
-    assert!(diff.removed.contains("gone.txt"));
+    assert_eq!(
+        diff.added,
+        BTreeSet::from(["newdir".to_owned(), "newdir/added.txt".to_owned()])
+    );
+    assert_eq!(
+        diff.modified,
+        BTreeSet::from(["keep.txt".to_owned(), "sub/nested.txt".to_owned()])
+    );
+    assert_eq!(diff.removed, BTreeSet::from(["gone.txt".to_owned()]));
 
     // A second runtime over branch `main` still sees its own view: the
     // branch state survives runtime replacement, not just runtime lifetime.
@@ -410,8 +422,237 @@ fn cow_mount_keeps_base_unchanged_and_isolates_branches() -> Result<()> {
         );
     }
 
+    let sibling = BranchStore::open(&owned_home, "main", "other")?;
+    let sibling_diff = sibling.diff_abs(&home, &key, &base)?;
+    assert_eq!(sibling_diff.added, BTreeSet::new());
+    assert_eq!(sibling_diff.modified, BTreeSet::new());
+    assert_eq!(sibling_diff.removed, BTreeSet::new());
+    assert_eq!(fs::read(base.join("untouched/preserved.bin"))?, preserved);
+
     fs::remove_dir_all(&home).ok();
     fs::remove_dir_all(&base).ok();
+    Ok(())
+}
+
+/// A tombstone open failure must reject mount admission before another guest
+/// can run. Retain the original state and the synthetic malicious input.
+#[cfg(unix)]
+#[test]
+fn cow_tombstone_open_failure_rejects_mount_readmission() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let home = temp_dir("cow-tombstone-fault-home");
+    let base = temp_dir("cow-tombstone-fault-base");
+    fs::write(base.join("keep.txt"), b"base-keep\n")?;
+    fs::write(base.join("gone.txt"), b"base-gone\n")?;
+    fs::create_dir_all(base.join("sub"))?;
+    fs::write(base.join("sub/nested.txt"), b"base-nested\n")?;
+    let mounts = || {
+        vec![
+            MountSpec::new(
+                home.clone(),
+                HOME_GUEST_PATH,
+                MountMode::ReadWrite,
+                true,
+                false,
+            ),
+            MountSpec::cow(base.clone(), "/work", "main", "main", false, true),
+        ]
+    };
+    {
+        let mut rt = WasmRuntime::with_mounts(mounts())?;
+        assert_eq!(exit_code(&mut rt, &compile(COW_MUTATE_WAT)), 0);
+    }
+
+    let owned_home = OwnedDir::admit_absolute(&home)?;
+    let branch = BranchStore::open(&owned_home, "main", "main")?;
+    let key = mount_key("/work");
+    let tombstones = home.join(branch.rel_tombstones(&key));
+    let saved_tombstones = tombstones.with_extension("saved.json");
+    let original_bytes = fs::read(&tombstones)?;
+    let recorded: serde_json::Value = serde_json::from_slice(&original_bytes)?;
+    assert_eq!(recorded["removed"], serde_json::json!(["gone.txt"]));
+    fs::rename(&tombstones, &saved_tombstones)?;
+    // Relative same-basename target deliberately loops at this owned fixture.
+    let basename = tombstones.file_name().expect("tombstone filename");
+    symlink(basename, &tombstones)?;
+
+    let mut runtime = WasmRuntime::with_mounts(mounts())?;
+    let (command, stdout) = stdout_stdio();
+    let execution = runtime.run_wasi_module(&compile(READ_KEEP_GONE_WAT), command);
+    assert!(execution.is_err());
+    assert_eq!(stdout.contents().as_ref(), b"");
+    assert_eq!(fs::read(&saved_tombstones)?, original_bytes);
+    assert_eq!(fs::read_link(&tombstones)?, PathBuf::from(basename));
+    assert_eq!(fs::read(base.join("keep.txt"))?, b"base-keep\n");
+    assert_eq!(fs::read(base.join("gone.txt"))?, b"base-gone\n");
+    assert_eq!(fs::read(base.join("sub/nested.txt"))?, b"base-nested\n");
+    assert!(!base.join("newdir").exists());
+    Ok(())
+}
+
+/// Copy-up with identical binary bytes is unchanged; a late byte change is
+/// visible. Unreadable data must not compare equal and publish a new head.
+#[cfg(unix)]
+#[test]
+fn cow_unreadable_contents_refuse_diff_and_commit() -> Result<()> {
+    use std::collections::BTreeMap;
+    use std::os::unix::fs::symlink;
+
+    let home = temp_dir("cow-content-home");
+    let base = temp_dir("cow-content-base");
+    let original = (0..100_003).map(|value| value as u8).collect::<Vec<_>>();
+    fs::write(base.join("same.bin"), &original)?;
+    let owned_home = OwnedDir::admit_absolute(&home)?;
+    let branch = BranchStore::open(&owned_home, "main", "main")?;
+    let key = mount_key("/work");
+    let mount = branch.mount(&owned_home, &key)?;
+    mount.overlay_dir().write("same.bin", &original)?;
+    assert!(branch.diff_abs(&home, &key, &base)?.is_empty());
+
+    let mut changed = original.clone();
+    *changed.last_mut().unwrap() ^= 0xff;
+    mount.overlay_dir().write("same.bin", &changed)?;
+    let diff = branch.diff_abs(&home, &key, &base)?;
+    assert_eq!(diff.modified, BTreeSet::from(["same.bin".to_owned()]));
+    assert!(diff.added.is_empty());
+    assert!(diff.removed.is_empty());
+    let bases = BTreeMap::from([(key.clone(), base.clone())]);
+    let record = branch.commit_abs(&home, &bases)?;
+    let commits_path = home.join(branch.rel_commits_file());
+    let commits_before = fs::read(&commits_path)?;
+
+    let overlay = home.join(branch.rel_overlay(&key));
+    let saved_base = home.join("saved-base.bin");
+    let saved_overlay = home.join("saved-overlay.bin");
+    fs::rename(base.join("same.bin"), &saved_base)?;
+    fs::rename(overlay.join("same.bin"), &saved_overlay)?;
+    symlink("same.bin", base.join("same.bin"))?;
+    symlink("same.bin", overlay.join("same.bin"))?;
+    assert!(branch.diff_abs(&home, &key, &base).is_err());
+    assert!(branch.commit_abs(&home, &bases).is_err());
+    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    assert_eq!(fs::read(&commits_path)?, commits_before);
+    assert_eq!(fs::read(&saved_base)?, original);
+    assert_eq!(fs::read(&saved_overlay)?, changed);
+    Ok(())
+}
+
+/// A relative overlay symlink replaces the base directory itself; an absent
+/// target child must not reappear from the old base subtree.
+#[cfg(unix)]
+#[test]
+fn cow_overlay_symlink_masks_base_descendants() -> Result<()> {
+    use std::os::unix::fs::symlink;
+
+    let home = temp_dir("cow-link-home");
+    let base = temp_dir("cow-link-base");
+    fs::create_dir(base.join("linked"))?;
+    fs::write(base.join("linked/old.bin"), [0x00, 0xff, 0x42])?;
+    let owned_home = OwnedDir::admit_absolute(&home)?;
+    let branch = BranchStore::open(&owned_home, "main", "main")?;
+    let key = mount_key("/work");
+    let mount = branch.mount(&owned_home, &key)?;
+    mount.overlay_dir().create_dir("target")?;
+    symlink("target", home.join(branch.rel_overlay(&key)).join("linked"))?;
+    let mut runtime = WasmRuntime::with_mounts(vec![
+        MountSpec::new(home.clone(), HOME_GUEST_PATH, MountMode::ReadWrite, true, false),
+        MountSpec::cow(base.clone(), "/work", "main", "main", false, true),
+    ])?;
+    let guest = compile(r#"(module
+        (import "wasi_snapshot_preview1" "path_open"
+            (func $open (param i32 i32 i32 i32 i32 i64 i64 i32 i32) (result i32)))
+        (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+        (memory (export "memory") 1)
+        (data (i32.const 100) "linked/old.bin")
+        (func (export "_start")
+            (if (i32.eqz (call $open (i32.const 4) (i32.const 0)
+                (i32.const 100) (i32.const 14) (i32.const 0)
+                (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 0)))
+                (then (call $exit (i32.const 88))))))"#);
+    assert_eq!(exit_code(&mut runtime, &guest), 0);
+    let diff = branch.diff_abs(&home, &key, &base)?;
+    assert_eq!(diff.added, BTreeSet::from(["target".to_owned()]));
+    assert_eq!(diff.modified, BTreeSet::from(["linked".to_owned()]));
+    assert_eq!(diff.removed, BTreeSet::from(["linked/old.bin".to_owned()]));
+    assert_eq!(fs::read(base.join("linked/old.bin"))?, [0x00, 0xff, 0x42]);
+    Ok(())
+}
+
+/// Replacing a base directory hides its descendants; replacing a base file
+/// with a directory adds the directory's children to the effective view.
+#[test]
+fn cow_diff_accounts_for_file_directory_replacements() -> Result<()> {
+    let home = temp_dir("cow-type-home");
+    let base = temp_dir("cow-type-base");
+    fs::create_dir(base.join("directory"))?;
+    fs::write(base.join("directory/old.bin"), [0x00, 0xff, 0x42])?;
+    fs::write(base.join("file"), b"base-file\n")?;
+    let owned_home = OwnedDir::admit_absolute(&home)?;
+    let branch = BranchStore::open(&owned_home, "main", "main")?;
+    let key = mount_key("/work");
+    let mount = branch.mount(&owned_home, &key)?;
+    mount.overlay_dir().write("directory", b"replacement-file\n")?;
+    mount.overlay_dir().create_dir("file")?;
+    mount.overlay_dir().write("file/new.bin", [0x80, 0x00, 0x0a])?;
+
+    let diff = branch.diff_abs(&home, &key, &base)?;
+    assert_eq!(diff.added, BTreeSet::from(["file/new.bin".to_owned()]));
+    assert_eq!(
+        diff.modified,
+        BTreeSet::from(["directory".to_owned(), "file".to_owned()])
+    );
+    assert_eq!(diff.removed, BTreeSet::from(["directory/old.bin".to_owned()]));
+    assert_eq!(fs::read(base.join("directory/old.bin"))?, [0x00, 0xff, 0x42]);
+    assert_eq!(fs::read(base.join("file"))?, b"base-file\n");
+    Ok(())
+}
+
+/// Lifecycle capture must refuse a vanished required root without publishing
+/// a different head or appending a partial commit. Keep all fixture bytes.
+#[test]
+fn cow_missing_roots_refuse_commit_without_advancing_head() -> Result<()> {
+    use std::collections::BTreeMap;
+
+    let home = temp_dir("cow-root-home");
+    let base = temp_dir("cow-root-base");
+    fs::write(base.join("keep.txt"), b"base-keep\n")?;
+    fs::write(base.join("gone.txt"), b"base-gone\n")?;
+    fs::create_dir(base.join("sub"))?;
+    fs::write(base.join("sub/nested.txt"), b"base-nested\n")?;
+    {
+        let mut runtime = WasmRuntime::with_mounts(vec![
+            MountSpec::new(home.clone(), HOME_GUEST_PATH, MountMode::ReadWrite, true, false),
+            MountSpec::cow(base.clone(), "/work", "main", "main", false, true),
+        ])?;
+        assert_eq!(exit_code(&mut runtime, &compile(COW_MUTATE_WAT)), 0);
+    }
+
+    let owned_home = OwnedDir::admit_absolute(&home)?;
+    let branch = BranchStore::open(&owned_home, "main", "main")?;
+    let key = mount_key("/work");
+    let bases = BTreeMap::from([(key.clone(), base.clone())]);
+    let record = branch.commit_abs(&home, &bases)?;
+    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    let commits_path = home.join(branch.rel_commits_file());
+    let commits_before = fs::read(&commits_path)?;
+
+    let saved_base = base.with_extension("saved");
+    fs::rename(&base, &saved_base)?;
+    assert!(branch.commit_abs(&home, &bases).is_err());
+    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    assert_eq!(fs::read(&commits_path)?, commits_before);
+    assert_eq!(fs::read(saved_base.join("keep.txt"))?, b"base-keep\n");
+    fs::rename(&saved_base, &base)?;
+
+    let overlay = home.join(branch.rel_overlay(&key));
+    let saved_overlay = overlay.with_extension("saved");
+    fs::rename(&overlay, &saved_overlay)?;
+    assert!(branch.commit_abs(&home, &bases).is_err());
+    assert_eq!(branch.head_abs(&home)?, Some(record.id()));
+    assert_eq!(fs::read(&commits_path)?, commits_before);
+    assert_eq!(fs::read(saved_overlay.join("keep.txt"))?, b"changed\n");
+    assert_eq!(fs::read(base.join("gone.txt"))?, b"base-gone\n");
     Ok(())
 }
 
