@@ -15,6 +15,9 @@ fn limits() -> NativeCommandLimits {
 }
 struct Fixture { root: PathBuf, store: Store, binding: SshBinding, operation_id: EntityId }
 fn fixture() -> Fixture {
+    fixture_with_contract(Digest::blake3(HELPER.as_bytes()))
+}
+fn fixture_with_contract(digest: Digest) -> Fixture {
     let root = std::env::temp_dir().join(format!("shenko-native-query-{}", EntityId::new()));
     std::fs::create_dir_all(&root).unwrap();
     let store = Store::open(root.join("ledger.db"), root.join("cas")).unwrap();
@@ -52,7 +55,6 @@ fn fixture() -> Fixture {
         created_commit: zero, updated_commit: zero };
     let mut batch = WriteBatch::new(); batch.task_upserts.push(task); store.commit(batch).unwrap();
     let operation_id = EntityId::new();
-    let digest = Digest::blake3(HELPER.as_bytes());
     let version = VersionRef { artifact: ArtifactRef { digest: digest.clone(),
         locator: "builtin:openssh-python3-v1".into() }, symbol: "receipt".into(),
         schema: SchemaRef { name: "ssh-receipt-v1".into(), major: 1, digest: digest.clone() } };
@@ -318,4 +320,33 @@ async fn native_query_error_keeps_native_codec_without_changing_legacy_encoding(
     let legacy_json: serde_json::Value = serde_json::from_slice(
         &f.store.cas.read_object(&evidence[1].raw_ref.digest).unwrap()).unwrap();
     assert_eq!(legacy_json, serde_json::json!([null, null, "owned fixture error"]));
+}
+
+#[test]
+fn previous_helper_contract_remains_queryable_after_store_reopen() {
+    let old_digest = Digest::blake3(PR127_RECEIPT_V1.as_bytes());
+    assert_ne!(old_digest, Digest::blake3(HELPER.as_bytes()));
+    let f = fixture_with_contract(old_digest.clone());
+    let before = f.store.external_operation(f.operation_id).unwrap();
+    let attempt = f.store.external_operation_attempt(f.operation_id).unwrap();
+    drop(f.store);
+    let reopened = Store::open(f.root.join("ledger.db"), f.root.join("cas")).unwrap();
+    let runner = SshTaskRunner { store: &reopened };
+    // Exercise the production reader gate, not an SSH or helper execution.
+    // Repeated reads must retain the original contract, operation and attempt.
+    for _ in 0..2 {
+        let (op, att, frozen) = runner.query_input(f.operation_id).unwrap();
+        assert_eq!(op.contract_ref.contract_digest, old_digest);
+        assert_eq!(op.operation_id, before.operation_id);
+        assert_eq!(op.input_digest, before.input_digest);
+        assert_eq!(op.record_revision, before.record_revision);
+        assert_eq!(att.attempt_id, attempt.attempt_id);
+        assert_eq!(att.attempt_no, attempt.attempt_no);
+        assert_eq!(frozen.binding.target_id, f.binding.target_id);
+        assert_eq!(op.outcome, None);
+        assert_eq!(op.effect_status, EffectStatus::Unknown);
+    }
+    let after = reopened.external_operation(f.operation_id).unwrap();
+    assert_eq!(after.record_revision, before.record_revision);
+    assert_eq!(reopened.external_operation_attempt(f.operation_id).unwrap().attempt_id, attempt.attempt_id);
 }
