@@ -157,6 +157,8 @@ enum FixtureEntry {
 #[derive(Serialize)]
 struct NativeTrialFixture {
     source_export: shenko_node::UnitExport,
+    attempt_id: String,
+    attempt: serde_json::Value,
     evidence: serde_json::Value,
 }
 
@@ -307,9 +309,21 @@ async fn prepared_fixture(learned: bool, empty_judge: bool, entry: FixtureEntry)
                     definition_version: 1, input: serde_json::to_value(&spec)?,
                 }, &parent, &authority).await?;
                 ensure!(result.outcome == "succeeded", "native trial failed: {result:?}");
-                let report = serde_json::from_value(result.result["report"].clone())?;
+                let value = result.result.context("native trial returned no result")?;
+                let report = serde_json::from_value(value.get("report")
+                    .context("native trial result has no report")?.clone())?;
+                let attempt_id = value.get("attempt_id").and_then(serde_json::Value::as_str)
+                    .context("native trial attempt ID missing")?.to_owned();
                 let evidence = catalog.trial_evidence(&spec.unit_id, "0", 128)?;
-                Ok((report, NativeTrialFixture { source_export, evidence }))
+                let connection = rusqlite::Connection::open_with_flags(
+                    root.join("source-node/node.sqlite3"),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                        | rusqlite::OpenFlags::SQLITE_OPEN_NOFOLLOW)?;
+                let data: String = connection.query_row(
+                    "SELECT data FROM unit_attempts WHERE attempt_id=?1 AND state='finished'",
+                    [attempt_id.as_str()], |row| row.get(0))?;
+                let attempt = serde_json::from_str(&data)?;
+                Ok((report, NativeTrialFixture { source_export, attempt_id, attempt, evidence }))
             }.await;
             let cleanup = supervisor.stop().await;
             match (measured, cleanup) {
@@ -395,20 +409,22 @@ async fn native_trial_binds_the_executed_configuration_to_the_opened_plan() -> R
     assert_control_cannot_read_candidate(&fixture)?;
     let native = fixture.native_trial.as_ref().context("native trial evidence missing")?;
     let rows = native.evidence["evidence"].as_array().context("trial rows missing")?;
-    let opened = rows.iter().find(|row| row["outcome"] == "trial_open"
-        && row["evidence"]["kind"] == "sandbox_comparison").context("opened trial missing")?;
-    let plan = &opened["evidence"]["plan"];
+    let finished = rows.iter().find(|row| row["attempt_id"] == native.attempt_id)
+        .context("finished native trial missing")?;
+    let plan = native.attempt.get("plan").filter(|plan| plan.is_object())
+        .context("persisted trial plan missing")?;
     assert_eq!(plan["configuration_ref"], serde_json::to_value(&fixture.report.configuration_ref)?);
     assert_eq!(plan["artifact_digest"], fixture.source_read["artifact_digest"]);
-    assert_eq!(Digest::blake3(&serde_json::to_vec(plan)?).0, opened["environment_digest"]);
+    let plan_digest = Digest::blake3(&serde_json::to_vec(plan)?).0;
+    assert_eq!(plan_digest, native.attempt["plan_digest"]);
+    assert_eq!(plan_digest, finished["environment_digest"]);
+    assert_eq!(native.attempt["plan_digest"], finished["evidence"]["plan_digest"]);
     let reference = &fixture.report.configuration_ref;
     let bytes = fixture.store.cas.read_object(&reference.digest)?;
     assert_eq!(bytes.len() as u64, reference.bytes);
     assert_eq!(Digest::blake3(&bytes), reference.digest);
     let configuration: serde_json::Value = serde_json::from_slice(&bytes)?;
     assert_eq!(configuration["source_export"], serde_json::to_value(&native.source_export)?);
-    let finished = rows.iter().find(|row| row["attempt_id"] == opened["attempt_id"]
-        && row["outcome"] != "trial_open").context("finished trial missing")?;
     assert_eq!(finished["outcome"], "unknown");
     let receipts = finished["evidence"]["receipts"].as_array().context("trial receipts missing")?;
     for sample in &fixture.report.samples {

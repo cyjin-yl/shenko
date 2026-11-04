@@ -4033,6 +4033,7 @@ dependencies = [
  "futures",
  "parking_lot",
  "png",
+ "rusqlite",
  "rustix",
  "serde",
  "serde_json",
