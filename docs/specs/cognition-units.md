@@ -218,6 +218,22 @@ scenarios. That count is an experiment requirement, not evidence of efficacy:
 tentative cases remain unaccepted until the real model comparison supports
 them. Retained reports are not overwritten to hide unsuccessful trials.
 
+The retained R7 run on source `22f27228bffc266e9290b3c157e9fb2524f65c27`
+planned 52 samples across thirteen scenarios and two repetitions per condition.
+Candidate samples were effective in 20 of 23 scored attempts, with 3 failures;
+control samples were effective in 9 of 18 scored attempts, with 8 failures.
+All thirteen scenarios remain `accepted: false`. The test exited 101: its
+eleven failed slots include five empty judge verdicts, three attempts that
+could not start within their pair budget, and three subject/deadline failures.
+This is a retained initial measurement, not six-repetition acceptance or a
+completed live-network fixture. The original requests, results, failures and
+broker retirement snapshot remain under
+`build/ecosystem-compat-20261104/cognition-model-r7/native/run-49b56b81-f817-4dcb-a68d-364644257d41/`.
+The broker snapshot reports its local provider readers drained and makes no
+remote-termination claim. Nine native mechanics regressions passed separately
+under `build/ecosystem-compat-20261104/cognition-preparation-after-r7/`;
+they establish preparation, consumption and receipt behavior, not model efficacy.
+
 The integration consumer is
 `cargo test -p shenko-exec-host --test awareness_efficacy -- --nocapture`.
 It calls `run_sandbox_trial`, the same measurement engine used by the native
