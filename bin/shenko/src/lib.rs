@@ -653,6 +653,13 @@ async fn install_native_definitions(
     let _native_history_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, history_handler)
         .await?;
+    // Reachability is observed, not assumed: one bounded probe of a declared
+    // endpoint with per-stage measured timings and no persistent state.
+    let net_probe_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_exec_host::NetProbeHandler::new(Arc::clone(store)));
+    let _native_net_probe_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, net_probe_handler)
+        .await?;
     let memory_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
         Arc::new(shenko_exec_host::MemoryHandler::new(Arc::clone(store)));
     let _native_memory_plugin = supervisor

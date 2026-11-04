@@ -6173,3 +6173,13 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 - 输入 `{unit?,window?,grouping}`：`unit` 按冻结输入的 `unit.unit_id/revision/artifact_digest` 过滤；`window.max_records` ≤ 200（缺省 200）取按 `observed_at` 与 `receipt_id` 排序后的最新记录，`since_rfc3339` 过滤更早观察；`grouping` 为 `method` 或 `method+status`。方法取归一化观察 `protocol.method`，否则取冻结输入 `request.method`，最后回退操作名；状态是已结算 `OperationOutcome`（无结果记 unknown）。
 - 输出至多 200 组，每组 `{method,status,count,first_seen_utc,latest_occurrence_utc,exemplar_digests(≤3)}`；exemplar 是归一化结果对象的 CAS 摘要，先经 `read_object` + blake3 认证才进入结果，认证失败的省略而不是断言。扫描总量有界并如实报告 `scan_truncated`；同一输入重复调用返回同一观察，不新增外部效果（`EffectStatus::None`），T1/E1 与 reconcile 沿用既有 `RecordedCall` 机制。
 - 结果声明 `observations_only`：摘要不代替主体判断。采纳路径不变——主体以某个 exemplar 摘要作 `cognition.unit.write` 的 `derived_from{kind:"cas_object"}`，写出的单元仍为候选。
+
+## 50.3 通路观察的测量入口
+
+本节记录 2026-11-04 实现的 `net.probe`（native 定义版本 1），作为 §9.4、§18.7 的补充事实，不修改 §1–49 原文：
+
+- 输入 `{url,timeout_ms?}`：仅 `http`/`https`，URL ≤ 1024 字节，超时 100–5000 ms；拒绝 URL 内的凭据、query、fragment 与端口 0。冻结的是 URL 字节本身，探测不能中途换目标。
+- 一次观察依次做 DNS（独立线程等待，受同一预算约束，超时记 `dns_timeout` 而非 `dns_failed`）、逐地址 TCP `connect_timeout`，`http` 再发一个 `GET` 只读第一行状态码（≤512 字节）；不读响应体、不跟随重定向、不带 Cookie、不发第二个请求；`https` 只到 TCP 连接，不假装完成 TLS 验证。
+- 输出 `reachable`（连接是否建立）、各阶段耗时与 `detail`、`error_kind`、`scope`。没走到的阶段保持缺失或 `ok:false`，不补零。负结果是成功的观察：child 的操作结果为 `Succeeded`，`reachable:false` 是被测到的事实，调用方不得把它当成 child 失败。
+- 生命周期沿用 native child：冻结输入 CAS、一次 armed attempt、一个 observation、一个 evidence receipt；reconcile 在同一 attempt 下重新测量；`EffectStatus::None`；卸载后已测观察仍可读。
+- 观察路径由真实 socket 的内联测试覆盖（真实 HTTP 应答的状态码、释放端口的 `connect_failed`、`.invalid` 的 `dns_failed`、URL 边界）。模型是否在被问到通路时真的去观察，属于 awareness 效能测量，不由本定义证明。
