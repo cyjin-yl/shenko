@@ -171,6 +171,10 @@ chunk_bytes:1048576,chunks:[每 1 MiB 块的 blake3]}`。清单对象同时是 E
 `learning_source.digest`——学习来源保持小对象且可按块取回，归一化结果里的
 `observation` 变成 `{"status":"observation_outlined","artifact":{digest,bytes},
 "read":{handler:"compat.artifact.read",...}}`，不再内嵌原始字节。
+读取前先对根对象做完整 blake3 认证：同长度损坏不能再借用原始摘要返回字节。清单字段
+（`artifact_digest` 规范性、`chunk_bytes` 必须为 1 MiB、每块摘要规范性、覆盖数一致）在读
+取前校验；不支持的 `chunk_bytes`（含 0）结算 failed 而非 panic。逐块认证保持不变：单个
+块损坏只让覆盖该块的读取 failed，其他范围仍可读。
 
 MCP 代际同时注册 native 定义 `compat.artifact.read`（定义版本 1，同一 T1/E1 机制）：
 
@@ -180,7 +184,8 @@ MCP 代际同时注册 native 定义 `compat.artifact.read`（定义版本 1，�
   （`format:"compat-indexed-observation"`），返回 `{status:"received",total_bytes,offset,
   next_offset,content_base64}`，`next_offset` 为 null 即到末尾。
 - 单个块损坏只让**覆盖该块的读取**结算 failed 且不返回字节，其他范围仍可读；无效摘要、
-  对象缺失、超限 limit、越界 offset 同样结算 failed，不 panic、不变 unknown。读取只发生在
+  对象缺失、超限 limit、越界 offset、根摘要不匹配、不支持的分块大小同样结算 failed，不
+  panic、不变 unknown。读取只发生在
   本安装 CAS：digest 不授予远端读取权限，handler 没有外部效果。
 
 ### 使用摘要：聚合观察，不代为采纳
@@ -191,6 +196,12 @@ MCP 代际同时注册 native 定义 `compat.artifact.read`（定义版本 1，�
 `since_rfc3339` 过滤更早观察，`grouping` 为 `method` 或 `method+status`（方法取归一化观察的
 `protocol.method`，否则取冻结输入的 `request.method`；状态是已结算操作结果：succeeded、
 failed、cancelled、interrupted 或 unknown）。
+
+扫描上限 3072 只计**匹配**操作（通过 unit/since 过滤的），不把不匹配的操作算进预算，
+所以 3073 条 MCP 观察不会耗尽扫描上限而遗漏后续 Skill 观察。按观察时间（RFC 3339 纳秒）
+降序排列，时间戳相同时按 receipt_id 确定顺序。`next_cursor` 在一页满且可能还有匹配记录时
+返回；调用方用它继续读取被当前页窗口排除的记录，不需要重新扫描已返回的记录。`cursor` 输
+入字段省略时从最新记录开始；提供时跳过游标处及之前的记录。`max_records:0` 返回空分组。
 
 每个分组返回 `{method,status,count,first_seen_utc,latest_occurrence_utc,exemplar_digests}`：
 至多 200 组、每组至多 3 个归一化结果摘要。**每个摘要先在本安装 CAS 重新认证才进入结果**——
@@ -209,6 +220,8 @@ failed、cancelled、interrupted 或 unknown）。
   连接取消与进程 join 可能晚于写入；底层 I/O 阻塞时，轮询间隔也不是实际清理的墙钟上限。
 - 每次调用都是既有 native handler：T1 武装 → 真实派发 → E1 回执。调用者取消只放弃等待，
   已武装的外部尝试仍由该代际的 worker 收尾，不会被静默改成成功。
+- 握手期间的取消：`Session::connect` 可能耗时长于武装前的取消检查。获取会话读锁后、发送请求
+  前再次检查 durable abort；若已取消，结算 Cancelled + EffectStatus::None，不发送请求。
 - reconcile 只查询原始回执，绝不重新派发；进程替换后未结束的尝试保持 unknown。
 - 卸载/代际清理：先关闭接纳，再 join 已接纳 worker，最后取消并关闭所有自有会话；清理失败
   不得被报告成成功卸载。

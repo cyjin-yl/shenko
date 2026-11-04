@@ -25,6 +25,11 @@ for line in sys.stdin:
     if ident is None:
         continue
     if method == 'initialize':
+        (root / 'initialize.started').write_text('ready')
+        deadline = time.monotonic() + 10
+        while (root / 'hold-initialize').exists() and not (root / 'release-initialize').exists():
+            if time.monotonic() > deadline: sys.exit(2)
+            time.sleep(0.01)
         result = {'protocolVersion':'2025-11-25','capabilities':{'tools':{}},'serverInfo':{'name':'native-effect-fixture','version':'1'}}
     elif method == 'tools/call':
         params = message['params']
@@ -938,3 +943,5 @@ async fn effects_are_armed_once_and_learning_keeps_original_evidence() -> Result
         (Ok(()), cleanup) => cleanup,
     }
 }
+
+include!("support/receipt_boundaries.rs");

@@ -37,6 +37,19 @@ pub struct UsageDigestInput {
     #[serde(default)] pub window: Window,
     /// "method" or "method+status".
     pub grouping: Grouping,
+    /// Opaque continuation cursor from a previous `next_cursor`. Absent on
+    /// the first page; the reader skips records at or before it.
+    #[serde(default)] pub cursor: Option<Cursor>,
+}
+
+/// Continuation point: the last record returned on the previous page. The
+/// reader resumes strictly after it (later observed_at, or same timestamp
+/// with a greater receipt_id), so earlier pages are never revisited.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Cursor {
+    pub observed_at_rfc3339: Option<String>,
+    pub receipt_id: EntityId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -119,6 +132,16 @@ impl Runtime {
         let since = input.window.since_rfc3339.as_deref()
             .map(|raw| chrono::DateTime::parse_from_rfc3339(raw).map(|parsed| parsed.with_timezone(&chrono::Utc)))
             .transpose().context("window.since_rfc3339 is not an RFC 3339 timestamp")?;
+        let cursor_at = match input.cursor.as_ref() {
+            Some(cursor) => match cursor.observed_at_rfc3339.as_deref() {
+                Some(raw) => Some(chrono::DateTime::parse_from_rfc3339(raw)
+                    .map(|parsed| parsed.with_timezone(&chrono::Utc))
+                    .context("cursor.observed_at_rfc3339 is not an RFC 3339 timestamp")?),
+                None => None,
+            },
+            None => None,
+        };
+        let cursor_receipt = input.cursor.as_ref().map(|cursor| cursor.receipt_id);
         let mut scanned = 0usize;
         let mut truncated = false;
         let mut verified = BTreeSet::<String>::new();
@@ -131,8 +154,6 @@ impl Runtime {
                 after = Some(last.operation_id);
                 let full = operations.len() == 256;
                 for operation in operations {
-                    scanned += 1;
-                    if scanned > MAX_SCANNED_OPERATIONS { truncated = true; break 'scan; }
                     let frozen = self.frozen_input(&operation).unwrap_or(Value::Null);
                     if input.unit.as_ref().is_some_and(|filter| !Self::unit_matches(&frozen, filter)) { continue; }
                     let receipts = self.store.external_operation_evidence(operation.operation_id)?;
@@ -141,6 +162,15 @@ impl Runtime {
                         (Some(since), seen) if seen.is_none_or(|seen| seen < since) => continue,
                         _ => {}
                     }
+                    // Skip records already returned on a previous page.
+                    if let Some(cursor_at) = cursor_at {
+                        if let Some(seen) = receipt.observed_at {
+                            if seen < cursor_at { continue; }
+                            if seen == cursor_at && cursor_receipt.is_some_and(|id| receipt.receipt_id <= id) { continue; }
+                        } else { continue; }
+                    }
+                    scanned += 1;
+                    if scanned > MAX_SCANNED_OPERATIONS { truncated = true; break 'scan; }
                     let normalized = self.normalized_result(receipt, &mut verified).unwrap_or(Value::Null);
                     let method = normalized["observation"]["protocol"]["method"].as_str()
                         .or_else(|| frozen["request"]["method"].as_str())
@@ -164,6 +194,15 @@ impl Runtime {
             .then_with(|| right.receipt_id.cmp(&left.receipt_id)));
         let matched = records.len();
         records.truncate(input.window.max_records as usize);
+        // When the page is full and more matching records may exist, expose
+        // a cursor to the oldest record on this page so the caller can
+        // continue without re-scanning records already returned.
+        let next_cursor: Value = if records.len() as u32 == input.window.max_records && (truncated || matched > records.len()) {
+            records.last().map(|last| json!({
+                "observed_at_rfc3339": last.observed_at.map(|seen| seen.to_rfc3339()),
+                "receipt_id": last.receipt_id,
+            })).unwrap_or(Value::Null)
+        } else { Value::Null };
         let mut groups = BTreeMap::<(String, Option<String>), (u64, Vec<chrono::DateTime<chrono::Utc>>, Vec<Digest>)>::new();
         for record in &records {
             let key = (record.method.clone(),
@@ -189,6 +228,7 @@ impl Runtime {
             "scanned_operations":scanned,"scan_truncated":truncated,
             "matched_records":matched,"windowed_records":records.len(),
             "max_records":input.window.max_records,"groups_truncated":groups_truncated,"groups":groups,
+            "next_cursor":next_cursor,
             "observations_only":true,
             "adoption":"observations only; derive learning by cognition.unit.write with derived_from={\"kind\":\"cas_object\",\"digest\":<exemplar digest>}; a unit learned from these exemplars remains a candidate"}))
     }
