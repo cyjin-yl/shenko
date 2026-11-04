@@ -70,6 +70,11 @@
 
 首启使用被封口的 seed、profile、home manifest 与真实 guest 探针，绑定主体的 genesis 和初始运行代际。标记文件、目录存在或宿主可写，都不等于 guest 能在声明的 preopen 中读写。
 
+seed 的 `copy_on_write_mounts` 能力声明对应已有的受管 COW 实现，状态为 `Available`。
+旧家园若完整能力表仅保留此前的 COW `Unsupported` 声明，`prepare` 在 guest 探针与宿主回读
+成功后持久更新该声明，保留安装身份、挂载、创建时间与已有文件。其他能力表差异仍须显式迁移，
+拒绝时保留原 manifest 和数据；能力声明本身不代替具体分支的运行验证。
+
 `HomeCheckpoint::FilesAndMetadata` 表示文件与元数据层的恢复，不承诺 WASM 线性内存、执行栈、解释器对象图或进程恢复。更高恢复等级必须由对应运行时及 [REPL 合同](repl.md) 的实际机制和证据支持。
 
 恢复要保持以下区分：
