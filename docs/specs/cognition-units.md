@@ -234,6 +234,24 @@ remote-termination claim. Nine native mechanics regressions passed separately
 under `build/ecosystem-compat-20261104/cognition-preparation-after-r7/`;
 they establish preparation, consumption and receipt behavior, not model efficacy.
 
+The control-exclusion regressions require every retained candidate version to
+be absent and the exact known-ID/revision native read to return its original
+`unit_not_readable` failure, without a successful sample receipt, judge receipt
+or scored control attempt. A consuming S1 must contain that same complete T2
+in its authenticated sealed input. If the sandbox deadline stops observation
+before consumption, the original T2 must remain pending for the same agent,
+without a committed disposition. That deadline establishes exclusion and a
+failed read; the separate failed-read regression still requires actual S1
+consumption.
+
+The first merged-main check under `cognition-main-6c7f87a0-r1/` retained eight
+passing cases and the seed control's deadline-sensitive assertion failure.
+Its original failed read and pending T2 remain unchanged. The corrected
+assertions passed all nine native cases, and the model consumer compiled,
+under `build/ecosystem-compat-20261104/cognition-control-terminal-after-r1/`.
+That run consumed its control failures; it does not replace the earlier
+deadline receipt or establish model efficacy.
+
 The integration consumer is
 `cargo test -p shenko-exec-host --test awareness_efficacy -- --nocapture`.
 It calls `run_sandbox_trial`, the same measurement engine used by the native

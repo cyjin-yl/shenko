@@ -454,21 +454,54 @@ fn assert_control_cannot_read_candidate(fixture: &PreparedFixture) -> Result<()>
         .find(|intent| intent.definition.as_ref().is_some_and(|definition|
             definition.input["unit_id"] == fixture.source_read["unit_id"]))
         .context("control did not attempt the known candidate read")?;
+    assert_eq!(intent.definition.as_ref().context("control read definition missing")?.input["revision"],
+        fixture.source_read["revision"]);
     let result = store.native_task_result(intent.intent_id)?.context("control native result missing")?;
     assert!(matches!(result.outcome, TaskOutcome::Failed { .. }), "control read reached the candidate: {result:?}");
     assert_eq!(result.result.as_ref().context("native failure observation missing")?["error"]["code"], "unit_not_readable");
-    let consuming = decisions.iter().find(|(_, _, decision)| decision.event_dispositions.iter()
-        .any(|disposition| disposition.event_id == result.result_id
-            && disposition.disposition != Disposition::Deferred)).context("failed control read was never consumed")?;
-    let task = store.external_task(result.task_id)?;
-    assert_eq!(store.event_disposition_commit(task.agent_id, result.result_id)?, consuming.1.commit_ref);
     let sample = fixture.report.samples.iter().find(|sample| sample.condition == Condition::Control)
         .context("control sample missing")?;
     assert_eq!(sample.verdict, "failed");
-    assert!(sample.failure.is_some());
+    let failure = sample.failure.as_deref().context("control failure missing")?;
+    assert!(sample.receipt_digest.is_none());
+    assert!(sample.judge_receipt.is_none());
+    let totals = &fixture.report.scenarios.iter().find(|scenario| scenario.name == sample.scenario)
+        .context("control scenario totals missing")?.control;
+    assert_eq!((totals.attempted, totals.scored, totals.failed, totals.effective), (1, 0, 1, 0));
+    let task = store.external_task(result.task_id)?;
+    if let Some(consuming) = decisions.iter().find(|(_, _, decision)| decision.event_dispositions.iter()
+        .any(|disposition| disposition.event_id == result.result_id
+            && disposition.disposition != Disposition::Deferred)) {
+        assert_eq!(store.event_disposition_commit(task.agent_id, result.result_id)?, consuming.1.commit_ref);
+        let reference = &consuming.2.input_plan_ref;
+        assert_eq!(consuming.1.input_plan_ref.as_ref(), Some(reference));
+        let bytes = store.cas.read_object(&reference.digest)?;
+        assert_eq!(bytes.len() as u64, reference.bytes);
+        assert_eq!(Digest::blake3(&bytes), reference.digest);
+        #[derive(Deserialize)]
+        struct InputEvents { events: Vec<InboxEvent> }
+        let input: InputEvents = serde_json::from_slice(&bytes)?;
+        let event = input.events.iter().find(|event| event.event_id == result.result_id)
+            .context("consuming S1 omitted the original failed T2")?;
+        assert_eq!(event.kind, InboxEventKind::TaskResult);
+        assert_eq!(event.source, "native-child");
+        assert_eq!(TaskResult::deserialize(&event.payload)?, result);
+    } else {
+        // A deadline may stop observation before cleanup finishes the read.
+        // Its original failure must remain ready for a later continuation.
+        assert!(failure.starts_with("sandbox deadline:"), "unconsumed control read: {failure}");
+        assert_eq!(store.event_disposition_commit(task.agent_id, result.result_id)?, None);
+        let connection = rusqlite::Connection::open_with_flags(installation.join("shenko.db"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        let pending: bool = connection.query_row(
+            "SELECT consumed = 0 AND kind = 'task_result' AND source = 'native-child' FROM inbox_events WHERE event_id = ?1 AND agent_id = ?2",
+            rusqlite::params![result.result_id.to_string(), task.agent_id.to_string()], |row| row.get(0))?;
+        assert!(pending, "the original failed T2 is not pending for delivery");
+    }
     let node = Arc::new(parking_lot::Mutex::new(Node::open(&root.join("node"))?));
     let catalog = CognitionCatalog::new(node);
-    assert!(!catalog.cards()?.iter().any(|card| card.unit_id == fixture.source_read["unit_id"]));
+    assert!(catalog.versions(fixture.source_read["unit_id"].as_str()
+        .context("candidate identity missing")?)?.is_empty());
     Ok(())
 }
 
