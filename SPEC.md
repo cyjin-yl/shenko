@@ -6236,20 +6236,15 @@ core 运行时不在线学习，否则会不稳定。主体仍可随时编写新
 
 要一起回滚的范围是：core、有实现的插件，以及 perception、awareness 等内容单元，随家园的一个版本一起回到某个历史内容。只有外部副作用不能撤回。回滚不是把分支指针倒回旧节点。它在版本链尾追加一个新节点，其内容与该历史节点完全相同，并按内容寻址复用已有对象。链和日志只增不减。§9.5 已要求切换之后产生的经历不能被一次退回抹掉；那些记录留在日志里，当前内容与所选历史节点一致。
 
-现有 WASM 家园做不到这一次整体回滚，所以不能把 §10.2 的 copy-on-write 说成已经实现了它：
+主线是自有的版本化回滚。原则沿用 §10.2.1 已经写明的 WASM 状态：内容寻址、不可变对象、原子根引用、持久提交。LayerFS 实现太重，不作为这条回滚的实现；§10.2.1 仍保留，只作备选。
 
-- `crates/shenko-wasm/src/cow.rs` 把提交清单追加进 `commits.jsonl`，工作区却是可变的 overlay 目录。清单只记录当时文件的摘要，不把字节收进可按历史节点取回的对象库。overlay 再改之后，旧提交的文件内容无法从该提交复原。
-- 同文件的 `discard_abs` 删除 `commits.jsonl` 和 `head`。那是丢掉日志，不是只增不减。
-- `head` 是单独改写的当前指针，不是尾部再追加一个内容相同的新节点。
-- `crates/shenko-seed/src/bootstrap.rs` 的 `HomeCheckpoint` 只有 `FilesAndMetadata`。`docs/specs/wasm-home.md` 写明它不恢复 WASM 线性内存、执行栈和解释器对象图；COW 也不回滚 REPL、解释器环境或外部进程。
-- core 与插件的软件代际在另一条槽位链上（`docs/specs/self-update.md`）。那里的回滚是一次新激活，指向保留的旧槽，不和家园文件、单元目录记在同一次提交里。
-- awareness、perception 等单元的当前版本在 `crates/shenko-node/src/units.rs` 的 `unit_current`，不在 COW 分支里。
+**提议：** 把家园文件提交、core 与插件的软件槽、以及 `unit_current` 里 awareness 和 perception 的当前版本，收进同一个版本化根。一份 manifest 引用这三者。整体回滚就是在链尾追加一个新节点，其根与某个旧节点相同，对象按内容寻址复用。日志只增不减。今天它们不在同一次提交里：软件槽见 `docs/specs/self-update.md`，单元当前版本见 `crates/shenko-node/src/units.rs` 的 `unit_current`。
 
-§10.1 与 `docs/specs/wasm-home.md` 的恢复边界仍然有效，并被本节沿用：一次文件回滚不得宣称撤销了已经发出的消息、直接改过的宿主目录或远端写入。
+实现缺口：`crates/shenko-wasm/src/cow.rs` 的 `discard_abs` 会删除 `commits.jsonl` 和 `head`。这与只增日志冲突。同文件的提交清单目前只记摘要，工作区是可变 overlay，旧提交的字节不能按节点取回。这些按上面的原则补上，不因此改用 LayerFS。
 
-**提议：** 需要一起回滚的内容改用 §10.2.1 已经采用的 LayerFS，不新造文件系统。它是只读层叠加。回滚是在层栈顶部再叠加一层，使合成视图与某个历史根的内容相同；旧层保留，对象按内容寻址复用。这就是本节的追加节点，落在已有的分层文件系统上。
+WASM 线性内存、执行栈和解释器对象图是否纳入这个根，尚未决定。`crates/shenko-seed/src/bootstrap.rs` 的 `HomeCheckpoint` 今天只有 `FilesAndMetadata`。`docs/specs/wasm-home.md` 写明它不恢复这些运行中状态，COW 也不回滚 REPL 或外部进程。
 
-取舍如下。现有 COW 只能记 CopyOnWrite 挂载上的文件差异，而且丢弃历史、不能按旧提交还原字节。LayerFS 的层才提供「只读层叠加、合成视图等于旧状态」。§10.2.1 的平台约束不变：原版跑在合格 Linux VM 中，Store 要求同一内核和本地 ext4/xfs/btrfs，完整 workspace 还要 Docker 与 FUSE；这不是 WASM 移植，纯 WASM 节点没有这条路。Disposable profile 不提供崩溃或断电耐久，`layerfs_committed` 不等于 `product_durable`。唯一原始会话、身份和外部效果账本不能只放进 Disposable Store。软件代际槽可以单独换回旧的可执行闭包，但是另一次激活，不含单元目录和家园文件；若采用本提议，core、插件与内容单元要放进同一次层提交，才能一起回滚。在此之前它们仍是分开的状态。
+§10.1 与 `docs/specs/wasm-home.md` 的恢复边界仍然有效：一次文件回滚不得宣称撤销了已经发出的消息、直接改过的宿主目录或远端写入。
 
 外部副作用仍先对账，并如实记为无法撤回。这与 §10.1「快照不是已经发出的消息」一致，也与 DeepSeek Harness 的界限一致：可逆指的是结构上的撤销，不是把过程倒放，更不是撤销一切副作用。该实现的自修改只在进程内存；Shenko 把版本节点持久化到账本与 CAS。核对过的机制还有不可变 package、`define` / `run` / `stop` / `undefine`、以及注册时交出的逆操作（卸载撤销的是进程内结构）。见 [架构笔记](https://martianlee.github.io/posts/2026-09-05-deepseek-harness-architecture)、[自修改深读](https://hoco-scy.github.io/deepseek-harness-deep-dive/pages/code-mode-self-modification.html)、[可逆不等于倒放](https://dev.to/canonical/reversible-does-not-mean-running-in-reverse-the-mathematical-essence-of-the-deepseek-harness-4mba)。不采用其中要人批准浏览器半边的做法。未解析的依赖仍按 §45.10 不报成就绪。
 
