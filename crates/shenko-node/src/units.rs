@@ -410,14 +410,21 @@ pub struct TrialEvidence {
     pub reason: String,
 }
 
-/// The explicit, node-safe projection of local trial evidence that may travel
-/// with a package. This is deliberately a separate type rather than a set of
-/// redaction heuristics: arbitrary arguments, environment probes, local paths,
-/// free-form trial descriptions and captured stdout/stderr cannot be exported
-/// through this interface.
+/// Transferable evidence of a command or a runner-owned generic trial.
+/// Command evidence keeps its original safe projection; generic trials carry
+/// the caller's explicit plan and receipt objects, not captured command data.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum TrialProvenance {
+    Command(CommandTrialProvenance),
+    Generic(GenericTrialProvenance),
+}
+
+/// Command arguments, paths, environment probes, descriptions and captured
+/// stdout/stderr remain local rather than being redacted by key-name rules.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct TrialProvenance {
+pub struct CommandTrialProvenance {
     pub attempt_id: String,
     pub started_at: String,
     pub finished_at: Option<String>,
@@ -436,9 +443,32 @@ pub struct TrialProvenance {
     pub descendants_unknown: bool,
 }
 
+/// A generic trial's original plan and terminal receipts. These remain foreign
+/// provenance on import and never become local readiness or adoption facts.
+/// Referenced digests do not imply that their object bodies travel here.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GenericTrialProvenance {
+    pub attempt_id: String,
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub kind: String,
+    pub started_at: String,
+    pub finished_at: String,
+    pub outcome: TrialOutcome,
+    pub plan_digest: Digest,
+    pub plan: Value,
+    pub receipts: Vec<Value>,
+    pub receipt_count: usize,
+    pub interrupted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 impl From<&TrialEvidence> for TrialProvenance {
     fn from(evidence: &TrialEvidence) -> Self {
-        Self {
+        Self::Command(CommandTrialProvenance {
             attempt_id: evidence.attempt_id.clone(),
             started_at: evidence.started_at.clone(),
             finished_at: evidence.finished_at.clone(),
@@ -455,7 +485,120 @@ impl From<&TrialEvidence> for TrialProvenance {
             reader_failed: evidence.reader_failed,
             group_signalled: evidence.group_signalled,
             descendants_unknown: evidence.descendants_unknown,
-        }
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenericTrialPlan {
+    kind: String,
+    plan: Value,
+    plan_digest: Digest,
+    started_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenericTrialCompletion {
+    kind: String,
+    plan_digest: Digest,
+    receipts: Vec<Value>,
+    receipt_count: usize,
+    finished_at: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GenericTrialInterruption {
+    kind: String,
+    reason: String,
+}
+
+struct StoredTrialProvenance {
+    attempt_id: String,
+    unit_id: String,
+    revision: String,
+    artifact_digest: Digest,
+    environment_digest: Digest,
+    started_at: String,
+    finished_at: Option<String>,
+    outcome: String,
+    data: String,
+    attempt_data: Option<String>,
+    attempt_state: Option<String>,
+    attempt_started_at: Option<String>,
+    attempt_matches: Option<bool>,
+}
+
+impl StoredTrialProvenance {
+    fn generic(self) -> Result<GenericTrialProvenance> {
+        ensure!(
+            self.attempt_matches == Some(true),
+            "generic trial does not match its original attempt"
+        );
+        let plan: GenericTrialPlan = serde_json::from_str(
+            self.attempt_data.as_deref().context("generic trial lost its original plan")?,
+        )?;
+        let mut plan_hasher = blake3::Hasher::new();
+        serde_json::to_writer(&mut plan_hasher, &plan.plan)?;
+        ensure!(
+            plan.plan.is_object()
+                && self.attempt_started_at.as_deref() == Some(plan.started_at.as_str())
+                && self.environment_digest == plan.plan_digest
+                && plan.plan_digest.canonical_blake3_hex().is_some_and(|expected|
+                    plan_hasher.finalize().to_hex().as_str() == expected),
+            "generic trial plan does not match its original binding"
+        );
+        let finished_at = self.finished_at.context("generic trial has no terminal time")?;
+        let outcome = TrialOutcome::parse(&self.outcome)?;
+        let (receipts, receipt_count, interrupted, reason) = match self.attempt_state.as_deref() {
+            Some("finished") => {
+                let completed: GenericTrialCompletion = serde_json::from_str(&self.data)?;
+                ensure!(
+                    completed.kind == plan.kind
+                        && completed.plan_digest == plan.plan_digest
+                        && completed.finished_at == finished_at
+                        && self.started_at == plan.started_at
+                        && completed.receipt_count == completed.receipts.len()
+                        && completed.receipts.iter().all(|receipt| {
+                            receipt.is_object()
+                                && receipt.get("digest").and_then(Value::as_str).is_some()
+                        }),
+                    "generic trial completion does not match its original binding"
+                );
+                (completed.receipts, completed.receipt_count, false, None)
+            }
+            Some("unknown") => {
+                let interrupted: GenericTrialInterruption = serde_json::from_str(&self.data)?;
+                ensure!(
+                    interrupted.kind == "unknown"
+                        && outcome == TrialOutcome::Unknown
+                        // Earlier retirement rows used their retirement time
+                        // as started_at; the attempt retains the actual start.
+                        && (self.started_at == plan.started_at || self.started_at == finished_at),
+                    "interrupted generic trial does not match its original binding"
+                );
+                (Vec::new(), 0, true, Some(interrupted.reason))
+            }
+            _ => bail!("generic trial attempt is not terminal"),
+        };
+        Ok(GenericTrialProvenance {
+            attempt_id: self.attempt_id,
+            unit_id: self.unit_id,
+            revision: self.revision,
+            artifact_digest: self.artifact_digest,
+            kind: plan.kind,
+            started_at: plan.started_at,
+            finished_at,
+            outcome,
+            plan_digest: plan.plan_digest,
+            plan: plan.plan,
+            receipts,
+            receipt_count,
+            interrupted,
+            reason,
+        })
     }
 }
 
@@ -3517,20 +3660,49 @@ impl Node {
     }
 
     fn local_provenance(&self, unit_id: &str, digest: &Digest) -> Result<Vec<TrialProvenance>> {
-        let rows: Vec<String> = self
-            .conn
-            .prepare(
-                "SELECT data FROM unit_trials WHERE unit_id=?1 AND artifact_digest=?2 ORDER BY seq",
-            )?
-            .query_map(params![unit_id, digest.0], |r| r.get(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows
-            .into_iter()
-            .map(|value| {
-                serde_json::from_str::<TrialEvidence>(&value)
-                    .map(|evidence| TrialProvenance::from(&evidence))
+        let mut statement = self.conn.prepare(
+            "SELECT t.attempt_id,t.unit_id,t.revision,t.artifact_digest,t.environment_digest,t.started_at,t.finished_at,t.outcome,t.data,\
+             a.data,a.state,a.started_at,\
+             a.unit_id=t.unit_id AND a.revision=t.revision AND a.artifact_digest=t.artifact_digest \
+             AND a.environment_digest=t.environment_digest AND a.finished_at=t.finished_at \
+             FROM unit_trials t LEFT JOIN unit_attempts a ON a.attempt_id=t.attempt_id \
+             WHERE t.unit_id=?1 AND t.artifact_digest=?2 ORDER BY t.seq",
+        )?;
+        let rows = statement.query_map(params![unit_id, digest.0], |r| {
+            Ok(StoredTrialProvenance {
+                attempt_id: r.get(0)?,
+                unit_id: r.get(1)?,
+                revision: r.get(2)?,
+                artifact_digest: Digest(r.get(3)?),
+                environment_digest: Digest(r.get(4)?),
+                started_at: r.get(5)?,
+                finished_at: r.get(6)?,
+                outcome: r.get(7)?,
+                data: r.get(8)?,
+                attempt_data: r.get(9)?,
+                attempt_state: r.get(10)?,
+                attempt_started_at: r.get(11)?,
+                attempt_matches: r.get(12)?,
             })
-            .collect::<serde_json::Result<Vec<_>>>()?)
+        })?;
+        rows.map(|row| {
+            let row = row?;
+            match serde_json::from_str::<TrialEvidence>(&row.data) {
+                Ok(command) => {
+                    ensure!(
+                        command.attempt_id == row.attempt_id
+                            && command.environment_digest == row.environment_digest
+                            && command.outcome.as_str() == row.outcome,
+                        "command trial does not match its stored identity"
+                    );
+                    Ok(TrialProvenance::from(&command))
+                }
+                Err(command_error) => row.generic()
+                    .map(TrialProvenance::Generic)
+                    .with_context(|| format!("invalid local trial evidence; command decoding: {command_error}")),
+            }
+            })
+            .collect()
     }
 
     /// Readiness of an installed unit on this node.
@@ -4973,6 +5145,130 @@ mod tests {
             export: transfer, package_root: receiver_root.to_string_lossy().into_owned(), enable: None,
         }).unwrap();
         assert_eq!(receiver.unit_status("source").unwrap()["closure"]["edges"][0]["status"], json!("legacy_ambiguous"));
+    }
+
+    #[test]
+    fn generic_trials_export_with_original_plans_without_inheriting_readiness() {
+        let base = std::env::var_os("SHENKO_COMPAT_EVIDENCE_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../build/unit-provenance"));
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&base).unwrap();
+        let dir = base.join(format!("generic-provenance-{}", EntityId::new()));
+        std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+        let source_root = dir.join("source-packages");
+        let receiver_root = dir.join("receiver-packages");
+        std::fs::create_dir(&source_root).unwrap();
+        std::fs::create_dir(&receiver_root).unwrap();
+        let mut source = Node::open(&dir.join("source")).unwrap();
+        let package = package("trial.generic", "1.0.0", b"owned trial artifact\n", vec![]);
+        let identity = package.unit.clone();
+        import(&mut source, &source_root, vec![package]);
+
+        let plan = json!({
+            "candidate": {"unit_id": identity.unit_id, "artifact_digest": identity.artifact_digest},
+            "conditions": [{"world": "one", "ordinal": 1}, {"world": "two", "ordinal": 2}],
+            "numeric_fact": 51.248178375505404_f64,
+            "scope": "native provenance mechanics, no model or efficacy claim"
+        });
+        let begun = source.handle_unit_request(UnitRequest::BeginTrial {
+            unit_id: identity.unit_id.clone(),
+            revision: identity.revision.clone(),
+            artifact_digest: identity.artifact_digest.clone(),
+            kind: "sandbox_comparison".into(),
+            plan: plan.clone(),
+        }).unwrap();
+        let attempt_id = begun["attempt_id"].as_str().unwrap().to_string();
+        let receipts = vec![
+            json!({"digest": identity.artifact_digest, "fact": {"kind": "artifact", "ordinal": 1,
+                "numeric_fact": 51.248178375505404_f64}}),
+            json!({"digest": begun["plan_digest"], "fact": {"kind": "plan", "ordinal": 2}}),
+        ];
+        source.handle_unit_request(UnitRequest::FinishTrial {
+            attempt_id: attempt_id.clone(),
+            outcome: TrialOutcome::Succeeded,
+            receipts: receipts.clone(),
+        }).unwrap();
+        assert_eq!(source.unit_status(&identity.unit_id).unwrap()["readiness"]["state"], json!("unverified"));
+
+        let command = source.handle_unit_request(trial(
+            &identity.unit_id,
+            vec!["/bin/sh", "-c", "cat \"$1\"; printf '\\nprivate-native-trial-output\\n'", "trial-reader", "{artifact}"],
+        )).unwrap();
+        assert_eq!(command["outcome"], json!("succeeded"));
+        assert!(command["stdout"].as_str().unwrap().contains("private-native-trial-output"));
+        assert_eq!(source.unit_status(&identity.unit_id).unwrap()["readiness"]["state"], json!("ready"));
+
+        let interrupted_plan = json!({"scope": "opened but never completed", "artifact": identity.artifact_digest});
+        let interrupted = source.handle_unit_request(UnitRequest::BeginTrial {
+            unit_id: identity.unit_id.clone(),
+            revision: identity.revision.clone(),
+            artifact_digest: identity.artifact_digest.clone(),
+            kind: "observation_capture".into(),
+            plan: interrupted_plan.clone(),
+        }).unwrap();
+        assert_eq!(source.retire_open_trials().unwrap(), 1);
+
+        let exported = source.handle_unit_request(UnitRequest::Export {
+            unit_id: identity.unit_id.clone(),
+        }).unwrap();
+        let wire = &exported["export"];
+        let evidence = wire["packages"][0]["evidence"].as_array().unwrap();
+        assert_eq!(evidence.len(), 3);
+        let completed = evidence.iter().find(|row| row["attempt_id"] == begun["attempt_id"]).unwrap();
+        assert_eq!(completed["kind"], json!("sandbox_comparison"));
+        assert_eq!(completed["plan_digest"], begun["plan_digest"]);
+        assert_eq!(completed["plan"], plan);
+        assert_eq!(completed["receipts"], json!(receipts));
+        assert_eq!(completed["outcome"], json!("succeeded"));
+        assert_eq!(completed["interrupted"], json!(false));
+        let unresolved = evidence.iter().find(|row| row["attempt_id"] == interrupted["attempt_id"]).unwrap();
+        assert_eq!(unresolved["kind"], json!("observation_capture"));
+        assert_eq!(unresolved["plan"], interrupted_plan);
+        assert_eq!(unresolved["outcome"], json!("unknown"));
+        assert_eq!(unresolved["interrupted"], json!(true));
+        assert_eq!(unresolved["receipts"], json!([]));
+        let command_provenance = evidence.iter().find(|row| row["exit_code"] == json!(0)).unwrap();
+        assert_eq!(command_provenance["artifact_bound"], json!(true));
+        assert!(command_provenance.get("kind").is_none());
+        assert!(command_provenance.get("stdout").is_none());
+        assert!(!serde_json::to_string(wire).unwrap().contains("private-native-trial-output"));
+
+        let mut receiver = Node::open(&dir.join("receiver")).unwrap();
+        receiver.handle_unit_request(UnitRequest::Import {
+            export: serde_json::from_value(wire.clone()).unwrap(),
+            package_root: receiver_root.to_string_lossy().into_owned(),
+            enable: Some(false),
+        }).unwrap();
+        let received = receiver.unit_status(&identity.unit_id).unwrap();
+        assert_eq!(received["readiness"]["state"], json!("unverified"));
+        assert_eq!(received["local_trials"], json!(0));
+        assert_eq!(received["remote_evidence"], json!(3));
+        let stored: String = receiver.conn.query_row(
+            "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![identity.unit_id, identity.revision, identity.artifact_digest.0],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&stored).unwrap()["remote_evidence"], json!(evidence));
+
+        let original: String = source.conn.query_row(
+            "SELECT data FROM unit_attempts WHERE attempt_id=?1", [&attempt_id], |row| row.get(0),
+        ).unwrap();
+        let mut changed: Value = serde_json::from_str(&original).unwrap();
+        changed["plan"]["conditions"][0]["world"] = json!("different-plan");
+        source.conn.execute(
+            "UPDATE unit_attempts SET data=?2 WHERE attempt_id=?1",
+            params![attempt_id, serde_json::to_string(&changed).unwrap()],
+        ).unwrap();
+        assert!(source.handle_unit_request(UnitRequest::Export { unit_id: identity.unit_id.clone() }).is_err());
+        source.conn.execute(
+            "UPDATE unit_attempts SET data=?2,revision='different-version' WHERE attempt_id=?1",
+            params![attempt_id, original],
+        ).unwrap();
+        assert!(source.handle_unit_request(UnitRequest::Export { unit_id: identity.unit_id.clone() }).is_err());
+        source.conn.execute(
+            "UPDATE unit_attempts SET revision=?2 WHERE attempt_id=?1",
+            params![attempt_id, identity.revision],
+        ).unwrap();
     }
 
     #[test]
