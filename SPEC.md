@@ -6234,9 +6234,13 @@ awareness 是一种**能力**：注意到原本容易忽略的关系。现在的
 
 core 运行时不在线学习，否则会不稳定。主体仍可随时编写新的 core，整体替换自己，或回滚。有实现的插件同样如此：不在运行中改写正在执行的程序，而是新版本、整体替换、可回滚。新版本是不可变的版本对象，旧版本保留。替换和回滚由主体自主进行，说明风险与收益，不新增人工审批或权限禁止。
 
-回滚移动的是版本指针和进程内结构，不是外部效果的逆放。未知的外部效果仍先对账。回滚不覆盖原始经历，也不改写已经提交的账本。DeepSeek Harness 的自修改只活在进程内存里；Shenko 要把版本对象和指针持久化到账本与 CAS。核对过的参照是：不可变 package、`define` / `run` / `stop` / `undefine`、`current` / `next` 指针、注册时交出逆操作（卸载撤销的是结构效果，不是把过程倒着再跑一遍）、依赖用 inject 声明。见 [架构笔记](https://martianlee.github.io/posts/2026-09-05-deepseek-harness-architecture)、[自修改深读](https://hoco-scy.github.io/deepseek-harness-deep-dive/pages/code-mode-self-modification.html)、[可逆不等于倒放](https://dev.to/canonical/reversible-does-not-mean-running-in-reverse-the-mathematical-essence-of-the-deepseek-harness-4mba)。这三页没有「依赖未满足就禁止启用」的原句；未解析仍按 §45.10 不报成就绪。也不采用其中浏览器半边要人批准的做法。
+WASM 家园本身是版本化的。这沿用 §8 与 §10，不另造一套存储：§10.2 已规定 WASM 状态层是不可变内容对象、文件树与 copy-on-write 分支提交；§10.1 已把已经发出的消息、直接改宿主目录和远端写入排除在文件快照之外。大部分家园状态可以一起回到某个历史内容，包括 core、有实现的插件，以及 perception、awareness 等内容单元。只有外部副作用不能撤回。
 
-替换 core 时如何保持 genesis 的 `agent_id` 连续，以及切换前如何验证新 core，是提议：旧的可启动版本留着，新对象先写入，只有接受切换才移动 current 指针；`agent_id` 不变。具体烟测步骤不在此决定。
+回滚不是把分支指针倒回旧节点，从而让后来的提交从日志里消失。实现是在版本链的尾部再追加一个新节点，其内容与某个历史节点完全相同，并按内容寻址复用已有 CAS 对象。链和日志只增不减，完整保留。§9.5 已要求切换之后产生的经历不能被一次退回抹掉；这里同样保留那些记录，当前家园的内容则与所选历史节点一致。
+
+外部副作用仍先对账，并如实记为无法撤回。这与 §10.1「快照不是已经发出的消息」一致，也与 DeepSeek Harness 的界限一致：可逆指的是结构上的撤销，不是把过程倒放，更不是撤销一切副作用。该实现的自修改只在进程内存；Shenko 把版本节点持久化到账本与 CAS。核对过的机制还有不可变 package、`define` / `run` / `stop` / `undefine`、以及注册时交出的逆操作（卸载撤销的是进程内结构）。见 [架构笔记](https://martianlee.github.io/posts/2026-09-05-deepseek-harness-architecture)、[自修改深读](https://hoco-scy.github.io/deepseek-harness-deep-dive/pages/code-mode-self-modification.html)、[可逆不等于倒放](https://dev.to/canonical/reversible-does-not-mean-running-in-reverse-the-mathematical-essence-of-the-deepseek-harness-4mba)。不采用其中要人批准浏览器半边的做法。未解析的依赖仍按 §45.10 不报成就绪。
+
+替换或回滚由主体自主进行，说明风险与收益，不新增人工审批或权限禁止。genesis 的 `agent_id` 是否在内容回到历史节点后仍保持切换前的值，以及切换前的具体烟测，本节不代决。日志不被截断，因此身份与经历的记录仍然在链上。
 
 ## 51.5 主体地位
 
