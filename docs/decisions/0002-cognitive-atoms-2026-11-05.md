@@ -45,3 +45,11 @@
 ## 实现边界
 
 本节不修改运行代码。现有卡片披露、`knowledge_kind` 默认 `note`、以及默认检索直接隐藏被取代记忆，都还不是 §51 的投影。
+
+## 应对齐但未能改写的 issue
+
+2026-11-05 用当前凭据对 issue 发评论返回 HTTP 403 `Resource not accessible by integration`。下列 issue 的正文因此没有改，也没有新评论。它们不关闭、不删除。PR 为 https://github.com/cyjin-yl/shenko/pull/180 。
+
+- [#15](https://github.com/cyjin-yl/shenko/issues/15) 把 awareness 写成可安装且模型读过即可遵守的文档。应在正文顶上注明：该读法被 §51 取代；文档与 watcher notice 是 harness；实现缺口仍在。
+- [#14](https://github.com/cyjin-yl/shenko/issues/14)（已关闭，仍被 #15 引用）把记忆写成独立的整理工作，没有内容/态度/理由。应注明：记忆行是态度的一种现有落点；fact/conclusion 不是两种 kind；原文不因修订覆盖。
+- [#71](https://github.com/cyjin-yl/shenko/issues/71)（已关闭，SPEC §5.4.4 仍引用）把 awareness 与 perception、Skill 并列成可同步的文本包。节点与「不新增权限禁令」仍然有效。应补一句：awareness 的能力层是可安装宿主，文本包只是当前 harness。
