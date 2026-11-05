@@ -3,6 +3,8 @@ id: awareness.capability-gap
 version: 0.2.0
 capability_card: 现有工具或能力不足时的查证与委派直觉
 provenance: [SPEC §35.8]
+cues: ["被问到自己能不能做某件事", "准备凭印象回答自身能力", "把目录条目或记忆当成已验证的能力"]
+negative_cues: []
 dependencies: []
 ---
 

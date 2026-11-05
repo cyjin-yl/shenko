@@ -743,6 +743,17 @@ impl CognitionCatalog {
         })
     }
 
+    /// Export the current unit's authored descriptor, bytes and available
+    /// dependency closure through the installation authority.
+    pub fn export(&self, unit_id: &str) -> Result<UnitExport> {
+        let mut response = self.node.lock().handle_unit_request(UnitRequest::Export {
+            unit_id: unit_id.to_owned(),
+        })?;
+        serde_json::from_value(response.get_mut("export")
+            .context("the installation export is missing its package")?.take())
+            .context("the installation returned an invalid package export")
+    }
+
     /// Install one authored unit into the installation authority.
     pub fn install(&self, package: &CognitionPackage, package_root: &Path) -> Result<Value> {
         let (export, digest) = package.export()?;

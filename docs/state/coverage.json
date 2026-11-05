@@ -1307,7 +1307,7 @@
       ],
       "implementation_refs": [
         "crates/shenko-subject/tests/local_model_behavior.rs",
-        "crates/shenko-subject/tests/awareness_efficacy.rs",
+        "crates/shenko-exec-host/tests/awareness_efficacy.rs",
         "crates/shenko-subject/src/output.rs",
         "crates/shenko-subject/src/loop_runner.rs",
         "crates/shenko-awareness-core/src/awareness_unit.rs",
@@ -1318,7 +1318,7 @@
       ],
       "blockers": [],
       "satisfied": false,
-      "note": "Local 27B-class baseline is now measured, not assumed: the shipped system prompt, staged message text, provider wire and parser are sampled against the real served model, and each behaviour must reach a success rate. The measurement changed the product (the reply control had no reachable account; a literal header template made the model echo the header) and the control protocol now passes at 0.85. Awareness efficacy is measured in a real sandbox against the unit-disabled baseline; none of the two units met the acceptance bar yet, so the optimisation claim stays partial. K04/K05 remain reference only."
+      "note": "Local 27B-class baseline is now measured, not assumed: the shipped system prompt, staged message text, provider wire and parser are sampled against the real served model, and each behaviour must reach a success rate. The measurement changed the product (the reply control had no reachable account; a literal header template made the model echo the header) and the control protocol now passes at 0.85. Retained 2026-10-27 model evidence left both units tentative. The current runner freezes the full typed export, compares the enabled candidate against a control excluding every version of its unit id, and retains configuration, installation, committed-output and original judge request/result coordinates. All current consumer scenarios remain accepted:false; efficacy of this revised path has not been established. K04/K05 remain reference only."
     },
     {
       "requirement_id": "R078",

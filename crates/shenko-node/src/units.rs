@@ -635,8 +635,8 @@ impl AdoptionDecision {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AdoptionMethod {
-    /// A finite comparison of the candidate against a disabled baseline in a
-    /// real sandbox, with the scenario and rubric the caller supplied.
+    /// A finite comparison against a control excluding every version of the
+    /// candidate unit id, in a real sandbox with the caller's scenario and rubric.
     SandboxComparison,
     /// A local execution trial of the installed artifact in this node's own
     /// environment.
