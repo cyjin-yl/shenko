@@ -37,8 +37,11 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// rather than omit this closure, and this reader admits only schemas it
 /// can interpret completely — an archive naming a fact class this reader
 /// does not know is refused whole at manifest validation.
-/// Schemas 2/3/4 remain readable after current closure admission.
-pub const ARCHIVE_SCHEMA: u32 = 5;
+/// Schemas 2/3/4/5 remain readable after current closure admission.
+/// Schema 6 requires the exact S1 terminal obligation settlement and its
+/// original creation, parsed control, policy, S0 and projection binding.
+/// Readers through schema 5 cannot acknowledge these required semantics.
+pub const ARCHIVE_SCHEMA: u32 = 6;
 
 /// One replicated table row.
 ///

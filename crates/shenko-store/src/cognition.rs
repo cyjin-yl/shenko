@@ -1569,10 +1569,12 @@ impl Store {
         // the layout only grew, so the migration is by name and keeps every
         // fact's identity.
         let mut legacy_gaps = Vec::new();
-        if manifest.schema < crate::cognition_archive::ARCHIVE_SCHEMA {
+        // Schema 6 changes required semantics, not the schema-5 columns.
+        if manifest.schema < 5 {
             legacy_gaps = migrate_legacy_rows(&mut manifest);
         }
         validate_cognition_rows(&manifest)?;
+        self.validate_obligation_rows(&manifest.rows)?;
 
         let mut gaps = manifest.gaps.clone();
         gaps.extend(legacy_gaps);
@@ -1626,29 +1628,11 @@ impl Store {
             "cognition snapshot carries memory history but no memory root was given"
         );
 
-        let mut conflicts: Vec<CognitionConflict> = Vec::new();
-        let mut restored_git_history = false;
-        let (verified_files, file_conflicts) = self.restore_files(
-            &files,
-            &options.memory_root,
-            &options.workspace_root,
-            &manifest.file_origins,
-            peer_id,
-        )?;
-        conflicts.extend(file_conflicts);
-        if let Some(root) = options.memory_root.clone() {
-            if git_history.is_some() {
-                let (restored, conflict) =
-                    self.restore_git_history(&git_history, &root, peer_id)?;
-                restored_git_history = restored;
-                if let Some(conflict) = conflict {
-                    conflicts.push(conflict);
-                }
-            }
-        }
-
-        let applied = self.apply_rows(&manifest, peer_id)?;
-        conflicts.extend(applied.conflicts.clone());
+        // All required row conflicts are decided while the IMMEDIATE ledger
+        // transaction is still held, before any file or Git publication.
+        let (applied, verified_files, restored_git_history) =
+            self.apply_rows(&manifest, peer_id, &files, &git_history, options)?;
+        let conflicts = applied.conflicts;
 
         self.record_receipt(
             peer_id,
@@ -2007,6 +1991,9 @@ impl Store {
         // export must say so instead of shipping an archive that claims
         // recoverability.
         gaps.extend(archive_membership_gaps(&rows));
+        if let Err(error) = self.validate_obligation_rows(&rows) {
+            gaps.push(CognitionGap { kind: "obligation_required_fact".into(), detail: error.to_string(), blocking: true });
+        }
         if let Some(root) = &options.memory_root {
             file_origins.push(CognitionFileOrigin::Memory);
             collect_files(
@@ -2330,6 +2317,16 @@ impl Store {
         gaps
     }
 
+    pub(crate) fn validate_obligation_recovery(&self, conn: &rusqlite::Connection) -> Result<()> {
+        let mut rows = Vec::new();
+        for spec in TABLES.iter().filter(|spec| matches!(spec.name,
+            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_intents" | "subject_intent_steps"))
+        {
+            rows.extend(read_table(conn, spec)?);
+        }
+        self.validate_obligation_rows(&rows)
+    }
+
     fn check_import_order(&self, manifest: &CognitionManifest) -> Result<()> {
         let conn = self.ledger.conn.lock();
         check_import_order_conn(&conn, manifest)
@@ -2347,7 +2344,10 @@ impl Store {
         &self,
         manifest: &CognitionManifest,
         peer_id: EntityId,
-    ) -> Result<CognitionApplyOutcome> {
+        files: &[(CognitionFileDescriptor, Vec<u8>)],
+        git_history: &Option<(CognitionGitDescriptor, Vec<u8>)>,
+        options: &CognitionImportOptions,
+    ) -> Result<(CognitionApplyOutcome, usize, bool)> {
         let mut ordered: Vec<&CognitionRow> = manifest.rows.iter().collect();
         ordered.sort_by_key(|row| {
             TABLES
@@ -2362,6 +2362,7 @@ impl Store {
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(db)?;
                 validate_cognition_rows(manifest)?;
+                self.validate_obligation_rows(&manifest.rows)?;
                 check_import_order_conn(&tx, manifest)?;
                 validate_subject_boundaries(&tx, manifest)?;
                 let seq = self.ledger.allocate_seq(&tx)?;
@@ -2627,6 +2628,29 @@ impl Store {
                         bail!("media import would publish a partial recovery binding; SQLite publication rolled back: {}", gap.detail);
                     }
                 }
+                if ordered.iter().any(|row| row.table == "subject_obligations"
+                    || (row.table == "subject_intents" && row.value("contract") == Some(crate::subject_state::OBLIGATION_TERMINAL_CONTRACT)))
+                {
+                    // A required member cannot be declined while a sibling
+                    // decision, projection or baseline is published. Refuse
+                    // the complete import before the filesystem boundary.
+                    ensure!(!conflicts.iter().any(|conflict| matches!(conflict.table.as_str(),
+                        "subject_obligations" | "subject_steps" | "subject_branch_heads"
+                        | "subject_intents" | "subject_intent_steps" | "context_windows"
+                       | "subject_raw_inputs" | "session_events" | "inbox_events")),
+                        "required obligation conflict unit diverges; nothing published");
+                    self.validate_obligation_recovery(&tx)?;
+                }
+                let (verified_files, file_conflicts) = self.restore_files(
+                    &tx, files, &options.memory_root, &options.workspace_root, &manifest.file_origins, peer_id,
+                )?;
+                conflicts.extend(file_conflicts);
+                let mut restored_git_history = false;
+                if let Some(root) = options.memory_root.as_ref() {
+                    let (restored, conflict) = self.restore_git_history(&tx, git_history, root, peer_id)?;
+                    restored_git_history = restored;
+                    conflicts.extend(conflict);
+                }
                 if inserted > 0 || updated > 0 {
                     tx.execute(
                         "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count)
@@ -2642,12 +2666,12 @@ impl Store {
                 }
                 record_import_order(&tx, peer_id, manifest)?;
                 tx.commit().map_err(db)?;
-                Ok(CognitionApplyOutcome {
+                Ok((CognitionApplyOutcome {
                     inserted,
                     updated,
                     unchanged,
                     conflicts,
-                })
+                }, verified_files, restored_git_history))
             },
             storage_failure,
         )
@@ -2661,6 +2685,7 @@ impl Store {
     /// reported as a conflict.
     fn restore_files(
         &self,
+        conn: &rusqlite::Connection,
         files: &[(CognitionFileDescriptor, Vec<u8>)],
         memory_root: &Option<PathBuf>,
         workspace_root: &Option<PathBuf>,
@@ -2681,14 +2706,14 @@ impl Store {
                 .filter(|(descriptor, _)| descriptor.origin == *file_origin)
                 .map(|(descriptor, _)| descriptor.path.as_str())
                 .collect();
-            let baselines = self.read_file_baselines(peer_id, origin)?;
+            let baselines = self.read_file_baselines(conn, peer_id, origin)?;
             for (descriptor, bytes) in files
                 .iter()
                 .filter(|(descriptor, _)| descriptor.origin == *file_origin)
             {
                 let relative = safe_relative_path(&descriptor.path)?;
                 let target = root.join(&relative);
-                let baseline = self.read_file_baseline(peer_id, origin, &descriptor.path)?;
+                let baseline = self.read_file_baseline(conn, peer_id, origin, &descriptor.path)?;
                 if target.exists() {
                     if !fs::symlink_metadata(&target)?.file_type().is_file() {
                         conflicts.push(CognitionConflict {
@@ -2701,7 +2726,7 @@ impl Store {
                     let existing = fs::read(&target)
                         .with_context(|| format!("read local file {}", target.display()))?;
                     if existing == *bytes {
-                        self.write_file_baseline(
+                        self.write_file_baseline(conn, 
                             peer_id,
                             origin,
                             &descriptor.path,
@@ -2721,7 +2746,7 @@ impl Store {
                         fs::write(&target, bytes)
                             .with_context(|| format!("write file {}", target.display()))?;
                         verify_restored_file(&target, descriptor)?;
-                        self.write_file_baseline(
+                        self.write_file_baseline(conn, 
                             peer_id,
                             origin,
                             &descriptor.path,
@@ -2740,7 +2765,7 @@ impl Store {
                 }
                 if let Some(baseline) = baseline {
                     if baseline.state != FileBaselineState::Deleted {
-                        self.write_file_baseline(
+                        self.write_file_baseline(conn, 
                             peer_id,
                             origin,
                             &descriptor.path,
@@ -2763,7 +2788,7 @@ impl Store {
                 fs::write(&target, bytes)
                     .with_context(|| format!("write file {}", target.display()))?;
                 verify_restored_file(&target, descriptor)?;
-                self.write_file_baseline(
+                self.write_file_baseline(conn, 
                     peer_id,
                     origin,
                     &descriptor.path,
@@ -2797,7 +2822,7 @@ impl Store {
                     // Both sides now independently agree on absence. Retain a
                     // tombstone so a later source recreation is distinguishable
                     // from an unchanged source file deleted only by the receiver.
-                    self.write_file_baseline(
+                    self.write_file_baseline(conn, 
                         peer_id,
                         origin,
                         &baseline.path,
@@ -2819,7 +2844,7 @@ impl Store {
                 if baseline.state == FileBaselineState::Present
                     && Digest::blake3(&existing) == baseline.digest
                 {
-                    self.retire_deleted_file(
+                    self.retire_deleted_file(conn, 
                         peer_id,
                         origin,
                         &root,
@@ -2827,7 +2852,7 @@ impl Store {
                         &target,
                         &baseline.digest,
                     )?;
-                    self.write_file_baseline(
+                    self.write_file_baseline(conn, 
                         peer_id,
                         origin,
                         &baseline.path,
@@ -2849,6 +2874,7 @@ impl Store {
 
     fn retire_deleted_file(
         &self,
+        conn: &rusqlite::Connection,
         peer_id: EntityId,
         origin: &str,
         root: &Path,
@@ -2859,10 +2885,6 @@ impl Store {
         let retirement_root =
             fs::canonicalize(root)?.join(format!(".shenko-retired-{}", EntityId::new()));
         fs::create_dir(&retirement_root)?;
-        self.ledger.conn.lock().execute(
-            "INSERT INTO cognition_retirements(path) VALUES(?1)",
-            [retirement_root.to_string_lossy().as_ref()],
-        )?;
         let retired = retirement_root
             .join(peer_id.to_string())
             .join(origin)
@@ -2872,6 +2894,10 @@ impl Store {
             fs::create_dir_all(parent)
                 .with_context(|| format!("create retirement directory {}", parent.display()))?;
         }
+        // Rename first; register the retirement only after the file is
+        // safely moved and verified. If the enclosing import transaction
+        // rolls back, the filesystem state stays consistent with the
+        // absence of a retirement record.
         fs::rename(target, &retired).with_context(|| {
             format!(
                 "preserve deleted file {} by moving it to {}",
@@ -2886,11 +2912,14 @@ impl Store {
             "retired file {} does not preserve its original bytes",
             retired.display()
         );
+        conn.execute(
+            "INSERT INTO cognition_retirements(path) VALUES(?1)",
+            [retirement_root.to_string_lossy().as_ref()],
+        )?;
         Ok(())
     }
 
-    fn read_file_baselines(&self, peer_id: EntityId, origin: &str) -> Result<Vec<FileBaseline>> {
-        let conn = self.ledger.conn.lock();
+    fn read_file_baselines(&self, conn: &rusqlite::Connection, peer_id: EntityId, origin: &str) -> Result<Vec<FileBaseline>> {
         let mut stmt = conn.prepare(
             "SELECT path,digest,state FROM cognition_file_baselines
              WHERE peer_id=?1 AND origin=?2 ORDER BY path",
@@ -2918,11 +2947,11 @@ impl Store {
     /// The content and reconciliation state the peer last delivered for one file.
     fn read_file_baseline(
         &self,
+        conn: &rusqlite::Connection,
         peer_id: EntityId,
         origin: &str,
         path: &str,
     ) -> Result<Option<FileBaseline>> {
-        let conn = self.ledger.conn.lock();
         let stored: Option<(String, String)> = conn
             .query_row(
                 "SELECT digest,state FROM cognition_file_baselines
@@ -2946,13 +2975,13 @@ impl Store {
     /// Remember the content and reconciliation state the peer delivered.
     fn write_file_baseline(
         &self,
+        conn: &rusqlite::Connection,
         peer_id: EntityId,
         origin: &str,
         path: &str,
         digest: &Digest,
         state: FileBaselineState,
     ) -> Result<()> {
-        let conn = self.ledger.conn.lock();
         conn.execute(
             "INSERT INTO cognition_file_baselines(peer_id,origin,path,digest,state,updated_at)
              VALUES(?1,?2,?3,?4,?5,?6)
@@ -2981,6 +3010,7 @@ impl Store {
     /// divergence.
     fn restore_git_history(
         &self,
+        conn: &rusqlite::Connection,
         git_history: &Option<(CognitionGitDescriptor, Vec<u8>)>,
         root: &Path,
         peer_id: EntityId,
@@ -2991,13 +3021,14 @@ impl Store {
         let temp =
             std::env::temp_dir().join(format!("shenko-cognition-{}.bundle", EntityId::new()));
         fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
-        let outcome = self.restore_git_history_inner(root, peer_id, descriptor, &temp);
+        let outcome = self.restore_git_history_inner(conn, root, peer_id, descriptor, &temp);
         let _ = fs::remove_file(&temp);
         outcome
     }
 
     fn restore_git_history_inner(
         &self,
+        conn: &rusqlite::Connection,
         root: &Path,
         peer_id: EntityId,
         descriptor: &CognitionGitDescriptor,
@@ -3055,7 +3086,7 @@ impl Store {
         }
         let (has_head, head_out, _) = git(root, &["rev-parse", "--verify", "HEAD"])?;
         if !has_head {
-            self.adopt_git_head(root, peer_id, descriptor, &replicated)?;
+            self.adopt_git_head(conn, root, peer_id, descriptor, &replicated)?;
             return Ok((true, None));
         }
         let local_head = head_out.trim().to_string();
@@ -3066,7 +3097,7 @@ impl Store {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        let baseline = self.read_git_baseline(peer_id)?;
+        let baseline = self.read_git_baseline(conn, peer_id)?;
         let unchanged = baseline.as_ref().is_some_and(|baseline| {
             baseline.head == local_head
                 && baseline
@@ -3089,7 +3120,7 @@ impl Store {
                 ok
             };
             if fast_forward {
-                self.adopt_git_head(root, peer_id, descriptor, &replicated)?;
+                self.adopt_git_head(conn, root, peer_id, descriptor, &replicated)?;
                 return Ok((true, None));
             }
         }
@@ -3109,13 +3140,14 @@ impl Store {
             None
         };
         if conflict.is_none() {
-            self.write_git_baseline(peer_id, &replicated, &descriptor.head)?;
+            self.write_git_baseline(conn, peer_id, &replicated, &descriptor.head)?;
         }
         Ok((true, conflict))
     }
 
     fn adopt_git_head(
         &self,
+        conn: &rusqlite::Connection,
         root: &Path,
         peer_id: EntityId,
         descriptor: &CognitionGitDescriptor,
@@ -3127,12 +3159,11 @@ impl Store {
         ensure!(ok, "git symbolic-ref failed: {error}");
         let (ok, _, error) = git(root, &["reset", "--mixed"])?;
         ensure!(ok, "git reset failed: {error}");
-        self.write_git_baseline(peer_id, head, &descriptor.head)
+        self.write_git_baseline(conn, peer_id, head, &descriptor.head)
     }
 
     /// The remote head this store last took from the peer.
-    fn read_git_baseline(&self, peer_id: EntityId) -> Result<Option<GitBaseline>> {
-        let conn = self.ledger.conn.lock();
+    fn read_git_baseline(&self, conn: &rusqlite::Connection, peer_id: EntityId) -> Result<Option<GitBaseline>> {
         let stored: Option<String> = conn
             .query_row(
                 "SELECT row_values FROM cognition_baselines WHERE peer_id=?1 AND table_name='git' AND entity_key='memory'",
@@ -3160,8 +3191,7 @@ impl Store {
     }
 
     /// Remember the remote head this store took from the peer.
-    fn write_git_baseline(&self, peer_id: EntityId, head: &str, reference: &str) -> Result<()> {
-        let conn = self.ledger.conn.lock();
+    fn write_git_baseline(&self, conn: &rusqlite::Connection, peer_id: EntityId, head: &str, reference: &str) -> Result<()> {
         let values = vec![
             ("head".to_string(), Some(head.to_string())),
             ("ref".to_string(), Some(reference.to_string())),
@@ -3896,6 +3926,15 @@ fn apply_memory_row(
 ) -> Result<MemoryRowOutcome> {
     let local = read_existing(tx, spec, row)?;
     let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
+    // P3: an immutable terminal settlement cannot be replaced by a later
+    // import, even when the local value matches its saved peer baseline.
+    if spec.name == "subject_intents" {
+        if let Some(local) = &local {
+            if is_immutable_terminal_settlement(local) && !rows_equivalent(spec, local, &row.values) {
+                return Ok(MemoryRowOutcome::Conflict);
+            }
+        }
+    }
     let result = match local {
         None => match insert_row(tx, spec, row, seq) {
             Ok(()) => MemoryRowOutcome::Inserted,
@@ -3999,9 +4038,7 @@ fn state_ladder(spec: &TableSpec) -> Option<&'static [&'static str]> {
         // send boundary flips it to dispatched exactly once, and the
         // terminal provider evidence ends it.
         "subject_request_attempts" => Some(&["armed", "dispatched", "terminal"]),
-        // An obligation stays open until a later committed step completes
-        // or cancels it; both end states are final.
-        "subject_obligations" => Some(&["open", "completed", "cancelled"]),
+        // Obligations use the branching rule in apply_recovery_fact.
         _ => None,
     }
 }
@@ -4102,6 +4139,25 @@ fn apply_recovery_fact(
         && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))
     {
         return Ok(RecoveryFactOutcome::Conflict);
+    }
+    if spec.name == "subject_obligations" {
+        ensure!(matches!(row.value("state"), Some("open" | "completed" | "cancelled")), "invalid obligation state");
+        if let Some(local) = &local {
+            let immutable = local.iter().all(|(name, value)| name == "state" || value.as_deref() == row.value(name));
+            let state = memory_row_value(local, "state");
+            if !immutable || !(state == row.value("state")
+                || (state == Some("open") && matches!(row.value("state"), Some("completed" | "cancelled"))))
+            {
+                return Ok(RecoveryFactOutcome::Conflict);
+            }
+            let result = if state == row.value("state") { RecoveryFactOutcome::Unchanged } else {
+                tx.execute("UPDATE subject_obligations SET state=?2,updated_seq=?3 WHERE obligation_id=?1",
+                    params![row.key, row.value("state"), seq.0 as i64]).map_err(db)?;
+                RecoveryFactOutcome::Updated
+            };
+            write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
+            return Ok(result);
+        }
     }
     let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
     let result = match local {
@@ -5447,6 +5503,12 @@ fn intent_equivalent(
     local: &[(String, Option<String>)],
     incoming: &[(String, Option<String>)],
 ) -> bool {
+    if memory_row_value(local, "contract") == Some(crate::subject_state::OBLIGATION_TERMINAL_CONTRACT)
+        || memory_row_value(incoming, "contract") == Some(crate::subject_state::OBLIGATION_TERMINAL_CONTRACT)
+    {
+        // Terminal settlements are immutable facts, not dispatch cursors.
+        return local == incoming;
+    }
     if intent_source_state(local) != intent_source_state(incoming) {
         return false;
     }
@@ -5464,6 +5526,14 @@ fn intent_equivalent(
         }
     }
     true
+}
+
+/// Whether a row is an immutable terminal obligation settlement whose body
+/// must never be replaced by a later import, even when the local value
+/// matches its saved peer baseline.
+fn is_immutable_terminal_settlement(values: &[(String, Option<String>)]) -> bool {
+    memory_row_value(values, "contract") == Some(crate::subject_state::OBLIGATION_TERMINAL_CONTRACT)
+        && memory_row_value(values, "state") == Some("settled")
 }
 
 /// The dispatch state as the source recorded it.
@@ -6076,4 +6146,76 @@ fn apply_media_streams<'a>(
         }
     }
     Ok((outcome, media_events))
+}
+
+
+#[cfg(test)]
+mod obligation_merge_tests {
+    use super::*;
+
+    fn projection(store: &Store, state: &str) -> CognitionRow {
+        let spec=spec_for("subject_obligations").unwrap();
+        let reference=store.cas.seal_object(b"creation", "text/plain", "test", "raw", 1).unwrap().object;
+        let mut row=CognitionRow { table:spec.name.into(),key:EntityId::new().to_string(),
+            values:spec.columns.iter().map(|name|((*name).into(),None)).collect() };
+        let id=row.key.clone();set_value(&mut row,"obligation_id",Some(id));
+        for name in ["agent_id","step_id"] { set_value(&mut row,name,Some(EntityId::new().to_string())); }
+        set_value(&mut row,"description",Some("immutable creation body".into()));
+        set_value(&mut row,"resume_condition",Some("later judgment".into()));
+        set_value(&mut row,"decision_ref",Some(serde_json::to_string(&reference).unwrap()));
+        set_value(&mut row,"created_seq",Some("1".into()));
+        set_value(&mut row,"state",Some(state.into()));row
+    }
+
+    #[test]
+    fn obligation_merge_has_two_sticky_terminal_branches() {
+        // Exercise the real row consumer with and without a peer baseline;
+        // these storage-level cases supplement the parser->archive consumers.
+        for initial in ["open","completed","cancelled"] {
+            for requested in ["open","completed","cancelled"] {
+                for has_baseline in [false,true] {
+                    let root=std::env::temp_dir().join(format!("shenko-obligation-merge-{}",EntityId::new()));
+                    std::fs::create_dir_all(&root).unwrap();
+                    let store=Store::open(root.join("store.db"),root.join("cas")).unwrap();
+                    let mut conn=store.ledger.conn.lock();let tx=conn.transaction().unwrap();
+                    let spec=spec_for("subject_obligations").unwrap();let peer=EntityId::new();
+                    let original=projection(&store,initial);
+                    insert_row(&tx,spec,&original,LedgerSeq(1)).unwrap();
+                    if has_baseline { write_baseline(&tx,peer,spec.name,&original.key,&original.values).unwrap(); }
+                    let before=read_baseline(&tx,peer,spec.name,&original.key).unwrap();
+                    let mut incoming=original.clone();set_value(&mut incoming,"state",Some(requested.into()));
+                    let outcome=apply_recovery_fact(&tx,spec,&incoming,peer,LedgerSeq(2)).unwrap();
+                    let allowed=initial==requested || initial=="open";
+                    assert_eq!(matches!(outcome,RecoveryFactOutcome::Conflict),!allowed,
+                        "{initial}->{requested}, baseline={has_baseline}");
+                    let actual=read_existing(&tx,spec,&incoming).unwrap().unwrap();
+                    for (name,value) in &actual {
+                        assert_eq!(value.as_deref(),if name=="state" && allowed { Some(requested) } else { original.value(name) });
+                    }
+                    if !allowed { assert_eq!(read_baseline(&tx,peer,spec.name,&original.key).unwrap(),before); }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn obligation_merge_refuses_invalid_inserts_and_creation_replacement() {
+        let root=std::env::temp_dir().join(format!("shenko-obligation-insert-{}",EntityId::new()));
+        std::fs::create_dir_all(&root).unwrap();let store=Store::open(root.join("store.db"),root.join("cas")).unwrap();
+        let mut conn=store.ledger.conn.lock();let tx=conn.transaction().unwrap();
+        let spec=spec_for("subject_obligations").unwrap();let peer=EntityId::new();
+        let invalid=projection(&store,"unknown");
+        assert!(apply_recovery_fact(&tx,spec,&invalid,peer,LedgerSeq(1)).is_err());
+        assert!(read_existing(&tx,spec,&invalid).unwrap().is_none());
+        let original=projection(&store,"open");
+        insert_row(&tx,spec,&original,LedgerSeq(1)).unwrap();
+        write_baseline(&tx,peer,spec.name,&original.key,&original.values).unwrap();
+        for name in spec.columns.iter().copied().filter(|name|!matches!(*name,"obligation_id"|"state")) {
+            let mut incoming=original.clone();set_value(&mut incoming,"state",Some("completed".into()));
+            set_value(&mut incoming,name,Some("replacement creation".into()));
+            assert!(matches!(apply_recovery_fact(&tx,spec,&incoming,peer,LedgerSeq(2)).unwrap(),RecoveryFactOutcome::Conflict),"{name}");
+            assert_eq!(read_existing(&tx,spec,&original).unwrap().unwrap(),original.values);
+            assert_eq!(read_baseline(&tx,peer,spec.name,&original.key).unwrap().unwrap(),original.values);
+        }
+    }
 }

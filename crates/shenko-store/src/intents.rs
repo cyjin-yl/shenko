@@ -243,6 +243,7 @@ impl Store {
                 shenko_types::subject::PolicyKind::SemanticWait { .. } => {
                     crate::semantic_wait::SEMANTIC_WAIT_CONTRACT
                 }
+                PolicyKind::ObligationTerminal { .. } => crate::subject_state::OBLIGATION_TERMINAL_CONTRACT,
                 _ => "unbound/policy/1",
             };
             insert(
@@ -264,6 +265,28 @@ impl Store {
                     continue;
                 }
                 return Err(ShenkoError::conflict("obligation without an identity"));
+            }
+            if historical {
+                let existing: Option<(String, String, Option<String>, String, Option<String>, String, Option<String>, String, u64, String)> = tx.query_row(
+                    "SELECT agent_id,step_id,origin_event_id,description,depends_on_task_id,resume_condition,due_at,decision_ref,created_seq,state
+                     FROM subject_obligations WHERE obligation_id=?1", [obligation.obligation_id.to_string()],
+                    |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?)),
+                ).optional().map_err(crate::store::storage_error)?;
+                if let Some(row) = existing {
+                    if row.0 != head.agent_id.to_string() || row.1 != step.step_id.to_string()
+                        || row.2 != obligation.origin_event_id.map(|id| id.to_string())
+                        || row.3 != obligation.description
+                        || row.4 != obligation.depends_on_task_id.map(|id| id.to_string())
+                        || row.5 != obligation.resume_condition || row.6 != obligation.due_at.map(|due| due.to_rfc3339())
+                        || serde_json::from_str::<ObjectRef>(&row.7)? != *decision_ref || row.8 != commit.seq.0
+                        || !matches!(row.9.as_str(), "open" | "completed" | "cancelled")
+                    {
+                        return Err(ShenkoError::conflict("historical obligation creation identity diverges"));
+                    }
+                    // Reconstruct the materialization marker without reopening
+                    // an exact creation that a later S1 already retired.
+                    continue;
+                }
             }
             tx.execute(
                 "INSERT INTO subject_obligations
@@ -307,7 +330,7 @@ impl Store {
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
         }
         if !historical {
-            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
+            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3,?4)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT,crate::subject_state::OBLIGATION_TERMINAL_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
         }
         tx.execute(
             "INSERT INTO subject_intent_steps(step_id,migration) VALUES(?1,?2)",
@@ -623,6 +646,7 @@ impl Store {
                     tx.execute("INSERT INTO subject_intent_steps VALUES(?1,'blocked: unreadable historical decision; preserve source and install migrator')",[step.step_id.to_string()])?;
                 }
             }
+            self.validate_obligation_recovery(&tx)?;
             let seq=self.ledger.allocate_seq(&tx)?;
             tx.execute("INSERT INTO subject_dispatch_owner VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET owner=excluded.owner",[self.capabilities.incarnation.to_string()])?;
             // No T1 means safe to re-admit; any armed operation is UNKNOWN until

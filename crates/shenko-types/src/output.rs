@@ -459,6 +459,10 @@ pub enum OutputAction {
     Obligation {
         spec: ObligationSpec,
     },
+    /// Complete or cancel an existing obligation sealed into this step.
+    ObligationTerminal {
+        change: crate::subject::ObligationTerminalChange,
+    },
     /// An authored dialogue turn to a durable task.
     Dialogue {
         spec: DialogueSpec,

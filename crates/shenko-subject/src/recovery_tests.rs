@@ -14,6 +14,9 @@ use std::{path::PathBuf, sync::Arc};
 #[path = "model_child_tests.rs"]
 mod model_child_tests;
 
+#[path = "obligation_tests.rs"]
+mod obligation_tests;
+
 #[path = "request_recovery_tests.rs"]
 mod request_recovery_tests;
 
@@ -403,7 +406,7 @@ fn sealed_preparing_step(subject: &mut SubjectLoopState) -> SubjectStep {
         contributions: prepared.contributions,
         contribution_omissions: prepared.contribution_omissions,
         contribution_tokens: prepared.contribution_tokens,
-        obligations: vec![],
+        obligations: prepared.obligations,
         attention: None,
     };
     step.input_plan_ref = Some(super::seal_step_object(&subject.store, step.step_no,
@@ -1475,7 +1478,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
         ))
         .unwrap();
     let mut subject = state(store.clone(), agent).unwrap();
-    let before = super::build_system_prompt(&subject, &[]);
+    let before = super::build_system_prompt(&subject, &[], &[]);
     assert!(before.starts_with(super::SUBJECT_CONTRACT));
     assert!(!before.contains("你是 Shenko"));
     assert!(before.contains("你还没有名字"));
@@ -1513,7 +1516,7 @@ async fn identity_revision_applies_at_step_boundary_behind_fixed_contract() {
     );
     assert_eq!(subject.identity.as_ref().unwrap().revision, 2);
     assert!(subject.step.input_plan_ref.is_some());
-    let after = super::build_system_prompt(&subject, &[]);
+    let after = super::build_system_prompt(&subject, &[], &[]);
     assert!(after.starts_with(super::SUBJECT_CONTRACT));
     assert!(after.contains("「岚」") && after.contains("自己取的"));
     assert_eq!(store.identity_history(agent).unwrap().len(), 2);
@@ -2070,7 +2073,7 @@ async fn identity_s1_crash_and_concurrent_editor_keep_durable_decision() {
         Some("operator choice")
     );
     assert_eq!(subject.head.committed_step_no, 2);
-    assert!(super::build_system_prompt(&subject, &[]).contains("上一步身份意图未采用"));
+    assert!(super::build_system_prompt(&subject, &[], &[]).contains("上一步身份意图未采用"));
     drop(subject);
     // Simulate a pre-raw-history instance without deleting its committed
     // steps/CAS evidence. Admission must request migration, not thin history.

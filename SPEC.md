@@ -6183,3 +6183,17 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 - 输出 `reachable`（连接是否建立）、各阶段耗时与 `detail`、`error_kind`、`scope`。没走到的阶段保持缺失或 `ok:false`，不补零。负结果是成功的观察：child 的操作结果为 `Succeeded`，`reachable:false` 是被测到的事实，调用方不得把它当成 child 失败。
 - 生命周期沿用 native child：冻结输入 CAS、一次 armed attempt、一个 observation、一个 evidence receipt；reconcile 在同一 attempt 下重新测量；`EffectStatus::None`；卸载后已测观察仍可读。
 - 观察路径由真实 socket 的内联测试覆盖（真实 HTTP 应答的状态码、释放端口的 `connect_failed`、`.invalid` 的 `dns_failed`、URL 边界）。模型是否在被问到通路时真的去观察，属于 awareness 效能测量，不由本定义证明。
+
+## 50.4 未竟义务的显式结清与复制闭包
+
+本节补充 §41 的 S0/S1 与 §45 的 unfinished-obligations 合同，不修改此前原文。主体在后续 S0 中取得本分支尚未结清的义务完整记录；请求所见与封口所用是同一份向量，描述、来源事件、依赖任务、恢复条件和复查时间均保留。历史窗口压缩不删除这些持久事实；正文仍计入正常上下文预算，不能以静默截断或省略记录假装可容纳。
+
+主体以 `[obligation:terminal]` 后的一份 JSON 提出显式终态变更，字段为 `obligation_id`（原义务 UUID）、`state` 和 `reason`（本次判断依据）。`state` 只能为 `completed`、`cancelled` 之一，目标不得为空 UUID，理由不得为空白，未知字段拒绝。该控制解析为 `ObligationTerminalChange`，经 `PolicyKind::ObligationTerminal` 进入同一步 S1；普通正文、child 完成、时间到期和新建义务均不自行结清旧义务。
+
+接纳时必须同时匹配本步解析控制、policy intent、原始创建决定、本分支持久义务和本步 S0 中的完整目标记录。其他分支、未见于 S0、同一步才创建、重复目标或被替换的正文不能成为有效结清。成功结清与决定、policy 结算及 head 推进在一个事务中提交；失败提交不留下局部终态或成功回执。
+
+`ObligationTerminalReceipt` 保存原始 S0 引用、目标完整记录、请求变更、step/intent 身份、结算结果和提交位置。已完成或取消的状态不被迟到请求、重放原始创建决定或另一终态覆盖；仍有合法旧 S0 的迟到请求保留明确的拒绝结算，其余有效决定可以提交。请求、拒绝回执和独立的 policy 执行标记均不单独证明义务已结清。现代恢复缺少原始结算绑定时拒绝推导成功；既有 schema-3 历史创建投影按原合同恢复，不能借此修补现代终态证据缺口。
+
+认知归档 schema 6 将上述原始创建、控制、policy、S0、投影与终态结算列为必须完整理解的事实。schema 5 及更早 reader 必须拒绝 schema 6；schema 6 reader 继续接纳其能完整解释的旧归档。缺失、矛盾或接收方已有的必需事实冲突应在发布前拒绝，不能发布部分数据库事实、文件、认知基线或复制水位后再报告失败。成功导入、关闭重开、重放和再次导出必须保留相同原始结算身份与正文。
+
+受控验证记录位于共享工作区 `build/obligation-lifecycle-20261105/actual-readers-20261105-112512/receipt.json`：分别编译的真实 schema-5/schema-6 Store reader 验证旧 reader 拒绝实际 schema-6 归档，新 reader 导入、重开、relay 后第二接收方保留同一已完成义务结算。旧 schema-5 导出再由新 reader 导入的来源为空 Store，该项只证明版本接纳，不证明有内容的历史归档恢复。原生回归与该合成 Store/CAS 场景不替代真实模型效能、断电、分区或长期运行验收。

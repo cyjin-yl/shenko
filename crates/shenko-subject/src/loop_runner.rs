@@ -591,6 +591,7 @@ pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
 pub(super) fn system_prompt_suffix(
     state: &SubjectLoopState,
     awareness: &[String],
+    obligations: &[PendingObligation],
 ) -> String {
     let mut prompt = String::new();
 
@@ -604,6 +605,12 @@ pub(super) fn system_prompt_suffix(
             prompt.push_str(body.trim());
             prompt.push('\n');
         }
+    }
+
+    if !obligations.is_empty() {
+        prompt.push_str("\n\n当前仍未结束的持久义务（本轮冻结事实；完成或取消须显式给出终态和理由）：\n");
+        prompt.push_str(&serde_json::to_string(obligations).expect("obligation projection serializes"));
+        prompt.push(char::from(10));
     }
 
     if !state.goals.is_empty() {
@@ -657,9 +664,10 @@ pub(super) fn system_prompt_suffix(
 pub(super) fn build_system_prompt(
     state: &SubjectLoopState,
     awareness: &[String],
+    obligations: &[PendingObligation],
 ) -> String {
     let mut prompt = stable_system_prompt(state);
-    prompt.push_str(&system_prompt_suffix(state, awareness));
+    prompt.push_str(&system_prompt_suffix(state, awareness, obligations));
     prompt
 }
 
@@ -785,7 +793,6 @@ async fn execute_step(
         // Durable obligations and the attention decision travel with the
         // request: a commitment the subject already took is part of what it
         // is thinking about, not a note in a later prompt.
-        let obligations = store.open_subject_obligations(state.agent_id)?;
         let attention = store.current_subject_attention(state.agent_id)?;
         let prepared = match prepare_context(state, events) {
             Ok(Some(prepared)) => prepared,
@@ -818,7 +825,7 @@ async fn execute_step(
             contributions: prepared.contributions,
             contribution_omissions: prepared.contribution_omissions,
             contribution_tokens: prepared.contribution_tokens,
-            obligations,
+            obligations: prepared.obligations,
             attention,
         };
         step.input_plan_ref = Some(seal_step_object(
@@ -1240,6 +1247,28 @@ async fn execute_step(
         }
         Err(error) => return Err(error),
     };
+    // P1: validate terminal targets against S0 membership before constructing
+    // the decision. An invalid target must route through the correction path,
+    // not abort the loop after the step is already ResultRecorded.
+    if output.controls.iter().any(|control| matches!(control.action, OutputAction::ObligationTerminal { .. })) {
+        for control in &output.controls {
+            if let OutputAction::ObligationTerminal { change } = &control.action {
+                if !input.obligations.iter().any(|item| item.obligation_id == change.obligation_id) {
+                    let error = shenko_types::error::ProtocolError::new(
+                        "CONTROL_PROTOCOL_INVALID",
+                        shenko_types::error::ErrorScope::Request,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    )
+                    .with_details(serde_json::json!({
+                        "reason": "obligation terminal target was not shown in this step's S0",
+                        "obligation_id": change.obligation_id,
+                    }));
+                    replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error)?;
+                    return Ok(None);
+                }
+            }
+        }
+    }
     // ResultRecorded (including real CAS bytes) is already durable before hooks/S1.
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
@@ -1312,6 +1341,14 @@ async fn execute_step(
                     intent_id: control.action_id,
                     kind: PolicyKind::SemanticWait { change: change.clone() },
                     description: "subject semantic wait".into(),
+                    target_revision: None,
+                });
+            }
+            OutputAction::ObligationTerminal { change } => {
+                policy_intents.push(PolicyIntent {
+                    intent_id: control.action_id,
+                    kind: PolicyKind::ObligationTerminal { change: change.clone() },
+                    description: "subject obligation terminal change".into(),
                     target_revision: None,
                 });
             }
