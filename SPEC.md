@@ -6242,13 +6242,13 @@ core 运行时不在线学习，否则会不稳定。主体仍可随时编写新
 
 实现缺口：`crates/shenko-wasm/src/cow.rs` 的 `discard_abs` 会删除 `commits.jsonl` 和 `head`。这与只增日志冲突。同文件的提交清单目前只记摘要，工作区是可变 overlay，旧提交的字节不能按节点取回。这些按上面的原则补上。
 
-WASM 线性内存、执行栈和解释器对象图是否纳入这个根，尚未决定。`crates/shenko-seed/src/bootstrap.rs` 的 `HomeCheckpoint` 今天只有 `FilesAndMetadata`。`docs/specs/wasm-home.md` 写明它不恢复这些运行中状态，COW 也不回滚 REPL 或外部进程。
+WASM 线性内存纳入这个版本化根。`crates/shenko-seed/src/bootstrap.rs` 的 `HomeCheckpoint` 今天只有 `FilesAndMetadata`，`docs/specs/wasm-home.md` 写明它还不恢复线性内存；这是实现缺口，不是把线性内存留在根外。执行栈和解释器对象图是否一并纳入，本节不代决。COW 今天也不回滚 REPL 或外部进程。
 
 §10.1 与 `docs/specs/wasm-home.md` 的恢复边界仍然有效：一次文件回滚不得宣称撤销了已经发出的消息、直接改过的宿主目录或远端写入。
 
 外部副作用仍先对账，并如实记为无法撤回。这与 §10.1「快照不是已经发出的消息」一致，也与 DeepSeek Harness 的界限一致：可逆指的是结构上的撤销，不是把过程倒放，更不是撤销一切副作用。该实现的自修改只在进程内存；Shenko 把版本节点持久化到账本与 CAS。核对过的机制还有不可变 package、`define` / `run` / `stop` / `undefine`、以及注册时交出的逆操作（卸载撤销的是进程内结构）。见 [架构笔记](https://martianlee.github.io/posts/2026-09-05-deepseek-harness-architecture)、[自修改深读](https://hoco-scy.github.io/deepseek-harness-deep-dive/pages/code-mode-self-modification.html)、[可逆不等于倒放](https://dev.to/canonical/reversible-does-not-mean-running-in-reverse-the-mathematical-essence-of-the-deepseek-harness-4mba)。不采用其中要人批准浏览器半边的做法。未解析的依赖仍按 §45.10 不报成就绪。
 
-替换或回滚由主体自主进行，说明风险与收益，不新增人工审批或权限禁止。genesis 的 `agent_id` 是否在内容回到历史节点后仍保持切换前的值，以及切换前的具体烟测，本节不代决。日志不被截断，因此身份与经历的记录仍然在链上。
+替换或回滚由主体自主进行，说明风险与收益，不新增人工审批或权限禁止。换 core 之前的具体验证步骤由实现者自主设计，不设人工审批。genesis 的 `agent_id` 是否在内容回到历史节点后仍保持切换前的值，本节不代决。日志不被截断，因此身份与经历的记录仍然在链上。
 
 ## 51.5 主体地位
 
