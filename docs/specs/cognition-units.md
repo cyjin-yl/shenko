@@ -31,6 +31,13 @@ index ≤ 4 KiB, one read body ≤ 16 KiB, one discovery page ≤ 32 cards.
 Kinds: `awareness`, `perception`, `skill`, `code` — one storage and install
 path, distinguished only by the kind field.
 
+2026-11-05 conceptual contract ([SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由)):
+awareness is a capability, not a document the model can be assumed to follow.
+Text units and an external watcher are the present harness. fact and conclusion
+are not extra kinds; they are one content type whose justification stops at an
+observation or at other content. This file still describes the installed-unit
+mechanism. It does not implement attitudes, justification pointers, or metapackages.
+
 ## Disclosure: bounded cards, paged discovery, bodies read on demand
 
 `CognitionCatalog::disclosure()` returns the index text that travels with the

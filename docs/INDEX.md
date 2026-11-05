@@ -43,7 +43,7 @@
 | [docs/evidence/](evidence/) | 真实运行证据 | 各切片 | 逐项保存 |
 | [docs/state/coverage.json](state/coverage.json) | 需求级实现与证据状态 | 父级 | 逐项推进 |
 | [docs/development/](development/) | 局部开发合同与验收 recipe | 各切片作者 | 现行 |
-| [docs/decisions/](decisions/) | 已采用的决定记录 | 父级 | 现行 |
+| [docs/decisions/](decisions/) | 已采用的决定记录；2026-11-05 认知原子见 [0002](decisions/0002-cognitive-atoms-2026-11-05.md) | 父级 | 现行 |
 | [scripts/check_docs.py](../scripts/check_docs.py) | 文档与归档完整性检查 | 父级 | 现行 |
 
 ## 领域功能合同（docs/specs/）
@@ -135,6 +135,9 @@
 | [46 完整产品的自主开发与仓库交接](../SPEC.md#46-完整产品的自主开发与仓库交接) | 5545 |
 | [47 Provider 协议版本、SDK 演进与自主迁移](../SPEC.md#47-provider-协议版本sdk-演进与自主迁移) | 5602 |
 | [48 自主主体、运行时能力闭环与正式文档分层](../SPEC.md#48-自主主体运行时能力闭环与正式文档分层) | 6070 |
+| [49 第三方生态兼容](../SPEC.md#49-第三方生态兼容可选的-mcp-与-agent-skills-适配器) | 6112 |
+| [50 追加事实](../SPEC.md#50-追加事实) | 6158 |
+| [51 认知元概念：内容、态度与理由](../SPEC.md#51-认知元概念内容态度与理由) | 6189 |
 
 ## 历史与归档
 
