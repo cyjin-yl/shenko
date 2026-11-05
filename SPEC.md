@@ -6236,11 +6236,11 @@ core 运行时不在线学习，否则会不稳定。主体仍可随时编写新
 
 要一起回滚的范围是：core、有实现的插件，以及 perception、awareness 等内容单元，随家园的一个版本一起回到某个历史内容。只有外部副作用不能撤回。回滚不是把分支指针倒回旧节点。它在版本链尾追加一个新节点，其内容与该历史节点完全相同，并按内容寻址复用已有对象。链和日志只增不减。§9.5 已要求切换之后产生的经历不能被一次退回抹掉；那些记录留在日志里，当前内容与所选历史节点一致。
 
-主线是自有的版本化回滚。原则沿用 §10.2.1 已经写明的 WASM 状态：内容寻址、不可变对象、原子根引用、持久提交。LayerFS 实现太重，不作为这条回滚的实现；§10.2.1 仍保留，只作备选。
+回滚用自有的版本化根。原则沿用 §10.2.1 已经写明的 WASM 状态：内容寻址、不可变对象、原子根引用、持久提交。
 
 **提议：** 把家园文件提交、core 与插件的软件槽、以及 `unit_current` 里 awareness 和 perception 的当前版本，收进同一个版本化根。一份 manifest 引用这三者。整体回滚就是在链尾追加一个新节点，其根与某个旧节点相同，对象按内容寻址复用。日志只增不减。今天它们不在同一次提交里：软件槽见 `docs/specs/self-update.md`，单元当前版本见 `crates/shenko-node/src/units.rs` 的 `unit_current`。
 
-实现缺口：`crates/shenko-wasm/src/cow.rs` 的 `discard_abs` 会删除 `commits.jsonl` 和 `head`。这与只增日志冲突。同文件的提交清单目前只记摘要，工作区是可变 overlay，旧提交的字节不能按节点取回。这些按上面的原则补上，不因此改用 LayerFS。
+实现缺口：`crates/shenko-wasm/src/cow.rs` 的 `discard_abs` 会删除 `commits.jsonl` 和 `head`。这与只增日志冲突。同文件的提交清单目前只记摘要，工作区是可变 overlay，旧提交的字节不能按节点取回。这些按上面的原则补上。
 
 WASM 线性内存、执行栈和解释器对象图是否纳入这个根，尚未决定。`crates/shenko-seed/src/bootstrap.rs` 的 `HomeCheckpoint` 今天只有 `FilesAndMetadata`。`docs/specs/wasm-home.md` 写明它不恢复这些运行中状态，COW 也不回滚 REPL 或外部进程。
 
