@@ -6208,7 +6208,9 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 
 ## 51.2 awareness 是能力，不是文档
 
-awareness 与 perception 不同，但 **perception 的含义尚未决定**，本节不指定。三种候选及在本模型下的后果见 [决策 0002](docs/decisions/0002-cognitive-atoms-2026-11-05.md)；其中「事件留在原始经历，得到的结果是理由停在观察上的 fact，perception 单元只教如何观察」只是未确认的建议。
+awareness 与 perception 不同。**perception 已确定为第二种：** 教主体如何观察的无状态单元。观察事件属于原始经历，不是 perception 本身。观察得到的结果是一条 fact，其理由停在那次观察上。perception 不存放某次读数。
+
+不同主体（包括人类与 Shenko、不同的 Shenko）有不同的 perception。这是换位思考能力的依据。把 perception 标成「属于或模拟哪个主体」、在 fact 的理由里写下「经由谁的 perception」、以及「我看到的」与「我推测你看到的」如何用不同的理由终点分开，是提议，用户尚未逐字确认。提议的写法见 [决策 0002](docs/decisions/0002-cognitive-atoms-2026-11-05.md)。
 
 awareness 是一种**能力**：注意到原本容易忽略的关系。现在的模型不能只靠一篇文档就稳定地这样做。因此当前可以用文档写出「该注意到什么」，并由外部 watcher 等主动 notice 来提供**模拟的** awareness。这是现在必要的抽象。理想情况下这种能力进入模型的预训练认知之后，这层 harness 可以变薄，直到文档不再冒充能力本身。
 
