@@ -50,6 +50,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Committed context windows (SPEC §12.3): additive, own tables only.
     conn.execute_batch(crate::context_windows::CONTEXT_WINDOWS_SCHEMA)?;
     ensure_column(conn, "context_window_scopes", "profile_digest", "TEXT")?;
+    // Branch-journaled working notes (SPEC §12.3.1): additive revision log.
+    // Clearing is a revision, never a delete, so a reset stays recorded.
+    conn.execute_batch(crate::context_notes::CONTEXT_NOTES_SCHEMA)?;
 
     // Subject raw input links (SPEC §12.1): additive index over the raw
     // session events, never a second truth store.

@@ -25,6 +25,10 @@ use shenko_store::{
 use shenko_types::ids::EntityId;
 
 use crate::history::{CallStatus, HistoryItem, HistorySource, ItemKind, ItemRef, StorageError};
+use crate::notes::{
+    MAX_NOTE_BYTES, NoteRevision, NoteSource, NotesError, NotesJournal, RolloverJournal,
+    RolloverRequest,
+};
 use crate::policy::{Derivative, WINDOW_BODY_VERSION, WindowBase};
 use crate::window::{CommittedWindow, WindowAppend, WindowLog};
 
@@ -435,6 +439,345 @@ impl WindowLog for StoreWindowLog {
             }
         }
         Ok(highest)
+    }
+}
+
+/// Branch journal of working notes over the store's `context_notes` table.
+///
+/// The durable journal is the authority: a restart resumes the same scope's
+/// latest revision, and a clear stays a revision in the log. The size bound
+/// and the compare-and-append rule belong to [`NotesJournal`], so a refused
+/// write never reaches the store.
+pub struct StoreNotesJournal {
+    store: Arc<Store>,
+    scope_id: EntityId,
+}
+
+impl StoreNotesJournal {
+    pub fn new(store: Arc<Store>, scope_id: EntityId) -> Self {
+        Self { store, scope_id }
+    }
+
+    fn note(stored: shenko_store::StoredContextNote) -> Result<NoteRevision, NotesError> {
+        let source = NoteSource::from_label(&stored.source).ok_or_else(|| {
+            NotesError::Storage(StorageError(format!(
+                "note revision {} of scope {} carries source label {:?} this reader does not interpret",
+                stored.revision, stored.scope_id, stored.source
+            )))
+        })?;
+        let revision = u64::try_from(stored.revision).map_err(|_| {
+            NotesError::Storage(StorageError(format!(
+                "note revision {} of scope {} is negative",
+                stored.revision, stored.scope_id
+            )))
+        })?;
+        Ok(NoteRevision {
+            scope_id: stored.scope_id,
+            revision,
+            text: stored.body,
+            source,
+            written_at_ms: stored.written_at_ms,
+            visible: stored.visible,
+        })
+    }
+
+    fn append(
+        &self,
+        expected_revision: u64,
+        text: String,
+        source: NoteSource,
+        visible: bool,
+    ) -> Result<NoteRevision, NotesError> {
+        if text.len() > MAX_NOTE_BYTES {
+            return Err(NotesError::Oversize { bytes: text.len(), limit: MAX_NOTE_BYTES });
+        }
+        let expected = (expected_revision > 0).then_some(i64::try_from(expected_revision).ok())
+            .flatten();
+        if expected_revision > 0 && expected.is_none() {
+            return Err(NotesError::StaleRevision {
+                expected: expected_revision,
+                current: None,
+            });
+        }
+        let written_at_ms = crate::notes::now_ms();
+        match self
+            .store
+            .append_context_note(self.scope_id, expected, &text, source.label(), written_at_ms, visible)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))?
+        {
+            shenko_store::ContextNoteAppend::Appended { revision } => Ok(NoteRevision {
+                scope_id: self.scope_id,
+                revision: u64::try_from(revision).map_err(|_| {
+                    NotesError::Storage(StorageError(format!(
+                        "appended note revision {revision} is negative"
+                    )))
+                })?,
+                text,
+                source,
+                written_at_ms,
+                visible,
+            }),
+            shenko_store::ContextNoteAppend::Stale { current } => {
+                Err(NotesError::StaleRevision {
+                    expected: expected_revision,
+                    current: current.and_then(|revision| u64::try_from(revision).ok()),
+                })
+            }
+        }
+    }
+}
+
+impl NotesJournal for StoreNotesJournal {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
+    fn head(&self) -> Result<Option<NoteRevision>, NotesError> {
+        self.store
+            .context_note_head(self.scope_id)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))?
+            .map(Self::note)
+            .transpose()
+    }
+
+    fn revisions(&self, limit: u64) -> Result<Vec<NoteRevision>, NotesError> {
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        self.store
+            .context_note_page(self.scope_id, None, limit)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))?
+            .into_iter()
+            .map(Self::note)
+            .collect()
+    }
+
+    fn replace(
+        &self,
+        expected_revision: u64,
+        text: &str,
+        source: NoteSource,
+    ) -> Result<NoteRevision, NotesError> {
+        if text.trim().is_empty() {
+            return Err(NotesError::Empty);
+        }
+        self.append(expected_revision, text.to_owned(), source, true)
+    }
+
+    fn clear(&self, expected_revision: u64) -> Result<NoteRevision, NotesError> {
+        self.append(expected_revision, String::new(), NoteSource::Reset, false)
+    }
+
+    fn adopt_from(&self, source: &dyn NotesJournal) -> Result<Option<NoteRevision>, NotesError> {
+        if let Some(note) = self.head()? {
+            return Err(NotesError::AlreadyJournaled { revision: note.revision });
+        }
+        let Some(note) = source.visible()? else {
+            return Ok(None);
+        };
+        if note.text.trim().is_empty() {
+            return Ok(None);
+        }
+        self.append(0, note.text, NoteSource::Fork, true).map(Some)
+    }
+}
+
+/// Durable arm/answer of explicit rollover requests over the store's
+/// `context_rollover_requests` row.
+///
+/// The row is the authority across a restart: a request armed before the
+/// process stopped is still pending afterwards, and the committed window that
+/// answered it is recorded, so a restart cannot cut the same boundary again and
+/// a repeated adoption cannot rewrite the audit. A request is not a window and
+/// never cuts history.
+pub struct StoreRolloverJournal {
+    store: Arc<Store>,
+    scope_id: EntityId,
+}
+
+impl StoreRolloverJournal {
+    pub fn new(store: Arc<Store>, scope_id: EntityId) -> Self {
+        Self { store, scope_id }
+    }
+
+    fn from_stored(stored: shenko_store::StoredRolloverRequest) -> RolloverRequest {
+        RolloverRequest {
+            request_id: stored.request_id,
+            scope_id: stored.scope_id,
+            requested_at_ms: stored.requested_at_ms,
+        }
+    }
+}
+
+impl RolloverJournal for StoreRolloverJournal {
+    fn scope_id(&self) -> EntityId {
+        self.scope_id
+    }
+
+    fn request(&self, requested_at_ms: i64) -> Result<RolloverRequest, NotesError> {
+        self.store
+            .arm_context_rollover(self.scope_id, requested_at_ms)
+            .map(Self::from_stored)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))
+    }
+
+    fn pending(&self) -> Result<Option<RolloverRequest>, NotesError> {
+        Ok(self
+            .store
+            .context_rollover_request(self.scope_id)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))?
+            .filter(|stored| stored.consumed_window.is_none())
+            .map(Self::from_stored))
+    }
+
+    fn consume(&self, window: EntityId) -> Result<bool, NotesError> {
+        self.store
+            .consume_context_rollover(self.scope_id, window)
+            .map_err(|error| NotesError::Storage(StorageError(error.to_string())))
+    }
+}
+
+#[cfg(test)]
+mod notes_journal_tests {
+    use super::*;
+
+    fn open(dir: &std::path::Path) -> Arc<Store> {
+        Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap())
+    }
+
+    #[test]
+    fn durable_note_journal_is_bounded_compare_and_append_and_reopens() {
+        let dir = std::env::temp_dir().join(format!("shenko-notes-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scope = EntityId::new();
+        let store = open(&dir);
+        let journal = StoreNotesJournal::new(Arc::clone(&store), scope);
+
+        let first = journal.replace(0, "first working state", NoteSource::Tool).unwrap();
+        assert_eq!(first.revision, 1);
+        assert_eq!(
+            journal.replace(0, "stale writer", NoteSource::Tool),
+            Err(NotesError::StaleRevision { expected: 0, current: Some(1) })
+        );
+        // The bound is UTF-8 bytes and is checked before anything is appended.
+        let oversized = "x".repeat(MAX_NOTE_BYTES + 1);
+        assert_eq!(
+            journal.replace(1, &oversized, NoteSource::Tool),
+            Err(NotesError::Oversize { bytes: MAX_NOTE_BYTES + 1, limit: MAX_NOTE_BYTES })
+        );
+        assert_eq!(journal.head().unwrap().unwrap().text, "first working state");
+        // Exactly the limit in multi-byte text is admitted; one byte more is not.
+        let exact = "汉".repeat(MAX_NOTE_BYTES / 3);
+        assert!(exact.len() <= MAX_NOTE_BYTES);
+        let second = journal.replace(1, &exact, NoteSource::Tool).unwrap();
+        assert_eq!(second.revision, 2);
+        assert_eq!(journal.replace(2, &format!("{exact}汉"), NoteSource::Tool), Err(NotesError::Oversize {
+            bytes: exact.len() + 3,
+            limit: MAX_NOTE_BYTES,
+        }));
+
+        // A clear is a revision: the journal keeps it and hides the notebook.
+        let cleared = journal.clear(2).unwrap();
+        assert_eq!(cleared.revision, 3);
+        assert!(!cleared.visible);
+        assert!(journal.visible().unwrap().is_none());
+        // Rewriting after a clear continues the journal; the cleared note never
+        // resurfaces as the visible notebook.
+        let rewritten = journal.replace(3, "state after reset", NoteSource::Tool).unwrap();
+        assert_eq!(rewritten.revision, 4);
+        assert_eq!(journal.visible().unwrap().unwrap().text, "state after reset");
+        assert_eq!(journal.revisions(10).unwrap().len(), 4);
+
+        // Reopen: the same scope resumes at the same head without a plugin.
+        drop(journal);
+        drop(store);
+        let reopened = StoreNotesJournal::new(open(&dir), scope);
+        let head = reopened.head().unwrap().unwrap();
+        assert_eq!(head.revision, 4);
+        assert_eq!(head.text, "state after reset");
+        assert_eq!(head.source, NoteSource::Tool);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn fork_adoption_copies_the_source_notebook_once() {
+        let dir = std::env::temp_dir().join(format!("shenko-notes-fork-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = open(&dir);
+        let source_scope = EntityId::new();
+        let source = StoreNotesJournal::new(Arc::clone(&store), source_scope);
+        source.replace(0, "branch state worth carrying", NoteSource::Tool).unwrap();
+        let fork = StoreNotesJournal::new(Arc::clone(&store), EntityId::new());
+        let adopted = fork.adopt_from(&source).unwrap().unwrap();
+        assert_eq!(adopted.source, NoteSource::Fork);
+        assert_eq!(adopted.text, "branch state worth carrying");
+        assert_eq!(fork.visible().unwrap().unwrap().text, "branch state worth carrying");
+        assert_eq!(
+            fork.adopt_from(&source),
+            Err(NotesError::AlreadyJournaled { revision: 1 })
+        );
+        // A fork of a cleared notebook carries nothing, not the older revision.
+        source.clear(1).unwrap();
+        let second = StoreNotesJournal::new(Arc::clone(&store), EntityId::new());
+        assert_eq!(second.adopt_from(&source).unwrap(), None);
+        assert!(second.head().unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn durable_rollover_request_is_armed_once_answered_once_and_survives_reopen() {
+        let dir = std::env::temp_dir().join(format!("shenko-rollover-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scope = EntityId::new();
+        let store = open(&dir);
+        let journal = StoreRolloverJournal::new(Arc::clone(&store), scope);
+        assert!(journal.pending().unwrap().is_none());
+
+        let armed = journal.request(1_760_000_000_000).unwrap();
+        // A repeated request before the boundary keeps the first one.
+        let again = journal.request(1_760_000_000_999).unwrap();
+        assert_eq!(again.request_id, armed.request_id);
+        assert_eq!(again.requested_at_ms, armed.requested_at_ms);
+        assert_eq!(journal.pending().unwrap().unwrap().request_id, armed.request_id);
+
+        drop(journal);
+        drop(store);
+        let store = open(&dir);
+        let journal = StoreRolloverJournal::new(Arc::clone(&store), scope);
+        assert_eq!(
+            journal.pending().unwrap().unwrap().request_id,
+            armed.request_id,
+            "an armed request survives a restart"
+        );
+
+        let window = EntityId::new();
+        assert!(journal.consume(window).unwrap());
+        assert!(!journal.consume(EntityId::new()).unwrap(), "an answered request is not rewritten");
+        assert!(journal.pending().unwrap().is_none());
+        drop(journal);
+        drop(store);
+        let store = open(&dir);
+        let journal = StoreRolloverJournal::new(store, scope);
+        assert!(journal.pending().unwrap().is_none(), "the answer survives a restart");
+        // A later request is a new fact, not a replay of the answered one.
+        let later = journal.request(1_760_000_001_000).unwrap();
+        assert_ne!(later.request_id, armed.request_id);
+        assert_eq!(journal.pending().unwrap().unwrap().request_id, later.request_id);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn journal_of_another_scope_is_refused_by_scope_identity() {
+        let dir = std::env::temp_dir().join(format!("shenko-notes-scope-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = open(&dir);
+        let scope = EntityId::new();
+        let mine = StoreNotesJournal::new(Arc::clone(&store), scope);
+        let other = StoreNotesJournal::new(Arc::clone(&store), EntityId::new());
+        mine.replace(0, "mine", NoteSource::Tool).unwrap();
+        other.replace(0, "theirs", NoteSource::Tool).unwrap();
+        assert_eq!(mine.scope_id(), scope);
+        assert_eq!(mine.visible().unwrap().unwrap().text, "mine");
+        assert_eq!(other.visible().unwrap().unwrap().text, "theirs");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 

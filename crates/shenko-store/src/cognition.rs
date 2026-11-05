@@ -2320,7 +2320,8 @@ impl Store {
     pub(crate) fn validate_obligation_recovery(&self, conn: &rusqlite::Connection) -> Result<()> {
         let mut rows = Vec::new();
         for spec in TABLES.iter().filter(|spec| matches!(spec.name,
-            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_intents" | "subject_intent_steps"))
+            "subject_obligations" | "subject_steps" | "subject_branch_heads" | "subject_intents" | "subject_intent_steps"
+                | "channel_record_migrations" | "inbox_events"))
         {
             rows.extend(read_table(conn, spec)?);
         }
@@ -2355,6 +2356,9 @@ impl Store {
                 .position(|spec| spec.name == row.table)
                 .unwrap_or(usize::MAX)
         });
+        // Local retirement roots must survive rollback of the imported facts.
+        // Reserve and register them before the transaction can move any bytes.
+        let retirements = self.prepare_file_retirements(manifest, peer_id, options)?;
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
@@ -2502,6 +2506,10 @@ impl Store {
                             }
                         }
                         Some(local_values) => {
+                            ensure!(spec.kind != RowKind::SubjectIntent
+                                || !is_immutable_terminal_settlement(&local_values)
+                                || rows_equivalent(spec, &local_values, &effective.values),
+                                "an existing obligation terminal settlement cannot be replaced");
                             if rows_equivalent(spec, &local_values, &effective.values) {
                                 unchanged += 1;
                                 write_baseline(
@@ -2637,12 +2645,13 @@ impl Store {
                     ensure!(!conflicts.iter().any(|conflict| matches!(conflict.table.as_str(),
                         "subject_obligations" | "subject_steps" | "subject_branch_heads"
                         | "subject_intents" | "subject_intent_steps" | "context_windows"
-                       | "subject_raw_inputs" | "session_events" | "inbox_events")),
+                        | "subject_raw_inputs" | "session_events" | "inbox_events" | "channel_record_migrations")),
                         "required obligation conflict unit diverges; nothing published");
                     self.validate_obligation_recovery(&tx)?;
                 }
                 let (verified_files, file_conflicts) = self.restore_files(
                     &tx, files, &options.memory_root, &options.workspace_root, &manifest.file_origins, peer_id,
+                    &retirements,
                 )?;
                 conflicts.extend(file_conflicts);
                 let mut restored_git_history = false;
@@ -2677,6 +2686,41 @@ impl Store {
         )
     }
 
+    fn prepare_file_retirements(
+        &self,
+        manifest: &CognitionManifest,
+        peer_id: EntityId,
+        options: &CognitionImportOptions,
+    ) -> Result<Vec<(CognitionFileOrigin, PathBuf)>> {
+        let mut retirements = Vec::new();
+        for origin in &manifest.file_origins {
+            let incoming: HashSet<&str> = manifest.files.iter()
+                .filter(|file| file.origin == *origin).map(|file| file.path.as_str()).collect();
+            let baselines = {
+                let conn = self.ledger.conn.lock();
+                self.read_file_baselines(&conn, peer_id, file_origin_name(*origin))?
+            };
+            if !baselines.iter().any(|baseline| baseline.state == FileBaselineState::Present
+                && !incoming.contains(baseline.path.as_str())) {
+                continue;
+            }
+            let root = match origin {
+                CognitionFileOrigin::Memory => options.memory_root.as_ref(),
+                CognitionFileOrigin::Workspace => options.workspace_root.as_ref(),
+            }.context("file retirement has no destination root")?;
+            let retirement = fs::canonicalize(root)?.join(format!(".shenko-retired-{}", EntityId::new()));
+            fs::create_dir(&retirement)?;
+            self.ledger.with_mutation(|| {
+                let conn = self.ledger.conn.lock();
+                conn.execute("INSERT INTO cognition_retirements(path) VALUES(?1)",
+                    [retirement.to_string_lossy().as_ref()])?;
+                Ok(())
+            }, storage_failure)?;
+            retirements.push((*origin, retirement));
+        }
+        Ok(retirements)
+    }
+
     /// Put the memory and workspace files back in place.
     ///
     /// A file that this store still holds exactly as the peer last delivered
@@ -2691,6 +2735,7 @@ impl Store {
         workspace_root: &Option<PathBuf>,
         origins: &[CognitionFileOrigin],
         peer_id: EntityId,
+        retirements: &[(CognitionFileOrigin, PathBuf)],
     ) -> Result<(usize, Vec<CognitionConflict>)> {
         let mut verified = 0usize;
         let mut conflicts: Vec<CognitionConflict> = Vec::new();
@@ -2844,10 +2889,12 @@ impl Store {
                 if baseline.state == FileBaselineState::Present
                     && Digest::blake3(&existing) == baseline.digest
                 {
-                    self.retire_deleted_file(conn, 
+                    let retirement = retirements.iter().find(|(origin, _)| origin == file_origin)
+                        .context("file retirement root was not durably reserved")?;
+                    self.retire_deleted_file(
                         peer_id,
                         origin,
-                        &root,
+                        &retirement.1,
                         &relative,
                         &target,
                         &baseline.digest,
@@ -2874,17 +2921,13 @@ impl Store {
 
     fn retire_deleted_file(
         &self,
-        conn: &rusqlite::Connection,
         peer_id: EntityId,
         origin: &str,
-        root: &Path,
+        retirement_root: &Path,
         relative: &Path,
         target: &Path,
         expected: &Digest,
     ) -> Result<()> {
-        let retirement_root =
-            fs::canonicalize(root)?.join(format!(".shenko-retired-{}", EntityId::new()));
-        fs::create_dir(&retirement_root)?;
         let retired = retirement_root
             .join(peer_id.to_string())
             .join(origin)
@@ -2894,10 +2937,8 @@ impl Store {
             fs::create_dir_all(parent)
                 .with_context(|| format!("create retirement directory {}", parent.display()))?;
         }
-        // Rename first; register the retirement only after the file is
-        // safely moved and verified. If the enclosing import transaction
-        // rolls back, the filesystem state stays consistent with the
-        // absence of a retirement record.
+        // The root was registered outside the import transaction. A later
+        // rollback cannot turn these preserved bytes into ordinary memory.
         fs::rename(target, &retired).with_context(|| {
             format!(
                 "preserve deleted file {} by moving it to {}",
@@ -2912,10 +2953,6 @@ impl Store {
             "retired file {} does not preserve its original bytes",
             retired.display()
         );
-        conn.execute(
-            "INSERT INTO cognition_retirements(path) VALUES(?1)",
-            [retirement_root.to_string_lossy().as_ref()],
-        )?;
         Ok(())
     }
 
@@ -3762,6 +3799,13 @@ fn archive_membership_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
             });
             continue;
         };
+        // validate_obligation_rows authenticates the original CAS decision,
+        // its complete creation binding and any recorded publication migration.
+        // A migrated step names the new object while the obligation must keep
+        // its original creation reference; raw digest equality is not its rule.
+        if row.table == "subject_obligations" {
+            continue;
+        }
         let step_decision = step
             .value("data")
             .and_then(|data| serde_json::from_str::<serde_json::Value>(data).ok())
@@ -3926,15 +3970,6 @@ fn apply_memory_row(
 ) -> Result<MemoryRowOutcome> {
     let local = read_existing(tx, spec, row)?;
     let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
-    // P3: an immutable terminal settlement cannot be replaced by a later
-    // import, even when the local value matches its saved peer baseline.
-    if spec.name == "subject_intents" {
-        if let Some(local) = &local {
-            if is_immutable_terminal_settlement(local) && !rows_equivalent(spec, local, &row.values) {
-                return Ok(MemoryRowOutcome::Conflict);
-            }
-        }
-    }
     let result = match local {
         None => match insert_row(tx, spec, row, seq) {
             Ok(()) => MemoryRowOutcome::Inserted,

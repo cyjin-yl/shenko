@@ -94,6 +94,10 @@ pub struct ContextInput<'a> {
     pub items: &'a [HistoryItem],
     pub caps: &'a ModelCaps,
     pub used_tokens: u32,
+    /// Whether this preparation answers an explicit request for a new window
+    /// at the next safe boundary. A strategy may then cut a boundary window
+    /// that drops nothing, which the size trigger would never justify.
+    pub rollover: bool,
 }
 
 /// The bounded facts a trigger decision may use.

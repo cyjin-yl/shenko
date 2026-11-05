@@ -20,6 +20,7 @@
 //! scope, expiry and the evidence of what was actually sent.
 pub mod contribution;
 pub mod history;
+pub mod notes;
 pub mod policy;
 pub mod preparation;
 pub mod registry;
@@ -29,6 +30,7 @@ pub mod window;
 
 pub use contribution::*;
 pub use history::*;
+pub use notes::*;
 pub use policy::*;
 pub use preparation::*;
 pub use registry::*;

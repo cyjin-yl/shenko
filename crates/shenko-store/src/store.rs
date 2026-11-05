@@ -1057,8 +1057,13 @@ impl Store {
             .iter()
             .any(|obligation| obligation.origin_event_id.is_some())
         {
+            // The selected set must come from the authenticated sealed object:
+            // a pathname swapped under the referenced digest would otherwise
+            // decide membership for a promise the subject never authorized.
             let frozen: serde_json::Value = serde_json::from_slice(
-                &self.cas.read_object(&decision.input_plan_ref.digest)?,
+                &self
+                    .obligation_object_bytes(&decision.input_plan_ref)
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?,
             )?;
             let selected: Vec<String> = frozen
                 .get("events")

@@ -20,6 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cordis_core::{Context, Plugin, Service};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use shenko_types::ids::EntityId;
 
 use crate::history::{HistoryItem, HistorySource, StorageError};
 use crate::policy::{
@@ -54,6 +55,53 @@ struct RegistryState {
     pressure: Option<PressureObservation>,
     /// The visible outcome of the last preparation.
     last_preparation: Option<PreparationDiagnostic>,
+    /// A request for a new window at the next safe boundary, independent of
+    /// the size trigger.
+    rollover: Option<RolloverRequest>,
+    /// The once-per-window reminder threshold an installed strategy
+    /// advertised, bound to its installation epoch.
+    reminder: Option<ReminderThreshold>,
+    /// The window a reminder was already issued in, so one window gets at
+    /// most one reminder however many steps it spans.
+    reminder_issued: Option<EntityId>,
+    /// Durable arm/answer of explicit rollover requests, when this process
+    /// has a store-backed journal.
+    rollover_journal: Option<Arc<dyn crate::notes::RolloverJournal>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ReminderThreshold {
+    epoch: u64,
+    ratio: f32,
+}
+
+/// The bounded reminder text a context near its automatic threshold adds to
+/// the per-step prompt suffix. It names capabilities; it does not script the
+/// model's reasoning.
+pub const ROLLOVER_REMINDER: &str = "本窗口接近自动切分点。若当前工作状态重要，用 context.notebook 的 replace 写入要点（最新版本会进入下一个窗口），然后在需要时用 rollover 在下一个安全边界开始新窗口；原始历史仍可经 history.query 按 seq/event_id 读取。";
+
+/// Facts of one issued reminder, for honest reporting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RolloverReminder {
+    /// The committed window the reminder belongs to.
+    pub window: EntityId,
+    pub used_tokens: u32,
+    pub max_context: u32,
+}
+
+/// A pending request to start a new window at the next safe tool-loop
+/// boundary — the installed notebook tool's `new_context` equivalent.
+///
+/// The request is a live fact of this process and is bound to the branch it
+/// was made on. A crash before the boundary loses the request, never the
+/// history; the caller is told that it was armed, not that a window exists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RolloverRequest {
+    /// Stable identity of this request, so an answer can name the request it
+    /// satisfied instead of guessing from timestamps.
+    pub request_id: EntityId,
+    pub scope_id: EntityId,
+    pub requested_at_ms: i64,
 }
 
 /// One strategy's outcome while selecting a window.
@@ -328,10 +376,139 @@ impl PolicyRegistry {
     /// recorded pressure; it never reads the raw history, so it is safe to
     /// call inside a request transaction.
     pub fn needs_preparation(&self, caps: &ModelCaps, used_tokens: u32) -> bool {
+        if self.rollover_pending() {
+            return true;
+        }
         if self.should_compact(caps, used_tokens) {
             return true;
         }
         self.window_over_budget(caps).unwrap_or(false)
+    }
+
+    /// Attach the durable rollover journal of this branch.
+    ///
+    /// The journal makes a request outlive the process that armed it. It must
+    /// belong to the same branch as the window chain; a mismatched journal is
+    /// refused instead of letting one branch's request cut another's window.
+    pub fn attach_rollover_journal(
+        &self,
+        journal: Arc<dyn crate::notes::RolloverJournal>,
+    ) -> Result<(), StorageError> {
+        let scope = self.ledger.scope_id();
+        if journal.scope_id() != scope {
+            return Err(StorageError(format!(
+                "rollover journal belongs to scope {}, this context chain is {scope}",
+                journal.scope_id()
+            )));
+        }
+        // A request armed before this process started is still pending: the
+        // durable row is the authority, so attaching the journal restores the
+        // live request instead of waiting for the model to ask again.
+        let pending = journal.pending().map_err(|error| StorageError(error.to_string()))?;
+        let mut state = self.state.lock();
+        state.rollover_journal = Some(journal);
+        if let Some(request) = pending {
+            if state.rollover.is_none() {
+                state.rollover = Some(request);
+            }
+        }
+        Ok(())
+    }
+
+    /// Ask for a new window at the next safe boundary even when the size
+    /// trigger is false.
+    ///
+    /// The request belongs to this branch: it is refused when the ledger's
+    /// scope is not the scope the caller observed. With a durable journal
+    /// attached, the request is committed there before it is remembered live,
+    /// so a crash before the boundary still rolls over. A repeated request
+    /// before the boundary keeps the first one, so an impatient tool cannot
+    /// stack windows.
+    pub fn request_rollover(&self, scope_id: EntityId) -> Result<RolloverRequest, StorageError> {
+        let current = self.ledger.scope_id();
+        if current != scope_id {
+            return Err(StorageError(format!(
+                "rollover requested for scope {scope_id}, but this context chain is {current}"
+            )));
+        }
+        let durable = {
+            let state = self.state.lock();
+            state.rollover_journal.clone()
+        };
+        let request = match durable {
+            Some(journal) => journal
+                .request(now_ms())
+                .map_err(|error| StorageError(error.to_string()))?,
+            None => RolloverRequest {
+                request_id: EntityId::new(),
+                scope_id: current,
+                requested_at_ms: now_ms(),
+            },
+        };
+        let mut state = self.state.lock();
+        if let Some(existing) = state.rollover.clone() {
+            return Ok(existing);
+        }
+        state.rollover = Some(request.clone());
+        Ok(request)
+    }
+
+    /// The request waiting for the next safe boundary.
+    pub fn rollover_request(&self) -> Option<RolloverRequest> {
+        self.state.lock().rollover.clone()
+    }
+
+    pub fn rollover_pending(&self) -> bool {
+        self.state.lock().rollover.is_some()
+    }
+
+    /// Register the once-per-window reminder threshold of an installation.
+    ///
+    /// The threshold is configuration of the strategy that owns it, so it
+    /// belongs to that installation epoch and is removed with it.
+    pub fn set_reminder_threshold(&self, epoch: u64, ratio: f32) {
+        self.state.lock().reminder = Some(ReminderThreshold { epoch, ratio });
+    }
+
+    /// Withdraw the threshold only if this exact installation registered it,
+    /// so a late cleanup cannot remove its successor's threshold.
+    pub fn clear_reminder_threshold(&self, epoch: u64) {
+        let mut state = self.state.lock();
+        if state.reminder.is_some_and(|threshold| threshold.epoch == epoch) {
+            state.reminder = None;
+        }
+    }
+
+    /// Take this window's reminder, if the pressure crosses the advertised
+    /// threshold and this committed window was not reminded yet.
+    ///
+    /// The reminder is a prompt-suffix fact, not a window: it never prepares,
+    /// publishes or commits anything. A registry with no observed pressure or
+    /// no advertised threshold reports nothing.
+    pub fn take_rollover_reminder(&self) -> Option<RolloverReminder> {
+        let (ratio, pressure) = {
+            let state = self.state.lock();
+            (state.reminder?.ratio, state.pressure.clone()?)
+        };
+        if pressure.max_context == 0 {
+            return None;
+        }
+        if (pressure.used_tokens as f32) < (pressure.max_context as f32 * ratio) {
+            return None;
+        }
+        // A ledger read failure must not block the prompt: no reminder is
+        // honest, an error is not.
+        let window = self.ledger.current().ok()?.id;
+        let mut state = self.state.lock();
+        if state.reminder_issued == Some(window) {
+            return None;
+        }
+        state.reminder_issued = Some(window);
+        Some(RolloverReminder {
+            window,
+            used_tokens: pressure.used_tokens,
+            max_context: pressure.max_context,
+        })
     }
 
     fn candidates(&self) -> Vec<(Arc<dyn ContextPolicy>, PolicyManifest, u64)> {
@@ -376,6 +553,23 @@ impl PolicyRegistry {
         caps: &ModelCaps,
         used_tokens: u32,
     ) -> Result<(PreparedWindow, Vec<Attempt>), PrepareError> {
+        self.prepare_for(history, caps, used_tokens, false)
+    }
+
+    /// Prepare with the explicit-rollover signal the installed strategy may
+    /// read.
+    ///
+    /// An explicit request is a boundary the model asked for, so the
+    /// automatic [`MIN_GAIN_RATIO`] guard does not apply: a small window has
+    /// nothing to drop, and refusing it would answer "next boundary" with
+    /// silence. The model's own context limit still applies.
+    fn prepare_for(
+        &self,
+        history: &dyn HistorySource,
+        caps: &ModelCaps,
+        used_tokens: u32,
+        rollover: bool,
+    ) -> Result<(PreparedWindow, Vec<Attempt>), PrepareError> {
         let items = raw_items(history)?;
         let items = &items[..];
         let current: u32 =
@@ -390,7 +584,8 @@ impl PolicyRegistry {
                 });
                 continue;
             }
-            let input = ContextInput { base: self.base(items, epoch)?, items, caps, used_tokens };
+            let input =
+                ContextInput { base: self.base(items, epoch)?, items, caps, used_tokens, rollover };
             let result = policy.prepare(&input).and_then(|window| {
                 let limit = if window.derivatives.is_empty() {
                     caps.max_context
@@ -399,7 +594,7 @@ impl PolicyRegistry {
                 };
                 if window.cost.window_tokens > limit {
                     Err(PolicyError::OverBudget { window: window.cost.window_tokens, limit })
-                } else if window.cost.window_tokens > ceiling {
+                } else if !rollover && window.cost.window_tokens > ceiling {
                     Err(PolicyError::NoReduction)
                 } else {
                     Ok(window)
@@ -425,7 +620,25 @@ impl PolicyRegistry {
         caps: &ModelCaps,
         used_tokens: u32,
     ) -> Result<PreparedCandidate, PrepareError> {
-        let (window, attempts) = self.prepare(history, caps, used_tokens)?;
+        // An explicit request is taken by the attempt that turns it into a
+        // candidate. A candidate that is later dropped puts it back, so the
+        // request survives until a window actually commits; it is answered by
+        // the committed window, not by an attempt.
+        let request = self.state.lock().rollover.take();
+        let rollover = request.is_some();
+        let prepared = self.prepare_for(history, caps, used_tokens, rollover);
+        let (window, attempts) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                if let Some(request) = request {
+                    let mut state = self.state.lock();
+                    if state.rollover.is_none() {
+                        state.rollover = Some(request);
+                    }
+                }
+                return Err(error);
+            }
+        };
         let binding = PreparationBinding {
             scope_id: self.ledger.scope_id(),
             source_window: window.base.source_window,
@@ -441,6 +654,7 @@ impl PolicyRegistry {
             attempts,
             caps: caps.clone(),
             prepared_at_ms: now_ms(),
+            rollover,
         })
     }
 
@@ -454,11 +668,12 @@ impl PolicyRegistry {
             policy: candidate.binding.policy_id.clone(),
             outcome: PreparationOutcome::Published,
             detail: format!(
-                "bound to scope {} / window {} / leaf {} / generation {}",
+                "bound to scope {} / window {} / leaf {} / generation {}{}",
                 candidate.binding.scope_id,
                 candidate.binding.source_window,
                 candidate.binding.leaf_seq,
-                candidate.binding.model_generation
+                candidate.binding.model_generation,
+                if candidate.rollover { " (explicit rollover request)" } else { "" }
             ),
             at_ms: now_ms(),
         };
@@ -575,17 +790,42 @@ impl PolicyRegistry {
             self.drop_candidate(&candidate, PreparationOutcome::Refused, detail);
             return Ok(None);
         }
-        match self.ledger.commit(candidate.window.clone(), history) {
+        // The registry's commit, not the ledger's: it holds the installation
+        // lock across the append, so a strategy disposed or replaced between
+        // the binding check above and this line cannot commit a retired
+        // epoch's window. The ledger alone checks window/model/leaf identity.
+        match self.commit(candidate.window.clone(), history) {
             Ok(window) => {
-                let diagnostic = PreparationDiagnostic {
-                    policy: candidate.binding.policy_id.clone(),
-                    outcome: PreparationOutcome::Adopted,
-                    detail: format!("committed window {} at generation {}", window.id, window.generation),
-                    at_ms: now_ms(),
+                // The committed window is what answers an explicit request:
+                // the durable row records which window answered it, so a
+                // restart cannot cut the same boundary again. A journal that
+                // cannot record the answer cannot undo a committed window; the
+                // diagnostic says so instead of hiding it.
+                let answered = if candidate.rollover {
+                    let journal = self.state.lock().rollover_journal.clone();
+                    match journal.map(|journal| journal.consume(window.id)) {
+                        Some(Ok(_)) | None => String::new(),
+                        Some(Err(error)) => {
+                            format!("; explicit rollover request was not marked answered: {error}")
+                        }
+                    }
+                } else {
+                    String::new()
                 };
                 let mut state = self.state.lock();
+                if candidate.rollover {
+                    state.rollover = None;
+                }
                 state.candidate = None;
-                state.last_preparation = Some(diagnostic);
+                state.last_preparation = Some(PreparationDiagnostic {
+                    policy: candidate.binding.policy_id.clone(),
+                    outcome: PreparationOutcome::Adopted,
+                    detail: format!(
+                        "committed window {} at generation {}{answered}",
+                        window.id, window.generation
+                    ),
+                    at_ms: now_ms(),
+                });
                 Ok(Some((window, candidate.attempts)))
             }
             Err(CommitError::Storage(error)) => Err(CommitError::Storage(error)),
@@ -603,7 +843,21 @@ impl PolicyRegistry {
         outcome: PreparationOutcome,
         detail: String,
     ) {
+        // A dropped candidate answered nothing. An explicit request goes back
+        // to pending, so the next safe boundary still rolls over; the refusal
+        // itself stays visible in the diagnostic.
+        let pending = if candidate.rollover {
+            let journal = self.state.lock().rollover_journal.clone();
+            journal.and_then(|journal| journal.pending().ok().flatten())
+        } else {
+            None
+        };
         let mut state = self.state.lock();
+        if let Some(request) = pending {
+            if state.rollover.is_none() {
+                state.rollover = Some(request);
+            }
+        }
         if state
             .candidate
             .as_ref()
