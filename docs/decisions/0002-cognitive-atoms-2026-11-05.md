@@ -40,7 +40,55 @@
 - taste 宏包与类人心智宏包是并列的两份名单，还是其中一份包含另一份。
 - 新生成的内容是否要有一条单独的采纳态度才进入宏包。倾向是不要自动把每一步思考都写成心智的定义；这还不是用户点名确认的句子。
 - 态度上要不要从第一版就带置信槽。
-- perception 这个安装 kind 的名字是否继续只用于「如何观察」的无状态单元，而事实层只用理由终点区分 fact 与 conclusion。
+- **perception 是哪一种，用户尚未决定。** 不要把下面任何一条写成现行定义。未确认的建议是第二种：原始经历保存事件本身；观察得到的那条内容是理由停在该事件上的 fact；名为 perception 的无状态单元只说明如何观察。
+
+  | 候选 | 在 A+D 下的后果 |
+  | --- | --- |
+  | 观察事件本身 | inbox / 原始会话事件就叫 perception。它还不是态度。fact 要另写，并指向这次事件。事件一多，perception 就等于经历日志。 |
+  | 教如何观察的无状态单元（建议，未确认） | 单元不存放某次读数。某次结果是 fact，理由指向会话或回执。现有 `UnitKind::Perception` 可以继续表示这种单元，但这不是已经确认的命名。 |
+  | 观察得到的 fact | perception 与 fact 成为同一条态度的两个名字，理由都停在观察上。单元 kind 若仍叫 perception，就会和这条态度撞名。 |
+
+- 开放的 `knowledge_kind` 是否继续作为自由标签，还是以后只由「理由停在何处」区分 fact 与 conclusion。
+- 上下文贡献种类里的 `ContributionKind::Fact`（「带来源的普通事实」，当前生产路径未见写入）是否保留这个名字。
+- `shenko-mobile` 的 `Fact` / `DbFacts` 是快照各维度是否达到，并明确不声称语义完整。它不是认知 fact。是否改名以免混淆，尚未决定。
+- `PendingObligation` 继续作为循环上的独立记录，还是改成一条「尚未完成」的态度。
+- 上下文压缩插件是否必须服从修订 taste。建议否：压缩管窗口里的经历投影；taste 管单元与态度的旧版本如何默认露出。未确认。
+- 研究库的 `environment_fact` 是否以后改用态度表达。现在它是研究条目的一种 kind，不是认知 fact。
+
+## 现有概念盘点
+
+对照 2026-11-05 的代码与文档，不是实现承诺。「矛盾」指与已确认的新设计冲突；perception 一行因含义未定而整行待决。
+
+| 现有概念 | 在 A+D 下 | 归属 | 与新设计 |
+| --- | --- | --- | --- |
+| CAS 对象 | 不可变内容 | core | 一致 |
+| `commit_log` 序号 | 态度与其他变更的顺序，不是整树的 git commit | core | 一致 |
+| 原始会话 `session_events` | 经历原文。不是态度 | core | 一致。是否把事件本身叫做 perception：待决 |
+| inbox 事件 | 尚未写成态度的入口 | core | 同上 |
+| 主体步 S0/S1 | 持续循环的一次提交，不是 fact | core | 一致。空转仍走下一步，由插件填充 |
+| 语义等待、义务、免打扰 | 循环上的决定记录 | core | 义务是否并入态度：待决 |
+| task / operation / attempt | 效应账，含未知 | core | 一致。完成不等于效果已知 |
+| evidence receipt | 可充当理由根的观察 | core | 一致 |
+| 发布 / outbox | 已准备、已接受、未知是不同态度或状态 | core | 一致 |
+| memory intent | 写入前的操作（save 等），不是知识 kind | core | 一致 |
+| memory entry / `knowledge_kind` | 最接近「内容 + 可取代态度」的现有行。kind 默认 `note`，是开放字符串 | core 储存 | 默认检索直接隐藏旧行，还没有「数量 + 时间」投影。kind 是否保留：待决 |
+| 记忆 Git 目录 | 账本的可读投影，不是权威 | core 旁的投影 | 一致 |
+| identity / soul / personality | 同一 `agent_id` 的修订，不携带工具，也不是 fact | core | 一致 |
+| 安装单元（perception / awareness / skill / code） | 无状态包与依赖。awareness 文本是 harness，不是能力 | core 机制；正文是插件 | awareness 旧读法已由 §51 取代。perception kind 的含义：待决 |
+| skill | 做法，不是注意能力 | 插件 | 一致 |
+| code | 真实效果；回执可作理由根 | 插件 | 一致 |
+| awareness 能力 / watcher | 尚未作为独立宿主实现。目标是可安装能力 | 插件 | 与「只装文档即拥有 awareness」矛盾；以 §51 为准 |
+| `ContributionKind::Fact` | 上下文槽上的一个种类名，未见生产写入 | core 协议枚举 | 名字可能和认知 fact 混淆：待决 |
+| 移动端 `Fact` | 快照维度，不表示语义已经理解 | 插件内类型 | 是否改名：待决 |
+| 研究库 `environment_fact` | 研究条目的 kind | 插件 / 研究账 | 是否改用态度：待决 |
+| child 委派 | 有限执行者，不是第二条主体 | core | 一致 |
+| seat | 远端编码席的适配与租约 | 插件 | 一致 |
+| 渠道、Playground、额度、hook | 机制或插件，不是认知原子 | core 或插件 | 一致 |
+| 压缩策略 | 窗口投影 | 插件 | 是否服从修订 taste：待决 |
+| 自解释 | 按版本读已安装材料与运行事实 | 插件 | 一致 |
+| taste、类人心智 | 宏包：成员名单。当前没有这个 kind | 宏包；发行在设计上依赖类人心智 | 嵌套关系：待决 |
+| 共同基础认知 | 一则 awareness 材料，须谨慎写 | 宏包中的成员 | 一致。正文尚未撰写 |
+| genesis / `agent_id` | 主体连续性，不随宏包版本改变 | core | 一致 |
 
 ## 实现边界
 
