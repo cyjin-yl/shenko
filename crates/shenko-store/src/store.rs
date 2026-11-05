@@ -342,8 +342,14 @@ impl Store {
     /// Fences the subject head for a handoff/activation cutover: the head
     /// moves to `Handoff` mode with epoch+1 and a durable reason reference,
     /// CAS on `record_revision` and `next_step_id` so a concurrent step
-    /// commit or a second handoff loses the race. Callers resume with
-    /// `resume_subject`.
+    /// commit or a second handoff loses the race. Its unstarted successor
+    /// moves with the head so the retired copy remains readable; historical
+    /// steps and the last subject commit are unchanged.
+    ///
+    /// The head is normally **paused** at the hand-over boundary, so this
+    /// accepts an active or paused controller. An already fenced (`handoff`)
+    /// writer is refused: fencing it again would advance the epoch of a copy
+    /// that has no authority left.
     pub fn fence_head_for_handoff(
         &self,
         head: &SubjectBranchHead,
@@ -356,16 +362,37 @@ impl Store {
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(storage_error)?;
-                let fresh = checked_head(&tx, head)?;
+                let fresh = checked_head_mode(&tx, head, false)?;
+                if !matches!(fresh.mode, SubjectMode::Active | SubjectMode::Paused) {
+                    return Err(ShenkoError::conflict(
+                        "branch head is not a fenceable controller",
+                    ));
+                }
+                let mut step = read_step(&tx, &fresh.branch_id, fresh.next_step_id)?
+                    .ok_or_else(|| ShenkoError::conflict("handoff successor missing"))?;
+                validate_step_binding(&fresh, &step)?;
+                if step.state != SubjectStepState::Planned
+                    || step.active_request_id.is_some()
+                    || step.active_attempt_id.is_some()
+                    || step.input_plan_ref.is_some()
+                {
+                    return Err(ShenkoError::conflict(
+                        "handoff requires an unstarted successor",
+                    ));
+                }
                 let mut fenced = fresh.clone();
                 fenced.mode = SubjectMode::Handoff;
                 fenced.controller_epoch = ControllerEpoch(fresh.controller_epoch.0.checked_add(1)
                     .ok_or_else(|| ShenkoError::conflict("controller epoch exhausted"))?);
                 fenced.mode_reason_ref = Some(reason_ref.clone());
-                fenced.record_revision = RecordRevision(fresh.record_revision.0 + 1);
+                fenced.record_revision = RecordRevision(fresh.record_revision.0.checked_add(1)
+                    .ok_or_else(|| ShenkoError::conflict("subject revision exhausted"))?);
+                let step_revision = step.record_revision;
+                step.controller_epoch = fenced.controller_epoch;
+                step.record_revision = RecordRevision(step_revision.0.checked_add(1)
+                    .ok_or_else(|| ShenkoError::conflict("subject step revision exhausted"))?);
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit_ref = CommitRef::new(self.ledger.ledger_id(), seq);
-                fenced.committed_at = commit_ref;
                 let changed = tx
                     .execute(
                         "UPDATE subject_branch_heads SET mode='handoff', record_revision=?3, data=?4, updated_commit_seq=?5
@@ -384,7 +411,8 @@ impl Store {
                 if changed != 1 {
                     return Err(ShenkoError::conflict("stale branch head for handoff fence"));
                 }
-                self.record_subject_commit(&tx, commit_ref, 1)?;
+                update_step(&tx, &step, step_revision, seq.0)?;
+                self.record_subject_commit(&tx, commit_ref, 2)?;
                 tx.commit().map_err(storage_error)?;
                 Ok(fenced)
             },

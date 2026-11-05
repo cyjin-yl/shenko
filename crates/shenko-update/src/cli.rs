@@ -48,7 +48,9 @@ pub enum UpdateCommand {
         activation: EntityId,
         expected_selector_revision: u64,
     },
-    /// Deterministic recovery read. No model is required.
+    /// Deterministic recovery. No model is required: it completes a committed
+    /// publication, takes back an interrupted hand-over boundary when this
+    /// process owns the installation, and reports what it found.
     Recover,
     /// Readiness check of a candidate slot, run inside the candidate
     /// program itself. Never starts a subject loop.
@@ -75,8 +77,19 @@ pub async fn execute(command: UpdateCommand, service: &UpdateService, agent_id: 
         }
         UpdateCommand::Recover => {
             service.finish_committed_handoff(agent_id)?;
+            // Only the exclusive owner may decide who resumes a boundary; a
+            // live runtime still holding the participants reports `null`
+            // instead of reviving a generation it does not own.
+            let reconciliation = service.reconcile_if_exclusive(agent_id)?;
             let report = service.recover(agent_id)?;
-            Ok(serde_json::to_value(report)?)
+            let mut value = serde_json::to_value(&report)?;
+            if let Some(object) = value.as_object_mut() {
+                object.insert(
+                    "interrupted_handoff".to_string(),
+                    serde_json::to_value(&reconciliation)?,
+                );
+            }
+            Ok(value)
         }
         UpdateCommand::Prepare {
             generation,
