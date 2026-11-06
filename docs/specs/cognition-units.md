@@ -10,7 +10,9 @@ provenance and dependencies have exactly one owner.
 
 Pure text units install no daemon, register no Cordis service and add no
 kernel hook. A unit that ships an executable helper keeps using the existing
-plugin contracts; the awareness path itself stays text.
+plugin contracts. The awareness bytes in this store are still text. That is
+the current harness, not the capability (SPEC §51). The text grants no
+authority and dispatches nothing.
 
 Awareness bodies express observations and principles; they do not contain
 prescribed passing replies or the judge's expected actions. Positive `cues`
