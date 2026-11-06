@@ -23,6 +23,7 @@ pub mod runtime_boundary;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
+pub mod cognitive_root;
 pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };

@@ -49,6 +49,7 @@ pub(super) struct FrozenContextInput {
 }
 
 pub(super) struct PreparedContextInput {
+    pub obligations: Vec<shenko_types::subject::PendingObligation>,
     pub events: Vec<InboxEvent>,
     pub semantic_wait: Option<shenko_types::subject::SemanticWait>,
     pub payload: InferencePayload,
@@ -732,7 +733,8 @@ pub(super) fn prepare_context(
         })?
         .unwrap_or_default();
     let stable_prompt = stable_system_prompt(state);
-    let system_prompt = build_system_prompt(state, &awareness);
+    let obligations = state.store.open_subject_obligations(state.agent_id)?;
+    let system_prompt = build_system_prompt(state, &awareness, &obligations);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.broker.as_ref().map(|broker| broker.binding());
     if state.model_capabilities.as_ref().is_some_and(|caps| Some(&caps.binding) != binding) {
@@ -964,6 +966,7 @@ pub(super) fn prepare_context(
         )));
     }
     Ok(Some(PreparedContextInput {
+        obligations,
         events: recovered, semantic_wait: state.semantic_wait.clone(),
         payload,
         contributions,

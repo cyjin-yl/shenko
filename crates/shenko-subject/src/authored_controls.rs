@@ -8,7 +8,7 @@
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::ids::EntityId;
 use shenko_types::output::{AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, SteerSpec};
-use shenko_types::subject::{AttentionState, Disposition};
+use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};
 
 fn invalid(line: u64, reason: &str) -> ShenkoError {
     ProtocolError::new(
@@ -57,6 +57,19 @@ pub(super) fn parse_obligation(value: &str, line_no: u64) -> Result<ObligationSp
         return Err(invalid(line_no, "obligation description too large"));
     }
     Ok(spec)
+}
+
+/// Explicit terminal change of one obligation shown in this step’s S0.
+pub(super) fn parse_obligation_terminal(
+    value: &str,
+    line_no: u64,
+) -> Result<ObligationTerminalChange, ShenkoError> {
+    let change: ObligationTerminalChange = serde_json::from_str(value)
+        .map_err(|_| invalid(line_no, "obligation:terminal requires target, terminal state and reason JSON"))?;
+    if change.obligation_id == EntityId::nil() || change.reason.trim().is_empty() {
+        return Err(invalid(line_no, "obligation:terminal requires a durable target and nonblank reason"));
+    }
+    Ok(change)
 }
 
 /// `[dialogue] {...}` — an authored turn to a durable task.

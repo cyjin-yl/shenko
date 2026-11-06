@@ -37,6 +37,10 @@ CAS 的文件名不是内容证明。封口遇到已有对象时必须核对大�
 
 草案的 digest 文件名也不是内容证明。新的提交或 armed 恢复观察须有界读取完整 v1 文档，核对冻结提交的 digest、标题、摘要、错误引用、来源与受众，并验证时间格式；异物或损坏保留原样，不写入成功回执。发布使用独占临时文件、文件同步、不替换目标的原子改名及目录同步；并发竞争者只接纳经核验的同一提交。已结算的历史回执不因外部文件后来变化而改写。正常执行、损坏拒绝、并发与断电持久性是不同的验证范围。
 
+未竟义务由原始创建决定持有身份与正文，并以同一完整向量进入后续 S0 和实际模型请求。历史压缩不能消除义务；完整正文仍占用正常上下文预算。主体可用 `[obligation:terminal]` 的 `obligation_id`、`state`（`completed` 或 `cancelled`）和非空 `reason`，经 typed `ObligationTerminalChange` / `PolicyKind::ObligationTerminal` 明确结清本步 S0 中的目标。普通输出或 child 完成不自动改状态。S1 原子保存变更、原始 S0/创建/控制/policy 绑定、`ObligationTerminalReceipt` 与 head；外来、未封口、同一步新建或重复目标拒绝。终态保持单调，迟到旧请求保留拒绝结算而不覆盖原终态；恢复不能从请求或孤立执行标记补造成功。
+
+认知归档 schema 6 要求接收方完整理解义务终态闭包；旧 schema-5 reader 拒绝新归档，缺失或冲突的必需事实在文件、数据库、基线与复制水位发布前拒绝。现代结算严格回放与 schema-3 历史创建投影分别处理。受控证据 `build/obligation-lifecycle-20261105/actual-readers-20261105-112512/receipt.json` 使用分别编译的真实新旧 Store：旧 reader 拒绝实际 schema 6，新 reader 关闭重开、relay 及第二接收方保持一个完全相同的已完成结算。旧归档到新 reader 的来源为空 Store，只证明版本接纳；该证据不证明有内容的旧归档恢复、物理断电、分布式恢复或模型效能。完整合同见 [SPEC §50.4](../../SPEC.md#504-未竟义务的显式结清与复制闭包)。
+
 ## 安装事实只有一个权威
 
 继续使用 `shenko-node` 的安装单元存储，覆盖 perception、awareness、Skill 和 code。不得为了认知单元新建另一套相互漂移的安装 registry。运行时目录是这些安装事实与当前服务发布的投影，不是第二个数据库。

@@ -858,6 +858,7 @@ impl Store {
             commit_ref,
             seq.0,
         )?;
+        let obligation_receipts = self.apply_obligation_changes(&tx, &head, step, &decision, commit_ref)?;
         let mut step = step.clone();
         step.commit_ref = Some(commit_ref);
         let successor = SubjectStep {
@@ -938,6 +939,7 @@ impl Store {
         // The handled wait policy intent carries the exact receipt of this
         // step. It is settled, never left ready and never left blocked.
         self.settle_semantic_wait_intent(&tx, &wait_receipt, seq.0)?;
+        self.settle_obligation_intents(&tx, &obligation_receipts, seq.0)?;
         // INSERT 的全局 step_id 主键使后继身份冲突导致整笔回滚。
         insert_step(&tx, &successor, seq.0)?;
         head.committed_step_no = step.step_no;

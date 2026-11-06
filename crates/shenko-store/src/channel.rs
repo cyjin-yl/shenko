@@ -885,6 +885,14 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                     "UPDATE subject_steps SET data=?2 WHERE step_id=?1",
                     params![step_id, serde_json::to_string(&step)?],
                 )?;
+                // The obligation creation row binds its decision_ref to the
+                // same object. It must follow the step's migration, or a
+                // later provenance check sees a divergent decision_ref and
+                // rejects a legitimate retained obligation.
+                tx.execute(
+                    "UPDATE subject_obligations SET decision_ref=?2 WHERE step_id=?1",
+                    params![step_id, serde_json::to_string(&sealed.object)?],
+                )?;
                 // A frozen child input points at the same decision object. It
                 // must follow, or the child could no longer read its own
                 // decision.
