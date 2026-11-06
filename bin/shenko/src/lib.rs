@@ -3537,6 +3537,7 @@ mod recovery_integration_tests {
     include!("native_ssh_installation_tests.rs");
     include!("ssh_public_identity_tests.rs");
     include!("native_ssh_memory_helper_tests.rs");
+    include!("node_cognition_report_tests.rs");
     use super::*;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
     use shenko_types::{
