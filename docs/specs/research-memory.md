@@ -95,7 +95,11 @@ Ops: `put | list | supersede | tombstone`. Entries have `kind`
 (`requirement|environment_fact|attempt|diagnosis|open_goal`),
 `scope` (an exact free-form string), `confidence`, `source_refs`,
 `supersedes/superseded_by`, `carried_from`, `tombstoned_at_ms`. A tombstone
-keeps the content readable — it only stops injection. On reset, entries whose
+keeps the content readable — it only stops injection. The stored label
+`environment_fact` remains the field name. The current reading
+([SPEC §51.9](../../SPEC.md#519-助手代定用户授权)) is an attitude on research
+content, not a separate kind of fact. The name stays until the
+implementation changes. On reset, entries whose
 kind does not survive reset and tombstoned entries are not carried.
 
 `list` accepts `selection=all|carried|failures` and an optional exact scope
