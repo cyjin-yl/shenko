@@ -20,9 +20,7 @@ pub mod plugin_runtime;
 pub mod store;
 pub mod subject;
 pub mod task;
-pub mod cognition;
 pub mod wasm_state;
-pub mod cognitive_root;
 
 pub use agent::*;
 pub use activation::*;
