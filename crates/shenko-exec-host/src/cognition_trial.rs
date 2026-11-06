@@ -139,9 +139,20 @@ pub struct TrialSample {
     pub scenario: String,
     pub condition: Condition,
     pub trial: usize,
+    /// Whether the attempt actually began. A planned slot whose budget was
+    /// already exhausted before startup stays `false`: it was planned and
+    /// reported, but it never ran, and it is accounted separately from an
+    /// attempt that ran and failed.
+    #[serde(default)]
+    pub started: bool,
+    /// The attempt's own maximum wall-clock window. Every planned slot of a
+    /// comparison gets the same window, so one condition can never consume
+    /// the other's time. `0` means the whole pair budget (older reports).
+    #[serde(default)]
+    pub deadline_ms: u64,
     /// `effective` when the judge found the behaviour the rubric asks for,
     /// `ineffective` when it did not, `failed` when the attempt itself did
-    /// not complete.
+    /// not complete, `unstarted` when the slot never began at all.
     pub verdict: String,
     /// The judge's own words, kept verbatim.
     pub judge_text: String,
@@ -167,9 +178,14 @@ pub struct TrialSample {
 pub struct ConditionTotals {
     /// Planned attempt slots, including failures before startup.
     pub attempted: usize,
+    /// Planned slots that never began because their budget was already
+    /// exhausted. They are part of `attempted` and are never counted as
+    /// scored or failed attempts.
+    #[serde(default)]
+    pub unstarted: usize,
     /// How many attempts produced a judge verdict.
     pub scored: usize,
-    /// How many attempts failed before a verdict existed.
+    /// How many attempts started and failed before a verdict existed.
     pub failed: usize,
     /// How many scored attempts the judge found effective.
     pub effective: usize,
@@ -210,6 +226,10 @@ pub struct TrialReport {
     pub finished_at: String,
     pub trials_per_condition: usize,
     pub deadline_ms: u64,
+    /// The per-sample window the pair budget was divided into, so a report
+    /// states how much time each planned attempt actually had.
+    #[serde(default)]
+    pub sample_deadline_ms: u64,
     pub scenarios: Vec<ScenarioReport>,
     /// The verdict of the whole trial.
     pub verdict: String,
@@ -218,9 +238,53 @@ pub struct TrialReport {
 }
 
 /// The judge verdict on one output.
+#[derive(Debug)]
 enum JudgeVerdict {
     Effective(String),
     Ineffective(String),
+}
+
+/// The two verdict tokens the judge is asked to answer with.
+const EFFECTIVE_TOKEN: &str = "EFFECTIVE";
+const NOT_EFFECTIVE_TOKEN: &str = "NOT_EFFECTIVE";
+const NOT_EFFECTIVE_SPACED_TOKEN: &str = "NOT EFFECTIVE";
+
+/// The first place `needle` occurs in `haystack`, ASCII case-insensitively.
+fn first_token(haystack: &str, needle: &str) -> Option<usize> {
+    haystack.char_indices().map(|(index, _)| index).find(|&index| {
+        haystack[index..].get(..needle.len())
+            .is_some_and(|part| part.eq_ignore_ascii_case(needle))
+    })
+}
+
+/// Read the judge's verdict out of its own words.
+///
+/// The judge is asked for a single line beginning with one of the two
+/// tokens, and real models still wrap it ("判定：EFFECTIVE", "**NOT_EFFECTIVE**").
+/// The first verdict token in the text wins, so a prefix never silently flips
+/// the verdict. A text that states neither token is a judge-protocol failure,
+/// not a negative verdict: scoring it `ineffective` would turn a judge defect
+/// into evidence against the candidate.
+fn judge_verdict(text: &str) -> Result<JudgeVerdict> {
+    let trimmed = text.trim();
+    ensure!(!trimmed.is_empty(), "judge returned an empty verdict");
+    let negative = first_token(trimmed, NOT_EFFECTIVE_TOKEN)
+        .or_else(|| first_token(trimmed, NOT_EFFECTIVE_SPACED_TOKEN));
+    let positive = first_token(trimmed, EFFECTIVE_TOKEN);
+    let ineffective = match (negative, positive) {
+        (Some(negative), Some(positive)) => negative <= positive,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => bail!(
+            "judge verdict stated neither EFFECTIVE nor NOT_EFFECTIVE: {}",
+            trimmed.chars().take(160).collect::<String>()
+        ),
+    };
+    Ok(if ineffective {
+        JudgeVerdict::Ineffective(trimmed.to_string())
+    } else {
+        JudgeVerdict::Effective(trimmed.to_string())
+    })
 }
 
 fn seal_trial_object<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
@@ -287,15 +351,7 @@ async fn judge(
             .map(|failure| format!("; receipt recording failed: {failure}")).unwrap_or_default()))?;
     ensure!(result.status == InferenceStatus::Success, "judge call failed: {:?}", result.status);
     let response = result.response.context("judge succeeded without a response")?;
-    let text = response.content.trim().to_string();
-    if text.is_empty() {
-        bail!("judge returned an empty verdict");
-    }
-    if text.starts_with("EFFECTIVE") {
-        Ok(JudgeVerdict::Effective(text))
-    } else {
-        Ok(JudgeVerdict::Ineffective(text))
-    }
+    judge_verdict(&response.content)
 }
 
 /// A fresh throwaway installation: store, genesis, head and first step.
@@ -597,6 +653,10 @@ fn totals_of(samples: &[TrialSample], condition: Condition) -> ConditionTotals {
             continue;
         }
         totals.attempted += 1;
+        if !sample.started {
+            totals.unstarted += 1;
+            continue;
+        }
         match sample.verdict.as_str() {
             "effective" => {
                 totals.scored += 1;
@@ -624,13 +684,15 @@ fn verdict_of(candidate: &ConditionTotals, control: &ConditionTotals) -> (&'stat
         return (
             "inconclusive",
             format!(
-                "the comparison has no scored attempt on one side (candidate scored {} of {}, control scored {} of {}); failed attempts: candidate {}, control {}",
+                "the comparison has no scored attempt on one side (candidate scored {} of {}, control scored {} of {}); started failures: candidate {}, control {}; unstarted slots: candidate {}, control {}",
                 candidate.scored,
                 candidate.attempted,
                 control.scored,
                 control.attempted,
                 candidate.failed,
-                control.failed
+                control.failed,
+                candidate.unstarted,
+                control.unstarted
             ),
         );
     }
@@ -642,7 +704,7 @@ fn verdict_of(candidate: &ConditionTotals, control: &ConditionTotals) -> (&'stat
     (
         verdict,
         format!(
-            "the candidate was effective in {} of {} scored attempts ({:.3}) against {} of {} ({:.3}) without it; attempted candidate {}, control {}",
+            "the candidate was effective in {} of {} scored attempts ({:.3}) against {} of {} ({:.3}) without it; attempted candidate {}, control {}; started failures: candidate {}, control {}; unstarted slots: candidate {}, control {}",
             candidate.effective,
             candidate.scored,
             candidate.rate_over_scored,
@@ -650,7 +712,11 @@ fn verdict_of(candidate: &ConditionTotals, control: &ConditionTotals) -> (&'stat
             control.scored,
             control.rate_over_scored,
             candidate.attempted,
-            control.attempted
+            control.attempted,
+            candidate.failed,
+            control.failed,
+            candidate.unstarted,
+            control.unstarted
         ),
     )
 }
@@ -677,9 +743,11 @@ fn sanitize(value: &str) -> String {
 
 /// Run the whole comparison.
 ///
-/// The trial is bounded by the caller's budget. When the budget runs out the
-/// report says so and lists what was attempted; nothing is silently
-/// dropped.
+/// The trial is bounded by the caller's budget, divided evenly across the
+/// planned attempts so the candidate and the control are measured under the
+/// same window. When the budget runs out the report says so, distinguishes
+/// attempts that started from slots that never got to start, and lists what
+/// was attempted; nothing is silently dropped.
 pub async fn run_sandbox_trial(
     store: Arc<Store>,
     catalog: Arc<CognitionCatalog>,
@@ -689,6 +757,24 @@ pub async fn run_sandbox_trial(
 ) -> Result<TrialReport> {
     let prepared = prepare_trial(&store, &catalog, spec)?;
     run_prepared_trial(store, broker, sandbox_root, spec, prepared).await
+}
+
+/// The smallest window one planned attempt is given. The pair budget still
+/// caps the sum, so this only matters when a caller asks for more samples
+/// than its budget can fund.
+const MIN_SAMPLE_WINDOW_MS: u64 = 1_000;
+
+/// The window each planned attempt of one comparison gets.
+///
+/// A comparison runs its candidate and its control sequentially under one
+/// pair budget. Handing that whole budget to the first attempt lets a stalled
+/// candidate consume the control's time, so the two conditions are measured
+/// under different budgets and a later attempt may never start at all. Every
+/// planned slot therefore gets the same window; the pair budget remains the
+/// outer bound and unused time is never carried into a longer window.
+fn sample_window(deadline_ms: u64, planned: usize) -> Duration {
+    let slots = u64::try_from(planned.max(1)).unwrap_or(u64::MAX);
+    Duration::from_millis((deadline_ms / slots).max(MIN_SAMPLE_WINDOW_MS))
 }
 
 async fn run_prepared_trial(
@@ -702,6 +788,7 @@ async fn run_prepared_trial(
     let deadline_ms = spec.deadline_ms.clamp(1_000, MAX_TRIAL_DEADLINE_MS);
     let started_at = chrono::Utc::now().to_rfc3339();
     let stop = tokio::time::Instant::now() + Duration::from_millis(deadline_ms);
+    let window = sample_window(deadline_ms, trials * 2);
     std::fs::create_dir_all(&sandbox_root)?;
     let binding = broker.binding().clone();
     let binding_digest = Digest::blake3(&serde_json::to_vec(&binding)?).0;
@@ -714,8 +801,9 @@ async fn run_prepared_trial(
         let mut scenario_samples: Vec<TrialSample> = Vec::new();
         for trial in 0..trials {
             for condition in [Condition::Candidate, Condition::Control] {
+                let sample_stop = (tokio::time::Instant::now() + window).min(stop);
                 scenario_samples.push(run_trial_sample(&store, &broker, &prepared,
-                    &sandbox_root, scenario, condition, trial, stop).await);
+                    &sandbox_root, scenario, condition, trial, sample_stop, window).await);
             }
         }
         let candidate_totals = totals_of(&scenario_samples, Condition::Candidate);
@@ -749,6 +837,7 @@ async fn run_prepared_trial(
         finished_at: chrono::Utc::now().to_rfc3339(),
         trials_per_condition: trials,
         deadline_ms,
+        sample_deadline_ms: u64::try_from(window.as_millis()).unwrap_or(u64::MAX),
         scenarios,
         verdict: verdict.to_string(),
         reason: reason.to_string(),
@@ -776,15 +865,25 @@ async fn run_trial_sample(
     condition: Condition,
     trial: usize,
     stop: tokio::time::Instant,
+    window: Duration,
 ) -> TrialSample {
     let mut sample = TrialSample {
-        scenario: scenario.name.clone(), condition, trial, verdict: "failed".into(),
+        scenario: scenario.name.clone(), condition, trial, started: false,
+        deadline_ms: u64::try_from(window.as_millis()).unwrap_or(u64::MAX),
+        verdict: "failed".into(),
         judge_text: String::new(), failure: None, receipt_digest: None,
         installation_ref: None, judge_receipt: None, output_excerpt: None,
     };
+    // A slot whose window was already over when the previous attempt ended
+    // never runs. It is reported as an unstarted attempt, not counted as a
+    // measurement of either condition.
+    if tokio::time::Instant::now() >= stop {
+        sample.verdict = "unstarted".into();
+        sample.failure = Some("the trial budget was exhausted before this attempt".into());
+        return sample;
+    }
+    sample.started = true;
     let measured: Result<JudgeVerdict> = async {
-        ensure!(tokio::time::Instant::now() < stop,
-            "the trial budget was exhausted before this attempt");
         let root = sandbox_root.join(format!("{}-{trial}-{}-{}",
             sanitize(&scenario.name), condition.as_str(), EntityId::new()));
         let (catalog, installation_ref) = prepare_condition(store, prepared, condition, &root)?;
