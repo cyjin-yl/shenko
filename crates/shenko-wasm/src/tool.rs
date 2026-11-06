@@ -380,14 +380,20 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "git/git",
         license: "GPL-2.0-only",
         compatibility: "W2",
-        required_capabilities: &["wasi-sockets", "no-process-spawn"],
+        required_capabilities: &["cap.network.tcp/1", "cap.process.deny/1"],
         unresolved_reason: Some(
-            "no verified wasm32-wasip1 Git client artifact exists yet; \
-             clone/pull/push need sockets (the wasi-sdk 34 wasip1 sysroot \
-             declares no socket() at all) and the credential helper chain \
-             needs a process spawn (wasip1 has no fork/exec), so a working \
-             private-remote Git needs a WASIX runtime or dedicated host \
-             imports. This target stays open until a real artifact exists",
+            "no verified wasm32-wasip1 Git client artifact exists yet. This \
+             runtime now supplies the missing transport — admitted, \
+             target-bound stream sockets (shenko_wasm::NetworkAdmission; guest \
+             shim in crates/shenko-wasm/ports/wasi-net/) — so clone/pull/push \
+             over http(s) no longer lack sockets. What is still missing is the \
+             port: the wasip1 sysroot has no fork/exec, so the credential \
+             helper chain and the dashed builtin dispatch must run in-module, \
+             and https needs a wasm-built crypto backend. The acquisition and \
+             build recipe, with the upstream pin resolved from the project's \
+             own repository at acquisition time, is \
+             crates/shenko-wasm/ports/git-wasi/. This target stays open until \
+             a real artifact exists",
         ),
     },
     NamedToolTarget {
@@ -396,13 +402,17 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "cli/cli",
         license: "MIT",
         compatibility: "W2",
-        required_capabilities: &["wasi-sockets", "host-http", "no-process-spawn"],
+        required_capabilities: &["cap.network.tcp/1", "cap.network.dns/1", "cap.process.deny/1"],
         unresolved_reason: Some(
-            "no verified artifact exists yet: wasi-gh needs dedicated host \
-             HTTP/exec imports this runtime does not provide (SPEC §8.2 W2), \
-             and a Go GOOS=wasip1 build links without sockets and therefore \
-             cannot talk to an API. This target stays open until a real \
-             artifact exists",
+            "no verified artifact exists yet: cli/cli is Go, and a \
+             GOOS=wasip1 build links without socket support, so its API calls \
+             cannot work as built. The preview1 transport now exists \
+             (crates/shenko-wasm/ports/wasi-net/), so gh needs a wasip1 build \
+             that actually uses admitted sockets, and it still has no \
+             substitute for its browser, keyring, editor and aggregation \
+             helpers. Acquisition and the open port work are described in \
+             crates/shenko-wasm/ports/gh-wasi/. This target stays open until a \
+             real artifact exists",
         ),
     },
     NamedToolTarget {
@@ -411,11 +421,16 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "go-gitea/gitea tea",
         license: "MIT",
         compatibility: "W2",
-        required_capabilities: &["wasi-sockets", "host-http", "no-process-spawn"],
+        required_capabilities: &["cap.network.tcp/1", "cap.network.dns/1", "cap.process.deny/1"],
         unresolved_reason: Some(
-            "no verified Gitea CLI WASM artifact exists yet; like gh it needs \
-             sockets for its API calls, so preview1 alone cannot make it \
-             work. This target stays open until a real artifact exists",
+            "no verified Gitea CLI WASM artifact exists yet: go-gitea/gitea's \
+             tea is Go, and a GOOS=wasip1 build links without sockets, so its \
+             API calls cannot work as built; it needs a wasip1 build over the \
+             admitted preview1 transport \
+             (crates/shenko-wasm/ports/wasi-net/). Acquisition and the open \
+             port work are described in \
+             crates/shenko-wasm/ports/tea-wasi/. This target stays open until \
+             a real artifact exists",
         ),
     },
     NamedToolTarget {
@@ -424,14 +439,18 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "openssh/openssh (WASIX port) / ssh WASM client",
         license: "BSD-3-Clause (OpenSSH)",
         compatibility: "W1",
-        required_capabilities: &["wasi-sockets", "wasi-random", "wasi-clock"],
+        required_capabilities: &["cap.network.tcp/1", "cap.random/1", "cap.clock/1"],
         unresolved_reason: Some(
-            "OpenSSH WASIX ports need a WASIX runtime and socket imports; \
-             wasmtime-45 preview1 provides neither; the host ssh client is not \
-             a WASM SSH (SPEC §8.2/R019). A real SSH client must run the \
-             protocol and authentication inside the module, with the host \
-             only supplying sockets, entropy and clock. No such artifact \
-             exists yet; this target stays open until one does",
+            "no wasm32-wasip1 OpenSSH artifact exists yet. The WASIX ports \
+             need a WASIX-capable engine, and this runtime is wasmtime-45 \
+             preview1 (SPEC §8.2 W1, R019); the host ssh client is not a WASM \
+             SSH. A real SSH client must run the protocol and authentication \
+             inside the module with the host supplying only admitted sockets, \
+             getrandom entropy and clock_time_get — all three exist now — so \
+             what remains is the port itself, not host capability. Acquisition \
+             and the open port work are described in \
+             crates/shenko-wasm/ports/openssh-wasi/. This target stays open \
+             until a real artifact exists",
         ),
     },
 ];

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "tool": "gh",
+  "upstream": "https://github.com/cli/cli",
+  "license": "MIT",
+  "abi": "wasi_preview1",
+  "state": "unported",
+  "requires": ["cap.network.tcp/1"],
+  "pin": null,
+  "pin_tool": "../resolve-pin.sh",
+  "missing": [
+    "net stack over host-preopened descriptors; preview1 has no socket creation",
+    "token source from the tool admission stdin credential or the managed home, no keyring or browser",
+    "explicit refusal for editor, pager, git delegation and extension child processes",
+    "wasip1 TLS provider before any API claim",
+    "measured artifact manifest only after a real build"
+  ],
+  "artifact": null
+}
