@@ -1,0 +1,325 @@
+{
+  "schema_version": 1,
+  "kind": "bounded_formal_model_source_and_action_correspondence",
+  "status": "UNVERIFIED MODEL SOURCE. No TLC run has been executed. Parent must run TLC to verify safety properties. This is source-only handoff.",
+  "artifact": {
+    "directory": "formal/kv-residency-pool",
+    "model": "KvResidencyPool.tla",
+    "configs": [
+      "MC.cfg",
+      "MC-pressure.cfg"
+    ],
+    "worktree": "/tank/shared/projects/shenko/worktrees/deepseek-kv-20261105",
+    "base_commit": "d6eb9fb6e13539a6e2e99b767202129e35ebd928"
+  },
+  "checker": {
+    "tool": "TLC from tla2tools.jar (TLA+ tools). Any recent release works; the model uses only Naturals and FiniteSets.",
+    "commands": [
+      "java -cp tla2tools.jar tlc2.TLC -config MC.cfg -workers auto KvResidencyPool.tla",
+      "java -cp tla2tools.jar tlc2.TLC -config MC-pressure.cfg -workers auto KvResidencyPool.tla"
+    ],
+    "expected_outcomes": {
+      "MC.cfg": "All invariants hold: PoolNeverOverCommits, ReadersPreventRemoval, IdentityInvalidationComplete. No violations expected.",
+      "MC-pressure.cfg": "All invariants hold with 3 contexts competing for 2 units. No violations expected."
+    },
+    "notes": [
+      "The configs use INIT/NEXT, so TLC checks the raw transition system; the module's Spec adds no fairness either. Liveness is not claimed anywhere.",
+      "No CONSTRAINT is used: reader counts are naturally bounded by the number of actions that can increment them (each BeginRead needs a prior Acquire, and Acquire is bounded by Capacity). The released sequence grows unboundedly but is only read for tracing, never constraining.",
+      "Keep the original configs and bounds. Use a fresh run directory and preserve earlier state files, failures and timeouts.",
+      "MaxReaders bounds the per-context reader count, making the state space finite. Production reader counts are bounded by concurrent dispatch but may exceed 2."
+    ]
+  },
+  "bounds": {
+    "Contexts": "the finite set of context IDs. MC.cfg: {c1,c2}, MC-pressure.cfg: {c1,c2,c3}.",
+    "Requests": "the finite set of request IDs used as unknown-read keys. Both configs: {r1,r2}.",
+    "Identities": "the finite set of engine identity tags. Both configs: {id1,id2}.",
+    "Capacity": "the observed pool capacity in units. Both configs: 2.",
+    "reachability_note": "These bounds make the model finite. They are NOT claimed to be the production bounds. Production pools have hundreds to thousands of units, tens of contexts, and arbitrary identity dimensions. The model collapses units to 1-per-context and identity to a single tag.",
+    "reader_bound": "Reader counts are bounded by MaxReaders (BeginRead guard: readers < MaxReaders). This makes the state space finite while allowing TLC to explore multi-reader interleaving.",
+    "MaxReaders": "bound on the number of readers per context. Both configs: 2. In production, bounded by the number of concurrent requests the broker dispatches."
+  },
+  "fairness": {
+    "assumed": "none",
+    "checked_properties": "safety invariants only (state predicates)",
+    "not_claimed": [
+      "that an unknown read is eventually reconciled",
+      "that a ReclaimPending context is eventually freed",
+      "that an identity change eventually happens",
+      "that any operation terminates"
+    ],
+    "reason": "Every production mechanism this model covers (broker reconciliation, provider timeout, capability probe) is timeout-bounded in source; timeouts are unmodelled, so any liveness claim would rest on invented assumptions."
+  },
+  "sources": {
+    "note": "Correspondence is bound to the KV implementation in this worktree. The source files are the R3 frozen base plus the parent's two post-R3 repairs (capability.rs evidence-driven family classification, kv_capability_probe.rs probe key fix).",
+    "worktree": "/tank/shared/projects/shenko/worktrees/deepseek-kv-20261105",
+    "files": {
+      "kv": {
+        "path": "crates/shenko-broker/src/kv.rs",
+        "sha256": "6e4cae6546b265067a807c412c003c15abc181b0b387b5ac58aaab6addccb5b4",
+        "lines": 1154
+      },
+      "capability": {
+        "path": "crates/shenko-broker/src/capability.rs",
+        "sha256": "75c28b680fc99b73142fb105e1321ea31cdccc798c0a5147e230585ae75ef540",
+        "lines": 714
+      },
+      "broker": {
+        "path": "crates/shenko-broker/src/broker.rs",
+        "sha256": "1fb3ed741d5761db1e2b43d656eb7effb69b4eb99e4f66d66190595e3087b264",
+        "lines": 1844
+      },
+      "execution": {
+        "path": "crates/shenko-broker/src/execution.rs",
+        "sha256": "90b6b7a938c38683f500d228a0844ac3a80de0653dfffdbc88b8732f476e124c",
+        "lines": 438
+      },
+      "resource": {
+        "path": "crates/shenko-broker/src/resource.rs",
+        "sha256": "df66870bb2b1438b35ddca53096ce5fcbc6817e168afdb6872984d11a6e19d4f",
+        "lines": 400
+      }
+    }
+  },
+  "actions": [
+    {
+      "tla": "Acquire(c, id)",
+      "source": "KvAllocator::acquire",
+      "file": "kv.rs",
+      "lines": "873-934",
+      "guards": [
+        "the context has no existing lease OR the previous is restored on failure",
+        "occupied_units + incoming <= capacity (when capacity is observed)"
+      ],
+      "note": "The source acquire is richer: it restores the previous lease on capacity refusal, calls reclaim, and runs the policy. The model collapses this to a single admission guard."
+    },
+    {
+      "tla": "ReAcquire(c, id)",
+      "source": "KvAllocator::acquire (re-entry path)",
+      "file": "kv.rs",
+      "lines": "873-934",
+      "guards": [
+        "the lease exists and is Resident"
+      ],
+      "note": "Models the case where acquire updates an existing lease's identity/demand. In source this goes through the same method; in the model it is a separate action because the preconditions differ."
+    },
+    {
+      "tla": "BeginRead(c)",
+      "source": "KvAllocator::begin_read",
+      "file": "kv.rs",
+      "lines": "936-956",
+      "guards": [
+        "the lease is present",
+        "state is Resident, ReclaimPending, or Transferring",
+        "ReclaimPending is revived to Resident"
+      ]
+    },
+    {
+      "tla": "EndReadRemove(c) / EndReadKeep(c)",
+      "source": "KvAllocator::end_read -> drain_reader",
+      "file": "kv.rs",
+      "lines": "958-975, 1004-1022",
+      "guards": [
+        "readers > 0",
+        "if readers = 1 and state in {ReclaimPending, Invalid}: remove lease",
+        "otherwise: decrement readers"
+      ]
+    },
+    {
+      "tla": "HoldUnknownRead(r, c)",
+      "source": "KvAllocator::hold_unknown_read",
+      "file": "kv.rs",
+      "lines": "977-995",
+      "guards": [
+        "the request does not already have a hold",
+        "the context has a lease with readers > 0"
+      ],
+      "note": "The pool never invents occupancy: only a context that already had a reader can be held."
+    },
+    {
+      "tla": "ReleaseUnknownReadRemove(r) / ReleaseUnknownReadKeep(r) / ReleaseUnknownReadGone(r)",
+      "source": "KvAllocator::release_unknown_read -> drain_reader",
+      "file": "kv.rs",
+      "lines": "997-1003",
+      "guards": [
+        "the request has an unknown-read hold",
+        "the hold is removed and drain_reader is called on the context"
+      ]
+    },
+    {
+      "tla": "ReleaseImmediate(c) / ReleaseDeferred(c)",
+      "source": "KvAllocator::release",
+      "file": "kv.rs",
+      "lines": "1024-1048",
+      "guards": [
+        "the lease is present",
+        "no unresolved unknown read for this context",
+        "if readers = 0: remove; if readers > 0: move to ReclaimPending"
+      ]
+    },
+    {
+      "tla": "Reclaim(c)",
+      "source": "KvAllocator::reclaim",
+      "file": "kv.rs",
+      "lines": "1104-1154",
+      "guards": [
+        "occupied_units > capacity",
+        "state = Resident",
+        "readers = 0",
+        "!has_unknown_read(context_id)"
+      ],
+      "note": "Source reclaim iterates by return_probability/priority/recompute_units; the model nondeterministically picks any eligible context."
+    },
+    {
+      "tla": "IdentityChange(newId)",
+      "source": "KvAllocator::adopt_identity -> KvPoolState::invalidate_stale",
+      "file": "kv.rs",
+      "lines": "856-870, 342-365",
+      "guards": [
+        "the new identity differs from the current pool identity",
+        "every lease whose identity does not match becomes Invalid"
+      ],
+      "note": "Source identity is a multi-field record with option-compatible matching; the model collapses to a single tag with equality."
+    }
+  ],
+  "properties": [
+    {
+      "id": "P1",
+      "tla": "PoolNeverOverCommits",
+      "kind": "invariant",
+      "source_guard": "KvAllocator::acquire capacity check (kv.rs:905-916)",
+      "statement": "The occupied units (Resident + Transferring + ReclaimPending) never exceed the observed pool capacity.",
+      "note": "The strongest safety property. Source enforces it at admission; reclaim and release only reduce occupancy."
+    },
+    {
+      "id": "P2",
+      "tla": "(structural in Reclaim action guard)",
+      "kind": "action_guard",
+      "source_guard": "KvAllocator::reclaim eviction filter (kv.rs:1120-1128)",
+      "statement": "A context with an unresolved unknown read is never targeted by reclaim.",
+      "note": "Verified structurally: the Reclaim action's precondition requires ~HasUnknownRead(c)."
+    },
+    {
+      "id": "P3",
+      "tla": "(structural in Release action guard)",
+      "kind": "action_guard",
+      "source_guard": "KvAllocator::release unknown-read check (kv.rs:1030-1033)",
+      "statement": "A context with an unresolved unknown read cannot be released.",
+      "note": "Verified structurally: the ReleaseImmediate/ReleaseDeferred actions' precondition requires ~HasUnknownRead(c)."
+    },
+    {
+      "id": "P4",
+      "tla": "(structural in EndReadRemove/ReleaseImmediate action guards)",
+      "kind": "action_guard",
+      "source_guard": "KvAllocator::release readers check (kv.rs:1038-1042), drain_reader last-reader check (kv.rs:1012-1017)",
+      "statement": "A present lease with readers > 0 is never removed from the pool. Release moves to ReclaimPending; drain_reader removes only at readers = 0.",
+      "note": "Verified structurally: EndReadRemove requires ShouldDrainRemove (readers = 1 and ReclaimPending/Invalid); ReleaseImmediate requires readers = 0. No action sets present = FALSE with readers > 0."
+    },
+    {
+      "id": "P5",
+      "tla": "IdentityInvalidationComplete",
+      "kind": "invariant",
+      "source_guard": "KvPoolState::invalidate_stale (kv.rs:342-365)",
+      "statement": "Any present lease that became stale after an identity change (staleAfter[c] = TRUE) and whose identity does not match the current pool identity is in state Invalid. A lease acquired after the most recent identity change (staleAfter = FALSE) may carry any identity.",
+      "note": "The model tracks staleAfter[c] to distinguish leases created before vs after an identity change. IdentityChange sets staleAfter = TRUE for all present leases; Acquire/ReAcquire resets it to FALSE. This separates the invalidation completeness question from the policy question of whether new acquisitions should match."
+    }
+  ],
+  "abstractions": [
+    {
+      "subject": "context units",
+      "modelled": "Each context occupies exactly 1 unit.",
+      "reality": "Production contexts vary from hundreds to tens of thousands of tokens (units = tokens / block_size). The policy's cost function depends on variable demand.",
+      "justification": "Safety properties (P1, P2, P3, P4, P5) depend only on the occupancy sum relative to capacity, not on the individual sizes. Unit-sized contexts suffice to verify the guards."
+    },
+    {
+      "subject": "identity matching",
+      "modelled": "A single tag per lease and per pool. Match means equal tags.",
+      "reality": "ResidencyIdentity has six optional fields (engine_identity, engine_incarnation, model, tokenizer_fingerprint, template_fingerprint, toolset_digest). matches() returns true when every field known on both sides is equal; an unknown field is not evidence of a change.",
+      "justification": "The model checks that invalidate_stale covers all non-matching leases (P5). The option-compatible partial matching weakens the invalidation guard: if the simple model's guard is safe, the weaker real guard is also safe. The converse direction (false negatives from option matching) is not claimed."
+    },
+    {
+      "subject": "policy / automatic split",
+      "modelled": "Not modelled. The model does not choose which context to acquire or what share to assign; all admissible actions are nondeterministic.",
+      "reality": "AutomaticKvPolicy enumerates candidates, scores them by weighted cost, and applies hysteresis. The share determines each lease's entitled_units/guarantee.",
+      "justification": "Safety properties depend on capacity guards and reader/unknown-read holds, not on the quality of the split. The policy affects which plan is chosen, not whether the plan violates capacity."
+    },
+    {
+      "subject": "affinity gap",
+      "modelled": "Not modelled.",
+      "reality": "A lease whose sealed request named a residency option the backend never demonstrated keeps only an Advisory guarantee (affinity_gap is Some).",
+      "justification": "The affinity gap affects guarantee level, not capacity occupancy or reader holds. No safety property depends on guarantee level."
+    },
+    {
+      "subject": "lease side (Main/Child/External) and share groups",
+      "modelled": "All leases use side Main. Share groups are not modelled.",
+      "reality": "Leases belong to Main, Child, or External sides grouped into Subject and Children share groups.",
+      "justification": "Sides and share groups affect the policy's candidate evaluation. Safety properties (capacity, readers, identity) do not depend on sides."
+    },
+    {
+      "subject": "time and hold window",
+      "modelled": "Not modelled.",
+      "reality": "AutomaticKvPolicy::stabilise uses a min_hold_ms window and hysteresis_ratio to avoid oscillation.",
+      "justification": "The hold window is a quality concern. It cannot violate capacity (stabilise only chooses among candidates already admitted by the capacity guard)."
+    },
+    {
+      "subject": "return probability and priority ordering in reclaim",
+      "modelled": "Reclaim nondeterministically picks any eligible context.",
+      "reality": "reclaim() picks the context with the lowest return_probability, then lowest priority, then lowest recompute_units.",
+      "justification": "The ordering affects which context is evicted, not whether the eviction guard is correct. P1 holds regardless of the eviction order."
+    }
+  ],
+  "unproved": [
+    {
+      "id": "U1",
+      "statement": "Option-compatible identity matching (unknown field = no evidence of change) does not produce false-positive residency claims.",
+      "reason": "The model uses strict equality for identity tags. The weaker option-compatible matching in source could admit a context as resident when the engine changed but the old identity had an unknown field. This direction is not modelled."
+    },
+    {
+      "id": "U2",
+      "statement": "Release ordering is fair or meaningful.",
+      "reason": "The model does not track release ordering. In source, release order depends on request reconciliation timing."
+    },
+    {
+      "id": "U3",
+      "statement": "The MaxReaders bound is sufficient to expose all safety-relevant interleavings.",
+      "reason": "MaxReaders = 2 allows one reader per concurrent request. In production, the reader count is bounded by concurrent dispatch. The model does not claim 2 is sufficient for all production workloads, only that the safety guards are exercised."
+    },
+    {
+      "id": "U4",
+      "statement": "Liveness: every unknown read is eventually reconciled; every ReclaimPending lease is eventually freed.",
+      "reason": "No fairness is assumed. Production relies on broker timeouts and reconciliation deadlines."
+    },
+    {
+      "id": "U5",
+      "statement": "The Transferring state transition is complete.",
+      "reason": "The model includes Transferring in OccupiedStates and allows BeginRead on it, but no action moves a lease to Transferring. In source, transfer is part of the cross-pool movement path which is not modelled."
+    },
+    {
+      "id": "U6",
+      "statement": "Affinity gap downgrades are correct.",
+      "reason": "The model omits the affinity gap. In source, a lease with an affinity gap keeps only Advisory guarantee regardless of the policy's plan."
+    },
+    {
+      "id": "U7",
+      "statement": "The automatic policy's cost function produces a Pareto-optimal split.",
+      "reason": "The model collapses the policy entirely. Cost evaluation, candidate enumeration, and hysteresis are quality concerns, not safety."
+    }
+  ],
+  "import_boundary": {
+    "not_modelled": [
+      "Cross-pool transfer (Transferring state transitions)",
+      "Multiple physical domains / resource domains",
+      "Pause/spill/fork operations (KvCapabilities.supports_pause/spill/fork)",
+      "Hard retention vs advisory distinction",
+      "Per-provider broker connection lifecycle",
+      "Request dispatch and execution lifecycle (only the read hold portion is modelled)",
+      "Cognition atoms (content/attitude) \u2014 these are mechanism records, not pool state",
+      "Store commit/head/selector (covered by the C21 model separately)"
+    ],
+    "relied_upon": [
+      "The OS provides mutual exclusion for concurrent access to the pool state (the pool is behind &mut self in source)",
+      "The broker calls release_unknown_read exactly once per hold_unknown_read when terminal evidence arrives",
+      "The broker calls end_read exactly once per begin_read when the request completes",
+      "Pool capacity is correctly observed from backend metrics (capability probe)"
+    ]
+  }
+}

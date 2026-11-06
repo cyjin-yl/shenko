@@ -246,25 +246,69 @@ pub const NATIVE_ONE_CAT_RESET_PREFIX_CACHE: &str = "1cat.reset_prefix_cache";
 /// An operation counts as available only when the backend itself named it in
 /// the probe evidence. Naming a native namespace in a profile is not evidence:
 /// an OpenAI-compatible endpoint that happens to be labelled `native.vllm`
-/// grants no vLLM guarantee.
+/// grants no vLLM guarantee. No classification here can produce a reservation:
+/// a probe shows that a deployment exposed an operation, never that a request
+/// reserved a resource, so the guarantee stays best effort.
 pub fn classify_operations(
     family: &BackendFamily,
     evidence: &[serde_json::Value],
-    hard_retention: bool,
 ) -> Vec<OperationDeclaration> {
+    // The declared profile family is not the only source of candidates: a
+    // backend that speaks an OpenAI-compatible surface can still be a vLLM
+    // engine underneath, and its own metrics prove which family it is. Only
+    // verbatim evidence adds candidates — the profile name never does.
+    let mut families = vec![family.clone()];
+    for document in evidence {
+        for line in probe_body_lines(document) {
+            let Some((metric, _)) = metric_line(line.trim()) else {
+                continue;
+            };
+            let evidenced = if metric.starts_with("vllm:") {
+                BackendFamily::Vllm
+            } else {
+                continue;
+            };
+            if !families.contains(&evidenced) {
+                families.push(evidenced);
+            }
+        }
+    }
     let mut operations = Vec::new();
-    for (name, namespace) in candidate_operations(family) {
-        let declared = evidence
+    for (name, namespace) in families
+        .iter()
+        .flat_map(|family| candidate_operations(family))
+    {
+        // A backend may demonstrate an operation by naming it, or by a literal
+        // field of the family it reported (for example the engine's cache
+        // configuration saying prefix caching is enabled). Both are evidence
+        // that the deployment exposed the operation; neither is evidence that a
+        // particular request took effect.
+        let labelled = evidence.iter().find_map(|document| {
+            document_enables_operation(document, name)
+        });
+        let named = evidence
             .iter()
             .any(|document| document_names_operation(document, name));
-        let mut operation = if declared {
+        // A figure read from the engine's own configuration is an engine-level
+        // fact (the deployment enabled it), not a per-request control. The
+        // guarantee stays best effort either way: an enabled cache is not a
+        // reservation, and no probe shows one request took effect.
+        let operation = if named || labelled.is_some() {
             OperationDeclaration {
                 name: name.to_string(),
                 availability: OperationAvailability::Available,
-                scope: OperationScope::Request,
+                scope: if labelled.is_some() {
+                    OperationScope::Engine
+                } else {
+                    OperationScope::Request
+                },
                 guarantee: Guarantee::BestEffort,
                 native_namespace: (!namespace.is_empty()).then(|| namespace.to_string()),
-                evidence: Some("backend named this operation in its probe response".into()),
+                evidence: Some(
+                    labelled.unwrap_or_else(|| {
+                        "backend named this operation in its probe response".into()
+                    }),
+                ),
                 reason: None,
             }
         } else {
@@ -282,15 +326,6 @@ pub fn classify_operations(
                 ),
             }
         };
-        if hard_retention
-            && matches!(
-                operation.name.as_str(),
-                NATIVE_VLLM_PREFIX_CACHING | NATIVE_STRATA_CONVERSATION_PARKING | NATIVE_NINFER_PREFIX_REUSE
-            )
-        {
-            operation.scope = OperationScope::Engine;
-            operation.guarantee = Guarantee::Reserved;
-        }
         operations.push(operation);
     }
     operations
@@ -314,5 +349,366 @@ fn document_names_operation(document: &serde_json::Value, name: &str) -> bool {
             })
         }
         _ => false,
+    }
+}
+
+/// The verbatim samples one non-JSON probe body retained. The probe keeps them
+/// exactly as the endpoint sent them, because they are the evidence a derived
+/// figure or classification is read from.
+fn probe_body_lines(document: &serde_json::Value) -> Vec<&str> {
+    document
+        .get(PROBE_BODY_KEY)
+        .and_then(|body| body.get("retained_lines"))
+        .and_then(|lines| lines.as_array())
+        .map(|lines| lines.iter().filter_map(|line| line.as_str()).collect())
+        .unwrap_or_default()
+}
+
+/// Whether a probe document shows one operation enabled through a literal
+/// backend field, with the exact line it was read from.
+///
+/// This is the deployment-enabled rung of the evidence ladder, not proof that a
+/// request took effect. Only documented fields of the metric's own family are
+/// read; anything else leaves the operation `Unknown`.
+fn document_enables_operation(document: &serde_json::Value, name: &str) -> Option<String> {
+    for line in probe_body_lines(document) {
+        let line = line.trim();
+        let Some((metric, labels)) = metric_line(line) else { continue };
+        let label = |key: &str| {
+            labels
+                .iter()
+                .find(|(label, _)| *label == key)
+                .map(|(_, value)| *value)
+        };
+        let enabled = match (metric, name) {
+            // The engine's effective cache configuration, not a request field.
+            (KV_CACHE_CONFIG_METRIC, NATIVE_VLLM_PREFIX_CACHING) => {
+                label("enable_prefix_caching").is_some_and(|value| value.eq_ignore_ascii_case("true"))
+            }
+            _ => false,
+        };
+        if enabled {
+            return Some(format!("{line} => the engine reports this operation enabled"));
+        }
+    }
+    None
+}
+
+/// A non-JSON probe body, kept with the endpoint it came from so that a figure
+/// derived from it stays auditable.
+pub const PROBE_BODY_KEY: &str = "probe_body";
+
+/// The vLLM-family cache configuration metric. Its labels carry the engine's KV
+/// block geometry; the sample value itself is not used.
+pub const KV_CACHE_CONFIG_METRIC: &str = "vllm:cache_config_info";
+
+/// The metrics lines one snapshot retains. A Prometheus surface is unbounded,
+/// so only the samples that can establish a residency pool figure are kept —
+/// verbatim, because they are the evidence the figure came from.
+pub const KV_METRICS: &[&str] = &[KV_CACHE_CONFIG_METRIC];
+
+/// One residency-affecting native option of the sealed wire, and the operation
+/// the backend has to have demonstrated for that option to mean anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResidencyWireOption {
+    /// The sealed `native_options` key.
+    pub option: &'static str,
+    /// The capability operation that backs it.
+    pub operation: &'static str,
+}
+
+/// The sealed native options that ask a backend to keep, isolate or move a
+/// context (SPEC §13.6, §13.7).
+///
+/// Naming one is a residency request. A backend that accepted the field and
+/// ignored it has not demonstrated the operation, so a lease must never become
+/// a residency claim just because a payload named the option.
+pub const RESIDENCY_WIRE_OPTIONS: &[ResidencyWireOption] = &[
+    ResidencyWireOption {
+        option: "cache_salt",
+        operation: NATIVE_VLLM_CACHE_SALT,
+    },
+    ResidencyWireOption {
+        option: "prompt_cache_key",
+        operation: NATIVE_NINFER_PROMPT_CACHE_KEY,
+    },
+    ResidencyWireOption {
+        option: "kv_transfer_params",
+        operation: NATIVE_VLLM_KV_TRANSFER_PARAMS,
+    },
+];
+
+/// Whether one native option is a residency request at all. Other native
+/// options are passed through untouched and carry no residency meaning.
+pub fn is_residency_option(option: &str) -> bool {
+    RESIDENCY_WIRE_OPTIONS
+        .iter()
+        .any(|entry| entry.option == option)
+}
+
+/// One KV pool figure a backend reported in its own probe response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObservedKvCapacity {
+    /// Engine-declared KV pool size in tokens.
+    pub tokens: u64,
+    /// How the figure was obtained. An engine-declared pool configuration is
+    /// `Configured`; it is never promoted to a measurement of live occupancy.
+    pub provenance: CapacityProvenance,
+    /// The exact document and labels the figure came from.
+    pub evidence: String,
+}
+
+impl ObservedKvCapacity {
+    /// The context-residency capacity entry for one capability snapshot.
+    pub fn entry(&self) -> CapacityEntry {
+        CapacityEntry {
+            pool: CapacityPool::ContextKv,
+            unit: CapacityUnit::Tokens,
+            value: Some(self.tokens),
+            provenance: self.provenance,
+        }
+    }
+}
+
+/// Discover the context-residency pool from what the backend reported itself.
+///
+/// Three boundaries decide what may be read (SPEC §13.3, §13.7.3):
+///
+/// - A model's advertised context window (`max_model_len`, `context_length`,
+///   `max_input_tokens`) is the per-request ceiling. It is never used as a
+///   residency pool: one sequence window cannot keep several contexts resident.
+/// - Only engine pool figures count: the vLLM-family cache configuration
+///   (KV blocks x block size), SGLang's `max_total_num_tokens`, or llama.cpp's
+///   `total_slots` x per-slot context.
+/// - A backend that reported no recognised document leaves the pool unknown.
+///   Nothing is estimated, and unknown is never turned into zero.
+///
+/// The built-in probes feed the Prometheus surface every adapted family
+/// exposes. The JSON shapes are the same reader for an adapter that reads its
+/// engine's documented status endpoint: it calls this with its own verbatim
+/// evidence, so a figure always carries the document it came from. This
+/// function never contacts an endpoint itself.
+pub fn discover_kv_capacity(
+    family: &BackendFamily,
+    evidence: &[serde_json::Value],
+) -> Option<ObservedKvCapacity> {
+    if matches!(family, BackendFamily::Anthropic) {
+        // The Messages surface reports usage, not an engine KV pool. No probe
+        // response can establish residency capacity for it.
+        return None;
+    }
+    for document in evidence {
+        if let Some(figure) = prometheus_kv_figure(document) {
+            return Some(figure);
+        }
+        if let Some(figure) = json_kv_figure(document) {
+            return Some(figure);
+        }
+    }
+    None
+}
+
+/// Read one Prometheus metrics document for a KV pool figure.
+fn prometheus_kv_figure(document: &serde_json::Value) -> Option<ObservedKvCapacity> {
+    for line in probe_body_lines(document) {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((name, labels)) = metric_line(line) else { continue };
+        if name != KV_CACHE_CONFIG_METRIC {
+            continue;
+        }
+        let lookup = |key: &str| {
+            labels
+                .iter()
+                .find(|(label, _)| *label == key)
+                .map(|(_, value)| *value)
+        };
+        let blocks = lookup("num_gpu_blocks").and_then(|value| value.parse::<u64>().ok());
+        let block_size = lookup("block_size").and_then(|value| value.parse::<u64>().ok());
+        let (Some(blocks), Some(block_size)) = (blocks, block_size) else { continue };
+        let Some(tokens) = blocks.checked_mul(block_size) else { continue };
+        if tokens == 0 {
+            continue;
+        }
+        return Some(ObservedKvCapacity {
+            tokens,
+            provenance: CapacityProvenance::Configured,
+            // The whole sample line is kept verbatim: the other labels matter
+            // for interpretation (cache dtype, prefix caching, hybrid mamba
+            // groups) and a summary would hide them. The figure is the
+            // configured block geometry of the attention KV cache group, not a
+            // free-headroom measurement and not a sum across cache groups.
+            evidence: format!("{line} => {tokens} configured attention KV token slots"),
+        });
+    }
+    None
+}
+
+/// Split one Prometheus sample line into its metric name and labels.
+///
+/// A line that does not parse is skipped: a partially understood metrics
+/// document leaves the pool unknown rather than guessed.
+fn metric_line(line: &str) -> Option<(&str, Vec<(&str, &str)>)> {
+    let (name, rest) = match line.find('{') {
+        Some(index) => (&line[..index], Some(&line[index + 1..])),
+        None => {
+            let end = line.find(char::is_whitespace).unwrap_or(line.len());
+            (&line[..end], None)
+        }
+    };
+    if name.is_empty() {
+        return None;
+    }
+    let mut labels = Vec::new();
+    if let Some(rest) = rest {
+        let close = rest.find('}')?;
+        labels = split_labels(&rest[..close])?;
+    }
+    Some((name, labels))
+}
+
+/// Split a Prometheus label set into its key/value pairs.
+///
+/// Values are quoted and may contain commas, so a naive split on `,` would
+/// misread a real cache configuration line. A set that does not parse returns
+/// `None`, which leaves the derived figure unknown rather than guessed.
+fn split_labels(text: &str) -> Option<Vec<(&str, &str)>> {
+    let mut labels = Vec::new();
+    let mut rest = text.trim_start();
+    while !rest.is_empty() {
+        let (key, tail) = rest.split_once('=')?;
+        let key = key.trim();
+        let tail = tail.trim_start();
+        let mut chars = tail.char_indices();
+        if chars.next().map(|(_, character)| character) != Some('"') {
+            return None;
+        }
+        let mut escaped = false;
+        let mut close = None;
+        for (index, character) in chars {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match character {
+                '\\' => escaped = true,
+                '"' => {
+                    close = Some(index);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        let close = close?;
+        labels.push((key, &tail[1..close]));
+        rest = tail[close + 1..].trim_start();
+        rest = match rest.strip_prefix(',') {
+            Some(rest) => rest.trim_start(),
+            None => break,
+        };
+    }
+    Some(labels)
+}
+
+/// Read one JSON probe document for an engine pool figure.
+fn json_kv_figure(document: &serde_json::Value) -> Option<ObservedKvCapacity> {
+    // SGLang server info: the engine's own maximum total token pool.
+    if let Some(tokens) = document
+        .get("max_total_num_tokens")
+        .and_then(|value| value.as_u64())
+        .filter(|tokens| *tokens > 0)
+    {
+        return Some(ObservedKvCapacity {
+            tokens,
+            provenance: CapacityProvenance::Configured,
+            evidence: format!("max_total_num_tokens={tokens}"),
+        });
+    }
+    // llama.cpp /props: each slot keeps its own KV cache, so the pool bound is
+    // the slot count times the per-slot context.
+    let slots = document
+        .get("total_slots")
+        .and_then(|value| value.as_u64())
+        .filter(|slots| *slots > 0);
+    let per_slot = document
+        .get("n_ctx_per_seq")
+        .and_then(|value| value.as_u64())
+        .or_else(|| {
+            document
+                .get("default_generation_settings")
+                .and_then(|settings| settings.get("n_ctx"))
+                .and_then(|value| value.as_u64())
+        })
+        .filter(|context| *context > 0);
+    if let (Some(slots), Some(per_slot)) = (slots, per_slot) {
+        let tokens = slots.checked_mul(per_slot)?;
+        if tokens > 0 {
+            return Some(ObservedKvCapacity {
+                tokens,
+                provenance: CapacityProvenance::Configured,
+                evidence: format!("total_slots={slots} n_ctx_per_seq={per_slot} => {tokens} KV tokens"),
+            });
+        }
+    }
+    None
+}
+
+/// Read one backend metrics surface as probe evidence.
+///
+/// This is an idempotent read of a diagnostic endpoint, not a generation, and
+/// it is never retried: a backend without the surface (or with a failing one)
+/// simply contributes an explicit `probe_error`, which leaves the pool unknown.
+///
+/// A Prometheus surface is unbounded, so one snapshot keeps only the samples a
+/// residency figure can be derived from — verbatim, because they are the
+/// evidence — together with the total line count so a reader can see that the
+/// body was filtered rather than truncated.
+pub(crate) async fn metrics_evidence(
+    client: &reqwest::Client,
+    base_url: &str,
+    authorize: impl Fn(reqwest::RequestBuilder) -> reqwest::RequestBuilder,
+) -> serde_json::Value {
+    let path = "/metrics";
+    let url = format!("{}{path}", base_url.trim_end_matches('/'));
+    match authorize(client.get(url)).send().await {
+        Ok(response) if response.status().is_success() => {
+            let content_type = response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            match response.text().await {
+                Ok(text) => {
+                    let total_lines = text.lines().count() as u64;
+                    let retained_lines: Vec<&str> = text
+                        .lines()
+                        .filter(|line| {
+                            metric_line(line.trim())
+                                .is_some_and(|(name, _)| KV_METRICS.contains(&name))
+                        })
+                        .collect();
+                    serde_json::json!({
+                        PROBE_BODY_KEY: {
+                            "path": path,
+                            "content_type": content_type,
+                            "total_lines": total_lines,
+                            "retained_lines": retained_lines,
+                        },
+                    })
+                }
+                Err(error) => serde_json::json!({
+                    PROBE_BODY_KEY: { "path": path, "probe_error": error.to_string() },
+                }),
+            }
+        }
+        Ok(response) => serde_json::json!({
+            PROBE_BODY_KEY: { "path": path, "probe_error": format!("HTTP {}", response.status()) },
+        }),
+        Err(error) => serde_json::json!({
+            PROBE_BODY_KEY: { "path": path, "probe_error": error.to_string() },
+        }),
     }
 }
