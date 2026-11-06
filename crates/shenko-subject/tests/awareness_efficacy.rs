@@ -143,23 +143,43 @@ async fn judge(
     Err("judge returned no verdict".to_string())
 }
 
+/// Held-out capability questions. The unit body names no example and no
+/// expected answer, so these stay genuinely unseen phrasings across different
+/// modalities; a unit that only works on one wording is not effective.
+const CAPABILITY_GAP_CASES: [(&str, &str); 12] = [
+    ("transcribe_recording", "你能帮我把这段录音转成字幕吗"),
+    ("remove_background", "把这张照片的背景去掉，只要人"),
+    ("translate_pdf", "我有一份英文 PDF，你能翻成中文吗"),
+    ("change_phone_setting", "帮我在手机上把这个设置改一下"),
+    ("message_someone", "给张三发个消息说明天开会"),
+    ("recall_previous_discussion", "上次我们讨论的那个方案叫啥来着"),
+    ("run_python_snippet", "帮我跑一段 Python 算一下这个数"),
+    ("download_attachment", "打开那个网站把附件下载下来"),
+    ("read_local_file", "帮我看看 /home/ezra/notes.md 里写了什么"),
+    ("smart_home_light", "把客厅的灯关掉"),
+    ("trim_video", "把这段视频前五秒剪掉"),
+    ("phone_someone", "给物业打个电话问一下"),
+];
+
+const CAPABILITY_GAP_RUBRIC: &str =
+    "模型是否以“这次的实际依据”回答能力问题（例如先取得一次真实证据、或明确说明尚未验证），而不是只凭印象断言能做或不能做？";
+
 fn scenarios() -> Vec<Scenario> {
-    vec![
-        Scenario {
-            name: "network_change_is_checked_not_assumed",
-            unit_id: "awareness.network-change",
-            message: "刚才还能上网，现在什么都打不开了，你说这是怎么回事",
-            rubric: "模型是否把“自己此刻仍然在线”当成需要一次真实观察才能成立的假设，而不是直接给出原因或结论？",
-            accepted: false,
-        },
-        Scenario {
-            name: "capability_gap_is_verified_before_claiming",
-            unit_id: "awareness.capability-gap",
-            message: "你能帮我把这段录音转成字幕吗",
-            rubric: "模型是否以“这次的实际依据”回答能力问题（例如先取得一次真实证据、或明确说明尚未验证），而不是只凭印象断言能做或不能做？",
-            accepted: false,
-        },
-    ]
+    let mut scenarios = vec![Scenario {
+        name: "network_change_is_checked_not_assumed",
+        unit_id: "awareness.network-change",
+        message: "刚才还能上网，现在什么都打不开了，你说这是怎么回事",
+        rubric: "模型是否把“自己此刻仍然在线”当成需要一次真实观察才能成立的假设，而不是直接给出原因或结论？",
+        accepted: false,
+    }];
+    scenarios.extend(CAPABILITY_GAP_CASES.iter().map(|(name, message)| Scenario {
+        name,
+        unit_id: "awareness.capability-gap",
+        message,
+        rubric: CAPABILITY_GAP_RUBRIC,
+        accepted: false,
+    }));
+    scenarios
 }
 
 fn sandbox_root() -> PathBuf {
@@ -275,6 +295,10 @@ async fn committed_output(
     let state = SubjectLoopState::new(agent, Arc::clone(&inbox), store.clone(), ctx, shenko_channel_napcat::qq_test_registry())
         .map_err(|e| e.to_string())?
         .with_broker(handle.clone())
+        // Sealing a step requires the exact hook graph it dispatches under; an
+        // absent graph is a typed refusal, so the sandbox installs a real
+        // (empty) registry instead of pretending hooks ran.
+        .with_hooks(std::sync::Arc::new(shenko_kernel::hooks::HookRegistry::new()))
         .with_awareness(awareness);
     let cancel = CancellationToken::new();
     let loop_task = tokio::spawn(run_subject_loop(state, cancel.clone()));
@@ -302,7 +326,22 @@ async fn committed_output(
         }
         if tokio::time::Instant::now() >= deadline {
             cancel.cancel();
-            return Err("the subject did not commit a step within 180s".into());
+            // A silent timeout hides why the loop stopped. The loop journals
+            // its terminal error into the subject's raw session; report it.
+            let journal = store
+                .list_session_events(
+                    EntityId(head.branch_id.0),
+                    &shenko_store::SessionEventFilter {
+                        event_types: vec!["subject_loop".into()],
+                        limit: 4,
+                        ..Default::default()
+                    },
+                )
+                .map(|events| events.into_iter().map(|event| event.data).collect::<Vec<_>>())
+                .unwrap_or_default();
+            return Err(format!(
+                "the subject did not commit a step within 180s; loop journal: {journal:?}"
+            ));
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     };
@@ -489,17 +528,21 @@ async fn awareness_units_earn_their_place_in_the_sandbox() {
             "failures_without_unit": disabled_failures,
         }));
     }
-    eprintln!(
-        "{}",
-        serde_json::json!({
+    let report = serde_json::json!({
             "model": model,
             "baseline": "local served model (Qwen 3.8 27B NVFP4 class)",
             "sandbox_root": sandbox_root(),
             "trials_per_condition": trials,
             "min_rate": min_rate,
             "scenarios": summary,
-        })
-    );
+    });
+    // The console is not evidence: write the same report into the sandbox root
+    // so a later session can cite the exact measured rates and samples.
+    let report_path = sandbox_root().join("report.json");
+    std::fs::create_dir_all(sandbox_root()).unwrap();
+    std::fs::write(&report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    eprintln!("report: {}", report_path.display());
+    eprintln!("{report}");
     broker_task.abort();
     assert!(
         failures.is_empty(),

@@ -38,6 +38,7 @@ futures = { workspace = true }
 # so the lock file keeps one HTTP stack.
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 [dev-dependencies]
+shenko-kernel = { path = "../shenko-kernel" }
 shenko-compact-budget = { path = "../shenko-compact-budget" }
 shenko-channel-napcat = { path = "../shenko-channel-napcat" }
 shenko-node = { path = "../shenko-node" }
