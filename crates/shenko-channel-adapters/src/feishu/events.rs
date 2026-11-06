@@ -204,6 +204,18 @@ fn parse_content(
                         host: Some("feishu-drive".to_string()),
                         path: Some(file_key),
                         url: None,
+                        // A drive object is addressed by the message it came
+                        // with, not by an URL: the resource endpoint takes the
+                        // message id and the resource kind. Both are the
+                        // platform's own facts, so they travel with the
+                        // locator instead of being guessed at resolution time.
+                        params: Some(serde_json::json!({
+                            "message_id": message_id,
+                            // The resource endpoint accepts exactly two kinds:
+                            // an image is served as `image`, every other
+                            // message resource as `file`.
+                            "resource_type": if message_type == "image" { "image" } else { "file" },
+                        })),
                     },
                     object: None,
                     expires_at: None,

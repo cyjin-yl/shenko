@@ -84,6 +84,14 @@ pub enum Command {
         /// one plugin personality. Requires --napcat-account.
         #[arg(long, env = "NAPCAT_CLI_URL", requires = "napcat_account")]
         napcat_cli_url: Option<String>,
+        /// JSON file naming the additional channel connectors this runtime
+        /// installs: official QQ (`qq_official`), WeChat iLink (`ilink`) and
+        /// Feishu/Lark (`feishu`). A platform absent from the file is not
+        /// registered, not advertised in the reply grammar and never
+        /// contacted. Credentials come from the file's own fields and never
+        /// appear in logs, facts or receipts.
+        #[arg(long, env = "SHENKO_CHANNELS_CONFIG")]
+        channels_config: Option<PathBuf>,
         /// Explicit native SSH target installation; no ambient identity discovery.
         #[arg(long)]
         ssh_targets: Option<PathBuf>,
@@ -1384,6 +1392,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             napcat_file_root,
             napcat_file_host,
             napcat_cli_url,
+            channels_config,
             ssh_targets,
         } => {
             if napcat.is_some() {
@@ -1971,17 +1980,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 );
 
                 // The QQ plugin owns classification, reply resolution,
-                // description and dispatch; the Store owns the durable intent,
-                // attempt and receipt. Binding the Store also installs the
-                // host file capability: inbound attachment locators resolve
-                // inside the configured NapCat-host media root and are sealed
-                // by content digest.
+                // description, dispatch and attachment resolution; the Store
+                // owns the durable intent, attempt, receipt and the sealing of
+                // resolved attachment bytes. The plugin never holds a Store.
                 let qq_plugin: Arc<shenko_channel_napcat::NapCatChannel> = Arc::new(
                     shenko_channel_napcat::NapCatChannel::new(
                         napcat_config.clone(),
                         Arc::clone(&client),
-                    )
-                    .with_store(Arc::clone(&store)),
+                    ),
                 );
                 channel_registry.register(qq_plugin.clone()).context("register qq channel plugin")?;
                 // Administration is an owner-set fact, recorded at startup and
@@ -2007,6 +2013,60 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         "cli_source_configured": napcat_cli_url.is_some(),
                     }),
                 })?;
+
+                // Connectivity is an observation, not a message: lifecycle and
+                // heartbeat frames land in the spool's bounded meta ledger, and
+                // a new frame is mirrored as a subject-readable fact. Staleness
+                // stays visible because the fact carries the observation time.
+                let connectivity_spool = Arc::clone(&spool);
+                let connectivity_store = Arc::clone(&store);
+                let connectivity_account = napcat_config.account_scope();
+                let connectivity_cancel = cancel_napcat.clone();
+                tokio::spawn(async move {
+                    let mut last: Option<(String, Option<String>)> = None;
+                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                    loop {
+                        tokio::select! { biased;
+                            _ = connectivity_cancel.cancelled() => break,
+                            _ = tick.tick() => {}
+                        }
+                        let meta = match connectivity_spool.last_meta() {
+                            Ok(Some(meta)) => meta,
+                            Ok(None) => continue,
+                            Err(error) => {
+                                tracing::warn!(err=%error, "NapCat connectivity observation unreadable");
+                                break;
+                            }
+                        };
+                        let signature = (meta.meta_event_type.clone(), meta.sub_type.clone());
+                        if last.as_ref() == Some(&signature) {
+                            continue;
+                        }
+                        last = Some(signature);
+                        let state = match (meta.meta_event_type.as_str(), meta.sub_type.as_deref()) {
+                            ("lifecycle", Some("enable" | "connect")) => "ready",
+                            ("lifecycle", Some("disable")) => "stopped",
+                            ("heartbeat", _) => "ready",
+                            _ => "observed",
+                        };
+                        if let Err(error) = connectivity_store.record_channel_fact(
+                            &shenko_store::channel::NewChannelFact {
+                                channel: shenko_channel_napcat::QQ_CHANNEL_ID.to_string(),
+                                account: connectivity_account.clone(),
+                                kind: "connectivity".to_string(),
+                                state: state.to_string(),
+                                subject_ref: None,
+                                detail: serde_json::json!({
+                                    "meta_event_type": meta.meta_event_type,
+                                    "sub_type": meta.sub_type,
+                                    "observed_at": meta.observed_at,
+                                }),
+                            },
+                        ) {
+                            tracing::warn!(err=%error, "NapCat connectivity fact not recorded");
+                        }
+                    }
+                });
 
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
@@ -2109,40 +2169,23 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 shenko_channel_napcat::QQ_SOURCE,
                                 &inbox_ev.payload,
                             ) {
-                                // Resolve attachment locators on the NapCat
-                                // host through the file capability: bytes are
-                                // sealed into the store and reachable by
-                                // digest. A locator that cannot be resolved
-                                // stays a locator and is recorded as a
-                                // subject-readable gap; the message itself
-                                // is never dropped.
-                                for index in 0..envelope.attachments.len() {
-                                    let attachment = envelope.attachments[index].clone();
-                                    match admission_plugin.resolve_attachment(&attachment) {
-                                        Ok(resolved) => {
-                                            if let Some(object) = resolved.object {
-                                                envelope.attachments[index].object =
-                                                    Some(object);
-                                            }
-                                        }
-                                        Err(detail) => {
-                                            admission_facts.record_channel_fact(
-                                                &shenko_store::channel::NewChannelFact {
-                                                    channel: shenko_channel_napcat::QQ_CHANNEL_ID
-                                                        .to_string(),
-                                                    account: envelope.account.clone(),
-                                                    kind: "attachment_locator".to_string(),
-                                                    state: "pending".to_string(),
-                                                    subject_ref: Some(event_id.to_string()),
-                                                    detail: serde_json::json!({
-                                                        "attachment_id": attachment.attachment_id,
-                                                        "detail": detail,
-                                                    }),
-                                                },
-                                            )?;
-                                        }
-                                    }
-                                }
+                                // Resolve attachment locators through the
+                                // plugin and seal the delivered bytes into the
+                                // content-addressed store. This is the same
+                                // path the adapter sources use, so one locator
+                                // has exactly one resolution mechanism. A
+                                // locator that cannot be resolved stays a
+                                // locator and is recorded as a subject-readable
+                                // typed gap; the message itself is never lost.
+                                let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> =
+                                    admission_plugin.clone();
+                                envelope = prepare_channel_envelope(
+                                    &plugin,
+                                    &admission_facts,
+                                    event_id,
+                                    envelope,
+                                )
+                                .await?;
                                 inbox_ev.payload = serde_json::to_value(&envelope)?;
                             }
                             tokio::select! { biased;
@@ -2218,122 +2261,308 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     }
                 });
 
-                // Outbound publications across every registered channel: the
-                // model emits an explicit target so we never guess who to
-                // answer. T1 (arm_publication) claims the intent and arms the
-                // durable operation before the network is touched; the
-                // provider's answer is E1 evidence. A target no installed
-                // plugin serves is refused as never dispatched — durable,
-                // effect none, and it never cancels the runtime.
-                // SPEC §35.6, §41.4 X03, §41.6.
-                let reply_registry = channel_registry.clone();
-                let reply_store = Arc::clone(&store);
-                let reply_agent = agent_id;
-                let cancel_replies = consumer_cancel.clone();
-                let reply_failure = cancel.clone();
-                tokio::spawn(async move {
-                    let result: Result<()> = async {
-                    let mut tick=tokio::time::interval(std::time::Duration::from_millis(250));
-                    loop {
-                        tokio::select! { biased;
-                            _ = cancel_replies.cancelled() => break,
-                            _ = tick.tick() => {}
-                        }
-                        // The ready index owns the work.
-                        for publication in reply_store.ready_publications(32)? {
-                            let intent_id = publication.intent_id;
-                            let Some(plugin) = reply_registry.channel(&publication.target.channel) else {
-                                // Never dispatched: durable refusal, runtime
-                                // keeps running.
-                                if let Err(error) = reply_store.refuse_publication(
-                                    intent_id,
-                                    "no installed channel serves target.channel",
-                                ) {
-                                    tracing::warn!(err=%error, %intent_id, "publication refusal not committed");
-                                }
-                                continue;
-                            };
-                            let dispatch = match plugin.describe(&publication.target) {
-                                Ok(dispatch) => dispatch,
-                                Err(error) => {
-                                    if let Err(refusal_error) =
-                                        reply_store.refuse_publication(intent_id, &error.to_string())
-                                    {
-                                        tracing::warn!(err=%refusal_error, %intent_id, "publication refusal not committed");
-                                    }
-                                    continue;
-                                }
-                            };
-                            // T1: claim + arm before the network. None means
-                            // another dispatcher owns it — never a second send.
-                            let Some(armed) = reply_store.arm_publication(intent_id, &dispatch)? else {
-                                continue;
-                            };
-                            let mut dispatch = dispatch;
-                            dispatch.echo = Some(armed.operation_id.to_string());
-                            let outcome = match plugin.dispatch(&dispatch, &publication.content).await {
-                                Ok(receipt) => {
-                                    reply_store.record_publication_receipt(&armed, &receipt)?;
-                                    if receipt.accepted { "accepted" } else { "rejected" }
-                                }
-                                Err(
-                                    error @ (shenko_types::channel::ChannelError::Transport { .. }
-                                    | shenko_types::channel::ChannelError::Unknown { .. }),
-                                ) => {
-                                    // The request may have been executed. The
-                                    // effect is unknown; reconciliation
-                                    // settles it and never blind-resends.
-                                    let detail = error.to_string();
-                                    reply_store.record_publication_unknown(&armed, &detail)?;
-                                    "unknown"
-                                }
-                                Err(error) => {
-                                    // Deterministic refusal after arming
-                                    // (unsupported/unresolved/rejected): the
-                                    // effect is none and the operation is
-                                    // resolved failed.
-                                    let receipt = shenko_types::channel::ChannelReceipt {
-                                        status: "rejected".to_string(),
-                                        retcode: -1,
-                                        accepted: false,
-                                        provider_message_id: None,
-                                        raw: serde_json::json!({"error": error.to_string()}),
-                                        observed_at: chrono::Utc::now(),
-                                    };
-                                    reply_store.record_publication_receipt(&armed, &receipt)?;
-                                    "refused"
-                                }
-                            };
-                            reply_store.record_channel_fact(&shenko_store::channel::NewChannelFact {
-                                channel: publication.target.channel.clone(),
-                                account: armed.account.clone(),
-                                kind: "publication_outcome".to_string(),
-                                state: outcome.to_string(),
-                                subject_ref: Some(intent_id.to_string()),
-                                detail: serde_json::json!({
-                                    "operation_id": armed.operation_id.to_string(),
-                                    "kind": publication.target.kind,
-                                }),
-                            })?;
-                        }
-                    }
-                    Ok(())
-                    }.await;
-                    if let Err(error) = result {
-                        journal_channel_error(
-                            &reply_store,
-                            reply_agent,
-                            "channel_publication_consumer_failed",
-                            "shenko::channel_publication_consumer",
-                            error.to_string(),
-                            serde_json::json!({}),
-                        );
-                        tracing::error!(err=%error, "publication consumer stopped; reopen writer and reconcile");
-                        reply_failure.cancel();
-                    }
-                });
                 info!("NapCat connector started");
             }
+
+            // Additional channel connectors (official QQ, WeChat iLink,
+            // Feishu/Lark) are installed only when the operator names their
+            // accounts in one configuration file. An absent platform is not
+            // registered, not advertised in the reply grammar and never
+            // contacted. Capability discovery and health are recorded as
+            // subject-readable facts, and administration stays an owner-set
+            // fact per platform. SPEC §15.3, §16.
+            if let Some(config_path) = channels_config.clone() {
+                let file = shenko_channel_adapters::AdapterConfigFile::load(&config_path)
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                let adapters = shenko_channel_adapters::register_adapters(
+                    &mut channel_registry,
+                    file.into_deps(data_dir.clone()),
+                )
+                .map_err(|error| anyhow::anyhow!(error))?;
+                for observation in adapters.observations() {
+                    store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                        channel: observation.channel.clone(),
+                        account: observation.account.clone(),
+                        kind: "capabilities".to_string(),
+                        state: "declared".to_string(),
+                        subject_ref: None,
+                        detail: serde_json::to_value(&observation.capabilities)?,
+                    })?;
+                    let health = observation.health.snapshot().await;
+                    store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                        channel: observation.channel.clone(),
+                        account: observation.account.clone(),
+                        kind: "health".to_string(),
+                        state: health.state.clone(),
+                        subject_ref: None,
+                        detail: serde_json::json!({
+                            "source": observation.source,
+                            "detail": health.detail,
+                        }),
+                    })?;
+                }
+                if let Some(plugin) = &adapters.qq {
+                    record_owner_set_admins(
+                        &store,
+                        shenko_channel_adapters::qq_official::events::QQ_OFFICIAL_CHANNEL_ID,
+                        &plugin.config().account_scope(),
+                        &plugin.config().admin_openids,
+                        "qq-official-admin",
+                        "open_id",
+                    )?;
+                }
+                if let Some(plugin) = &adapters.ilink {
+                    record_owner_set_admins(
+                        &store,
+                        shenko_channel_adapters::ilink::events::ILINK_CHANNEL_ID,
+                        &plugin.config().account_scope(),
+                        &plugin.config().admin_user_ids,
+                        "ilink-admin",
+                        "user_id",
+                    )?;
+                }
+                if let Some(plugin) = &adapters.feishu {
+                    record_owner_set_admins(
+                        &store,
+                        shenko_channel_adapters::feishu::events::FEISHU_CHANNEL_ID,
+                        &plugin.config().account_scope(),
+                        &plugin.config().admin_open_ids,
+                        "feishu-admin",
+                        "open_id",
+                    )?;
+                }
+
+                // Every monitor records into its own durable ledger before it
+                // advances the platform cursor; these loops admit what the
+                // ledger holds and acknowledge only after the subject's
+                // disposition commit. One platform's connector failing never
+                // stops the subject loop.
+                let adapter_cancel = consumer_cancel.clone();
+                let adapter_agent = agent_id;
+                for handle in adapters.run_ingress(adapter_cancel.clone()).await {
+                    let failure_store = Arc::clone(&store);
+                    tokio::spawn(async move {
+                        if let Ok(Err(error)) = handle.await {
+                            journal_channel_error(
+                                &failure_store,
+                                adapter_agent,
+                                "channel_ingress_failed",
+                                "shenko_channel_adapters",
+                                error,
+                                serde_json::json!({}),
+                            );
+                            tracing::error!("channel monitor stopped; its durable ingress stays pending");
+                        }
+                    });
+                }
+                for ledger in adapters.ingress().iter().cloned() {
+                    let delivery_store = Arc::clone(&store);
+                    let failure_store = Arc::clone(&store);
+                    let delivery_registry = channel_registry.clone();
+                    let delivery_inbox = subject_inbox.sender();
+                    let delivery_cancel = adapter_cancel.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = run_adapter_ingress(
+                            ledger,
+                            delivery_registry,
+                            delivery_store,
+                            adapter_agent,
+                            delivery_inbox,
+                            delivery_cancel,
+                        )
+                        .await
+                        {
+                            journal_channel_error(
+                                &failure_store,
+                                adapter_agent,
+                                "channel_ingress_admission_failed",
+                                "shenko::channel_admission",
+                                error.to_string(),
+                                serde_json::json!({}),
+                            );
+                            tracing::error!(err=%error, "adapter ingress delivery stopped; events stay pending");
+                        }
+                    });
+                }
+                // Health is a live observation, so a state change is written
+                // as a new fact. The startup fact above already names the
+                // initial state; this loop only records real transitions.
+                let health_observations = adapters.observations().to_vec();
+                let health_store = Arc::clone(&store);
+                let health_cancel = adapter_cancel.clone();
+                tokio::spawn(async move {
+                    let mut seen: Vec<Option<(String, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>> =
+                        vec![None; health_observations.len()];
+                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                    loop {
+                        tokio::select! { biased;
+                            _ = health_cancel.cancelled() => break,
+                            _ = tick.tick() => {}
+                        }
+                        for (index, observation) in health_observations.iter().enumerate() {
+                            let health = observation.health.snapshot().await;
+                            let signature =
+                                (health.state.clone(), health.detail.clone(), health.last_event_at);
+                            if seen[index].as_ref() == Some(&signature) {
+                                continue;
+                            }
+                            let first = seen[index].is_none();
+                            seen[index] = Some(signature);
+                            if first {
+                                // The startup fact already recorded this state.
+                                continue;
+                            }
+                            if let Err(error) = health_store.record_channel_fact(
+                                &shenko_store::channel::NewChannelFact {
+                                    channel: observation.channel.clone(),
+                                    account: observation.account.clone(),
+                                    kind: "health".to_string(),
+                                    state: health.state.clone(),
+                                    subject_ref: None,
+                                    detail: serde_json::json!({
+                                        "source": observation.source,
+                                        "detail": health.detail,
+                                    }),
+                                },
+                            ) {
+                                tracing::warn!(err=%error, channel=%observation.channel, "channel health fact not recorded");
+                            }
+                        }
+                    }
+                });
+                info!(
+                    adapters = adapters.observations().len(),
+                    "channel adapters installed"
+                );
+            }
+
+            // Outbound publications across every registered channel: the
+            // model emits an explicit target so we never guess who to
+            // answer. T1 (arm_publication) claims the intent and arms the
+            // durable operation before the network is touched; the
+            // provider's answer is E1 evidence. A target no installed
+            // plugin serves is refused as never dispatched — durable,
+            // effect none, and it never cancels the runtime.
+            // SPEC §35.6, §41.4 X03, §41.6.
+            let reply_registry = channel_registry.clone();
+            let reply_store = Arc::clone(&store);
+            let reply_agent = agent_id;
+            let cancel_replies = consumer_cancel.clone();
+            let reply_failure = cancel.clone();
+            tokio::spawn(async move {
+                let result: Result<()> = async {
+                let mut tick=tokio::time::interval(std::time::Duration::from_millis(250));
+                loop {
+                    tokio::select! { biased;
+                        _ = cancel_replies.cancelled() => break,
+                        _ = tick.tick() => {}
+                    }
+                    // The ready index owns the work.
+                    for publication in reply_store.ready_publications(32)? {
+                        let intent_id = publication.intent_id;
+                        let Some(plugin) = reply_registry.channel(&publication.target.channel) else {
+                            // Never dispatched: durable refusal, runtime
+                            // keeps running.
+                            if let Err(error) = reply_store.refuse_publication(
+                                intent_id,
+                                "no installed channel serves target.channel",
+                            ) {
+                                tracing::warn!(err=%error, %intent_id, "publication refusal not committed");
+                            }
+                            continue;
+                        };
+                        let dispatch = match plugin.describe(&publication.target) {
+                            Ok(dispatch) => dispatch,
+                            Err(error) => {
+                                if let Err(refusal_error) =
+                                    reply_store.refuse_publication(intent_id, &error.to_string())
+                                {
+                                    tracing::warn!(err=%refusal_error, %intent_id, "publication refusal not committed");
+                                }
+                                continue;
+                            }
+                        };
+                        // T1: claim + arm before the network. None means
+                        // another dispatcher owns it — never a second send.
+                        let Some(armed) = reply_store.arm_publication(intent_id, &dispatch)? else {
+                            // Not an error and not a send: either another
+                            // writer owns the intent, or T1 committed that this
+                            // reply can never be dispatched (cancelled reply,
+                            // epoch advance, blocked authority). The committed
+                            // task outcome distinguishes them; a never-dispatched
+                            // reply becomes a subject-readable fact instead of a
+                            // silent no-op, and the consumer keeps running.
+                            project_never_dispatched_publication(
+                                &reply_store,
+                                intent_id,
+                                &publication.target.channel,
+                                &publication.target.account,
+                            );
+                            continue;
+                        };
+                        let mut dispatch = dispatch;
+                        dispatch.echo = Some(armed.operation_id.to_string());
+                        let outcome = match plugin.dispatch(&dispatch, &publication.content).await {
+                            Ok(receipt) => {
+                                reply_store.record_publication_receipt(&armed, &receipt)?;
+                                if receipt.accepted { "accepted" } else { "rejected" }
+                            }
+                            Err(
+                                error @ (shenko_types::channel::ChannelError::Transport { .. }
+                                | shenko_types::channel::ChannelError::Unknown { .. }),
+                            ) => {
+                                // The request may have been executed. The
+                                // effect is unknown; reconciliation
+                                // settles it and never blind-resends.
+                                let detail = error.to_string();
+                                reply_store.record_publication_unknown(&armed, &detail)?;
+                                "unknown"
+                            }
+                            Err(error) => {
+                                // Deterministic refusal after arming
+                                // (unsupported/unresolved/rejected): the
+                                // effect is none and the operation is
+                                // resolved failed.
+                                let receipt = shenko_types::channel::ChannelReceipt {
+                                    status: "rejected".to_string(),
+                                    retcode: -1,
+                                    accepted: false,
+                                    provider_message_id: None,
+                                    raw: serde_json::json!({"error": error.to_string()}),
+                                    observed_at: chrono::Utc::now(),
+                                };
+                                reply_store.record_publication_receipt(&armed, &receipt)?;
+                                "refused"
+                            }
+                        };
+                        reply_store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                            channel: publication.target.channel.clone(),
+                            account: armed.account.clone(),
+                            kind: "publication_outcome".to_string(),
+                            state: outcome.to_string(),
+                            subject_ref: Some(intent_id.to_string()),
+                            detail: serde_json::json!({
+                                "operation_id": armed.operation_id.to_string(),
+                                "kind": publication.target.kind,
+                            }),
+                        })?;
+                    }
+                }
+                Ok(())
+                }.await;
+                if let Err(error) = result {
+                    journal_channel_error(
+                        &reply_store,
+                        reply_agent,
+                        "channel_publication_consumer_failed",
+                        "shenko::channel_publication_consumer",
+                        error.to_string(),
+                        serde_json::json!({}),
+                    );
+                    tracing::error!(err=%error, "publication consumer stopped; reopen writer and reconcile");
+                    reply_failure.cancel();
+                }
+            });
 
             // Built after any connector-scoped handler install so the sealed
             // tool contract advertises exactly the installed definitions.
@@ -3010,11 +3239,23 @@ fn napcat_inbox_event(
 }
 
 /// Resolve one classified envelope's attachment locators through the owning
-/// plugin's file capability. A locator that cannot be resolved stays a
-/// locator and is recorded as a subject-readable `attachment_locator` gap;
-/// the message itself is never dropped. Shared by the napcat spool admission
-/// and the adapter-source admission.
-fn prepare_channel_envelope(
+/// plugin, then seal the delivered bytes as immutable content.
+///
+/// The plugin owns the platform mechanism: an installed account's
+/// authenticated media call, or a read inside the media root of the host that
+/// owns the bytes. The Store owns content addressing, so the caller seals
+/// exactly the bytes the provider delivered and points the attachment at the
+/// content digest; the provider identity (`attachment_id`, `kind`, `name`,
+/// `locator`) is preserved as classified.
+///
+/// A locator that cannot be resolved keeps its locator — the bytes are still
+/// where the platform said — and the failure is recorded as a typed,
+/// subject-readable `attachment_locator` fact: the reason token says whether
+/// the credential, the platform's lifetime, the byte bound or the transport
+/// was responsible. The message itself is never dropped, and no accepted fact
+/// is rewritten. Shared by the napcat spool admission and the adapter-source
+/// admission.
+async fn prepare_channel_envelope(
     plugin: &Arc<dyn shenko_types::channel::ChannelPlugin>,
     store: &shenko_store::store::Store,
     event_id: shenko_types::ids::EntityId,
@@ -3022,9 +3263,21 @@ fn prepare_channel_envelope(
 ) -> Result<shenko_types::channel::ChannelEnvelope> {
     for index in 0..envelope.attachments.len() {
         let attachment = envelope.attachments[index].clone();
-        match plugin.resolve_attachment(&attachment) {
-            Ok(resolved) => envelope.attachments[index] = resolved,
-            Err(detail) => {
+        match plugin.resolve_attachment(&attachment).await {
+            Ok(resolved) => {
+                let mut attachment = resolved.attachment;
+                let media_type = attachment
+                    .mime
+                    .clone()
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+                let sealed = store
+                    .cas
+                    .seal_object(&resolved.bytes, &media_type, "channel_attachments", "bytes", 1)
+                    .context("seal resolved channel attachment bytes")?;
+                attachment.object = Some(sealed.object);
+                envelope.attachments[index] = attachment;
+            }
+            Err(error) => {
                 store.record_channel_fact(&shenko_store::channel::NewChannelFact {
                     channel: envelope.provider.clone(),
                     account: envelope.account.clone(),
@@ -3033,7 +3286,8 @@ fn prepare_channel_envelope(
                     subject_ref: Some(event_id.to_string()),
                     detail: serde_json::json!({
                         "attachment_id": attachment.attachment_id,
-                        "detail": detail,
+                        "reason": error.token(),
+                        "detail": error.to_string(),
                     }),
                 })?;
             }
@@ -3056,22 +3310,9 @@ async fn admit_channel_event(
     mut envelope: shenko_types::channel::ChannelEnvelope,
     raw: &serde_json::Value,
 ) -> Result<()> {
-    let key = format!(
-        "{}|{}|{}|{}|{}",
-        source,
-        envelope.provider,
-        envelope.account,
-        envelope.message_id,
-        envelope.source_event_revision.as_deref().unwrap_or(""),
-    );
-    let digest = shenko_types::object::Digest::blake3(key.as_bytes());
-    let hex_text = digest.0.strip_prefix("blake3:").unwrap_or(&digest.0);
-    let mut bytes = [0u8; 32];
-    for (index, chunk) in hex_text.as_bytes().chunks(2).take(32).enumerate() {
-        let hex_pair = std::str::from_utf8(chunk).unwrap_or("00");
-        bytes[index] = u8::from_str_radix(hex_pair, 16).unwrap_or(0);
-    }
-    let event_id = shenko_types::ids::EntityId::from_digest(&bytes);
+    // The connector's own durable ingress ledger derived this same id from
+    // the same replay-stable key, so a redelivery meets this check.
+    let event_id = shenko_types::channel::envelope_event_id(source, &envelope);
     if store
         .event_disposition_commit(agent_id, event_id)?
         .is_some()
@@ -3081,7 +3322,7 @@ async fn admit_channel_event(
     let Some(plugin) = registry.channel_for_source(source) else {
         anyhow::bail!("no registered channel plugin owns source {source}");
     };
-    envelope = prepare_channel_envelope(plugin, store, event_id, envelope)?;
+    envelope = prepare_channel_envelope(plugin, store, event_id, envelope).await?;
     let inbox_ev = shenko_subject::inbox::InboxEvent {
         event_id,
         kind: shenko_subject::inbox::InboxEventKind::Message,
@@ -3095,6 +3336,177 @@ async fn admit_channel_event(
         .await
         .map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?;
     Ok(())
+}
+
+/// Drain one adapter's durable ingress ledger into subject admission.
+///
+/// The ledger is the connector's own durable record: a monitor wrote the event
+/// before it advanced the platform cursor, so this loop may replay after a
+/// restart. Admission is idempotent on the shared envelope identity, and the
+/// row is acknowledged only once the subject's disposition commit exists — a
+/// delivery is never an acknowledgement.
+async fn run_adapter_ingress(
+    ingress: shenko_channel_adapters::SharedAdapterIngress,
+    registry: shenko_types::channel::ChannelRegistry,
+    store: Arc<shenko_store::store::Store>,
+    agent_id: shenko_types::ids::EntityId,
+    inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<()> {
+    // Two independent watermarks, mirroring the shipped NapCat ingress: the
+    // delivery scan only moves forward in this process (a restart replays what
+    // is still unacknowledged exactly once), and the acknowledgement mirror
+    // re-reads from the beginning because a disposition may commit long after
+    // the event was delivered.
+    let mut deliver_after = 0;
+    let mut ack_after = 0;
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
+    loop {
+        tokio::select! { biased;
+            _ = cancel.cancelled() => return Ok(()),
+            _ = tick.tick() => {}
+        }
+        for event in ingress
+            .unacked(deliver_after, 64)
+            .map_err(|error| anyhow::anyhow!(error))?
+        {
+            deliver_after = event.seq;
+            if store.event_disposition_commit(agent_id, event.event_id)?.is_some() {
+                continue;
+            }
+            admit_channel_event(
+                &registry,
+                &store,
+                agent_id,
+                &inbox_tx,
+                &event.source,
+                event.envelope,
+                &event.raw,
+            )
+            .await?;
+            ingress
+                .mark_delivered(event.event_id)
+                .map_err(|error| anyhow::anyhow!(error))?;
+        }
+        let mirror = ingress
+            .unacked(ack_after, 64)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        if mirror.is_empty() {
+            ack_after = 0;
+            continue;
+        }
+        for event in mirror {
+            ack_after = event.seq;
+            if let Some(commit) = store.event_disposition_commit(agent_id, event.event_id)? {
+                ingress
+                    .mark_delivered(event.event_id)
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                ingress
+                    .ack(event.event_id, &commit.to_string())
+                    .map_err(|error| anyhow::anyhow!(error))?;
+            }
+        }
+    }
+}
+
+/// Record owner-set administrators as channel facts.
+///
+/// Administration is never derived from a platform role, an app ticket or
+/// familiarity: it exists only because the owner named the account in the
+/// channel configuration, and the fact says so.
+fn record_owner_set_admins(
+    store: &shenko_store::store::Store,
+    channel: &str,
+    account: &str,
+    admins: &[String],
+    grant_prefix: &str,
+    id_field: &str,
+) -> Result<()> {
+    for admin in admins {
+        if admin.trim().is_empty() {
+            anyhow::bail!("{channel} administrator id must not be empty");
+        }
+        store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+            channel: channel.to_string(),
+            account: account.to_string(),
+            kind: "admin_grant".to_string(),
+            state: "active".to_string(),
+            subject_ref: Some(format!("{grant_prefix}:{admin}")),
+            detail: serde_json::json!({ id_field: admin, "source": "owner_config" }),
+        })?;
+    }
+    Ok(())
+}
+
+/// Project "this ready reply will never be dispatched" as a channel fact.
+///
+/// `Store::arm_publication` answers `Ok(None)` for two very different cases:
+/// another writer already owns the intent, or T1 committed a terminal
+/// `publication_never_dispatched` outcome because no attempt can exist
+/// (cancelled reply, epoch advance, blocked authority). The second case is a
+/// committed fact, not a transport failure: the subject may author a new reply
+/// later. Reading the task's sealed outcome is the discriminator; every failure
+/// here is only a missing projection, never a reason to stop the consumer or
+/// retry the send.
+fn project_never_dispatched_publication(
+    store: &shenko_store::store::Store,
+    intent_id: shenko_types::ids::EntityId,
+    channel: &str,
+    account: &str,
+) {
+    let task = match store.external_task(intent_id) {
+        Ok(task) => task,
+        Err(_) => return, // no task row: another writer owns it
+    };
+    let shenko_types::task::TaskState::Terminal { outcome_ref } = task.state else {
+        return;
+    };
+    let bytes = match store.cas.read_object(&outcome_ref.digest) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(err=%error, %intent_id, "never-dispatched outcome unreadable");
+            return;
+        }
+    };
+    // The typed `ObjectRef` on the task outcome is the read authority: check the
+    // length it declares before decoding. `subject_intents.result_ref` is opaque
+    // per-writer text (a `file://` locator on this path) and is never parsed.
+    if bytes.len() as u64 != outcome_ref.bytes {
+        tracing::warn!(
+            %intent_id,
+            declared = outcome_ref.bytes,
+            actual = bytes.len(),
+            "never-dispatched outcome length mismatch"
+        );
+        return;
+    }
+    let outcome: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            tracing::warn!(err=%error, %intent_id, "never-dispatched outcome is not JSON");
+            return;
+        }
+    };
+    if outcome.get("kind").and_then(serde_json::Value::as_str)
+        != Some("publication_never_dispatched")
+    {
+        return; // a settled/other terminal outcome is already its own fact
+    }
+    if let Err(error) = store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+        channel: channel.to_string(),
+        account: account.to_string(),
+        kind: "publication_outcome".to_string(),
+        state: "never_dispatched".to_string(),
+        subject_ref: Some(intent_id.to_string()),
+        detail: serde_json::json!({
+            "reason_kind": outcome.get("reason_kind"),
+            "reason": outcome.get("reason"),
+            "dispatched": outcome.get("dispatched"),
+            "effect_status": outcome.get("effect_status"),
+        }),
+    }) {
+        tracing::warn!(err=%error, %intent_id, "never-dispatched fact not recorded");
+    }
 }
 
 /// Journal one channel-runtime error as a durable fact of the subject's
@@ -3660,6 +4072,7 @@ mod recovery_integration_tests {
                 "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
             }))
             .unwrap()
+            .event()
             .unwrap();
         drop(spool);
 
@@ -3846,7 +4259,7 @@ mod recovery_integration_tests {
         spool.ack(pending[0].spool_id, &commit.to_string()).unwrap();
         assert_eq!(spool.pending_count().unwrap(), 0);
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
-        assert!(spool.ingest(received.raw).unwrap().is_none());
+        assert!(spool.ingest(received.raw).unwrap().event().is_none());
         // Temporary evidence files are deliberately retained for inspection.
     }
 

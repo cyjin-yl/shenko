@@ -224,6 +224,10 @@ pub fn parse_attachments(data: &Value) -> Vec<ChannelAttachment> {
                     host: Some("qq-platform".to_string()),
                     path: None,
                     url: text_field(entry, "url"),
+                    // The platform's own temporary URL is the whole fetch
+                    // descriptor: the CDN needs no second fact from the
+                    // message, so nothing is captured here.
+                    params: None,
                 },
                 object: None,
                 expires_at: None,
