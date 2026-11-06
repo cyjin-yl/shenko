@@ -18,6 +18,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::Mutex;
 
+use shenko_types::channel::{
+    AttachmentBytes, AttachmentError, ChannelAttachment, ResolvedAttachment, MAX_ATTACHMENT_BYTES,
+};
+
 /// The envelope format this adapter family produces.
 ///
 /// Bumped only when the meaning of an envelope field changes. The core reads
@@ -377,32 +381,6 @@ impl PlatformHttp {
         self.send(request).await
     }
 
-    /// `GET {url}` with a bearer header, returning raw bytes.
-    ///
-    /// Media endpoints answer with the file bytes, not JSON; `send` would
-    /// turn them into `Value::Null`. This preserves them.
-    pub async fn get_bytes(&self, url: &str, bearer: Option<&str>) -> Result<Vec<u8>, String> {
-        let mut request = self.client.get(url);
-        if let Some(token) = bearer {
-            request = request.bearer_auth(token);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|error| redact_transport_error(&error.to_string()))?;
-        if !response.status().is_success() {
-            return Err(format!(
-                "media download refused with http {}",
-                response.status().as_u16()
-            ));
-        }
-        response
-            .bytes()
-            .await
-            .map(|bytes| bytes.to_vec())
-            .map_err(|error| format!("media body failed: {error}"))
-    }
-
     /// `POST {url}` with a multipart body.
     pub async fn post_multipart(
         &self,
@@ -644,4 +622,334 @@ pub async fn read_attachment_bytes(
             .map_err(|error| format!("attachment read failed: {error}"));
     }
     Err("attachment locator names neither a URL nor a path".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Inbound attachment resolution — SPEC §15.1, §35.6
+// ---------------------------------------------------------------------------
+
+/// How much of a refusal body is kept as the platform's own statement.
+///
+/// A refusing endpoint may answer with a full document; the recorded reason is
+/// its bounded opening, never a buffered whole body and never a credential.
+pub const MAX_REFUSAL_DETAIL: usize = 512;
+
+/// What one bounded media request produced.
+///
+/// The distinction matters for the durable fact: a platform that answered and
+/// refused said something the subject can act on, while a lost transport is an
+/// unknown that must not be read as a refusal. Both stay outside this type
+/// because a lost transport is an [`AttachmentError::Unavailable`] with the
+/// transport's own redacted statement.
+#[derive(Debug, Clone)]
+pub enum MediaAnswer {
+    /// The platform delivered the bytes inside the channel bound.
+    Delivered {
+        /// The `Content-Type` the platform stated, when it stated one.
+        media_type: Option<String>,
+        /// The bytes exactly as the platform delivered them.
+        bytes: Vec<u8>,
+    },
+    /// The platform answered and refused the request.
+    Refused {
+        /// The HTTP status the platform answered with.
+        status: u16,
+        /// The platform's own bounded, credential-free statement.
+        detail: String,
+    },
+}
+
+/// Fetch one media URL into provider chunks under the channel byte bound.
+///
+/// The bound is enforced *while* reading: the chunk that would cross
+/// [`MAX_ATTACHMENT_BYTES`] is refused and the accumulator stops, so an
+/// oversized object costs one chunk of memory instead of its whole size. The
+/// call is genuinely asynchronous and uses the adapter's real HTTP client; the
+/// installed account's credential is attached only when the caller passes it,
+/// because a pre-signed platform locator already carries its own authority.
+pub async fn fetch_media_bounded(
+    http: &PlatformHttp,
+    url: &str,
+    bearer: Option<&str>,
+    attachment_id: &str,
+) -> Result<MediaAnswer, AttachmentError> {
+    let parsed = url::Url::parse(url).map_err(|error| AttachmentError::Refused {
+        attachment_id: attachment_id.to_string(),
+        detail: format!("locator URL is not a URL: {error}"),
+    })?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(AttachmentError::Refused {
+            attachment_id: attachment_id.to_string(),
+            detail: format!(
+                "locator scheme {} is not an http(s) endpoint",
+                parsed.scheme()
+            ),
+        });
+    }
+    let mut request = http.client().get(url);
+    if let Some(token) = bearer {
+        request = request.bearer_auth(token);
+    }
+    let mut response = request
+        .send()
+        .await
+        .map_err(|error| AttachmentError::Unavailable {
+            attachment_id: attachment_id.to_string(),
+            detail: redact_transport_error(&error.without_url().to_string()),
+        })?;
+    let status = response.status().as_u16();
+    if !response.status().is_success() {
+        return Ok(MediaAnswer::Refused {
+            status,
+            detail: refusal_detail(&mut response).await,
+        });
+    }
+    let media_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .filter(|value| !value.is_empty());
+    let mut accepted = AttachmentBytes::new(attachment_id.to_string(), MAX_ATTACHMENT_BYTES);
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => accepted.push(&chunk)?,
+            Ok(None) => break,
+            Err(error) => {
+                return Err(AttachmentError::Unavailable {
+                    attachment_id: attachment_id.to_string(),
+                    detail: redact_transport_error(&error.without_url().to_string()),
+                })
+            }
+        }
+    }
+    Ok(MediaAnswer::Delivered {
+        media_type,
+        bytes: accepted.into_vec(),
+    })
+}
+
+/// Read at most [`MAX_REFUSAL_DETAIL`] bytes of a refusal body.
+///
+/// The platform's statement is what makes a failure actionable; it is read in
+/// bounded chunks and lossily decoded so a binary or truncated document still
+/// yields a stable, printable text.
+async fn refusal_detail(response: &mut reqwest::Response) -> String {
+    let mut kept: Vec<u8> = Vec::new();
+    while kept.len() < MAX_REFUSAL_DETAIL {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                let room = MAX_REFUSAL_DETAIL - kept.len();
+                kept.extend_from_slice(&chunk[..chunk.len().min(room)]);
+            }
+            Ok(None) => break,
+            Err(error) => {
+                kept.extend_from_slice(
+                    redact_transport_error(&error.without_url().to_string()).as_bytes(),
+                );
+                break;
+            }
+        }
+    }
+    let text = String::from_utf8_lossy(&kept).trim().to_string();
+    if text.is_empty() {
+        "<no body>".to_string()
+    } else {
+        text
+    }
+}
+
+/// The integrity check of one delivered media answer.
+///
+/// Call this only when the platform's declared size really is the object's
+/// byte length: a provider whose size field means something else (an encrypted
+/// size, a middle-size thumbnail) would otherwise produce a fabricated
+/// integrity verdict. When the check applies, a mismatch means the resource was
+/// truncated or substituted and is an `Unavailable` fact.
+pub fn verify_declared_size(
+    attachment: &ChannelAttachment,
+    delivered: u64,
+) -> Result<(), AttachmentError> {
+    match attachment.bytes {
+        Some(declared) if declared != delivered => Err(AttachmentError::Unavailable {
+            attachment_id: attachment.attachment_id.clone(),
+            detail: format!("platform declared {declared} bytes, resolved {delivered}"),
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// The resolved attachment of one delivered media answer.
+///
+/// The provider identity (`attachment_id`, `kind`, `name`, `locator`) is kept
+/// exactly as it was classified; the resolution adds only the facts it
+/// established: the MIME type when the platform stated none, and the exact
+/// byte length. Content addressing stays with the caller that owns the Store.
+pub fn resolved_from_media(
+    attachment: &ChannelAttachment,
+    media_type: Option<String>,
+    bytes: Vec<u8>,
+) -> Result<ResolvedAttachment, AttachmentError> {
+    let delivered = bytes.len() as u64;
+    verify_declared_size(attachment, delivered)?;
+    let mut attachment = attachment.clone();
+    if attachment.mime.is_none() {
+        attachment.mime = media_type.or_else(|| attachment.name.as_deref().and_then(mime_for_name));
+    }
+    attachment.bytes = Some(delivered);
+    Ok(ResolvedAttachment { attachment, bytes })
+}
+
+/// Map one platform refusal onto the channel's answer vocabulary.
+///
+/// A refused credential and a missing object are different answers for the
+/// subject: the first names the installed account's authority, the second only
+/// says the resource could not be delivered. The platform's own statement is
+/// carried through verbatim so the durable fact stays checkable.
+pub fn refused_attachment(
+    channel: &str,
+    attachment_id: &str,
+    status: u16,
+    detail: String,
+) -> AttachmentError {
+    match status {
+        401 | 403 => AttachmentError::Unauthenticated {
+            channel: channel.to_string(),
+            attachment_id: attachment_id.to_string(),
+            detail: format!("http {status}: {detail}"),
+        },
+        _ => AttachmentError::Unavailable {
+            attachment_id: attachment_id.to_string(),
+            detail: format!("http {status}: {detail}"),
+        },
+    }
+}
+
+/// The MIME type of a file name, from its extension only.
+///
+/// Only the extensions a platform actually carries are named; an unknown one
+/// stays unknown instead of being guessed.
+pub fn mime_for_name(name: &str) -> Option<String> {
+    let extension = name.rsplit('.').next()?.to_ascii_lowercase();
+    let mime = match extension.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        "mkv" => "video/x-matroska",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "amr" => "audio/amr",
+        "silk" => "audio/silk",
+        "m4a" => "audio/mp4",
+        "ogg" => "audio/ogg",
+        "flac" => "audio/flac",
+        "pdf" => "application/pdf",
+        "txt" => "text/plain",
+        "zip" => "application/zip",
+        _ => return None,
+    };
+    Some(mime.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shenko_types::channel::AttachmentLocator;
+
+    fn test_attachment(bytes: Option<u64>) -> ChannelAttachment {
+        ChannelAttachment {
+            attachment_id: "test-1".to_string(),
+            kind: "image".to_string(),
+            name: Some("photo.jpg".to_string()),
+            mime: None,
+            bytes,
+            hash: None,
+            locator: AttachmentLocator {
+                kind: "url".to_string(),
+                host: None,
+                path: None,
+                url: Some("https://example.com/file".to_string()),
+                params: None,
+            },
+            object: None,
+            expires_at: None,
+        }
+    }
+
+    #[test]
+    fn verify_declared_size_matches() {
+        let attachment = test_attachment(Some(128));
+        assert!(verify_declared_size(&attachment, 128).is_ok());
+    }
+
+    #[test]
+    fn verify_declared_size_mismatch_errors() {
+        let attachment = test_attachment(Some(128));
+        let err = verify_declared_size(&attachment, 64).unwrap_err();
+        assert!(
+            matches!(err, AttachmentError::Unavailable { .. }),
+            "expected Unavailable, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn verify_declared_size_none_passes() {
+        let attachment = test_attachment(None);
+        assert!(verify_declared_size(&attachment, 999).is_ok());
+    }
+
+    #[test]
+    fn resolved_from_media_fills_mime_and_bytes() {
+        let attachment = test_attachment(None);
+        let data = vec![0u8; 64];
+        let resolved = resolved_from_media(&attachment, None, data).unwrap();
+        assert_eq!(resolved.attachment.bytes, Some(64));
+        assert_eq!(resolved.attachment.mime.as_deref(), Some("image/jpeg"));
+    }
+
+    #[test]
+    fn resolved_from_media_rejects_size_mismatch() {
+        let attachment = test_attachment(Some(100));
+        let data = vec![0u8; 64];
+        let err = resolved_from_media(&attachment, None, data).unwrap_err();
+        assert!(
+            matches!(err, AttachmentError::Unavailable { .. }),
+            "expected Unavailable, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn resolved_from_media_respects_explicit_media_type() {
+        let attachment = test_attachment(None);
+        let data = vec![0u8; 16];
+        let resolved =
+            resolved_from_media(&attachment, Some("image/png".to_string()), data).unwrap();
+        assert_eq!(resolved.attachment.mime.as_deref(), Some("image/png"));
+    }
+
+    #[test]
+    fn resolved_from_media_preserves_existing_mime() {
+        let mut attachment = test_attachment(None);
+        attachment.mime = Some("audio/ogg".to_string());
+        let data = vec![0u8; 8];
+        let resolved =
+            resolved_from_media(&attachment, Some("image/png".to_string()), data).unwrap();
+        assert_eq!(resolved.attachment.mime.as_deref(), Some("audio/ogg"));
+    }
+
+    #[test]
+    fn mime_for_name_known_extensions() {
+        assert_eq!(mime_for_name("photo.jpg"), Some("image/jpeg".to_string()));
+        assert_eq!(mime_for_name("video.mp4"), Some("video/mp4".to_string()));
+        assert_eq!(mime_for_name("track.flac"), Some("audio/flac".to_string()));
+    }
+
+    #[test]
+    fn mime_for_name_unknown_extension() {
+        assert_eq!(mime_for_name("data.xyz"), None);
+    }
 }

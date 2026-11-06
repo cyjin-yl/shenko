@@ -21,6 +21,7 @@ parking_lot = { workspace = true }
 url = { workspace = true }
 base64 = { workspace = true }
 hex = { workspace = true }
+rusqlite = { workspace = true }
 sha1 = "0.10"
 md5 = "0.8"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "multipart"], default-features = false }

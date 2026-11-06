@@ -45,6 +45,11 @@ pub struct PreparedCandidate {
     /// adoption uses exactly these limits.
     pub caps: ModelCaps,
     pub prepared_at_ms: i64,
+    /// Whether this preparation answered an explicit request for a new
+    /// window at the next safe boundary, rather than the size trigger. The
+    /// request is consumed by the attempt that reports it here.
+    #[serde(default)]
+    pub rollover: bool,
 }
 
 impl PreparedCandidate {

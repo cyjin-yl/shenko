@@ -17,6 +17,13 @@
 //! consumer subscription — and keeps credentials on the node, out of the
 //! ledger. [`event`] carries the durable events of §42.6.
 //!
+//! [`strategy`] is the other half of §42.1: the forecaster, the router and
+//! the admission cadence are replaceable, versioned strategies. The built-in
+//! [`strategy::RollingBaseline`] is the replayable planning baseline of §42.5
+//! and stays the default; a produced forecast and decision name the strategy
+//! that computed them, and a cadence may only withhold a fresh admission —
+//! never grant, release or downgrade one.
+//!
 //! [`view`] is the subject-readable projection of a recorded reading: the
 //! remaining range, the expected recovery, the freshness and sharing of the
 //! source and the model the current policy decision selected. It renders
@@ -30,6 +37,7 @@ pub mod plugin;
 pub mod policy;
 pub mod scope;
 pub mod sources;
+pub mod strategy;
 pub mod view;
 
 pub use admission::*;
@@ -41,4 +49,5 @@ pub use plugin::*;
 pub use policy::*;
 pub use scope::*;
 pub use sources::*;
+pub use strategy::*;
 pub use view::*;

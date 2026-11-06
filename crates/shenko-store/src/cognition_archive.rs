@@ -37,8 +37,16 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// rather than omit this closure, and this reader admits only schemas it
 /// can interpret completely — an archive naming a fact class this reader
 /// does not know is refused whole at manifest validation.
-/// Schemas 2/3/4 remain readable after current closure admission.
-pub const ARCHIVE_SCHEMA: u32 = 5;
+///
+/// Schema 6 adds the cognitive atoms (SPEC §51.1): the canonical content
+/// registry, the append-only attitude ledger and the insert-only legacy
+/// content mapping. These are REQUIRED facts, not optional extras: an archive
+/// that carries them and no longer declares the classes they belong to would
+/// be a silent loss of the subject's attitudes, so the schema is bumped
+/// instead of smuggling them in as optional rows. A schema-5 receiver rejects
+/// this archive at the version gate, and a current reader still admits
+/// schemas 2..=6 after the full closure/membership admission below.
+pub const ARCHIVE_SCHEMA: u32 = 6;
 
 /// One replicated table row.
 ///

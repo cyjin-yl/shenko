@@ -69,6 +69,11 @@ pub struct InstallRequest {
     pub sha256: Option<String>,
     /// Host path of the artifact.
     pub path: PathBuf,
+    /// The capability requirements the package author declares — SPEC §9
+    /// "权限需求". They are requirements, never grants: the executor admits
+    /// them against the real mount closure and invocation environment, and an
+    /// `unrecorded` declaration stays exactly that.
+    pub capabilities: shenko_node::PackageDeclaration,
 }
 
 /// What an install actually did.
@@ -89,6 +94,8 @@ pub struct InstalledTool {
     pub sha256: Option<String>,
     /// The SPDX license, when the manifest recorded one.
     pub license: Option<String>,
+    /// The declaration recorded with the package version.
+    pub capabilities: shenko_node::PackageDeclaration,
     /// Whether this run bound the artifact's chunk manifest into the
     /// installation's recovery closure.
     pub recovery_bound: bool,
@@ -136,6 +143,12 @@ pub fn install_one(
 ) -> Result<InstalledTool> {
     shenko_wasm::validate_tool_name(&request.name)?;
     shenko_wasm::artifact::validate_provenance(request.sha256.as_deref())?;
+    // The authored declaration is admitted before the bytes are touched: a
+    // malformed requirement set is refused by type and by bound, not by name
+    // or by a human approval step.
+    if let Some(capabilities) = request.capabilities.capabilities() {
+        capabilities.validate()?;
+    }
     // Identity and provenance come from one bounded streaming pass over the
     // file: the blake3 of the bytes is the artifact's identity, the sha256 is
     // the upstream receipt digest. They are never compared to each other.
@@ -182,6 +195,16 @@ pub fn install_one(
         request.abi.name(),
         inspection.detail
     );
+    // A declaration may not claim a host import the artifact does not reach:
+    // only the observed imports are evidence, and they are re-observed here
+    // from these exact bytes.
+    let declaration_problems =
+        shenko_wasm::declaration_import_problems(&request.capabilities, &inspection.imports);
+    ensure!(
+        declaration_problems.is_empty(),
+        "{}",
+        declaration_problems.join("; ")
+    );
     let content = CasToolContentStore::new(&store.cas);
 
     // Storage class: an artifact the node's inline unit store admits is
@@ -227,6 +250,7 @@ pub fn install_one(
         imports: inspection.imports.clone(),
         license: request.license.clone(),
         artifact: Some(artifact.clone()),
+        capabilities: request.capabilities.normalized(),
     };
     let unit_id = format!("{}{}", shenko_wasm::TOOL_UNIT_PREFIX, request.name);
     // The unit's artifact digest identifies the unit's own bytes: the module
@@ -259,6 +283,23 @@ pub fn install_one(
                     request.name,
                     request.version
                 );
+                // The declaration is part of what a version means. The same
+                // bytes with a different requirement set is a different
+                // package, so it needs a new version instead of silently
+                // rewriting the requirements a selected environment pins.
+                let recorded_descriptor: ToolDescriptor = serde_json::from_value(fact.tool.clone())
+                    .with_context(|| {
+                        format!("TOOL_RECORD_CORRUPT:{}: tool manifest", fact.unit_id)
+                    })?;
+                ensure!(
+                    recorded_descriptor.capabilities.normalized()
+                        == request.capabilities.normalized(),
+                    "TOOL_INSTALL_CONFLICT:{}@{}: a different capability declaration is \
+                     already installed under this version; a changed requirement set is a new \
+                     version",
+                    request.name,
+                    request.version
+                );
                 // The same bytes under the same version are already
                 // installed: nothing is written, and the install stays
                 // idempotent.
@@ -273,6 +314,7 @@ pub fn install_one(
                     storage: artifact.kind.name().to_string(),
                     sha256: Some(sha256.clone()),
                     license: request.license.clone(),
+                    capabilities: recorded_descriptor.capabilities.normalized(),
                     recovery_bound: false,
                     already_present: true,
                 });
@@ -338,6 +380,7 @@ pub fn install_one(
         storage: artifact.kind.name().to_string(),
         sha256: Some(sha256.clone()),
         license: request.license.clone(),
+        capabilities: request.capabilities.normalized(),
         recovery_bound,
         already_present: false,
     })
@@ -528,6 +571,7 @@ pub fn install_set(
     tools_root: &Path,
     manifest: &ToolSetManifest,
     artifacts: &Path,
+    capabilities: &shenko_node::PackageDeclaration,
 ) -> Result<InstalledSet> {
     shenko_wasm::ensure_manifest_matches_directory(manifest, artifacts)?;
     let mut installed = Vec::with_capacity(manifest.tools.len());
@@ -561,6 +605,20 @@ pub fn install_set(
                     entry.name,
                     manifest.version
                 );
+                // A set-wide declaration is part of what the installed
+                // version means; changing it under the same version would
+                // silently change the requirements an environment pins.
+                let recorded_descriptor: ToolDescriptor =
+                    serde_json::from_value(fact.tool.clone()).with_context(|| {
+                        format!("TOOL_RECORD_CORRUPT:{}: tool manifest", fact.unit_id)
+                    })?;
+                ensure!(
+                    recorded_descriptor.capabilities.normalized() == capabilities.normalized(),
+                    "TOOL_INSTALL_CONFLICT:{}@{}: a different capability declaration is already \
+                     installed under this version; a changed requirement set is a new version",
+                    entry.name,
+                    manifest.version
+                );
                 already_present.push(format!("{}@{}", entry.name, manifest.version));
                 continue;
             }
@@ -578,6 +636,7 @@ pub fn install_set(
             license: Some(manifest.license.spdx.clone()),
             sha256: Some(verified.sha256.clone()),
             path,
+            capabilities: capabilities.normalized(),
         };
         installed.push(install_one(node, store, tools_root, &request)?);
     }
@@ -588,4 +647,131 @@ pub fn install_set(
         version: manifest.version.clone(),
         license: manifest.license.spdx.clone(),
     })
+}
+
+// ------------------------------------------------------------ environment ---
+
+/// The roots a Nix-profile-style refresh means: every enabled tool unit, at
+/// the exact version the inventory currently names.
+///
+/// Explicit `--root` specs are resolved instead. A spec is `tool.<name>`, a
+/// tool name, or either followed by `@<version>`; the version becomes an exact
+/// root pin, which is how an upgrade selects a version the inventory does not
+/// yet call current — preparation is a candidate, activation publishes it.
+pub fn environment_roots(node: &Node, specs: &[String]) -> Result<Vec<shenko_node::EnvironmentRoot>> {
+    if specs.is_empty() {
+        let mut roots: Vec<shenko_node::EnvironmentRoot> = node
+            .tool_unit_facts()?
+            .into_iter()
+            .filter(|fact| {
+                fact.enabled
+                    && fact.current
+                    && fact.unit_id.starts_with(shenko_wasm::TOOL_UNIT_PREFIX)
+            })
+            .map(|fact| shenko_node::EnvironmentRoot {
+                unit_id: fact.unit_id,
+                revision: Some(fact.revision),
+                artifact_digest: Some(fact.artifact_digest),
+            })
+            .collect();
+        roots.sort_by(|left, right| left.unit_id.cmp(&right.unit_id));
+        ensure!(
+            !roots.is_empty(),
+            "UNIT_ENVIRONMENT_EMPTY: no enabled tool unit is installed here, so there is no \
+             environment to lock"
+        );
+        return Ok(roots);
+    }
+    let mut roots = Vec::with_capacity(specs.len());
+    for spec in specs {
+        let (name, revision) = match spec.rsplit_once('@') {
+            Some((name, version)) => (name, Some(version.to_string())),
+            None => (spec.as_str(), None),
+        };
+        let unit_id = if name.starts_with(shenko_wasm::TOOL_UNIT_PREFIX) {
+            name.to_string()
+        } else {
+            shenko_wasm::validate_tool_name(name)?;
+            format!("{}{}", shenko_wasm::TOOL_UNIT_PREFIX, name)
+        };
+        roots.push(shenko_node::EnvironmentRoot {
+            unit_id,
+            revision,
+            artifact_digest: None,
+        });
+    }
+    Ok(roots)
+}
+
+/// Lock the closure of what is installed and publish it as the current
+/// environment, so a newly installed or explicitly pinned version is actually
+/// selected.
+///
+/// This is the Nix `nix-env -i` half of the contract: installing bytes into
+/// the store is not the same as selecting them. The first call creates
+/// generation 1 and selector revision 1; later calls prepare a successor
+/// generation and activate it against the revision that was read, so a
+/// concurrent activation fails the compare-and-swap instead of being
+/// silently overwritten. An install that changes nothing reuses the active
+/// generation instead of churning one.
+pub fn sync_environment(
+    node: &mut Node,
+    installed: &[(String, String)],
+) -> Result<serde_json::Value> {
+    let facts = node.tool_unit_facts()?;
+    let selector = node.environment_selector()?;
+    let mut roots = environment_roots(node, &[])?;
+    for (unit_id, revision) in installed {
+        let fact = facts
+            .iter()
+            .find(|fact| &fact.unit_id == unit_id && &fact.revision == revision)
+            .with_context(|| {
+                format!("installed unit {unit_id} revision {revision} is not in the inventory")
+            })?;
+        match roots.iter_mut().find(|root| &root.unit_id == unit_id) {
+            Some(root) => {
+                root.revision = Some(fact.revision.clone());
+                root.artifact_digest = Some(fact.artifact_digest.clone());
+            }
+            None => roots.push(shenko_node::EnvironmentRoot {
+                unit_id: unit_id.clone(),
+                revision: Some(fact.revision.clone()),
+                artifact_digest: Some(fact.artifact_digest.clone()),
+            }),
+        }
+    }
+    let prepared = node.handle_unit_request(UnitRequest::PrepareEnvironment { roots })?;
+    let unchanged = prepared
+        .get("unchanged")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if unchanged {
+        return Ok(serde_json::json!({
+            "pinned": true,
+            "activated": false,
+            "unchanged": true,
+            "generation": prepared.get("generation"),
+            "note": "the installed set already is the active environment; the selector was not advanced",
+        }));
+    }
+    let generation = prepared
+        .get("generation")
+        .and_then(|record| record.get("generation"))
+        .and_then(serde_json::Value::as_u64)
+        .context("prepared environment generation is missing its number")?;
+    let expected_revision = selector
+        .as_ref()
+        .map(|selector| selector.revision)
+        .unwrap_or(0);
+    let activation = node.handle_unit_request(UnitRequest::ActivateEnvironment {
+        generation,
+        expected_revision,
+    })?;
+    Ok(serde_json::json!({
+        "pinned": true,
+        "activated": true,
+        "first_generation": selector.is_none(),
+        "prepared": prepared,
+        "activation": activation,
+    }))
 }

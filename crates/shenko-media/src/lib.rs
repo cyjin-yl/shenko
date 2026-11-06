@@ -29,11 +29,13 @@ use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
 use shenko_types::media::*;
 
+pub mod identify;
 pub mod provider;
 pub mod query;
 pub mod recording;
 pub mod runtime;
 
+pub use identify::MediaIdentifyHandler;
 pub use query::MediaReadHandler;
 pub use runtime::{MediaProviders, MediaRuntime, MediaRuntimePlugin};
 

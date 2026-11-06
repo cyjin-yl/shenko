@@ -20,6 +20,30 @@ Schema 3 (this file) additionally binds a run to what was actually observed:
   * outages (subject absent, sampler gap, restart boundary, clock
     discontinuity) become first-class records with their real durations.
 
+Records stay schema 3. The report is schema 5: it retains the sealed lifecycle
+and requires per-sample SHA-256 measurements of the actual open executable.
+Older reports that matched only file length and modification time cannot
+establish this binding and remain retained, explicitly rejected evidence.
+
+The run has a lifecycle, because a duration claim is only final once the run
+it describes is finished:
+
+  * ``run_header`` opens the run (written with the first sample);
+  * ``checkpoint`` records that the run had reached a named sample with a
+    maintainer-supplied id, so a long observation has durable review points
+    that cannot name samples the run had not written yet;
+  * ``run_end`` seals the run once, with an explicit ``stop_reason``, and it
+    names the sample the run had already written. Only
+    ``stop_reason="completed"`` can discharge the SPEC S5 duration
+    obligation; an aborted, superseded or failed run keeps its bytes and its
+    observed span, but it is not a finished window. An end record whose sample
+    or sample count does not match the recorded samples is an integrity gap,
+    not a seal.
+
+Sample, checkpoint and stop appends are refused once a run is sealed or once
+the retained bytes are damaged: a sealed run cannot grow new samples, so an
+admitted window can never later be invalidated by more of the same run.
+
 Legacy schema 2 directories stay readable for reporting and are explicitly
 marked as legacy: their bytes are never rewritten and they are not eligible
 as product evidence for the current candidate.
@@ -30,7 +54,8 @@ Layout of the run directory (all writes are fsync'd):
                      *declared* observation windows. Editing it after samples
                      exist is detected as manifest drift at report time.
   records.jsonl      append-only records, each one JSON line fsynced before
-                     the write returns: run_header, segment and sample records.
+                     the write returns: run_header, segment, sample, checkpoint
+                     and run_end records.
 
 One directory holds one immutable run. A changed candidate or damaged run
 requires a new directory/run_id; existing evidence bytes are never repaired or
@@ -40,6 +65,8 @@ Commands:
   init    create the run directory and freeze the manifest
   sample  append exactly one sample (use from cron/systemd/tmux loops)
   run     sample every --interval seconds until --deadline-seconds elapses
+  checkpoint  record a durable mid-run review point at the last sample
+  stop    seal the run once with an explicit stop reason
   report  fold records into a per-run summary; declared windows the samples
           do not cover stay `unobserved` forever
 
@@ -62,6 +89,7 @@ import time
 from pathlib import Path
 
 SCHEMA = 3
+REPORT_SCHEMA = 5
 LEGACY_SCHEMAS = (2,)
 KIND = "c19_long_run_observation"
 SCRIPT_NAME = Path(__file__).name
@@ -70,6 +98,8 @@ DEFAULT_STATE_INTERVAL = 300.0
 EVIDENCE_REAL = "real_observation"
 EVIDENCE_SYNTHETIC = "synthetic_self_check"
 EVIDENCE_CLASSES = (EVIDENCE_REAL, EVIDENCE_SYNTHETIC)
+STOP_REASONS = ("completed", "aborted", "superseded", "candidate_replaced",
+                "failed")
 
 _MANIFEST_REQUIRED = (
     "schema", "kind", "run_id", "workload", "candidate", "environment",
@@ -244,20 +274,35 @@ def measure_environment(procfs=PROCFS):
 
 
 def measure_binary(path):
-    """Measure a candidate binary: digest, size and identity of the file on
-    disk. Returns None when the path does not exist."""
+    """Hash one open binary, binding its bytes and metadata to that descriptor.
+
+    Missing, unreadable or concurrently changed files remain unmeasured.
+    """
     if not path:
         return None
     target = Path(path)
     try:
-        stat = target.stat()
+        with target.open("rb") as source:
+            before = os.fstat(source.fileno())
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+            after = os.fstat(source.fileno())
     except OSError:
+        return None
+    if ((before.st_dev, before.st_ino, before.st_size,
+         before.st_mtime_ns, before.st_ctime_ns) !=
+            (after.st_dev, after.st_ino, after.st_size,
+             after.st_mtime_ns, after.st_ctime_ns)):
         return None
     return {
         "path": str(target),
-        "sha256": sha256_file(target),
-        "bytes": stat.st_size,
-        "mtime": int(stat.st_mtime),
+        "sha256": digest.hexdigest(),
+        "bytes": after.st_size,
+        "mtime": int(after.st_mtime),
+        "mtime_ns": after.st_mtime_ns,
+        "dev": after.st_dev,
+        "ino": after.st_ino,
     }
 
 
@@ -266,19 +311,17 @@ def read_subject_exe(pid, procfs=PROCFS):
     attributable to a candidate binary instead of to a claimed one."""
     if pid is None:
         return None
+    executable = procfs / str(pid) / "exe"
     try:
-        raw = os.readlink(procfs / str(pid) / "exe")
+        raw = os.readlink(executable)
     except OSError:
         return None
-    info = {"path": raw}
-    try:
-        stat = os.stat(raw)
-    except OSError:
-        return info
-    info["dev"] = stat.st_dev
-    info["ino"] = stat.st_ino
-    info["bytes"] = stat.st_size
-    info["mtime"] = int(stat.st_mtime)
+    # /proc pins the executed file even when its reported pathname has since
+    # been replaced or unlinked. Never reopen that mutable pathname.
+    info = measure_binary(executable)
+    if info is None:
+        return {"path": raw, "measurement_error": "executed file could not be measured"}
+    info["path"] = raw
     return info
 
 
@@ -428,7 +471,7 @@ def validate_manifest(manifest, allow_legacy=False):
     if manifest["evidence_class"] == EVIDENCE_REAL:
         # A real observation run names the exact artifact it watched. Without
         # a commit and a measured binary there is nothing to attribute.
-        if not digest_string(candidate.get("commit")):
+        if not commit_string(candidate.get("commit")):
             raise ValueError(
                 "a real_observation run must record the candidate commit")
         measured = candidate.get("binary_measured")
@@ -456,6 +499,10 @@ def finite_number(value):
 
 def digest_string(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def commit_string(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) is not None
 
 
 def positive_int(value):
@@ -503,6 +550,19 @@ def valid_record(record):
                     "starttime_changed_same_pid", "comm_changed")
                 and (previous is None or valid_fingerprint(previous))
                 and valid_fingerprint(current))
+    if kind == "checkpoint":
+        return (digest_string(record.get("manifest_sha256"))
+                and positive_int(record.get("sample_seq"))
+                and isinstance(record.get("checkpoint_id"), str)
+                and bool(record["checkpoint_id"].strip())
+                and (record.get("note") is None
+                     or isinstance(record.get("note"), str)))
+    if kind == "run_end":
+        return (digest_string(record.get("manifest_sha256"))
+                and positive_int(record.get("sample_seq"))
+                and positive_int(record.get("samples"))
+                and record.get("stop_reason") in STOP_REASONS
+                and (record.get("note") is None or isinstance(record.get("note"), str)))
     return False
 
 
@@ -536,12 +596,31 @@ def scan_log(log):
                     "headers": [], "segments": [], "samples": [],
                     "last_seq": 0, "last_main": None,
                     "first_record": record["record"],
+                    "checkpoints": [], "run_end": None, "run_end_count": 0,
+                    "records_after_end": 0, "checkpoint_mismatches": [],
+                    "duplicate_checkpoint_ids": [],
                 }
             kind = record["record"]
+            if kind != "run_header" and state["run_end_count"]:
+                state["records_after_end"] += 1
             if kind == "run_header":
                 state["headers"].append(record)
             elif kind == "segment":
                 state["segments"].append(record)
+            elif kind == "checkpoint":
+                if record["sample_seq"] != state["last_seq"]:
+                    state["checkpoint_mismatches"].append(
+                        [record["checkpoint_id"], record["sample_seq"],
+                         state["last_seq"]])
+                if any(existing["checkpoint_id"] == record["checkpoint_id"]
+                       for existing in state["checkpoints"]):
+                    state["duplicate_checkpoint_ids"].append(
+                        record["checkpoint_id"])
+                state["checkpoints"].append(record)
+            elif kind == "run_end":
+                state["run_end_count"] += 1
+                if state["run_end"] is None:
+                    state["run_end"] = record
             elif kind == "sample":
                 state["samples"].append(record)
                 state["last_seq"] = record["seq"]
@@ -577,6 +656,20 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
                 and main["proc_start_jiffies"] >= 0
                 and isinstance(main.get("comm"), str) and main["comm"]):
             identity_unverified.append(sample["seq"])
+    # A seal binds the sample the run had actually written. An end record that
+    # names a later sample, or a different sample count, is not a terminal
+    # completion of these bytes even though its stop reason reads completed.
+    run_end_mismatches = []
+    if state and state["run_end"] is not None:
+        end = state["run_end"]
+        if (end["sample_seq"] != state["last_seq"]
+                or end["samples"] != len(state["samples"])):
+            run_end_mismatches.append({
+                "recorded_sample_seq": end["sample_seq"],
+                "last_sample_seq": state["last_seq"],
+                "recorded_samples": end["samples"],
+                "sample_records": len(state["samples"]),
+            })
     integrity = {
         "header_valid": header_valid,
         "header_count": len(headers),
@@ -588,11 +681,20 @@ def run_integrity(manifest, manifest_sha256, runs, issues):
         "invalid_records": issues["invalid_records"],
         "sequence_gaps": seq_gaps,
         "identity_unverified_sample_seqs": identity_unverified,
+        "run_end_count": state["run_end_count"] if state else 0,
+        "duplicate_run_ends": bool(state and state["run_end_count"] > 1),
+        "records_after_run_end": state["records_after_end"] if state else 0,
+        "run_end_mismatches": run_end_mismatches,
+        "checkpoint_mismatches": state["checkpoint_mismatches"] if state else [],
+        "duplicate_checkpoint_ids": (
+            state["duplicate_checkpoint_ids"] if state else []),
     }
     integrity["intact"] = header_valid and not any(
         integrity[key] for key in (
             "unexpected_run_ids", "unreadable_lines", "unterminated_tail_bytes",
-            "invalid_records", "sequence_gaps", "identity_unverified_sample_seqs"))
+            "invalid_records", "sequence_gaps", "identity_unverified_sample_seqs",
+            "duplicate_run_ends", "records_after_run_end", "run_end_mismatches",
+            "checkpoint_mismatches", "duplicate_checkpoint_ids"))
     return integrity
 
 
@@ -667,10 +769,12 @@ def subject_binary_state(pid, candidate):
     if not isinstance(measured, dict):
         state["matches_declared_candidate"] = None
         return state
-    same = (exe.get("ino") is not None
-            and measured.get("bytes") == exe.get("bytes")
-            and measured.get("mtime") == exe.get("mtime"))
-    state["matches_declared_candidate"] = bool(same)
+    observed_digest = exe.get("sha256")
+    declared_digest = measured.get("sha256")
+    state["matches_declared_candidate"] = (
+        observed_digest == declared_digest
+        if digest_string(observed_digest) and digest_string(declared_digest)
+        else None)
     return state
 
 
@@ -699,7 +803,7 @@ def cmd_init(args):
             f"--evidence-class must be one of {', '.join(EVIDENCE_CLASSES)}")
     measured_binary = measure_binary(args.binary_path)
     if args.evidence_class == EVIDENCE_REAL:
-        if not digest_string(args.candidate_commit):
+        if not commit_string(args.candidate_commit):
             raise SystemExit(
                 "--evidence-class real_observation requires "
                 "--candidate-commit with the exact 40-hex commit")
@@ -711,7 +815,7 @@ def cmd_init(args):
             raise SystemExit(
                 "--evidence-class real_observation requires --binary-path "
                 "pointing at an existing candidate binary")
-        if args.binary_sha256 and args.binary_sha256 != measured_binary["sha256"]:
+        if args.binary_sha256 is not None and args.binary_sha256 != measured_binary["sha256"]:
             raise SystemExit(
                 "declared --binary-sha256 does not match the measured binary "
  f"({measured_binary['sha256']}); refusing to bind a wrong artifact")
@@ -724,7 +828,8 @@ def cmd_init(args):
         "candidate": {
             "commit": args.candidate_commit,
             "binary_path": args.binary_path,
-            "binary_sha256": args.binary_sha256,
+            "binary_sha256": (args.binary_sha256 if args.binary_sha256 is not None
+                              else measured_binary["sha256"] if measured_binary else None),
             "binary_measured": measured_binary,
             "source": args.candidate_source,
             "profile": args.profile,
@@ -755,12 +860,15 @@ def cmd_init(args):
     return 0
 
 
-def _take_sample(run_dir, manifest, fixed_pid, pid_file, epoch=None):
-    """Append one fsync'd sample record; return the record."""
+def require_appendable(run_dir, manifest):
+    """Common guard for every append (sample, checkpoint, stop).
+
+    One bound run, an unchanged recorder and intact retained bytes are the
+    preconditions; a sealed run accepts no further records, so an admitted
+    window cannot be extended or invalidated after the fact.
+    """
     log = log_path(run_dir)
     runs, issues = scan_log(log)
-    run_id = manifest["run_id"]
-    state = runs.get(run_id)
     manifest_sha256 = sha256_file(manifest_path(run_dir))
     recorder = {"script": SCRIPT_NAME,
                 "script_sha256": sha256_file(Path(__file__).resolve())}
@@ -770,6 +878,18 @@ def _take_sample(run_dir, manifest, fixed_pid, pid_file, epoch=None):
     if issues["total_bytes"] and not run_integrity(
             manifest, manifest_sha256, runs, issues)["intact"]:
         raise ValueError("refusing append to invalid evidence; preserve all bytes and start a new run")
+    state = runs.get(manifest["run_id"])
+    if state is not None and state["run_end"] is not None:
+        raise ValueError(
+            "run is sealed by run_end; a finished observation cannot grow new "
+            "records — start a new run_id")
+    return state, manifest_sha256, recorder, log
+
+
+def _take_sample(run_dir, manifest, fixed_pid, pid_file, epoch=None):
+    """Append one fsync'd sample record; return the record."""
+    state, manifest_sha256, recorder, log = require_appendable(run_dir, manifest)
+    run_id = manifest["run_id"]
     epoch = utcnow() if epoch is None else epoch
     clock = read_sampler_clock()
     if state is None:
@@ -866,6 +986,80 @@ def cmd_run(args):
                       "samples_taken": count,
                       "deadline_reached": utcnow() >= deadline},
                      ensure_ascii=False))
+    return 0
+
+
+def cmd_checkpoint(args):
+    """Record a durable review point at the last sample the run had written."""
+    run_dir = Path(args.dir)
+    manifest = load_manifest(run_dir)
+    state, manifest_sha256, _recorder, log = require_appendable(
+        run_dir, manifest)
+    if state is None or not state["samples"]:
+        raise ValueError(
+            "no sample records yet; a checkpoint binds an observed sample, "
+            "not an intended one")
+    checkpoint_id = args.checkpoint_id.strip()
+    if not checkpoint_id:
+        raise ValueError("checkpoint id must be non-empty")
+    if any(existing["checkpoint_id"] == checkpoint_id
+           for existing in state["checkpoints"]):
+        raise ValueError(
+            f"checkpoint {checkpoint_id!r} is already recorded in this run; "
+            "preserve it and use a new id for a new review point")
+    now = utcnow()
+    record = {
+        "record": "checkpoint",
+        "schema": SCHEMA,
+        "run_id": manifest["run_id"],
+        "checkpoint_id": checkpoint_id,
+        "note": args.note,
+        "sample_seq": state["last_seq"],
+        "samples": len(state["samples"]),
+        "epoch": round(now, 3),
+        "wall_utc": iso_utc(now),
+        "manifest_sha256": manifest_sha256,
+    }
+    append_record(log, record)
+    print(json.dumps({"checkpoint": checkpoint_id,
+                      "run_id": manifest["run_id"],
+                      "sample_seq": record["sample_seq"],
+                      "wall_utc": record["wall_utc"]}, ensure_ascii=False))
+    return 0
+
+
+def cmd_stop(args):
+    """Seal the run once, with the reason it ended."""
+    run_dir = Path(args.dir)
+    manifest = load_manifest(run_dir)
+    if args.reason not in STOP_REASONS:
+        raise ValueError(
+            f"--reason must be one of {', '.join(STOP_REASONS)}")
+    state, manifest_sha256, _recorder, log = require_appendable(
+        run_dir, manifest)
+    if state is None or not state["samples"]:
+        raise ValueError(
+            "no sample records yet; a run that observed nothing cannot be "
+            "sealed as an observation")
+    now = utcnow()
+    record = {
+        "record": "run_end",
+        "schema": SCHEMA,
+        "run_id": manifest["run_id"],
+        "stop_reason": args.reason,
+        "note": args.note,
+        "sample_seq": state["last_seq"],
+        "samples": len(state["samples"]),
+        "epoch": round(now, 3),
+        "wall_utc": iso_utc(now),
+        "manifest_sha256": manifest_sha256,
+    }
+    append_record(log, record)
+    print(json.dumps({"stopped": str(manifest_path(run_dir)),
+                      "run_id": manifest["run_id"],
+                      "stop_reason": record["stop_reason"],
+                      "sample_seq": record["sample_seq"],
+                      "samples": record["samples"]}, ensure_ascii=False))
     return 0
 
 
@@ -976,15 +1170,32 @@ def cmd_report(args):
             "reason": restart["reason"],
         })
     binary_drift = []
+    binary_verified = []
+    binary_unverified = []
+    measured_candidate = manifest["candidate"].get("binary_measured") or {}
+    candidate_digest = measured_candidate.get("sha256")
     for sample in samples:
         binary = sample["main"].get("binary") or {}
-        if binary.get("matches_declared_candidate") is False:
+        observed_digest = (binary.get("exe") or {}).get("sha256")
+        if (binary.get("matches_declared_candidate") is False or
+                (digest_string(candidate_digest) and digest_string(observed_digest)
+                 and candidate_digest != observed_digest)):
             binary_drift.append(sample["seq"])
+        elif sample["main"]["alive"]:
+            if (binary.get("matches_declared_candidate") is True and
+                    digest_string(candidate_digest) and
+                    observed_digest == candidate_digest):
+                binary_verified.append(sample["seq"])
+            elif manifest.get("evidence_class") == EVIDENCE_REAL:
+                binary_unverified.append(sample["seq"])
     integrity.update({
         "clock_unverified_sample_seqs": clock_unverified,
         "clock_discontinuities": clock_discontinuities,
         "unmatched_restart_boundaries": unmatched_restarts,
         "missing_restart_boundaries": missing_restarts,
+        "candidate_binary_binding": "proc_exe_sha256",
+        "candidate_binary_verified_sample_seqs": binary_verified,
+        "candidate_binary_unverified_sample_seqs": binary_unverified,
         "candidate_binary_drift_sample_seqs": binary_drift,
         "record_count": len(samples),
         "sample_records": len(alive) + len(absent),
@@ -993,7 +1204,7 @@ def cmd_report(args):
     })
     integrity["intact"] = integrity["intact"] and not any((
         clock_unverified, clock_discontinuities, unmatched_restarts,
-        missing_restarts, binary_drift))
+        missing_restarts, binary_drift, binary_unverified))
     # Deliberately reject the whole declared run when any known gap exists;
     # do not splice disconnected spans into a 7/30-day observation claim.
     qualifying_span = qualifying_elapsed if integrity["intact"] and not gaps else 0.0
@@ -1031,7 +1242,8 @@ def cmd_report(args):
             segments[-1]["last_seen_epoch"] = s["epoch"]
             segments[-1]["samples"] += 1
     report = {
-        "schema": SCHEMA,
+        "schema": REPORT_SCHEMA,
+        "record_schema": manifest["schema"],
         "kind": "c19_long_run_observation_report",
         "run_id": run_id,
         "generated_utc": iso_utc(utcnow()),
@@ -1057,19 +1269,43 @@ def cmd_report(args):
         "outages": outages,
         "integrity": integrity,
         "declared_windows": declared,
+        "lifecycle": {
+            "sealed": state["run_end"] is not None,
+            "stop_reason": (state["run_end"]["stop_reason"]
+                            if state["run_end"] is not None else None),
+            "stop_epoch": (state["run_end"]["epoch"]
+                           if state["run_end"] is not None else None),
+            "stop_sample_seq": (state["run_end"]["sample_seq"]
+                                if state["run_end"] is not None else None),
+            "checkpoint_count": len(state["checkpoints"]),
+            "checkpoints": [
+                {"checkpoint_id": checkpoint["checkpoint_id"],
+                 "sample_seq": checkpoint["sample_seq"],
+                 "epoch": checkpoint["epoch"]}
+                for checkpoint in state["checkpoints"]],
+        },
         "verdict": ("all_declared_windows_observed"
                     if all_observed else "incomplete_observation"),
         "eligible_as_product_evidence": bool(
             not legacy
             and manifest.get("evidence_class") == EVIDENCE_REAL
             and all_observed
-            and integrity["intact"]),
+            and integrity["intact"]
+            and state["run_end"] is not None
+            and state["run_end"]["stop_reason"] == "completed"),
         "never_claimed": [
             "samples are points in time; behaviour between them is not proven",
             "absent/dead subject or sampler downtime stays recorded, not filled",
             "endpoint span alone never qualifies a window",
             "damaged, unbound, clock-discontinuous or gapped runs stay unobserved",
             "a synthetic self-check run never closes a SPEC obligation",
+            "an unsealed run reports its span but cannot discharge the 7/30-day "
+            "duration obligation; only a completed run_end seals it",
+            "a checkpoint binds a sample already written, never an intended one",
+            "a stop binds the sample the run had written; an end record naming a "
+            "later sample invalidates the run instead of sealing it",
+            "eligible_as_product_evidence summarises every declared window; a "
+            "run stopped short still reports the window it did qualify",
             "legacy schema runs are reported but not upgraded and are not "
             "evidence for the current candidate",
         ],
@@ -1127,6 +1363,22 @@ def build_parser():
             sp.add_argument("--deadline-seconds", type=float, required=True)
             sp.add_argument("--max-samples", type=int)
         sp.set_defaults(func=func)
+
+    checkpoint = sub.add_parser(
+        "checkpoint", help="record a durable review point at the last sample")
+    checkpoint.add_argument("--dir", required=True)
+    checkpoint.add_argument("--id", dest="checkpoint_id", required=True,
+                            help="auditable name for this review point")
+    checkpoint.add_argument("--note")
+    checkpoint.set_defaults(func=cmd_checkpoint)
+
+    stop = sub.add_parser("stop", help="seal the run once with its stop reason")
+    stop.add_argument("--dir", required=True)
+    stop.add_argument("--reason", required=True, choices=STOP_REASONS,
+                      help="completed is the only reason that can discharge "
+                           "the duration obligation")
+    stop.add_argument("--note")
+    stop.set_defaults(func=cmd_stop)
 
     report = sub.add_parser("report")
     report.add_argument("--dir", required=True)

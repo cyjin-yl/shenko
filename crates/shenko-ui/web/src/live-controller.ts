@@ -2,11 +2,16 @@ import {
   UI_INTENT_SCHEMA,
   UI_PROJECTION_SCHEMA,
   buildProjection,
+  semanticHash,
+  type ActionReceiptView,
   type BuildManifest,
+  type ConfigEntryView,
   type ConnectionState,
   type DisplayState,
   type IdentityView,
   type ProjectionController,
+  type ReadingAnchor,
+  type ReadingSelection,
   type ReadingState,
   type DegradedDocument,
   type DocumentErrorView,
@@ -19,12 +24,31 @@ import {
   type UiState,
   type ViewName,
 } from './projection';
+import {
+  readDisplayState,
+  readSelection,
+  recordSelection,
+  saveReadingAnchor,
+  saveSelection,
+  setCodeWrap,
+  setExpanded,
+  type DisplayStorage,
+  type PersistedDisplayState,
+} from './reading-state';
 
 const DRAFT_KEY = 'shenko.draft.v1';
 const SUBMISSION_KEY_PREFIX = 'shenko.submission.v2.';
+const ACTION_KEY_PREFIX = 'shenko.action.v2.';
 const THEME_KEY = 'shenko.theme.v1';
 const RECEIPT_REFRESH_MS = 2000;
 const RECONNECT_BASE = [1, 2, 4, 8, 15];
+const DEFAULT_SECTIONS: Record<string, boolean> = {
+  status: true,
+  activity: true,
+  artifacts: false,
+  devices: false,
+};
+const MAX_ACTION_RECEIPTS = 16;
 const VALID_VIEWS = new Set<ViewName>(['timeline', 'tasks', 'memory', 'config', 'playground']);
 const VALID_READING = new Set<ReadingState>([
   'following_latest',
@@ -46,6 +70,16 @@ function storageSet(key: string, value: string): void {
     else localStorage.removeItem(key);
   } catch {
     // Browser storage is optional; the editor and transport keep working.
+  }
+}
+
+/// Display state is restored through the same tolerant reader as local
+/// storage; a privacy mode that denies access simply starts from defaults.
+function displayStorage(): DisplayStorage | null {
+  try {
+    return localStorage;
+  } catch {
+    return null;
   }
 }
 
@@ -141,15 +175,116 @@ function initialTheme(): 'dark' | 'light' {
   return storageGet(THEME_KEY) === 'light' ? 'light' : 'dark';
 }
 
+function initialSections(persisted: PersistedDisplayState): Record<string, boolean> {
+  const sections: Record<string, boolean> = {};
+  for (const [name, fallback] of Object.entries(DEFAULT_SECTIONS)) {
+    const stored = persisted.expanded[`section.${name}`];
+    sections[name] = typeof stored === 'boolean' ? stored : fallback;
+  }
+  return sections;
+}
+
+/// One admitted action click, persisted before the transport can send it. It
+/// shares the server's web-submission ledger, so a reopen can reconcile the
+/// same `submission_id` instead of admitting the same decision twice.
+interface PendingAction {
+  submission_id: string;
+  subject_id: string;
+  document_id: string;
+  action_id: string;
+  revision: string;
+  nonce: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+  send_epoch: number;
+}
+
+function actionKey(submissionId: string): string {
+  return `${ACTION_KEY_PREFIX}${submissionId}`;
+}
+
+function saveAction(action: PendingAction): boolean {
+  try {
+    localStorage.setItem(actionKey(action.submission_id), JSON.stringify(action));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function retireAction(action: PendingAction): void {
+  try {
+    localStorage.removeItem(actionKey(action.submission_id));
+  } catch {
+    // Storage is optional; the in-memory receipt retires regardless.
+  }
+}
+
+function storedActions(): Map<string, PendingAction> {
+  const restored = new Map<string, PendingAction>();
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key || !key.startsWith(ACTION_KEY_PREFIX)) continue;
+      const saved: unknown = JSON.parse(localStorage.getItem(key) ?? 'null');
+      if (!isObject(saved) || !isObject(saved.payload)) continue;
+      if (
+        typeof saved.submission_id !== 'string' || !saved.submission_id ||
+        saved.submission_id !== key.slice(ACTION_KEY_PREFIX.length) ||
+        typeof saved.subject_id !== 'string' || !saved.subject_id ||
+        typeof saved.document_id !== 'string' || !saved.document_id ||
+        typeof saved.action_id !== 'string' || !saved.action_id ||
+        typeof saved.revision !== 'string' || !saved.revision ||
+        typeof saved.nonce !== 'string' || !saved.nonce ||
+        typeof saved.created_at !== 'string' || !Number.isFinite(Date.parse(saved.created_at))
+      ) continue;
+      restored.set(saved.submission_id, {
+        submission_id: saved.submission_id,
+        subject_id: saved.subject_id,
+        document_id: saved.document_id,
+        action_id: saved.action_id,
+        revision: saved.revision,
+        nonce: saved.nonce,
+        payload: saved.payload,
+        created_at: saved.created_at,
+        send_epoch: validRevision(saved.send_epoch) ? saved.send_epoch : 0,
+      });
+    }
+  } catch {
+    // An unreadable record recovers as absent, never as an admitted action.
+  }
+  return restored;
+}
+
+function initialActionReceipts(actions: Map<string, PendingAction>): ActionReceiptView[] {
+  return [...actions.values()]
+    .sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at))
+    .map((action) => ({
+      submission_id: action.submission_id,
+      document_id: action.document_id,
+      action_id: action.action_id,
+      revision: action.revision,
+      stage: 'sending' as const,
+      detail: '已恢复原动作 ID；等待持久对账，不会重复接纳同一决定。',
+    }));
+}
+
 function initialState(): UiState {
+  const storage = displayStorage();
+  const persisted = readDisplayState(storage);
+  const actions = storedActions();
+  const selection = readSelection(storage);
   const display: DisplayState = {
     view: 'timeline',
     panel_open: false,
-    open_sections: { status: true, activity: true, artifacts: false, devices: false },
+    open_sections: initialSections(persisted),
     theme: initialTheme(),
-    reading: 'following_latest',
+    reading: persisted.reading,
     new_count: 0,
     scroll_request: 0,
+    wrap: persisted.wrap,
+    ...(persisted.anchor ? { anchor: persisted.anchor } : {}),
+    ...(selection ? { selection } : {}),
   };
   return {
     source: 'live',
@@ -172,6 +307,7 @@ function initialState(): UiState {
     streaming: false,
     documents: [],
     document_errors: [],
+    action_receipts: initialActionReceipts(actions),
     subject_id: null,
     wanted_identity_revision: null,
     step: null,
@@ -179,6 +315,9 @@ function initialState(): UiState {
     submissions: storedSubmissions(),
     draft: storageGet(DRAFT_KEY),
     config_error: false,
+    config_entries: undefined,
+    config_entries_error: false,
+    config_drafts: {},
     self_error: false,
     tasks_error: false,
     memory_error: false,
@@ -193,6 +332,43 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function validRevision(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+/// A place is only accepted when it names a rendered entry; an anonymous
+/// scroll offset alone is never promoted into a reading anchor.
+function validAnchorPayload(value: unknown): ReadingAnchor | undefined {
+  if (!isObject(value)) return undefined;
+  if (typeof value.entry_key !== 'string' || !value.entry_key) return undefined;
+  if (!finite(value.offset) || !finite(value.scroll_top)) return undefined;
+  return {
+    entry_key: value.entry_key,
+    entry_index: finite(value.entry_index) ? Math.max(0, Math.trunc(value.entry_index)) : 0,
+    ...(typeof value.prev_entry_key === 'string' && value.prev_entry_key
+      ? { prev_entry_key: value.prev_entry_key }
+      : {}),
+    offset: value.offset,
+    scroll_top: Math.max(0, value.scroll_top),
+  };
+}
+
+function sameAnchor(left: ReadingAnchor, right: ReadingAnchor | undefined): boolean {
+  return right !== undefined
+    && left.entry_key === right.entry_key
+    && left.prev_entry_key === right.prev_entry_key
+    && Math.abs(left.offset - right.offset) < 1
+    && Math.abs(left.scroll_top - right.scroll_top) < 1;
+}
+
+function sameSelection(left: ReadingSelection, right: ReadingSelection | undefined): boolean {
+  return right !== undefined
+    && left.entry_key === right.entry_key
+    && left.start === right.start
+    && left.end === right.end
+    && left.prefix_hash === right.prefix_hash;
 }
 
 interface TimelineChunk extends Record<string, unknown> {
@@ -244,6 +420,14 @@ class LiveController implements ProjectionController {
   private selfApplied = 0;
   private abort = new AbortController();
   private pendingChunks = new Map<string, Map<number, TimelineChunk>>();
+  /// One durable origin identity per (key, exact desired bytes): pressing save
+  /// again for the same value resolves the original change instead of
+  /// submitting a second one.
+  private configOrigins = new Map<string, string>();
+  /// Actions whose admission is still open, keyed by the durable submission
+  /// ID the Store knows. Restored before the socket connects so a reopen
+  /// reconciles the original decision instead of admitting a second one.
+  private pendingActions = storedActions();
 
   constructor() {
     document.documentElement.dataset.theme = this.state.display.theme;
@@ -304,6 +488,7 @@ class LiveController implements ProjectionController {
           if (view === 'playground') void this.loadPlayground();
           if (view === 'config') {
             void this.loadConfig();
+            void this.loadConfigEntries();
             void this.loadSelf();
             void this.loadHealth();
             void this.loadManifest();
@@ -330,6 +515,11 @@ class LiveController implements ProjectionController {
         const section = intent.payload.section;
         if (typeof section === 'string' && Object.hasOwn(this.state.display.open_sections, section)) {
           this.state.display.open_sections[section] = !this.state.display.open_sections[section];
+          setExpanded(
+            displayStorage(),
+            `section.${section}`,
+            this.state.display.open_sections[section],
+          );
           this.emit();
         }
         break;
@@ -342,9 +532,26 @@ class LiveController implements ProjectionController {
           : typeof requested === 'string' && VALID_READING.has(requested as ReadingState)
             ? (requested as ReadingState)
             : 'reading_history';
-        if (this.state.display.reading !== next || (atEnd && this.state.display.new_count !== 0)) {
-          this.state.display.reading = next;
-          if (atEnd) this.state.display.new_count = 0;
+        const anchor = validAnchorPayload(intent.payload.anchor);
+        const previousAnchor = this.state.display.anchor;
+        let changed = this.state.display.reading !== next
+          || (atEnd && this.state.display.new_count !== 0);
+        this.state.display.reading = next;
+        if (atEnd) {
+          this.state.display.new_count = 0;
+          if (previousAnchor) {
+            this.state.display.anchor = undefined;
+            saveReadingAnchor(displayStorage(), null);
+            changed = true;
+          }
+        } else if (anchor && !sameAnchor(anchor, previousAnchor)) {
+          // A place is only restorable when the reader is actually in history;
+          // a transient selection is not a place (§21.11).
+          this.state.display.anchor = anchor;
+          saveReadingAnchor(displayStorage(), anchor);
+          changed = true;
+        }
+        if (changed) {
           this.emit();
         }
         break;
@@ -352,9 +559,49 @@ class LiveController implements ProjectionController {
       case 'timeline.latest':
         this.state.display.reading = 'following_latest';
         this.state.display.new_count = 0;
+        this.state.display.anchor = undefined;
+        saveReadingAnchor(displayStorage(), null);
         this.state.display.scroll_request += 1;
         this.emit();
         break;
+      case 'timeline.code_wrap': {
+        const wrap = !this.state.display.wrap;
+        this.state.display.wrap = wrap;
+        setCodeWrap(displayStorage(), wrap);
+        this.state.display.notice = wrap ? '长代码行已软换行' : '长代码行保持原样，可横向滚动';
+        this.emit();
+        break;
+      }
+      case 'timeline.selection': {
+        const storage = displayStorage();
+        const entryKey = intent.payload.entry_key;
+        const text = intent.payload.text;
+        const start = intent.payload.start;
+        const end = intent.payload.end;
+        if (intent.payload.clear === true || typeof entryKey !== 'string' || typeof text !== 'string'
+          || typeof start !== 'number' || typeof end !== 'number'
+          || !Number.isFinite(start) || !Number.isFinite(end)) {
+          if (intent.payload.clear !== true) break;
+          if (!this.state.display.selection) break;
+          this.state.display.selection = undefined;
+          saveSelection(storage, null);
+          this.emit();
+          break;
+        }
+        const recorded = recordSelection(entryKey, text, start, end);
+        if (!recorded) {
+          if (!this.state.display.selection) break;
+          this.state.display.selection = undefined;
+          saveSelection(storage, null);
+          this.emit();
+          break;
+        }
+        if (sameSelection(recorded, this.state.display.selection)) break;
+        this.state.display.selection = recorded;
+        saveSelection(storage, recorded);
+        this.emit();
+        break;
+      }
       case 'part.copy':
         void this.copyText(String(action.payload?.content ?? ''));
         break;
@@ -364,6 +611,18 @@ class LiveController implements ProjectionController {
           storageSet(DRAFT_KEY, this.state.draft);
           this.emit();
         }
+        break;
+      case 'config.draft': {
+        const entry = intent.payload.entry;
+        const value = intent.payload.value;
+        if (typeof entry === 'string' && typeof value === 'string') {
+          this.state.config_drafts = { ...(this.state.config_drafts ?? {}), [entry]: value };
+          this.emit();
+        }
+        break;
+      }
+      case 'config.apply':
+        void this.applyConfigEntry(action.payload?.namespace, action.payload?.logical_key);
         break;
       case 'composer.append':
         this.sendWithMode('append');
@@ -552,10 +811,61 @@ class LiveController implements ProjectionController {
   }): void {
     const socket = this.socket;
     const subjectId = this.state.subject_id;
-    if (!socket || socket.readyState !== WebSocket.OPEN || !subjectId) return;
+    if (!subjectId) {
+      this.state.display.notice = '尚无真实 subject 绑定；动作未发送。';
+      this.emit();
+      return;
+    }
     if (!this.state.capabilities.actions) {
       this.state.display.notice = '当前服务器未提供动作能力。';
       this.emit();
+      return;
+    }
+    // The same (document, action, revision) may already be durably admitted
+    // and merely awaiting disposition. A second click would admit a second
+    // decision, so the pending receipt is shown instead of resending it.
+    const open = this.state.action_receipts.find(
+      (row) => row.document_id === documentId && row.action_id === option.action_id
+        && ['sending', 'accepted', 'selected'].includes(row.stage),
+    );
+    if (open) {
+      this.state.display.notice = open.stage === 'sending'
+        ? '此动作正在提交；等待持久回执。'
+        : '此动作已持久接纳；处置结果由主体决定，不重复接纳。';
+      this.emit();
+      return;
+    }
+    const action: PendingAction = {
+      submission_id: uid(),
+      subject_id: subjectId,
+      document_id: documentId,
+      action_id: option.action_id,
+      revision: option.revision,
+      nonce: option.nonce,
+      payload: option.payload,
+      created_at: new Date().toISOString(),
+      send_epoch: 0,
+    };
+    if (!saveAction(action)) {
+      this.state.display.notice = '浏览器无法保存动作 ID；未发送。';
+      this.emit();
+      return;
+    }
+    this.pendingActions.set(action.submission_id, action);
+    this.pushActionReceipt({
+      submission_id: action.submission_id,
+      document_id: documentId,
+      action_id: option.action_id,
+      revision: option.revision,
+      stage: 'sending',
+    });
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      // Not admitted: the transport never took it. Keep the durable ID so a
+      // reconnect can resend this exact decision rather than mint a new one.
+      this.setActionReceipt(action.submission_id, {
+        stage: 'unavailable',
+        detail: '连接未就绪；动作未发送，原动作 ID 已保留。',
+      });
       return;
     }
     try {
@@ -563,7 +873,7 @@ class LiveController implements ProjectionController {
         JSON.stringify({
           schema_version: 2,
           type: 'action',
-          submission_id: uid(),
+          submission_id: action.submission_id,
           document_id: documentId,
           action_id: option.action_id,
           revision: option.revision,
@@ -572,9 +882,44 @@ class LiveController implements ProjectionController {
           payload: option.payload,
         }),
       );
+      action.send_epoch += 1;
+      saveAction(action);
+      this.scheduleReceiptRefresh();
     } catch {
-      // onclose schedules the reconnect; nothing was durably admitted here.
+      this.setActionReceipt(action.submission_id, {
+        stage: 'unavailable',
+        detail: '未能写入传输；动作未接纳，原动作 ID 已保留。',
+      });
     }
+  }
+
+  private pushActionReceipt(receipt: ActionReceiptView): void {
+    const rest = this.state.action_receipts.filter(
+      (row) => row.submission_id !== receipt.submission_id,
+    );
+    this.state.action_receipts = [...rest, receipt].slice(-MAX_ACTION_RECEIPTS);
+    this.emit();
+  }
+
+  private setActionReceipt(
+    submissionId: string,
+    patch: Partial<Omit<ActionReceiptView, 'submission_id'>>,
+  ): void {
+    let found = false;
+    this.state.action_receipts = this.state.action_receipts.map((row) => {
+      if (row.submission_id !== submissionId) return row;
+      found = true;
+      return { ...row, ...patch };
+    });
+    if (!found) return;
+    this.emit();
+  }
+
+  private retirePendingAction(submissionId: string): void {
+    const action = this.pendingActions.get(submissionId);
+    if (!action) return;
+    this.pendingActions.delete(submissionId);
+    retireAction(action);
   }
 
   private clearReconnectTimers(): void {
@@ -665,6 +1010,13 @@ class LiveController implements ProjectionController {
           saveSubmission(submission);
         }
       }
+      // The action's admission result is unknown too, but its ID and payload
+      // stay durable so the reconnect query settles the same decision.
+      for (const row of this.state.action_receipts) {
+        if (row.stage !== 'sending') continue;
+        row.stage = 'unavailable';
+        row.detail = '连接中断，动作回执未知；保留原动作 ID 等待对账。';
+      }
       this.scheduleReconnect();
     };
   }
@@ -727,7 +1079,14 @@ class LiveController implements ProjectionController {
             source_commit: String(data.source_commit ?? ''),
             reason: data.reason,
           };
-          this.state.document_errors = [...this.state.document_errors, view].slice(-16);
+          // Replay repeats every committed error; the reason is a fact about
+          // that step, so an identical observation is not a second failure.
+          const known = this.state.document_errors.some(
+            (row) => row.source_step_id === view.source_step_id && row.reason === view.reason,
+          );
+          if (!known) {
+            this.state.document_errors = [...this.state.document_errors, view].slice(-16);
+          }
           this.state.display.notice = `文档未能呈现：${data.reason}`;
           this.emit();
         }
@@ -773,12 +1132,7 @@ class LiveController implements ProjectionController {
       (row) => row.payload.submission_id === data.submission_id,
     );
     if (!submission) {
-      // Action receipts use submission IDs the composer never persisted; the
-      // server detail is the only honest feedback surface for them.
-      if (data.stage === 'rejected' && typeof data.detail === 'string') {
-        this.state.display.notice = data.detail;
-        this.emit();
-      }
+      this.handleActionReceipt(data);
       return;
     }
     const detail = typeof data.detail === 'string' ? data.detail : undefined;
@@ -834,6 +1188,56 @@ class LiveController implements ProjectionController {
     this.emit();
   }
 
+  // An admitted action answers with the same receipt shape as a text input,
+  // minus the placement facts. Its stage is admission evidence only: the click
+  // never claims the action ran.
+  private handleActionReceipt(data: Record<string, unknown>): void {
+    const submissionId = String(data.submission_id);
+    const action = this.pendingActions.get(submissionId);
+    const existing = this.state.action_receipts.find(
+      (row) => row.submission_id === submissionId,
+    );
+    if (!action || !existing) return;
+    const detail = typeof data.detail === 'string' ? data.detail : undefined;
+    const eventId = typeof data.event_id === 'string' ? data.event_id : undefined;
+    const acceptedCommit = typeof data.accepted_commit === 'string'
+      ? data.accepted_commit
+      : undefined;
+    if (data.stage === 'accepted') {
+      // A replayed acceptance must not erase an observed disposition.
+      if (!['selected', 'committed'].includes(existing.stage)) {
+        this.setActionReceipt(submissionId, {
+          stage: 'accepted',
+          detail: detail ?? '动作已持久接纳；处置另查回执。',
+          ...(eventId ? { event_id: eventId } : {}),
+          ...(acceptedCommit ? { accepted_commit: acceptedCommit } : {}),
+        });
+      }
+    } else if (data.stage === 'conflict') {
+      this.setActionReceipt(submissionId, {
+        stage: 'conflict',
+        detail: detail ?? '同一动作键已关联不同内容；原动作未改写。',
+      });
+      this.retirePendingAction(submissionId);
+    } else if (data.stage === 'rejected') {
+      this.setActionReceipt(submissionId, {
+        stage: 'rejected',
+        detail: detail ?? '服务器拒绝此动作；未接纳。',
+      });
+      this.state.display.notice = detail ?? '动作未接纳。';
+      // Nothing durable exists for this ID: the option may be pressed again
+      // as a new decision, so the stored record is not kept.
+      this.retirePendingAction(submissionId);
+      this.emit();
+    } else if (data.stage === 'unavailable') {
+      this.setActionReceipt(submissionId, {
+        stage: 'unavailable',
+        detail: detail ?? '持久结果暂不可用；原动作 ID 已保留等待对账。',
+      });
+    }
+    this.scheduleReceiptRefresh();
+  }
+
   // Poll only while unresolved receipts exist and the real socket advertises
   // durable queries. Timeline traffic is not evidence of this input's S0/S1.
   private scheduleReceiptRefresh(): void {
@@ -841,7 +1245,8 @@ class LiveController implements ProjectionController {
       || !this.state.durable_receipts || !this.state.subject_id
       || !this.state.submissions.some((submission) =>
         submission.payload.subject_id === this.state.subject_id
-        && ['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt))) return;
+        && ['sending', 'sent', 'unknown', 'accepted', 'selected'].includes(submission.receipt))
+      && this.pendingActions.size === 0) return;
     this.receiptTimer = window.setTimeout(() => {
       this.receiptTimer = null;
       this.refreshSubmissions();
@@ -874,6 +1279,24 @@ class LiveController implements ProjectionController {
         // A dead socket triggers onclose and schedules reconnect on its own.
       }
     }
+    // Actions share the same ledger and the same query message; the original
+    // decision key is what the Store matches, so no second admission happens.
+    for (const action of this.pendingActions.values()) {
+      if (action.subject_id !== subjectId) continue;
+      try {
+        socket.send(
+          JSON.stringify({
+            schema_version: 2,
+            type: 'query_submission',
+            submission_id: action.submission_id,
+            subject_id: action.subject_id,
+            send_epoch: action.send_epoch,
+          }),
+        );
+      } catch {
+        // onclose schedules the reconnect; the record stays durable.
+      }
+    }
   }
 
   private handleSubmissionView(data: Record<string, unknown>): void {
@@ -881,7 +1304,10 @@ class LiveController implements ProjectionController {
     const submission = this.state.submissions.find(
       (row) => row.payload.submission_id === data.submission_id,
     );
-    if (!submission) return;
+    if (!submission) {
+      this.handleActionView(data);
+      return;
+    }
     // Correlate the view with the send attempt that produced it. A stale
     // not_admitted racing a newer retry must not restore the draft or demote
     // a fact already returned by that retry.
@@ -943,6 +1369,60 @@ class LiveController implements ProjectionController {
     this.emit();
   }
 
+  // The same durable query answers for an admitted action. Its view proves
+  // admission/selection/disposition and never re-runs the action.
+  private handleActionView(data: Record<string, unknown>): void {
+    const submissionId = String(data.submission_id);
+    const action = this.pendingActions.get(submissionId);
+    const existing = this.state.action_receipts.find(
+      (row) => row.submission_id === submissionId,
+    );
+    if (!action || !existing) return;
+    if (validRevision(data.send_epoch) && data.send_epoch < action.send_epoch) return;
+    const eventId = typeof data.event_id === 'string' ? data.event_id : undefined;
+    const acceptedCommit = typeof data.accepted_commit === 'string'
+      ? data.accepted_commit
+      : undefined;
+    if (data.result === 'found' && eventId && acceptedCommit) {
+      if (data.stage === 'committed') {
+        this.setActionReceipt(submissionId, {
+          stage: 'committed',
+          detail: '主体已提交对这次动作的处置。',
+          event_id: eventId,
+          accepted_commit: acceptedCommit,
+        });
+        // The disposition is durable; the pending copy is no longer needed.
+        this.retirePendingAction(submissionId);
+      } else if (data.stage === 'selected') {
+        this.setActionReceipt(submissionId, {
+          stage: 'selected',
+          detail: '已选入封口输入计划；等待处置回执。',
+          event_id: eventId,
+          accepted_commit: acceptedCommit,
+        });
+      } else {
+        this.setActionReceipt(submissionId, {
+          stage: 'accepted',
+          detail: existing.detail ?? '动作已持久接纳；处置另查回执。',
+          event_id: eventId,
+          accepted_commit: acceptedCommit,
+        });
+      }
+    } else if (data.result === 'not_admitted') {
+      this.setActionReceipt(submissionId, {
+        stage: 'rejected',
+        detail: '服务端无此动作记录；未接纳。可重新点击当前选项。',
+      });
+      this.retirePendingAction(submissionId);
+    } else if (data.result === 'temporarily_unavailable') {
+      this.setActionReceipt(submissionId, {
+        stage: 'unavailable',
+        detail: '持久查询暂不可用；原动作 ID 保留等待对账。',
+      });
+    }
+    this.scheduleReceiptRefresh();
+  }
+
   private partKey(data: Record<string, unknown>): string {
     return [
       String(data.stream_id ?? ''),
@@ -998,19 +1478,36 @@ class LiveController implements ProjectionController {
       );
       if (streamed) {
         if (data.chunk_seq < streamed.next_chunk_seq) {
+          // The committed message carries the authoritative full text, so a
+          // streamed prefix is replaced by it: keeping only the prefix would
+          // render a committed step with its tail missing.
+          streamed.content = data.content;
+          streamed.next_chunk_seq = Math.max(streamed.next_chunk_seq, 1);
           streamed.commit_ref = data.commit_ref;
           streamed.part_revision = data.part_revision;
           streamed.step = data.step;
           streamed.step_id = data.step_id;
           streamed.terminal = true;
+          streamed.committed = true;
           streamed.gap = false;
           this.pendingChunks.delete(key);
           this.emit();
           return;
         }
-        // Committed text beyond the streamed prefix: the producer contract
-        // guarantees prefix equality, so continue appending below.
-        existing = streamed;
+        // Committed text at or beyond the streamed cursor: the full text still
+        // supersedes it, never appends to it.
+        streamed.content = data.content;
+        streamed.next_chunk_seq = Math.max(streamed.next_chunk_seq, data.chunk_seq + 1);
+        streamed.commit_ref = data.commit_ref;
+        streamed.part_revision = data.part_revision;
+        streamed.step = data.step;
+        streamed.step_id = data.step_id;
+        streamed.terminal = true;
+        streamed.committed = true;
+        streamed.gap = false;
+        this.pendingChunks.delete(key);
+        this.emit();
+        return;
       }
     }
     if (!existing && isStream) {
@@ -1022,14 +1519,19 @@ class LiveController implements ProjectionController {
           part.part_id === data.part_id &&
           part.stream_id === undefined,
       );
-      if (base && data.chunk_seq < base.next_chunk_seq) {
+      if (base) {
         base.stream_id = String(data.stream_id ?? base.stream_id);
         base.request_id = String(data.request_id ?? base.request_id);
         base.attempt_id = String(data.attempt_id ?? base.attempt_id);
         this.emit();
         return;
       }
-      if (base) existing = base;
+    }
+    if (isStream && existing?.committed) {
+      // The committed text is complete; a late streamed chunk for the same
+      // part would duplicate it. Identity is already adopted above.
+      this.emit();
+      return;
     }
     const chunkSeq = data.chunk_seq;
     if (existing && chunkSeq < existing.next_chunk_seq) {
@@ -1057,6 +1559,14 @@ class LiveController implements ProjectionController {
       existing.part_revision = data.part_revision;
       existing.observed_at = typeof data.observed_at === 'string' ? data.observed_at : existing.observed_at;
       if (data.terminal === true || !isStream) existing.terminal = true;
+      if (!isStream) {
+        // This chunk came from the committed projection: the text now has an
+        // S1 step, so the view may label it committed from here on.
+        existing.committed = true;
+        existing.step = data.step;
+        if (typeof data.step_id === 'string') existing.step_id = data.step_id;
+        existing.commit_ref = data.commit_ref;
+      }
       this.applyPending(existing, key);
       this.state.timeline = this.state.timeline.map((part) => (part === existing ? { ...existing } : part));
     } else {
@@ -1067,6 +1577,7 @@ class LiveController implements ProjectionController {
         part_id: data.part_id,
         part_revision: data.part_revision,
         next_chunk_seq: 1,
+        committed: !isStream,
         step: data.step,
         step_id: typeof data.step_id === 'string' ? data.step_id : data.message_id,
         commit_ref: data.commit_ref,
@@ -1103,17 +1614,33 @@ class LiveController implements ProjectionController {
   }
 
   // A validated semantic document already degraded for this connection's
-  // attested capabilities. Replaced by (document_id, revision); a stale
-  // revision never overwrites a newer one.
+  // attested capabilities. Replay arrives in commit order, so the last
+  // projection of a document_id is the newest committed one; the source
+  // step it came from is projected so the surface renders beside that step.
   private handleDocument(data: Record<string, unknown>): void {
     if (data.schema_version !== 1 || !isObject(data.degraded)) return;
     const degraded = data.degraded as unknown as DegradedDocument;
     if (typeof degraded.document_id !== 'string' || typeof degraded.revision !== 'string') return;
     if (!Array.isArray(degraded.options)) return;
-    const rest = this.state.documents.filter(
-      (row) => !(row.document_id === degraded.document_id),
+    const sourceStepId = typeof data.source_step_id === 'string' && data.source_step_id
+      ? data.source_step_id
+      : undefined;
+    const sourceCommit = typeof data.source_commit === 'string' && data.source_commit
+      ? data.source_commit
+      : undefined;
+    const next: DegradedDocument = {
+      ...degraded,
+      ...(sourceStepId ? { source_step_id: sourceStepId } : {}),
+      ...(sourceCommit ? { source_commit: sourceCommit } : {}),
+    };
+    // Replacing in place keeps commit arrival order, so an unplaced surface
+    // still reads in the order the subject produced it.
+    const index = this.state.documents.findIndex(
+      (row) => row.document_id === degraded.document_id,
     );
-    this.state.documents = [...rest, degraded];
+    this.state.documents = index >= 0
+      ? this.state.documents.map((row, at) => (at === index ? next : row))
+      : [...this.state.documents, next];
     if (this.state.display.reading === 'following_latest') {
       this.state.display.scroll_request += 1;
     }
@@ -1152,6 +1679,92 @@ class LiveController implements ProjectionController {
       this.state.config_error = true;
     }
     if (!this.disposed) this.emit();
+  }
+
+  private async loadConfigEntries(): Promise<void> {
+    try {
+      const data = await this.fetchJson('/api/config/entries');
+      if (!isObject(data) || data.available !== true) throw new Error('config entries unavailable');
+      this.state.config_entries = Array.isArray(data.entries)
+        ? (data.entries as ConfigEntryView[])
+        : [];
+      this.state.config_entries_error = false;
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.config_entries = undefined;
+      this.state.config_entries_error = true;
+    }
+    if (!this.disposed) this.emit();
+  }
+
+  private async postJson(path: string, body: unknown): Promise<unknown> {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify(body),
+      signal: this.abort.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  /// Submit one panel edit through the same durable change contract the
+  /// subject's `config.manage` tool uses. The saved revision, the apply
+  /// receipt and each consumer's adoption stay separate facts: a rejected or
+  /// unadopted change is reported as such, never as success.
+  private async applyConfigEntry(namespace: unknown, logicalKey: unknown): Promise<void> {
+    if (typeof namespace !== 'string' || typeof logicalKey !== 'string') return;
+    const key = `${namespace}/${logicalKey}`;
+    const entry = this.state.config_entries?.find(
+      (row) => row.namespace === namespace && row.logical_key === logicalKey,
+    );
+    const text = this.state.config_drafts?.[key]
+      ?? (entry?.desired_value === undefined ? '' : JSON.stringify(entry.desired_value));
+    let desired: unknown;
+    try {
+      desired = JSON.parse(text);
+    } catch {
+      this.state.display.notice = `${key}: 值必须是合法 JSON`;
+      this.emit();
+      return;
+    }
+    const originKey = `${key}:${semanticHash(JSON.stringify(desired))}`;
+    if (!this.configOrigins.has(originKey)) {
+      this.configOrigins.set(originKey, `panel-${originKey}-${Date.now().toString(36)}`);
+    }
+    try {
+      const data = await this.postJson('/api/config/apply', {
+        namespace,
+        logical_key: logicalKey,
+        desired,
+        origin_identity: this.configOrigins.get(originKey),
+        expected_base_revision: entry?.entry?.desired_revision ?? 0,
+      });
+      if (!isObject(data) || data.accepted !== true) {
+        const code = isObject(data) && typeof data.code === 'string' ? data.code : '修改被拒绝';
+        this.state.display.notice = `${key}: ${code}`;
+      } else {
+        const change = isObject(data.change) ? data.change : undefined;
+        const state = change && typeof change.state === 'string' ? change.state : 'unknown';
+        const receipt = change && isObject(change.receipt) && typeof change.receipt.outcome === 'string'
+          ? change.receipt.outcome
+          : undefined;
+        this.state.display.notice = `${key}: ${data.replayed === true ? '原修改（replayed）' : '已提交'} · ${state}${receipt ? ` · ${receipt}` : ''}`;
+        // The saved revision now exists; the next edit is a new intent.
+        this.configOrigins.delete(originKey);
+        const drafts = { ...(this.state.config_drafts ?? {}) };
+        delete drafts[key];
+        this.state.config_drafts = drafts;
+      }
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.display.notice = `${key}: 提交未确认（${
+        error instanceof Error ? error.message : '网络错误'
+      }）；保存仍是 durable 事实时才可重试同一值`;
+    }
+    if (!this.disposed) this.emit();
+    await this.loadConfigEntries();
   }
 
   private applyIdentity(identity: IdentityView | undefined): void {

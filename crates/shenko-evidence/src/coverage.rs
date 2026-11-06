@@ -25,8 +25,9 @@
 
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
-use crate::receipt::{AdmittedReceipt, admit_receipt};
+use crate::receipt::{AdmittedReceipt, admit_receipt, file_sha256};
 use crate::scopes::{ScopeDeclaration, classify};
 use crate::spec_index::SpecIndex;
 
@@ -76,6 +77,9 @@ pub enum UnmetReason {
     UnknownReference,
     UnclassifiedScope,
     InventoryIncomplete,
+    /// A later record withdrew this one; retained bytes are never deleted, so
+    /// withdrawal is a declaration and must stop the admission instead.
+    Withdrawn,
     /// A required verification scope has no passing evidence yet.
     ScopeUnproven(Scope),
 }
@@ -93,6 +97,7 @@ impl UnmetReason {
             UnmetReason::UnknownReference => "unknown_reference".to_string(),
             UnmetReason::UnclassifiedScope => "unclassified_scope".to_string(),
             UnmetReason::InventoryIncomplete => "inventory_incomplete".to_string(),
+            UnmetReason::Withdrawn => "withdrawn".to_string(),
             UnmetReason::ScopeUnproven(scope) => {
                 format!("scope_unproven:{}", scope.as_str())
             }
@@ -116,6 +121,28 @@ pub struct EvidenceRecord {
     pub status: Option<String>,
     /// Path to the native receipt, when the evidence has one.
     pub native_receipt: Option<String>,
+    /// Why this evidence was withdrawn, read verbatim.
+    ///
+    /// Retained evidence is never deleted, so a producer that discovers its
+    /// own claim was wrong either states the withdrawal on the record it no
+    /// longer claims, or adds a correction record whose `withdraws` names it.
+    /// A withdrawn record keeps its bytes, its inventory entry and its
+    /// failure reason, but it can no longer discharge an obligation.
+    pub withdrawn: Option<String>,
+    /// The evidence id this record withdraws, when the record is itself a
+    /// correction declaration rather than a claim.
+    ///
+    /// A correction never rewrites the original bytes: it names the evidence
+    /// it withdraws, states why in `withdrawn`, and is not admitted as
+    /// evidence of anything itself.
+    pub withdraws: Option<String>,
+    /// SHA-256 of the exact retained bytes this correction reviewed.
+    ///
+    /// A correction is bound to bytes, not only to an id: when this is
+    /// present, admission re-reads the named record and applies the
+    /// withdrawal only while those bytes still hash to it. A later edit can
+    /// therefore never inherit an earlier correction.
+    pub withdraws_sha256: Option<String>,
     /// The evidence file this record was read from.
     pub source_path: String,
 }
@@ -156,6 +183,18 @@ impl EvidenceRecord {
         let cases_reference_only = string_list(object.get("cases_reference_only"))?;
         let status = optional_string(object.get("status"))?;
         let native_receipt = optional_string(object.get("native_receipt"))?;
+        let withdrawn = withdrawal(object)?;
+        let withdraws = optional_string(object.get("withdraws"))?;
+        let withdraws_sha256 = optional_string(object.get("withdraws_sha256"))?;
+        if withdraws.is_none() && withdraws_sha256.is_some() {
+            return None;
+        }
+        if withdraws_sha256
+            .as_deref()
+            .is_some_and(|digest| !is_sha256_hex(digest))
+        {
+            return None;
+        }
         Some(EvidenceRecord {
             evidence_id,
             candidate_commit,
@@ -164,9 +203,46 @@ impl EvidenceRecord {
             cases_reference_only,
             status,
             native_receipt,
+            withdrawn,
+            withdraws,
+            withdraws_sha256,
             source_path: source_path.to_string(),
         })
     }
+}
+
+/// Read the declared withdrawal of a record.
+///
+/// `"withdrawn": "reason"` and `"retracted": "reason"` state the reason
+/// directly; `"superseded_by": "<evidence id>"` and
+/// `"invalidated_by": "<evidence id>"` name the later record. A bare `true`
+/// is accepted as an unstated withdrawal but never as an admission.
+fn withdrawal(object: &serde_json::Map<String, Value>) -> Option<Option<String>> {
+    for key in ["withdrawn", "retracted"] {
+        match object.get(key) {
+            None | Some(Value::Null) => {}
+            Some(Value::Bool(false)) => {}
+            Some(Value::Bool(true)) => return Some(Some(format!("declared {key}"))),
+            Some(Value::String(reason)) if !reason.trim().is_empty() => {
+                return Some(Some(reason.clone()));
+            }
+            Some(_) => return None,
+        }
+    }
+    for key in ["superseded_by", "invalidated_by"] {
+        match object.get(key) {
+            None | Some(Value::Null) => {}
+            Some(Value::String(id)) if !id.trim().is_empty() => {
+                return Some(Some(format!("{key} {id}")));
+            }
+            Some(_) => return None,
+        }
+    }
+    Some(None)
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 pub(crate) fn looks_like_evidence(value: &Value) -> bool {
@@ -238,12 +314,53 @@ impl RequirementObligation {
     }
 }
 
+/// Admission state of one acceptance case from the SPEC's own table.
+///
+/// The SPEC's acceptance unit is the case, not the requirement: a requirement
+/// can name several cases and each case names its own required scopes. This
+/// view therefore reports the case denominator directly instead of only the
+/// requirement aggregate, so a partially proven requirement cannot hide which
+/// case and which scope are still owed.
+#[derive(Debug, Clone)]
+pub struct CaseAdmission {
+    pub case_id: String,
+    /// Requirements that reach this case through their behaviors.
+    pub requirements: Vec<String>,
+    /// Declared verification scopes; empty means the family is unclassified.
+    pub required_scopes: Vec<Scope>,
+    /// Scopes observed by at least one admitted original receipt.
+    pub proven_scopes: Vec<Scope>,
+    /// Evidence whose original receipt covers every required scope at once.
+    pub proven_by: Vec<String>,
+    /// Evidence that names the case only as a reference.
+    pub referenced_by: Vec<String>,
+    /// True only when one admitted receipt covers every required scope.
+    pub proven: bool,
+}
+
+impl CaseAdmission {
+    /// `proven`, `partial`, `unproven` or `unclassified`.
+    pub fn status(&self) -> &'static str {
+        if self.required_scopes.is_empty() {
+            "unclassified"
+        } else if self.proven {
+            "proven"
+        } else if self.proven_scopes.is_empty() {
+            "unproven"
+        } else {
+            "partial"
+        }
+    }
+}
+
 /// The complete obligation map for a candidate.
 #[derive(Debug, Clone)]
 pub struct CoverageReport {
     /// The candidate commit the report is bound to.
     pub candidate_commit: Option<String>,
     pub requirements: Vec<RequirementObligation>,
+    /// Per-case admission, in case-ID order.
+    pub cases: Vec<CaseAdmission>,
     /// Per-case scope requirements, keyed by case ID.
     pub case_scopes: BTreeMap<String, Vec<Scope>>,
     /// Cases the SPEC defines but no behavior names.
@@ -254,6 +371,17 @@ pub struct CoverageReport {
     /// Rejected full-pass declarations, including their original failure.
     pub evidence_rejections: BTreeMap<String, String>,
     pub admitted_receipts: BTreeMap<String, Value>,
+    /// Evidence withdrawn by a correction record, with the stated reason.
+    ///
+    /// The withdrawn evidence keeps its bytes and its inventory entry; it
+    /// simply cannot discharge an obligation any more.
+    pub withdrawals: BTreeMap<String, String>,
+    /// Withdrawn ids that no retained record declares.
+    ///
+    /// A mistyped correction would otherwise leave the original evidence
+    /// admitted while looking withdrawn, so the mismatch is reported instead
+    /// of being resolved in the correction's favour.
+    pub dangling_withdrawals: Vec<String>,
 }
 
 impl CoverageReport {
@@ -296,6 +424,33 @@ impl CoverageReport {
                 })
             })
             .collect();
+        let cases: Vec<Value> = self
+            .cases
+            .iter()
+            .map(|case| {
+                serde_json::json!({
+                    "case_id": case.case_id,
+                    "requirements": case.requirements,
+                    "required_scopes": case
+                        .required_scopes
+                        .iter()
+                        .map(|scope| scope.as_str())
+                        .collect::<Vec<_>>(),
+                    "proven_scopes": case
+                        .proven_scopes
+                        .iter()
+                        .map(|scope| scope.as_str())
+                        .collect::<Vec<_>>(),
+                    "proven_by": case.proven_by,
+                    "referenced_by": case.referenced_by,
+                    "status": case.status(),
+                })
+            })
+            .collect();
+        let mut case_counts: BTreeMap<&'static str, usize> = BTreeMap::new();
+        for case in &self.cases {
+            *case_counts.entry(case.status()).or_insert(0) += 1;
+        }
         let case_scopes: serde_json::Map<String, Value> = self
             .case_scopes
             .iter()
@@ -313,7 +468,7 @@ impl CoverageReport {
             .collect();
         serde_json::json!({
             "kind": "shenko_spec_obligation_report",
-            "schema_version": 2,
+            "schema_version": 3,
             "verification_boundary": "mechanical receipt admission; not independent product or model judgment",
             "candidate_commit": self.candidate_commit,
             "denominator": {
@@ -322,9 +477,16 @@ impl CoverageReport {
             },
             "unmet_requirement_count": self.unmet().len(),
             "requirements": requirements,
+            "acceptance_case_matrix": cases,
+            "case_status_counts": case_counts
+                .into_iter()
+                .map(|(status, count)| (status.to_string(), Value::from(count)))
+                .collect::<serde_json::Map<String, Value>>(),
             "case_scopes": case_scopes,
             "unreferenced_acceptance_cases": self.unreferenced_cases,
             "evidence_rejections": self.evidence_rejections,
+            "withdrawals": self.withdrawals,
+            "dangling_withdrawals": self.dangling_withdrawals,
             "admitted_receipts": self.admitted_receipts,
         })
     }
@@ -357,7 +519,97 @@ pub(crate) fn build_report_from_records<'a>(
         .collect();
 
     // Read each original only once, not once per requirement that names it.
-    let admissions: Vec<_> = evidence
+    // Withdrawals are resolved first: a correction record names the evidence
+    // it withdraws, and retained bytes are never deleted to express that.
+    let records: Vec<&EvidenceRecord> = evidence.into_iter().collect();
+    let mut by_id: BTreeMap<&str, Vec<&EvidenceRecord>> = BTreeMap::new();
+    for record in &records {
+        by_id
+            .entry(record.evidence_id.as_str())
+            .or_default()
+            .push(record);
+    }
+    // A correction that states a digest is honored only while the named
+    // record's retained bytes still hash to it. Missing ids keep the legacy
+    // declaration and stay visible as dangling; ambiguous or changed bytes
+    // are reported instead of being resolved in the correction's favour.
+    let mut withdrawals: BTreeMap<String, String> = BTreeMap::new();
+    let mut withdrawal_failures: BTreeMap<String, String> = BTreeMap::new();
+    for record in &records {
+        // A record that withdraws another one states `withdrawn` as the
+        // reason for *that* withdrawal; it is not withdrawing itself. Reading
+        // the same key as both would report the correction as withdrawn and
+        // hide that it is the declaration doing the withdrawing.
+        if record.withdraws.is_none()
+            && let Some(reason) = &record.withdrawn
+        {
+            withdrawals
+                .entry(record.evidence_id.clone())
+                .or_insert_with(|| reason.clone());
+        }
+        let Some(target) = &record.withdraws else {
+            continue;
+        };
+        let reason = record
+            .withdrawn
+            .clone()
+            .unwrap_or_else(|| format!("withdrawn by {}", record.evidence_id));
+        let Some(expected) = &record.withdraws_sha256 else {
+            withdrawals.entry(target.clone()).or_insert(reason);
+            continue;
+        };
+        match by_id.get(target.as_str()).map(Vec::as_slice) {
+            Some([target_record]) => {
+                match file_sha256(Path::new(&target_record.source_path)) {
+                    Ok(actual) if actual.eq_ignore_ascii_case(expected) => {
+                        withdrawals.entry(target.clone()).or_insert(reason);
+                    }
+                    Ok(actual) => {
+                        withdrawal_failures.insert(
+                            record.source_path.clone(),
+                            format!(
+                                "correction {} does not match the retained bytes of {target}: \
+                                 recorded {expected}, retained {actual}",
+                                record.evidence_id
+                            ),
+                        );
+                    }
+                    Err(error) => {
+                        withdrawal_failures.insert(
+                            record.source_path.clone(),
+                            format!(
+                                "correction {} cannot be verified against {target}: {error}",
+                                record.evidence_id
+                            ),
+                        );
+                    }
+                }
+            }
+            Some(candidates) => {
+                withdrawal_failures.insert(
+                    record.source_path.clone(),
+                    format!(
+                        "correction {} names {target}, which matches {} retained records",
+                        record.evidence_id,
+                        candidates.len()
+                    ),
+                );
+            }
+            None => {
+                withdrawals.entry(target.clone()).or_insert(reason);
+            }
+        }
+    }
+    let declared_ids: BTreeSet<&str> = records
+        .iter()
+        .map(|record| record.evidence_id.as_str())
+        .collect();
+    let dangling_withdrawals: Vec<String> = withdrawals
+        .keys()
+        .filter(|id| !declared_ids.contains(id.as_str()))
+        .cloned()
+        .collect();
+    let admissions: Vec<_> = records
         .into_iter()
         .map(|record| {
             let unknown = record
@@ -371,7 +623,22 @@ pub(crate) fn build_report_from_records<'a>(
                         .chain(&record.cases_reference_only)
                         .find(|id| !index.acceptance_cases.contains_key(*id))
                 });
-            let admitted = if let Some(id) = unknown {
+            let admitted = if record.withdraws.is_some() {
+                Err((
+                    UnmetReason::Withdrawn,
+                    withdrawal_failures
+                        .get(&record.source_path)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            format!(
+                                "record {} is a withdrawal declaration, not evidence",
+                                record.evidence_id
+                            )
+                        }),
+                ))
+            } else if let Some(reason) = withdrawals.get(&record.evidence_id) {
+                Err((UnmetReason::Withdrawn, reason.clone()))
+            } else if let Some(id) = unknown {
                 Err((
                     UnmetReason::UnknownReference,
                     format!("record names an undefined obligation: {id}"),
@@ -421,6 +688,60 @@ pub(crate) fn build_report_from_records<'a>(
                 .ok()
                 .filter(|receipt| !receipt.binding.is_null())
                 .map(|receipt| (record.source_path.clone(), receipt.binding.clone()))
+        })
+        .collect();
+
+    // Per-case admission: one admitted receipt has to cover every declared
+    // scope at once, exactly like the requirement-level statement, so a case
+    // can never look proven in the matrix while its obligation stays owed.
+    let mut case_proofs: BTreeMap<String, BTreeMap<String, BTreeSet<Scope>>> = BTreeMap::new();
+    let mut case_references: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for (record, admission) in &admissions {
+        if let Ok(receipt) = admission {
+            for case_id in &record.full_cases_passed {
+                if let Some(scopes) = receipt.cases.get(case_id) {
+                    case_proofs
+                        .entry(case_id.clone())
+                        .or_default()
+                        .insert(record.evidence_id.clone(), scopes.clone());
+                }
+            }
+        }
+        for case_id in &record.cases_reference_only {
+            case_references
+                .entry(case_id.clone())
+                .or_default()
+                .insert(record.evidence_id.clone());
+        }
+    }
+    let cases: Vec<CaseAdmission> = index
+        .acceptance_cases
+        .keys()
+        .map(|case_id| {
+            let required_scopes = case_scopes.get(case_id).cloned().unwrap_or_default();
+            let proofs = case_proofs.get(case_id);
+            let mut proven_scopes = BTreeSet::new();
+            let mut proven_by = BTreeSet::new();
+            for (evidence_id, scopes) in proofs.into_iter().flatten() {
+                proven_scopes.extend(scopes.iter().copied());
+                if !required_scopes.is_empty()
+                    && required_scopes.iter().all(|scope| scopes.contains(scope))
+                {
+                    proven_by.insert(evidence_id.clone());
+                }
+            }
+            CaseAdmission {
+                case_id: case_id.clone(),
+                requirements: index.requirements_for_case(case_id),
+                required_scopes,
+                proven_scopes: proven_scopes.into_iter().collect(),
+                proven: !proven_by.is_empty(),
+                proven_by: proven_by.into_iter().collect(),
+                referenced_by: case_references
+                    .get(case_id)
+                    .map(|ids| ids.iter().cloned().collect())
+                    .unwrap_or_default(),
+            }
         })
         .collect();
 
@@ -503,9 +824,7 @@ pub(crate) fn build_report_from_records<'a>(
         }
         if passed_cases.len() < applicable.len() {
             unmet_reasons.extend(rejection_reasons);
-            if referenced_cases.is_empty() {
-                unmet_reasons.insert(UnmetReason::NoEvidence);
-            } else {
+            if !referenced_cases.is_empty() {
                 unmet_reasons.insert(UnmetReason::ReferenceOnly);
             }
         }
@@ -539,12 +858,15 @@ pub(crate) fn build_report_from_records<'a>(
     CoverageReport {
         candidate_commit: candidate_commit.map(str::to_string),
         requirements,
+        cases,
         case_scopes,
         unreferenced_cases,
         requirement_count: index.requirements.len(),
         acceptance_case_count: index.acceptance_cases.len(),
         evidence_rejections,
         admitted_receipts,
+        withdrawals,
+        dangling_withdrawals,
     }
 }
 

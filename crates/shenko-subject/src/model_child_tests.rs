@@ -695,12 +695,15 @@ async fn cloud_child_t1_and_result_keep_the_selected_send_not_a_later_budget() {
                 WindowCost { window: window("api:requests"), unit: "requests".into(), amount: Range::point(1.0).unwrap() },
                 WindowCost { window: window("api:tokens"), unit: "tokens".into(), amount: Range::point(64.0).unwrap() },
             ],
+            effort_levels: Vec::new(),
         }], assumptions: vec![], min_progress_per_hour: 0.0, switching_hysteresis: 0.0,
         on_unknown: UnknownQuota::Block, allow_overage: false, spending_authority_ref: None,
         decision_ttl: chrono::Duration::minutes(5), observation_sources: vec![SourceObservationPolicy {
             source_kind: SourceKind::ApiHeaders, contract: None,
             ttl: chrono::Duration::minutes(5), stale: StaleUse::Refuse,
         }],
+        objective: PolicyObjective::Balanced, target_utilization_range: None, planning_horizon: None,
+        emergency_reserve_by_window: Vec::new(), uncertainty_margin: None, admission_pacing: AdmissionPacing::default(),
     };
     store.record_quota_policy(&policy, chrono::Utc::now()).unwrap();
     let snapshot = from_api_headers(&ObservationContext {

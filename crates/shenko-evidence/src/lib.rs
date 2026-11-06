@@ -13,23 +13,38 @@
 //! * [`inventory`] inventories the retained evidence records and states for
 //!   each whether it is bound to the current candidate or is history from an
 //!   older one.
+//! * [`longrun`] admits a retained 7/30-day sampler report only when it is a
+//!   digest-matched, intact, terminally stopped observation of the same
+//!   candidate; the honest default for every candidate is `unobserved`.
+//! * [`correction`] writes the missing producer for the report's
+//!   `withdraws`/`withdrawn` vocabulary: a new, digest-bound record that
+//!   withdraws one retained record without rewriting its bytes, adding no
+//!   product claim of its own.
 //!
 //! Nothing here decides that a requirement is satisfied because words match.
 //! Mechanical coverage requires original hash-bound receipts for every case
 //! and scope, a current candidate, and a complete specification mapping and
 //! inventory. This is not independent validation of an observer's judgment.
 
+pub mod correction;
 pub mod coverage;
 pub mod inventory;
+pub mod longrun;
 mod receipt;
 pub mod scopes;
 pub mod spec_index;
 
+pub use correction::{
+    CORRECTION_KIND, CorrectionOutcome, CorrectionRequest, correction_id, write_correction,
+};
 pub use coverage::{
-    CoverageReport, EvidenceRecord, RequirementObligation, Scope, UnmetReason, build_report,
-    classify_case_scopes, scope_declarations,
+    CaseAdmission, CoverageReport, EvidenceRecord, RequirementObligation, Scope, UnmetReason,
+    build_report, classify_case_scopes, scope_declarations,
 };
 pub use inventory::{Binding, EvidenceInventory, InventoryEntry, InventoryIssue};
+pub use longrun::{
+    LongRunAdmission, LongRunCheckpoint, LongRunInput, LongRunSummary, LongRunWindow, summarize,
+};
 pub use scopes::{ScopeDeclaration, scopes_for_case};
 pub use spec_index::{AcceptanceCase, Behavior, IndexCounts, IndexError, Requirement, SpecIndex};
 
@@ -44,6 +59,12 @@ pub struct ReportInputs<'a> {
     pub evidence_dir: &'a Path,
     /// The candidate commit the report is bound to.
     pub candidate_commit: Option<&'a str>,
+    /// Retained long-run sampler reports offered as duration evidence.
+    ///
+    /// Empty is the normal state: no candidate has a completed 7/30-day
+    /// observation, so the report states `duration_status: unobserved`
+    /// instead of inferring durability from the tooling that could observe it.
+    pub long_run: &'a [LongRunInput<'a>],
 }
 
 /// Parse the SPEC, inventory the evidence, and build the obligation report.
@@ -62,10 +83,12 @@ pub fn analyze(inputs: &ReportInputs<'_>) -> Result<Analysis, IndexError> {
                 .push(UnmetReason::InventoryIncomplete);
         }
     }
+    let long_run = longrun::summarize(inputs.long_run, inputs.candidate_commit);
     Ok(Analysis {
         index,
         inventory,
         report,
+        long_run,
     })
 }
 
@@ -75,6 +98,7 @@ pub struct Analysis {
     pub index: SpecIndex,
     pub inventory: EvidenceInventory,
     pub report: CoverageReport,
+    pub long_run: LongRunSummary,
 }
 
 impl Analysis {
@@ -84,6 +108,10 @@ impl Analysis {
         let mut value = self.report.to_json();
         if let Some(object) = value.as_object_mut() {
             object.insert("evidence_inventory".to_string(), self.inventory.to_json());
+            object.insert(
+                "long_run_observation".to_string(),
+                self.long_run.to_json(),
+            );
             object.insert(
                 "spec_index_counts".to_string(),
                 serde_json::json!({
@@ -123,6 +151,16 @@ impl Analysis {
             self.inventory.issues.len(),
             self.inventory.non_evidence_files.len()
         ));
+        lines.push(format!(
+            "long-run duration: {} (admitted reports {}, rejected reports {}, unobserved windows: {})",
+            self.long_run.duration_status(),
+            self.long_run.admitted.len(),
+            self.long_run.rejections.len(),
+            self.long_run.unobserved_windows().join(",")
+        ));
+        for conflict in self.long_run.identity_conflicts() {
+            lines.push(format!("  long-run identity conflict: {conflict}"));
+        }
         for obligation in unmet.iter().take(20) {
             let reasons: Vec<String> = obligation
                 .unmet_reasons

@@ -1278,11 +1278,15 @@ impl NativeChildService {
             Some("subject_decision") => {
                 let decision: StepDecision = serde_json::from_slice(&bytes)?;
                 // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6, model children schema 7 and
-                // the current committed decision schema 8; all bind the same
-                // native delegation field without rewriting the historical
-                // CAS object.
-                ensure!(matches!(decision.schema_version, 4 | 6 | 7 | 8), "unsupported_decision_schema");
+                // S1 decision. Waits use schema 6, model children schema 7,
+                // versioned publication targets schema 8 and reconciliation
+                // acknowledgements schema 9; all bind the same native
+                // delegation field without rewriting the historical CAS
+                // object.
+                ensure!(
+                    matches!(decision.schema_version, 4 | 6 | 7 | 8 | 9),
+                    "unsupported_decision_schema"
+                );
                 let intent = decision
                     .delegated_task_intents
                     .iter()

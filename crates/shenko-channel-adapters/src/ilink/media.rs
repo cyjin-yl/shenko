@@ -13,6 +13,7 @@
 //! attachment is a remote resource, never a local file.
 
 use serde_json::{Value, json};
+use shenko_types::channel::{AttachmentError, MAX_ATTACHMENT_BYTES};
 
 use crate::aes;
 
@@ -168,16 +169,73 @@ pub async fn upload(
     })
 }
 
-/// Download and decrypt one media object.
-pub async fn download(api: &ILinkApi, media: &EncryptedMedia) -> Result<Vec<u8>, ILinkError> {
+/// Download and decrypt one media object under the channel byte bound.
+///
+/// The ciphertext is fetched in provider chunks with the same hard bound as
+/// every other channel (one AES block of padding is allowed on top), and the
+/// decrypted plaintext is checked again before it is handed on. A CDN that
+/// refuses the object keeps the platform's own answer: a refused credential is
+/// not the same fact as a missing object, and neither is reported as empty
+/// bytes. The declared size is deliberately *not* enforced here: for iLink the
+/// size field differs by item kind (`len` / `mid_size` / `video_size`) and its
+/// meaning is not the plaintext length for every kind, so a mismatch would be a
+/// fabricated verdict rather than an integrity failure.
+pub async fn download(
+    api: &ILinkApi,
+    media: &EncryptedMedia,
+    attachment_id: &str,
+) -> Result<Vec<u8>, AttachmentError> {
+    if media.encrypt_type != 1 {
+        return Err(AttachmentError::Refused {
+            attachment_id: attachment_id.to_string(),
+            detail: format!(
+                "media encryption kind {} is not AES-128-ECB (1)",
+                media.encrypt_type
+            ),
+        });
+    }
     let url = match &media.full_url {
-        Some(url) => url.clone(),
-        None => api.download_url(&media.encrypt_query_param),
+        Some(url) if !url.trim().is_empty() => url.clone(),
+        _ => api.download_url(&media.encrypt_query_param),
     };
-    let ciphertext = api.download_cdn(&url).await?;
-    let key = decode_key(&media.aes_key).map_err(ILinkError::Incomplete)?;
-    aes::decrypt_ecb_pkcs7(&key, &ciphertext)
-        .map_err(|error| ILinkError::Incomplete(format!("media decryption failed: {error}")))
+    let ciphertext = match crate::common::fetch_media_bounded(api.http(), &url, None, attachment_id)
+        .await?
+    {
+        crate::common::MediaAnswer::Delivered { bytes, .. } => bytes,
+        crate::common::MediaAnswer::Refused { status, detail } => {
+            return Err(crate::common::refused_attachment(
+                super::events::ILINK_CHANNEL_ID,
+                attachment_id,
+                status,
+                detail,
+            ))
+        }
+    };
+    // A fetch that already saturated the raw bound cannot be a padded block
+    // sequence of a legal plaintext.
+    if ciphertext.len() as u64 > MAX_ATTACHMENT_BYTES {
+        return Err(AttachmentError::TooLarge {
+            attachment_id: attachment_id.to_string(),
+            limit: MAX_ATTACHMENT_BYTES,
+        });
+    }
+    let key = decode_key(&media.aes_key).map_err(|detail| AttachmentError::Refused {
+        attachment_id: attachment_id.to_string(),
+        detail: format!("media key refused: {detail}"),
+    })?;
+    let plaintext = aes::decrypt_ecb_pkcs7(&key, &ciphertext).map_err(|error| {
+        AttachmentError::Unavailable {
+            attachment_id: attachment_id.to_string(),
+            detail: format!("media decryption failed: {error}"),
+        }
+    })?;
+    if plaintext.len() as u64 > MAX_ATTACHMENT_BYTES {
+        return Err(AttachmentError::TooLarge {
+            attachment_id: attachment_id.to_string(),
+            limit: MAX_ATTACHMENT_BYTES,
+        });
+    }
+    Ok(plaintext)
 }
 
 /// Decode the AES key of a media reference.

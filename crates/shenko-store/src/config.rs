@@ -15,6 +15,8 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use chrono::{DateTime, Utc};
+
 use shenko_types::commit::CommitRef;
 use shenko_types::ids::EntityId;
 use shenko_types::object::{Digest, ObjectRef};
@@ -84,6 +86,10 @@ pub fn ensure_config_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// A configuration key name filter: `Some` names one key, `None` means "every
+/// key" (only legal when both filters are `None`).
+pub type OptionalKeyName<'a> = Option<&'a str>;
+
 /// The installation-scoped owner grant — SPEC §44.4.
 ///
 /// The grant records WHO was recognized as the installer. It never carries a
@@ -152,6 +158,28 @@ pub struct ConfigReceipt {
     pub recorded_at: CommitRef,
 }
 
+/// The process incarnation that owns one apply attempt — SPEC §43.1 (CFG02).
+///
+/// The attempt owner is committed in the SAME transaction as the change, so
+/// "an apply was started for this intent" is a durable fact rather than an
+/// inference from a crash. Recovery asks it exactly one question: is the owner
+/// of this attempt still alive? A provably dead owner makes the effect
+/// unproven — never repeatable; a live or unprovable owner means another
+/// process still owns the attempt and this one must not settle it.
+///
+/// A bare pid is not identity: it is paired with the kernel start token so a
+/// reused pid is never mistaken for the original owner.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConfigAttemptOwner {
+    pub schema_version: u32,
+    pub incarnation: String,
+    pub pid: u32,
+    /// `/proc/<pid>/stat` field 22 — the same-process test.
+    pub process_start_token: String,
+    pub started_at: DateTime<Utc>,
+}
+
 /// One durable configuration change — SPEC §43.1.
 ///
 /// A change is a fact about an intent and its result, not a phase machine:
@@ -181,8 +209,14 @@ pub struct ConfigChange {
     pub activation_refs: Vec<ObjectRef>,
     pub expected_base_revision: u64,
     pub desired_revision: u64,
-    /// recorded | applied | failed | unknown
+    /// applying | applied | failed | unknown — `recorded` only on rows that
+    /// predate attempt ownership (see `attempt`).
     pub state: String,
+    /// The process that owns this change's apply attempt, committed with the
+    /// change itself and cleared when the receipt is recorded. `None` means no
+    /// attempt ownership was ever proven for this row.
+    #[serde(default)]
+    pub attempt: Option<ConfigAttemptOwner>,
     pub adopted: Vec<ConfigAdoption>,
     pub receipt: Option<ConfigReceipt>,
     pub record_revision: u64,
@@ -210,6 +244,11 @@ pub struct ConfigChangeDraft {
     pub recovery_program_refs: Vec<ObjectRef>,
     pub activation_refs: Vec<ObjectRef>,
     pub expected_base_revision: u64,
+    /// The attempt the committer is about to start. It moves into the change
+    /// row in the same transaction, so "an apply was started" never depends on
+    /// a second write that a crash could skip.
+    #[serde(default)]
+    pub attempt: Option<ConfigAttemptOwner>,
 }
 
 impl ConfigChange {
@@ -232,7 +271,8 @@ impl ConfigChange {
             activation_refs: draft.activation_refs.clone(),
             expected_base_revision: draft.expected_base_revision,
             desired_revision,
-            state: "recorded".into(),
+            state: if draft.attempt.is_some() { "applying".into() } else { "recorded".into() },
+            attempt: draft.attempt.clone(),
             adopted: Vec::new(),
             receipt: None,
             record_revision: 0,
@@ -467,6 +507,56 @@ impl Store {
         }
     }
 
+    /// Every committed configuration change of one key (or of the whole
+    /// installation) that has no receipt yet, newest first — SPEC §43.1
+    /// (CFG02 recovery).
+    ///
+    /// `state` is part of the row's JSON, not a column, so the filter runs
+    /// after decoding: the alternative would be a second representation of
+    /// the same fact in the schema.
+    pub fn unsettled_config_changes(
+        &self,
+        namespace: OptionalKeyName<'_>,
+        logical_key: OptionalKeyName<'_>,
+    ) -> Result<Vec<ConfigChange>> {
+        let conn = self.ledger.conn.lock();
+        let mut out = Vec::new();
+        let mut collect = |raw: String, out: &mut Vec<ConfigChange>| -> Result<()> {
+            let change: ConfigChange = serde_json::from_str(&raw)?;
+            if change.receipt.is_none() {
+                out.push(change);
+            }
+            Ok(())
+        };
+        match (namespace, logical_key) {
+            (Some(namespace), Some(logical_key)) => {
+                let mut stmt = conn.prepare(
+                    "SELECT data FROM config_changes WHERE namespace=?1 AND logical_key=?2
+                     ORDER BY updated_commit_seq DESC",
+                )?;
+                let rows = stmt.query_map(params![namespace, logical_key], |row| {
+                    row.get::<_, String>(0)
+                })?;
+                for row in rows {
+                    collect(row?, &mut out)?;
+                }
+            }
+            (None, None) => {
+                let mut stmt = conn.prepare(
+                    "SELECT data FROM config_changes ORDER BY updated_commit_seq DESC",
+                )?;
+                let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+                for row in rows {
+                    collect(row?, &mut out)?;
+                }
+            }
+            _ => anyhow::bail!(
+                "unsettled_config_changes needs both the namespace and the logical key, or neither"
+            ),
+        }
+        Ok(out)
+    }
+
     /// Commit a configuration change together with its new desired revision.
     ///
     /// The desired revision, the change record and the entry move in ONE
@@ -602,6 +692,9 @@ impl Store {
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 change.state = state.to_string();
+                // The attempt is over: whatever happened, this row no longer
+                // has an owner that could still be mid-apply.
+                change.attempt = None;
                 change.receipt = Some(receipt);
                 change.adopted = adopted.clone();
                 change.record_revision += 1;
