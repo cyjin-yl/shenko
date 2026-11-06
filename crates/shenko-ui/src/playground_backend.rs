@@ -215,6 +215,50 @@ pub struct BackendActionRequest {
     pub input: Value,
 }
 
+/// Who invoked an artifact action — SPEC §43.2 dedupes on
+/// `(artifact_id, authenticated_actor, action_id)`.
+///
+/// The actor is resolved at the authenticated boundary: the admin bearer of a
+/// panel request, or the delegated task of a native invocation. It is never a
+/// request field — a client that names its own actor is not authenticated as
+/// it. `Participant` is the honest name for "an ordinary session of this
+/// installation without an admin credential": it does not invent a person
+/// identity, and clicking a page never inherits the creator's authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ArtifactActor {
+    Owner { principal_ref: ObjectRef },
+    Participant,
+    Subject { task_id: EntityId },
+}
+
+impl ArtifactActor {
+    /// The stable token the dedup identity is derived from.
+    pub fn identity(&self) -> String {
+        match self {
+            Self::Owner { principal_ref } => format!("owner:{}", principal_ref.digest.0),
+            Self::Participant => "participant".into(),
+            Self::Subject { task_id } => format!("subject:{task_id}"),
+        }
+    }
+
+    /// Provenance as it is recorded on the task, event and evidence.
+    pub fn describe(&self) -> Value {
+        match self {
+            Self::Owner { principal_ref } => json!({
+                "kind": "owner", "principal_ref": principal_ref, "identity": self.identity(),
+            }),
+            Self::Participant => json!({
+                "kind": "participant", "identity": self.identity(),
+                "note": "an ordinary session of this installation; no admin credential was presented and this actor does not inherit the artifact creator's authority",
+            }),
+            Self::Subject { task_id } => json!({
+                "kind": "subject", "task_id": task_id, "identity": self.identity(),
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FrozenAction {
@@ -228,6 +272,12 @@ struct FrozenAction {
     /// tasks stay resolvable as history but must never execute.
     #[serde(default)]
     version_record_ref: Option<ObjectRef>,
+    /// The authenticated actor this action is deduplicated against. `None`
+    /// only for inputs admitted before actor scoping; those remain resolvable
+    /// (and executable, because they were accepted under the old contract) but
+    /// report their scope as legacy instead of inventing an actor.
+    #[serde(default)]
+    actor: Option<ArtifactActor>,
     binding: BackendBinding,
     request: BackendActionRequest,
 }
@@ -240,6 +290,10 @@ pub struct BackendReceipt {
     pub input_ref: ObjectRef,
     pub state: String,
     pub replayed: bool,
+    /// The actor this action is scoped to, or `null` for an action admitted
+    /// before actor scoping (`actor_scope` says which).
+    pub actor: Option<ArtifactActor>,
+    pub actor_scope: String,
     pub operation: Option<OperationRecord>,
     pub attempt: Option<AttemptRecord>,
     pub evidence: Option<EvidenceReceipt>,
@@ -276,48 +330,115 @@ impl IntoResponse for ActionError {
 fn valid_token(token: &str) -> bool {
     !token.is_empty() && token.len() <= 64 && token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
-fn task_id(artifact_id: EntityId, request_id: &str) -> EntityId {
+
+/// The action identity — SPEC §43.2 `(artifact_id, authenticated_actor,
+/// action_id)`. Two different actors reusing one `action_id` are two different
+/// actions; the same actor repeating it resolves the original receipt.
+fn task_id(artifact_id: EntityId, actor: &ArtifactActor, request_id: &str) -> EntityId {
+    stable_id(&format!(
+        "artifact-action/v2:{artifact_id}:{}:{request_id}",
+        actor.identity()
+    ))
+}
+
+/// The pre-actor-scoping identity. It is still consulted so an action admitted
+/// before the upgrade answers its original receipt across the reopen instead of
+/// being re-executed as a new action.
+fn legacy_task_id(artifact_id: EntityId, request_id: &str) -> EntityId {
     stable_id(&format!("artifact-action/v1:{artifact_id}:{request_id}"))
 }
+
 fn read_frozen(store: &Store, task: &TaskRecord) -> Result<FrozenAction> {
     ensure!(task.kind == PLAYGROUND_BACKEND_KIND && task.definition_version == 1, "action task kind/version mismatch");
     let bytes = store.cas.read_object(&task.input_ref.digest)?;
     ensure!(bytes.len() as u64 == task.input_ref.bytes && Digest::blake3(&bytes) == task.input_ref.digest,
         "frozen artifact input digest mismatch");
     let frozen: FrozenAction = serde_json::from_slice(&bytes)?;
-    ensure!(frozen.schema_version >= 1 && frozen.schema_version <= 3, "unsupported artifact input schema");
+    ensure!(frozen.schema_version >= 1 && frozen.schema_version <= 4, "unsupported artifact input schema");
     Ok(frozen)
 }
-fn same_request(store: &Store, task: &TaskRecord, artifact_id: EntityId, request: &BackendActionRequest) -> Result<bool> {
+
+/// True when this task is the same action by the same actor with the same
+/// payload. A legacy input carries no actor: it can still be replayed by the
+/// action id it was admitted under (there is no actor to compare), which is
+/// exactly the old contract it was accepted against.
+fn same_request(
+    store: &Store,
+    task: &TaskRecord,
+    artifact_id: EntityId,
+    actor: &ArtifactActor,
+    request: &BackendActionRequest,
+) -> Result<bool> {
     let frozen = read_frozen(store, task)?;
+    if frozen.schema_version >= 4 && frozen.actor.as_ref() != Some(actor) {
+        return Ok(false);
+    }
     Ok(frozen.artifact_id == artifact_id && serde_json::to_value(&frozen.request)? == serde_json::to_value(request)?)
 }
 
+/// The identity a frozen input was admitted under. A schema-4 input is scoped
+/// to its actor; an older one is the legacy identity.
+fn frozen_task_id(frozen: &FrozenAction) -> EntityId {
+    match (frozen.schema_version >= 4, frozen.actor.as_ref()) {
+        (true, Some(actor)) => task_id(frozen.artifact_id, actor, &frozen.request.request_id),
+        _ => legacy_task_id(frozen.artifact_id, &frozen.request.request_id),
+    }
+}
+
 impl PlaygroundState {
-    fn committed_action(&self, id: EntityId, request: &BackendActionRequest) -> Result<Option<BackendReceipt>, ActionError> {
-        let Some(existing) = self.store.get_task(task_id(id, &request.request_id))? else { return Ok(None) };
-        if !same_request(&self.store, &existing, id, request)? { return Err(ActionError::Conflict); }
-        let mut receipt = self.action_status(id, &request.request_id)?;
+    /// Resolve an already-admitted action for this actor and payload, or
+    /// `ACTION_CONFLICT` when the same actor reused the id for other bytes.
+    ///
+    /// The actor-scoped identity is consulted first; the pre-scoping identity
+    /// second, so an action admitted before the upgrade still answers its
+    /// original outcome instead of being re-executed under a new identity.
+    fn committed_action(
+        &self,
+        id: EntityId,
+        request: &BackendActionRequest,
+        actor: &ArtifactActor,
+    ) -> Result<Option<BackendReceipt>, ActionError> {
+        let scoped = task_id(id, actor, &request.request_id);
+        let existing = match self.store.get_task(scoped)? {
+            Some(existing) => Some(existing),
+            None => self.store.get_task(legacy_task_id(id, &request.request_id))?,
+        };
+        let Some(existing) = existing else { return Ok(None) };
+        // A task found under either identity must still be THIS action: the
+        // same artifact, the same payload and (for a scoped input) the same
+        // actor. Anything else is a conflicting reuse, never a replay.
+        if existing.task_id != scoped && existing.task_id != legacy_task_id(id, &request.request_id) {
+            return Err(ActionError::Conflict);
+        }
+        if !same_request(&self.store, &existing, id, actor, request)? {
+            return Err(ActionError::Conflict);
+        }
+        let mut receipt = self.receipt_for(&existing)?;
         receipt.replayed = true;
         Ok(Some(receipt))
     }
 
-    pub fn invoke_action(&self, id: EntityId, request: BackendActionRequest) -> Result<BackendReceipt, ActionError> {
+    pub fn invoke_action(
+        &self,
+        id: EntityId,
+        request: BackendActionRequest,
+        actor: &ArtifactActor,
+    ) -> Result<BackendReceipt, ActionError> {
         if !valid_token(&request.request_id) || !valid_token(&request.action) {
             return Err(ActionError::Invalid("request_id/action must be 1..64 ASCII letters, digits, '_' or '-'".into()));
         }
         if serde_json::to_vec(&request.input).map_err(anyhow::Error::from)?.len() > MAX_INPUT {
             return Err(ActionError::Invalid("input exceeds 64KiB".into()));
         }
-        let idempotency_id = task_id(id, &request.request_id);
+        let idempotency_id = task_id(id, actor, &request.request_id);
         // Original receipt wins BEFORE selected version checks. A response lost
         // before an upgrade still resolves its original task/attempt afterward.
-        if let Some(receipt) = self.committed_action(id, &request)? { return Ok(receipt); }
+        if let Some(receipt) = self.committed_action(id, &request, actor)? { return Ok(receipt); }
         // Every preparatory rejection (including handler withdrawal, missing
         // artifact/binding and stale revisions) resolves a concurrent committed
         // identity before returning accepted:false, not only SQL errors below.
         let candidate = (|| -> Result<_, ActionError> {
-        let native = self.native.as_ref().ok_or_else(|| ActionError::Unavailable("native dispatcher not attached".into()))?;
+        let native = self.native().ok_or_else(|| ActionError::Unavailable("native dispatcher not attached".into()))?;
         if !native.has_handler(PLAYGROUND_BACKEND_KIND, 1) {
             return Err(ActionError::Unavailable("WASI artifact handler is not installed".into()));
         }
@@ -349,8 +470,9 @@ impl PlaygroundState {
         if content.len() as u64 != record.content_ref.bytes || Digest::blake3(&content) != record.content_ref.digest {
             return Err(ActionError::Unavailable("artifact content digest/length mismatch in CAS".into()));
         }
-        let frozen = FrozenAction { schema_version: 3, artifact_id: id, artifact_revision: record.revision,
-            version_record_ref: Some(version_record_ref), binding: binding.clone(), request: request.clone() };
+        let frozen = FrozenAction { schema_version: 4, artifact_id: id, artifact_revision: record.revision,
+            version_record_ref: Some(version_record_ref), actor: Some(actor.clone()),
+            binding: binding.clone(), request: request.clone() };
         let input_ref = seal_json(&self.store, &frozen, "artifact-action-input")?;
         let (head, _) = self.store.load_subject(self.agent_id).map_err(anyhow::Error::from)?;
         let zero = CommitRef::new(EntityId::nil(), LedgerSeq::ZERO);
@@ -369,12 +491,14 @@ impl PlaygroundState {
             no_progress_crashes: 0, first_run_at: None, terminal_at: None, created_commit: zero, updated_commit: zero,
         };
         let accepted_event = shenko_subject::InboxEvent {
-            event_id: stable_id(&format!("artifact-action-accepted/v1:{idempotency_id}")),
+            event_id: stable_id(&format!("artifact-action-accepted/v2:{idempotency_id}")),
             kind: shenko_subject::InboxEventKind::ArtifactChanged,
             created_at: chrono::Utc::now(), source: "playground".into(),
             payload: json!({"kind":"artifact.action", "artifact_id":id,"artifact_revision":record.revision,
                 "task_id":idempotency_id,"request_id":request.request_id,"action":request.action,
                 "backend_digest":request.backend_digest,"input_ref":task.input_ref,
+                "actor": actor.describe(),
+                "reason_refs": {"task_id": idempotency_id, "input_ref": task.input_ref},
                 "explanation":"A browser action was durably accepted as a native task. Execution/result is a separate receipt; admission is not evidence that the backend ran."}),
         };
         let input_event = shenko_types::store::RawInboxEvent {
@@ -386,13 +510,13 @@ impl PlaygroundState {
         })();
         let (task, input_event) = match candidate {
             Ok(candidate) => candidate,
-            Err(error) => return match self.committed_action(id, &request)? {
+            Err(error) => return match self.committed_action(id, &request, actor)? {
                 Some(receipt) => Ok(receipt), None => Err(error),
             },
         };
         let replayed = match self.store.admit_native_task(&task, &input_event) {
             Ok(Some(existing)) => {
-                if !same_request(&self.store, &existing, id, &request)? { return Err(ActionError::Conflict); }
+                if !same_request(&self.store, &existing, id, actor, &request)? { return Err(ActionError::Conflict); }
                 true
             }
             Ok(None) => false,
@@ -401,7 +525,7 @@ impl PlaygroundState {
                 // and the writer transaction. The committed id always wins:
                 // re-read it instead of surfacing a stale/availability error
                 // to an actually-accepted action.
-                if let Some(receipt) = self.committed_action(id, &request)? { return Ok(receipt); }
+                if let Some(receipt) = self.committed_action(id, &request, actor)? { return Ok(receipt); }
                 if matches!(error.downcast_ref::<shenko_types::error::ShenkoError>(),
                     Some(shenko_types::error::ShenkoError::Conflict(_)))
                 {
@@ -412,33 +536,103 @@ impl PlaygroundState {
         };
         // Do NOT run/cancel a second dispatch future inside HTTP. The existing
         // committed dispatcher owns execution, even if this response is lost.
-        let mut receipt = self.action_status(id, &request.request_id)?;
+        let mut receipt = self.action_status_for_actor(id, &request.request_id, actor)?;
         receipt.replayed = replayed;
         Ok(receipt)
     }
 
-    pub fn action_status(&self, id: EntityId, request_id: &str) -> Result<BackendReceipt, ActionError> {
-        if !valid_token(request_id) { return Err(ActionError::Invalid("invalid request_id".into())); }
-        let task = self.store.get_task(task_id(id, request_id))?.ok_or(ActionError::NotFound)?;
-        let frozen = read_frozen(&self.store, &task)?;
-        if frozen.artifact_id != id || frozen.request.request_id != request_id || task.agent_id != self.agent_id {
-            return Err(ActionError::Internal(anyhow::anyhow!("artifact action identity mismatch")));
-        }
-        let operation = memo_uuid(&task, NATIVE_OPERATION_ID).map(|id| self.store.get_operation(id)).transpose()
+    /// Build a `BackendReceipt` from an existing task record, reading its
+    /// frozen input for actor provenance.
+    fn receipt_for(&self, task: &TaskRecord) -> Result<BackendReceipt, ActionError> {
+        let frozen = read_frozen(&self.store, task)?;
+        let operation = memo_uuid(task, NATIVE_OPERATION_ID).map(|id| self.store.get_operation(id)).transpose()
             .map_err(anyhow::Error::from)?.flatten();
-        let attempt = operation.as_ref().map(|operation| self.store.external_operation_attempt(operation.operation_id)).transpose()?;
+        let attempt = operation.as_ref().map(|op| self.store.external_operation_attempt(op.operation_id)).transpose()?;
         let evidence = attempt.as_ref().and_then(|a| a.final_receipt_id)
             .map(|id| self.store.external_evidence(id)).transpose()?;
         let result = self.store.native_task_result(task.task_id)?;
-        let state = if let Some(result) = &result {
-            match &result.outcome { TaskOutcome::Succeeded => "executed", TaskOutcome::Failed { .. } => "failed",
-                TaskOutcome::Cancelled => "cancelled", TaskOutcome::Interrupted => "interrupted" }
-        } else if operation.as_ref().is_some_and(|o| o.state == OperationState::Reconciling
-            || (o.state != OperationState::Resolved && !task.is_running())) {
-            "unknown"
-        } else if task.is_running() { "executing" } else { "admitted" };
-        Ok(BackendReceipt { task_id: task.task_id, accepted_commit: task.created_commit, input_ref: task.input_ref,
-            state: state.into(), replayed: false, operation, attempt, evidence, result })
+        let state = task_state_label(&result, &operation, task);
+        let (actor, actor_scope) = if frozen.schema_version >= 4 {
+            (frozen.actor.clone(), "scoped".to_string())
+        } else {
+            (None, "legacy".to_string())
+        };
+        Ok(BackendReceipt {
+            task_id: task.task_id, accepted_commit: task.created_commit, input_ref: task.input_ref.clone(),
+            state: state.into(), replayed: false, actor, actor_scope, operation, attempt, evidence, result,
+        })
+    }
+
+    /// Actor-scoped status lookup — used internally by `invoke_action` where
+    /// the caller already knows the authenticated actor.
+    fn action_status_for_actor(&self, id: EntityId, request_id: &str, actor: &ArtifactActor) -> Result<BackendReceipt, ActionError> {
+        if !valid_token(request_id) { return Err(ActionError::Invalid("invalid request_id".into())); }
+        let scoped = task_id(id, actor, request_id);
+        let task = match self.store.get_task(scoped)? {
+            Some(t) => t,
+            None => self.store.get_task(legacy_task_id(id, request_id))?.ok_or(ActionError::NotFound)?,
+        };
+        let frozen = read_frozen(&self.store, &task)?;
+        if frozen.artifact_id != id || frozen.request.request_id != request_id || task.agent_id != self.agent_id {
+            return Err(ActionError::Internal(anyhow!("artifact action identity mismatch")));
+        }
+        self.receipt_for(&task)
+    }
+
+    /// Public status lookup — resolves by request_id alone, recovering the
+    /// actor from the frozen input. Used by the HTTP GET handler where the
+    /// caller does not present an actor.
+    pub fn action_status(&self, id: EntityId, request_id: &str) -> Result<BackendReceipt, ActionError> {
+        if !valid_token(request_id) { return Err(ActionError::Invalid("invalid request_id".into())); }
+        // Try legacy identity first (covers pre-actor inputs), then scan
+        // would be needed for actor-scoped IDs. Since we don't know the actor
+        // for a bare GET, look up by legacy id. If a schema-4 input was never
+        // admitted under a legacy id, the caller must use the actor-aware path.
+        let task = self.store.get_task(legacy_task_id(id, request_id))?;
+        // If not found by legacy id, the action was admitted under actor-scoped
+        // identity only. We scan existing artifact tasks by request_id to find it.
+        let task = match task {
+            Some(t) => t,
+            None => self.find_action_task(id, request_id)?,
+        };
+        let frozen = read_frozen(&self.store, &task)?;
+        if frozen.artifact_id != id || frozen.request.request_id != request_id || task.agent_id != self.agent_id {
+            return Err(ActionError::Internal(anyhow!("artifact action identity mismatch")));
+        }
+        self.receipt_for(&task)
+    }
+
+    /// Locate an action task by trying the known actor identities. For a
+    /// schema-4 action admitted only under Participant, the identity is
+    /// deterministic; for Owner it depends on the principal_ref which we
+    /// don't have here. We try Participant first, then fail with NotFound.
+    fn find_action_task(&self, id: EntityId, request_id: &str) -> Result<TaskRecord, ActionError> {
+        // The most common unauthenticated browser action is Participant.
+        let participant_id = task_id(id, &ArtifactActor::Participant, request_id);
+        if let Some(task) = self.store.get_task(participant_id)? {
+            return Ok(task);
+        }
+        Err(ActionError::NotFound)
+    }
+}
+
+/// Derive the human-readable state label from a task's result/operation/running state.
+fn task_state_label(result: &Option<TaskResult>, operation: &Option<OperationRecord>, task: &TaskRecord) -> &'static str {
+    if let Some(result) = result {
+        match &result.outcome {
+            TaskOutcome::Succeeded => "executed",
+            TaskOutcome::Failed { .. } => "failed",
+            TaskOutcome::Cancelled => "cancelled",
+            TaskOutcome::Interrupted => "interrupted",
+        }
+    } else if operation.as_ref().is_some_and(|o| o.state == OperationState::Reconciling
+        || (o.state != OperationState::Resolved && !task.is_running()))
+    {
+        "unknown"
+    } else if task.is_running() {
+        "executing"
+    } else {
+        "admitted"
     }
 }
 
@@ -862,7 +1056,7 @@ impl PlaygroundBackendHandler {
     fn artifact_dir(&self, id: EntityId) -> PathBuf { self.root.join(id.to_string()) }
 
     fn validate_input(&self, task: &TaskRecord, input: &FrozenAction) -> Result<Vec<u8>> {
-        ensure!(task.task_id == task_id(input.artifact_id, &input.request.request_id), "backend request/task identity mismatch");
+        ensure!(task.task_id == frozen_task_id(input), "backend request/task identity mismatch");
         let version_record_ref = input.version_record_ref.as_ref()
             .ok_or_else(|| anyhow::anyhow!("frozen action missing required sealed version closure"))?;
         ensure!(input.schema_version >= 2 && input.binding.schema_version == 1

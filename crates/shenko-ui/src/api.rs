@@ -152,6 +152,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/api/self", get(self_status_handler))
         .route("/api/context", get(context_handler))
         .route("/api/config/namespaces", get(config_namespaces_handler))
+        .route("/api/config/entries", get(config_entries_handler))
         .route("/api/config/entries/{namespace}/{key}", get(config_entry_handler))
         .route("/api/config/preview", post(config_preview_handler))
         .route("/api/config/apply", post(config_apply_handler))
@@ -183,6 +184,44 @@ async fn config_namespaces_handler(State(state): State<ApiState>) -> Json<Value>
     }
 }
 
+/// `GET /api/config/entries` — every registered key with its saved desired
+/// revision, the value each consumer actually runs, and its adoption rows.
+///
+/// The panel reads this projection; it holds the same facts the conversation
+/// path gets from `config.manage`, not a second configuration source. A
+/// consumer that cannot report its value is `null`, never the requested value.
+async fn config_entries_handler(State(state): State<ApiState>) -> Json<Value> {
+    let Some(config) = state.config.as_ref() else {
+        return Json(json!({ "available": false, "entries": [] }));
+    };
+    let mut entries = Vec::new();
+    for namespace in config.discover() {
+        for key in &namespace.logical_keys {
+            match config.read(&namespace.namespace, key) {
+                Ok(view) => entries.push(json!({
+                    "namespace": &namespace.namespace,
+                    "logical_key": key,
+                    "application": namespace.application,
+                    "entry": view.entry,
+                    "desired_value": view.desired_value,
+                    "current_value": view.current_value,
+                    "current_value_error": view.current_value_error,
+                    "adoptions": view.adoptions,
+                    "interrupted_change": view.interrupted_change,
+                })),
+                Err(error) => entries.push(json!({
+                    "namespace": &namespace.namespace,
+                    "logical_key": key,
+                    "application": namespace.application,
+                    "code": error.code(),
+                    "error": error.to_string(),
+                })),
+            }
+        }
+    }
+    Json(json!({ "available": true, "entries": entries }))
+}
+
 async fn config_entry_handler(
     State(state): State<ApiState>,
     AxumPath((namespace, key)): AxumPath<(String, String)>,
@@ -196,14 +235,30 @@ async fn config_entry_handler(
     }
 }
 
+/// The body a panel may send. It carries no actor: the actor is derived from
+/// the request's credentials, because a client that names its own actor is
+/// not authenticated as it.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConfigPanelRequest {
+    namespace: String,
+    logical_key: String,
+    desired: Value,
+    /// The panel's own intent identity. Re-submitting the same intent after a
+    /// lost response resolves the original change instead of a second one.
+    origin_identity: String,
+    expected_base_revision: Option<u64>,
+    coordinating_task_id: Option<shenko_types::ids::EntityId>,
+}
+
 async fn config_preview_handler(
     State(state): State<ApiState>,
-    Json(request): Json<ConfigApplyRequest>,
+    Json(request): Json<ConfigPanelRequest>,
 ) -> Json<Value> {
     let Some(config) = state.config.as_ref() else {
         return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
     };
-    match config.preview(&request.namespace, &request.logical_key, request.desired.clone(), request.expected_base_revision) {
+    match config.preview(&request.namespace, &request.logical_key, request.desired, request.expected_base_revision) {
         Ok(preview) => Json(json!({ "available": true, "accepted": true, "preview": preview })),
         Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
     }
@@ -212,30 +267,43 @@ async fn config_preview_handler(
 async fn config_apply_handler(
     State(state): State<ApiState>,
     headers: axum::http::HeaderMap,
-    Json(mut request): Json<ConfigApplyRequest>,
+    Json(request): Json<ConfigPanelRequest>,
 ) -> Json<Value> {
-    let (Some(config), Some(owner)) = (state.config.as_ref(), state.owner.as_ref()) else {
+    let Some(config) = state.config.as_ref() else {
         return Json(json!({ "available": false, "error": "CONFIG_INTERNAL: configuration service not installed" }));
     };
-    // The actor is resolved from the request's credentials, never from a
-    // body field: only an owner principal or a delegated subject task may
-    // carry an administrative configuration change.
+    // The actor is resolved from the request's credentials, never from a body
+    // field: only an authenticated owner principal may carry a panel change.
+    // The subject's own changes arrive through its delegated `config.manage`
+    // task, which derives the subject actor from that task.
+    let Some(owner) = state.owner.as_ref() else {
+        return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED",
+            "error": "CONFIG_DENIED: ownership is not installed, so no panel change can be authenticated" }));
+    };
     let actor = match owner.actor(&headers) {
-        Ok(actor) => actor,
+        Ok(crate::owner::AuthenticatedActor::Owner { principal_ref }) =>
+            crate::config_service::ConfigActor::Owner { principal_ref },
+        Ok(crate::owner::AuthenticatedActor::Participant) =>
+            return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED",
+                "error": "CONFIG_DENIED: a panel configuration change requires owner authentication" })),
         Err(error) => return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED", "error": error.to_string() })),
     };
-    request.actor = match (&request.actor, actor) {
-        (crate::config_service::ConfigActor::Owner { .. }, authenticated) => match authenticated {
-            crate::owner::AuthenticatedActor::Owner { principal_ref } =>
-                crate::config_service::ConfigActor::Owner { principal_ref },
-            crate::owner::AuthenticatedActor::Participant =>
-                return Json(json!({ "available": true, "accepted": false, "code": "CONFIG_DENIED",
-                    "error": "CONFIG_DENIED: an owner actor requires owner authentication" })),
-        },
-        (delegated, _) => delegated.clone(),
+    let request = ConfigApplyRequest {
+        namespace: request.namespace,
+        logical_key: request.logical_key,
+        origin_identity: request.origin_identity,
+        actor,
+        desired: request.desired,
+        expected_base_revision: request.expected_base_revision,
+        coordinating_task_id: request.coordinating_task_id,
     };
     match config.apply(request) {
-        Ok(change) => Json(json!({ "available": true, "accepted": true, "change": change })),
+        Ok(result) => Json(json!({
+            "available": true,
+            "accepted": true,
+            "replayed": result.replayed,
+            "change": result.change,
+        })),
         Err(error) => Json(json!({ "available": true, "accepted": false, "code": error.code(), "error": error.to_string() })),
     }
 }
@@ -308,6 +376,18 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
     };
     let artifacts: Vec<Value> = playground.list().into_iter().map(|version| {
         let durable = playground.durable_record(version.artifact_id).ok().flatten();
+        // SPEC §51.1: the default projection of a revision chain is a fact
+        // pair — how many committed versions exist and when the newest was
+        // written. How many *older* versions the default view shows is the
+        // installed taste macro's decision, so this surface does not derive
+        // it: the projection is reported as omitted until a taste disclosure
+        // (`Disclosure::project_json`) is supplied by its owner. The bytes of
+        // every version stay behind the explicit `/playground/{id}/versions`
+        // read.
+        let committed_version_count = playground
+            .revisions(version.artifact_id)
+            .map(|revisions| revisions.len())
+            .ok();
         json!({
             "artifact_id": version.artifact_id,
             "title": version.title,
@@ -315,15 +395,31 @@ async fn playground_surface_handler(State(state): State<ApiState>) -> Json<Value
             "revision": version.revision,
             "parent_revision": version.parent_revision,
             "updated_at": version.updated_at,
+            "latest_committed_at": version.updated_at,
+            "committed_version_count": committed_version_count,
+            "revision_projection": {
+                "state": "omitted",
+                "reason": "no installed taste disclosure projection was applied to this surface",
+            },
             "backend": version.backend.is_some(),
             "lifecycle": durable.as_ref().map(|record| record.lifecycle.clone()),
             "record": durable,
         })
     }).collect();
+    // The playground surface also lists the registered configuration
+    // namespaces: an artifact's settings are managed through the same
+    // configuration service as every other setting, not through a private
+    // per-artifact panel. SPEC §43.2.
+    let namespaces = state
+        .config
+        .as_ref()
+        .map(|config| config.discover())
+        .unwrap_or_default();
     Json(json!({
         "available": true,
         "roots": playground.roots(),
         "artifacts": artifacts,
+        "namespaces": namespaces,
     }))
 }
 
@@ -346,7 +442,12 @@ async fn tasks_handler(
     State(state): State<ApiState>,
     Query(query): Query<TasksQuery>,
 ) -> Json<Value> {
-    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    // The default page bound is a live setting of this consumer
+    // (`shenko.ui/page_limit`); an explicit `?limit=` still wins.
+    let limit = query
+        .limit
+        .unwrap_or_else(|| crate::config_namespaces::page_limit(state.config.as_ref()))
+        .clamp(1, crate::config_namespaces::MAX_PAGE_LIMIT);
     match state.store.as_ref() {
         Some(store) => match store.list_recent_tasks(limit) {
             Ok(items) => Json(json!({ "available": true, "items": items })),
@@ -562,7 +663,11 @@ async fn context_handler(
     State(state): State<ApiState>,
     Query(query): Query<ContextQuery>,
 ) -> Json<Value> {
-    let limit = query.limit.unwrap_or(50).clamp(1, 200) as u64;
+    // The default page bound is the same live setting `/api/tasks` applies.
+    let limit = query
+        .limit
+        .unwrap_or_else(|| crate::config_namespaces::page_limit(state.config.as_ref()))
+        .clamp(1, crate::config_namespaces::MAX_PAGE_LIMIT) as u64;
     let mut report = json!({
         "scope": Value::Null,
         "plugins_wired": false,

@@ -163,6 +163,22 @@ export interface ConfigView {
   api_key_configured?: boolean;
 }
 
+/// One configuration key as the service reports it: the saved desired
+/// revision and value, what each consumer adopted, and the value a consumer
+/// actually runs. The panel edits through the same service the subject's
+/// `config.manage` tool drives; there is no second configuration source.
+export interface ConfigEntryView {
+  namespace: string;
+  logical_key: string;
+  application?: string;
+  entry?: { desired_revision?: number; desired_value_ref?: unknown } | null;
+  desired_value?: unknown;
+  current_value?: unknown;
+  adoptions?: Array<{ consumer_id?: string; adopted_revision?: number; detail?: string }>;
+  code?: string;
+  error?: string;
+}
+
 export interface SelfView {
   status?: string;
   identity?: IdentityView;
@@ -220,6 +236,12 @@ export interface UiState {
   draft: string;
   config?: ConfigView;
   config_error: boolean;
+  /// Registered configuration keys with their saved/adopted/running facts.
+  config_entries?: ConfigEntryView[];
+  config_entries_error?: boolean;
+  /// In-progress panel edits, keyed `namespace/logical_key`. A draft is never
+  /// a saved revision; only an explicit apply submits it.
+  config_drafts?: Record<string, string>;
   self?: SelfView;
   self_error: boolean;
   tasks?: { available?: boolean; items?: Array<Record<string, unknown>>; note?: string };
@@ -540,6 +562,22 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
     layout: { open: state.display.panel_open },
   });
 
+  const configEntryRows = (state.config_entries ?? []).map((entry) => {
+    const key = `${entry.namespace}/${entry.logical_key}`;
+    const desired_revision = entry.entry?.desired_revision ?? 0;
+    const draft = state.config_drafts?.[key]
+      ?? (entry.desired_value === undefined ? '' : JSON.stringify(entry.desired_value));
+    const apply_action = addAction(
+      actions,
+      `config.apply.${key}`,
+      'config.apply',
+      `config:${key}:${desired_revision}`,
+      state.source === 'live' && state.connection === 'online' && !entry.error,
+      { namespace: entry.namespace, logical_key: entry.logical_key },
+    );
+    return { ...entry, key, desired_revision, draft, apply_action };
+  });
+  const configDraftAction = addAction(actions, 'config.draft', 'config.draft', 'config-draft-v1', state.source === 'live');
   const projection: UiProjection = {
     schema_version: UI_PROJECTION_SCHEMA,
     surface_id: state.source === 'demo' ? 'shenko.main.demo' : 'shenko.main.live',
@@ -568,6 +606,9 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
         hidden: state.display.view !== 'config',
         config: state.config,
         config_error: state.config_error,
+        entries: configEntryRows,
+        entries_error: state.config_entries_error ?? false,
+        live: state.source === 'live',
         self: state.self,
         self_error: state.self_error,
         connection: state.connection,
@@ -586,7 +627,11 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
           durable_input_receipts: state.durable_receipts,
           committed_replay: state.committed_replay,
         },
-      }, [], { layout: { hidden: state.display.view !== 'config' }, fallback: 'read_only_values' }),
+      }, [], {
+        action_refs: [configDraftAction, ...configEntryRows.map((row) => row.apply_action)],
+        layout: { hidden: state.display.view !== 'config' },
+        fallback: 'read_only_values',
+      }),
       node('playground', 'playground_surface', {
         hidden: state.display.view !== 'playground',
         playground: state.playground,

@@ -408,3 +408,21 @@ button { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+
+/* Configuration namespaces — SPEC §43.1. Saved desired revision, each
+   consumer's adopted revision and the value a consumer runs are separate
+   facts; the panel never merges them into one "ok". */
+.config-entries-block { margin-top: 20px; display: grid; gap: 12px; }
+.config-entries-head h3 { margin: 0 0 4px; font-size: 14px; }
+.config-entries-head p { margin: 0; font-size: 12px; color: var(--muted-foreground); line-height: 1.5; }
+.config-entry { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.config-entry-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 13px; }
+.config-entry-title span { font-size: 12px; color: var(--muted-foreground); }
+.config-entry-facts, .config-entry-adoptions { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted-foreground); }
+.config-entry-note { margin: 0; font-size: 12px; color: var(--muted-foreground); }
+.config-entry-note.is-error { color: var(--destructive, #b42318); }
+.config-entry-editor { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+.config-entry-editor label { display: grid; gap: 4px; flex: 1 1 220px; font-size: 12px; }
+.config-entry-input { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--background); color: var(--foreground); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.config-entry-apply { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--secondary); color: var(--secondary-foreground); font-size: 12px; cursor: pointer; }
+.config-entry-apply:disabled { opacity: .5; cursor: not-allowed; }
