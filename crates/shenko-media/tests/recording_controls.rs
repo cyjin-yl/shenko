@@ -169,6 +169,7 @@ async fn emit_final(
             MediaTranscriptEvent {
                 text: text.to_owned(),
                 partial: false,
+                segment: None,
                 speaker: None,
                 captured_at_ms: None,
                 provider_facts: serde_json::Map::new(),

@@ -621,6 +621,64 @@ struct InstalledDefinitions {
     artifact_services: Arc<shenko_ui::playground_backend::ArtifactServiceController>,
 }
 
+/// The media services one process publishes: the typed ingress every provider
+/// (and the `/api/media` routes) admits through, and the live runtime the
+/// session, recording, speech and speaker-identity engines hang off.
+struct MediaServices {
+    ingress: Arc<shenko_media::MediaIngress>,
+    runtime: Arc<shenko_media::runtime::MediaRuntime>,
+}
+
+/// Construct and publish the real media services on the shared Cordis root —
+/// SPEC §15.2, §20.
+///
+/// This is the single construction path, and it runs before the native
+/// definitions that bind to it. The running agent passes its live subject
+/// inbox so an admitted media fact wakes the same subject; capability
+/// discovery publishes the same pair so a definition it reports as installed
+/// really has the service behind it. Nothing here is a stub: the runtime holds
+/// the engine bindings loaded from `<data_dir>/media/providers.json`, and an
+/// absent file means no engine is configured — which the handlers report as a
+/// typed refusal at call time rather than as a fake capability.
+async fn spawn_media_services(
+    supervisor: &shenko_kernel::Supervisor,
+    store: &Arc<shenko_store::store::Store>,
+    data_dir: &std::path::Path,
+    agent_id: shenko_types::ids::EntityId,
+    inbox: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+) -> Result<MediaServices> {
+    let _media_ingress_plugin = supervisor
+        .spawn(
+            shenko_media::MediaIngressPlugin,
+            (Arc::clone(store), agent_id, inbox),
+        )
+        .await?;
+    // Engine bindings are configuration, not model input: a malformed binding
+    // is a typed error here instead of a silently engine-less runtime.
+    let media_providers =
+        shenko_media::runtime::MediaProviders::load(data_dir, Arc::clone(&store.cas))?;
+    let _media_runtime_plugin = supervisor
+        .spawn(
+            shenko_media::MediaRuntimePlugin,
+            (
+                supervisor
+                    .context()
+                    .try_service::<shenko_media::MediaIngress>()?,
+                Arc::clone(store),
+                media_providers,
+            ),
+        )
+        .await?;
+    Ok(MediaServices {
+        ingress: supervisor
+            .context()
+            .try_service::<shenko_media::MediaIngress>()?,
+        runtime: supervisor
+            .context()
+            .try_service::<shenko_media::runtime::MediaRuntime>()?,
+    })
+}
+
 /// Install the native task definitions of this runtime.
 ///
 /// Every definition is a real Cordis plugin with a real generation lifetime:
@@ -634,6 +692,7 @@ async fn install_native_definitions(
     store: &Arc<shenko_store::store::Store>,
     data_dir: &std::path::Path,
     wasi_mounts: Vec<shenko_wasm::MountSpec>,
+    media: &MediaServices,
 ) -> Result<InstalledDefinitions> {
     let handoff_participants = Arc::new(
         shenko_update::handoff::HandoffParticipantRegistry::new(),
@@ -704,6 +763,18 @@ async fn install_native_definitions(
         Arc::new(shenko_media::MediaReadHandler::new(Arc::clone(store)));
     let _media_read_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, media_read_handler)
+        .await?;
+    // Speaker identification of one already-sealed segment. The handler binds
+    // to the SAME live media runtime the UI routes and provider plugins use,
+    // which is why the media services are constructed before this install.
+    let media_identify_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+        shenko_media::MediaIdentifyHandler::new(
+            Arc::clone(store),
+            Arc::clone(&media.runtime),
+        ),
+    );
+    let _media_identify_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, media_identify_handler)
         .await?;
     // Built-in, replaceable self-explanation — SPEC §38, R124. The
     // provider is seeded from compiled-in material now; the real
@@ -1071,11 +1142,28 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let prepared_home = bootstrap.prepare(store.installation_id_for_subject(agent_id)?)?;
             let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
+            // The same media services the running agent publishes, so a
+            // definition reported here is bound to the real runtime instead of
+            // a name. No subject loop drains a discovery process, so the wake
+            // channel has no receiver: an admission would honestly report
+            // `pending` (its durable row already carries the fact) instead of
+            // claiming a live queue.
+            let (discovery_wake, discovery_wake_receiver) = tokio::sync::mpsc::channel(1024);
+            drop(discovery_wake_receiver);
+            let media = spawn_media_services(
+                &supervisor,
+                &store,
+                &data_dir,
+                agent_id,
+                discovery_wake,
+            )
+            .await?;
             let installed = install_native_definitions(
                 &supervisor,
                 &store,
                 &data_dir,
                 wasi_mounts,
+                &media,
             )
             .await?;
             // Discovery runs the same installation path as the agent: an
@@ -1512,6 +1600,24 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             store.start_subject_dispatcher()?;
             store.settle_subject_memory()?;
             store.reconcile_subject_publications()?;
+            // Typed continuous-media services first: one durable revision
+            // admission + the bound subject inbox event, plus the live runtime
+            // behind the reserved slots (realtime sessions against configured
+            // engine bindings in data_dir/media/providers.json, recording
+            // capture with CAS closure, barge-in, speech playback and speaker
+            // identification). SPEC §15.2, §20. They are published before the
+            // native definitions that bind to them, and the /api/media routes
+            // share the same instances. No engine configured stays honest: the
+            // ingress path still admits external provider facts, and an engine
+            // call reports a typed refusal.
+            let media = spawn_media_services(
+                &supervisor,
+                &store,
+                &data_dir,
+                agent_id,
+                subject_inbox.sender(),
+            )
+            .await?;
             // Native finite children use the same Cordis root and persistent
             // ledger. Fixed native definitions retain their original handlers;
             // the finite model handler is installed with the shared broker below.
@@ -1520,6 +1626,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &store,
                 &data_dir,
                 wasi_mounts.clone(),
+                &media,
             )
             .await?;
             if let Some(path) = ssh_targets {
@@ -1544,16 +1651,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 cancel.clone(),
             )
             .await?;
-            // Typed continuous-media ingress: one durable revision admission +
-            // the bound subject inbox event, published on the same Cordis root
-            // so real providers inject it (and the /api/media routes share it).
-            // SPEC §15.2, §20. Transcript text still comes only from providers.
-            let _media_ingress_plugin = supervisor
-                .spawn(
-                    shenko_media::MediaIngressPlugin,
-                    (Arc::clone(&store), agent_id, subject_inbox.sender()),
-                )
-                .await?;
             // Resident memory worker — SPEC §12.2: accepted ≠ remembered.
             // It drains the durable memory intent queue and keeps the Git
             // text knowledge repository (data_dir/memory) in sync. The
@@ -1569,26 +1666,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         agent_id,
                         Arc::clone(&store),
                         Some(memory_knowledge),
-                    ),
-                )
-                .await?;
-            let media_ingress = supervisor
-                .context()
-                .try_service::<shenko_media::MediaIngress>()?;
-            // Media runtime behind the reserved slots: realtime sessions
-            // against configured engine bindings (data_dir/media/
-            // providers.json), recording capture with CAS closure, barge-in
-            // and speech playback. SPEC §20. No engine configured is honest:
-            // the ingress path still admits external provider facts.
-            let media_providers =
-                shenko_media::runtime::MediaProviders::load(&data_dir, Arc::clone(&store.cas))?;
-            let _media_runtime_plugin = supervisor
-                .spawn(
-                    shenko_media::MediaRuntimePlugin,
-                    (
-                        Arc::clone(&media_ingress),
-                        Arc::clone(&store),
-                        media_providers,
                     ),
                 )
                 .await?;
@@ -2615,12 +2692,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
-                .with_media_ingress(Arc::clone(&media_ingress))
-                .with_media_runtime(
-                    supervisor
-                        .context()
-                        .try_service::<shenko_media::runtime::MediaRuntime>()?,
-                )
+                .with_media_ingress(Arc::clone(&media.ingress))
+                .with_media_runtime(Arc::clone(&media.runtime))
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_owner(owner_state)

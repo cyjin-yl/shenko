@@ -1,10 +1,11 @@
 //! Durable transcript revision ingress — SPEC §15.2, §20.
-//! Nine independent scenarios, registered in eight tests: atomic admission;
+//! Ten independent scenarios, registered in nine tests: atomic admission;
 //! conflicting revision identity; partial→final; final correction;
 //! disconnect→end preserving terminal receipts; open replay after end;
-//! verified audio; noncanonical audio rejection; numeric-range rejection.
-//! The open-replay scenario is counted separately despite sharing the
-//! terminal journey. No ASR/model/audio device is exercised or simulated.
+//! verified audio; noncanonical audio rejection; numeric-range rejection;
+//! late-partial supersede. The open-replay scenario is counted separately
+//! despite sharing the terminal journey. No ASR/model/audio device is
+//! exercised or simulated.
 
 use shenko_store::store::Store;
 use shenko_types::error::ShenkoError;
@@ -410,4 +411,54 @@ fn numeric_range_is_rejected_before_mutation_gate() {
         .admit_media_revision(agent, revision(&stream, "r4", 4, 1, "still open", false))
         .unwrap();
     assert!(!after.receipt.replayed);
+}
+
+/// 10. An interim claim arriving after the segment finalized never displaces
+/// the final observation: it is retained and delivered as honest out-of-order
+/// evidence, but the effective text stays final and the transcript keeps
+/// reporting the completed utterance.
+#[test]
+fn late_partial_is_superseded_and_never_unfinalizes_the_segment() {
+    let (store, agent, stream) = fixture();
+    store
+        .admit_media_revision(agent, revision(&stream, "r1", 6, 1, "课堂开始", false))
+        .unwrap();
+    let late = store
+        .admit_media_revision(agent, revision(&stream, "r2", 6, 2, "课堂", true))
+        .unwrap();
+
+    assert_eq!(
+        late.receipt.disposition,
+        MediaRevisionDisposition::Superseded
+    );
+    let Some(MediaIngressEvent::Revision {
+        record,
+        prior_effective,
+        ..
+    }) = &late.notify
+    else {
+        panic!("a retained late revision still commits and notifies");
+    };
+    assert_eq!(record.text.as_str(), "课堂");
+    assert!(record.partial);
+    let prior = prior_effective
+        .as_ref()
+        .expect("a superseded arrival still reports the effective row");
+    assert_eq!(prior.revision_id.as_str(), "r1");
+    assert!(!prior.partial);
+
+    let effective = store.media_effective_segment(&stream, 6).unwrap().unwrap();
+    assert_eq!(effective.revision_id, "r1");
+    assert!(!effective.partial);
+    assert_eq!(effective.text, "课堂开始");
+    let revisions = store.media_revisions(&stream, 6).unwrap();
+    assert_eq!(revisions.len(), 2);
+    assert_eq!(
+        revisions[1].superseded_by_revision, None,
+        "a superseded arrival is never a successor"
+    );
+    let transcript = store.media_transcript(&stream).unwrap().unwrap();
+    assert_eq!(transcript.segments.len(), 1);
+    assert_eq!(transcript.segments[0].effective.text, "课堂开始");
+    assert!(!transcript.segments[0].had_final_correction);
 }
