@@ -1626,6 +1626,32 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     info!(unit = %unit, "legacy awareness unit installed");
                 }
             }
+            // Perception units are definitions; the facts come from sources
+            // bound to the exact installed revisions. Bind the shipped ones
+            // before the first request so it has an archived observation
+            // instead of a pending state. A source that cannot observe is
+            // reported as unavailable in the cards — it is not a reason to
+            // refuse to open the node.
+            match shenko_awareness_core::bind_builtin_perception_sources(
+                Arc::clone(&cognition_node),
+                cognition.perception(),
+            ) {
+                Ok(bound) => info!(units = ?bound, "cognition perception sources bound"),
+                Err(error) => tracing::warn!(
+                    %error,
+                    "perception sources not bound; their cards stay unknown on this node"
+                ),
+            }
+            // Publish the one catalog so any plugin — including a finite
+            // child's handler — discloses the same installed units. Publishing
+            // grants nothing: a reader still has to be able to make the call
+            // the index names, and the index says so when it cannot.
+            let _cognition_catalog_plugin = supervisor
+                .spawn(
+                    shenko_awareness_core::CognitionCatalogHost,
+                    Arc::clone(&cognition),
+                )
+                .await?;
             // Optional ecosystem adapters. MCP and Agent Skills are two
             // independent units over the same installation authority: each is
             // resident only while its own unit is enabled, and neither brings

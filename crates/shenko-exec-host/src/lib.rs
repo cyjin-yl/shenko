@@ -36,6 +36,9 @@ pub use cognition_query::*;
 pub mod cognition_trial;
 pub use cognition_trial::*;
 
+pub mod awareness_host;
+pub use awareness_host::*;
+
 pub mod wasi_task;
 pub use wasi_task::*;
 
