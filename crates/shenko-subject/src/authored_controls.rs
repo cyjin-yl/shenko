@@ -9,11 +9,10 @@
 
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::ids::EntityId;
-use shenko_types::output::{AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, SteerSpec};
-use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};use shenko_types::output::{
+use shenko_types::output::{
     AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, ReconcileSpec, SteerSpec,
 };
-use shenko_types::subject::{AttentionState, Disposition};
+use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};
 fn invalid(line: u64, reason: &str) -> ShenkoError {
     ProtocolError::new(
         "CONTROL_PROTOCOL_INVALID",

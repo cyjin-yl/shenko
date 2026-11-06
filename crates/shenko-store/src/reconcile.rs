@@ -499,7 +499,8 @@ fn record_acknowledgement_attitude_tx(
     decision_ref: &shenko_types::object::ObjectRef,
     acknowledgement: &shenko_types::evidence::ReconciliationAcknowledgement,
 ) -> Result<(), ShenkoError> {
-    use shenko_types::cognition::{AttitudeConfidence, AttitudeDraft, ReasonPointer};
+    use crate::atoms::AttitudeDraft;
+    use shenko_types::cognition::{AttitudeConfidence, ReasonPointer};
 
     let mut reasons = vec![ReasonPointer::reconciliation(acknowledgement.case_id)];
     for receipt_id in &acknowledgement.reason_refs {

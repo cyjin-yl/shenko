@@ -737,7 +737,9 @@ pub(super) fn system_prompt_suffix(
     if state.pending_reminder.is_some() {
         prompt.push_str("\n\n");
         prompt.push_str(shenko_context_policy::ROLLOVER_REMINDER);
-        prompt.push('\n');    if !state.reconciliation_docket.is_empty() {
+        prompt.push('\n');
+    }
+    if !state.reconciliation_docket.is_empty() {
         // These are durable facts about effects nobody has proven either way.
         // They are not a queue and not a suggestion: the subject may accept
         // one, or leave it open.
@@ -759,7 +761,8 @@ pub(super) fn system_prompt_suffix(
         }
         prompt.push_str(
             "若你判断可以带着这份不确定性继续别的工作，用 [reconcile] {\"case_id\":\"上面某个 case_id\",\"reason_refs\":[\"该 case 的 evidence_refs 之一\"],\"remaining_impact\":\"剩下的影响与还需什么证据\"} 明确接受。它只记录你的判断，不会把效果改成成功，也不会重发；以后收到确定证据会重新评估。\n",
-        );    }
+        );
+    }
 
     prompt
 }
@@ -938,8 +941,9 @@ async fn execute_step(
             contributions: prepared.contributions,
             contribution_omissions: prepared.contribution_omissions,
             contribution_tokens: prepared.contribution_tokens,
-            obligations: prepared.obligations,            obligations,
-            reconciliation_docket,            attention,
+            obligations: prepared.obligations,
+            reconciliation_docket,
+            attention,
         };
         step.input_plan_ref = Some(seal_step_object(
             &store,
@@ -1370,7 +1374,10 @@ async fn execute_step(
                         "line": control.spans.first().map(|span| span.line),
                         "reason": "reconcile cites evidence this case does not carry",
                     })),
-                ));        // A durable obligation may only answer an input this step actually
+                ));
+            }
+        }
+        // A durable obligation may only answer an input this step actually
         // selected: an origin the subject was never shown cannot become a
         // frozen fact of its commitment. Naming any other event is a
         // correctable authored control, exactly like an unselected
@@ -1394,7 +1401,8 @@ async fn execute_step(
                             "origin_event_id": origin,
                         })),
                     ));
-                }            }
+                }
+            }
         }
         let mut delegations = Vec::new();
         for control in &output.controls {
