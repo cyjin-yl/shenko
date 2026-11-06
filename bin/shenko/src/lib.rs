@@ -611,6 +611,10 @@ struct InstalledDefinitions {
     self_knowledge: Arc<shenko_awareness_core::SelfKnowledgeProvider>,
     handoff_participants: Arc<shenko_update::handoff::HandoffParticipantRegistry>,
     artifact_services: Arc<shenko_ui::playground_backend::ArtifactServiceController>,
+    /// The one configuration service: the panel routes and the subject's
+    /// `config.manage` tool share it, so a change made one way is the state
+    /// the other observes. SPEC §43.1.
+    config_service: Arc<shenko_ui::config_service::ConfigService>,
 }
 
 /// Install the native task definitions of this runtime.
@@ -731,6 +735,22 @@ async fn install_native_definitions(
     );
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
+        .await?;
+    // Configuration through conversation — SPEC §43.1, R133. The handler runs
+    // the same ConfigService the panel routes expose: one durable change
+    // ledger, one set of consumer adoptions, no approval gate and no second
+    // configuration store. Its built-in namespaces are registered by the
+    // service itself, and every plugin may add its own.
+    let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(
+        Arc::clone(store),
+    ));
+    let config_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_ui::ConfigHandler::new(
+            Arc::clone(store),
+            Arc::clone(&config_service),
+        ));
+    let _native_config_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, config_handler)
         .await?;
     // Desktop and VM handlers share one provider registry, lease authority
     // and session state across tasks.
@@ -914,6 +934,7 @@ async fn install_native_definitions(
         self_knowledge,
         handoff_participants,
         artifact_services,
+        config_service,
     })
 }
 
@@ -2375,10 +2396,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
             info!("subject loop started");
 
-            // The configuration service: discover/read/preview/apply over the
-            // durable config tables. Namespaces register their handlers on
-            // this service; without a handler a namespace is not advertised.
-            let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(Arc::clone(&store)));
+            // The configuration service installed with the native definitions:
+            // discover/read/preview/apply over the durable config tables, the
+            // very same instance the subject's `config.manage` tool drives.
+            // Namespaces register their handlers on this service; without a
+            // handler a namespace is not advertised.
+            let config_service = Arc::clone(&installed.config_service);
 
             // 7. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)

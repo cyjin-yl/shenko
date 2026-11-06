@@ -2,7 +2,9 @@ import {
   UI_INTENT_SCHEMA,
   UI_PROJECTION_SCHEMA,
   buildProjection,
+  semanticHash,
   type BuildManifest,
+  type ConfigEntryView,
   type ConnectionState,
   type DisplayState,
   type IdentityView,
@@ -179,6 +181,9 @@ function initialState(): UiState {
     submissions: storedSubmissions(),
     draft: storageGet(DRAFT_KEY),
     config_error: false,
+    config_entries: undefined,
+    config_entries_error: false,
+    config_drafts: {},
     self_error: false,
     tasks_error: false,
     memory_error: false,
@@ -244,6 +249,10 @@ class LiveController implements ProjectionController {
   private selfApplied = 0;
   private abort = new AbortController();
   private pendingChunks = new Map<string, Map<number, TimelineChunk>>();
+  /// One durable origin identity per (key, exact desired bytes): pressing save
+  /// again for the same value resolves the original change instead of
+  /// submitting a second one.
+  private configOrigins = new Map<string, string>();
 
   constructor() {
     document.documentElement.dataset.theme = this.state.display.theme;
@@ -304,6 +313,7 @@ class LiveController implements ProjectionController {
           if (view === 'playground') void this.loadPlayground();
           if (view === 'config') {
             void this.loadConfig();
+            void this.loadConfigEntries();
             void this.loadSelf();
             void this.loadHealth();
             void this.loadManifest();
@@ -364,6 +374,18 @@ class LiveController implements ProjectionController {
           storageSet(DRAFT_KEY, this.state.draft);
           this.emit();
         }
+        break;
+      case 'config.draft': {
+        const entry = intent.payload.entry;
+        const value = intent.payload.value;
+        if (typeof entry === 'string' && typeof value === 'string') {
+          this.state.config_drafts = { ...(this.state.config_drafts ?? {}), [entry]: value };
+          this.emit();
+        }
+        break;
+      }
+      case 'config.apply':
+        void this.applyConfigEntry(action.payload?.namespace, action.payload?.logical_key);
         break;
       case 'composer.append':
         this.sendWithMode('append');
@@ -1152,6 +1174,92 @@ class LiveController implements ProjectionController {
       this.state.config_error = true;
     }
     if (!this.disposed) this.emit();
+  }
+
+  private async loadConfigEntries(): Promise<void> {
+    try {
+      const data = await this.fetchJson('/api/config/entries');
+      if (!isObject(data) || data.available !== true) throw new Error('config entries unavailable');
+      this.state.config_entries = Array.isArray(data.entries)
+        ? (data.entries as ConfigEntryView[])
+        : [];
+      this.state.config_entries_error = false;
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.config_entries = undefined;
+      this.state.config_entries_error = true;
+    }
+    if (!this.disposed) this.emit();
+  }
+
+  private async postJson(path: string, body: unknown): Promise<unknown> {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify(body),
+      signal: this.abort.signal,
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  /// Submit one panel edit through the same durable change contract the
+  /// subject's `config.manage` tool uses. The saved revision, the apply
+  /// receipt and each consumer's adoption stay separate facts: a rejected or
+  /// unadopted change is reported as such, never as success.
+  private async applyConfigEntry(namespace: unknown, logicalKey: unknown): Promise<void> {
+    if (typeof namespace !== 'string' || typeof logicalKey !== 'string') return;
+    const key = `${namespace}/${logicalKey}`;
+    const entry = this.state.config_entries?.find(
+      (row) => row.namespace === namespace && row.logical_key === logicalKey,
+    );
+    const text = this.state.config_drafts?.[key]
+      ?? (entry?.desired_value === undefined ? '' : JSON.stringify(entry.desired_value));
+    let desired: unknown;
+    try {
+      desired = JSON.parse(text);
+    } catch {
+      this.state.display.notice = `${key}: 值必须是合法 JSON`;
+      this.emit();
+      return;
+    }
+    const originKey = `${key}:${semanticHash(JSON.stringify(desired))}`;
+    if (!this.configOrigins.has(originKey)) {
+      this.configOrigins.set(originKey, `panel-${originKey}-${Date.now().toString(36)}`);
+    }
+    try {
+      const data = await this.postJson('/api/config/apply', {
+        namespace,
+        logical_key: logicalKey,
+        desired,
+        origin_identity: this.configOrigins.get(originKey),
+        expected_base_revision: entry?.entry?.desired_revision ?? 0,
+      });
+      if (!isObject(data) || data.accepted !== true) {
+        const code = isObject(data) && typeof data.code === 'string' ? data.code : '修改被拒绝';
+        this.state.display.notice = `${key}: ${code}`;
+      } else {
+        const change = isObject(data.change) ? data.change : undefined;
+        const state = change && typeof change.state === 'string' ? change.state : 'unknown';
+        const receipt = change && isObject(change.receipt) && typeof change.receipt.outcome === 'string'
+          ? change.receipt.outcome
+          : undefined;
+        this.state.display.notice = `${key}: ${data.replayed === true ? '原修改（replayed）' : '已提交'} · ${state}${receipt ? ` · ${receipt}` : ''}`;
+        // The saved revision now exists; the next edit is a new intent.
+        this.configOrigins.delete(originKey);
+        const drafts = { ...(this.state.config_drafts ?? {}) };
+        delete drafts[key];
+        this.state.config_drafts = drafts;
+      }
+    } catch (error) {
+      if (this.disposed || (error instanceof DOMException && error.name === 'AbortError')) return;
+      this.state.display.notice = `${key}: 提交未确认（${
+        error instanceof Error ? error.message : '网络错误'
+      }）；保存仍是 durable 事实时才可重试同一值`;
+    }
+    if (!this.disposed) this.emit();
+    await this.loadConfigEntries();
   }
 
   private applyIdentity(identity: IdentityView | undefined): void {

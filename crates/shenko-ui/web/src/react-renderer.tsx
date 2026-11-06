@@ -27,6 +27,7 @@ import {
   type UiProjection,
   type ViewName,
 } from './projection';
+import { ConfigEntries } from './config-panel';
 
 // These are the actual upstream prototypes and official runtime adapter, not
 // local lookalikes. The compiler package is deliberately absent from this graph.
@@ -170,7 +171,7 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
           <TimelineSurface node={timeline} projection={projection} emit={emit} />
           <TasksSurface node={nodes.tasks_surface} />
           <MemorySurface node={nodes.memory_surface} />
-          <ConfigSurface node={nodes.config_surface} projection={projection} />
+          <ConfigSurface node={nodes.config_surface} projection={projection} emit={emit} />
           <PlaygroundSurface node={nodes.playground_surface} />
         </div>
         <Composer node={composer} emit={emit} />
@@ -778,7 +779,7 @@ function MemorySurface({ node }: { node?: UiNode }) {
   </section>;
 }
 
-function ConfigSurface({ node, projection }: { node?: UiNode; projection: UiProjection }) {
+function ConfigSurface({ node, projection, emit }: { node?: UiNode; projection: UiProjection; emit: Emit }) {
   if (!node) return null;
   const config = node.props.config;
   const self = node.props.self;
@@ -798,6 +799,7 @@ function ConfigSurface({ node, projection }: { node?: UiNode; projection: UiProj
       <ConfigItem label="服务版本" value={unknown(node.props.server_version)} />
       <ConfigItem label="Subject ID" value={projection.subject_id ?? '未知'} wide />
     </div>
+    <ConfigEntries node={node} emit={emit} />
     <div className="capability-block">
       <h3>输入与时间线能力</h3>
       <div className="capability-row"><span>Append</span><strong>{projection.capabilities.append ? '可用 · volatile 回执' : '不可用'}</strong></div>
