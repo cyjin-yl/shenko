@@ -34,10 +34,13 @@ use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
+use shenko_types::cognition::{AttitudeDraft, ReasonPointer};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef};
 use shenko_types::plugin_runtime::ContributionScope;
+
+use crate::atoms::ContentWrite;
 use shenko_types::subject::SubjectBranchHead;
 use shenko_types::task::{TaskOwner, TaskRecord};
 
@@ -293,6 +296,14 @@ pub enum BankEntryKind {
 }
 
 impl BankEntryKind {
+    /// The stored token of a bank entry class.
+    ///
+    /// SPEC §51.9: `environment_fact` is a historical field name, not a
+    /// cognition kind — an observation about the real environment is content
+    /// plus an `Assertion` attitude whose reason stops at that observation.
+    /// The token stays readable because committed bank rows are never
+    /// rewritten; a fresh writer records the attitude alongside the entry and
+    /// does not treat the token as a knowledge kind.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Requirement => "requirement",
@@ -2452,3 +2463,33 @@ pub const EPOCH_COLUMN_LIST: &str = EPOCH_COLUMNS;
 /// The column list of the reminder table.
 #[allow(dead_code)]
 pub const REMINDER_COLUMN_LIST: &str = REMINDER_COLUMNS;
+
+impl Store {
+    /// Record the canonical reading of a research observation — SPEC §51.1,
+    /// §51.9.
+    ///
+    /// The bank entry's `environment_fact` token is a historical field name; the
+    /// fact is the entry's content read through an `Assertion` attitude whose
+    /// reason stops at the observation that produced it. The caller supplies
+    /// that reason: this adapter never invents a receipt, a digest or a
+    /// confidence, and an entry without a supplied reason records nothing. The
+    /// bank row itself keeps its committed bytes, and the entry's absent
+    /// confidence stays absent (§51.1: unknown is not a default number).
+    pub fn record_environment_observation_attitude(
+        &self,
+        agent_id: EntityId,
+        entry: &InterventionBankEntry,
+        reason: ReasonPointer,
+    ) -> Result<(), ShenkoError> {
+        self.record_content_attitude(
+            agent_id,
+            ContentWrite {
+                bytes: entry.content.clone().into_bytes(),
+                media_type: "text/plain".into(),
+            },
+            AttitudeDraft::assertion(vec![reason]),
+        )
+        .map(|_| ())
+        .map_err(|error| ShenkoError::storage(error.to_string()))
+    }
+}

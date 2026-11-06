@@ -1,12 +1,17 @@
-//! Durable commitments the subject made about itself — SPEC §13.8/§41.5.
+//! Durable commitments the subject made about itself — SPEC §13.8/§41.5,
+//! read through SPEC §51.1/§51.9.
 //!
 //! Two facts live here, both written in the SAME transaction as the S1
 //! decision that authored them:
 //!
-//! * `subject_obligations` — a promise the subject took on. It stays open
-//!   until a later committed step completes or cancels it, and it is read
-//!   back into every later S0. An obligation is not a scheduler: nothing
-//!   here wakes the subject by itself.
+//! * `subject_obligations` — a promise the subject took on. Under §51.9 it is
+//!   the subject's own **"not completed" attitude**, not a second kind of loop
+//!   record: the canonical reading is a `ContentAttitude` with
+//!   `AttitudeRole::Unfinished` whose reason pointer names what caused the
+//!   promise, and this row is the mechanism projection the loop resumes from
+//!   (identity, dependency, resume condition, terminal state). The row's bytes
+//!   are never rewritten; the attitude is a new immutable record. An
+//!   obligation is still not a scheduler: nothing here wakes the subject.
 //! * `subject_attention_policies` — the subject's own do-not-disturb
 //!   decision. It changes input selection only: it never rewrites history,
 //!   never grants authority, and an `off` decision without sources and a
@@ -14,9 +19,13 @@
 
 use rusqlite::{OptionalExtension, params};
 
+use shenko_types::cognition::{AttitudeDraft, ReasonPointer};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::EntityId;
+use shenko_types::object::ObjectRef;
 use shenko_types::subject::{AttentionPolicy, AttentionState, PendingObligation};
+
+use crate::atoms::ContentWrite;
 
 use crate::store::Store;
 
@@ -138,6 +147,59 @@ impl Store {
             review_after: review_after.as_deref().map(parse_timestamp).transpose()?,
             created_step_id: parse_entity_id(&step_id)?,
         }))
+    }
+}
+
+/// The reason a commitment is an attitude about: where it came from.
+///
+/// A promise made because an event was observed reads like a fact; a promise
+/// the subject derived from its own decision reads like a conclusion. Both are
+/// the same kind of content — the difference is only where the reason stops
+/// (§51.1). No reason is invented here: an obligation with neither an origin
+/// event nor a committed decision has no pointer and is reported as such by
+/// the caller instead of being given a fabricated one.
+pub fn obligation_reason(
+    obligation: &PendingObligation,
+    decision_ref: Option<&ObjectRef>,
+) -> Option<ReasonPointer> {
+    if let Some(event_id) = obligation.origin_event_id {
+        return Some(ReasonPointer::observation(event_id, None));
+    }
+    decision_ref.map(|decision| ReasonPointer::content(decision.digest.clone()))
+}
+
+impl Store {
+    /// Emit the canonical `Unfinished` attitude for a commitment the subject
+    /// just asserted.
+    ///
+    /// The content is the commitment text as written; the reason is the event
+    /// or decision that produced it; confidence stays absent (unknown) because
+    /// the subject has not judged it. Nothing here stamps the obligation as
+    /// adopted, executed or verified, and no confidence number is invented
+    /// (§51.1). The historical `subject_obligations` row keeps its own bytes.
+    ///
+    /// Callers must run this once per newly authored obligation; the canonical
+    /// writer dedupes on the content digest, so a retried step does not open a
+    /// second revision of the same bytes.
+    pub fn record_obligation_attitude(
+        &self,
+        agent_id: EntityId,
+        obligation: &PendingObligation,
+        decision_ref: Option<&ObjectRef>,
+    ) -> Result<(), ShenkoError> {
+        let Some(reason) = obligation_reason(obligation, decision_ref) else {
+            return Ok(());
+        };
+        self.record_content_attitude(
+            agent_id,
+            ContentWrite {
+                bytes: obligation.description.clone().into_bytes(),
+                media_type: "text/plain".into(),
+            },
+            AttitudeDraft::unfinished(vec![reason]),
+        )
+        .map(|_| ())
+        .map_err(|error| ShenkoError::storage(error.to_string()))
     }
 }
 

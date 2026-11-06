@@ -12,6 +12,15 @@
 //! reported in every [`ImportReport`]; `import_rollback_delta` turns an
 //! uncovered source into a refusal, while the forward delta keeps the same
 //! observation visible without changing its retry behaviour.
+//!
+//! Two copies of one installation are not peers. When the source owns a subject
+//! and the retained copy carries that subject's genesis, the delta is admitted
+//! as the installation's own history (`Store::import_activation_archive`): the
+//! work, intents, effects and memory the live copy committed since the copy was
+//! taken continue here with their real state, instead of being parked as
+//! foreign work and turned into unknown effects. A store without that subject
+//! keeps the peer path unchanged, and a store that claims the subject for
+//! another installation is refused before anything is published.
 use std::path::Path;
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -122,6 +131,37 @@ fn import_delta_inner(
             blocked_units: vec![detail],
         });
     }
+    // The subject this hand-over carries. A successor that has just taken
+    // control reports no locally owned subject yet — its head still points at
+    // its predecessor's commit — so the source's own control state names it.
+    let handover_subject = source.controlled_subject().map_err(anyhow::Error::from)?;
+    // A second copy of one installation is not a peer. When the source holds a
+    // subject and the retained copy carries that subject's genesis, this delta
+    // moves the installation's own history into its next generation: its tasks
+    // and issued intents are admitted with the state they really have instead
+    // of being parked as foreign work. The Store proves the rest (same agent,
+    // genesis, branch, persisted installation and current controller binding)
+    // and refuses anything else before a row or file is published.
+    let same_installation = match handover_subject {
+        Some(agent) => target
+            .get_subject_genesis(agent)
+            .map_err(anyhow::Error::from)?
+            .is_some(),
+        None => false,
+    };
+    if same_installation {
+        if let Some(detail) = target
+            .activation_archive_refusal(&source)
+            .map_err(anyhow::Error::from)?
+        {
+            return Ok(ImportReport {
+                tables: Vec::new(), commits_imported: 0, watermark: None,
+                source_watermark_before: None, source_watermark_after: None,
+                uncovered_source_commits: 0, archive_path: None,
+                blocked_units: vec![detail],
+            });
+        }
+    }
     let source_root = source_db.parent().ok_or_else(|| anyhow::anyhow!("source directory missing"))?;
     let target_root = target_db.parent().ok_or_else(|| anyhow::anyhow!("target directory missing"))?;
     let source_memory = source_root.join("memory");
@@ -178,15 +218,24 @@ fn import_delta_inner(
             source_watermark_before: source_before, source_watermark_after: source_before,
             uncovered_source_commits: uncovered_before, archive_path: retained, blocked_units });
     }
-    if let Some(agent) = source_subject {
+    if let Some(agent) = handover_subject {
         target.copy_paused_activation_boundary(&source, agent).map_err(anyhow::Error::from)?;
     }
-    let outcome = target.import_cognition_archive(std::fs::File::open(&archive_path)?, &CognitionImportOptions {
+    let options = CognitionImportOptions {
         memory_root: target_memory.is_dir().then_some(target_memory), workspace_root: None,
         // Stable source identity binds Store's baselines and exact repeated
         // imports; retries never create a fresh replication relationship.
         peer_id: Some(source.ledger.ledger_id()),
-    })?;
+    };
+    let outcome = if same_installation {
+        target.import_activation_archive(
+            &source,
+            std::fs::File::open(&archive_path)?,
+            &options,
+        )?
+    } else {
+        target.import_cognition_archive(std::fs::File::open(&archive_path)?, &options)?
+    };
     blocked_units.extend(outcome.gaps.iter().filter(|gap| gap.blocking)
         .map(|gap| format!("{}: {}", gap.kind, gap.detail)));
     blocked_units.extend(outcome.conflicts.iter().map(|conflict| format!("typed recovery conflict: {conflict:?}")));

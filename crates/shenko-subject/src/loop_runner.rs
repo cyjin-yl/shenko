@@ -1503,6 +1503,23 @@ async fn execute_step(
             state.semantic_wait = store.semantic_wait(state.agent_id)?;
             state.semantic_wait_receipt = store.semantic_wait_receipt(step_id)?;
 
+            // SPEC §51.9: a commitment the subject just made is its own "not
+            // completed" attitude on the ledger, not a second kind of loop
+            // record. The mechanism row committed inside S1 above stays the
+            // surface the loop resumes from and keeps its bytes; the attitude is
+            // a new immutable record whose reason names the event or decision
+            // that produced the promise, with confidence left unknown.
+            for obligation in &decision.pending_obligations {
+                if obligation.obligation_id == EntityId::nil() {
+                    continue;
+                }
+                store.record_obligation_attitude(
+                    state.agent_id,
+                    obligation,
+                    step.decision_ref.as_ref(),
+                )?;
+            }
+
             // Read our committed receipt, not latest profile. Its revision and
             // typed conflict were settled atomically with this exact S1.
             let identity_receipt = store

@@ -17,6 +17,13 @@
 //!   never becomes a fact of the store, so it cannot create new debt;
 //! * imported work is parked, never dispatched here: a replica is not a
 //!   second live writer and an armed or unknown effect is never replayed;
+//! * one installation's own copies are not peers. An activation archive taken
+//!   from the copy that currently holds control is admitted as this
+//!   installation's own history: its tasks and subject intents travel with the
+//!   state they really have, because parking them would turn live work into an
+//!   unknown effect and make the receiving copy a different writer of the same
+//!   history. Only an explicitly validated same-installation archive gets that
+//!   admission (`import_activation_archive`); a peer archive never does;
 //! * a fact that this store still holds exactly as the peer last delivered
 //!   it takes the newer value, so a continuing source advances instead of
 //!   looking like a divergence;
@@ -60,7 +67,7 @@ use serde::{Deserialize, Serialize};
 use shenko_types::error::ShenkoError;
 use shenko_types::ids::{EntityId, LedgerSeq};
 use shenko_types::object::{Digest, ObjectRef, SchemaRef};
-use shenko_types::subject::{SubjectBranchHead, SubjectMode, SubjectStepState};
+use shenko_types::subject::{SubjectBranchHead, SubjectGenesis, SubjectMode, SubjectStepState};
 use shenko_types::task::{DispatchEligibility, TaskRecord, TaskState};
 
 use crate::cas::ContentStore;
@@ -70,7 +77,7 @@ use crate::cognition_archive::{
     CognitionGitDescriptor, CognitionManifest, CognitionObjectDescriptor, CognitionRow,
     read_archive, write_manifest, write_payload,
 };
-use crate::store::Store;
+use crate::store::{Store, checked_head_mode};
 
 /// Local bookkeeping of the replication exchange, plus the declared recovery
 /// source facts. Bookkeeping never enters the fingerprint: recording an
@@ -204,6 +211,56 @@ pub struct CognitionImportOptions {
     pub workspace_root: Option<PathBuf>,
     /// The peer that sent the snapshot.
     pub peer_id: Option<EntityId>,
+}
+
+/// Which writer's facts an archive carries.
+///
+/// The distinction is not "trusted" versus "untrusted": both are validated.
+/// It is *whose history this is*. A peer archive is another installation's
+/// work, so this store must never become a second writer of it. An activation
+/// archive is this same installation's own state, taken from the copy that
+/// currently holds control and given to its next copy before the selector
+/// moves; the single-writer rule (§41.12) is what makes its rows admissible
+/// instead of foreign.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Admission {
+    /// Another installation's snapshot: foreign work is parked, unfinished
+    /// intents become explicitly unknown, and a differing local fact is a
+    /// conflict unless the class' own rule merges it.
+    Peer,
+    /// A same-installation archive of the copy that currently holds control,
+    /// admitted into an offline copy that does not.
+    Activation,
+}
+
+impl Admission {
+    fn is_activation(self) -> bool {
+        matches!(self, Admission::Activation)
+    }
+}
+
+/// The identities an activation archive is bound to, captured from the two
+/// live copies before a single row or file is published.
+struct ActivationBinding {
+    agent: EntityId,
+    installation: EntityId,
+    /// The immutable birth both copies carry.
+    genesis: SubjectGenesis,
+    source_ledger: EntityId,
+    source_head: SubjectBranchHead,
+    /// The destination head as it was observed at admission. It is re-checked
+    /// before the files are restored and again inside the row transaction, so
+    /// a copy that started committing while the archive was applied cannot be
+    /// silently overwritten.
+    target_head: SubjectBranchHead,
+}
+
+/// The outcome of the same-installation admission check.
+enum ActivationAdmission {
+    Admitted(ActivationBinding),
+    /// The exact reason the archive must not be applied. A refusal is a
+    /// reported fact, not a panic: the caller keeps the working generation.
+    Refused(String),
 }
 
 /// What an export produced.
@@ -1404,6 +1461,50 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_seq"),
         kind: RowKind::Revisioned,
     },
+    // Immutable content records (SPEC §51.1). Bytes live in CAS; this row is
+    // the ledger proof that those bytes were registered. Replicated verbatim
+    // because the digest is the identity and the row is never updated.
+    TableSpec {
+        name: "cognition_contents",
+        key: &["digest"],
+        columns: &[
+            "digest", "bytes", "media_type", "store_namespace", "locator",
+            "codec_name", "codec_major", "codec_digest", "object_json",
+            "registered_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    // Append-only attitude rows (SPEC §51.1, §51.3). Never updated, never
+    // deleted. The supersedes chain is walked by the receiver to verify the
+    // revision lineage it was given. Imported attitudes do NOT grant local
+    // adoption evidence or activate a local selector.
+    TableSpec {
+        name: "cognition_attitudes",
+        key: &["attitude_id"],
+        columns: &[
+            "attitude_id", "agent_id", "digest", "role_kind", "role_json",
+            "adoption_unit_id", "definition_slot", "supersedes_content",
+            "reasons_json", "confidence_json", "knowledge_kind_hint",
+            "supersedes", "created_commit_ledger", "created_commit_seq",
+            "created_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    // Legacy content registration: maps historical rows to their immutable
+    // content digest. Write-once per (source_table, source_key); verbatim
+    // because the mapping is a provenance fact, not a mutable record.
+    TableSpec {
+        name: "cognition_legacy_content",
+        key: &["source_table", "source_key"],
+        columns: &[
+            "source_table", "source_key", "content_digest", "media_type",
+            "sealed_at_ms", "registered_commit_seq",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
 ];
 
 /// Everything one snapshot consists of.
@@ -1533,6 +1634,92 @@ impl Store {
         reader: R,
         options: &CognitionImportOptions,
     ) -> Result<CognitionImportOutcome> {
+        self.import_archive(reader, options, Admission::Peer, None)
+    }
+
+    /// The subject this copy currently holds control of, if any.
+    ///
+    /// A copy owns its subject once it created the genesis or committed work on
+    /// the branch head ([`Store::get_existing_agent_id`]). A successor that has
+    /// just taken control has neither yet: its head still points at its
+    /// predecessor's commit until its first step lands. Its quiesce requests are
+    /// local controller state that never travels through an archive, so exactly
+    /// one such request names the subject it is really controlling here. No
+    /// request, or several, is not a claim.
+    pub fn controlled_subject(&self) -> Result<Option<EntityId>, ShenkoError> {
+        if let Some(agent) = self.get_existing_agent_id()? {
+            return Ok(Some(agent));
+        }
+        let conn = self.ledger.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT DISTINCT agent_id FROM subject_quiesce_requests")
+            .map_err(crate::store::storage_error)?;
+        let mut agents: Vec<String> = stmt
+            .query_map([], |row| row.get(0))
+            .map_err(crate::store::storage_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(crate::store::storage_error)?;
+        if agents.len() != 1 {
+            return Ok(None);
+        }
+        let agent = agents.pop().expect("exactly one agent id");
+        agent
+            .parse::<EntityId>()
+            .map(Some)
+            .map_err(crate::store::storage_error)
+    }
+
+    /// Why `self` must not receive `source`'s same-installation archive.
+    ///
+    /// This is the exact admission check [`Store::import_activation_archive`]
+    /// enforces, exposed so a hand-over can report the refusal and keep its
+    /// working generation instead of turning it into an exception.
+    pub fn activation_archive_refusal(&self, source: &Store) -> Result<Option<String>> {
+        match self.activation_binding(source)? {
+            ActivationAdmission::Admitted(_) => Ok(None),
+            ActivationAdmission::Refused(detail) => Ok(Some(detail)),
+        }
+    }
+
+    /// Import an archive of THIS installation's own state into its next copy.
+    ///
+    /// `source` is the copy that currently holds control (the live generation
+    /// of a forward activation, or the newer generation of a rollback); `self`
+    /// is the offline copy that must carry the same closure before a selector
+    /// commit makes it the only writer. That direction — one designated writer
+    /// at a time — is what distinguishes these rows from a peer's: the source's
+    /// tasks and subject intents are the installation's own work and travel with
+    /// the state they really have, instead of being parked into an unknown
+    /// effect that the successor would then have to guess about.
+    ///
+    /// Only an archive that proves the same agent, genesis, branch, persisted
+    /// installation identity and current controller binding on both sides is
+    /// admitted; everything else is refused before a row or file is published.
+    /// Fingerprint, closure, order, conflict-unit and file-boundary guards are
+    /// the same ones peer import uses.
+    pub fn import_activation_archive<R: Read>(
+        &self,
+        source: &Store,
+        reader: R,
+        options: &CognitionImportOptions,
+    ) -> Result<CognitionImportOutcome> {
+        match self.activation_binding(source)? {
+            ActivationAdmission::Admitted(binding) => {
+                self.import_archive(reader, options, Admission::Activation, Some(&binding))
+            }
+            ActivationAdmission::Refused(detail) => bail!(
+                "activation archive refused, nothing published: {detail}"
+            ),
+        }
+    }
+
+    fn import_archive<R: Read>(
+        &self,
+        reader: R,
+        options: &CognitionImportOptions,
+        admission: Admission,
+        binding: Option<&ActivationBinding>,
+    ) -> Result<CognitionImportOutcome> {
         let mut import_gate = self.cognition_import_gate.lock();
         let _gate_tx = import_gate.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let peer_id = options.peer_id.unwrap_or(EntityId::nil());
@@ -1565,6 +1752,12 @@ impl Store {
         // The archive's membership is checked against this reader's own
         // classes before a single row is applied.
         check_archive_membership(&manifest)?;
+        // A same-installation archive is bound to the copy it came from: its
+        // exported ledger and its subject rows must be this installation's, or
+        // the archive is somebody else's state wearing our identities.
+        if let Some(binding) = binding {
+            bind_activation_manifest(&manifest, binding)?;
+        }
         // A legacy archive is migrated to the current column layout first:
         // the layout only grew, so the migration is by name and keeps every
         // fact's identity.
@@ -1599,6 +1792,12 @@ impl Store {
             let mut conn = self.ledger.conn.lock();
             let tx = conn.transaction().map_err(db)?;
             validate_subject_boundaries(&tx, &manifest)?;
+            // The destination copy must not have moved since admission: a copy
+            // that started committing is a second writer, and its rows are no
+            // longer "this installation's older state".
+            if let Some(binding) = binding {
+                checked_head_mode(&tx, &binding.target_head, false)?;
+            }
             tx.commit().map_err(db)?;
         }
 
@@ -1634,12 +1833,13 @@ impl Store {
             &options.workspace_root,
             &manifest.file_origins,
             peer_id,
+            admission,
         )?;
         conflicts.extend(file_conflicts);
         if let Some(root) = options.memory_root.clone() {
             if git_history.is_some() {
                 let (restored, conflict) =
-                    self.restore_git_history(&git_history, &root, peer_id)?;
+                    self.restore_git_history(&git_history, &root, peer_id, admission)?;
                 restored_git_history = restored;
                 if let Some(conflict) = conflict {
                     conflicts.push(conflict);
@@ -1647,7 +1847,7 @@ impl Store {
             }
         }
 
-        let applied = self.apply_rows(&manifest, peer_id)?;
+        let applied = self.apply_rows(&manifest, peer_id, admission, binding)?;
         conflicts.extend(applied.conflicts.clone());
 
         self.record_receipt(
@@ -1673,6 +1873,159 @@ impl Store {
             restored_git_history,
             gaps,
         })
+    }
+
+    /// Prove that `source` and `self` are two copies of one installation, and
+    /// capture the identities this archive and this destination are bound to.
+    ///
+    /// Everything checked here is read from committed state on both sides, so
+    /// a stripped or foreign archive cannot borrow these identities: the
+    /// archive's own ledger and subject rows are checked against this binding
+    /// afterwards ([`bind_activation_manifest`]).
+    fn activation_binding(&self, source: &Store) -> Result<ActivationAdmission> {
+        let refuse = |detail: String| -> Result<ActivationAdmission> {
+            Ok(ActivationAdmission::Refused(detail))
+        };
+        let (agent, owns_subject_locally) = match source.controlled_subject()? {
+            Some(agent) => (agent, source.get_existing_agent_id()?.is_some()),
+            None => {
+                return refuse(format!(
+                    "activation-archive-unowned-source: {} does not hold control of a subject here, so its archive is not this installation's current state",
+                    source.ledger.ledger_id()
+                ));
+            }
+        };
+        if let Some(local) = self.get_existing_agent_id()? {
+            if local != agent {
+                return refuse(format!(
+                    "activation-archive-subject-mismatch: the source copy owns subject {agent} and the destination owns {local}"
+                ));
+            }
+        }
+        let Some(source_genesis) = source.get_subject_genesis(agent)? else {
+            return refuse(format!(
+                "activation-archive-unowned-source: the source copy has no genesis for its own subject {agent}"
+            ));
+        };
+        ensure!(
+            source_genesis.subject_id == agent,
+            "source subject genesis identifies another subject"
+        );
+        let Some(target_genesis) = self.get_subject_genesis(agent)? else {
+            return refuse(format!(
+                "activation-archive-unbound-destination: the destination holds no copy of subject {agent}'s genesis, so it is not a copy of this installation"
+            ));
+        };
+        if target_genesis.genesis_id != source_genesis.genesis_id
+            || target_genesis.subject_id != agent
+            || target_genesis.bootstrap_id != source_genesis.bootstrap_id
+            || target_genesis.bootstrap_event_ref != source_genesis.bootstrap_event_ref
+            || target_genesis.created_commit != source_genesis.created_commit
+        {
+            return refuse(format!(
+                "activation-archive-genesis-mismatch: the destination's genesis is not the immutable birth of subject {agent}; a hand-over never migrates another installation's state"
+            ));
+        }
+        // Persisted installation identity comes from the verified immutable
+        // bootstrap event, not from a copy's own writer id.
+        let installation = source.installation_id_for_subject(agent)?;
+        if self.installation_id_for_subject(agent)? != installation {
+            return refuse(format!(
+                "activation-archive-installation-mismatch: the destination belongs to another installation than {installation}; only two copies of one installation exchange an activation archive"
+            ));
+        }
+        let source_ledger = source.ledger.ledger_id();
+        let target_ledger = self.ledger.ledger_id();
+        if source_ledger == target_ledger {
+            return refuse(format!(
+                "activation-archive-same-ledger: source and destination share ledger {source_ledger}; a copy acquires its own ledger identity before its first local mutation"
+            ));
+        }
+        let (source_head, target_head, source_selector, target_selector) = {
+            // Same lock order as `copy_paused_activation_boundary`, so the two
+            // hand-over steps can never deadlock against each other.
+            let source_conn = source.ledger.conn.lock();
+            let target_conn = self.ledger.conn.lock();
+            (
+                read_activation_head(&source_conn, agent)?,
+                read_activation_head(&target_conn, agent)?,
+                crate::activation::read_selector(&source_conn, agent)?
+                    .ok_or_else(|| anyhow!("activation source has no controller selector"))?,
+                crate::activation::read_selector(&target_conn, agent)?
+                    .ok_or_else(|| anyhow!("activation destination has no controller selector"))?,
+            )
+        };
+        if source_head.branch_id != target_head.branch_id
+            || source_head.genesis_ref != target_head.genesis_ref
+        {
+            return refuse(
+                "activation-archive-branch-mismatch: the two copies are not the same branch of the same genesis"
+                    .into(),
+            );
+        }
+        if !matches!(source_head.mode, SubjectMode::Active | SubjectMode::Paused) {
+            return refuse(format!(
+                "activation-archive-source-not-current: the source copy's head is {:?}, but only the copy that currently holds control exports an activation archive",
+                source_head.mode
+            ));
+        }
+        if !owns_subject_locally && source_head.mode != SubjectMode::Paused {
+            // A freshly activated successor has not committed a step of its
+            // own yet, so its head still points at its predecessor's commit.
+            // Only a validated local paused boundary proves control there.
+            return refuse(
+                "activation-archive-unowned-source: the source copy has not committed a step of its own, so a local paused boundary is the only proof that it holds control"
+                    .into(),
+            );
+        }
+        if source_selector.agent_id != agent
+            || source_selector.generation != source_head.software_generation
+            || source_selector.active_epoch != source_head.controller_epoch.0
+        {
+            return refuse(
+                "activation-archive-source-selector: the source selector does not own the source head's generation/epoch"
+                    .into(),
+            );
+        }
+        if target_selector.agent_id != agent
+            || target_selector.generation != target_head.software_generation
+            || target_selector.active_epoch != target_head.controller_epoch.0
+        {
+            return refuse(
+                "activation-archive-destination-selector: the destination selector does not own its own head's generation/epoch"
+                    .into(),
+            );
+        }
+        // The direction is the whole argument for admitting raw work rows: the
+        // destination is behind the copy that holds control, so its rows are
+        // this installation's older state, never an independent answer.
+        if target_head.controller_epoch.0 > source_head.controller_epoch.0
+            || target_selector.active_epoch > source_selector.active_epoch
+        {
+            return refuse(format!(
+                "activation-archive-destination-ahead: the destination already holds controller epoch {}/selector epoch {} while the archive's source holds {}/{}, so it is not the offline copy this closure belongs to",
+                target_head.controller_epoch.0,
+                target_selector.active_epoch,
+                source_head.controller_epoch.0,
+                source_selector.active_epoch
+            ));
+        }
+        if source_head.mode == SubjectMode::Paused {
+            let source_conn = source.ledger.conn.lock();
+            if let Err(error) = crate::runtime_boundary::validate_paused_head(&source_conn, &source_head) {
+                return refuse(format!(
+                    "activation-archive-unsafe-boundary: the source's paused boundary is not clean: {error}"
+                ));
+            }
+        }
+        Ok(ActivationAdmission::Admitted(ActivationBinding {
+            agent,
+            installation,
+            genesis: source_genesis,
+            source_ledger,
+            source_head,
+            target_head,
+        }))
     }
 
     /// Fingerprint of the snapshot this store currently holds.
@@ -2347,6 +2700,8 @@ impl Store {
         &self,
         manifest: &CognitionManifest,
         peer_id: EntityId,
+        admission: Admission,
+        binding: Option<&ActivationBinding>,
     ) -> Result<CognitionApplyOutcome> {
         let mut ordered: Vec<&CognitionRow> = manifest.rows.iter().collect();
         ordered.sort_by_key(|row| {
@@ -2361,6 +2716,12 @@ impl Store {
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(db)?;
+                // The destination is re-checked here, under the mutation
+                // transaction that publishes the rows: a copy that moved while
+                // the files were restored is a second writer again.
+                if let Some(binding) = binding {
+                    checked_head_mode(&tx, &binding.target_head, false)?;
+                }
                 validate_cognition_rows(manifest)?;
                 check_import_order_conn(&tx, manifest)?;
                 validate_subject_boundaries(&tx, manifest)?;
@@ -2369,7 +2730,8 @@ impl Store {
                 let mut updated = 0usize;
                 let mut unchanged = 0usize;
                 let mut conflicts: Vec<CognitionConflict> = Vec::new();
-                let (media, media_events) = apply_media_streams(&tx, &ordered, peer_id, seq, manifest)?;
+                let (media, media_events) =
+                    apply_media_streams(&tx, &ordered, peer_id, seq, manifest, admission)?;
                 inserted += media.inserted;
                 updated += media.updated;
                 unchanged += media.unchanged;
@@ -2391,7 +2753,7 @@ impl Store {
                         continue;
                     }
                     if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
-                        let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq)?;
+                        let outcome = apply_memory_pairs(&tx, &ordered, peer_id, seq, admission)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;
@@ -2409,7 +2771,7 @@ impl Store {
                         // raw_sessions and subject_steps have already applied,
                         // but NO pending/raw/staged delivery has been published.
                         let (outcome, owned, rejected, rejected_ids) =
-                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest)?;
+                            apply_task_closures(&tx, &ordered, peer_id, seq, manifest, admission)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;
@@ -2434,7 +2796,7 @@ impl Store {
                     // applied or refused together.
                     if !semantic_units_applied && is_unit_table(&row.table) {
                         let (outcome, owned) =
-                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest)?;
+                            apply_semantic_units(&tx, &ordered, peer_id, seq, manifest, admission)?;
                         inserted += outcome.inserted;
                         updated += outcome.updated;
                         unchanged += outcome.unchanged;
@@ -2456,7 +2818,7 @@ impl Store {
                     let Some(spec) = spec_for(&row.table) else {
                         continue;
                     };
-                    let effective = effective_row(row, spec)?;
+                    let effective = effective_row(row, spec, admission)?;
                     let local = read_existing(&tx, spec, &effective)?;
                     let baseline = read_baseline(&tx, peer_id, spec.name, &effective.key)?;
                     match local {
@@ -2510,49 +2872,37 @@ impl Store {
                                     &effective.key,
                                     &effective.values,
                                 )?;
-                            } else if let Some(baseline_values) = baseline.as_ref() {
-                                if rows_equivalent(spec, &local_values, baseline_values) {
-                                    // This store still holds the value the
-                                    // peer last delivered, so the newer
-                                    // value is the peer's continuation, not
-                                    // a divergence.
-                                    update_row(&tx, spec, &effective, seq)?;
-                                    updated += 1;
-                                    write_baseline(
-                                        &tx,
-                                        peer_id,
-                                        spec.name,
-                                        &effective.key,
-                                        &effective.values,
-                                    )?;
-                                    record_origin(
-                                        &tx,
-                                        spec,
-                                        &effective,
-                                        peer_id,
-                                        &manifest.fingerprint,
-                                        manifest.source_ledger_id,
-                                    )?;
-                                } else {
-                                    let detail = describe_difference(
-                                        &local_values,
-                                        &effective.values,
-                                    );
-                                    conflicts.push(CognitionConflict {
-                                        table: spec.name.to_string(),
-                                        key: effective.key.clone(),
-                                        detail: detail.clone(),
-                                    });
-                                    record_conflict(
-                                        &tx,
-                                        peer_id,
-                                        spec.name,
-                                        &effective.key,
-                                        &detail,
-                                    )?;
-                                }
+                            } else if baseline
+                                .as_ref()
+                                .is_some_and(|baseline_values| {
+                                    rows_equivalent(spec, &local_values, baseline_values)
+                                })
+                                || activation_advances(spec, admission, &local_values, &effective)
+                            {
+                                // This store still holds the value the peer
+                                // last delivered, or the source copy continues
+                                // this installation's own history; either way
+                                // the newer value is that source's
+                                // continuation, not a divergence.
+                                update_row(&tx, spec, &effective, seq)?;
+                                updated += 1;
+                                write_baseline(
+                                    &tx,
+                                    peer_id,
+                                    spec.name,
+                                    &effective.key,
+                                    &effective.values,
+                                )?;
+                                record_origin(
+                                    &tx,
+                                    spec,
+                                    &effective,
+                                    peer_id,
+                                    &manifest.fingerprint,
+                                    manifest.source_ledger_id,
+                                )?;
                             } else {
-                                // The fact was not delivered by this peer, so
+                                // The fact was not delivered by this source, so
                                 // the local value is not a copy of it.
                                 let detail = describe_difference(
                                     &local_values,
@@ -2666,6 +3016,7 @@ impl Store {
         workspace_root: &Option<PathBuf>,
         origins: &[CognitionFileOrigin],
         peer_id: EntityId,
+        admission: Admission,
     ) -> Result<(usize, Vec<CognitionConflict>)> {
         let mut verified = 0usize;
         let mut conflicts: Vec<CognitionConflict> = Vec::new();
@@ -2715,9 +3066,13 @@ impl Store {
                     if baseline.as_ref().is_some_and(|baseline| {
                         baseline.state == FileBaselineState::Present
                             && baseline.digest == local_digest
-                    }) {
-                        // Only an untouched peer baseline may advance. A local
-                        // recreation after a deletion is independent content.
+                    }) || (admission.is_activation() && baseline.is_none())
+                    {
+                        // Only an untouched source baseline may advance, and
+                        // inside one installation the copy's own earlier file
+                        // under no baseline yet is exactly that. A local
+                        // recreation after a deletion is independent content
+                        // and still conflicts.
                         fs::write(&target, bytes)
                             .with_context(|| format!("write file {}", target.display()))?;
                         verify_restored_file(&target, descriptor)?;
@@ -2984,6 +3339,7 @@ impl Store {
         git_history: &Option<(CognitionGitDescriptor, Vec<u8>)>,
         root: &Path,
         peer_id: EntityId,
+        admission: Admission,
     ) -> Result<(bool, Option<CognitionConflict>)> {
         let Some((descriptor, bytes)) = git_history.as_ref() else {
             return Ok((false, None));
@@ -2991,7 +3347,7 @@ impl Store {
         let temp =
             std::env::temp_dir().join(format!("shenko-cognition-{}.bundle", EntityId::new()));
         fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
-        let outcome = self.restore_git_history_inner(root, peer_id, descriptor, &temp);
+        let outcome = self.restore_git_history_inner(root, peer_id, descriptor, &temp, admission);
         let _ = fs::remove_file(&temp);
         outcome
     }
@@ -3002,6 +3358,7 @@ impl Store {
         peer_id: EntityId,
         descriptor: &CognitionGitDescriptor,
         bundle: &Path,
+        admission: Admission,
     ) -> Result<(bool, Option<CognitionConflict>)> {
         let branch = descriptor
             .head
@@ -3074,11 +3431,14 @@ impl Store {
                     .as_deref()
                     .is_none_or(|reference| Some(reference) == local_ref.as_deref())
         });
-        if unchanged
+        // A same-installation copy may advance from its own older tip, and only
+        // forward: the fast-forward proof below still decides, so a divergent
+        // tip is reported here exactly as it is for a peer.
+        if (unchanged || admission.is_activation())
             && (replicated != local_head || local_ref.as_deref() != Some(descriptor.head.as_str()))
         {
-            // The local history is still the one the peer delivered, so a
-            // newer remote head is the peer's continuation, not a conflict.
+            // The local history is still the one the source delivered, so a
+            // newer remote head is that source's continuation, not a conflict.
             let fast_forward = if replicated == local_head {
                 true
             } else {
@@ -3271,6 +3631,92 @@ fn check_import_order_conn(
                 manifest.source_ledger_id
             );
         }
+    }
+    Ok(())
+}
+
+/// Read one copy's subject head and prove the indexed row agrees with its own
+/// serialized data, so the admission checks below cannot be satisfied by two
+/// contradictory representations.
+fn read_activation_head(conn: &rusqlite::Connection, agent: EntityId) -> Result<SubjectBranchHead> {
+    let raw: String = conn
+        .query_row(
+            "SELECT data FROM subject_branch_heads WHERE agent_id=?1",
+            [agent.to_string()],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| anyhow!("activation copy has no subject branch head for {agent}"))?;
+    let head: SubjectBranchHead = serde_json::from_str(&raw)?;
+    ensure!(
+        head.agent_id == agent,
+        "a copy's subject branch head identifies another subject"
+    );
+    checked_head_mode(conn, &head, false)?;
+    Ok(head)
+}
+
+/// Bind an archive to the copy that exported it.
+///
+/// The admission checks prove that the two *stores* are one installation. This
+/// proves that the archive in hand is that source's own snapshot: its exported
+/// ledger, its subject boundary and, when present, its genesis and bootstrap
+/// projection must all name the validated identities. Anything else is either
+/// another installation's archive or a different branch of this one, and both
+/// are refused before a row or a file is published.
+fn bind_activation_manifest(
+    manifest: &CognitionManifest,
+    binding: &ActivationBinding,
+) -> Result<()> {
+    ensure!(
+        manifest.source_ledger_id == binding.source_ledger,
+        "activation archive was exported by ledger {} instead of the validated source copy {}; nothing published",
+        manifest.source_ledger_id,
+        binding.source_ledger
+    );
+    let agent = binding.agent.to_string();
+    let head_row = manifest
+        .rows
+        .iter()
+        .find(|row| row.table == "subject_branch_heads" && row.value("agent_id") == Some(agent.as_str()))
+        .ok_or_else(|| {
+            anyhow!(
+                "activation archive carries no subject boundary for this installation; nothing published"
+            )
+        })?;
+    let archived: SubjectBranchHead =
+        serde_json::from_str(head_row.value("data").context("activation head has no data")?)?;
+    ensure!(
+        archived.agent_id == binding.agent
+            && archived.branch_id == binding.source_head.branch_id
+            && archived.genesis_ref == binding.source_head.genesis_ref,
+        "activation archive carries a subject boundary for another installation or branch; nothing published"
+    );
+    // The archive was taken from this copy at or before the head it has now.
+    // A boundary ahead of the source that exported it is not a snapshot.
+    ensure!(
+        archived.committed_step_no <= binding.source_head.committed_step_no
+            && archived.record_revision.0 <= binding.source_head.record_revision.0,
+        "activation archive carries a subject boundary newer than the copy that exported it; nothing published"
+    );
+    for row in manifest
+        .rows
+        .iter()
+        .filter(|row| row.table == "subject_genesis" && row.value("subject_id") == Some(agent.as_str()))
+    {
+        ensure!(
+            row.value("genesis_id") == Some(binding.genesis.genesis_id.to_string().as_str())
+                && row.value("bootstrap_id") == Some(binding.genesis.bootstrap_id.to_string().as_str()),
+            "activation archive carries another installation's genesis; nothing published"
+        );
+    }
+    let installation = binding.installation.to_string();
+    for row in manifest.rows.iter().filter(|row| row.table == "bootstrap_records") {
+        ensure!(
+            row.value("installation_id") == Some(installation.as_str())
+                && row.value("subject_id") == Some(agent.as_str()),
+            "activation archive carries a bootstrap projection for another installation; nothing published"
+        );
     }
     Ok(())
 }
@@ -3633,6 +4079,16 @@ const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
     ("intervention_bank_entries", "research_epochs", "epoch_id", "epoch_id"),
     ("intervention_reminders", "research_epochs", "epoch_id", "epoch_id"),
     ("memory_intent_bindings", "memory_intents", "intent_id", "intent_id"),
+    // A cognition attitude is an immutable ledger record that names the content
+    // it is about. The content row travels with it, so a receiver never holds an
+    // attitude whose subject bytes it cannot resolve — and never reads the
+    // attitude as a claim about content it did not receive (SPEC §51.1).
+    ("cognition_attitudes", "cognition_contents", "digest", "digest"),
+    // A revision attitude names the attitude it supersedes. Both travel, so a
+    // receiver can read the chain it was given instead of inventing a root.
+    ("cognition_attitudes", "cognition_attitudes", "supersedes", "attitude_id"),
+    // A legacy content mapping references the immutable content it sealed.
+    ("cognition_legacy_content", "cognition_contents", "content_digest", "digest"),
     ("quota_sends", "quota_attempts", "request_id", "request_id"),
     ("media_recordings", "media_streams", "stream_key", "stream_key"),
     ("media_recording_controls", "media_streams", "stream_key", "stream_key"),
@@ -3893,6 +4349,7 @@ enum MemoryRowOutcome {
 
 fn apply_memory_row(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
+    admission: Admission,
 ) -> Result<MemoryRowOutcome> {
     let local = read_existing(tx, spec, row)?;
     let baseline = read_baseline(tx, peer_id, spec.name, &row.key)?;
@@ -3904,6 +4361,15 @@ fn apply_memory_row(
         },
         Some(local) if rows_equivalent(spec, &local, &row.values) => MemoryRowOutcome::Unchanged,
         Some(local) if baseline.as_ref().is_some_and(|baseline| rows_equivalent(spec, &local, baseline)) => {
+            update_row(tx, spec, row, seq)?;
+            MemoryRowOutcome::Updated
+        }
+        // The memory unit only reaches here with a reconciled identity: same
+        // agent, kind, scope, content, entry and creation, and a request state
+        // this one continues. Inside one installation that is the copy's own
+        // older state, so the source advances it — but never past a record
+        // whose own revision is already ahead of the source's.
+        Some(local) if activation_advances(spec, admission, &local, row) => {
             update_row(tx, spec, row, seq)?;
             MemoryRowOutcome::Updated
         }
@@ -3923,12 +4389,17 @@ fn apply_memory_row(
 ///   * a record with its own revision is ordered by that revision, so the
 ///     peer advances the record only with a strictly greater one. Which
 ///     peer answered first never decides.
+///
+/// A verbatim class has no rule of its own, so a peer's disagreement is a
+/// conflict. Inside one installation it is not a disagreement at all: see
+/// [`activation_advances`].
 fn merge_diverged_fact(
     tx: &Transaction<'_>,
     spec: &TableSpec,
     row: &CognitionRow,
     local: &[(String, Option<String>)],
     seq: LedgerSeq,
+    admission: Admission,
 ) -> Result<Option<RecoveryFactOutcome>> {
     match spec.kind {
         RowKind::Monotonic => {
@@ -3978,6 +4449,26 @@ fn merge_diverged_fact(
                 return Ok(None);
             };
             if !ladder_advances(ladder, local, row) {
+                return Ok(None);
+            }
+            match update_row(tx, spec, row, seq) {
+                Ok(()) => Ok(Some(RecoveryFactOutcome::Updated)),
+                Err(error) if is_constraint_violation(&error) => Ok(None),
+                Err(error) => Err(error),
+            }
+        }
+        // A fact class with no merge rule of its own keeps the local value when
+        // a peer disagrees. The same disagreement inside one installation is
+        // not two writers answering: the destination copy is behind the copy
+        // that holds control, so its row is this installation's older state and
+        // the source continues it. What it may never do is move a record's own
+        // revision backwards — that would replay an older state over newer
+        // truth — nor overwrite a retirement, a ladder state or an immutable
+        // identity, all of which the classes above settle first.
+        RowKind::Verbatim | RowKind::Task | RowKind::SubjectIntent | RowKind::InboxEvent
+            if admission.is_activation() =>
+        {
+            if !activation_advances(spec, admission, local, row) {
                 return Ok(None);
             }
             match update_row(tx, spec, row, seq) {
@@ -4061,6 +4552,43 @@ fn revision_column(spec: &TableSpec) -> Option<&'static str> {
         .find(|name| spec.columns.contains(name))
 }
 
+/// The record's own durability revision, when the class stores one.
+///
+/// Only the two explicit record revisions count here: a commit sequence or a
+/// selector revision orders the ledger's commits, not this record's state, and
+/// comparing those across two copies would compare two independent sequences.
+fn record_revision_of(spec: &TableSpec, values: &[(String, Option<String>)]) -> Option<u64> {
+    ["record_revision", "revision"]
+        .into_iter()
+        .find(|name| spec.columns.contains(name))
+        .and_then(|name| values.iter().find(|(column, _)| column == name))
+        .and_then(|(_, value)| value.as_deref())
+        .and_then(|value| value.parse().ok())
+}
+
+/// May a differing local row be advanced by this source?
+///
+/// A peer may never overwrite a local answer. A same-installation activation
+/// archive may, because it comes from the copy that currently holds control and
+/// lands in a copy that holds none: the local row is this installation's older
+/// state, not an independent one. Forward only — a record's own revision may
+/// not move backwards, so an older snapshot can never rewind newer truth.
+fn activation_advances(
+    spec: &TableSpec,
+    admission: Admission,
+    local: &[(String, Option<String>)],
+    incoming: &CognitionRow,
+) -> bool {
+    if !admission.is_activation() {
+        return false;
+    }
+    match record_revision_of(spec, local) {
+        Some(local_revision) => record_revision_of(spec, &incoming.values)
+            .is_none_or(|source| source >= local_revision),
+        None => true,
+    }
+}
+
 fn memory_row_value<'a>(values: &'a [(String, Option<String>)], name: &str) -> Option<&'a str> {
     values.iter().find(|(column, _)| column == name).and_then(|(_, value)| value.as_deref())
 }
@@ -4095,6 +4623,7 @@ fn media_fact_compatible(local: &[(String, Option<String>)], incoming: &Cognitio
 
 fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
+    admission: Admission,
 ) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
     if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions"
@@ -4133,7 +4662,7 @@ fn apply_recovery_fact(
                 }
                 RecoveryFactOutcome::Updated
             } else {
-                match merge_diverged_fact(tx, spec, row, &local, seq)? {
+                match merge_diverged_fact(tx, spec, row, &local, seq, admission)? {
                     Some(outcome) => outcome,
                     None => return Ok(RecoveryFactOutcome::Conflict),
                 }
@@ -4191,6 +4720,7 @@ fn memory_member_differs(member: &MemoryIntentMember) -> bool {
 /// protects, and a divergent entry refuses the intents that reference it.
 fn apply_memory_pairs(
     tx: &Transaction<'_>, rows: &[&CognitionRow], peer_id: EntityId, seq: LedgerSeq,
+    admission: Admission,
 ) -> Result<CognitionApplyOutcome> {
     let parents = spec_for("memory_intents").expect("memory intent table is registered");
     let sidecars = spec_for("memory_intent_bindings").expect("memory binding table is registered");
@@ -4210,8 +4740,11 @@ fn apply_memory_pairs(
     let mut units: Vec<(String, Vec<MemoryIntentMember>)> = Vec::new();
     let mut unit_index: HashMap<String, usize> = HashMap::new();
     for row in rows.iter().filter(|row| row.table == parents.name) {
-        let mut parent = effective_row(row, parents)?;
-        let mut binding = bindings.get(row.key.as_str()).map(|row| effective_row(row, sidecars)).transpose()?;
+        let mut parent = effective_row(row, parents, admission)?;
+        let mut binding = bindings
+            .get(row.key.as_str())
+            .map(|row| effective_row(row, sidecars, admission))
+            .transpose()?;
         let local = read_existing(tx, parents, &parent)?;
         let local_binding: Option<String> = tx.query_row(
             "SELECT data FROM memory_intent_bindings WHERE intent_id=?1",
@@ -4286,7 +4819,7 @@ fn apply_memory_pairs(
     for (entry_key, members) in &mut units {
         let entry = entries
             .get(entry_key.as_str())
-            .map(|row| effective_row(row, entry_spec))
+            .map(|row| effective_row(row, entry_spec, admission))
             .transpose()?;
         // One savepoint covers the entry and every referencing intent: any
         // refused member, or an entry the peer changed past its delivered
@@ -4297,10 +4830,10 @@ fn apply_memory_pairs(
         if !rejected {
             tx.execute("SAVEPOINT memory_intent_unit", []).map_err(db)?;
             for member in members.iter_mut() {
-                member.results[0] = Some(apply_memory_row(tx, parents, &member.parent, peer_id, seq)?);
+                member.results[0] = Some(apply_memory_row(tx, parents, &member.parent, peer_id, seq, admission)?);
                 if !matches!(member.results[0], Some(MemoryRowOutcome::Conflict)) {
                     if let Some(binding) = &member.binding {
-                        member.results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq)?);
+                        member.results[1] = Some(apply_memory_row(tx, sidecars, binding, peer_id, seq, admission)?);
                     }
                 }
             }
@@ -4308,7 +4841,7 @@ fn apply_memory_pairs(
                 member.results.iter().all(|result| !matches!(result, Some(MemoryRowOutcome::Conflict)))
             }) {
                 if let Some(entry) = &entry {
-                    entry_result = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq)?);
+                    entry_result = Some(apply_memory_row(tx, entry_spec, entry, peer_id, seq, admission)?);
                 }
             }
             rejected = entry_result.is_some_and(|result| matches!(result, MemoryRowOutcome::Conflict))
@@ -4401,6 +4934,7 @@ fn apply_task_closures<'a>(
     peer_id: EntityId,
     seq: LedgerSeq,
     manifest: &CognitionManifest,
+    admission: Admission,
 ) -> Result<(
     CognitionApplyOutcome,
     HashSet<(&'a str, &'a str)>,
@@ -4512,8 +5046,8 @@ fn apply_task_closures<'a>(
         if !conflict {
             for row in &group {
                 let spec = spec_for(&row.table).context("unregistered task recovery table")?;
-                let effective = effective_row(row, spec)?;
-                match apply_recovery_fact(tx, spec, &effective, peer_id, seq)? {
+                let effective = effective_row(row, spec, admission)?;
+                match apply_recovery_fact(tx, spec, &effective, peer_id, seq, admission)? {
                     RecoveryFactOutcome::Conflict => { conflict = true; break; }
                     RecoveryFactOutcome::Inserted => part.inserted += 1,
                     RecoveryFactOutcome::Updated => part.updated += 1,
@@ -4694,6 +5228,7 @@ fn apply_semantic_units<'a>(
     peer_id: EntityId,
     seq: LedgerSeq,
     manifest: &CognitionManifest,
+    admission: Admission,
 ) -> Result<(CognitionApplyOutcome, HashSet<(&'a str, &'a str)>)> {
     // Answer decisions bind to their question's seat; questions that are not
     // in this archive resolve through the local store.
@@ -4750,8 +5285,8 @@ fn apply_semantic_units<'a>(
                 conflict = true;
                 break;
             };
-            let effective = effective_row(row, spec)?;
-            match apply_recovery_fact(tx, spec, &effective, peer_id, seq)? {
+            let effective = effective_row(row, spec, admission)?;
+            match apply_recovery_fact(tx, spec, &effective, peer_id, seq, admission)? {
                 RecoveryFactOutcome::Conflict => {
                     conflict = true;
                     break;
@@ -4956,7 +5491,23 @@ fn verify_no_rejected_task_consumers(
 ///
 /// Imported work is parked: a receiving store is not a second live writer.
 /// The original state is kept in a memo, so no fact is lost.
-fn effective_row(row: &CognitionRow, spec: &TableSpec) -> Result<CognitionRow> {
+///
+/// A same-installation activation archive is the one exception, and it is not
+/// a relaxation of that rule: the source is the installation's *current*
+/// writer and this copy is the one that will continue its history, so its work
+/// and its issued intents are this installation's own facts. Parking them here
+/// would invent an unknown effect (and a `cognition_imported` memo that no real
+/// step ever produced) and make the successor re-decide work it already
+/// decided. Debt therefore stays debt: `attempts`, `task_results` and every
+/// effect row are copied as they are, never replayed.
+fn effective_row(
+    row: &CognitionRow,
+    spec: &TableSpec,
+    admission: Admission,
+) -> Result<CognitionRow> {
+    if admission.is_activation() {
+        return Ok(row.clone());
+    }
     let mut effective = row.clone();
     match spec.kind {
         RowKind::Verbatim
@@ -6017,7 +6568,7 @@ mod archive_admission_tests {
 
 fn apply_media_streams<'a>(
     tx: &Transaction<'_>, rows: &[&'a CognitionRow], peer_id: EntityId,
-    seq: LedgerSeq, manifest: &CognitionManifest,
+    seq: LedgerSeq, manifest: &CognitionManifest, admission: Admission,
 ) -> Result<(CognitionApplyOutcome, HashSet<&'a str>)> {
     let inbox: HashMap<&'a str, &'a CognitionRow> = rows.iter().copied()
         .filter(|row| row.table == "inbox_events")
@@ -6051,7 +6602,7 @@ fn apply_media_streams<'a>(
         let mut conflict = false;
         for row in group {
             let spec = spec_for(&row.table).context("unregistered media recovery table")?;
-            match apply_recovery_fact(tx, spec, row, peer_id, seq)? {
+            match apply_recovery_fact(tx, spec, row, peer_id, seq, admission)? {
                 RecoveryFactOutcome::Conflict => { conflict = true; break; }
                 RecoveryFactOutcome::Inserted => part.inserted += 1,
                 RecoveryFactOutcome::Updated => part.updated += 1,
