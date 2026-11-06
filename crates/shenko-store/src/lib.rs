@@ -49,6 +49,10 @@ pub use artifacts::*;
 pub mod external;
 pub use external::{InboxAdmission, TaskInvocation};
 
+/// Receipt admission identity and source-event dedup — SPEC X04, §41.7.3.
+pub mod receipt_admission;
+pub use receipt_admission::{ConflictIdentity, EvidenceReceiptConflict};
+
 pub mod child;
 pub use child::{NativeTaskClaim, TaskCancellation};
 

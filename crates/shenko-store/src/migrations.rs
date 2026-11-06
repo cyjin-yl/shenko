@@ -110,6 +110,12 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Durable ordered public-text output parts (SPEC §21.11). Append-only;
     // no row is ever updated or deleted by a migration.
     conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
+    // Refused receipt facts and the source-event scope lookup (SPEC X04,
+    // §41.7.3). Additive, own table only: the index over the existing
+    // receipts is not unique, because a store written before the admission
+    // rule can already hold several receipts for one scope and no migration
+    // may re-key or delete a durable receipt.
+    conn.execute_batch(crate::receipt_admission::SCHEMA)?;
     ensure_column(conn, "cognition_receipts", "updated", "INTEGER NOT NULL DEFAULT 0")?;
     ensure_column(
         conn,
