@@ -245,6 +245,10 @@ pub struct SubjectLoopState {
     /// discloses; its bodies are advisory material for the model, never a
     /// dispatch table.
     pub(super) awareness: Option<Arc<shenko_awareness_core::CognitionCatalog>>,
+    /// The installed quota strategy set (SPEC §42.1). Pinned for one step
+    /// together with the plugin context it came from; an absent publication
+    /// is the built-in §42.5 baseline.
+    pub(super) quota_strategies: shenko_quota::QuotaStrategies,
 }
 
 impl SubjectLoopState {
@@ -309,6 +313,7 @@ impl SubjectLoopState {
             .map(|id| store.semantic_wait_receipt(id))
             .transpose()?
             .flatten();
+        let quota_strategies = crate::quota_strategies::installed(&plugin_context);
         let mut state = Self {
             agent_id,
             head,
@@ -336,6 +341,7 @@ impl SubjectLoopState {
             plugin_context,
             identity_service,
             awareness: None,
+            quota_strategies,
         };
         state.refresh_contributions()?;
         Ok(state)
@@ -995,7 +1001,9 @@ async fn execute_step(
             broker.binding(),
             request_id,
             cancel,
+            &state.quota_strategies,
             None,
+            Some(state.agent_id),
         )
         .await
         {

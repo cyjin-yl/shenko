@@ -1258,12 +1258,20 @@ impl ModelChildHandler {
             "shenko.model-child.step",
             &[contract.task_id.to_string().as_str(), &step_index.to_string()],
         );
+        // The child decides with the same installed strategy set as its
+        // parent: a finite child request is not a second policy source.
+        let quota_strategies = crate::quota_strategies::installed(&self.plugin_context);
         let quota_send = match quota_dispatch_gate(
             &self.store,
             &contract.provider_binding,
             request_id,
             &tokio_util::sync::CancellationToken::new(),
+            &quota_strategies,
             Some(&invocation.task_invocation),
+            // A finite child's round is not a committed subject step: the
+            // subject's measured useful work is a different unit and is not
+            // projected onto the child's expectation.
+            None,
         )
         .await?
         {

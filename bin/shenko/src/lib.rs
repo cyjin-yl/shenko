@@ -1110,6 +1110,20 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         .await?;
     let identity_context = supervisor.context().clone();
     let identity_service = identity_context.try_service::<IdentityService>()?;
+    // Replaceable quota strategies (SPEC §42.1): the runtime publishes the
+    // installed forecaster/router/cadence set so the subject, its finite
+    // model children and the intervention worker all decide with one set.
+    // The configured default is the replayable §42.5 baseline; installing
+    // another strategy is a library/assembly decision and is reported here
+    // rather than silently assumed.
+    let quota_strategies = shenko_quota::QuotaStrategies::baseline();
+    tracing::info!(
+        strategies = ?quota_strategies.describe(),
+        "quota strategies installed"
+    );
+    let _quota_strategy_plugin = supervisor
+        .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
+        .await?;
     let result: Result<()> = async {
     match command {
         Command::SshPublicIdentity { .. } => {
