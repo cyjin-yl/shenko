@@ -622,6 +622,27 @@ impl Store {
             att.dispatch_stage = AttemptDispatchStage::Unknown;
             att.final_receipt_id = Some(ev.receipt_id);
         }
+        // An operation that just became (or stayed) reconciling has a durable
+        // reconciliation case: the uncertainty is a fact with its own
+        // supervisor and evidence, not a property of the caller's timeout.
+        // Nothing is resent; the case is what a later receipt or an explicit
+        // subject decision acts on (SPEC §41.4 X11).
+        if op.state == OperationState::Reconciling {
+            let reason = if op.outcome_conflict {
+                crate::reconcile::REASON_CONTRADICTORY_EVIDENCE
+            } else {
+                crate::reconcile::REASON_EFFECT_UNKNOWN
+            };
+            self.ensure_unknown_effect_case(&tx, &op, ev.receipt_id, reason, commit)?;
+        } else if op.state == OperationState::Resolved
+            && op.effect_status != EffectStatus::Unknown
+        {
+            // Definite evidence arrived after an earlier unknown: the case
+            // becomes resolved, and the original unknown receipts are still
+            // there. This never rewrites the case row's earlier state in
+            // place — the row keeps its id and gains the new reference.
+            self.resolve_unknown_effect_cases(&tx, operation_id, ev.receipt_id, commit)?;
+        }
         op.record_revision = RecordRevision(op.record_revision.0 + 1);
         op.evidence_through = Some(commit);
         att.last_observed_at = Some(chrono::Utc::now());

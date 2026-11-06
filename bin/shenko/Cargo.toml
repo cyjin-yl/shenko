@@ -42,6 +42,7 @@ cap-fs-ext = { version = "3.4.6", optional = true }
 shenko-context-policy = { path = "../../crates/shenko-context-policy", features = ["store"] }
 shenko-compact-budget = { path = "../../crates/shenko-compact-budget" }
 shenko-compact-snap = { path = "../../crates/shenko-compact-snap" }
+shenko-compact-rollover = { path = "../../crates/shenko-compact-rollover" }
 shenko-memory = { path = "../../crates/shenko-memory" }
 shenko-ui = { path = "../../crates/shenko-ui" }
 shenko-seed = { path = "../../crates/shenko-seed" }

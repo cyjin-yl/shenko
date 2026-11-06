@@ -11,6 +11,7 @@ pub mod research;
 pub mod identity;
 pub mod session_events;
 pub mod context_windows;
+pub mod context_notes;
 pub mod raw_session;
 pub mod cognition;
 pub mod atoms;
@@ -23,7 +24,11 @@ pub mod runtime_boundary;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
-pub use subject_request::{
+pub mod cognitive_root;/// Durable reconciliation cases for unknown external effects — SPEC §41.4 X11.
+pub mod reconcile;
+/// Cognitive atoms: content registration, attitudes, reason pointers — SPEC §51.1, §51.3.
+pub mod atoms;
+pub use reconcile::{ReconciliationDocketEntry, REASON_EFFECT_UNKNOWN};pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };
 pub mod output_parts;
@@ -38,6 +43,7 @@ pub use memory::*;
 pub use research::*;
 pub use session_events::*;
 pub use context_windows::*;
+pub use context_notes::*;
 pub use raw_session::*;
 pub use cognition::*;
 pub use atoms::*;

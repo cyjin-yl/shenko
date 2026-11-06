@@ -50,6 +50,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // Committed context windows (SPEC §12.3): additive, own tables only.
     conn.execute_batch(crate::context_windows::CONTEXT_WINDOWS_SCHEMA)?;
     ensure_column(conn, "context_window_scopes", "profile_digest", "TEXT")?;
+    // Branch-journaled working notes (SPEC §12.3.1): additive revision log.
+    // Clearing is a revision, never a delete, so a reset stays recorded.
+    conn.execute_batch(crate::context_notes::CONTEXT_NOTES_SCHEMA)?;
 
     // Subject raw input links (SPEC §12.1): additive index over the raw
     // session events, never a second truth store.
@@ -112,6 +115,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Durable reconciliation cases for unknown external effects (SPEC §41.4
+    // X11). Additive, own table only: it records which immutable receipts a
+    // reconciling operation already has and which explicit S1 decision (if
+    // any) accepted the remaining uncertainty. No operation, attempt or
+    // receipt row is rewritten by it.
+    conn.execute_batch(crate::reconcile::SCHEMA)?;
+    // Cognitive atoms: immutable content + append-only attitudes (SPEC §51.1).
+    conn.execute_batch(crate::atoms::COGNITION_ATOMS_SCHEMA)?;
     // Durable ordered public-text output parts (SPEC §21.11). Append-only;
     // no row is ever updated or deleted by a migration.
     conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
@@ -135,6 +146,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // regardless of which module first asked for them.
     conn.execute_batch(AGGREGATE_DOMAIN_SCHEMA)?;
     conn.execute_batch(crate::activation::SCHEMA)?;
+    conn.execute_batch(crate::cognitive_root::COGNITIVE_ROOT_SCHEMA)?;
     // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
     //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
     //     forbids a second decision for the same question even when the

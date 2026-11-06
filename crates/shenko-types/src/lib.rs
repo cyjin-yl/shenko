@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod activation;
 pub mod channel;
+pub mod cognitive_root;
 pub mod commit;
 pub mod cognition;
 pub mod effect;
@@ -19,6 +20,9 @@ pub mod plugin_runtime;
 pub mod store;
 pub mod subject;
 pub mod task;
+pub mod cognition;
+pub mod wasm_state;
+pub mod cognitive_root;
 
 pub use agent::*;
 pub use activation::*;

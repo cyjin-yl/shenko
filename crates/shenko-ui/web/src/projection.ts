@@ -2,8 +2,9 @@
  * Shenko's stable application-semantic UI boundary (SPEC §21.2).
  *
  * This is deliberately not Proto-UI's private PrototypeIR and is not accepted
- * by upstream compilePrototype. A future compiler adapter must translate this
- * semantic document at this boundary; pages and service DTOs never expose IR.
+ * by upstream compilePrototype: the build-time compiler (web/compiler.mjs)
+ * compiles Shenko's own Prototype *source* into React DOM source, while server
+ * projections keep their own schema. Pages and service DTOs never expose IR.
  */
 export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v1' as const;
 export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
@@ -52,6 +53,11 @@ export interface TimelinePart {
   next_chunk_seq: number;
   /** The terminal chunk of the part has been durably observed. */
   terminal?: boolean;
+  /** A committed message bound this part to an S1 step (either it carried the
+   *  full committed text, or a streamed prefix was absorbed by it). A part
+   *  without this binding is durable ledger content but not a committed step:
+   *  the view never prints a step number or "已提交" for it (§21.11). */
+  committed: boolean;
   step: number;
   step_id: string;
   commit_ref: string;
@@ -60,6 +66,56 @@ export interface TimelinePart {
   request_id?: string;
   attempt_id?: string;
   gap: boolean;
+}
+
+/**
+ * A reading place keyed by a stable rendered entry identity (§21.11), never by
+ * scroll offset alone. `offset` is the anchor entry's top relative to the
+ * viewport top, so history backfilled above it does not move the reader.
+ */
+export interface ReadingAnchor {
+  entry_key: string;
+  entry_index: number;
+  prev_entry_key?: string;
+  offset: number;
+  scroll_top: number;
+}
+
+/**
+ * A text selection recorded against one rendered entry. It is a display fact,
+ * not a place: it is replayed only when the same characters still start the
+ * entry, so a rewritten entry never receives a stale highlight.
+ */
+export interface ReadingSelection {
+  entry_key: string;
+  start: number;
+  end: number;
+  /** Fingerprint of the entry text up to `end`. */
+  prefix_hash: string;
+}
+
+/**
+ * The visible outcome of one semantic-document action attempt. Acceptance is
+ * durable admission of an input, not execution; execution is the subject's
+ * disposition of that input (§21.8).
+ */
+export interface ActionReceiptView {
+  submission_id: string;
+  document_id: string;
+  action_id: string;
+  revision: string;
+  stage:
+    | 'sending'
+    | 'accepted'
+    | 'selected'
+    | 'committed'
+    | 'rejected'
+    | 'unavailable'
+    | 'conflict';
+  detail?: string;
+  /** Durable admission facts once the Store has reported them. */
+  event_id?: string;
+  accepted_commit?: string;
 }
 
 export interface SubmissionPayload {
@@ -127,6 +183,10 @@ export interface DegradedDocument {
   options: ActionOption[];
   summary: string;
   nodes?: unknown[];
+  /** The committed step whose public text contained this document; the
+   *  timeline renders the surface next to that step, not at list end. */
+  source_step_id?: string;
+  source_commit?: string;
 }
 
 export interface DocumentErrorView {
@@ -198,7 +258,41 @@ export interface BuildManifest {
   upstream: { repository: string; commit: string; lock_sha256: string };
   packages: string[];
   adopted_families: string[];
-  compiler: { status: string; runtime_imported: boolean };
+  compiler: BuildCompilerFacts;
+}
+
+/**
+ * Compiler facts recorded by the build (`web/build.mjs` + `web/compiler.mjs`).
+ * Every field is a measurement of that build; a missing field stays missing and
+ * is never inferred. `runtime_imported` states whether the browser bundle
+ * imports the compiler, not whether a compiler exists.
+ */
+export interface BuildCompilerFacts {
+  status: string;
+  runtime_imported: boolean;
+  profile?: string;
+  package?: string;
+  entry?: string;
+  entry_sha256?: string;
+  source_tree_sha256?: string;
+  typescript?: string;
+  bundle?: { path: string; sha256: string; bytes?: number };
+  public_package_selection?: {
+    script?: string;
+    selected_package_count?: number | null;
+    includes_compiler: boolean;
+    note?: string;
+  };
+  prototypes?: Array<{
+    name: string;
+    entry: string;
+    entry_sha256: string;
+    profile: string;
+    component_name: string;
+    generated_source: string;
+    generated_sha256: string;
+    generated_imports?: string[];
+  }>;
 }
 
 export interface DisplayState {
@@ -209,6 +303,12 @@ export interface DisplayState {
   reading: ReadingState;
   new_count: number;
   scroll_request: number;
+  /** Long code lines soft-wrap; a persisted reading preference, not content. */
+  wrap: boolean;
+  /** Restored (or recorded) reading place for this surface, if any. */
+  anchor?: ReadingAnchor;
+  /** Restored text selection, replayed only while the entry text matches. */
+  selection?: ReadingSelection;
   notice?: string;
 }
 
@@ -227,6 +327,7 @@ export interface UiState {
   streaming: boolean;
   documents: DegradedDocument[];
   document_errors: DocumentErrorView[];
+  action_receipts: ActionReceiptView[];
   subject_id: string | null;
   identity?: IdentityView;
   wanted_identity_revision: number | null;
@@ -360,6 +461,23 @@ export function semanticHash(text: string): string {
   return (hash >>> 0).toString(36);
 }
 
+/**
+ * What the view may claim about one entry (§21.11): committed text carries an
+ * S1 step, a durable streamed prefix does not, and a chunk gap means the text
+ * on screen is provably incomplete.
+ */
+export function partState(part: TimelinePart): {
+  committed: boolean;
+  streaming: boolean;
+  gap: boolean;
+} {
+  return {
+    committed: part.committed,
+    streaming: part.stream_id !== undefined && !part.committed,
+    gap: part.gap,
+  };
+}
+
 function addAction(
   actions: Record<string, UiAction>,
   action_id: string,
@@ -449,7 +567,9 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
   });
   // Degraded semantic documents ride the timeline as their own nodes; the
   // numbered options keep actions completable at every rung (§21.7/§21.8).
-  const documentNodes = state.documents.map((document) => {
+  // A surface belongs to the committed step that carried it, so it renders
+  // next to that step instead of drifting to the end of history.
+  const documentRows = state.documents.map((document) => {
     const refs = document.options.map((option) => addAction(
       actions,
       `document.${document.document_id}.${option.action_id}`,
@@ -458,15 +578,60 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       state.capabilities.actions,
       { document_id: document.document_id, action_id: option.action_id },
     ));
-    return node(
-      `document.${document.document_id}`,
-      'semantic_document',
-      { document, mode: document.mode },
-      [],
-      { action_refs: refs, fallback: document.summary },
+    const receipts = state.action_receipts.filter(
+      (row) => row.document_id === document.document_id,
     );
+    return {
+      placed: false,
+      source_step_id: document.source_step_id,
+      node: node(
+        `document.${document.document_id}`,
+        'semantic_document',
+        { document, mode: document.mode, receipts },
+        [],
+        { action_refs: refs, fallback: document.summary },
+      ),
+    };
   });
-  const timelineChildren = [...entryNodes(state, actions), ...documentNodes];
+  const timelineChildren: UiNode[] = [];
+  // A rejected document keeps its raw text visible and its reason readable
+  // (§3): the failure rides the same step as the surface it could not become.
+  const errorRows = state.document_errors.map((error) => ({
+    placed: false,
+    source_step_id: error.source_step_id,
+    node: node(
+      `document_error.${error.source_step_id}.${semanticHash(error.reason)}`,
+      'document_error',
+      { error },
+      [],
+      { fallback: 'raw_text', a11y: { role: 'note' } },
+    ),
+  }));
+  const surfaceRows = [...documentRows, ...errorRows];
+  const attachDocuments = (stepId: string | undefined) => {
+    if (!stepId) return;
+    for (const row of surfaceRows) {
+      if (!row.placed && row.source_step_id === stepId) {
+        row.placed = true;
+        timelineChildren.push(row.node);
+      }
+    }
+  };
+  for (const entry of entryNodes(state, actions)) {
+    timelineChildren.push(entry);
+    if (entry.kind !== 'subject_part') continue;
+    const part = entry.props.part as TimelinePart;
+    // Only a committed step can own a committed document. A streamed part
+    // that has not been bound to S1 shares the arm-time step identity, and
+    // attaching the surface there would render a committed fact next to
+    // uncommitted text.
+    if (part.committed) attachDocuments(part.step_id);
+  }
+  // Surfaces whose source step is no longer rendered keep their own place at
+  // the end rather than being dropped: the information stays readable.
+  for (const row of surfaceRows) {
+    if (!row.placed) timelineChildren.push(row.node);
+  }
   const timeline = node(
     'timeline',
     'timeline',
@@ -475,6 +640,9 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       reading: state.display.reading,
       new_count: state.display.new_count,
       scroll_request: state.display.scroll_request,
+      anchor: state.display.anchor,
+      selection: state.display.selection,
+      wrap: state.display.wrap,
       hidden: state.display.view !== 'timeline',
       empty: timelineChildren.length === 0,
       connection: state.connection,
@@ -486,6 +654,8 @@ export function buildProjection(state: UiState, revision: number): UiProjection 
       action_refs: [
         addAction(actions, 'timeline.reading', 'timeline.reading', 'display-v1'),
         addAction(actions, 'timeline.latest', 'timeline.latest', 'display-v1'),
+        addAction(actions, 'timeline.code_wrap', 'timeline.code_wrap', 'display-v1'),
+        addAction(actions, 'timeline.selection', 'timeline.selection', 'display-v1'),
       ],
       a11y: { label: '主体时间线' },
       layout: { hidden: state.display.view !== 'timeline' },
