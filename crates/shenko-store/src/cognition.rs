@@ -1404,6 +1404,47 @@ const TABLES: &[TableSpec] = &[
         local_seq: Some("updated_seq"),
         kind: RowKind::Revisioned,
     },
+    // Cognitive atoms (SPEC §51.1): the canonical content registry, the
+    // append-only attitude ledger, and the insert-only mapping that points at
+    // a legacy row's original bytes. Contents come first, because the rows
+    // after them reference a digest. `created_commit_seq` on an attitude is
+    // the SOURCE commit and is preserved verbatim — never replaced by the
+    // receiver's own sequence, which would rewrite when the subject recorded
+    // it. Verbatim facts never merge over a committed local attitude row.
+    TableSpec {
+        name: "cognition_contents",
+        key: &["digest"],
+        columns: &[
+            "digest", "bytes", "media_type", "store_namespace", "locator",
+            "codec_name", "codec_major", "codec_digest", "object_json",
+            "registered_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "cognition_attitudes",
+        key: &["attitude_id"],
+        columns: &[
+            "attitude_id", "agent_id", "digest", "role_kind", "role_json",
+            "adoption_unit_id", "definition_slot", "supersedes_content",
+            "reasons_json", "confidence_json", "knowledge_kind_hint",
+            "supersedes", "created_commit_ledger", "created_commit_seq",
+            "created_at_ms",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
+    TableSpec {
+        name: "cognition_legacy_content",
+        key: &["source_table", "source_key"],
+        columns: &[
+            "source_table", "source_key", "content_digest", "media_type",
+            "sealed_at_ms", "registered_commit_seq",
+        ],
+        local_seq: None,
+        kind: RowKind::Verbatim,
+    },
 ];
 
 /// Everything one snapshot consists of.
@@ -3639,6 +3680,12 @@ const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
     ("media_priority_inputs", "media_streams", "stream_key", "stream_key"),
     ("artifact_manifests", "artifact_records", "artifact_id", "artifact_id"),
     ("artifact_runtime_instances", "artifact_records", "artifact_id", "artifact_id"),
+    // A cognitive attitude exists only about a registered version of content,
+    // and a legacy mapping only about the bytes it points at. Shipping either
+    // without its content registration would hand over an attitude that names
+    // a revision the receiver can never read (SPEC §51.1).
+    ("cognition_attitudes", "cognition_contents", "digest", "digest"),
+    ("cognition_legacy_content", "cognition_contents", "content_digest", "digest"),
 ];
 
 /// The REQUIRED-fact closure of an archive: every member row must find its
@@ -3670,6 +3717,32 @@ fn archive_membership_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
                     blocking: true,
                 });
             }
+        }
+    }
+    // A revision names the version it supersedes. Dropping that version would
+    // silently turn a revision into an unrelated first version, so the parent
+    // content has to travel too (SPEC §51.4: the chain only grows).
+    let archived_contents: HashSet<&str> = rows
+        .iter()
+        .filter(|row| row.table == "cognition_contents")
+        .filter_map(|row| row.value("digest"))
+        .collect();
+    for row in rows
+        .iter()
+        .filter(|row| row.table == "cognition_attitudes")
+    {
+        let Some(parent) = row.value("supersedes_content") else {
+            continue;
+        };
+        if !archived_contents.contains(parent) {
+            gaps.push(CognitionGap {
+                kind: "missing_anchor".into(),
+                detail: format!(
+                    "cognition attitude {} revises {}, which the archive does not carry",
+                    row.key, parent
+                ),
+                blocking: true,
+            });
         }
     }
     // A quota event names the fact it describes by id in its payload, and it
