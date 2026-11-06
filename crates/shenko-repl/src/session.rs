@@ -741,6 +741,7 @@ impl WasiReplSession {
         command.control = WasiRunControl {
             deadline: self.manifest.limits.max_wall_clock_ms.map(Duration::from_millis),
             cancel: Some(cancel.clone()),
+            revocation: None,
         };
         command.limits = shenko_wasm::WasiResourceLimits {
             max_fuel: self.manifest.limits.max_fuel,
