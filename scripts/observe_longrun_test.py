@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Nine independent C19 consumer scenarios; no long-run results are asserted.
+"""Fifteen independent C19 consumer scenarios; no long-run results are asserted.
 
 Run: python3 -I scripts/observe_longrun_test.py
 
 Inventory: intact window boundary; known sampling gap; missing header; torn
 append; kernel boot-id path; PID replacement with failed sample/retry; log
-creation directory fsync; zombie subject; sample sequence discontinuity.
+creation directory fsync; zombie subject; sample sequence discontinuity;
+sealed run lifecycle; checkpoint binding; seal-to-sample binding.
+Also covers equal-stat different bytes, a replaced reported executable path,
+and unknown executed-file identity in a real-observation-shaped fixture.
 Synthetic clocks/processes exercise the actual manifest/log/report consumer.
 Real procfs smoke and all execution belong to the integrating parent.
 """
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -215,21 +219,187 @@ def scenario_sequence_discontinuity(tmp):
     assert rep["declared_windows"][0]["status"] == "unobserved"
 
 
+def scenario_sealed_run_lifecycle(tmp):
+    """A stopped run is final: it reports its stop, and accepts no more records."""
+    manifest = init_run(tmp)
+    take(tmp, manifest, 1000.0)
+    take(tmp, manifest, 1060.0)
+    pending = report(tmp)
+    assert pending["lifecycle"]["sealed"] is False
+    assert pending["lifecycle"]["stop_reason"] is None
+    assert pending["eligible_as_product_evidence"] is False
+    code, out = cli(["checkpoint", "--dir", str(tmp), "--id", "review-1",
+                     "--note", "first review point"])
+    assert code == 0, out
+    code, out = cli(["stop", "--dir", str(tmp), "--reason", "completed",
+                     "--note", "declared demo window reached"])
+    assert code == 0, out
+    sealed = report(tmp)
+    assert sealed["lifecycle"]["sealed"] is True
+    assert sealed["lifecycle"]["stop_reason"] == "completed"
+    assert sealed["lifecycle"]["stop_sample_seq"] == 2
+    assert sealed["lifecycle"]["checkpoint_count"] == 1
+    # A synthetic self-check run still never becomes product evidence.
+    assert sealed["eligible_as_product_evidence"] is False
+    for command in (["sample"], ["stop", "--reason", "completed"],
+                    ["checkpoint", "--id", "late"]):
+        code, out = cli([command[0], "--dir", str(tmp), *command[1:]])
+        assert code == 2 and "run is sealed" in out, out
+    runs, _ = ol.scan_log(ol.log_path(tmp))
+    state = runs["run-a"]
+    assert state["run_end_count"] == 1
+    assert state["records_after_end"] == 0
+
+
+def scenario_checkpoint_binding(tmp):
+    """A checkpoint binds a written sample; an impossible one invalidates the run."""
+    manifest = init_run(tmp)
+    take(tmp, manifest, 1000.0)
+    take(tmp, manifest, 1060.0)
+    code, out = cli(["checkpoint", "--dir", str(tmp), "--id", "review-1"])
+    assert code == 0, out
+    recorded = [json.loads(line) for line in ol.log_path(tmp).read_bytes().splitlines()]
+    checkpoints = [rec for rec in recorded if rec["record"] == "checkpoint"]
+    assert len(checkpoints) == 1 and checkpoints[0]["sample_seq"] == 2
+    code, out = cli(["checkpoint", "--dir", str(tmp), "--id", "review-1"])
+    assert code == 2 and "already recorded" in out, out
+    assert report(tmp)["integrity"]["intact"] is True
+    # A checkpoint that names a sample the run had not written cannot be
+    # ignored: the retained bytes stay, but the run stops qualifying.
+    forged = dict(checkpoints[0], checkpoint_id="forged", sample_seq=7)
+    ol.append_record(ol.log_path(tmp), forged)
+    rep = report(tmp, "--require-observed", expected_code=3)
+    assert rep["integrity"]["checkpoint_mismatches"] == [["forged", 7, 2]]
+    assert not rep["integrity"]["intact"]
+    assert rep["declared_windows"][0]["status"] == "unobserved"
+
+
+def scenario_seal_binds_written_sample(tmp):
+    """An end record claiming a later sample is a gap, not a finished run."""
+    manifest = init_run(tmp)
+    take(tmp, manifest, 1000.0)
+    take(tmp, manifest, 1060.0)
+    # A forged seal that names sample 7 of a two-sample run: valid record
+    # fields, impossible binding. The bytes stay; the run stops qualifying.
+    ol.append_record(ol.log_path(tmp), {
+        "record": "run_end",
+        "schema": ol.SCHEMA,
+        "run_id": manifest["run_id"],
+        "stop_reason": "completed",
+        "note": None,
+        "sample_seq": 7,
+        "samples": 7,
+        "epoch": 1061.0,
+        "wall_utc": "1970-01-01T00:17:41.000Z",
+        "manifest_sha256": ol.sha256_file(ol.manifest_path(tmp)),
+    })
+    rep = report(tmp, "--require-observed", expected_code=3)
+    assert rep["lifecycle"]["sealed"] is True
+    assert rep["lifecycle"]["stop_sample_seq"] == 7
+    assert rep["integrity"]["run_end_mismatches"] == [{
+        "recorded_sample_seq": 7,
+        "last_sample_seq": 2,
+        "recorded_samples": 7,
+        "sample_records": 2,
+    }]
+    assert not rep["integrity"]["intact"]
+    assert rep["declared_windows"][0]["status"] == "unobserved"
+    assert rep["eligible_as_product_evidence"] is False
+    # A mismatched seal also blocks further appends instead of extending it.
+    code, out = cli(["sample", "--dir", str(tmp)])
+    assert code == 2 and "invalid evidence" in out, out
+
+
+def scenario_equal_stat_different_binary(tmp):
+    """Equal size and mtime do not identify executable content."""
+    tmp.mkdir(parents=True)
+    actual = tmp / "actual"
+    other = tmp / "other"
+    actual.write_bytes(b"actual-A")
+    other.write_bytes(b"other--B")
+    metadata = actual.stat()
+    os.utime(other, ns=(metadata.st_atime_ns, metadata.st_mtime_ns))
+    procfs = tmp / "proc"
+    (procfs / "7").mkdir(parents=True)
+    (procfs / "7" / "exe").symlink_to(actual)
+    reader = ol.read_subject_exe
+    with patch.object(ol, "read_subject_exe",
+                      side_effect=lambda pid: reader(pid, procfs)):
+        positive = ol.subject_binary_state(7, {
+            "binary_measured": ol.measure_binary(actual)})
+        negative = ol.subject_binary_state(7, {
+            "binary_measured": ol.measure_binary(other)})
+    assert positive["matches_declared_candidate"] is True
+    assert negative["matches_declared_candidate"] is False
+    assert negative["exe"]["sha256"] == hashlib.sha256(b"actual-A").hexdigest()
+
+
+def scenario_reported_path_is_not_executed_file(tmp):
+    """The descriptive readlink path cannot replace the open executable."""
+    tmp.mkdir(parents=True)
+    actual = tmp / "actual"
+    replacement = tmp / "reported-path"
+    actual.write_bytes(b"running executable")
+    replacement.write_bytes(b"replacement bytes")
+    procfs = tmp / "proc"
+    (procfs / "7").mkdir(parents=True)
+    (procfs / "7" / "exe").symlink_to(actual)
+    with patch.object(ol.os, "readlink", return_value=str(replacement)):
+        measured = ol.read_subject_exe(7, procfs)
+    assert measured["sha256"] == hashlib.sha256(b"running executable").hexdigest()
+    assert measured["path"] == str(replacement)
+
+
+def scenario_unknown_executable_stays_unobserved(tmp):
+    """A sealed fixture with no executed-file identity cannot qualify."""
+    argv = ["init", "--dir", str(tmp), "--run-id", "unknown-executable",
+            "--workload", "synthetic unavailable-executable fixture",
+            "--candidate-commit", "0" * 40, "--binary-path", sys.executable,
+            "--profile", "fixture", "--evidence-class", "real_observation",
+            "--interval", "60", "--pid", "7", "--window", "demo=60"]
+    with patch.object(ol, "utcnow", return_value=1000.0):
+        code, out = cli(argv)
+    assert code == 0, out
+    manifest = ol.load_manifest(tmp)
+    with patch.object(ol, "read_subject_exe", return_value=None):
+        take(tmp, manifest, 1000.0)
+        take(tmp, manifest, 1060.0)
+    with patch.object(ol, "utcnow", return_value=1061.0):
+        code, out = cli(["stop", "--dir", str(tmp), "--reason", "completed"])
+    assert code == 0, out
+    rep = report(tmp, "--require-observed", expected_code=3)
+    assert rep["lifecycle"]["sealed"] is True
+    assert rep["integrity"]["candidate_binary_unverified_sample_seqs"] == [1, 2]
+    assert not rep["integrity"]["intact"]
+    assert rep["declared_windows"][0]["status"] == "unobserved"
+    assert rep["eligible_as_product_evidence"] is False
+
+
 def main():
     build = Path(__file__).resolve().parents[1] / "build"
     build.mkdir(exist_ok=True)
+    scenarios = (
+        ("boundary", scenario_window_boundary),
+        ("gap", scenario_known_gap),
+        ("header", scenario_missing_header),
+        ("torn", scenario_torn_append),
+        ("boot", scenario_boot_id_path),
+        ("retry", scenario_restart_sample_retry),
+        ("durability", scenario_log_creation_fsync),
+        ("zombie", scenario_zombie_subject),
+        ("sequence", scenario_sequence_discontinuity),
+        ("sealed", scenario_sealed_run_lifecycle),
+        ("checkpoint", scenario_checkpoint_binding),
+        ("seal-binding", scenario_seal_binds_written_sample),
+        ("equal-stat-binary", scenario_equal_stat_different_binary),
+        ("reported-path", scenario_reported_path_is_not_executed_file),
+        ("unknown-executable", scenario_unknown_executable_stays_unobserved),
+    )
     with tempfile.TemporaryDirectory(prefix="c19-observe-", dir=build) as directory:
         base = Path(directory)
-        scenario_window_boundary(base / "boundary")
-        scenario_known_gap(base / "gap")
-        scenario_missing_header(base / "header")
-        scenario_torn_append(base / "torn")
-        scenario_boot_id_path(base / "boot")
-        scenario_restart_sample_retry(base / "retry")
-        scenario_log_creation_fsync(base / "durability")
-        scenario_zombie_subject(base / "zombie")
-        scenario_sequence_discontinuity(base / "sequence")
-    print("observe_longrun_test: 9 independent scenarios passed")
+        for name, scenario in scenarios:
+            scenario(base / name)
+    print(f"observe_longrun_test: {len(scenarios)} independent scenarios passed")
 
 
 if __name__ == "__main__":
