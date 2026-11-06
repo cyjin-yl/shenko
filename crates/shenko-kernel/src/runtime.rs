@@ -135,6 +135,111 @@ impl HelpHandle {
     }
 }
 
+/// The live-registry tokens one plugin generation owns.
+///
+/// The assembly records the handles its own install path actually received;
+/// this is not a second registry and it never discovers registrations by id.
+/// Withdrawal is bound to the registration epoch each token observed, so a
+/// late cleanup of a replaced generation cannot remove its successor's
+/// implementation.
+#[derive(Debug, Clone, Default)]
+pub struct GenerationRegistrations {
+    providers: Vec<ProviderHandle>,
+    capabilities: Vec<CapabilityHandle>,
+    help: Vec<HelpHandle>,
+}
+
+/// What one generation withdrawal actually removed.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrationWithdrawal {
+    pub providers: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub help: Vec<String>,
+    /// Tokens whose registration a later generation already replaced. They are
+    /// left in place by design: a stale token never withdraws a successor.
+    pub superseded_providers: Vec<String>,
+    pub superseded_capabilities: Vec<String>,
+    pub superseded_help: Vec<String>,
+}
+
+impl RegistrationWithdrawal {
+    /// True when nothing of this generation is still registered.
+    pub fn is_complete(&self) -> bool {
+        self.superseded_providers.is_empty()
+            && self.superseded_capabilities.is_empty()
+            && self.superseded_help.is_empty()
+    }
+}
+
+impl GenerationRegistrations {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.providers.is_empty() && self.capabilities.is_empty() && self.help.is_empty()
+    }
+
+    pub fn record_provider(&mut self, handle: ProviderHandle) {
+        self.providers.push(handle);
+    }
+
+    pub fn record_capability(&mut self, handle: CapabilityHandle) {
+        self.capabilities.push(handle);
+    }
+
+    pub fn record_help(&mut self, handle: HelpHandle) {
+        self.help.push(handle);
+    }
+
+    /// The provider ids this generation recorded, in registration order.
+    pub fn provider_ids(&self) -> Vec<&str> {
+        self.providers
+            .iter()
+            .map(ProviderHandle::provider_id)
+            .collect()
+    }
+
+    /// The capability ids this generation recorded, in registration order.
+    pub fn capability_ids(&self) -> Vec<&str> {
+        self.capabilities
+            .iter()
+            .map(CapabilityHandle::capability_id)
+            .collect()
+    }
+
+    /// Withdraw exactly the registrations this generation still owns.
+    ///
+    /// The tokens are consumed: a second call withdraws nothing and cannot
+    /// report a success it did not perform.
+    pub fn withdraw(&mut self, runtime: &PluginRuntime) -> RegistrationWithdrawal {
+        let mut receipt = RegistrationWithdrawal::default();
+        for handle in std::mem::take(&mut self.providers) {
+            if runtime.withdraw_provider(&handle) {
+                receipt.providers.push(handle.provider_id);
+            } else {
+                receipt.superseded_providers.push(handle.provider_id);
+            }
+        }
+        for handle in std::mem::take(&mut self.capabilities) {
+            if runtime.withdraw_capability(&handle) {
+                receipt.capabilities.push(handle.capability_id);
+            } else {
+                receipt.superseded_capabilities.push(handle.capability_id);
+            }
+        }
+        for handle in std::mem::take(&mut self.help) {
+            if runtime.withdraw_help(&handle) {
+                receipt.help.push(handle.capability_id);
+            } else {
+                receipt.superseded_help.push(handle.capability_id);
+            }
+        }
+        receipt
+    }
+}
+
 /// A refused registration. The live view stays as it was.
 #[derive(Debug, thiserror::Error, Clone, PartialEq, Eq)]
 pub enum RegistrationError {

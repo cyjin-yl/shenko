@@ -26,6 +26,15 @@
 //! In-flight work leases the graph it started with. `HookRegistry` counts the
 //! live leases per revision so a teardown can wait for the real barrier
 //! instead of guessing.
+//!
+//! A plugin installs, upgrades and uninstalls its handlers as one *generation*
+//! (`install_generation`, `upgrade_generation`, `retire_generation`). An
+//! upgrade publishes the successor and drops the predecessor in one atomic
+//! revision, so a new dispatch never sees both versions; a leased snapshot
+//! keeps the generation it took. Withdrawal is bound to the published handler
+//! instance, so a stale receipt cannot remove a successor that reuses the same
+//! hook id, and a removal that would break a declared hard dependency is
+//! refused with the old graph still in force.
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::panic::AssertUnwindSafe;
@@ -633,6 +642,37 @@ impl HookRegistration {
 pub struct HookPublication {
     pub generation: u64,
     pub registrations: Vec<HookRegistration>,
+}
+
+/// Receipt of one plugin-generation replacement — SPEC §41.8.4 hot update.
+///
+/// The new generation is already published; `publication` owns its handlers.
+/// `retired_revision` is the graph revision the replaced handlers were last
+/// admitted under, so a caller can wait for that revision's real dispatch
+/// barrier before releasing anything they still use.
+#[derive(Debug)]
+pub struct GenerationSwap {
+    pub publication: HookPublication,
+    pub retired_revision: u64,
+    pub retired: Vec<EntityId>,
+}
+
+/// What a generation withdrawal actually retired.
+///
+/// `already_retired` means every handler of that publication was already
+/// replaced or withdrawn, so the withdrawal changed no graph revision. The
+/// barrier is still awaited: a dispatch that leased the old revision can still
+/// be running, and reporting completion before it finishes would be a guess.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerationRetirement {
+    /// The graph revision the retired handlers were admitted under.
+    pub revision: u64,
+    pub withdrawn: Vec<EntityId>,
+    pub already_retired: bool,
+    /// Leases of `revision` still live when the barrier was observed.
+    pub live_leases: usize,
+    /// False when the wait was abandoned before the barrier was observed.
+    pub quiesced: bool,
 }
 
 /// Receipt of one point dispatch — SPEC §41.8.1 `HookDispatch`.
@@ -1257,6 +1297,177 @@ impl HookRegistry {
         })
     }
 
+    /// Validate one plugin generation without publishing it.
+    ///
+    /// The candidate is the current graph plus these handlers. A refusal
+    /// changes nothing, so an install can prepare a hook generation before it
+    /// creates any process resource (a Fiber, a timer, a subscription) that
+    /// would have to be unwound on a rejected graph.
+    pub fn validate_generation(&self, entries: Vec<HookEntry>) -> Result<Digest, HookAdmissionError> {
+        let graph = Arc::clone(&self.graph.read());
+        let mut candidates = graph.entries();
+        candidates.extend(entries.into_iter().map(Arc::new));
+        let revision = graph
+            .generation
+            .checked_add(1)
+            .ok_or(HookAdmissionError::RevisionExhausted)?;
+        let candidate = Graph::build(revision, candidates, graph.contracts.clone())?;
+        Ok(candidate.digest)
+    }
+
+    /// Admit one plugin generation additively as a single graph revision.
+    ///
+    /// The receipt owns exactly the handlers this call added; other plugins'
+    /// handlers stay with their own receipts. A refused candidate leaves the
+    /// running graph in force.
+    pub fn install_generation(
+        &self,
+        entries: Vec<HookEntry>,
+    ) -> Result<HookPublication, HookAdmissionError> {
+        let graph = Arc::clone(&self.graph.read());
+        let added: Vec<Arc<HookEntry>> = entries.into_iter().map(Arc::new).collect();
+        let mut candidates = graph.entries();
+        candidates.extend(added.iter().cloned());
+        let generation = graph
+            .generation
+            .checked_add(1)
+            .ok_or(HookAdmissionError::RevisionExhausted)?;
+        let rebuilt = Graph::build(generation, candidates, graph.contracts.clone())
+            .map_err(|error| self.observe_admission_refusal("install_generation", error))?;
+        let registrations = added
+            .iter()
+            .map(|entry| HookRegistration {
+                hook_id: entry.spec.hook_id,
+                entry: Arc::downgrade(entry),
+            })
+            .collect();
+        self.publish(graph.generation, rebuilt)
+            .map_err(|error| self.observe_admission_refusal("install_generation", error))?;
+        Ok(HookPublication {
+            generation,
+            registrations,
+        })
+    }
+
+    /// Replace every admitted handler of one plugin as a new generation.
+    ///
+    /// The replaced handlers leave the graph in the same atomic publication
+    /// that admits their successors, so a new dispatch cannot observe both
+    /// versions of the plugin. The swap names the retired graph revision so
+    /// the caller can await the dispatch barrier before releasing resources
+    /// the old handlers still own — SPEC §41.8.4.
+    pub fn upgrade_generation(
+        &self,
+        plugin_id: EntityId,
+        entries: Vec<HookEntry>,
+    ) -> Result<GenerationSwap, HookAdmissionError> {
+        let graph = Arc::clone(&self.graph.read());
+        let (retired_entries, kept): (Vec<Arc<HookEntry>>, Vec<Arc<HookEntry>>) = graph
+            .entries()
+            .into_iter()
+            .partition(|entry| entry.spec.plugin_id == plugin_id);
+        let added: Vec<Arc<HookEntry>> = entries.into_iter().map(Arc::new).collect();
+        let mut candidates = kept;
+        candidates.extend(added.iter().cloned());
+        let generation = graph
+            .generation
+            .checked_add(1)
+            .ok_or(HookAdmissionError::RevisionExhausted)?;
+        let rebuilt = Graph::build(generation, candidates, graph.contracts.clone())
+            .map_err(|error| self.observe_admission_refusal("upgrade_generation", error))?;
+        let registrations = added
+            .iter()
+            .map(|entry| HookRegistration {
+                hook_id: entry.spec.hook_id,
+                entry: Arc::downgrade(entry),
+            })
+            .collect();
+        let retired = retired_entries
+            .iter()
+            .map(|entry| entry.spec.hook_id)
+            .collect();
+        let retired_revision = graph.generation;
+        self.publish(graph.generation, rebuilt)
+            .map_err(|error| self.observe_admission_refusal("upgrade_generation", error))?;
+        Ok(GenerationSwap {
+            publication: HookPublication {
+                generation,
+                registrations,
+            },
+            retired_revision,
+            retired,
+        })
+    }
+
+    /// Withdraw the handlers one publication still owns.
+    ///
+    /// Withdrawal is bound to the published handler instance, not to its hook
+    /// id: a later generation that reuses the same id keeps its handlers. A
+    /// removal that would break another handler's declared hard dependency is
+    /// refused by the normal candidate validation and the graph stays in force.
+    pub fn withdraw_generation(
+        &self,
+        publication: &HookPublication,
+    ) -> Result<Vec<EntityId>, HookAdmissionError> {
+        let graph = Arc::clone(&self.graph.read());
+        let owned: Vec<Arc<HookEntry>> = publication
+            .registrations
+            .iter()
+            .filter_map(|registration| registration.entry.upgrade())
+            .collect();
+        let live: Vec<Arc<HookEntry>> = owned
+            .iter()
+            .filter(|entry| graph.contains(entry))
+            .cloned()
+            .collect();
+        if live.is_empty() {
+            return Ok(Vec::new());
+        }
+        let candidates: Vec<Arc<HookEntry>> = graph
+            .entries()
+            .into_iter()
+            .filter(|entry| !live.iter().any(|owned| Arc::ptr_eq(owned, entry)))
+            .collect();
+        let withdrawn: Vec<EntityId> = live.iter().map(|entry| entry.spec.hook_id).collect();
+        let generation = graph
+            .generation
+            .checked_add(1)
+            .ok_or(HookAdmissionError::RevisionExhausted)?;
+        let rebuilt = Graph::build(generation, candidates, graph.contracts.clone())
+            .map_err(|error| self.observe_admission_refusal("withdraw_generation", error))?;
+        self.publish(graph.generation, rebuilt)
+            .map_err(|error| self.observe_admission_refusal("withdraw_generation", error))?;
+        Ok(withdrawn)
+    }
+
+    /// Withdraw one published generation and wait for its real dispatch
+    /// barrier — SPEC §41.8.4 uninstall and hot replacement.
+    ///
+    /// The withdrawal removes the generation from new-request discovery. The
+    /// barrier is every dispatch still running in this process, because a
+    /// snapshot may have been taken at *any* revision between the publication
+    /// and now, and each of those graphs can still contain these handlers.
+    /// Waiting on the publication's own revision alone would under-wait and
+    /// release resources an older snapshot is still using.
+    ///
+    /// The caller must not release the resources those handlers use before
+    /// `quiesced` is true.
+    pub async fn retire_generation(
+        &self,
+        publication: &HookPublication,
+    ) -> Result<GenerationRetirement, HookAdmissionError> {
+        let withdrawn = self.withdraw_generation(publication)?;
+        let already_retired = withdrawn.is_empty();
+        let quiesced = self.await_all_quiescence().await;
+        Ok(GenerationRetirement {
+            revision: publication.generation,
+            withdrawn,
+            already_retired,
+            live_leases: self.live_lease_total(),
+            quiesced,
+        })
+    }
+
     fn publish(&self, expected: u64, candidate: Graph) -> Result<(), HookAdmissionError> {
         let mut graph = self.graph.write();
         if graph.generation != expected {
@@ -1327,6 +1538,21 @@ impl HookRegistry {
             .unwrap_or_default()
     }
 
+    /// The admitted handler ids one plugin currently owns, in dispatch order.
+    ///
+    /// This is the projection an upgrade or an uninstall reads to report what
+    /// it is about to replace or withdraw. Withdrawal still requires the
+    /// publication handle: an id is a reusable name, not an ownership token.
+    pub fn handlers_of(&self, plugin_id: EntityId) -> Vec<EntityId> {
+        self.graph
+            .read()
+            .entries()
+            .into_iter()
+            .filter(|entry| entry.spec.plugin_id == plugin_id)
+            .map(|entry| entry.spec.hook_id)
+            .collect()
+    }
+
     /// The declared contracts of the admitted graph.
     pub fn contracts(&self) -> BTreeMap<HookPointId, HookPointContract> {
         self.graph.read().contracts.clone()
@@ -1382,6 +1608,28 @@ impl HookRegistry {
             }
             notified.await;
         }
+    }
+
+    /// Wait until no dispatch in this process holds any leased graph.
+    ///
+    /// A generation publication survives later revisions belonging to other
+    /// plugins, so a retired generation's handlers can be running under a
+    /// revision newer than the one it was published at. A teardown that has to
+    /// release the handlers' resources waits here rather than on a single
+    /// revision, which could return while such a snapshot is still live.
+    pub async fn await_all_quiescence(&self) -> bool {
+        loop {
+            let notified = self.leases.notify.notified();
+            if self.live_lease_total() == 0 {
+                return true;
+            }
+            notified.await;
+        }
+    }
+
+    /// Every live leased graph in this process, summed over revisions.
+    pub fn live_lease_total(&self) -> usize {
+        self.leases.counts.lock().values().sum()
     }
 
     /// Dispatch one point under the current graph.

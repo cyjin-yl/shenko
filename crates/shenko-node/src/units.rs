@@ -50,8 +50,12 @@ const UNIT_EDGE_TABLE: &str = "CREATE TABLE unit_edges(unit_id TEXT NOT NULL,rev
 const UNIT_VERSION_HISTORY_TABLE: &str = "CREATE TABLE unit_version_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL);";
 const UNIT_EDGE_HISTORY_TABLE: &str = "CREATE TABLE unit_edge_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,edge_id TEXT NOT NULL,data TEXT NOT NULL);";
 
-/// Current node-storage fingerprint. The legacy table retains every old row;
-/// it is evidence, not an authority for ambiguous version ownership.
+/// Schema-6 node-storage fingerprint. Storage schema 7 adds
+/// `UNIT_REMOVALS_TABLE` on top of exactly these tables, so admission of an
+/// older installation keeps comparing it against what that version really
+/// created instead of accepting a different table set under the same number.
+/// The legacy edge table retains every old row; it is evidence, not an
+/// authority for ambiguous version ownership.
 pub const UNIT_TABLES: &str = "
 CREATE TABLE unit_versions(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
 CREATE TABLE unit_version_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,imported_at TEXT NOT NULL,data TEXT NOT NULL);
@@ -62,6 +66,12 @@ CREATE TABLE unit_edge_history(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEX
 CREATE TABLE unit_materializations(unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,root TEXT NOT NULL,path TEXT NOT NULL,state TEXT NOT NULL,detail TEXT NOT NULL,updated_at TEXT NOT NULL,PRIMARY KEY(unit_id,revision,artifact_digest));
 CREATE TABLE unit_attempts(attempt_id TEXT PRIMARY KEY,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);
 CREATE TABLE unit_trials(seq INTEGER PRIMARY KEY AUTOINCREMENT,attempt_id TEXT NOT NULL,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,environment_digest TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT,outcome TEXT NOT NULL,artifact_bound INTEGER NOT NULL,artifact_verified INTEGER NOT NULL,owner_pid INTEGER NOT NULL,owner_runtime TEXT NOT NULL,data TEXT NOT NULL);";
+
+/// Append-only record of one withdrawn version. A removed version leaves the
+/// live tables; this row is what explains the gap later, and its evidence
+/// (trials, observations, adoption) stays readable.
+pub(crate) const UNIT_REMOVALS_TABLE: &str = "
+CREATE TABLE unit_removals(seq INTEGER PRIMARY KEY AUTOINCREMENT,unit_id TEXT NOT NULL,revision TEXT NOT NULL,artifact_digest TEXT NOT NULL,removed_at TEXT NOT NULL,reason TEXT NOT NULL,data TEXT NOT NULL);";
 
 /// Bounded limits. Every one of them bounds memory or time; none of them is
 /// a product permission decision.
@@ -737,6 +747,76 @@ pub enum UnitRequest {
     /// The retained versions of one unit and the supersession relations
     /// between them.
     Lineage { unit_id: String },
+    /// Withdraw one installed version from this node.
+    ///
+    /// The version leaves discovery: it stops being current, its
+    /// materialized package directory is retired, and its dependency rows are
+    /// archived. Its artifact bytes, trial attempts, observations and adoption
+    /// decision stay as facts, so a receipt that named this artifact remains
+    /// readable. A version another retained unit still depends on, or one
+    /// owned by a running trial, is refused instead of silently breaking the
+    /// dependent closure.
+    Uninstall {
+        unit_id: String,
+        revision: String,
+        /// Mandatory when the revision retains several artifact digests.
+        artifact_digest: Option<Digest>,
+        /// Why this version is withdrawn. Recorded with the removal fact.
+        reason: String,
+        /// A different retained version to offer as current in the same
+        /// transaction. Never chosen implicitly.
+        activate: Option<UnitActivation>,
+    },
+}
+
+/// One retained version to make current while another is withdrawn.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct UnitActivation {
+    pub revision: String,
+    pub artifact_digest: Digest,
+}
+
+/// A path the uninstall could not retire, with the reason it was left.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RetainedPath {
+    pub path: String,
+    pub reason: String,
+}
+
+/// The durable fact of one withdrawn unit version.
+///
+/// A removal is a lifecycle fact, not an erasure: the version's bytes remain
+/// in the object store and its trials, observations and adoption stay
+/// readable. This row explains why a previously installed identity is gone
+/// from the live tables.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RemovedVersionFact {
+    pub unit_id: String,
+    pub revision: String,
+    pub artifact_digest: Digest,
+    pub removed_at: String,
+    pub reason: String,
+    /// Whether the withdrawn version was the one this node offered.
+    pub was_current: bool,
+    /// Whether the withdrawn version was enabled before removal.
+    pub was_enabled: bool,
+    /// The version made current in the same transaction, if any.
+    pub replacement: Option<UnitActivation>,
+    /// The materialization record the version carried.
+    pub materialization: Option<MaterializationFact>,
+    /// Directories this uninstall actually removed.
+    pub files_retired: Vec<String>,
+    /// Paths it left in place, with the reason.
+    pub files_retained: Vec<RetainedPath>,
+    pub artifact_retained: bool,
+    pub evidence_retained: bool,
+    /// The adoption decision the archived descriptor carried, so a caller can
+    /// see that an earlier judgement existed after the version left the live
+    /// tables.
+    pub adoption: Option<Value>,
 }
 
 /// How one unit version was judged on this installation.
@@ -1199,6 +1279,19 @@ impl Node {
             } => self.unit_register_observation(&unit_id, &revision, &artifact_digest, &kind, &bytes)?,
             UnitRequest::Observations { unit_id } => self.unit_observations(&unit_id)?,
             UnitRequest::Lineage { unit_id } => self.unit_lineage(&unit_id)?,
+            UnitRequest::Uninstall {
+                unit_id,
+                revision,
+                artifact_digest,
+                reason,
+                activate,
+            } => self.unit_uninstall(
+                &unit_id,
+                &revision,
+                artifact_digest.as_ref(),
+                &reason,
+                activate.as_ref(),
+            )?,
         };
         if let Some(object) = result.as_object_mut() {
             object.insert("schema".into(), json!(UNIT_SCHEMA));
@@ -3385,7 +3478,11 @@ impl Node {
     /// The retained versions of one unit and their supersession relations.
     fn unit_lineage(&self, unit_id: &str) -> Result<Value> {
         let facts = self.retained_unit_facts(unit_id)?;
-        ensure!(!facts.is_empty(), "unit is not installed on this node");
+        let removed = self.removed_unit_facts(unit_id)?;
+        ensure!(
+            !facts.is_empty() || !removed.is_empty(),
+            "unit is not installed on this node"
+        );
         Ok(json!({
             "unit_id": unit_id,
             "current": facts
@@ -3397,6 +3494,321 @@ impl Node {
                     "enabled": fact.enabled,
                 })),
             "versions": facts,
+            "removed": removed,
+        }))
+    }
+
+    /// The durable removal facts of one unit's versions.
+    pub fn removed_unit_facts(&self, unit_id: &str) -> Result<Vec<RemovedVersionFact>> {
+        let rows: Vec<(String, String, String, String, String, String)> = self
+            .conn
+            .prepare(
+                "SELECT unit_id,revision,artifact_digest,removed_at,reason,data \
+                 FROM unit_removals WHERE unit_id=?1 ORDER BY seq",
+            )?
+            .query_map([unit_id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut facts = Vec::new();
+        for (unit_id, revision, digest, removed_at, reason, data) in rows {
+            let stored: Value = serde_json::from_str(&data)?;
+            facts.push(RemovedVersionFact {
+                unit_id,
+                revision,
+                artifact_digest: Digest(digest),
+                removed_at,
+                reason,
+                was_current: stored.get("was_current").and_then(Value::as_bool).unwrap_or(false),
+                was_enabled: stored.get("was_enabled").and_then(Value::as_bool).unwrap_or(false),
+                replacement: stored
+                    .get("replacement")
+                    .filter(|value| !value.is_null())
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?,
+                materialization: stored
+                    .get("materialization")
+                    .filter(|value| !value.is_null())
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?,
+                files_retired: string_list(stored.get("files_retired")),
+                files_retained: stored
+                    .get("files_retained")
+                    .map(|value| serde_json::from_value(value.clone()))
+                    .transpose()?
+                    .unwrap_or_default(),
+                artifact_retained: stored
+                    .get("artifact_retained")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                evidence_retained: stored
+                    .get("evidence_retained")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
+                adoption: stored.get("adoption").filter(|value| !value.is_null()).cloned(),
+            });
+        }
+        Ok(facts)
+    }
+
+    /// Withdraw one installed version from this node.
+    ///
+    /// The removal is one immediate transaction: the version's closure
+    /// dependents, a still-running trial and the requested successor are
+    /// checked under the write lock, the version, its edges and its
+    /// materialization record leave the live tables, the archived rows keep
+    /// the descriptor and its evidence, and one append-only removal fact
+    /// explains the gap. The package directory is retired inside the same
+    /// transaction; a directory this node did not canonicalize for exactly
+    /// this version is reported, never deleted. A crash after the directory
+    /// is gone but before the commit leaves the record in place, and the next
+    /// execution re-verifies the artifact instead of trusting it.
+    fn unit_uninstall(
+        &mut self,
+        unit_id: &str,
+        revision: &str,
+        artifact_digest: Option<&Digest>,
+        reason: &str,
+        activate: Option<&UnitActivation>,
+    ) -> Result<Value> {
+        ensure!(
+            !unit_id.is_empty() && unit_id.len() <= 128,
+            "invalid unit identity"
+        );
+        ensure!(
+            !revision.is_empty() && revision.len() <= 128,
+            "invalid unit revision"
+        );
+        ensure!(
+            !reason.trim().is_empty() && reason.len() <= MAX_TEXT_BYTES,
+            "an uninstall reason is required and bounded"
+        );
+        let removed_at = now();
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let digests: Vec<String> = tx
+            .prepare(
+                "SELECT artifact_digest FROM unit_versions \
+                 WHERE unit_id=?1 AND revision=?2 ORDER BY artifact_digest",
+            )?
+            .query_map(params![unit_id, revision], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        ensure!(
+            !digests.is_empty(),
+            "unit version is not retained on this node"
+        );
+        let digest = match artifact_digest {
+            Some(digest) => {
+                ensure!(
+                    digests.iter().any(|stored| stored == &digest.0),
+                    "unit revision does not retain the requested artifact digest"
+                );
+                digest.clone()
+            }
+            None => {
+                ensure!(
+                    digests.len() == 1,
+                    "unit revision retains several artifacts; name the artifact digest"
+                );
+                Digest(digests[0].clone())
+            }
+        };
+        // Withdrawing a version that a retained closure still selects would
+        // silently turn a satisfied edge into a gap. Report the dependents and
+        // leave the graph alone.
+        let dependents = dependent_edges(&tx, unit_id, revision, &digest)?;
+        ensure!(
+            dependents.is_empty(),
+            "UNIT_IN_USE:{}@{}: retained units still depend on this version: {}",
+            unit_id,
+            revision,
+            dependents.join(",")
+        );
+        // A running trial owns the version's process and evidence. The attempt
+        // must settle first; uninstall never kills or replays it.
+        let running: Option<String> = tx
+            .query_row(
+                "SELECT attempt_id FROM unit_attempts \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3 AND state='trial_open' \
+                 ORDER BY started_at LIMIT 1",
+                params![unit_id, revision, digest.0],
+                |r| r.get(0),
+            )
+            .optional()?;
+        ensure!(
+            running.is_none(),
+            "UNIT_TRIAL_IN_PROGRESS:{}@{}: trial attempt {} still owns this version",
+            unit_id,
+            revision,
+            running.unwrap_or_default()
+        );
+        let current: Option<(String, String, i64)> = tx
+            .query_row(
+                "SELECT revision,artifact_digest,enabled FROM unit_current WHERE unit_id=?1",
+                [unit_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let was_current = current
+            .as_ref()
+            .is_some_and(|(current_revision, stored, _)| {
+                current_revision == revision && stored == &digest.0
+            });
+        let was_enabled = was_current
+            && current
+                .as_ref()
+                .is_some_and(|(_, _, enabled)| *enabled != 0);
+        if let Some(activation) = activate {
+            ensure!(
+                was_current,
+                "activate names a successor but the withdrawn version is not the current one"
+            );
+            ensure!(
+                activation.revision != revision || activation.artifact_digest != digest,
+                "activate must name a version other than the withdrawn one"
+            );
+            let retained: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM unit_versions \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3)",
+                params![unit_id, activation.revision, activation.artifact_digest.0],
+                |r| r.get(0),
+            )?;
+            ensure!(
+                retained,
+                "activate names a version this node does not retain"
+            );
+        }
+        let stored_data: String = tx.query_row(
+            "SELECT data FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+            |r| r.get(0),
+        )?;
+        let stored: StoredVersion = serde_json::from_str(&stored_data)?;
+        let materialization: Option<MaterializationFact> = tx
+            .query_row(
+                "SELECT root,path,state,detail FROM unit_materializations \
+                 WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+                params![unit_id, revision, digest.0],
+                |r| {
+                    Ok(MaterializationFact {
+                        root: r.get(0)?,
+                        path: r.get(1)?,
+                        state: r.get(2)?,
+                        detail: r.get(3)?,
+                    })
+                },
+            )
+            .optional()?;
+        let mut files_retired: Vec<String> = Vec::new();
+        let mut files_retained: Vec<RetainedPath> = Vec::new();
+        if let Some(materialization) = &materialization {
+            retire_package_directory(
+                materialization,
+                unit_id,
+                revision,
+                &digest,
+                &mut files_retired,
+                &mut files_retained,
+            )?;
+        }
+        let archived_edges: i64 = tx.query_row(
+            "SELECT count(*) FROM unit_edges \
+             WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "INSERT INTO unit_version_history(unit_id,revision,artifact_digest,imported_at,data) \
+             SELECT unit_id,revision,artifact_digest,imported_at,data FROM unit_versions \
+             WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "INSERT INTO unit_edge_history(unit_id,revision,artifact_digest,edge_id,data) \
+             SELECT unit_id,revision,artifact_digest,edge_id,data FROM unit_edges \
+             WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "DELETE FROM unit_edges WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "DELETE FROM unit_materializations WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        tx.execute(
+            "DELETE FROM unit_versions WHERE unit_id=?1 AND revision=?2 AND artifact_digest=?3",
+            params![unit_id, revision, digest.0],
+        )?;
+        if was_current {
+            match activate {
+                Some(activation) => {
+                    tx.execute(
+                        "INSERT INTO unit_current(unit_id,revision,artifact_digest,enabled,updated_at) \
+                         VALUES(?1,?2,?3,?4,?5) ON CONFLICT(unit_id) DO UPDATE SET \
+                         revision=excluded.revision,artifact_digest=excluded.artifact_digest,\
+                         enabled=excluded.enabled,updated_at=excluded.updated_at",
+                        params![
+                            unit_id,
+                            activation.revision,
+                            activation.artifact_digest.0,
+                            i64::from(was_enabled),
+                            removed_at
+                        ],
+                    )?;
+                }
+                None => {
+                    tx.execute("DELETE FROM unit_current WHERE unit_id=?1", [unit_id])?;
+                }
+            }
+        }
+        let evidence = json!({
+            "was_current": was_current,
+            "was_enabled": was_enabled,
+            "replacement": activate,
+            "materialization": materialization,
+            "files_retired": files_retired,
+            "files_retained": files_retained,
+            "artifact_retained": true,
+            "evidence_retained": true,
+            // The adoption decision lived in the archived descriptor; it is
+            // reported here so a caller does not have to guess whether an
+            // earlier judgement existed.
+            "adoption": stored.unit.config.pointer("/cognition/adoption").cloned(),
+            "archived_edges": archived_edges.to_string(),
+        });
+        tx.execute(
+            "INSERT INTO unit_removals(unit_id,revision,artifact_digest,removed_at,reason,data) \
+             VALUES(?1,?2,?3,?4,?5,?6)",
+            params![
+                unit_id,
+                revision,
+                digest.0,
+                removed_at,
+                reason,
+                serde_json::to_string(&evidence)?
+            ],
+        )?;
+        let removal_seq = tx.last_insert_rowid();
+        tx.commit()?;
+        Ok(json!({
+            "unit_id": unit_id,
+            "revision": revision,
+            "artifact_digest": digest,
+            "removed": true,
+            "removal_seq": removal_seq.to_string(),
+            "was_current": was_current,
+            "was_enabled": was_enabled,
+            "replacement": activate,
+            // The receipt repeats what the durable row already holds.
+            "materialization": evidence.get("materialization").cloned().unwrap_or(Value::Null),
+            "files_retired": evidence.get("files_retired").cloned().unwrap_or(json!([])),
+            "files_retained": evidence.get("files_retained").cloned().unwrap_or(json!([])),
+            "artifact_retained": true,
+            "evidence_retained": true,
+            "note": "the version left discovery; its bytes, trial attempts, observations and adoption stay readable",
         }))
     }
 
@@ -4021,12 +4433,12 @@ fn declared_supersedes(descriptor: &UnitDescriptor) -> Vec<SupersededVersion> {
 fn ensure_unit_schema(conn: &rusqlite::Connection) -> Result<()> {
     let count: i64 = conn.query_row(
         "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN \
-         ('unit_versions','unit_version_history','unit_current','unit_edges','unit_edge_history','unit_edges_legacy','unit_materializations','unit_attempts','unit_trials')",
+         ('unit_versions','unit_version_history','unit_current','unit_edges','unit_edge_history','unit_edges_legacy','unit_materializations','unit_attempts','unit_trials','unit_removals')",
         [],
         |r| r.get(0),
     )?;
     ensure!(
-        count == 9,
+        count == 10,
         "node storage schema lacks the installation-unit tables; migrate the node storage schema first"
     );
     Ok(())
@@ -4428,6 +4840,159 @@ fn safe_component(name: &str) -> Result<String> {
     } else {
         let hex = Digest::blake3(name.as_bytes()).hex().to_string();
         Ok(format!("{sanitized}.{}", &hex[..8]))
+    }
+}
+
+/// Retained versions whose satisfied edge selects exactly this version.
+///
+/// An uninstall refuses to turn a satisfied closure into a gap. The list is
+/// bounded and names the dependent and the edge, so an operator can retire the
+/// dependent first instead of guessing why the withdrawal was refused.
+fn dependent_edges(
+    conn: &rusqlite::Connection,
+    unit_id: &str,
+    revision: &str,
+    digest: &Digest,
+) -> Result<Vec<String>> {
+    const MAX_REPORTED: usize = 16;
+    let mut dependents = Vec::new();
+    let mut statement = conn.prepare(
+        "SELECT unit_id,revision,artifact_digest,edge_id,data FROM unit_edges \
+         WHERE json_extract(data,'$.status')='satisfied' \
+           AND json_extract(data,'$.selected_unit_id')=?1 \
+           AND json_extract(data,'$.selected_revision')=?2 \
+           AND json_extract(data,'$.selected_artifact_digest')=?3 \
+         ORDER BY unit_id,revision,artifact_digest,edge_id",
+    )?;
+    let rows = statement.query_map(params![unit_id, revision, digest.0], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+        ))
+    })?;
+    for row in rows {
+        let (dependent, dependent_revision, dependent_digest, edge_id, data) = row?;
+        // The SQL filter narrows the scan; the parsed record still has to
+        // agree, so a hand-edited or older row cannot be reported as a
+        // dependent on a shape this code would not dispatch.
+        let edge: ResolvedDependency = serde_json::from_str(&data)?;
+        if edge.status != EdgeStatus::Satisfied
+            || edge.selected_unit_id.as_deref() != Some(unit_id)
+            || edge.selected_revision.as_deref() != Some(revision)
+            || edge.selected_artifact_digest.as_ref() != Some(digest)
+        {
+            continue;
+        }
+        // The version's own outgoing edges do not depend on it.
+        if dependent == unit_id && dependent_revision == revision && dependent_digest == digest.0 {
+            continue;
+        }
+        dependents.push(format!("{dependent}@{dependent_revision}#{edge_id}"));
+        if dependents.len() >= MAX_REPORTED {
+            break;
+        }
+    }
+    Ok(dependents)
+}
+
+/// Retire the canonical package directory of exactly one version.
+///
+/// Only `<root>/units/<unit>/<revision>/<digest>` may be removed, and only
+/// when the recorded materialization describes that directory. An external
+/// artifact, a record whose path points somewhere else, a symlink or a
+/// replaced directory is reported and left in place: an uninstall never
+/// deletes a path it cannot prove it owns.
+fn retire_package_directory(
+    materialization: &MaterializationFact,
+    unit_id: &str,
+    revision: &str,
+    digest: &Digest,
+    files_retired: &mut Vec<String>,
+    files_retained: &mut Vec<RetainedPath>,
+) -> Result<()> {
+    if materialization.state == "external" {
+        files_retained.push(RetainedPath {
+            path: if materialization.detail.is_empty() {
+                materialization.root.clone()
+            } else {
+                materialization.detail.clone()
+            },
+            reason: "the artifact bytes live outside this installation".into(),
+        });
+        return Ok(());
+    }
+    let canonical = Path::new(&materialization.root)
+        .join("units")
+        .join(safe_component(unit_id)?)
+        .join(safe_component(revision)?)
+        .join(safe_component(&digest.0)?);
+    let canonical_text = canonical.to_string_lossy().into_owned();
+    // A completed materialization names its exact artifact file. A failed one
+    // may have created the directory before writing, so it records no path;
+    // both are removable only under the canonical directory computed above.
+    let owned = if materialization.state == "materialized" {
+        !materialization.path.is_empty()
+            && Path::new(&materialization.path).parent() == Some(canonical.as_path())
+    } else {
+        materialization.path.is_empty()
+    };
+    if !owned {
+        files_retained.push(RetainedPath {
+            path: materialization.path.clone(),
+            reason: format!(
+                "the recorded package path does not belong to the canonical directory {canonical_text} of this version"
+            ),
+        });
+        return Ok(());
+    }
+    match std::fs::symlink_metadata(&canonical) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => {
+            files_retained.push(RetainedPath {
+                path: canonical_text,
+                reason: format!("the package directory could not be inspected: {error}"),
+            });
+            Ok(())
+        }
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            match std::fs::remove_dir_all(&canonical) {
+                Ok(()) => {
+                    files_retired.push(canonical_text);
+                    // Prune the now-empty version ancestors, never the
+                    // caller-chosen root: a later install must not find a
+                    // stale `units/` tree it cannot admit as its own.
+                    let root = Path::new(&materialization.root);
+                    let mut ancestor = canonical.parent();
+                    while let Some(current) = ancestor {
+                        if current == root || !current.starts_with(root) {
+                            break;
+                        }
+                        if std::fs::remove_dir(current).is_err() {
+                            break;
+                        }
+                        ancestor = current.parent();
+                    }
+                    Ok(())
+                }
+                Err(error) => {
+                    files_retained.push(RetainedPath {
+                        path: canonical_text,
+                        reason: format!("retiring the package directory failed: {error}"),
+                    });
+                    Ok(())
+                }
+            }
+        }
+        Ok(_) => {
+            files_retained.push(RetainedPath {
+                path: canonical_text,
+                reason: "the canonical package path is not a plain directory".into(),
+            });
+            Ok(())
+        }
     }
 }
 
@@ -5562,5 +6127,232 @@ mod tests {
             .unwrap();
         assert_eq!(unknown, 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn uninstall_retires_the_package_and_keeps_the_evidence() {
+        let dir = scratch("uninstall-node");
+        let packages = scratch("uninstall-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let unit = package("demo.skill.remove", "1.0.0", b"removable", vec![]);
+        let digest = unit.unit.artifact_digest.clone();
+        node.handle_unit_request(UnitRequest::Import {
+            export: export(vec![unit]),
+            package_root: packages.to_string_lossy().into_owned(),
+            enable: Some(true),
+        })
+        .unwrap();
+        let found = node
+            .installed_unit_fact("demo.skill.remove")
+            .unwrap()
+            .unwrap();
+        let path = found.materialization.as_ref().unwrap().path.clone();
+        let directory = std::path::Path::new(&path)
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert!(std::path::Path::new(&path).is_file());
+        node.handle_unit_request(UnitRequest::RecordAdoption {
+            unit_id: "demo.skill.remove".into(),
+            revision: "1.0.0".into(),
+            artifact_digest: digest.clone(),
+            decision: AdoptionDecision::Adopted,
+            method: AdoptionMethod::OperatorStatement,
+            evidence: vec![],
+            notes: Some("kept by the owner".into()),
+            enable: None,
+        })
+        .unwrap();
+
+        let receipt = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.skill.remove".into(),
+                revision: "1.0.0".into(),
+                artifact_digest: None,
+                reason: "replaced by an external implementation".into(),
+                activate: None,
+            })
+            .unwrap();
+        assert_eq!(receipt["removed"], json!(true));
+        assert_eq!(receipt["was_current"], json!(true));
+        assert_eq!(receipt["was_enabled"], json!(true));
+        assert_eq!(receipt["files_retired"], json!([directory]));
+        assert_eq!(receipt["files_retained"], json!([]));
+        assert!(
+            !std::path::Path::new(&path).exists(),
+            "the materialized package directory is gone"
+        );
+        // Nothing offers the unit any more; the artifact bytes and the
+        // archived judgement remain readable facts.
+        assert!(node.unit_status("demo.skill.remove").is_err());
+        assert_eq!(node.unit_object_bytes(&digest).unwrap(), b"removable".to_vec());
+        let lineage = node
+            .handle_unit_request(UnitRequest::Lineage {
+                unit_id: "demo.skill.remove".into(),
+            })
+            .unwrap();
+        assert_eq!(lineage["versions"], json!([]));
+        let removed = lineage["removed"].as_array().unwrap();
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0]["revision"], json!("1.0.0"));
+        assert_eq!(removed[0]["was_current"], json!(true));
+        assert_eq!(removed[0]["artifact_retained"], json!(true));
+        assert_eq!(removed[0]["evidence_retained"], json!(true));
+        assert_eq!(removed[0]["adoption"]["decision"], json!("adopted"));
+        assert_eq!(
+            removed[0]["reason"],
+            json!("replaced by an external implementation")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&packages);
+    }
+
+    #[test]
+    fn uninstall_refuses_a_version_a_retained_closure_still_selects() {
+        let dir = scratch("uninstall-dependent-node");
+        let packages = scratch("uninstall-dependent-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let dependency = package("demo.dep", "1.0.0", b"dependency", vec![]);
+        import(&mut node, &packages, vec![dependency]);
+        let consumer = package(
+            "demo.root",
+            "1.0.0",
+            b"consumer",
+            vec![exact("edge", "demo.dep", None)],
+        );
+        import(&mut node, &packages, vec![consumer]);
+        assert_eq!(
+            node.unit_status("demo.root").unwrap()["closure"]["state"],
+            json!("complete")
+        );
+
+        let refused = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.dep".into(),
+                revision: "1.0.0".into(),
+                artifact_digest: None,
+                reason: "attempted while a consumer exists".into(),
+                activate: None,
+            })
+            .expect_err("a satisfied closure must not be broken silently");
+        let message = format!("{refused:#}");
+        assert!(message.contains("UNIT_IN_USE:"), "{message}");
+        assert!(message.contains("demo.root@1.0.0#edge"), "{message}");
+        // The refused withdrawal changed nothing.
+        assert_eq!(
+            node.unit_status("demo.dep").unwrap()["installed"],
+            json!(true)
+        );
+        assert_eq!(
+            node.unit_status("demo.root").unwrap()["closure"]["state"],
+            json!("complete")
+        );
+
+        // Retiring the consumer first makes the dependency removable.
+        node.handle_unit_request(UnitRequest::Uninstall {
+            unit_id: "demo.root".into(),
+            revision: "1.0.0".into(),
+            artifact_digest: None,
+            reason: "the consumer is retired first".into(),
+            activate: None,
+        })
+        .unwrap();
+        node.handle_unit_request(UnitRequest::Uninstall {
+            unit_id: "demo.dep".into(),
+            revision: "1.0.0".into(),
+            artifact_digest: None,
+            reason: "no retained consumer remains".into(),
+            activate: None,
+        })
+        .unwrap();
+        assert!(node.unit_status("demo.dep").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&packages);
+    }
+
+    #[test]
+    fn uninstall_of_the_current_version_activates_the_named_successor() {
+        let dir = scratch("uninstall-activate-node");
+        let packages = scratch("uninstall-activate-packages");
+        let mut node = Node::open(&dir).unwrap();
+        let old = package("demo.swap", "1.0.0", b"swap-one", vec![]);
+        let new = package("demo.swap", "2.0.0", b"swap-two", vec![]);
+        node.handle_unit_request(UnitRequest::Import {
+            export: export(vec![new.clone()]),
+            package_root: packages.to_string_lossy().into_owned(),
+            enable: Some(true),
+        })
+        .unwrap();
+        // The earlier revision arrives later as a retained version and is the
+        // one this node currently offers; importing a version never deletes
+        // the other retained one.
+        import(&mut node, &packages, vec![old.clone()]);
+        assert_eq!(
+            node.unit_status("demo.swap").unwrap()["revision"],
+            json!("1.0.0")
+        );
+        assert_eq!(node.retained_unit_facts("demo.swap").unwrap().len(), 2);
+        let old_path = node
+            .installed_unit_version("demo.swap", "1.0.0", &old.unit.artifact_digest)
+            .unwrap()
+            .unwrap()
+            .materialization
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+        let new_path = node
+            .installed_unit_version("demo.swap", "2.0.0", &new.unit.artifact_digest)
+            .unwrap()
+            .unwrap()
+            .materialization
+            .as_ref()
+            .unwrap()
+            .path
+            .clone();
+
+        let receipt = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.swap".into(),
+                revision: "1.0.0".into(),
+                artifact_digest: Some(old.unit.artifact_digest.clone()),
+                reason: "upgrade to the retained successor".into(),
+                activate: Some(UnitActivation {
+                    revision: "2.0.0".into(),
+                    artifact_digest: new.unit.artifact_digest.clone(),
+                }),
+            })
+            .unwrap();
+        assert_eq!(receipt["replacement"]["revision"], json!("2.0.0"));
+        let status = node.unit_status("demo.swap").unwrap();
+        assert_eq!(status["revision"], json!("2.0.0"));
+        // The successor inherits the enable state the withdrawn version had.
+        assert_eq!(status["enabled"], json!(true));
+        assert!(!std::path::Path::new(&old_path).exists());
+        assert!(std::path::Path::new(&new_path).is_file());
+        assert_eq!(node.retained_unit_facts("demo.swap").unwrap().len(), 1);
+
+        // Naming a successor that is not retained is refused before anything
+        // is withdrawn.
+        let refused = node
+            .handle_unit_request(UnitRequest::Uninstall {
+                unit_id: "demo.swap".into(),
+                revision: "2.0.0".into(),
+                artifact_digest: None,
+                reason: "successor must exist".into(),
+                activate: Some(UnitActivation {
+                    revision: "9.9.9".into(),
+                    artifact_digest: Digest::blake3(b"absent"),
+                }),
+            })
+            .expect_err("an activation must name a retained version");
+        assert!(format!("{refused:#}").contains("activate names a version this node does not retain"));
+        assert_eq!(
+            node.unit_status("demo.swap").unwrap()["revision"],
+            json!("2.0.0")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&packages);
     }
 }
