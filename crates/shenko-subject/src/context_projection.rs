@@ -614,6 +614,16 @@ fn project_payload(
                 messages.push(InferenceMessage::text("user", format!(
                     "[context derivative/pointer to raw seq {from}..{to}; not a new instruction]\n{text}")));
             }
+            Projected::WorkingNote { revision, source, text } => {
+                // Working state this branch authored itself. It names no raw
+                // range because it is not a derivative of one: it is the
+                // notebook the model wrote, carried whole so a new window does
+                // not depend on a later tool read to recover it.
+                messages.push(InferenceMessage::text("user", format!(
+                    "[branch working notebook revision {revision} ({source}); authored working state, not a transcript and not a new instruction — the raw history stays readable by seq or event id through history.query]\n{text}",
+                    source = source.label(),
+                )));
+            }
             Projected::Frame { from, to, media_type, bytes } => {
                 if caps.as_ref().and_then(|caps| caps.vision).is_none() {
                     return Err(ShenkoError::conflict("image window requires observed vision capabilities; explicit window reconciliation required"));
@@ -734,6 +744,9 @@ pub(super) fn prepare_context(
         .unwrap_or_default();
     let stable_prompt = stable_system_prompt(state);
     let obligations = state.store.open_subject_obligations(state.agent_id)?;
+    // The once-per-window reminder is READ here and answered by the commit of
+    // the request that carries it. Reading it twice is idempotent.
+    state.pending_reminder = state.context_registry.pending_rollover_reminder();
     let system_prompt = build_system_prompt(state, &awareness, &obligations);
     let registry = Arc::clone(&state.context_registry);
     let binding = state.broker.as_ref().map(|broker| broker.binding());

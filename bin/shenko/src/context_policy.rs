@@ -12,15 +12,28 @@
 //! (`shenko.context-policy` / `compaction_preference`); until that service
 //! carries a value, the runtime order follows the installation order of the
 //! enabled units and reports which source it used.
+use std::borrow::Cow;
 use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context as _, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64_STD};
+use cordis_core::{Context, FiberHandle, Plugin};
+use parking_lot::Mutex;
 use serde_json::{Value, json};
-use shenko_context_policy::{ContextPolicy, PolicyManifest};
+use shenko_context_policy::{
+    ContextPolicy, NotesJournal, PolicyManifest, PolicyRegistry,
+};
+use shenko_kernel::Supervisor;
+use shenko_kernel::plugin::PluginRegistry;
 use shenko_node::{
     Node, UnitDescriptor, UnitExport, UnitKind, UnitPackage, UnitRequest, UNIT_SCHEMA,
 };
+use shenko_store::Store;
+use shenko_subject::NativeTaskHandlerPlugin;
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
 use shenko_types::ids::EntityId;
 use shenko_types::object::Digest;
 
@@ -36,8 +49,9 @@ pub struct PolicyEntry {
     pub id: &'static str,
     /// The strategy's default configuration document.
     pub default_config: Value,
-    /// Build the strategy from a configuration document.
-    pub build: fn(Value) -> Result<Box<dyn ContextPolicy>, String>,
+    /// The manifest facts of the compiled-in implementation. This is the
+    /// artifact identity the installation record must name.
+    pub manifest: fn() -> PolicyManifest,
 }
 
 /// Every built-in context strategy.
@@ -46,20 +60,21 @@ pub fn catalog() -> Vec<PolicyEntry> {
         PolicyEntry {
             id: shenko_compact_budget::POLICY_ID,
             default_config: shenko_compact_budget::BudgetCompact::default_config(),
-            build: |value| {
-                let config = shenko_compact_budget::BudgetCompact::config_from_json(&value)?;
-                Ok(Box::new(shenko_compact_budget::BudgetCompact::new(config))
-                    as Box<dyn ContextPolicy>)
+            manifest: || {
+                shenko_compact_budget::BudgetCompact::new(Default::default()).manifest()
             },
         },
         PolicyEntry {
             id: shenko_compact_snap::POLICY_ID,
             default_config: shenko_compact_snap::SnapCompact::default_config(),
-            build: |value| {
-                let config = shenko_compact_snap::SnapCompact::config_from_json(&value)?;
-                Ok(Box::new(shenko_compact_snap::SnapCompact::new(config))
-                    as Box<dyn ContextPolicy>)
+            manifest: || {
+                shenko_compact_snap::SnapCompact::new(Default::default()).manifest()
             },
+        },
+        PolicyEntry {
+            id: shenko_compact_rollover::POLICY_ID,
+            default_config: shenko_compact_rollover::NotesRollover::default_config(),
+            manifest: shenko_compact_rollover::NotesRollover::manifest_document,
         },
     ]
 }
@@ -84,6 +99,7 @@ pub struct InstalledPolicy {
 pub enum PolicyRuntime {
     Budget(shenko_compact_budget::BudgetConfig),
     Snap(shenko_compact_snap::SnapConfig),
+    Rollover(shenko_compact_rollover::RolloverConfig),
 }
 
 /// The manifest document of a strategy — the artifact a built-in
@@ -113,9 +129,7 @@ pub fn installed_policies(node: &Node) -> Result<Vec<InstalledPolicy>> {
     let exports = node.export_installation_units()?;
     let mut result = Vec::new();
     for entry in catalog() {
-        let policy = (entry.build)(entry.default_config.clone())
-            .map_err(|error| anyhow::anyhow!("policy {} is not buildable: {error}", entry.id))?;
-        let manifest = policy.manifest();
+        let manifest = (entry.manifest)();
         let unit = unit_id(entry.id);
         let existing = exports.iter().find(|export| export.root_unit_id == unit);
         let (enabled, revision, config) = match existing {
@@ -163,46 +177,82 @@ pub fn reconcile_units(node: &mut Node, package_root: &Path) -> Result<Vec<Insta
         // A record that does not exist yet is installed enabled; an existing
         // record keeps the state the owner gave it.
         let enabled = if policy.installed { policy.enabled } else { true };
-        let document = manifest_document(manifest);
-        let artifact = serde_json::to_vec(&document)?;
-        let digest = Digest::blake3(&artifact);
-        let export = UnitExport {
-            schema: UNIT_SCHEMA,
-            root_unit_id: policy.unit_id.clone(),
-            root_revision: Some(manifest.version.clone()),
-            root_artifact_digest: Some(digest.clone()),
-            origin_node: None,
-            enabled,
-            packages: vec![UnitPackage {
-                unit: UnitDescriptor {
-                    unit_id: policy.unit_id.clone(),
-                    kind: UnitKind::Code,
-                    revision: manifest.version.clone(),
-                    artifact_digest: digest.clone(),
-                    provides: manifest.provides.clone(),
-                    dependencies: Vec::new(),
-                    config: policy.config.clone(),
-                    applicability: None,
-                },
-                artifact_base64: B64_STD.encode(&artifact),
-                evidence: Vec::new(),
-                resolved_dependencies: None,
-            }],
-        };
-        node.handle_unit_request(UnitRequest::Import {
-            export,
-            package_root: package_root.to_string_lossy().into_owned(),
-            enable: Some(enabled),
-        })
-        .with_context(|| format!("install context policy unit {}", policy.unit_id))?;
+        import_record(node, policy, &policy.config, enabled, package_root)?;
     }
     installed_policies(node)
+}
+
+/// Import one compiled strategy's installation record at the manifest
+/// identity, with the given enable state and configuration document.
+///
+/// The artifact identity is the compiled manifest, never the caller's
+/// configuration: a reconfiguration changes the record's config while the
+/// implementation it names stays the same.
+fn import_record(
+    node: &mut Node,
+    policy: &InstalledPolicy,
+    config: &Value,
+    enabled: bool,
+    package_root: &Path,
+) -> Result<()> {
+    let manifest = &policy.manifest;
+    let artifact = serde_json::to_vec(&manifest_document(manifest))?;
+    let digest = Digest::blake3(&artifact);
+    let export = UnitExport {
+        schema: UNIT_SCHEMA,
+        root_unit_id: policy.unit_id.clone(),
+        root_revision: Some(manifest.version.clone()),
+        root_artifact_digest: Some(digest.clone()),
+        origin_node: None,
+        enabled,
+        packages: vec![UnitPackage {
+            unit: UnitDescriptor {
+                unit_id: policy.unit_id.clone(),
+                kind: UnitKind::Code,
+                revision: manifest.version.clone(),
+                artifact_digest: digest,
+                provides: manifest.provides.clone(),
+                dependencies: Vec::new(),
+                config: config.clone(),
+                applicability: None,
+            },
+            artifact_base64: B64_STD.encode(&artifact),
+            evidence: Vec::new(),
+            resolved_dependencies: None,
+        }],
+    };
+    node.handle_unit_request(UnitRequest::Import {
+        export,
+        package_root: package_root.to_string_lossy().into_owned(),
+        enable: Some(enabled),
+    })
+    .with_context(|| format!("install context policy unit {}", policy.unit_id))
 }
 
 /// Install or disable one strategy's installation record.
 pub fn set_enabled(node: &mut Node, policy_id: &str, enabled: bool) -> Result<Value> {
     let unit = unit_id(policy_id);
     node.handle_unit_request(UnitRequest::SetEnabled { unit_id: unit, enabled })
+}
+
+/// Replace one strategy's configuration at the same compiled identity.
+///
+/// This is the authored reconfiguration path: the record keeps naming the
+/// compiled implementation and the runtime observer must notice the new
+/// document and reinstall the strategy with it.
+pub fn set_config(
+    node: &mut Node,
+    policy_id: &str,
+    config: Value,
+    package_root: &Path,
+) -> Result<Value> {
+    let installed = installed_policies(node)?;
+    let policy = installed
+        .iter()
+        .find(|policy| policy.id == policy_id)
+        .with_context(|| format!("context strategy {policy_id} has no installation record"))?;
+    import_record(node, policy, &config, policy.enabled, package_root)?;
+    Ok(manifest_document(&policy.manifest))
 }
 
 /// The strategies that are installed and enabled, in installation order.
@@ -219,12 +269,22 @@ pub fn preference_order(installed: &[InstalledPolicy]) -> Vec<String> {
 /// installation record. A malformed configuration is an error, never a
 /// silently ignored default.
 pub fn runtime_config(policy: &InstalledPolicy) -> Result<PolicyRuntime, String> {
-    match policy.id.as_str() {
+    runtime_from_config(&policy.id, &policy.config)
+}
+
+/// The runtime configuration of any strategy id, read from its installation
+/// record. A malformed configuration is an error, never a silently ignored
+/// default.
+pub fn runtime_from_config(id: &str, config: &Value) -> Result<PolicyRuntime, String> {
+    match id {
         shenko_compact_budget::POLICY_ID => Ok(PolicyRuntime::Budget(
-            shenko_compact_budget::BudgetCompact::config_from_json(&policy.config)?,
+            shenko_compact_budget::BudgetCompact::config_from_json(config)?,
         )),
         shenko_compact_snap::POLICY_ID => Ok(PolicyRuntime::Snap(
-            shenko_compact_snap::SnapCompact::config_from_json(&policy.config)?,
+            shenko_compact_snap::SnapCompact::config_from_json(config)?,
+        )),
+        shenko_compact_rollover::POLICY_ID => Ok(PolicyRuntime::Rollover(
+            shenko_compact_rollover::NotesRollover::config_from_json(config)?,
         )),
         other => Err(format!("unknown context strategy {other}")),
     }
@@ -239,14 +299,7 @@ pub fn new_scope_id() -> EntityId {
 pub fn strategy_report() -> Value {
     let mut strategies = Vec::new();
     for entry in catalog() {
-        let policy = match (entry.build)(entry.default_config.clone()) {
-            Ok(policy) => policy,
-            Err(error) => {
-                strategies.push(json!({"id": entry.id, "buildable": false, "error": error}));
-                continue;
-            }
-        };
-        let manifest = policy.manifest();
+        let manifest = (entry.manifest)();
         let unit = unit_id(&manifest.id);
         strategies.push(json!({
             "id": manifest.id,
@@ -297,15 +350,22 @@ pub fn window_report(store: &std::sync::Arc<shenko_store::Store>, limit: u64) ->
         .iter()
         .map(|meta| {
             let mut kinds = serde_json::Map::new();
+            // The notebook entry is working state, so the report names the
+            // revision and provenance the window carries, never the text.
+            let mut notes = Vec::new();
             for entry in &meta.window.entries {
                 let kind = match entry {
                     shenko_context_policy::WindowEntry::Verbatim { .. } => "verbatim",
                     shenko_context_policy::WindowEntry::Pointer { .. } => "pointer",
                     shenko_context_policy::WindowEntry::Text { .. } => "text",
                     shenko_context_policy::WindowEntry::Image { .. } => "image",
+                    shenko_context_policy::WindowEntry::Note { .. } => "note",
                 };
                 let count = kinds.entry(kind.to_string()).or_insert(json!(0));
                 *count = json!(count.as_u64().unwrap_or(0) + 1);
+                if let shenko_context_policy::WindowEntry::Note { revision, source, .. } = entry {
+                    notes.push(json!({"revision": revision, "source": source}));
+                }
             }
             json!({
                 "id": meta.window.id.to_string(),
@@ -315,6 +375,7 @@ pub fn window_report(store: &std::sync::Arc<shenko_store::Store>, limit: u64) ->
                 "model_generation": meta.window.model_generation,
                 "covers_through": meta.window.covers_through,
                 "entry_kinds": Value::Object(kinds),
+                "notes": notes,
                 "cost": meta.window.cost.clone(),
                 "derivatives": meta.derivatives.iter().map(|derivative| json!({
                     "media_type": derivative.media_type.clone(),
@@ -379,7 +440,48 @@ fn policy_command(data_dir: &Path, command: ContextPolicyCommand) -> Result<()> 
         }
         ContextPolicyCommand::Enable { id } => set_policy_enabled(data_dir, &id, true),
         ContextPolicyCommand::Disable { id } => set_policy_enabled(data_dir, &id, false),
+        ContextPolicyCommand::Config { id, config } => set_policy_config(data_dir, &id, &config),
     }
+}
+
+/// Replace one strategy's configuration document, keeping the compiled
+/// identity and the record's enable state.
+///
+/// A running process observes the record and installs the new configuration
+/// at its next tick; no restart is required, and a window prepared under the
+/// previous configuration can no longer commit.
+fn set_policy_config(data_dir: &Path, id: &str, config: &str) -> Result<()> {
+    let known = catalog().iter().any(|entry| entry.id == id);
+    anyhow::ensure!(
+        known,
+        "unknown context strategy {id}; run `shenko context policy list` for the installable ones"
+    );
+    let document: Value = serde_json::from_str(config)
+        .with_context(|| format!("context strategy {id} configuration is not JSON"))?;
+    let db_path = data_dir.join("shenko.db");
+    anyhow::ensure!(
+        db_path.is_file(),
+        "no managed installation at {}; run `shenko start` once",
+        data_dir.display()
+    );
+    let store = shenko_store::store::Store::open(db_path, data_dir.join("cas"))?;
+    let mut node = crate::node_sync::open_node(data_dir, &store)?;
+    let package_root = data_dir.join("policy-units");
+    reconcile_units(&mut node, &package_root)?;
+    // Parse before writing, exactly as the runtime will: a document the
+    // installed implementation cannot read never becomes the record.
+    runtime_from_config(id, &document).map_err(anyhow::Error::msg)?;
+    let manifest = set_config(&mut node, id, document, &package_root)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "strategy": id,
+            "artifact_digest": manifest.get("version"),
+            "artifact_identity": manifest,
+            "note": "a running process installs the new configuration at its next observation; a window prepared under the previous configuration can no longer commit",
+        }))?
+    );
+    Ok(())
 }
 
 /// Enable or disable one strategy's installation record.
@@ -417,4 +519,469 @@ fn windows_command(data_dir: &Path, limit: u64) -> Result<()> {
         std::sync::Arc::new(shenko_store::store::Store::open(db_path, data_dir.join("cas"))?);
     println!("{}", serde_json::to_string_pretty(&window_report(&store, limit)?)?);
     Ok(())
+}
+
+/// The services every installed strategy runs against.
+///
+/// The registry and the notebook journal are process services: the unit's
+/// JSON configuration never names them, so a changed configuration document
+/// cannot redirect a strategy at another branch's notes or another chain.
+#[derive(Clone)]
+pub struct PolicyHosts {
+    pub registry: Arc<PolicyRegistry>,
+    pub notes: Arc<dyn NotesJournal>,
+    pub store: Arc<Store>,
+    pub node: Arc<Mutex<Node>>,
+}
+
+struct Resident {
+    policy: FiberHandle,
+    /// The installed native definition that belongs to this strategy unit, if
+    /// any. It is withdrawn with the policy, never left behind.
+    tool: Option<FiberHandle>,
+}
+
+#[derive(Clone)]
+struct PolicyWatch {
+    unit_id: String,
+    manifest: PolicyManifest,
+    expected_digest: Digest,
+    hosts: PolicyHosts,
+    plugins: Arc<PluginRegistry>,
+    shutdown: CancellationToken,
+}
+
+/// Observe every compiled context strategy against the Node installation
+/// record for the lifetime of this runtime.
+///
+/// This is the live projection, not a boot snapshot: a unit enabled, disabled,
+/// replaced or reconfigured by another Node connection changes the resident
+/// Fiber set without restarting the CLI. The initial reconciliation completes
+/// before this call returns, so the caller never reports readiness from a
+/// half-installed strategy set.
+pub async fn spawn_installed_policies(
+    supervisor: &Supervisor,
+    hosts: PolicyHosts,
+) -> Result<Vec<FiberHandle>> {
+    let mut handles = Vec::new();
+    for entry in catalog() {
+        let manifest = (entry.manifest)();
+        let expected_digest = Digest::blake3(&serde_json::to_vec(&manifest_document(&manifest))?);
+        handles.push(
+            supervisor
+                .spawn(
+                    InstalledPolicyObserver,
+                    PolicyWatch {
+                        unit_id: unit_id(entry.id),
+                        manifest,
+                        expected_digest,
+                        hosts: hosts.clone(),
+                        plugins: supervisor.plugins.clone(),
+                        shutdown: supervisor.lifecycle.shutdown_token(),
+                    },
+                )
+                .await?,
+        );
+        tracing::info!(unit_id = entry.id, "context strategy installation observer started");
+    }
+    Ok(handles)
+}
+
+struct InstalledPolicyObserver;
+
+impl Plugin for InstalledPolicyObserver {
+    type Config = PolicyWatch;
+    type Input = PolicyWatch;
+    type PrepareError = std::convert::Infallible;
+    type ApplyError = std::io::Error;
+
+    fn name(&self) -> Cow<'_, str> {
+        Cow::Borrowed("context-policy-installation-observer")
+    }
+
+    fn prepare(&self, config: Self::Config) -> Result<Self::Input, Self::PrepareError> {
+        Ok(config)
+    }
+
+    async fn apply(&self, ctx: Context, watch: &Self::Input) -> Result<(), Self::ApplyError> {
+        watch_installed_policy(ctx, watch.clone()).await.map_err(std::io::Error::other)
+    }
+}
+
+/// Poll the one installed-unit fact this strategy depends on and reconcile the
+/// resident Fiber set. Node polling observes writes made by another CLI
+/// connection, which the in-process hook pump cannot see.
+async fn watch_installed_policy(ctx: Context, watch: PolicyWatch) -> Result<()> {
+    let agent_id = watch.hosts.store.get_existing_agent_id()?;
+    let stop = CancellationToken::new();
+    let worker_stop = stop.clone();
+    let (ready_tx, ready_rx) = oneshot::channel::<Result<()>>();
+    let (finished_tx, finished_rx) = oneshot::channel::<Result<()>>();
+    let worker_ctx = ctx.clone();
+    ctx.run(async move {
+        let mut ready = Some(ready_tx);
+        // The exact configuration document the resident was started from.
+        // Artifact identity alone is not enough: the Node permits a same-
+        // identity record whose config was replaced, and that is a real
+        // configuration change.
+        let mut resident: Option<(Value, Resident)> = None;
+        let mut tick = tokio::time::interval(Duration::from_millis(250));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let result: Result<()> = async {
+            loop {
+                tokio::select! { biased;
+                    _ = worker_stop.cancelled() => return Ok(()),
+                    _ = watch.shutdown.cancelled() => return Ok(()),
+                    _ = tick.tick() => {},
+                }
+                let fact = watch.hosts.node.lock().installed_unit_fact(&watch.unit_id)?;
+                let current = fact.filter(|fact| {
+                    fact.enabled
+                        && fact.revision == watch.manifest.version
+                        && fact.artifact_digest == watch.expected_digest
+                });
+                match current {
+                    None => retire(&watch, &mut resident).await?,
+                    Some(fact) => {
+                        let config = fact.descriptor.config;
+                        if resident.as_ref().is_none_or(|(applied, _)| applied != &config) {
+                            retire(&watch, &mut resident).await?;
+                            let runtime = runtime_from_config(&watch.manifest.id, &config)
+                                .map_err(|error| anyhow::anyhow!(
+                                    "{} installation record carries an unusable configuration: {error}",
+                                    watch.unit_id
+                                ))?;
+                            resident = Some((config, spawn_resident(&watch, runtime).await?));
+                        }
+                    }
+                }
+                if let Some(ready) = ready.take() {
+                    let _ = ready.send(Ok(()));
+                }
+            }
+        }
+        .await;
+        // Terminal cleanup uses the native Fiber barrier even after the host
+        // has closed admission, and keeps the primary error.
+        let cleanup = retire(&watch, &mut resident).await;
+        let result = match (result, cleanup) {
+            (Err(error), Err(cleanup)) => {
+                Err(error.context(format!("context strategy retirement also failed: {cleanup}")))
+            }
+            (Err(error), _) => Err(error),
+            (Ok(()), cleanup) => cleanup,
+        };
+        if let Err(error) = &result {
+            journal_policy_failure(
+                &watch,
+                agent_id,
+                format!("{} installation observer failed: {error:#}", watch.unit_id),
+            );
+        }
+        if let Some(ready) = ready {
+            let message = match &result {
+                Err(error) => format!("{error:#}"),
+                Ok(()) => "context strategy observer stopped during startup".into(),
+            };
+            let _ = ready.send(Err(anyhow::anyhow!(message)));
+        }
+        let _ = finished_tx.send(result);
+    })?;
+    // ctx.run commits task ownership before it starts. Register cancellation
+    // after the join effect, so LIFO disposal signals stop before joining it.
+    let cleanup_stop = stop.clone();
+    if let Err(error) = ctx.effect(move || async move {
+        cleanup_stop.cancel();
+        finished_rx
+            .await
+            .context("context strategy observer lost its outcome")
+            .map_err(std::io::Error::other)?
+            .map_err(std::io::Error::other)
+    }) {
+        stop.cancel();
+        return Err(error.into());
+    }
+    ready_rx.await.context("context strategy observer lost startup")?
+}
+
+async fn retire(watch: &PolicyWatch, resident: &mut Option<(Value, Resident)>) -> Result<()> {
+    let Some((_, resident)) = resident.take() else {
+        return Ok(());
+    };
+    // The installed native definition goes first: a withdrawn policy must not
+    // leave tools that can still write notes or request windows.
+    let mut first: Option<anyhow::Error> = None;
+    if let Some(tool) = resident.tool {
+        if let Err(error) = watch.plugins.uninstall(&tool).await {
+            first = Some(error);
+        }
+    }
+    if let Err(error) = watch.plugins.uninstall(&resident.policy).await {
+        first = Some(match first {
+            Some(previous) => previous.context(format!(
+                "native definition retirement also failed: {error}"
+            )),
+            None => error,
+        });
+    }
+    match first {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
+
+async fn spawn_resident(watch: &PolicyWatch, runtime: PolicyRuntime) -> Result<Resident> {
+    match runtime {
+        PolicyRuntime::Budget(config) => Ok(Resident {
+            policy: watch
+                .plugins
+                .spawn(shenko_compact_budget::BudgetCompactPlugin, config)
+                .await?,
+            tool: None,
+        }),
+        PolicyRuntime::Snap(config) => Ok(Resident {
+            policy: watch
+                .plugins
+                .spawn(shenko_compact_snap::SnapCompactPlugin, config)
+                .await?,
+            tool: None,
+        }),
+        PolicyRuntime::Rollover(config) => {
+            let policy = watch
+                .plugins
+                .spawn(
+                    shenko_compact_rollover::NotesRolloverPlugin,
+                    shenko_compact_rollover::RolloverHosts {
+                        config,
+                        notes: Arc::clone(&watch.hosts.notes),
+                        registry: Arc::clone(&watch.hosts.registry),
+                    },
+                )
+                .await?;
+            let handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_compact_rollover::ContextNotebookHandler::new(
+                    Arc::clone(&watch.hosts.store),
+                    Arc::clone(&watch.hosts.notes),
+                    Arc::clone(&watch.hosts.registry),
+                ));
+            match watch.plugins.spawn(NativeTaskHandlerPlugin, handler).await {
+                Ok(tool) => Ok(Resident { policy, tool: Some(tool) }),
+                Err(error) => {
+                    Err(match watch.plugins.uninstall(&policy).await {
+                        Ok(()) => error,
+                        Err(cleanup) => error
+                            .context(format!("strategy retirement after tool failure also failed: {cleanup}")),
+                    })
+                }
+            }
+        }
+    }
+}
+
+fn journal_policy_failure(watch: &PolicyWatch, agent_id: Option<EntityId>, message: String) {
+    match agent_id {
+        Some(agent_id) => {
+            let context = shenko_store::RuntimeErrorContext {
+                kind: "context_policy_lifecycle".into(),
+                source_module: module_path!().into(),
+                message,
+                step_no: None,
+                task_id: None,
+                extra: json!({"unit_id": watch.unit_id}),
+            };
+            // Journals a runtime-error fact and counts any dropped write
+            // itself; a lifecycle failure must not be hidden by a second
+            // failure here.
+            watch.hosts.store.journal_runtime_error(agent_id, context);
+        }
+        None => tracing::error!(
+            unit_id = %watch.unit_id,
+            message = %message,
+            "context policy lifecycle failed before subject initialization"
+        ),
+    }
+}
+
+#[cfg(test)]
+mod installed_policy_tests {
+    //! The live projection, against a real Node, Store and Cordis supervisor:
+    //! a strategy starts, changes configuration, stops and restarts because the
+    //! installation record changed on another connection — never because the
+    //! process was restarted.
+    use super::*;
+    use shenko_types::ids::RuntimeGeneration;
+
+    fn fixture(name: &str) -> (std::path::PathBuf, Arc<Store>, Node) {
+        let dir = std::env::temp_dir().join(format!("shenko-{name}-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = Arc::new(Store::open(dir.join("shenko.db"), dir.join("cas")).unwrap());
+        let mut node = Node::open(&dir.join("node")).unwrap();
+        node.handle(shenko_node::Request::Initialize {
+            node_id: EntityId::new(),
+            identity: None,
+        })
+        .unwrap();
+        (dir, store, node)
+    }
+
+    fn installed_epoch(registry: &PolicyRegistry, id: &str) -> Option<u64> {
+        registry
+            .installed()
+            .into_iter()
+            .find(|(manifest, _)| manifest.id == id)
+            .map(|(_, epoch)| epoch)
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_unit_change_on_another_connection_installs_replaces_and_stops_the_strategy() {
+        let (dir, store, mut writer) = fixture("policy-observer");
+        let package_root = dir.join("policy-units");
+        let records = reconcile_units(&mut writer, &package_root).unwrap();
+        // Start with every strategy disabled: a disabled record installs
+        // nothing, so the first readiness is genuinely "nothing installed".
+        for policy in &records {
+            set_enabled(&mut writer, &policy.id, false).unwrap();
+        }
+        let scope = EntityId::new();
+        let registry = Arc::new(PolicyRegistry::with_ledger(shenko_context_policy::WindowLedger::new(Arc::new(
+            shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), scope),
+        ))));
+        let notes: Arc<dyn NotesJournal> =
+            Arc::new(shenko_context_policy::StoreNotesJournal::new(Arc::clone(&store), scope));
+        // The observer reads the installation records through its own Node
+        // connection, exactly as it must in production.
+        let observer_node = Arc::new(Mutex::new(Node::open(&dir.join("node")).unwrap()));
+
+        let supervisor = Supervisor::new(RuntimeGeneration::default());
+        supervisor
+            .spawn(shenko_context_policy::ContextPolicyHost, Arc::clone(&registry))
+            .await
+            .unwrap();
+        supervisor
+            .spawn(
+                shenko_subject::NativeChildPlugin,
+                (Arc::clone(&store), RuntimeGeneration::default()),
+            )
+            .await
+            .unwrap();
+        let _observers = spawn_installed_policies(
+            &supervisor,
+            PolicyHosts {
+                registry: Arc::clone(&registry),
+                notes,
+                store: Arc::clone(&store),
+                node: observer_node,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(registry.installed().is_empty(), "a disabled unit installs nothing");
+
+        // Enable the notes rollover unit on the other connection.
+        set_enabled(&mut writer, shenko_compact_rollover::POLICY_ID, true).unwrap();
+        wait_for(|| installed_epoch(&registry, shenko_compact_rollover::POLICY_ID).is_some()).await;
+        let first = installed_epoch(&registry, shenko_compact_rollover::POLICY_ID).unwrap();
+
+        // Reconfigure it at the same artifact identity: the threshold the
+        // strategy reports must be the new document's, and the epoch advances
+        // so a window prepared under the old configuration cannot commit.
+        set_config(
+            &mut writer,
+            shenko_compact_rollover::POLICY_ID,
+            json!({"trigger_ratio": 0.5, "reminder_ratio": 0.6, "retain_units": 4}),
+            &package_root,
+        )
+        .unwrap();
+        let caps = shenko_context_policy::ModelCaps { model_id: "fixture".into(), max_context: 1000, vision: None };
+        wait_for(|| {
+            let epoch = installed_epoch(&registry, shenko_compact_rollover::POLICY_ID);
+            epoch.is_some_and(|epoch| epoch > first) && registry.should_compact(&caps, 600)
+        })
+        .await;
+        let second = installed_epoch(&registry, shenko_compact_rollover::POLICY_ID).unwrap();
+        assert!(second > first, "a reconfiguration installs a new epoch");
+
+        // An independent strategy keeps running while this one stops.
+        set_enabled(&mut writer, shenko_compact_budget::POLICY_ID, true).unwrap();
+        wait_for(|| installed_epoch(&registry, shenko_compact_budget::POLICY_ID).is_some()).await;
+        set_enabled(&mut writer, shenko_compact_rollover::POLICY_ID, false).unwrap();
+        wait_for(|| installed_epoch(&registry, shenko_compact_rollover::POLICY_ID).is_none()).await;
+        assert!(
+            installed_epoch(&registry, shenko_compact_budget::POLICY_ID).is_some(),
+            "disabling one strategy must not stop another"
+        );
+        assert!(!registry.should_compact(&caps, 600));
+
+        // Re-enabling installs a fresh epoch above the retired one.
+        set_enabled(&mut writer, shenko_compact_rollover::POLICY_ID, true).unwrap();
+        wait_for(|| {
+            installed_epoch(&registry, shenko_compact_rollover::POLICY_ID).is_some_and(|epoch| epoch > second)
+        })
+        .await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_implementation_mismatch_installs_nothing() {
+        let (dir, store, mut writer) = fixture("policy-mismatch");
+        let package_root = dir.join("policy-units");
+        reconcile_units(&mut writer, &package_root).unwrap();
+        // Rewrite one record at a revision this build does not implement.
+        let mut records = installed_policies(&writer).unwrap();
+        let record = records
+            .iter_mut()
+            .find(|policy| policy.id == shenko_compact_budget::POLICY_ID)
+            .unwrap();
+        record.manifest.version = "999.0.0".into();
+        import_record(&mut writer, record, &record.config.clone(), true, &package_root).unwrap();
+
+        let scope = EntityId::new();
+        let registry = Arc::new(PolicyRegistry::with_ledger(shenko_context_policy::WindowLedger::new(Arc::new(
+            shenko_context_policy::StoreWindowLog::new(Arc::clone(&store), scope),
+        ))));
+        let notes: Arc<dyn NotesJournal> =
+            Arc::new(shenko_context_policy::StoreNotesJournal::new(Arc::clone(&store), scope));
+        let supervisor = Supervisor::new(RuntimeGeneration::default());
+        supervisor
+            .spawn(shenko_context_policy::ContextPolicyHost, Arc::clone(&registry))
+            .await
+            .unwrap();
+        supervisor
+            .spawn(
+                shenko_subject::NativeChildPlugin,
+                (Arc::clone(&store), RuntimeGeneration::default()),
+            )
+            .await
+            .unwrap();
+        let _observers = spawn_installed_policies(
+            &supervisor,
+            PolicyHosts {
+                registry: Arc::clone(&registry),
+                notes,
+                store: Arc::clone(&store),
+                node: Arc::new(Mutex::new(Node::open(&dir.join("node")).unwrap())),
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            installed_epoch(&registry, shenko_compact_budget::POLICY_ID).is_none(),
+            "an installed revision this build does not implement is not relabelled as the compiled one"
+        );
+        // The other strategies still install: one mismatch retires one unit.
+        wait_for(|| installed_epoch(&registry, shenko_compact_snap::POLICY_ID).is_some()).await;
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Poll a condition with a bounded deadline; the observer reconciles on its
+    /// own 250 ms tick, so the test never reaches into it.
+    async fn wait_for(mut condition: impl FnMut() -> bool) {
+        for _ in 0..40 {
+            if condition() {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("the live projection did not converge");
+    }
 }

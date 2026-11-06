@@ -337,7 +337,14 @@ struct FrozenModelChildStep {
 fn read_contribution_plan<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> std::result::Result<Option<ContributionPlan>, D::Error> {
-    ContributionPlan::deserialize(deserializer).map(Some)
+    // A plan sealed before the SPEC §51.9 cutover spells the sourced-content
+    // kind `fact`. The sealed bytes are never rewritten; this reader migrates
+    // its parsed copy through the one named migration.
+    let mut document = serde_json::Value::deserialize(deserializer)?;
+    shenko_types::plugin_runtime::migrate_legacy_contribution_kinds(&mut document);
+    ContributionPlan::deserialize(document)
+        .map(Some)
+        .map_err(serde::de::Error::custom)
 }
 
 impl FrozenModelChildStep {

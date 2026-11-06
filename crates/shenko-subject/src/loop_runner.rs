@@ -245,10 +245,10 @@ pub struct SubjectLoopState {
     /// discloses; its bodies are advisory material for the model, never a
     /// dispatch table.
     pub(super) awareness: Option<Arc<shenko_awareness_core::CognitionCatalog>>,
-    /// The installed quota strategy set (SPEC §42.1). Pinned for one step
-    /// together with the plugin context it came from; an absent publication
-    /// is the built-in §42.5 baseline.
+    /// The installed quota strategy set (SPEC §42.1).
     pub(super) quota_strategies: shenko_quota::QuotaStrategies,
+    /// The notebook reminder this step's assembled request carries.
+    pub(super) pending_reminder: Option<shenko_context_policy::RolloverReminder>,
 }
 
 impl SubjectLoopState {
@@ -342,6 +342,7 @@ impl SubjectLoopState {
             identity_service,
             awareness: None,
             quota_strategies,
+            pending_reminder: None,
         };
         state.refresh_contributions()?;
         Ok(state)
@@ -662,6 +663,17 @@ pub(super) fn system_prompt_suffix(
                 .expect("semantic wait receipt serializes"));
             prompt.push('\n');
         }
+    }
+
+    // Once per committed window, when the observed pressure crosses the
+    // installed notes strategy's own threshold. This is a capability
+    // reminder, not a required procedure: it never cuts a window by itself.
+    // It is the reminder the S0 projection read for THIS request, so the
+    // prompt and the answer recorded at commit name the same fact.
+    if state.pending_reminder.is_some() {
+        prompt.push_str("\n\n");
+        prompt.push_str(shenko_context_policy::ROLLOVER_REMINDER);
+        prompt.push('\n');
     }
 
     prompt
@@ -1542,6 +1554,18 @@ async fn execute_step(
             let (head, successor) = store.load_subject(state.agent_id)?;
             state.head = head;
             state.step = successor;
+            // The reminder this step's request carried is answered here, and
+            // only here: the committed step is the evidence that the assembled
+            // context was dispatched. A refused, aborted or restarted assembly
+            // never reaches this line, so the reminder stays available; the
+            // durable answer keeps a successful retry inside the same window
+            // from repeating it. The commit is already durable, so a journal
+            // that cannot record the answer is reported, not rolled back.
+            if let Some(reminder) = state.pending_reminder.take() {
+                if let Err(error) = state.context_registry.acknowledge_rollover_reminder(&reminder) {
+                    warn!(%error, window=%reminder.window, "committed request could not record its notebook reminder");
+                }
+            }
             state.previous_input_tokens = observed_input_tokens(&store.recorded_model_outcome(&step)?, input.provider_binding.as_ref());
             state.previous_input_binding = input.provider_binding.clone();
             state.previous_estimated_input_tokens = input.context.estimated_input_tokens;
@@ -1805,10 +1829,20 @@ fn contribution_usage(
     input: &FrozenStepInput,
     seal: &ObjectRef,
 ) -> Result<Option<shenko_context_policy::ContributionUsage>, ShenkoError> {
+    // Records sealed before the SPEC §51.9 cutover spell the sourced-content
+    // kind `fact`. The sealed bytes stay exactly as they were; this reader
+    // migrates its own parsed copy through the one named migration.
+    let read = |value: &serde_json::Value| {
+        let mut value = value.clone();
+        shenko_types::plugin_runtime::migrate_legacy_contribution_kinds(&mut value);
+        value
+    };
     let sent: Vec<shenko_context_policy::ContextContribution> = input.contributions.iter()
-        .map(serde::Deserialize::deserialize).collect::<Result<_, _>>()?;
+        .map(|value| serde::Deserialize::deserialize(read(value)))
+        .collect::<Result<_, _>>()?;
     let omitted: Vec<shenko_context_policy::ContributionOmission> = input.contribution_omissions.iter()
-        .map(serde::Deserialize::deserialize).collect::<Result<_, _>>()?;
+        .map(|value| serde::Deserialize::deserialize(read(value)))
+        .collect::<Result<_, _>>()?;
     let total = sent.iter().try_fold(0u64, |total, item| total.checked_add(item.tokens));
     if total != Some(input.contribution_tokens)
         || sent.iter().any(|item| item.scope.scope_id != input.context.source.scope_id || item.scope.task_id.is_some())
