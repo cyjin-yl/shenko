@@ -694,6 +694,7 @@ impl ModelChildHandler {
     fn system_prompt(
         contract: &FrozenModelChild,
         catalog: &[(String, u32, String)],
+        cognition: Option<&str>,
     ) -> String {
         let mut prompt = String::from(ROLE_CONTRACT);
         prompt.push_str("\n\n");
@@ -711,6 +712,14 @@ impl ModelChildHandler {
                 prompt.push('\n');
             }
         }
+        // Installed cognition is ONE directory: a finite child sees the same
+        // bounded cards the main subject sees, and each card names the call
+        // this child can actually make. The index is advisory material — it
+        // grants nothing, and a card without a granted read call says so.
+        if let Some(cognition) = cognition.filter(|index| !index.trim().is_empty()) {
+            prompt.push_str("\n已安装的认知单元目录（感知／直觉／Skill／代码；与本主体共享同一安装）：\n");
+            prompt.push_str(cognition);
+        }
         if let Some(grant) = &contract.reply_grant {
             prompt.push_str(&format!(
                 "\n你被授权向 {} 的 {} 直接发送一条消息：用 [reply] 正文。目标由授权固定，你不能选择或改投；授权过期后不再有效。\n",
@@ -719,6 +728,36 @@ impl ModelChildHandler {
             ));
         }
         prompt
+    }
+
+    /// The installed cognition index as this child can actually address it.
+    ///
+    /// A finite child shares the installation the subject discloses, but it
+    /// may only call the tools its own delegation granted. The index therefore
+    /// names the child's own `[tool:…]` form for the grants that exist, and
+    /// says plainly that the directory is all this child has when none does: a
+    /// delegate-form call would only produce a refused step.
+    fn cognition_index(&self, catalog: &[(String, u32, String)]) -> Option<String> {
+        let cognition = match self
+            .plugin_context
+            .try_service::<shenko_awareness_core::CognitionCatalog>()
+        {
+            Ok(cognition) => cognition,
+            Err(error) => {
+                tracing::debug!(
+                    %error,
+                    "no published cognition catalog; this child is not shown the installed units"
+                );
+                return None;
+            }
+        };
+        match cognition.render_index(cognition_grant(catalog)) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                tracing::warn!(%error, "installed cognition index unavailable for this child run");
+                None
+            }
+        }
     }
 
     /// The first user message: the goal and the authored context blocks.
@@ -966,6 +1005,9 @@ impl ModelChildHandler {
             anyhow::bail!("model child run has no shared native runtime");
         };
         let catalog = tools.describe_tools(contract.allowed_tools());
+        // One projection per run: the installed units and the grants this
+        // child actually received do not change between its steps.
+        let cognition = self.cognition_index(&catalog);
         let mut history = self.history(&contract)?;
         let (inherited, previous_budget, previous_reserved, previous_tool_calls) =
             self.inherited_transcript(&contract)?;
@@ -1035,7 +1077,7 @@ impl ModelChildHandler {
             let step_index = history.next_index;
             let tool_results = self.tool_results(&contract, &history)?;
             let payload = InferencePayload {
-                system_prompt: Self::system_prompt(&contract, &catalog),
+                system_prompt: Self::system_prompt(&contract, &catalog, cognition.as_deref()),
                 messages: Self::transcript(&contract, &history, &tool_results),
                 max_tokens: Some(contract.max_tokens),
                 // The shared provider wire does not carry provider-native tool
@@ -2353,6 +2395,28 @@ fn read_original_terminal(
     Ok(Some(result))
 }
 
+/// The cognition calls this finite child can actually make.
+///
+/// `describe_tools` only reports tools the runtime has registered and the
+/// delegation actually granted, so this reads the runtime's truth rather than
+/// the delegation's wish. `None` means this child has no call at all: the
+/// directory still says what is installed, but nothing in it is advertised as
+/// callable.
+fn cognition_grant(
+    catalog: &[(String, u32, String)],
+) -> Option<shenko_awareness_core::CognitionCall> {
+    let granted = |kind: &str| {
+        catalog.iter().any(|(name, version, _)| {
+            name == kind && *version == shenko_awareness_core::TOOL_VERSION
+        })
+    };
+    let call = shenko_awareness_core::CognitionCall::Tool {
+        read: granted(shenko_awareness_core::READ_TOOL),
+        list: granted(shenko_awareness_core::LIST_TOOL),
+    };
+    (!call.is_empty()).then_some(call)
+}
+
 #[cfg(test)]
 mod grant_account_tests {
     use super::*;
@@ -2455,6 +2519,47 @@ mod grant_account_tests {
         let mut frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
         frozen.schema_version = CONTRACT_SCHEMA + 1;
         assert!(frozen.validate().is_err());
+    }
+
+    /// The installed cognition directory is advisory material for this child,
+    /// and a child with no published catalogue is not told anything about
+    /// units it cannot see.
+    #[test]
+    fn the_cognition_directory_travels_only_when_it_exists() {
+        let frozen = contract(spec("qq:9", None), CONTRACT_SCHEMA).unwrap();
+        let index = "- unit@1 [perception] card。正文按需读取：[tool:cognition.unit.read:1] {}";
+        let with_index = ModelChildHandler::system_prompt(&frozen, &[], Some(index));
+        assert!(with_index.contains("已安装的认知单元目录"), "{with_index}");
+        assert!(with_index.contains(index), "{with_index}");
+        // The authored prompt and the tool catalog still lead.
+        assert!(with_index.starts_with(ROLE_CONTRACT));
+        assert!(with_index.contains("you are the worker"));
+        let without = ModelChildHandler::system_prompt(&frozen, &[], None);
+        assert!(!without.contains("已安装的认知单元目录"), "{without}");
+    }
+
+    /// Only the tools the runtime actually registered and the delegation
+    /// granted name a call; nothing else is advertised.
+    #[test]
+    fn only_the_registered_grants_name_a_call() {
+        use shenko_awareness_core::{CognitionCall, LIST_TOOL, READ_TOOL, TOOL_VERSION};
+        let tool = |kind: &str, version: u32| (kind.to_string(), version, String::new());
+        assert_eq!(
+            cognition_grant(&[tool(READ_TOOL, TOOL_VERSION)]),
+            Some(CognitionCall::Tool { read: true, list: false })
+        );
+        assert_eq!(
+            cognition_grant(&[tool(LIST_TOOL, TOOL_VERSION)]),
+            Some(CognitionCall::Tool { read: false, list: true })
+        );
+        assert_eq!(
+            cognition_grant(&[tool(READ_TOOL, TOOL_VERSION), tool(LIST_TOOL, TOOL_VERSION)]),
+            Some(CognitionCall::Tool { read: true, list: true })
+        );
+        // An allowed tool the registry does not hold, or another definition
+        // version, is not a grant this child can use.
+        assert_eq!(cognition_grant(&[tool(READ_TOOL, TOOL_VERSION + 1)]), None);
+        assert_eq!(cognition_grant(&[]), None);
     }
 
 }
