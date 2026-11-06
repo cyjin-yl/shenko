@@ -770,7 +770,12 @@ impl NativeChildService {
             .read()
             .handlers
             .values()
-            .filter_map(|registered| registered.descriptor.prompt_section.clone())
+            .filter_map(|registered| {
+                let descriptor = &registered.descriptor;
+                descriptor.prompt_section.as_ref().map(|section| {
+                    format!("[delegate:{}:{}] {section}", descriptor.kind, descriptor.definition_version)
+                })
+            })
             .collect()
     }
 

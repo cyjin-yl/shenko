@@ -7,8 +7,10 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use shenko_store::Store;
 use shenko_subject::{NativeTaskDescriptor, NativeTaskInvocation};
+use shenko_subject::inbox::{InboxEvent, InboxEventKind};
 use shenko_types::{commit::CommitRef, evidence::{DecodeStatus, EvidenceReceipt, ObservationLevel},
-    ids::*, object::*, operation::*, task::TaskRecord};
+    ids::*, object::*, operation::*, task::{TaskRecord, NativeEvidenceObservation,
+        NATIVE_EVIDENCE_OBSERVATION_SOURCE}};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 /// A normalized observation stays inline below this size. Larger observations
@@ -113,14 +115,62 @@ impl RecordedCall {
         // It remains an observation, never an automatic adoption judgement.
         let normalized = seal(store, &json!({"observation":sealed.observation,"source_receipt":sealed.receipt,
             "learning_source":{"kind":"cas_object","reference":format!("operation:{}",self.operation.operation_id),"digest":sealed.receipt.digest}}), "compat-result")?;
-        store.record_external_evidence(self.operation.operation_id, self.attempt.attempt_id, EvidenceReceipt {
+        let operation = store.record_external_evidence(self.operation.operation_id, self.attempt.attempt_id, EvidenceReceipt {
             record_schema_version: 1, receipt_id: EntityId::new(), operation_id: Some(self.operation.operation_id), attempt_id: Some(self.attempt.attempt_id),
             source_id: self.operation.operation_name.clone(), source_instance_id: self.attempt.node_id.to_string(), source_event_key: None,
             producer_epoch: Some(self.attempt.epoch.0), producer_schema_version: Some("1".into()), raw_ref: sealed.receipt,
             decoder_ref: Some(self.operation.contract_ref.receipt_reader_ref.clone()), decode_status: DecodeStatus::Decoded,
             observation_level: level, normalized_ref: Some(normalized), observed_at: Some(chrono::Utc::now()), received_commit: self.operation.prepared_commit,
-        }, outcome, effect)
+        }, outcome, effect)?;
+        publish_unresolved_observation(store, &operation)?;
+        Ok(operation)
     }
+}
+
+/// Deliver the original E1 as input, without settling the task or modifying
+/// the operation. Rebuilding from its durable receipt makes admission repair
+/// idempotent even when the prior controller stopped after E1 committed.
+fn publish_unresolved_observation(store: &Store, operation: &OperationRecord) -> Result<()> {
+    if operation.state != OperationState::Reconciling || operation.outcome.is_some()
+        || operation.effect_status != EffectStatus::Unknown {
+        return Ok(());
+    }
+    let attempt = store.external_operation_attempt(operation.operation_id)?;
+    let receipt_id = attempt.final_receipt_id.context("unresolved compatibility attempt has no original E1")?;
+    let evidence = store.external_evidence(receipt_id)?;
+    let task = store.external_task(operation.task_id)?;
+    ensure!(task.task_id == operation.task_id
+        && attempt.operation_id == operation.operation_id
+        && attempt.dispatch_stage == AttemptDispatchStage::Unknown
+        && evidence.receipt_id == receipt_id
+        && evidence.operation_id == Some(operation.operation_id)
+        && evidence.attempt_id == Some(attempt.attempt_id)
+        && evidence.source_id == operation.operation_name
+        && evidence.source_instance_id == attempt.node_id.to_string()
+        && evidence.source_event_key.is_none()
+        && evidence.producer_epoch == Some(attempt.epoch.0)
+        && evidence.producer_schema_version.as_deref() == Some("1")
+        && task.kind == operation.operation_name && !task.is_terminal(),
+        "unresolved compatibility evidence identity mismatch");
+    let observed_at = evidence.observed_at.context("original compatibility E1 has no observation time")?;
+    let observation = NativeEvidenceObservation {
+        schema_version: 1, task_id: task.task_id,
+        operation_id: operation.operation_id, operation_name: operation.operation_name.clone(),
+        operation_state: operation.state, outcome: operation.outcome,
+        effect_status: operation.effect_status, attempt_id: attempt.attempt_id,
+        receipt_id, raw_ref: evidence.raw_ref, normalized_ref: evidence.normalized_ref,
+        observed_at, received_commit: evidence.received_commit,
+    };
+    let event = InboxEvent {
+        event_id: receipt_id, kind: InboxEventKind::SystemEvent,
+        payload: serde_json::to_value(observation)?, created_at: observed_at,
+        source: NATIVE_EVIDENCE_OBSERVATION_SOURCE.into(),
+    };
+    store.admit_inbox_event(receipt_id, task.agent_id, "system_event",
+        NATIVE_EVIDENCE_OBSERVATION_SOURCE, &serde_json::to_value(event)?)
+        .with_context(|| format!("admitting original native E1 task={} operation={} attempt={} receipt={receipt_id}",
+            task.task_id, operation.operation_id, attempt.attempt_id))?;
+    Ok(())
 }
 
 pub fn reconcile_original(store: &Store, task: &TaskRecord, operation_id: EntityId, name: &str) -> Result<OperationRecord> {
@@ -134,6 +184,7 @@ pub fn reconcile_original(store: &Store, task: &TaskRecord, operation_id: Entity
             return RecordedCall { operation, attempt }.observe(store, value, None, EffectStatus::Unknown, None);
         }
     }
+    publish_unresolved_observation(store, &operation)?;
     Ok(operation)
 }
 

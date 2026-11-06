@@ -574,8 +574,9 @@ fn stage_input(
     // transaction as the staging link, so a crash can never leave an input
     // staged but still queued for recovery delivery. This does not claim a
     // sealed presentation; selected receipts require sealed InputPlan membership.
-    // Web/Playground/media sources persist complete InboxEvent originals.
-    // Native child T2 keeps its own task_result consumption bookkeeping.
+    // Web/Playground/media persist complete input originals. Native observations
+    // and native child T2 use committed S1 dispositions for recovery readiness;
+    // staging must leave a Deferred observation eligible for the next step.
     tx.execute(
         "UPDATE inbox_events SET consumed=1
          WHERE event_id=?1 AND consumed=0
@@ -786,9 +787,10 @@ impl Store {
 
     /// Bounded recovery of complete subject-input originals, read directly by
     /// the normal Planned loop when a volatile wake was lost or backpressured.
-    /// Web, Playground and media ingress share this lane and its staging
-    /// transaction; native-child task_result rows retain their existing T2
-    /// delivery path.
+    /// Web, Playground and media use the durable staging flag. Native E1
+    /// observations remain ready until a nonDeferred S1, as native-child T2
+    /// results do in their own delivery path. Filter disposition before LIMIT
+    /// so acknowledged observations cannot starve newer input.
     pub fn pending_inbox_events(
         &self,
         agent_id: EntityId,
@@ -798,12 +800,18 @@ impl Store {
             .map_err(|_| ShenkoError::conflict("pending input limit is too large"))?;
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT data FROM inbox_events
-             WHERE agent_id=?1 AND consumed=0
-               AND (source IN (?2, 'playground') OR source LIKE 'media/%')
-             ORDER BY rowid LIMIT ?3",
+            "SELECT i.data FROM inbox_events i
+             LEFT JOIN subject_branch_heads h ON h.agent_id=i.agent_id
+             LEFT JOIN subject_event_dispositions d
+               ON d.branch_id=h.branch_id AND d.event_id=i.event_id
+             WHERE i.agent_id=?1 AND (
+               (i.consumed=0 AND (i.source IN (?2, 'playground') OR i.source LIKE 'media/%'))
+               OR (i.source=?3 AND (d.disposition IS NULL OR d.disposition='\"deferred\"'
+                    OR json_extract(d.disposition,'$.disposition')='deferred')))
+             ORDER BY i.rowid LIMIT ?4",
         ).map_err(storage_error)?;
-        let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE, limit],
+        let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE,
+            shenko_types::task::NATIVE_EVIDENCE_OBSERVATION_SOURCE, limit],
             |row| row.get::<_, String>(0))
             .map_err(storage_error)?
             .collect::<rusqlite::Result<Vec<_>>>()

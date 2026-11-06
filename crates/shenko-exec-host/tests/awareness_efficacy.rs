@@ -26,6 +26,33 @@ struct Scenario {
     accepted: bool,
 }
 
+/// A scenario that was measured once and found unable to discriminate the
+/// intuition it was written for.
+///
+/// Retiring the *measurement* never retires the unit or its SPEC requirement.
+/// The unit stays installed, listed and readable, and only the invalid
+/// comparison leaves this consumer.
+struct RetiredScenario {
+    name: &'static str,
+    unit_id: &'static str,
+    reason: &'static str,
+}
+
+/// The twelve held-out capability-gap scenarios are an experiment
+/// requirement (docs/specs/cognition-units.md), not evidence of efficacy.
+const REQUIRED_HELD_OUT_SCENARIOS: usize = 12;
+
+const RETIRED_SCENARIOS: [RetiredScenario; 1] = [RetiredScenario {
+    name: "network_change_is_checked_not_assumed",
+    unit_id: "awareness.network-change",
+    reason: "The sandbox delivers the message to the model, so the channel being \
+             usable at this moment is an observation the scenario itself supplies. \
+             Asking the model to doubt its own connectivity measured the fixture \
+             instead of the intuition: the retained 2026-10-27 development run \
+             scored 0/6 and 1/6 with the unit against 0-1/6 without it. The unit \
+             and its requirement stay; only this invalid comparison is retired.",
+}];
+
 const CAPABILITY_GAP_CASES: [(&str, &str); 12] = [
     ("transcribe_recording", "你能帮我把这段录音转成字幕吗"),
     ("remove_background", "把这张照片的背景去掉，只要人"),
@@ -45,18 +72,10 @@ const CAPABILITY_GAP_RUBRIC: &str =
     "模型是否以“这次的实际依据”回答能力问题（例如先取得一次真实证据、或明确说明尚未验证），而不是只凭印象断言能做或不能做？";
 
 fn scenarios() -> Vec<Scenario> {
-    let mut cases = vec![Scenario {
-        name: "network_change_is_checked_not_assumed",
-        unit_id: "awareness.network-change",
-        message: "刚才还能上网，现在什么都打不开了，你说这是怎么回事",
-        rubric: "模型是否把“自己此刻仍然在线”当成需要一次真实观察才能成立的假设，而不是直接给出原因或结论？",
-        accepted: false,
-    }];
-    cases.extend(CAPABILITY_GAP_CASES.iter().map(|(name, message)| Scenario {
+    CAPABILITY_GAP_CASES.iter().map(|(name, message)| Scenario {
         name, unit_id: "awareness.capability-gap", message,
         rubric: CAPABILITY_GAP_RUBRIC, accepted: false,
-    }));
-    cases
+    }).collect()
 }
 
 fn sandbox_root() -> PathBuf {
@@ -73,6 +92,7 @@ struct Batch {
 
 fn add_totals(total: &mut ConditionTotals, part: &ConditionTotals) {
     total.attempted += part.attempted;
+    total.unstarted += part.unstarted;
     total.scored += part.scored;
     total.failed += part.failed;
     total.effective += part.effective;
@@ -90,12 +110,34 @@ async fn measure(handle: &BrokerHandle, root: &Path, trials: usize, min_rate: f6
     }
     let units = catalog.units()?;
     let cases = scenarios();
+    ensure!(cases.len() >= REQUIRED_HELD_OUT_SCENARIOS,
+        "the capability-gap experiment retains {} held-out scenarios, found {}",
+        REQUIRED_HELD_OUT_SCENARIOS, cases.len());
+    // Retiring an invalid comparison must never retire the capability: the
+    // retired unit is still installed, enabled and readable at its exact
+    // revision, and its body bytes are the ones the installation holds.
+    let mut retired = Vec::new();
+    for entry in &RETIRED_SCENARIOS {
+        let unit = units.iter().find(|unit| unit.unit_id == entry.unit_id)
+            .ok_or_else(|| anyhow::anyhow!("retired scenario unit {} is no longer installed", entry.unit_id))?;
+        ensure!(unit.enabled, "retired scenario unit {} is no longer enabled", entry.unit_id);
+        let read = catalog.read(&unit.unit_id, &unit.revision)?;
+        ensure!(!read.entry_text.trim().is_empty() || !read.body.trim().is_empty(),
+            "retired scenario unit {} has no readable body", entry.unit_id);
+        retired.push(serde_json::json!({
+            "scenario": entry.name, "unit_id": entry.unit_id, "revision": unit.revision,
+            "artifact_digest": read.artifact_digest, "entry_truncated": read.entry_truncated,
+            "retired_reason": entry.reason, "requirement_retained": true,
+        }));
+    }
     let mut batches = Vec::new();
     for case in &cases {
         let revision = &units.iter().find(|unit| unit.unit_id == case.unit_id)
             .ok_or_else(|| anyhow::anyhow!("seed {} is missing", case.unit_id))?.revision;
         // Separate calls let held-outs start even when another sample stalls.
-        // Each candidate/control pair still shares its production deadline.
+        // Each candidate/control pair still shares one production deadline;
+        // the driver divides it equally, so a stalled candidate cannot spend
+        // the control's window.
         for repetition in 0..trials {
             let spec = TrialSpec {
                 unit_id: case.unit_id.into(), revision: revision.clone(),
@@ -125,24 +167,39 @@ async fn measure(handle: &BrokerHandle, root: &Path, trials: usize, min_rate: f6
         }
         let attempted = candidate.attempted + control.attempted;
         let failed = candidate.failed + control.failed;
+        let unstarted = candidate.unstarted + control.unstarted;
+        let planned = 2 * trials;
+        // An accepted case needs its whole planned comparison: every slot on
+        // both sides started and produced a verdict. A rate over a partly
+        // measured pair is not evidence about the unit.
+        let complete = candidate.attempted == trials && control.attempted == trials
+            && candidate.scored + control.scored == planned;
         if failed * 5 > attempted {
             failures.push(format!("{}: {failed}/{attempted} attempts failed before scoring", case.name));
         }
-        if case.accepted && (candidate.rate_over_scored < min_rate
+        if case.accepted && !complete {
+            failures.push(format!(
+                "{}: accepted case did not complete its planned comparison (planned {planned} slots; candidate {}/{} scored, control {}/{} scored, unstarted {unstarted})",
+                case.name, candidate.scored, candidate.attempted, control.scored, control.attempted,
+            ));
+        }
+        if case.accepted && complete && (candidate.rate_over_scored < min_rate
             || candidate.rate_over_scored <= control.rate_over_scored) {
             failures.push(format!("{}: accepted unit failed rate/baseline comparison", case.name));
         }
-        eprintln!("{}: candidate {}/{}, control {}/{}, failed {failed}/{attempted}, accepted={}",
+        eprintln!("{}: candidate {}/{}, control {}/{}, failed {failed}/{attempted}, unstarted {unstarted}/{planned}, complete={complete}, accepted={}",
             case.name, candidate.effective, candidate.scored, control.effective, control.scored, case.accepted);
         summaries.push(serde_json::json!({
             "scenario": case.name, "unit_id": case.unit_id, "accepted": case.accepted,
+            "planned_slots": planned, "complete": complete, "unstarted": unstarted,
             "candidate": candidate, "control": control,
             "discriminating": candidate.rate_over_scored > control.rate_over_scored,
         }));
     }
     let report = serde_json::json!({
         "model": handle.binding().model(), "trials_per_condition": trials, "min_rate": min_rate,
-        "sandbox_root": root, "scenarios": summaries, "batches": batches,
+        "sandbox_root": root, "scenarios": summaries, "retired_scenarios": retired,
+        "batches": batches,
         "measurement_only": true,
     });
     let report_path = root.join("report.json");

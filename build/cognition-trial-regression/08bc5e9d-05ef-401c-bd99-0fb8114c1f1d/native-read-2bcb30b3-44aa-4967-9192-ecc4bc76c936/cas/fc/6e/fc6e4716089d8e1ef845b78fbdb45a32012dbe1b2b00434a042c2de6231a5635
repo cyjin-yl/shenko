@@ -1,0 +1,1 @@
+{"error":{"code":"unit_not_readable","message":"unit 'uninstalled.fixture.unit' has no retained revision '0.2.0'"},"op":"read","requested":{"revision":"0.2.0","unit_id":"uninstalled.fixture.unit"},"schema_version":1,"status":"failed"}
