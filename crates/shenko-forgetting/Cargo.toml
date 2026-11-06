@@ -1,0 +1,17 @@
+[package]
+name = "shenko-forgetting"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+shenko-types = { path = "../shenko-types" }
+shenko-store = { path = "../shenko-store" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+
+[lints.rust]
+edition_2024_expr_fragment_specifier = "allow"

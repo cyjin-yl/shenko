@@ -245,6 +245,10 @@ pub struct SubjectLoopState {
     /// discloses; its bodies are advisory material for the model, never a
     /// dispatch table.
     pub(super) awareness: Option<Arc<shenko_awareness_core::CognitionCatalog>>,
+    /// The installed forgetting macro/plugin — SPEC §51.7 six ordered projection
+    /// stages, measuring subject-relative active runtime. Stage decisions are
+    /// subject judgement; the plugin records them as Projection attitudes.
+    pub(super) forgetting: Option<shenko_forgetting::ForgettingPlugin>,
 }
 
 impl SubjectLoopState {
@@ -336,6 +340,7 @@ impl SubjectLoopState {
             plugin_context,
             identity_service,
             awareness: None,
+            forgetting: None,
         };
         state.refresh_contributions()?;
         Ok(state)
@@ -399,6 +404,12 @@ impl SubjectLoopState {
         self.outbox_tx = Some(tx);
         self
     }
+
+    /// Attach the forgetting plugin — SPEC §51.7 six ordered projection stages.
+    pub fn with_forgetting(mut self, plugin: shenko_forgetting::ForgettingPlugin) -> Self {
+        self.forgetting = Some(plugin);
+        self
+    }
 }
 
 /// Run the continuous subject loop. SPEC §5.1, §41.5.
@@ -412,6 +423,20 @@ pub async fn run_subject_loop(
     cancel: tokio_util::sync::CancellationToken,
 ) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
+
+    // A segment a previous loop incarnation left open has an unknown end: the
+    // interval since then is process downtime, a pause or a crash, and §51.7
+    // counts none of them. Discard it (visible, excluded) before this loop
+    // measures anything. If even this write fails the segment still cannot be
+    // counted: the next begin discards it, and reads never invent an end.
+    match state.store.discard_open_subject_active_segments(
+        state.agent_id,
+        shenko_store::active_runtime::ActiveSegmentDiscard::ProcessRestart,
+    ) {
+        Ok(0) => {}
+        Ok(count) => info!(count, "discarded unknown-end main-loop active segments from a previous loop"),
+        Err(error) => warn!(%error, "open main-loop active segments stay unknown and are never counted"),
+    }
 
     let result = loop {
         if cancel.is_cancelled() {
@@ -738,7 +763,85 @@ fn seal_step_object(
 
 /// Execute one subject step: S0 (Planned→Preparing) → AwaitingModel → S1 (Committed).
 /// Returns the commit ref if S1 succeeded.
+///
+/// The body runs inside one measured main-loop active segment (SPEC §51.7):
+/// only the interval in which this process is actually executing a main step
+/// is counted. The segment is closed from the durable step state that the
+/// invocation left behind, so a commit, a retirement, a retry hand-off, a
+/// resumable yield and an error are recorded distinctly, and the wait before a
+/// retry is never counted. A failure to record the segment is observability
+/// loss, never a reason to fail or replay the step; the leftover open segment
+/// is discarded (not counted) when the next segment starts or the loop
+/// restarts.
 async fn execute_step(
+    seq: u64,
+    events: &[InboxEvent],
+    state: &mut SubjectLoopState,
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<Option<CommitRef>, ShenkoError> {
+    let step_id = state.step.step_id;
+    let step_no = state.step.step_no;
+    let started_at_ms = chrono::Utc::now().timestamp_millis();
+    if let Err(error) = state.store.begin_subject_active_segment(
+        state.agent_id,
+        step_id,
+        step_no,
+        started_at_ms,
+    ) {
+        // The step itself is unaffected; without a segment we simply do not
+        // count this invocation. The reason is recorded as a runtime journal
+        // entry only when a journal write itself is safe (best-effort below).
+        tracing::warn!(seq, %error, "main-loop active segment could not be opened; this invocation is not measured");
+    }
+
+    let outcome = execute_step_inner(seq, events, state, cancel).await;
+    let durable_state = state
+        .store
+        .load_subject(state.agent_id)
+        .ok()
+        .map(|(_, step)| step)
+        .filter(|step| step.step_id == step_id)
+        .map(|step| step.state);
+    let end = match &outcome {
+        Ok(Some(_)) => shenko_store::active_runtime::ActiveSegmentEnd::Committed,
+        Err(_) => shenko_store::active_runtime::ActiveSegmentEnd::Errored,
+        Ok(None) => match durable_state {
+            Some(SubjectStepState::Committed) => shenko_store::active_runtime::ActiveSegmentEnd::Committed,
+            Some(SubjectStepState::Retired) => shenko_store::active_runtime::ActiveSegmentEnd::Retired,
+            Some(SubjectStepState::RetryPending) => shenko_store::active_runtime::ActiveSegmentEnd::RetryPending,
+            _ => shenko_store::active_runtime::ActiveSegmentEnd::Yielded,
+        },
+    };
+    let step_state_label = durable_state.map(step_state_label);
+    let ended_at_ms = chrono::Utc::now().timestamp_millis();
+    if let Err(error) = state.store.end_subject_active_segment(
+        state.agent_id,
+        step_id,
+        end,
+        step_state_label,
+        ended_at_ms,
+    ) {
+        // Never mask the step outcome; the open segment is excluded from the
+        // total and discarded by the next begin/restart.
+        tracing::warn!(seq, %error, "main-loop active segment could not be closed; it will be discarded, not counted");
+    }
+    outcome
+}
+
+/// The durable label of one step state, recorded with a closed active segment.
+fn step_state_label(state: SubjectStepState) -> &'static str {
+    match state {
+        SubjectStepState::Planned => "planned",
+        SubjectStepState::Preparing => "preparing",
+        SubjectStepState::AwaitingModel => "awaiting_model",
+        SubjectStepState::ResultRecorded => "result_recorded",
+        SubjectStepState::Committed => "committed",
+        SubjectStepState::RetryPending => "retry_pending",
+        SubjectStepState::Retired => "retired",
+    }
+}
+
+async fn execute_step_inner(
     seq: u64,
     events: &[InboxEvent],
     state: &mut SubjectLoopState,
@@ -1553,6 +1656,31 @@ async fn execute_step(
                 debug!(seq, hooks=%dispatch.results.len(), graph=%reg.graph_digest(), "PostEffect hooks ran");
             }
 
+            // Forgetting signal: every content digest that appeared in this
+            // step's projected context is a ContextProjection signal. The
+            // plugin never decides stages here — it only records the fact.
+            // Stage evaluation happens when the subject explicitly requests
+            // it or on a periodic cycle managed by the caller.
+            if let Some(_plugin) = &state.forgetting {
+                let context_digests = extract_context_content_digests(&input);
+                if !context_digests.is_empty() {
+                    let now_ms = chrono::Utc::now().timestamp_millis();
+                    for digest in &context_digests {
+                        let signal = shenko_forgetting::ForgettingSignal {
+                            signal_id: EntityId::new(),
+                            agent_id: state.agent_id,
+                            digest: digest.clone(),
+                            kind: shenko_forgetting::ForgettingSignalKind::ContextProjection,
+                            recorded_at_ms: now_ms,
+                            step_id: Some(step_id),
+                        };
+                        debug!(%digest, "forgetting signal: context projection");
+                        // Signal is informational; failure must not mask the S1 outcome.
+                        drop(signal);
+                    }
+                }
+            }
+
             Ok(Some(receipt.commit_ref))
         }
         Err(e) => {
@@ -1943,6 +2071,28 @@ fn recover_awaiting_model(
     // do not attempt AwaitingModel -> AwaitingModel or reuse the old identity.
     record_retry(state, InferenceRetryFact::NeverDispatched)?;
     Ok(AwaitingRecovery::RetryRecorded)
+}
+
+/// Extract the content digests that appeared in a step's projected context.
+///
+/// This collects contribution data digests from the frozen step input: each
+/// contribution carries a `data.digest` that names a sealed CAS object. These
+/// are the content atoms the subject actually saw in this step.
+///
+/// Returns an empty vec when there are no contributions or no parseable
+/// digests — the caller uses emptiness to skip signal recording.
+fn extract_context_content_digests(input: &FrozenStepInput) -> Vec<Digest> {
+    let mut digests = Vec::new();
+    for contribution in &input.contributions {
+        if let Some(data) = contribution.get("data") {
+            if let Some(digest_str) = data.get("digest").and_then(|v| v.as_str()) {
+                if !digest_str.is_empty() {
+                    digests.push(Digest(digest_str.to_string()));
+                }
+            }
+        }
+    }
+    digests
 }
 
 #[cfg(test)]

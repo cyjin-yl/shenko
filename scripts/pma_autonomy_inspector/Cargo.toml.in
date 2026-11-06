@@ -1,0 +1,16 @@
+# Rendered by scripts/pma_autonomous_initiation_consumer.py: the single
+# placeholder names the runtime source the observed CLI binary was built from,
+# so this example links the exact crates of that build instead of a copy.
+[package]
+name = "shenko-pma-autonomy-inspector"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+shenko-store = { path = "@RUNTIME_REPO@/crates/shenko-store" }
+shenko-types = { path = "@RUNTIME_REPO@/crates/shenko-types" }
+anyhow = "1"
+serde_json = "1"

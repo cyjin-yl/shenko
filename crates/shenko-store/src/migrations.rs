@@ -107,6 +107,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Main-loop active runtime (SPEC §51.7): mechanical duration segments the
+    // forgetting plugin reads. Additive, own table only; no existing row,
+    // column or timestamp is rewritten.
+    conn.execute_batch(crate::active_runtime::SCHEMA)?;
     // Durable ordered public-text output parts (SPEC §21.11). Append-only;
     // no row is ever updated or deleted by a migration.
     conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;
