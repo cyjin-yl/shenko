@@ -1664,6 +1664,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     cognition_write_handler,
                 )
                 .await?;
+            // A version that is already installed is judged here instead of
+            // being written again: after a sandbox self-test the subject cites
+            // the trial attempt of the exact artifacts it measured, and no
+            // second artifact is installed under the same revision.
+            let cognition_judge_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+                Arc::new(shenko_exec_host::CognitionJudgeHandler::new(
+                    Arc::clone(&store),
+                    Arc::clone(&cognition),
+                    Some(Arc::clone(&self_knowledge)),
+                ));
+            let _native_cognition_judge_plugin = supervisor
+                .spawn(
+                    shenko_subject::NativeTaskHandlerPlugin,
+                    cognition_judge_handler,
+                )
+                .await?;
             // The discovery index and the registered evidence of one unit are
             // reads over the same installation authority: the model pages
             // through the cards and cites what this installation actually

@@ -74,6 +74,10 @@ struct Judgement {
     /// trial this installation ran; an observation is bytes this
     /// installation holds.
     evidence: Vec<JudgementEvidence>,
+    /// How confident the subject is, when it states one. Absent records that
+    /// it has not judged yet; no default number is filled in.
+    #[serde(default)]
+    confidence: Option<f64>,
     #[serde(default)]
     notes: Option<String>,
     /// Whether the unit is offered after this call.
@@ -84,7 +88,7 @@ struct Judgement {
 /// One piece of evidence a judgement cites.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-enum JudgementEvidence {
+pub(crate) enum JudgementEvidence {
     /// A trial attempt of this installation, bound to this unit version.
     TrialAttempt { attempt_id: String },
     /// Bytes this installation registered for this unit.
@@ -97,10 +101,93 @@ impl Default for Judgement {
             decision: None,
             method: None,
             evidence: Vec::new(),
+            confidence: None,
             notes: None,
             enable: None,
         }
     }
+}
+
+/// Map the wire decision of a judgement onto the installation authority's own.
+///
+/// Both children that record a judgement — `cognition.unit.write:1` for the
+/// version it installs and `cognition.unit.judge:1` for a version already
+/// installed — share this mapping, so the accepted spellings and the refusal
+/// of an unnamed decision cannot drift apart.
+pub(crate) fn adoption_decision(value: &str) -> Result<AdoptionDecision> {
+    Ok(match value.trim() {
+        "adopt" | "adopted" => AdoptionDecision::Adopted,
+        "reject" | "rejected" => AdoptionDecision::Rejected,
+        "retire" | "retired" => AdoptionDecision::Retired,
+        "" => anyhow::bail!("a judgement must state its decision: adopt, reject or retire"),
+        other => anyhow::bail!("unknown judgement decision '{other}'; use adopt, reject or retire"),
+    })
+}
+
+/// Map the wire method of a judgement. An unnamed method records what was
+/// said — a statement, never a measurement.
+pub(crate) fn adoption_method(value: &str) -> Result<AdoptionMethod> {
+    Ok(match value.trim() {
+        "" => AdoptionMethod::OperatorStatement,
+        "sandbox_comparison" => AdoptionMethod::SandboxComparison,
+        "local_trial" => AdoptionMethod::LocalTrial,
+        "operator_statement" => AdoptionMethod::OperatorStatement,
+        other => anyhow::bail!("unknown judgement method '{other}'"),
+    })
+}
+
+/// Map the cited evidence of a judgement.
+///
+/// The installation authority verifies every item against its own durable
+/// state; this only refuses a reference that can never be one of its own
+/// facts.
+pub(crate) fn adoption_evidence(items: &[JudgementEvidence]) -> Result<Vec<AdoptionEvidence>> {
+    items
+        .iter()
+        .map(|item| {
+            Ok(match item {
+                JudgementEvidence::TrialAttempt { attempt_id } => AdoptionEvidence::TrialAttempt {
+                    attempt_id: attempt_id.trim().to_string(),
+                },
+                JudgementEvidence::Observation { digest } => {
+                    let text = digest.trim();
+                    let parsed = Digest(text.to_string());
+                    ensure!(
+                        parsed.canonical_blake3_hex().is_some(),
+                        "the observation digest '{text}' is not a canonical blake3 digest"
+                    );
+                    AdoptionEvidence::StoredObservation { digest: parsed }
+                }
+            })
+        })
+        .collect()
+}
+
+/// Whether the judgement may switch the unit on.
+///
+/// Enabling is an installation fact the caller states; only an adopted
+/// decision can enable, because a rejected or retired version is kept out of
+/// use. None of this makes the unit measured: that stays the evidence's fact.
+pub(crate) fn judgement_enable(
+    decision: AdoptionDecision,
+    enable: Option<bool>,
+) -> Result<Option<bool>> {
+    match enable {
+        Some(enable) if decision == AdoptionDecision::Adopted => Ok(Some(enable)),
+        Some(true) => anyhow::bail!("only an adopted unit can be enabled"),
+        other => Ok(other),
+    }
+}
+
+/// The result code a refused judgement evidence reports.
+///
+/// The installation authority refuses one evidence item with a typed reason.
+/// Both children that record judgements share this mapping, so a caller reads
+/// a stable code instead of matching this node's prose.
+pub(crate) fn evidence_refusal_code(error: &anyhow::Error) -> &'static str {
+    error
+        .downcast_ref::<shenko_node::AdoptionEvidenceRejected>()
+        .map_or("judgement_not_recorded", |rejected| rejected.reason.code())
 }
 
 /// One unit the subject wants to write down.
@@ -799,8 +886,13 @@ impl CognitionWriteHandler {
         attempt: &AttemptRecord,
         frozen: &FrozenWrite,
     ) -> Result<OperationRecord> {
-        let (result, outcome) = match self.write(frozen) {
-            Ok(result) => (result, OperationOutcome::Succeeded),
+        // Installing the version is a local durable effect; a refused
+        // judgement after it leaves that effect standing and visible.
+        let (result, outcome, effect) = match self.write(frozen) {
+            Ok((result, OperationOutcome::Succeeded)) => {
+                (result, OperationOutcome::Succeeded, EffectStatus::Complete)
+            }
+            Ok((result, outcome)) => (result, outcome, EffectStatus::Partial),
             Err(error) => (
                 serde_json::json!({
                     "schema_version": 1,
@@ -810,6 +902,7 @@ impl CognitionWriteHandler {
                     "error": {"code": "unit_not_written", "message": format!("{error:#}")},
                 }),
                 OperationOutcome::Failed,
+                EffectStatus::None,
             ),
         };
         let bytes = serde_json::to_vec(&result)?;
@@ -852,53 +945,27 @@ impl CognitionWriteHandler {
             attempt.attempt_id,
             evidence,
             Some(outcome),
-            EffectStatus::Complete,
+            effect,
         )
     }
 
     /// Install the frozen unit and record the judgement it carries.
-    fn write(&self, frozen: &FrozenWrite) -> Result<serde_json::Value> {
+    ///
+    /// Installing and judging are two facts. When the version was installed
+    /// but the installation authority refused the judgement, the answer says
+    /// exactly that: the version is there, the judgement is not, and the
+    /// operation did not succeed. Reporting the whole call as "not written"
+    /// would hide a real installation the subject would otherwise not know it
+    /// has.
+    fn write(&self, frozen: &FrozenWrite) -> Result<(serde_json::Value, OperationOutcome)> {
         let (package, digest) = self.package(frozen)?;
         let installed = self.catalog.install(&package, &self.package_root)?;
         let mut recorded_judgement = None;
         if let Some(judgement) = frozen.judgement.as_ref() {
-            let decision = match judgement.decision.as_deref().unwrap_or("").trim() {
-                "adopt" | "adopted" => AdoptionDecision::Adopted,
-                "reject" | "rejected" => AdoptionDecision::Rejected,
-                "retire" | "retired" => AdoptionDecision::Retired,
-                "" => anyhow::bail!("a judgement must state its decision: adopt, reject or retire"),
-                other => anyhow::bail!("unknown judgement decision '{other}'; use adopt, reject or retire"),
-            };
-            let method = match judgement.method.as_deref().unwrap_or("").trim() {
-                "" => AdoptionMethod::OperatorStatement,
-                "sandbox_comparison" => AdoptionMethod::SandboxComparison,
-                "local_trial" => AdoptionMethod::LocalTrial,
-                "operator_statement" => AdoptionMethod::OperatorStatement,
-                other => anyhow::bail!("unknown judgement method '{other}'"),
-            };
-            let evidence: Vec<AdoptionEvidence> = judgement
-                .evidence
-                .iter()
-                .map(|item| Ok(match item {
-                    JudgementEvidence::TrialAttempt { attempt_id } => {
-                        AdoptionEvidence::TrialAttempt {
-                            attempt_id: attempt_id.trim().to_string(),
-                        }
-                    }
-                    JudgementEvidence::Observation { digest } => {
-                        let text = digest.trim();
-                        let parsed = Digest(text.to_string());
-                        ensure!(parsed.canonical_blake3_hex().is_some(),
-                            "the observation digest '{text}' is not a canonical blake3 digest");
-                        AdoptionEvidence::StoredObservation { digest: parsed }
-                    }
-                }))
-                .collect::<Result<_>>()?;
-            let enable = match judgement.enable {
-                Some(enable) if decision == AdoptionDecision::Adopted => Some(enable),
-                Some(true) => anyhow::bail!("only an adopted unit can be enabled"),
-                other => other,
-            };
+            let decision = adoption_decision(judgement.decision.as_deref().unwrap_or(""))?;
+            let method = adoption_method(judgement.method.as_deref().unwrap_or(""))?;
+            let evidence = adoption_evidence(&judgement.evidence)?;
+            let enable = judgement_enable(decision, judgement.enable)?;
             let recorded = self.catalog.record_adoption(
                 &frozen.unit_id,
                 &frozen.revision,
@@ -906,26 +973,56 @@ impl CognitionWriteHandler {
                 decision,
                 method,
                 &evidence,
+                judgement.confidence,
                 judgement.notes.as_deref(),
                 enable,
-            )?;
-            recorded_judgement = Some(recorded);
+            );
+            match recorded {
+                Ok(recorded) => recorded_judgement = Some(recorded),
+                Err(error) => {
+                    let units: Vec<CognitionUnit> = self.catalog.units()?;
+                    if let Some(self_knowledge) = self.self_knowledge.as_ref() {
+                        self_knowledge.refresh_cognition_units(&units);
+                    }
+                    return Ok((
+                        serde_json::json!({
+                            "schema_version": 1,
+                            "status": "failed",
+                            "op": "write",
+                            "unit_id": frozen.unit_id,
+                            "revision": frozen.revision,
+                            "artifact_digest": digest,
+                            "installed": installed,
+                            "judgement": serde_json::Value::Null,
+                            "units": units,
+                            "error": {
+                                "code": evidence_refusal_code(&error),
+                                "message": format!("the version is installed, but {error:#}"),
+                            },
+                        }),
+                        OperationOutcome::Failed,
+                    ));
+                }
+            }
         }
         let units: Vec<CognitionUnit> = self.catalog.units()?;
         if let Some(self_knowledge) = self.self_knowledge.as_ref() {
             self_knowledge.refresh_cognition_units(&units);
         }
-        Ok(serde_json::json!({
-            "schema_version": 1,
-            "status": "ok",
-            "op": "write",
-            "unit_id": frozen.unit_id,
-            "revision": frozen.revision,
-            "artifact_digest": digest,
-            "installed": installed,
-            "judgement": recorded_judgement,
-            "units": units,
-        }))
+        Ok((
+            serde_json::json!({
+                "schema_version": 1,
+                "status": "ok",
+                "op": "write",
+                "unit_id": frozen.unit_id,
+                "revision": frozen.revision,
+                "artifact_digest": digest,
+                "installed": installed,
+                "judgement": recorded_judgement,
+                "units": units,
+            }),
+            OperationOutcome::Succeeded,
+        ))
     }
 
     async fn run(&self, mut invocation: NativeTaskInvocation) -> Result<OperationRecord> {
@@ -962,7 +1059,7 @@ impl NativeTaskHandler for CognitionWriteHandler {
             role_revision: "native-cognition-writer/1".into(),
             authority_refs: vec!["cognition_unit.write/v1".into()],
             prompt_section: Some(
-                "cognition.unit.write/v1 把一条你确实学到的东西写成一个可独立安装的单元：[delegate:cognition.unit.write:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"kind\":\"awareness\",\"title\":\"...\",\"capability_card\":\"...\",\"body\":\"...\",\"derived_from\":{\"kind\":\"inbox_event\",\"reference\":\"...\"},\"judgement\":{\"decision\":\"adopt\",\"method\":\"sandbox_comparison\",\"evidence\":[{\"kind\":\"trial_attempt\",\"attempt_id\":\"...\"}]}}。正文写原则与理由，不写具体动作脚本；来源要指向真实发生过的观察（derived_from.kind 写 cas_object 时给 digest，写 observation 时给本机登记的观测 digest；无法核实的来源会保持“声称”，单元也就只是候选）。判断与证据由你给出：evidence 只能引用本机真实存在的记录——cognition.unit.trial 跑出来的 attempt_id，或 cognition.unit.evidence 读到的观测 digest；内核只记录并核对，不会替你编造证据。"
+                "cognition.unit.write/v1 把一条你确实学到的东西写成一个可独立安装的单元：[delegate:cognition.unit.write:1] {\"unit_id\":\"...\",\"revision\":\"...\",\"kind\":\"awareness\",\"title\":\"...\",\"capability_card\":\"...\",\"body\":\"...\",\"derived_from\":{\"kind\":\"inbox_event\",\"reference\":\"...\"},\"judgement\":{\"decision\":\"adopt\",\"method\":\"sandbox_comparison\",\"evidence\":[{\"kind\":\"trial_attempt\",\"attempt_id\":\"...\"}]}}。正文写原则与理由，不写具体动作脚本；来源要指向真实发生过的观察（derived_from.kind 写 cas_object 时给 digest，写 observation 时给本机登记的观测 digest；无法核实的来源会保持“声称”，单元也就只是候选）。判断与证据由你给出：evidence 只能引用本机真实存在的记录——cognition.unit.trial 跑出来的 attempt_id，或 cognition.unit.evidence 读到的观测 digest；内核只记录并核对，不会替你编造证据。试验按记录本身分类（measured/partial/inconclusive/unexecuted）：开了从未关闭的 attempt 会被拒绝（error.code=evidence_unexecuted），不属于本机或不属于该版本的引用是 evidence_not_admissible；已关闭但没有测量的判断会登记，但 empirical=false、measurement=inconclusive，单元仍是候选。"
                     .into(),
             ),
         }
