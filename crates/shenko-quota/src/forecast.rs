@@ -326,7 +326,7 @@ pub fn forecast(
         Freshness::Stale if options.stale == StaleUse::LastKnown => SourceValidity::LastKnown,
         _ => SourceValidity::Unknown,
     };
-    let windows = snapshot
+    let windows: Vec<WindowForecast> = snapshot
         .windows
         .iter()
         .map(|window| {
