@@ -1304,9 +1304,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     shenko_seed::BootstrapSubjectState::PendingGenesis,
                 ),
             };
-            let prepared = bootstrap.prepare(installation_id)?;
+            let prepared = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
             println!("Home manifest: {}", prepared.manifest_path.display());
             println!("Home: {}", serde_json::to_string_pretty(&prepared.manifest)?);
+            for recovery in &prepared.recovered {
+                println!("Recovered: {recovery}");
+            }
             let owner_grant = store.get_bootstrap_owner_grant(installation_id)?;
             let view = bootstrap.view(
                 installation_id,
@@ -1443,8 +1446,11 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 installation_id,
                 data_dir: data_dir.clone(),
             };
-            let prepared_home = bootstrap.prepare(installation_id)?;
+            let prepared_home = bootstrap.prepare_with_recovery(installation_id, &store.cas)?;
             info!(manifest=%prepared_home.manifest_path.display(), "WASM home ready");
+            for recovery in &prepared_home.recovered {
+                tracing::warn!(%recovery, "completed home recovery");
+            }
 
             // 2. Bootstrap genesis if first run — SPEC §44.6. The genesis
             // closure references the actual home manifest and guest artifact.
