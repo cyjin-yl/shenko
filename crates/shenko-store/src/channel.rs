@@ -38,6 +38,13 @@ pub const PUBLICATION_TARGET_VERSION: u32 = 2;
 /// The version of the sealed decision record this Store accepts.
 pub const DECISION_SCHEMA_VERSION: u32 = 8;
 
+/// The decision schema whose publication targets carried no version. The
+/// migration rewrites exactly these objects, and every reader that accepts a
+/// rewritten decision (an obligation creation keeps its immutable reference to
+/// the original object) authenticates that rewrite through this source
+/// version and the two digests the migration recorded.
+pub(crate) const LEGACY_DECISION_SCHEMA_VERSION: u32 = 7;
+
 /// The version of the sealed parsed-output record this Store accepts.
 pub const OUTPUT_SCHEMA_VERSION: u32 = 5;
 
@@ -885,14 +892,6 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                     "UPDATE subject_steps SET data=?2 WHERE step_id=?1",
                     params![step_id, serde_json::to_string(&step)?],
                 )?;
-                // The obligation creation row binds its decision_ref to the
-                // same object. It must follow the step's migration, or a
-                // later provenance check sees a divergent decision_ref and
-                // rejects a legitimate retained obligation.
-                tx.execute(
-                    "UPDATE subject_obligations SET decision_ref=?2 WHERE step_id=?1",
-                    params![step_id, serde_json::to_string(&sealed.object)?],
-                )?;
                 // A frozen child input points at the same decision object. It
                 // must follow, or the child could no longer read its own
                 // decision.
@@ -904,9 +903,10 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                 )?;
                 tx.execute(
                     "INSERT OR REPLACE INTO channel_record_migrations(record_kind,record_id,from_version,to_version,source_digest,target_digest,migrated_seq)
-                     VALUES('subject_step',?1,7,?2,?3,?4,?5)",
+                     VALUES('subject_step',?1,?2,?3,?4,?5,?6)",
                     params![
                         step_id,
+                        LEGACY_DECISION_SCHEMA_VERSION,
                         DECISION_SCHEMA_VERSION,
                         decision_ref.digest.to_string(),
                         sealed.object.digest.to_string(),
@@ -924,7 +924,7 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
 }
 
 /// Whether a decision object still holds a target without a version.
-fn decision_has_legacy_target(decision: &serde_json::Value) -> bool {
+pub(crate) fn decision_has_legacy_target(decision: &serde_json::Value) -> bool {
     if let Some(intents) = decision.get("publication_intents").and_then(|v| v.as_array()) {
         for intent in intents {
             if let Some(target) = intent.get("target") {
@@ -951,7 +951,7 @@ fn decision_has_legacy_target(decision: &serde_json::Value) -> bool {
 }
 
 /// Rewrite every legacy target of a decision object and bump its versions.
-fn rewrite_legacy_targets(decision: &mut serde_json::Value) {
+pub(crate) fn rewrite_legacy_targets(decision: &mut serde_json::Value) {
     if let Some(intents) = decision
         .get_mut("publication_intents")
         .and_then(|v| v.as_array_mut())

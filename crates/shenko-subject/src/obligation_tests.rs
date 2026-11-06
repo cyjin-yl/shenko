@@ -89,7 +89,9 @@ fn candidate(store: &Store, subject: &SubjectLoopState, raw: &str, next: EntityI
 async fn obligations_reach_model_and_retire_with_exact_creation_provenance() {
     let (dir, store, agent) = fixture();
     let mut subject = state(store.clone(), agent).unwrap();
-    let origin = message("a promise that needs a later judgment");
+    // An obligation origin is a durable input event: the fixture admits it so
+    // the exported archive carries the event its promise answers.
+    let origin = admit(&store, agent, &message("a promise that needs a later judgment"));
     // The parser is strict: unknown state, nil/invalid id, blank reason,
     // unknown fields and duplicate terminals in one output are all rejected.
     let id = EntityId::new();
@@ -496,4 +498,331 @@ async fn obligation_archive_required_conflict_rolls_back_before_file_publication
     assert!(terminal_receipts(&receiver).is_empty());
     assert_eq!(conn.query_row("SELECT count(*) FROM subject_steps",[],|r|r.get::<_,u64>(0)).unwrap(),step_count);
     assert_eq!(conn.query_row("SELECT group_concat(row_values) FROM cognition_baselines",[],|r|r.get::<_,String>(0)).unwrap(),baseline);
+}
+
+/// Admit one input delivery the way a real store receives it. An obligation
+/// origin is a durable event, so the fixture admits the event into
+/// `inbox_events` instead of only passing it to the step.
+fn admit(store: &Store, agent: EntityId, event: &crate::inbox::InboxEvent) -> crate::inbox::InboxEvent {
+    let mut batch = shenko_types::store::WriteBatch::new();
+    batch.inbox_event_upserts.push(shenko_types::store::RawInboxEvent {
+        event_id: event.event_id,
+        agent_id: agent,
+        source: event.source.clone(),
+        kind: "message".into(),
+        payload_json: serde_json::to_string(&event.payload).unwrap(),
+        received_at_ms: event.created_at.timestamp_millis(),
+    });
+    store.commit(batch).unwrap();
+    event.clone()
+}
+
+#[tokio::test]
+async fn obligation_origin_outside_the_selected_events_corrects_instead_of_aborting() {
+    let (dir, store, agent) = fixture();
+    let selected = admit(&store, agent, &message("the input this promise answers"));
+    let mut subject = state(store.clone(), agent).unwrap();
+    let cancelled = tokio_util::sync::CancellationToken::new();
+    cancelled.cancel();
+    execute_step(1, &[selected.clone()], &mut subject, &cancelled).await.unwrap();
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    // The model names an event it was never shown. The Store rightly refuses
+    // this S0 origin; the loop must return a sourced correction instead of
+    // stopping the subject after the result is already durable.
+    let unknown = EntityId::new();
+    let raw = format!(
+        "[obligation] {}\n[remember] this partial decision must not commit",
+        serde_json::json!({"description":"answer an input","origin_event_id":unknown}),
+    );
+    let rejected_id = record_result(&store, &mut subject, &raw);
+    let rejected = subject.step.clone();
+    let original_head = subject.head.clone();
+    assert!(execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().is_none());
+    assert_eq!(subject.head.committed_at, original_head.committed_at);
+    assert_eq!(subject.head.committed_step_no, 0);
+    assert!(store.open_subject_obligations(agent).unwrap().is_empty());
+    assert!(store.committed_intents(None, None, 8).unwrap().is_empty());
+    let retired = store.get_step(&original_head.branch_id, rejected_id).unwrap().unwrap();
+    assert_eq!(retired.state, SubjectStepState::Retired);
+    assert_eq!(retired.model_result_ref, rejected.model_result_ref);
+    assert_eq!(retired.input_plan_ref, rejected.input_plan_ref);
+    assert_eq!(runner::read_sealed(&store, retired.model_result_ref.as_ref().unwrap()).unwrap(), raw.as_bytes());
+    let rejection: ControlOutputRejection = serde_json::from_slice(
+        &runner::read_sealed(&store, retired.retry_reason_ref.as_ref().unwrap()).unwrap(),
+    ).unwrap();
+    assert_eq!(rejection.error.code, "CONTROL_PROTOCOL_INVALID");
+    assert_eq!(rejection.request_id, rejected.active_request_id.unwrap());
+    assert_eq!(rejection.replacement_step_id, subject.step.step_id);
+    assert_eq!(rejection.error.details["origin_event_id"], serde_json::json!(unknown));
+    assert!(rejection.error.details["reason"].as_str().unwrap().contains("not selected into this step"));
+    drop(subject);
+    drop(store);
+
+    // The retained result and the replacement survive a closed store.
+    let reopened = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(reopened.clone(), agent).unwrap();
+    assert_eq!(subject.step.step_id, rejection.replacement_step_id);
+    assert_eq!(subject.step.state, SubjectStepState::Preparing);
+    let correction = runner::frozen_input(&reopened, &subject.step).unwrap();
+    assert_eq!(correction.events.len(), 1);
+    assert_eq!(correction.events[0].event_id, selected.event_id);
+    // The corrected promise names the event this step really showed.
+    let repaired = format!(
+        "[obligation] {}",
+        serde_json::json!({"description":"answer an input","origin_event_id":selected.event_id}),
+    );
+    record_result(&reopened, &mut subject, &repaired);
+    execute_step(1, &[], &mut subject, &tokio_util::sync::CancellationToken::new())
+        .await.unwrap().expect("the corrected S1 commits without another provider request");
+    assert_eq!(subject.head.committed_step_no, 1);
+    let open = reopened.open_subject_obligations(agent).unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].origin_event_id, Some(selected.event_id));
+    // The unselected origin never became a committed fact.
+    let events: Vec<String> = rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .prepare("SELECT event_id FROM inbox_events").unwrap()
+        .query_map([], |row| row.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert!(!events.iter().any(|event| event == &unknown.to_string()));
+}
+
+#[tokio::test]
+async fn obligation_creation_keeps_its_sealed_provenance_through_the_publication_migration() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let created = commit_output(&store, &mut subject, 1, &[],
+        "[obligation] {\"description\":\"a promise sealed before the publication migration\"}").await;
+    let obligation = store.open_subject_obligations(agent).unwrap().remove(0);
+    // Recreate the object an older store left behind: same decision, an
+    // unversioned publication target and the schema that carried it. Both the
+    // step and the creation row named THIS object.
+    let mut step = store.get_step(&subject.head.branch_id, created).unwrap().unwrap();
+    let mut decision: serde_json::Value = serde_json::from_slice(
+        &store.cas.read_object(&step.decision_ref.as_ref().unwrap().digest).unwrap()).unwrap();
+    decision["schema_version"] = serde_json::json!(7);
+    decision["output"]["schema_version"] = serde_json::json!(4);
+    decision["publication_intents"] = serde_json::json!([{
+        "intent_id": EntityId::new(),
+        "target": {"id": 4242, "channel": "ui", "kind": "artifact"},
+        "content": "the legacy artifact body",
+        "reply_grant_id": null,
+    }]);
+    let legacy = store.cas.seal_object(&serde_json::to_vec(&decision).unwrap(),
+        "application/json", "decisions", "StepDecision", 7).unwrap().object;
+    step.decision_ref = Some(legacy.clone());
+    let conn = rusqlite::Connection::open(dir.join("store.db")).unwrap();
+    conn.execute("UPDATE subject_steps SET data=?2 WHERE step_id=?1",
+        rusqlite::params![created.to_string(), serde_json::to_string(&step).unwrap()]).unwrap();
+    conn.execute("UPDATE subject_obligations SET decision_ref=?2 WHERE obligation_id=?1",
+        rusqlite::params![obligation.obligation_id.to_string(),
+            serde_json::to_string(&legacy).unwrap()]).unwrap();
+    drop(conn);
+    let before = obligation_row(&dir, obligation.obligation_id);
+    assert_eq!(before[8], serde_json::to_string(&legacy).unwrap());
+    drop((subject, store));
+
+    // Opening the store runs the explicit publication migration.
+    let store = Arc::new(Store::open(dir.join("store.db"), dir.join("cas")).unwrap());
+    let mut subject = state(store.clone(), agent).unwrap();
+    let migrated = store.get_step(&subject.head.branch_id, created).unwrap().unwrap()
+        .decision_ref.unwrap();
+    assert_ne!(migrated.digest, legacy.digest, "the step points at the rewritten decision");
+    assert_eq!(obligation_row(&dir, obligation.obligation_id), before,
+        "the migration rewrites the step, never the immutable creation provenance");
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(store.open_subject_obligations(agent).unwrap()[0].description, obligation.description);
+    let mut export = store.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    assert!(!export.manifest.gaps.iter().any(|gap| gap.blocking), "{:?}", export.manifest.gaps);
+    let mut bytes = Vec::new();
+    export.write_archive(&mut bytes).unwrap();
+
+    // The recorded migration travels with the archive: a peer authenticates
+    // the creation reference without inventing provenance for it.
+    let receiver_dir = dir.join("receiver");
+    std::fs::create_dir_all(&receiver_dir).unwrap();
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let outcome = receiver.import_cognition_archive(&bytes[..], &CognitionImportOptions {
+        peer_id: Some(EntityId::new()), ..Default::default()
+    }).unwrap();
+    assert!(outcome.ack(EntityId::new()).verified, "{:?}", outcome.conflicts);
+    assert_eq!(&obligation_row(&receiver_dir, obligation.obligation_id)[..11], &before[..11]);
+    drop(receiver);
+    // Without the recorded migration the creation reference is unauthenticated.
+    let conn = rusqlite::Connection::open(receiver_dir.join("store.db")).unwrap();
+    conn.execute("DELETE FROM channel_record_migrations WHERE record_kind='subject_step'", []).unwrap();
+    drop(conn);
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let unrecoverable = receiver.export_cognition(&CognitionSnapshotOptions::default()).unwrap();
+    assert!(unrecoverable.manifest.gaps.iter().any(|gap|
+        gap.blocking && gap.kind == "obligation_required_fact"
+        && gap.detail.contains("no recorded publication migration")),
+        "{:?}", unrecoverable.manifest.gaps);
+    assert!(receiver.start_subject_dispatcher().is_err());
+
+    // A later terminal settlement is a separate step: it changes the
+    // projection and the settlement, never the migrated creation.
+    commit_output(&store, &mut subject, 2, &[], &terminal(obligation.obligation_id, "completed")).await;
+    let after = obligation_row(&dir, obligation.obligation_id);
+    assert_eq!(&after[..10], &before[..10], "creation fields stay immutable");
+    assert_eq!(after[10], "completed");
+}
+
+#[tokio::test]
+async fn settled_obligation_settlement_is_never_replaced_by_peer_convergence() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(&store, &mut subject, 1, &[],
+        "[obligation] {\"description\":\"a promise that ends exactly once\"}").await;
+    let obligation = store.open_subject_obligations(agent).unwrap().remove(0);
+    commit_output(&store, &mut subject, 2, &[], &terminal(obligation.obligation_id, "completed")).await;
+    let receipt = terminal_receipts(&store).remove(0);
+    let bytes = archive(&store, None, false);
+    let receiver_dir = dir.join("receiver");
+    std::fs::create_dir_all(&receiver_dir).unwrap();
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let peer = EntityId::new();
+    let options = CognitionImportOptions { peer_id: Some(peer), ..Default::default() };
+    assert!(receiver.import_cognition_archive(&bytes[..], &options).unwrap()
+        .ack(EntityId::new()).verified);
+    // The receiver now holds exactly what the peer delivered, and its saved
+    // baseline says so. A divergence the peer's delivery cannot explain must
+    // still never replace the typed settlement: that row is the receipt of
+    // ONE committed S1, not a value to converge.
+    let divergent = "{\"divergent\":\"an independently restored copy\"}";
+    {
+        let conn = rusqlite::Connection::open(receiver_dir.join("store.db")).unwrap();
+        conn.execute("UPDATE subject_intents SET result_ref=?2 WHERE intent_id=?1",
+            rusqlite::params![receipt.intent_id.to_string(), divergent]).unwrap();
+        let stored: String = conn.query_row(
+            "SELECT row_values FROM cognition_baselines
+             WHERE peer_id=?1 AND table_name='subject_intents' AND entity_key=?2",
+            rusqlite::params![peer.to_string(), receipt.intent_id.to_string()], |row| row.get(0)).unwrap();
+        let mut values: Vec<(String, Option<String>)> = serde_json::from_str(&stored).unwrap();
+        values.iter_mut().filter(|(name, _)| name == "result_ref")
+            .for_each(|(_, value)| *value = Some(divergent.to_string()));
+        conn.execute("UPDATE cognition_baselines SET row_values=?3
+             WHERE peer_id=?1 AND table_name='subject_intents' AND entity_key=?2",
+            rusqlite::params![peer.to_string(), receipt.intent_id.to_string(),
+                serde_json::to_string(&values).unwrap()]).unwrap();
+    }
+    drop(receiver);
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let error = match receiver.import_cognition_archive(&bytes[..], &options) {
+        Ok(_) => panic!("a settled obligation settlement was replaced by peer convergence"),
+        Err(error) => error,
+    };
+    assert!(format!("{error:#}").contains("cannot be replaced"), "{error:#}");
+    let conn = rusqlite::Connection::open(receiver_dir.join("store.db")).unwrap();
+    let (state, settlement): (String, String) = conn.query_row(
+        "SELECT state,result_ref FROM subject_intents WHERE intent_id=?1",
+        [receipt.intent_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+    assert_eq!((state.as_str(), settlement.as_str()), ("settled", divergent));
+    assert_eq!(obligation_row(&receiver_dir, obligation.obligation_id)[10], "completed");
+    let stored: String = conn.query_row(
+        "SELECT row_values FROM cognition_baselines
+         WHERE peer_id=?1 AND table_name='subject_intents' AND entity_key=?2",
+        rusqlite::params![peer.to_string(), receipt.intent_id.to_string()], |row| row.get(0)).unwrap();
+    assert!(stored.contains("an independently restored copy"), "a rejection never advances the baseline");
+    let imports: u64 = conn.query_row("SELECT count(*) FROM cognition_import_order", [], |row| row.get(0)).unwrap();
+    assert_eq!(imports, 1, "the refused import published nothing");
+}
+
+#[tokio::test]
+async fn obligation_origin_event_conflict_refuses_the_whole_required_unit() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    commit_output(&store, &mut subject, 1, &[],
+        "[obligation] {\"description\":\"an earlier independent promise\"}").await;
+    let first = store.open_subject_obligations(agent).unwrap().remove(0);
+    let origin = admit(&store, agent, &message("the input two promises answer"));
+    // The baseline contains the admitted input before any step disposes it.
+    let first_archive = archive(&store, None, false);
+    let receiver_dir = dir.join("receiver");
+    std::fs::create_dir_all(&receiver_dir).unwrap();
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let peer = EntityId::new();
+    let options = CognitionImportOptions { peer_id: Some(peer), ..Default::default() };
+    assert!(receiver.import_cognition_archive(&first_archive[..], &options).unwrap()
+        .ack(EntityId::new()).verified);
+    // Both promises answer the input in the one step that selects it. A later
+    // step cannot select an input that an earlier committed step disposed.
+    commit_output(&store, &mut subject, 2, &[origin.clone()], &format!(
+        "[obligation] {}\n[obligation] {}",
+        serde_json::json!({"description":"promise one","origin_event_id":origin.event_id}),
+        serde_json::json!({"description":"promise two","origin_event_id":origin.event_id}))).await;
+    let second_archive = archive(&store, None, false);
+    // The receiving store's own copy of that event changed independently, so
+    // the incoming event row is refused. The event and every promise that
+    // names it are ONE required unit: publishing either alone would describe
+    // a promise about an input the receiver does not hold.
+    {
+        let conn = rusqlite::Connection::open(receiver_dir.join("store.db")).unwrap();
+        conn.execute("UPDATE inbox_events SET data=?2 WHERE event_id=?1",
+            rusqlite::params![origin.event_id.to_string(),
+                serde_json::json!({"content":"an independently restored body"}).to_string()]).unwrap();
+    }
+    drop(receiver);
+    let receiver = Store::open(receiver_dir.join("store.db"), receiver_dir.join("cas")).unwrap();
+    let error = match receiver.import_cognition_archive(&second_archive[..], &options) {
+        Ok(_) => panic!("a required obligation unit published around an inbox event conflict"),
+        Err(error) => error,
+    };
+    assert!(format!("{error:#}").contains("required obligation conflict unit diverges"), "{error:#}");
+    assert_eq!(receiver.open_subject_obligations(agent).unwrap().len(), 1);
+    assert_eq!(receiver.open_subject_obligations(agent).unwrap()[0].obligation_id, first.obligation_id);
+    let check = rusqlite::Connection::open(receiver_dir.join("store.db")).unwrap();
+    let obligations: u64 = check.query_row("SELECT count(*) FROM subject_obligations", [], |row| row.get(0)).unwrap();
+    assert_eq!(obligations, 1, "the refused promise was not published");
+    let baselines: u64 = check.query_row(
+        "SELECT count(*) FROM cognition_baselines WHERE table_name='subject_obligations'", [], |row| row.get(0)).unwrap();
+    assert_eq!(baselines, 1, "no baseline advanced for the refused fact");
+    let imports: u64 = check.query_row("SELECT count(*) FROM cognition_import_order", [], |row| row.get(0)).unwrap();
+    assert_eq!(imports, 1);
+    drop(check);
+
+    // The identical archive publishes both new promises when the event still
+    // agrees, alongside the unchanged earlier independent promise.
+    let second_dir = dir.join("receiver2");
+    std::fs::create_dir_all(&second_dir).unwrap();
+    let second = Store::open(second_dir.join("store.db"), second_dir.join("cas")).unwrap();
+    assert!(second.import_cognition_archive(&first_archive[..], &options).unwrap().ack(EntityId::new()).verified);
+    assert!(second.import_cognition_archive(&second_archive[..], &options).unwrap().ack(EntityId::new()).verified);
+    let open = second.open_subject_obligations(agent).unwrap();
+    assert_eq!(open.len(), 3);
+    assert!(open.iter().any(|obligation| obligation.obligation_id == first.obligation_id));
+    assert_eq!(open.iter().filter(|obligation|
+        obligation.origin_event_id == Some(origin.event_id)).count(), 2);
+}
+
+#[tokio::test]
+async fn unreadable_unrelated_decision_keeps_degraded_recovery_and_the_dispatcher() {
+    let (dir, store, agent) = fixture();
+    let mut subject = state(store.clone(), agent).unwrap();
+    let unrelated = commit_output(&store, &mut subject, 1, &[], "[remember] an unrelated decision").await;
+    commit_output(&store, &mut subject, 2, &[], "[obligation] {\"description\":\"a promise recovery must still read\"}").await;
+    let obligation = store.open_subject_obligations(agent).unwrap().remove(0);
+    // This historical step's decision object was never retained, and it holds
+    // no obligation fact. Recovery must keep that step degraded instead of
+    // aborting the dispatcher or rolling back its retained marker.
+    let mut step = store.get_step(&subject.head.branch_id, unrelated).unwrap().unwrap();
+    step.decision_ref.as_mut().unwrap().digest =
+        shenko_types::object::Digest::blake3(b"a decision object this store never retained");
+    let conn = rusqlite::Connection::open(dir.join("store.db")).unwrap();
+    conn.execute("UPDATE subject_steps SET data=?2 WHERE step_id=?1",
+        rusqlite::params![unrelated.to_string(), serde_json::to_string(&step).unwrap()]).unwrap();
+    conn.execute("DELETE FROM subject_intent_steps WHERE step_id=?1", [unrelated.to_string()]).unwrap();
+    drop(conn);
+    store.start_subject_dispatcher().unwrap();
+    let marker: String = rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .query_row("SELECT migration FROM subject_intent_steps WHERE step_id=?1",
+            [unrelated.to_string()], |row| row.get(0)).unwrap();
+    assert_eq!(marker, "blocked: unreadable historical decision; preserve source and install migrator");
+    let open = store.open_subject_obligations(agent).unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].obligation_id, obligation.obligation_id);
+    // Repeated recovery is idempotent and keeps the degraded marker.
+    store.start_subject_dispatcher().unwrap();
+    assert_eq!(rusqlite::Connection::open(dir.join("store.db")).unwrap()
+        .query_row("SELECT migration FROM subject_intent_steps WHERE step_id=?1",
+            [unrelated.to_string()], |row| row.get::<_, String>(0)).unwrap(), marker);
 }
