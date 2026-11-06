@@ -1879,6 +1879,25 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     None
                 }
             };
+            // §13.4/§41.9: the dispatch loop enforces the JOINT effective
+            // window — the model ceiling, the backend's own observed pool and
+            // the owner's configured limit — never one of them alone. Only
+            // observed components are installed; a component that is not
+            // observed makes the value an explicit upper bound, and with none
+            // observed admission stays advisory.
+            let effective_window = shenko_context_policy::WindowLimits {
+                model_ceiling: capabilities
+                    .as_ref()
+                    .and_then(|capabilities| capabilities.max_context_tokens.map(u64::from)),
+                // The KV residency slice reports the backend's observed pool.
+                // A plain OpenAI-compatible endpoint reports none, so this
+                // stays unknown instead of being inferred from the model.
+                backend_pool: None,
+                policy_limit: None,
+            }
+            .resolve();
+            broker_handle.install_effective_window(effective_window.installable());
+            info!(window=%effective_window.status(), "effective context window resolved");
             let model_child_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
                 shenko_subject::ModelChildHandler::new(Arc::clone(&store), broker_handle.clone(), supervisor.context().clone())?,
             );

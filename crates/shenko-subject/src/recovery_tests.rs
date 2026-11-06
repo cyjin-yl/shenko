@@ -14,6 +14,9 @@ use std::{path::PathBuf, sync::Arc};
 #[path = "model_child_tests.rs"]
 mod model_child_tests;
 
+#[path = "fairness_wiring_tests.rs"]
+mod fairness_wiring_tests;
+
 #[path = "request_recovery_tests.rs"]
 mod request_recovery_tests;
 

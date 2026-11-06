@@ -19,6 +19,7 @@
 //! contract: material a plugin prepared for one request, with its producer,
 //! scope, expiry and the evidence of what was actually sent.
 pub mod contribution;
+pub mod effective_window;
 pub mod history;
 pub mod policy;
 pub mod preparation;
@@ -28,6 +29,7 @@ pub mod store_history;
 pub mod window;
 
 pub use contribution::*;
+pub use effective_window::*;
 pub use history::*;
 pub use policy::*;
 pub use preparation::*;

@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use serde::{Deserialize, Serialize};
-use shenko_broker::request::{InferenceMessage, InferencePart, InferencePayload, ProviderCapabilities};
+use shenko_broker::request::{
+    InferenceMessage, InferencePart, InferencePayload, ProviderCapabilities, WindowAdmission,
+};
 use shenko_context_policy::{
     Attempt, CONTRACT_VERSION, CommittedWindow, HistoryItem, HistorySource, ItemKind, ModelCaps,
     Projected, StorageError, StoreHistory, VisionCaps, estimate_tokens,
@@ -538,6 +540,51 @@ pub(super) fn estimate_payload_tokens(payload: &InferencePayload, vision_tokens:
     } else {
         Some(estimate)
     }
+}
+
+/// The measured window cost of one sealed payload (§13.4, §41.9).
+///
+/// `input_tokens` is the sealing side's own count of the rendered payload —
+/// text plus its multimodal estimate — never a provider `max_context` value.
+/// This function adds the tool-schema cost the payload counter deliberately
+/// excludes, and returns `None` when the payload carries material that counter
+/// cannot price at all (documents, citations, search results): an unpriced
+/// part must keep admission advisory instead of charging an assumed zero.
+///
+/// The chat-template term is not measurable in-process. It is not invented
+/// here with a constant: whenever the seal has a provider-reported input count
+/// for the same binding, `budget_input_tokens` already carries it (see
+/// [`budget_tokens`]), and `budget_provenance` records which anchor applied.
+pub(super) fn window_admission(
+    payload: &InferencePayload,
+    input_tokens: u64,
+    output_reservation: u64,
+) -> Option<WindowAdmission> {
+    let unpriced = payload
+        .messages
+        .iter()
+        .flat_map(|message| &message.parts)
+        .any(|part| {
+            matches!(
+                part,
+                InferencePart::Document { .. }
+                    | InferencePart::Citation { .. }
+                    | InferencePart::SearchResult { .. }
+            )
+        });
+    if unpriced {
+        return None;
+    }
+    let mut overhead_tokens = 0_u64;
+    for schema in &payload.tools {
+        let rendered = serde_json::to_string(schema).ok()?;
+        overhead_tokens = overhead_tokens.saturating_add(u64::from(estimate_tokens(&rendered)));
+    }
+    Some(WindowAdmission {
+        input_tokens,
+        output_reservation,
+        overhead_tokens,
+    })
 }
 
 fn project_payload(

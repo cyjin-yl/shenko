@@ -5,6 +5,8 @@ use crate::inbox::{Inbox, InboxEvent};
 use crate::context_projection::{ContextPreparer, FrozenContextInput, estimate_payload_tokens, prepare_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
 use crate::quota_gate::{QuotaGate, quota_dispatch_gate, observe_quota_response, settle_quota_terminal};
+use shenko_broker::broker::{BrokerHandle, CancelQueued};
+use shenko_broker::request::DispatchPlan;
 use shenko_identity::IdentityService;
 use shenko_kernel::hooks::{HookPayload, HookRegistry};
 use shenko_store::subject_request::{SubjectRequestAttempt, SubjectRequestState};
@@ -1080,9 +1082,34 @@ async fn execute_step(
             binding: broker.binding().clone(),
             payload: input.payload.clone(),
         });
-        if let Err(error) = broker.submit_recorded(req, sink) {
-            // An admission error is not authority to claim the request never
-            // left: the broker owns the send boundary. The request stays
+        // §13.4/§41.9: the request carries the scheduler plan the sealing side
+        // really knows — the measured window cost, and no inherited class
+        // (the subject is the top of the wait chain; nothing is parked on it).
+        let plan = DispatchPlan {
+            inherited_class: None,
+            // A sealed context with no measured budget keeps admission
+            // advisory instead of charging an invented number.
+            window: input.context.budget_input_tokens.and_then(|budget| {
+                crate::context_projection::window_admission(
+                    &input.payload,
+                    u64::from(budget),
+                    u64::from(input.context.reserved_output_tokens),
+                )
+            }),
+        };
+        if let Err(error) = broker.submit_recorded_planned(req, sink, plan) {
+            if BrokerHandle::never_enqueued(&error) {
+                // Proof about the broker's own state: nothing was enqueued,
+                // dispatched, sent or charged. There is no unknown debt to
+                // quarantine, and the honest durable fact is that this
+                // generation never left — not that a dispatch was lost.
+                record_retry(state, InferenceRetryFact::NeverDispatched)?;
+                return Err(ShenkoError::other(format!(
+                    "broker refused the request before enqueue: {error}; nothing was sent"
+                )));
+            }
+            // Any other admission error is not authority to claim the request
+            // never left: the broker owns the send boundary. The request stays
             // recoverable debt and the step is reconciled, never replayed
             // under the same identity.
             broker.recover_unknown(request_id);
@@ -1096,9 +1123,31 @@ async fn execute_step(
                 "broker admission rejected: {error}; outcome unknown, reconciled"
             )));
         }
-        let result = rx
-            .await
-            .map_err(|_| ShenkoError::other("model outcome unknown; reconcile original request"))?;
+        // A shutdown while the generation is still queued asks the broker to
+        // settle it as cancelled before dispatch. Only `Settled` proves the
+        // generation never left; the other answers leave the ordinary
+        // reconcile/stop path untouched and never claim a cancellation.
+        let result = tokio::select! {
+            // A real result is the fact; ask about cancellation only while the
+            // generation still has no outcome to adopt.
+            biased;
+            result = rx => result.map_err(|_| ShenkoError::other(
+                "model outcome unknown; reconcile original request"))?,
+            _ = cancel.cancelled() => {
+                match broker.cancel_queued(request_id).await {
+                    CancelQueued::Settled => {
+                        info!(%request_id, "queued subject request settled never-dispatched; sealed step stays resumable");
+                    }
+                    CancelQueued::NotQueued => {
+                        info!(%request_id, "subject request already left the queue; reconcile the original attempt");
+                    }
+                    CancelQueued::Unanswered => {
+                        warn!(%request_id, "queued subject cancellation unanswered; reconcile the original attempt");
+                    }
+                }
+                return Ok(None);
+            }
+        };
         if result.request_id != request_id {
             return Err(ShenkoError::conflict(
                 "model result request identity mismatch",

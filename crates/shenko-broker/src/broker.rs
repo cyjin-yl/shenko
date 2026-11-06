@@ -13,10 +13,10 @@
 //! capacity and is quarantined as debt until it is reconciled.
 use anyhow::{Result, anyhow, ensure};
 use serde::Deserialize;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use shenko_types::ids::EntityId;
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tracing::{info, warn};
 
 use crate::admission::{AdmissionController, AdmissionGuard, CapacitySnapshot};
@@ -24,11 +24,15 @@ use crate::capability::BackendCapabilitySnapshot;
 use crate::error_sink::{ErrorSinkCell, RuntimeErrorSink, new_error_sink_cell, report_for};
 use crate::execution::{execute_request, now_ms};
 use crate::kv::{AllocationPlan, AutomaticKvPolicy, KvAllocator, KvCapabilities, KvError, KvPoolState};
+use crate::policy::{
+    AutomaticBrokerPolicy, BrokerPolicy, DispatchFacts, DispatchQueue, FairnessCounters,
+    FairnessScope, FairnessSnapshot,
+};
 use crate::registry::{ProviderRegistry, ProviderRuntime, TokenCount};
 use crate::request::{
-    BrokeredCall, InferencePriority, InferenceRequest, InferenceResponse, InferenceResult,
-    InferenceStatus, ProviderBinding, ProviderCapabilities, ProviderVisionCaps, RequestPurpose,
-    TerminationEvidence, TerminationKind,
+    BrokeredCall, DispatchPlan, InferencePriority, InferenceRequest, InferenceResponse,
+    InferenceResult, InferenceStatus, ProviderBinding, ProviderCapabilities, ProviderVisionCaps,
+    RequestPurpose, TerminationEvidence, TerminationKind, WindowAdmission,
 };
 use crate::resource::{CapacitySnapshot as DomainCapacity, ResourceDomain, ResourceDomainIdentity, ResourceDomainRegistry};
 use crate::stream::{BoundedStreamPublisher, PublicStreamSink, StreamIdentity, StreamJournalSink};
@@ -89,6 +93,68 @@ pub trait InferenceReceiptSink: InferenceRecoverySource {
     fn record(&self, result: &InferenceResult) -> Result<()>;
 }
 
+/// Why a request was refused before it existed as work.
+///
+/// A rejection of this type is proof about the broker's own state: nothing was
+/// enqueued, dispatched, sent or charged, so a conservative caller must not
+/// treat it as a possibly-duplicated dispatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotEnqueued {
+    pub code: NotEnqueuedCode,
+    pub detail: String,
+}
+
+/// Why a request provably did not exist as work.
+///
+/// Every variant is decided before the accounting entry, the receipt owner and
+/// the channel send: nothing was enqueued, dispatched, sent or charged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotEnqueuedCode {
+    /// The measured request cost exceeds the effective context window.
+    WindowExceeded,
+    /// The dispatch loop closed local admission (handoff); the request was
+    /// rejected before enqueue and send.
+    HandoffClosed,
+    /// The dispatch loop's input channel is gone, so no reader owns the
+    /// submission. The accounting entry was removed again before returning.
+    AdmissionClosed,
+}
+
+impl std::fmt::Display for NotEnqueued {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}: {}", self.code.as_str(), self.detail)
+    }
+}
+
+impl std::error::Error for NotEnqueued {}
+
+impl NotEnqueuedCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::WindowExceeded => "WINDOW_EXCEEDED",
+            Self::HandoffClosed => "BROKER_HANDOFF_CLOSED",
+            Self::AdmissionClosed => "BROKER_ADMISSION_CLOSED",
+        }
+    }
+}
+
+/// The answer to a queued-cancellation request. Only [`CancelQueued::Settled`]
+/// means the broker owned the request and settled it without dispatching; any
+/// other answer leaves the caller on its ordinary stop/reconcile path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelQueued {
+    /// The request was still queued; the dispatch loop settled it as never
+    /// dispatched and its proof was durably recorded.
+    Settled,
+    /// The request is not queued here (running, unknown, already settled or
+    /// unknown to this broker).
+    NotQueued,
+    /// The intent reached the broker but the dispatch loop did not answer in
+    /// time. Neither state may be assumed: the caller keeps its own stop or
+    /// reconcile path.
+    Unanswered,
+}
+
 /// Durable send-boundary verdict; distinct outcomes cannot silently swap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DispatchFence {
@@ -123,6 +189,7 @@ struct Submission {
     receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
     stream: Option<StreamSubmission>,
+    plan: DispatchPlan,
 }
 
 /// One provider/model pair this broker can really run.
@@ -164,6 +231,17 @@ pub struct BrokerHandle {
     kv: Arc<KvAllocator>,
     error_sink: ErrorSinkCell,
     handoff_closed: Arc<std::sync::atomic::AtomicBool>,
+    /// The installed compute scheduling policy. It is shared with the dispatch
+    /// loop so the handle can report which policy produced the fairness state.
+    policy: Arc<dyn BrokerPolicy>,
+    /// The fairness state the dispatch loop last published.
+    fairness: Arc<Mutex<FairnessCounters>>,
+    /// The effective context window this dispatch loop enforces, when one has
+    /// been measured or configured. `None` keeps admission advisory.
+    window_tokens: Arc<Mutex<Option<u64>>>,
+    /// Queued-cancellation intents waiting for the dispatch loop, each with the
+    /// channel that carries the loop's authoritative answer.
+    pending_cancels: Arc<Mutex<Vec<(EntityId, tokio::sync::oneshot::Sender<CancelQueued>)>>>,
 }
 
 impl BrokerHandle {
@@ -307,6 +385,98 @@ impl BrokerHandle {
         self.admission.active_count()
     }
 
+    /// The fairness state the dispatch loop last published: queue depth and
+    /// oldest wait per tier, served counts, the subject's maximum wait and the
+    /// length of the current same-side run (SPEC §13.6).
+    ///
+    /// This is the scheduler's own observation of its queue, not a claim that
+    /// a backend honoured any residency or priority.
+    pub fn fairness(&self) -> FairnessSnapshot {
+        let counters = *self.fairness.lock().expect("broker fairness poisoned");
+        counters.snapshot(self.policy.name(), now_ms())
+    }
+
+    /// The effective context window this loop enforces, when one is known.
+    ///
+    /// `None` is the honest unknown state: admission stays advisory instead of
+    /// inventing a capacity.
+    pub fn effective_window(&self) -> Option<u64> {
+        *self.window_tokens.lock().expect("broker window poisoned")
+    }
+
+    /// Install the effective context window this loop must enforce (§41.9).
+    ///
+    /// The value must be the intersection of the model, backend and configured
+    /// limits as actually observed or configured — never a guess. `None`
+    /// restores the unknown state.
+    pub fn install_effective_window(&self, tokens: Option<u64>) {
+        *self.window_tokens.lock().expect("broker window poisoned") = tokens;
+    }
+
+    /// Whether an error was produced before the request existed as work: it was
+    /// not enqueued, dispatched, sent or charged, so a conservative caller must
+    /// not treat it as a possibly-duplicated dispatch.
+    pub fn never_enqueued(error: &anyhow::Error) -> bool {
+        error.downcast_ref::<NotEnqueued>().is_some()
+    }
+
+    /// Ask the dispatch loop to settle a still-queued request as cancelled
+    /// before dispatch (§41.9 `queued → terminal(cancelled before dispatch)`).
+    ///
+    /// Only [`CancelQueued::Settled`] means the broker owned the request and
+    /// settled it never-dispatched; [`CancelQueued::Unanswered`] explicitly
+    /// forbids assuming either state.
+    pub async fn cancel_queued(&self, request_id: EntityId) -> CancelQueued {
+        let (reply, answer) = oneshot::channel();
+        self.pending_cancels
+            .lock()
+            .expect("broker cancels poisoned")
+            .push((request_id, reply));
+        self.accounting_changed.notify_one();
+        match tokio::time::timeout(std::time::Duration::from_secs(5), answer).await {
+            Ok(Ok(answer)) => answer,
+            _ => {
+                // Withdraw the intent so an unanswered call cannot leave work
+                // that a later loop round would settle behind the caller's
+                // back. If the loop already took the batch it owns the
+                // decision, and `Unanswered` forbids assuming either state.
+                self.pending_cancels
+                    .lock()
+                    .expect("broker cancels poisoned")
+                    .retain(|(pending, _)| *pending != request_id);
+                CancelQueued::Unanswered
+            }
+        }
+    }
+
+    /// Refuse a request whose measured cost exceeds the effective window.
+    ///
+    /// Only a caller-measured cost is checked: the broker has no tokenizer, so
+    /// an unmeasured request keeps its advisory admission instead of an
+    /// invented number.
+    fn check_window(&self, req: &InferenceRequest, window: Option<WindowAdmission>) -> Result<()> {
+        let Some(admission) = window else {
+            return Ok(());
+        };
+        let Some(effective) = self.effective_window() else {
+            return Ok(());
+        };
+        let requested = admission.total();
+        if requested > effective {
+            return Err(anyhow::Error::new(NotEnqueued {
+                code: NotEnqueuedCode::WindowExceeded,
+                detail: format!(
+                    "request {} costs {requested} tokens (input {}, output reservation {}, overhead {}) over the effective window {effective}",
+                    req.request_id,
+                    admission.input_tokens,
+                    admission.output_reservation,
+                    admission.overhead_tokens,
+                ),
+            }));
+        }
+        Ok(())
+    }
+
     /// Close local submission at the accounting lock, then await every
     /// enqueued/running provider reader and its durable receipt write.
     /// Unknown remote outcomes stay charged; this is not remote termination.
@@ -377,7 +547,17 @@ impl BrokerHandle {
 
     pub fn submit(&self, req: InferenceRequest) -> Result<()> {
         let purpose = RequestPurpose::from_priority(req.priority);
-        self.submit_inner(req, None, purpose, None)
+        self.submit_inner(req, None, purpose, None, DispatchPlan::default())
+    }
+
+    /// Submit with the scheduler plan the sealing side really knows: the class
+    /// of the task parked on this result, and the measured window cost.
+    ///
+    /// A rejected plan proves nothing was enqueued, sent or charged; see
+    /// [`BrokerHandle::never_enqueued`].
+    pub fn submit_planned(&self, req: InferenceRequest, plan: DispatchPlan) -> Result<()> {
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, None, purpose, None, plan)
     }
 
     /// Install the durable runtime error journal of the owning subject.
@@ -393,12 +573,23 @@ impl BrokerHandle {
 
     pub fn submit_recorded(&self, req: InferenceRequest, sink: Arc<dyn InferenceReceiptSink>) -> Result<()> {
         let purpose = RequestPurpose::from_priority(req.priority);
-        self.submit_inner(req, Some(sink), purpose, None)
+        self.submit_inner(req, Some(sink), purpose, None, DispatchPlan::default())
+    }
+
+    /// Recorded submission with a scheduler plan.
+    pub fn submit_recorded_planned(
+        &self,
+        req: InferenceRequest,
+        sink: Arc<dyn InferenceReceiptSink>,
+        plan: DispatchPlan,
+    ) -> Result<()> {
+        let purpose = RequestPurpose::from_priority(req.priority);
+        self.submit_inner(req, Some(sink), purpose, None, plan)
     }
 
     /// Submit a controlled call with its declared purpose.
     pub fn submit_purpose(&self, call: BrokeredCall) -> Result<()> {
-        self.submit_inner(call.request, None, call.purpose, None)
+        self.submit_inner(call.request, None, call.purpose, None, call.plan)
     }
 
     /// Submit a controlled call with its declared purpose and a durable
@@ -408,7 +599,7 @@ impl BrokerHandle {
         call: BrokeredCall,
         sink: Arc<dyn InferenceReceiptSink>,
     ) -> Result<()> {
-        self.submit_inner(call.request, Some(sink), call.purpose, None)
+        self.submit_inner(call.request, Some(sink), call.purpose, None, call.plan)
     }
 
     /// Submit a streamed controlled call.
@@ -432,6 +623,7 @@ impl BrokerHandle {
             None,
             call.purpose,
             Some(StreamSubmission { identity, journal, public }),
+            call.plan,
         )
     }
 
@@ -441,6 +633,7 @@ impl BrokerHandle {
         receipt_sink: Option<Arc<dyn InferenceReceiptSink>>,
         purpose: RequestPurpose,
         stream: Option<StreamSubmission>,
+        plan: DispatchPlan,
     ) -> Result<()> {
         anyhow::ensure!(
             req.provider_binding == self.binding,
@@ -451,10 +644,21 @@ impl BrokerHandle {
             "no installed provider runtime can serve this binding"
         );
         let mut accounting = self.accounting.lock().expect("broker accounting poisoned");
-        ensure!(!self.handoff_closed.load(std::sync::atomic::Ordering::Acquire),
-            "BROKER_HANDOFF_CLOSED: request rejected before enqueue/send");
+        // Both refusals below are proofs about this broker's own state: they
+        // are decided before the accounting entry exists, so a conservative
+        // caller must not turn them into unknown dispatch debt.
+        if self.handoff_closed.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(anyhow::Error::new(NotEnqueued {
+                code: NotEnqueuedCode::HandoffClosed,
+                detail: "request rejected before enqueue/send".into(),
+            }));
+        }
         ensure!(!accounting.contains_key(&req.request_id), "broker request already submitted or uncertain; reconcile original identity");
         let id = req.request_id;
+        // §41.9: the effective window is checked before the request is
+        // enqueued. A measured plan that does not fit is rejected without
+        // enqueueing, sending or charging anything.
+        self.check_window(&req, plan.window)?;
         if let Some(sink) = &receipt_sink {
             ensure!(sink.request_id() == id && sink.binding() == &req.provider_binding
                 && sink.payload() == &req.payload, "receipt owner differs from submitted request seal");
@@ -464,80 +668,18 @@ impl BrokerHandle {
             sources.insert(id, source);
         }
         accounting.insert(id, None);
-        if self.tx.send(Submission { request: req, receipt_sink, purpose, stream }).is_err() {
+        if self.tx
+            .send(Submission { request: req, receipt_sink, purpose, stream, plan })
+            .is_err()
+        {
             accounting.remove(&id);
             self.recovery_sources.lock().expect("broker recovery sources poisoned").remove(&id);
-            return Err(anyhow!("broker admission closed; request was not enqueued"));
+            return Err(anyhow::Error::new(NotEnqueued {
+                code: NotEnqueuedCode::AdmissionClosed,
+                detail: "the dispatch loop is gone; request was not enqueued".into(),
+            }));
         }
         Ok(())
-    }
-}
-
-/// FIFO lanes with explicit round-robin across urgency, main/child and child
-/// priorities. Urgent work can go first but cannot indefinitely starve ordinary
-/// work; ordinary main/child turns alternate whenever both sides are ready.
-struct FairQueue {
-    lanes: [VecDeque<Submission>; 4],
-    main_next: bool,
-    normal_child_next: bool,
-    last_was_urgent: bool,
-}
-
-impl Default for FairQueue {
-    fn default() -> Self {
-        Self {
-            lanes: std::array::from_fn(|_| VecDeque::new()),
-            main_next: true,
-            normal_child_next: true,
-            last_was_urgent: false,
-        }
-    }
-}
-
-impl FairQueue {
-    fn push(&mut self, req: Submission) {
-        self.lanes[req.request.priority as usize].push_back(req);
-    }
-
-    fn is_empty(&self) -> bool {
-        self.lanes.iter().all(VecDeque::is_empty)
-    }
-
-    fn pop(&mut self) -> Option<Submission> {
-        let urgent_ready = !self.lanes[3].is_empty();
-        let main_ready = !self.lanes[2].is_empty();
-        let normal_ready = !self.lanes[1].is_empty();
-        let low_ready = !self.lanes[0].is_empty();
-        let ordinary_ready = main_ready || normal_ready || low_ready;
-
-        if urgent_ready && (!self.last_was_urgent || !ordinary_ready) {
-            self.last_was_urgent = true;
-            return self.lanes[3].pop_front();
-        }
-        self.last_was_urgent = false;
-        if !ordinary_ready {
-            return None;
-        }
-
-        let use_main = match (main_ready, normal_ready || low_ready) {
-            (true, true) => self.main_next,
-            (true, false) => true,
-            (false, true) => false,
-            (false, false) => return None,
-        };
-        self.main_next = !use_main;
-        if use_main {
-            return self.lanes[2].pop_front();
-        }
-
-        let use_normal = match (normal_ready, low_ready) {
-            (true, true) => self.normal_child_next,
-            (true, false) => true,
-            (false, true) => false,
-            (false, false) => return None,
-        };
-        self.normal_child_next = !use_normal;
-        self.lanes[usize::from(use_normal)].pop_front()
     }
 }
 
@@ -558,6 +700,15 @@ pub struct Broker {
     accounting_changed: Arc<Notify>,
     kv: Arc<KvAllocator>,
     error_sink: ErrorSinkCell,
+    /// The replaceable dispatch policy. The kernel holds no share constant and
+    /// no tier quota of its own; the queue owns the decision state.
+    policy: Arc<dyn BrokerPolicy>,
+    /// The fairness state shared with every handle of this dispatch loop.
+    fairness: Arc<Mutex<FairnessCounters>>,
+    /// The effective context window shared with every handle of this loop.
+    window_tokens: Arc<Mutex<Option<u64>>>,
+    /// Queued-cancellation intents shared with every handle of this loop.
+    pending_cancels: Arc<Mutex<Vec<(EntityId, tokio::sync::oneshot::Sender<CancelQueued>)>>>,
 }
 
 impl Broker {
@@ -598,10 +749,24 @@ impl Broker {
         runtime: Arc<dyn ProviderRuntime>,
         domain: Arc<ResourceDomain>,
     ) -> Result<(Self, BrokerHandle)> {
+        Self::with_runtime_and_policy(
+            runtime,
+            domain,
+            Arc::new(AutomaticBrokerPolicy::default()),
+        )
+    }
+
+    /// Bind one installed provider runtime and an explicitly installed compute
+    /// scheduling policy to one physical resource domain.
+    pub fn with_runtime_and_policy(
+        runtime: Arc<dyn ProviderRuntime>,
+        domain: Arc<ResourceDomain>,
+        policy: Arc<dyn BrokerPolicy>,
+    ) -> Result<(Self, BrokerHandle)> {
         runtime.binding().validate_endpoint()?;
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::with_registry(registry, domain))
+        Ok(Self::with_registry_and_policy(registry, domain, policy))
     }
 
     /// Bind a whole registry of installed provider runtimes to one physical
@@ -610,9 +775,23 @@ impl Broker {
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
     ) -> (Self, BrokerHandle) {
+        Self::with_registry_and_policy(registry, domain, Arc::new(AutomaticBrokerPolicy::default()))
+    }
+
+    /// Bind a registry and an explicitly installed compute scheduling policy.
+    ///
+    /// The policy is a plugin seam, not a configuration knob of the kernel:
+    /// an installation may replace the whole dispatch algorithm without the
+    /// broker learning a ratio. The policy is fixed for the life of this
+    /// dispatch loop because a running loop owns the queue state.
+    pub fn with_registry_and_policy(
+        registry: Arc<ProviderRegistry>,
+        domain: Arc<ResourceDomain>,
+        policy: Arc<dyn BrokerPolicy>,
+    ) -> (Self, BrokerHandle) {
         let domains = Arc::new(ResourceDomainRegistry::new());
         let _ = domains.register(Arc::clone(&domain));
-        Self::assemble(registry, domain, domains)
+        Self::assemble(registry, domain, domains, policy)
     }
 
     fn from_env_with_admission(admission: AdmissionController) -> Result<(Self, BrokerHandle)> {
@@ -620,13 +799,19 @@ impl Broker {
         let domain = default_domain(admission.clone())?;
         let registry = Arc::new(ProviderRegistry::new());
         registry.install(Arc::clone(&runtime));
-        Ok(Self::assemble(registry, domain, Arc::new(ResourceDomainRegistry::new())))
+        Ok(Self::assemble(
+            registry,
+            domain,
+            Arc::new(ResourceDomainRegistry::new()),
+            Arc::new(AutomaticBrokerPolicy::default()),
+        ))
     }
 
     fn assemble(
         registry: Arc<ProviderRegistry>,
         domain: Arc<ResourceDomain>,
         domains: Arc<ResourceDomainRegistry>,
+        policy: Arc<dyn BrokerPolicy>,
     ) -> (Self, BrokerHandle) {
         let (tx, rx) = mpsc::unbounded_channel();
         // The binding comes from the installed runtime, not from a profile
@@ -645,6 +830,9 @@ impl Broker {
             KvCapabilities::default(),
         ));
         let error_sink = new_error_sink_cell();
+        let fairness = Arc::new(Mutex::new(FairnessCounters::default()));
+        let window_tokens = Arc::new(Mutex::new(None));
+        let pending_cancels = Arc::new(Mutex::new(Vec::new()));
         (
             Self {
                 rx,
@@ -656,6 +844,10 @@ impl Broker {
                 accounting_changed: Arc::clone(&accounting_changed),
                 kv: Arc::clone(&kv),
                 error_sink: Arc::clone(&error_sink),
+                policy: Arc::clone(&policy),
+                fairness: Arc::clone(&fairness),
+                window_tokens: Arc::clone(&window_tokens),
+                pending_cancels: Arc::clone(&pending_cancels),
             },
             BrokerHandle {
                 tx,
@@ -670,6 +862,10 @@ impl Broker {
                 kv,
                 error_sink,
                 handoff_closed: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                policy,
+                fairness,
+                window_tokens,
+                pending_cancels,
             },
         )
     }
@@ -683,7 +879,7 @@ impl Broker {
             .expect("the default domain is constructible");
         let domains = Arc::new(ResourceDomainRegistry::new());
         let _ = domains.register(Arc::clone(&domain));
-        Self::assemble(registry, domain, domains)
+        Self::assemble(registry, domain, domains, Arc::new(AutomaticBrokerPolicy::default()))
     }
 
     /// Observe what the bound backend actually offers.
@@ -778,7 +974,8 @@ impl Broker {
     pub async fn run(mut self) {
         info!("inference broker running");
         let (completed_tx, mut completed_rx) = mpsc::unbounded_channel::<CompletedRequest>();
-        let mut queue = FairQueue::default();
+        let mut queue = DispatchQueue::new(Arc::clone(&self.policy));
+        self.publish_fairness(&queue);
         let mut input_closed = false;
         let mut inflight = 0_u64;
         let mut prefer_input = false;
@@ -789,20 +986,44 @@ impl Broker {
         }
 
         loop {
+            // Settle queued cancellations before handing out more permits: a
+            // cancelled request must never consume a generation.
+            for (request_id, reply) in self.take_pending_cancels() {
+                let answer = match queue.cancel(request_id) {
+                    Some(submission) => {
+                        if self.settle_cancelled(submission) {
+                            CancelQueued::Settled
+                        } else {
+                            CancelQueued::Unanswered
+                        }
+                    }
+                    None => CancelQueued::NotQueued,
+                };
+                self.publish_fairness(&queue);
+                let _ = reply.send(answer);
+            }
             // Fill only currently available slots. A full budget leaves the
-            // request in FairQueue instead of losing it or failing it spuriously.
+            // request in the dispatch queue instead of losing it or failing it
+            // spuriously.
             while !queue.is_empty() {
                 let Some(guard) = self.domain.admission().try_admit() else {
                     break;
                 };
-                let submission = queue.pop().expect("queue checked non-empty");
+                let Some(dispatched) = queue.pop(now_ms()) else {
+                    // Nothing was handed to a provider, so this reservation
+                    // provably never dispatched and must not stay charged.
+                    guard.release_never_dispatched();
+                    break;
+                };
+                self.publish_fairness(&queue);
+                let submission = dispatched.payload;
                 let registry = Arc::clone(&self.registry);
                 let domain = Arc::clone(&self.domain);
                 let kv = Arc::clone(&self.kv);
                 let error_sink = Arc::clone(&self.error_sink);
                 let completed_tx = completed_tx.clone();
                 tokio::spawn(async move {
-                    let Submission { request, receipt_sink, purpose, stream } = submission;
+                    let Submission { request, receipt_sink, purpose, stream, plan: _ } = submission;
                     let result = execute_request(
                         &request,
                         receipt_sink.as_ref(),
@@ -858,7 +1079,23 @@ impl Broker {
                 }
                 Event::Incoming(incoming) => {
                     match incoming {
-                        Some(req) => queue.push(req),
+                        Some(req) => {
+                            // The durable conversation is the line: a delegated
+                            // child task inherits its parent's conversation, so
+                            // recursive task creation adds agents inside one
+                            // line instead of buying the line extra turns.
+                            let facts = DispatchFacts {
+                                key: req.request.request_id,
+                                priority: req.request.priority,
+                                scope: FairnessScope::new(
+                                    req.request.conversation_id,
+                                    req.request.agent_id,
+                                ),
+                                inherited: req.plan.inherited_class,
+                            };
+                            queue.push(facts, now_ms(), req);
+                            self.publish_fairness(&queue);
+                        }
                         None => input_closed = true,
                     }
                     prefer_input = false;
@@ -867,6 +1104,75 @@ impl Broker {
             }
         }
         info!("inference broker stopped");
+    }
+
+    /// Publish the dispatch loop's own queue state for
+    /// [`BrokerHandle::fairness`]. Reads stay wait-free for the loop: the lock
+    /// is held only for one counter copy.
+    fn publish_fairness(&self, queue: &DispatchQueue<Submission>) {
+        let counters = queue.counters();
+        *self.fairness.lock().expect("broker fairness poisoned") = counters;
+    }
+
+    /// Adopt the effective context window this loop enforces, from the same
+    /// discovery that produced the capability snapshot (§41.9). `None` restores
+    /// the unknown state, where admission stays advisory.
+    pub fn install_effective_window(&self, tokens: Option<u64>) {
+        *self.window_tokens.lock().expect("broker window poisoned") = tokens;
+    }
+
+    /// Take every queued-cancellation intent delivered so far.
+    fn take_pending_cancels(&self) -> Vec<(EntityId, oneshot::Sender<CancelQueued>)> {
+        std::mem::take(&mut *self.pending_cancels.lock().expect("broker cancels poisoned"))
+    }
+
+    /// Settle a request that provably never reached a provider.
+    ///
+    /// The durable receipt is written first, exactly like a dispatched request:
+    /// if it cannot be recorded the request becomes unknown debt instead of a
+    /// claimed success. No admission permit exists for it, so nothing is
+    /// released and the compute budget is untouched. Returns whether the
+    /// never-dispatched proof was durably recorded.
+    fn settle_cancelled(&self, submission: Submission) -> bool {
+        let Submission { request, receipt_sink, purpose, stream: _, plan: _ } = submission;
+        let request_id = request.request_id;
+        let result = InferenceResult {
+            request_id,
+            status: InferenceStatus::Cancelled,
+            response: None,
+            effective: crate::request::EffectiveInference::for_request(&request),
+            termination: TerminationEvidence::never_dispatched(),
+            purpose,
+            stream: None,
+            quota_headers: Vec::new(),
+        };
+        if let Some(sink) = receipt_sink {
+            if let Err(error) = sink.record(&result) {
+                warn!(request_id=%request_id, %error,
+                    "pre-dispatch cancellation not durably recorded; charge retained as unknown");
+                self.accounting
+                    .lock()
+                    .expect("broker accounting poisoned")
+                    .insert(request_id, Some(self.admission.recover_unknown()));
+                self.domain.quarantine(
+                    request_id,
+                    now_ms(),
+                    "cancelled before dispatch but its receipt was not recorded",
+                );
+                return false;
+            }
+        }
+        self.accounting
+            .lock()
+            .expect("broker accounting poisoned")
+            .remove(&request_id);
+        self.recovery_sources
+            .lock()
+            .expect("broker recovery sources poisoned")
+            .remove(&request_id);
+        self.domain.reconcile_debt(request_id);
+        let _ = request.result_tx.send(result);
+        true
     }
 }
 
@@ -970,6 +1276,7 @@ impl ProviderRuntime for OfflineRuntime {
 mod tests {
     use super::*;
     use crate::admission::{CapacityPool, CapacityProvenance};
+    use crate::policy::{PolicyCursor, QueuePressure, Tier};
     use crate::request::{
         InferenceMessage, InferencePayload, TokenUsage, WireErrorCode,
     };
@@ -1295,6 +1602,563 @@ mod tests {
         assert_eq!(handle.active_count(), 0);
         run.abort();
         let _ = run.await;
+    }
+
+    /// Submit one request with an explicit fairness identity, the way a durable
+    /// task tree does: descendants inherit their parent's conversation.
+    fn submit_identity(
+        handle: &BrokerHandle,
+        priority: InferencePriority,
+        agent: EntityId,
+        conversation: EntityId,
+    ) -> (EntityId, oneshot::Receiver<InferenceResult>) {
+        let request_id = EntityId::new();
+        let (result_tx, result_rx) = oneshot::channel();
+        handle
+            .submit(InferenceRequest {
+                request_id,
+                agent_id: agent,
+                conversation_id: conversation,
+                provider_binding: handle.binding().clone(),
+                priority,
+                epoch: ControllerEpoch(1),
+                payload: InferencePayload {
+                    system_prompt: String::new(),
+                    messages: vec![InferenceMessage::text("user", "fairness fixture")],
+                    max_tokens: Some(16),
+                    tools: vec![],
+                    native_options: BTreeMap::new(),
+                },
+                result_tx,
+            })
+            .unwrap();
+        (request_id, result_rx)
+    }
+
+    /// SPEC §41.9 bounded same-side service, observed through the whole broker:
+    /// with a subject backlog whose oldest request is older than every child
+    /// request, the ready child still gets the permit within two subject
+    /// generations. The latency comparison alone would serve the older backlog
+    /// to its end, which is what the bound exists to prevent.
+    #[tokio::test(flavor = "current_thread")]
+    async fn subject_burst_cannot_starve_a_ready_child_generation() {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .unwrap();
+        // One conversation is one line: recursive local children inherit it.
+        let conversation = EntityId::new();
+        let mut subjects = Vec::new();
+        let mut receipts = Vec::new();
+        for _ in 0..4 {
+            let (request_id, result_rx) = submit_identity(
+                &handle,
+                InferencePriority::Subject,
+                EntityId::new(),
+                conversation,
+            );
+            subjects.push(request_id);
+            receipts.push(result_rx);
+        }
+        let run = tokio::spawn(broker.run());
+        assert_eq!(
+            ControlledProvider::next_start(&mut starts).await.0,
+            subjects[0],
+            "the first subject generation opens the run"
+        );
+        // The rest of the backlog is queued and the broker is idle while the
+        // single permit is held, so the child arrives strictly later.
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let (child, child_rx) =
+            submit_identity(&handle, InferencePriority::Normal, EntityId::new(), EntityId::new());
+        receipts.push(child_rx);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        provider.gate.add_permits(1);
+
+        let mut order = vec![subjects[0]];
+        for _ in 0..4 {
+            order.push(ControlledProvider::next_start(&mut starts).await.0);
+            provider.gate.add_permits(1);
+        }
+        assert_eq!(
+            order,
+            vec![subjects[0], subjects[1], child, subjects[2], subjects[3]],
+            "the ready child runs after two subject generations, not after the backlog"
+        );
+
+        // The published counters describe the same run: both sides were served
+        // and the subject's queue wait was actually observed.
+        let fairness = handle.fairness();
+        assert_eq!(fairness.policy, "automatic.pressure-balanced");
+        assert_eq!(fairness.served(Tier::Subject), 4);
+        assert_eq!(fairness.served(Tier::Normal), 1);
+        assert!(
+            fairness.max_wait_ms[Tier::Subject.index()] >= 25,
+            "the subject backlog really waited: {fairness:?}"
+        );
+        assert!(fairness.consecutive_side <= 2, "{fairness:?}");
+
+        for receipt in receipts {
+            assert_eq!(
+                receipt.await.expect("request settles").status,
+                InferenceStatus::Success
+            );
+        }
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// Recursive task creation does not increase a line's fair share: three
+    /// agents of one conversation rotate as one line against another
+    /// conversation instead of taking three consecutive turns.
+    #[tokio::test(flavor = "current_thread")]
+    async fn recursive_child_tasks_share_one_lineage_turn() {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .unwrap();
+        // Hold the single permit so every child request is queued before any
+        // of them can be dispatched; otherwise the first request would be
+        // served alone and the rotation order would be unobservable.
+        let (holder, holder_rx) = submit_identity(
+            &handle,
+            InferencePriority::Subject,
+            EntityId::new(),
+            EntityId::new(),
+        );
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, holder);
+
+        let recursive_line = EntityId::new();
+        let other_line = EntityId::new();
+        let mut receipts = Vec::new();
+        let mut descendants = Vec::new();
+        for _ in 0..3 {
+            let (request_id, result_rx) = submit_identity(
+                &handle,
+                InferencePriority::Normal,
+                EntityId::new(),
+                recursive_line,
+            );
+            descendants.push(request_id);
+            receipts.push(result_rx);
+        }
+        let (other, other_rx) =
+            submit_identity(&handle, InferencePriority::Normal, EntityId::new(), other_line);
+        receipts.push(other_rx);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        provider.gate.add_permits(1);
+
+        let mut order = Vec::new();
+        for _ in 0..4 {
+            order.push(ControlledProvider::next_start(&mut starts).await.0);
+            provider.gate.add_permits(1);
+        }
+        assert_eq!(
+            order,
+            vec![descendants[0], other, descendants[1], descendants[2]],
+            "one conversation holds one turn however many agents it creates"
+        );
+        for receipt in std::iter::once(holder_rx).chain(receipts) {
+            assert_eq!(
+                receipt.await.expect("request settles").status,
+                InferenceStatus::Success
+            );
+        }
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// The dispatch algorithm is an installed policy, not a kernel constant:
+    /// replacing it changes the real broker's order and is reported back.
+    #[tokio::test(flavor = "current_thread")]
+    async fn installed_policy_replaces_the_default_order() {
+        struct LowFirst;
+        impl BrokerPolicy for LowFirst {
+            fn name(&self) -> &'static str {
+                "test.low-first"
+            }
+            fn choose(
+                &self,
+                pressure: &QueuePressure,
+                _cursor: &mut PolicyCursor,
+            ) -> Option<Tier> {
+                [Tier::Low, Tier::Normal, Tier::Subject, Tier::Urgent]
+                    .into_iter()
+                    .find(|tier| pressure.ready(*tier) > 0)
+            }
+        }
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime_and_policy(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+            Arc::new(LowFirst),
+        )
+        .unwrap();
+        let (low, low_rx) =
+            submit_identity(&handle, InferencePriority::Low, EntityId::new(), EntityId::new());
+        let (subject, subject_rx) = submit_identity(
+            &handle,
+            InferencePriority::Subject,
+            EntityId::new(),
+            EntityId::new(),
+        );
+        let run = tokio::spawn(broker.run());
+        let mut order = Vec::new();
+        for _ in 0..2 {
+            order.push(ControlledProvider::next_start(&mut starts).await.0);
+            provider.gate.add_permits(1);
+        }
+        assert_eq!(order, vec![low, subject]);
+        assert_eq!(handle.fairness().policy, "test.low-first");
+        for receipt in [low_rx, subject_rx] {
+            assert_eq!(
+                receipt.await.expect("request settles").status,
+                InferenceStatus::Success
+            );
+        }
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// Submit one request with an explicit fairness identity and plan.
+    fn submit_identity_planned(
+        handle: &BrokerHandle,
+        priority: InferencePriority,
+        agent: EntityId,
+        conversation: EntityId,
+        plan: DispatchPlan,
+    ) -> (EntityId, oneshot::Receiver<InferenceResult>) {
+        let request_id = EntityId::new();
+        let (result_tx, result_rx) = oneshot::channel();
+        handle
+            .submit_planned(
+                InferenceRequest {
+                    request_id,
+                    agent_id: agent,
+                    conversation_id: conversation,
+                    provider_binding: handle.binding().clone(),
+                    priority,
+                    epoch: ControllerEpoch(1),
+                    payload: InferencePayload {
+                        system_prompt: String::new(),
+                        messages: vec![InferenceMessage::text("user", "fairness plan fixture")],
+                        max_tokens: Some(16),
+                        tools: vec![],
+                        native_options: BTreeMap::new(),
+                    },
+                    result_tx,
+                },
+                plan,
+            )
+            .unwrap();
+        (request_id, result_rx)
+    }
+
+    /// One run: a holder keeps the single permit while eight unrelated child
+    /// lines queue up, then the target request joins the queue last. The target
+    /// either declares dependency inheritance or stays a plain child of a ninth
+    /// line. Returns the child dispatch order, the target identity and the
+    /// promotion count.
+    async fn child_order_with_promotion(promote: bool) -> (Vec<EntityId>, EntityId, u64) {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .unwrap();
+        let (holder, holder_rx) = submit_identity(
+            &handle,
+            InferencePriority::Subject,
+            EntityId::new(),
+            EntityId::new(),
+        );
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, holder);
+        let mut receipts = vec![holder_rx];
+        for _ in 0..8 {
+            let (_, receipt) = submit_identity(
+                &handle,
+                InferencePriority::Normal,
+                EntityId::new(),
+                EntityId::new(),
+            );
+            receipts.push(receipt);
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let plan = if promote {
+            DispatchPlan {
+                inherited_class: Some(InferencePriority::Subject),
+                window: None,
+            }
+        } else {
+            DispatchPlan::default()
+        };
+        let (target, target_rx) = submit_identity_planned(
+            &handle,
+            InferencePriority::Normal,
+            EntityId::new(),
+            EntityId::new(),
+            plan,
+        );
+        receipts.push(target_rx);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        provider.gate.add_permits(1);
+
+        let mut order = Vec::new();
+        for _ in 0..9 {
+            order.push(ControlledProvider::next_start(&mut starts).await.0);
+            provider.gate.add_permits(1);
+        }
+        let promoted = handle.fairness().promoted;
+        for receipt in receipts {
+            assert_eq!(
+                receipt.await.expect("request settles").status,
+                InferenceStatus::Success
+            );
+        }
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+        (order, target, promoted)
+    }
+
+    /// Dependency inheritance (§13.3 step 1) through the whole broker: the child
+    /// a parked subject-class task waits on joins the subject side, so it gets a
+    /// turn within the bounded side rotation instead of waiting out eight
+    /// unrelated child lines. The same request without inheritance is served
+    /// strictly last by rotation.
+    #[tokio::test(flavor = "current_thread")]
+    async fn dependency_inheritance_guarantees_the_parked_parents_child_a_turn() {
+        let (inherited_order, inherited_target, promoted) = child_order_with_promotion(true).await;
+        assert_eq!(promoted, 1, "exactly the declared dependency is promoted");
+        let inherited_position = inherited_order
+            .iter()
+            .position(|request| *request == inherited_target)
+            .expect("the inherited request is served");
+        assert!(
+            inherited_position <= 2,
+            "the parked parent's child is served within the bounded rotation: {inherited_order:?}"
+        );
+
+        let (plain_order, plain_target, promoted) = child_order_with_promotion(false).await;
+        assert_eq!(promoted, 0);
+        let plain_position = plain_order
+            .iter()
+            .position(|request| *request == plain_target)
+            .expect("the plain request is served");
+        assert_eq!(
+            plain_position, 8,
+            "without inheritance the ninth line waits for the whole rotation: {plain_order:?}"
+        );
+        assert!(inherited_position < plain_position);
+    }
+
+    /// §41.9 window admission: a measured request that does not fit is refused
+    /// before anything is enqueued, sent or charged, and the same request
+    /// identity stays usable afterwards.
+    #[tokio::test(flavor = "current_thread")]
+    async fn measured_window_overflow_is_refused_before_enqueue() {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .unwrap();
+        handle.install_effective_window(Some(100));
+        assert_eq!(handle.effective_window(), Some(100));
+        let run = tokio::spawn(broker.run());
+
+        let request_id = EntityId::new();
+        let (result_tx, _) = oneshot::channel();
+        let overflow = WindowAdmission {
+            input_tokens: 90,
+            output_reservation: 16,
+            overhead_tokens: 4,
+        };
+        assert_eq!(overflow.total(), 110);
+        let error = handle
+            .submit_planned(
+                InferenceRequest {
+                    request_id,
+                    agent_id: EntityId::new(),
+                    conversation_id: EntityId::new(),
+                    provider_binding: handle.binding().clone(),
+                    priority: InferencePriority::Subject,
+                    epoch: ControllerEpoch(1),
+                    payload: InferencePayload {
+                        system_prompt: String::new(),
+                        messages: vec![InferenceMessage::text("user", "window fixture")],
+                        max_tokens: Some(16),
+                        tools: vec![],
+                        native_options: BTreeMap::new(),
+                    },
+                    result_tx,
+                },
+                DispatchPlan { inherited_class: None, window: Some(overflow) },
+            )
+            .unwrap_err();
+        assert!(BrokerHandle::never_enqueued(&error), "{error}");
+        assert_eq!(handle.active_count(), 0);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), starts.recv())
+                .await
+                .is_err(),
+            "a refused request never reaches the provider"
+        );
+
+        // The refused identity was never charged, so the same id is still
+        // admissible with a fitting measurement.
+        let (result_tx, result_rx) = oneshot::channel();
+        handle
+            .submit_planned(
+                InferenceRequest {
+                    request_id,
+                    agent_id: EntityId::new(),
+                    conversation_id: EntityId::new(),
+                    provider_binding: handle.binding().clone(),
+                    priority: InferencePriority::Subject,
+                    epoch: ControllerEpoch(1),
+                    payload: InferencePayload {
+                        system_prompt: String::new(),
+                        messages: vec![InferenceMessage::text("user", "window fixture")],
+                        max_tokens: Some(16),
+                        tools: vec![],
+                        native_options: BTreeMap::new(),
+                    },
+                    result_tx,
+                },
+                DispatchPlan {
+                    inherited_class: None,
+                    window: Some(WindowAdmission {
+                        input_tokens: 60,
+                        output_reservation: 16,
+                        overhead_tokens: 4,
+                    }),
+                },
+            )
+            .expect("the fitting request is admitted");
+        assert_eq!(
+            ControlledProvider::next_start(&mut starts).await.0,
+            request_id
+        );
+        provider.gate.add_permits(1);
+        assert_eq!(
+            result_rx.await.expect("request settles").status,
+            InferenceStatus::Success
+        );
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// While no window has been measured the broker must not invent one: an
+    /// unmeasured or "fits anything" request is admitted on advisement.
+    #[tokio::test(flavor = "current_thread")]
+    async fn unknown_window_keeps_admission_advisory() {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(handle.effective_window(), None);
+        let (request, result_rx) = submit_identity_planned(
+            &handle,
+            InferencePriority::Subject,
+            EntityId::new(),
+            EntityId::new(),
+            DispatchPlan {
+                inherited_class: None,
+                window: Some(WindowAdmission {
+                    input_tokens: u64::MAX,
+                    output_reservation: 0,
+                    overhead_tokens: 0,
+                }),
+            },
+        );
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, request);
+        provider.gate.add_permits(1);
+        assert_eq!(
+            result_rx.await.expect("request settles").status,
+            InferenceStatus::Success
+        );
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// A queued request can be settled as `cancelled before dispatch` without
+    /// consuming a generation: the provider never sees it, the caller gets
+    /// explicit never-dispatched evidence, and no capacity stays charged.
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancel_queued_settles_never_dispatched() {
+        let (provider, mut starts) = ControlledProvider::new();
+        let (broker, handle) = Broker::with_runtime(
+            provider.clone(),
+            default_domain(AdmissionController::new(1)).unwrap(),
+        )
+        .unwrap();
+        let (holder, holder_rx) = submit_identity(
+            &handle,
+            InferencePriority::Subject,
+            EntityId::new(),
+            EntityId::new(),
+        );
+        let run = tokio::spawn(broker.run());
+        assert_eq!(ControlledProvider::next_start(&mut starts).await.0, holder);
+        let (queued, queued_rx) = submit_identity(
+            &handle,
+            InferencePriority::Normal,
+            EntityId::new(),
+            EntityId::new(),
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(handle.fairness().queued[Tier::Normal.index()], 1);
+
+        assert_eq!(handle.cancel_queued(queued).await, CancelQueued::Settled);
+        let settled = tokio::time::timeout(Duration::from_secs(2), queued_rx)
+            .await
+            .expect("the caller learns the outcome")
+            .expect("the result channel is delivered");
+        assert_eq!(settled.status, InferenceStatus::Cancelled);
+        assert_eq!(settled.termination.kind, TerminationKind::NeverDispatched);
+        assert_eq!(handle.fairness().queued, [0; 4]);
+        assert_eq!(handle.active_count(), 1, "only the holder holds a permit");
+
+        // Releasing the holder ends the run: the cancelled request never
+        // reaches the provider.
+        provider.gate.add_permits(1);
+        assert_eq!(
+            holder_rx.await.expect("holder settles").status,
+            InferenceStatus::Success
+        );
+        drop(handle);
+        tokio::time::timeout(Duration::from_secs(2), run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(starts.try_recv().is_err(), "no generation was spent on the cancellation");
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1673,6 +2537,7 @@ mod tests {
                 .submit_stream(
                     BrokeredCall {
                         purpose: RequestPurpose::Subject,
+                        plan: DispatchPlan::default(),
                         request: InferenceRequest {
                             request_id,
                             agent_id: EntityId::new(),

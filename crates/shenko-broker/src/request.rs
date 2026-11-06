@@ -292,11 +292,61 @@ impl RequestPurpose {
     }
 }
 
-/// A controlled call with its declared purpose. The request itself is
-/// unchanged, so existing callers keep constructing it exactly as before.
+/// Scheduler-facing facts a caller knows at the seal boundary.
+///
+/// They never change the sealed request, the wire bytes or the provider-facing
+/// priority, and they are not durable facts: a caller stops declaring an
+/// inherited class the moment its parent stops waiting. [`Default`] is the
+/// behaviour every existing caller already had.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DispatchPlan {
+    /// Dependency inheritance (§13.3 step 1, §41.9). The class of the durable
+    /// task that cannot progress until this generation completes. A parked
+    /// parent would otherwise wait behind unrelated work that merely happens
+    /// to be queued, while the parent keeps a worker seat and a deadline.
+    pub inherited_class: Option<InferencePriority>,
+    /// The window cost of this request measured by the sealing side's own
+    /// tokenizer. `None` means the caller cannot measure it, which keeps
+    /// admission advisory for that request instead of inventing a number.
+    pub window: Option<WindowAdmission>,
+}
+
+/// The three costs an effective-window admission check charges (§41.9).
+///
+/// Every part must come from the sealing side's real tokenizer and real
+/// template/tool/multimodal accounting; the broker never estimates text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowAdmission {
+    /// Tokens the rendered prompt really occupies.
+    pub input_tokens: u64,
+    /// Output budget reserved for this generation.
+    pub output_reservation: u64,
+    /// Template, tool-schema and multimodal cost charged to the same window.
+    pub overhead_tokens: u64,
+}
+
+impl WindowAdmission {
+    pub fn total(&self) -> u64 {
+        self.input_tokens
+            .saturating_add(self.output_reservation)
+            .saturating_add(self.overhead_tokens)
+    }
+}
+
+/// A controlled call with its declared purpose and scheduler plan. The request
+/// itself is unchanged, so existing callers keep constructing it exactly as
+/// before through [`BrokeredCall::new`].
 pub struct BrokeredCall {
     pub purpose: RequestPurpose,
     pub request: InferenceRequest,
+    pub plan: DispatchPlan,
+}
+
+impl BrokeredCall {
+    /// A call with no dependency inheritance and no measured window cost.
+    pub fn new(purpose: RequestPurpose, request: InferenceRequest) -> Self {
+        Self { purpose, request, plan: DispatchPlan::default() }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

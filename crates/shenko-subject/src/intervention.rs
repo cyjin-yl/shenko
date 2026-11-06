@@ -1166,8 +1166,12 @@ impl PmaEvaluateHandler {
                 };
                 if let Err(error) = broker.submit_recorded(inference_request, sink) {
                     // An admission error is not authority to reinterpret an
-                    // armed identity as safe to replay.
-                    broker.recover_unknown(request_id);
+                    // armed identity as safe to replay. A proven pre-enqueue
+                    // refusal created no work, no send and no charge, so it
+                    // must not become unknown capacity debt either.
+                    if !BrokerHandle::never_enqueued(&error) {
+                        broker.recover_unknown(request_id);
+                    }
                     return Err(error);
                 }
                 let result = result_rx

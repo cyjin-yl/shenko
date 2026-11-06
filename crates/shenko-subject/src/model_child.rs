@@ -32,11 +32,12 @@ use cordis_core::Context;
 use serde::{Deserialize, Serialize};
 use shenko_context_policy::{ContributionPlan, ContributionRegistry, ContributionScope, ContributionUsage};
 use shenko_broker::{
-    broker::{BrokerHandle, DispatchFence, InferenceReceiptSink, InferenceRecoverySource},
+    broker::{BrokerHandle, CancelQueued, DispatchFence, InferenceReceiptSink, InferenceRecoverySource},
     request::*,
 };
 use shenko_store::{
     Store, TaskInvocation,
+    child::NATIVE_DISPATCH,
     external::{
         InferenceSendBinding, MODEL_CHILD_KIND as STORE_MODEL_CHILD_KIND,
         MODEL_CHILD_RESULT_OPERATION, MODEL_CHILD_STEP_OPERATION,
@@ -459,6 +460,92 @@ fn plugin_id() -> EntityId {
         .expect("fixed model child plugin UUID")
 }
 
+/// How often the waiting step rereads the durable abort fence.
+///
+/// This is a deterministic ledger read of one row, not a provider probe and not
+/// a substitute for the subject's own thinking. A child has no in-process
+/// cancellation token: its durable abort may be committed by another owner or
+/// seat, so the ledger is the authority (§13.4).
+const STEP_ABORT_POLL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// The class of the durable task that cannot progress until this generation
+/// completes (§13.3 step 1, §41.9), or `None` when nothing is parked on it.
+///
+/// Only a genuinely parked parent is inherited, and the decision is read from
+/// the ledger at dispatch time so it withdraws as soon as the parent is gone:
+///
+/// * a child declared by a subject step belongs to the subject root task, and
+///   the subject keeps stepping while the child runs — nothing is parked;
+/// * a child created by another child's tool call is different: its parent
+///   worker is inside that call and cannot progress until this run returns.
+///
+/// The external interruption tier is never inherited; the dispatch queue also
+/// clamps an inherited class to the subject tier.
+fn parked_parent_class(store: &Store, task: &TaskRecord) -> Option<InferencePriority> {
+    let TaskOwner::Task { id } = &task.owner else {
+        return None;
+    };
+    let parent_id = *id;
+    // A self-owned task is the top of the wait chain.
+    if parent_id == task.task_id {
+        return None;
+    }
+    let head = store.load_subject(task.agent_id).ok()?.0;
+    if parent_id == head.subject_root_task_id {
+        return None;
+    }
+    let parent = store.external_task(parent_id).ok()?;
+    if parent.abort_request.is_some() || parent.is_terminal() {
+        return None;
+    }
+    matches!(parent.state, TaskState::Running { .. }).then_some(InferencePriority::Subject)
+}
+
+/// Wait for a durable abort request on this task.
+///
+/// Returns when the ledger records the abort fence; it never invents one and
+/// never contacts a provider. The caller decides what the fence permits.
+async fn step_abort_watch(store: &Store, task_id: EntityId) -> Result<()> {
+    loop {
+        if store.external_task(task_id)?.abort_request.is_some() {
+            return Ok(());
+        }
+        tokio::time::sleep(STEP_ABORT_POLL).await;
+    }
+}
+
+/// Positive proof that this child step never crossed its send boundary.
+///
+/// A refusal decided before enqueue (window or quota) leaves the attempt
+/// `Armed` and writes no dispatch commit. Such a step has no outcome to
+/// recover and must not become unknown capacity debt on reopen; an attempt with
+/// a commit — or with an unreadable old marker that does not identify its send
+/// — is not covered and keeps the existing unknown-debt path.
+fn proven_never_dispatched(
+    task: &TaskRecord,
+    attempt: &AttemptRecord,
+    operation: &OperationRecord,
+) -> bool {
+    if operation.state == OperationState::Resolved
+        || attempt.dispatch_stage != AttemptDispatchStage::Armed
+        || attempt.final_receipt_id.is_some()
+    {
+        return false;
+    }
+    match task.memos.get(NATIVE_DISPATCH) {
+        None => true,
+        Some(marker) => match (
+            marker.get("schema_version").and_then(|value| value.as_u64()),
+            marker.get("attempts"),
+        ) {
+            (Some(2), Some(attempts)) => {
+                attempts.get(&attempt.attempt_id.to_string()).is_none()
+            }
+            _ => false,
+        },
+    }
+}
+
 /// The delegation grammar the subject reads.
 ///
 /// The outbound authority is described by the versioned publication target
@@ -649,6 +736,14 @@ impl ModelChildHandler {
                 let step = read_step(&store, &operation.final_input_ref)?;
                 if let (Some(registry), Some(usage)) = (&registry, step.contribution_usage(operation.task_id, &operation.final_input_ref)?) {
                     registry.record_usage(usage)?;
+                }
+                // A step that provably never crossed its send boundary owns no
+                // outcome to recover: registering it would quarantine capacity
+                // for a generation that never existed.
+                let task = store.external_task(operation.task_id)?;
+                if proven_never_dispatched(&task, &attempt, operation) {
+                    after = Some(operation.operation_id);
+                    continue;
                 }
                 broker.register_recovered(Arc::new(RecoveryReceipt {
                     store: Arc::clone(&store),
@@ -1427,15 +1522,53 @@ impl ModelChildHandler {
             payload: step.payload.clone(),
             result_tx,
         };
-        if let Err(error) = broker.submit_recorded(request, sink) {
-            // A generic admission error is not authority to reinterpret an
-            // already armed identity as safe to replay (it may be a duplicate).
-            broker.recover_unknown(request_id);
+        // §13.4/§41.9: the sealed payload's own measured cost, plus the class
+        // of a parent that is genuinely parked on this generation. Both facts
+        // are read here, so nothing is inherited once the parent is gone.
+        let plan = DispatchPlan {
+            inherited_class: parked_parent_class(&self.store, &invocation.task),
+            window: crate::context_projection::estimate_payload_tokens(&step.payload, 0)
+                .and_then(|tokens| {
+                    crate::context_projection::window_admission(
+                        &step.payload,
+                        u64::from(tokens),
+                        contract.max_tokens,
+                    )
+                }),
+        };
+        if let Err(error) = broker.submit_recorded_planned(request, sink, plan) {
+            if !BrokerHandle::never_enqueued(&error) {
+                // A generic admission error is not authority to reinterpret an
+                // already armed identity as safe to replay (it may be a duplicate).
+                broker.recover_unknown(request_id);
+            }
+            // A proven pre-enqueue refusal created no work, no send and no
+            // charge, so it must not become unknown capacity debt either.
             return Err(error);
         }
-        let result = result_rx
-            .await
-            .context("model child step outcome not durably settled; reconcile original attempt")?;
+        // A durable abort of this task while the generation is still queued
+        // asks the broker to settle it as cancelled before dispatch. Only
+        // `Settled` proves the generation never left; every other answer stays
+        // on the ordinary reconcile path and is never reported as cancelled.
+        let result = tokio::select! {
+            biased;
+            result = result_rx => result
+                .context("model child step outcome not durably settled; reconcile original attempt")?,
+            abort = step_abort_watch(&self.store, contract.task_id) => {
+                abort?;
+                match broker.cancel_queued(request_id).await {
+                    CancelQueued::Settled => {
+                        anyhow::bail!("model child step settled never-dispatched before dispatch; the sealed step stays resumable")
+                    }
+                    CancelQueued::NotQueued => {
+                        anyhow::bail!("model child step already left the queue; reconcile the original attempt")
+                    }
+                    CancelQueued::Unanswered => {
+                        anyhow::bail!("queued model child cancellation was not answered; reconcile the original attempt")
+                    }
+                }
+            }
+        };
         ensure!(
             result.request_id == request_id,
             "model child step result identity mismatch"
