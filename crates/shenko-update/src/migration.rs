@@ -76,6 +76,10 @@ pub fn import_delta(source_db: &Path, target_db: &Path, cas_dir: &Path) -> Resul
         // Stable source identity binds Store's baselines and exact repeated
         // imports; retries never create a fresh replication relationship.
         peer_id: Some(source.ledger.ledger_id()),
+        // The declared same-installation handover is the only import that may
+        // adopt local control facts (the scope's pending/answered rollover
+        // request). A peer import cannot.
+        local_control_handover: true,
     })?;
     let mut blocked_units = outcome.gaps.iter().filter(|gap| gap.blocking)
         .map(|gap| format!("{}: {}", gap.kind, gap.detail)).collect::<Vec<_>>();

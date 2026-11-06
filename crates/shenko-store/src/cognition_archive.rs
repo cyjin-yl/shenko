@@ -41,6 +41,12 @@ pub const ARCHIVE_MAGIC: &str = "shenko-cognition-archive/1";
 /// Schema 6 requires the exact S1 terminal obligation settlement and its
 /// original creation, parsed control, policy, S0 and projection binding.
 /// Readers through schema 5 cannot acknowledge these required semantics.
+/// Schema 6 also carries the authored note journal (`context_notes`) as a
+/// declared fact class; a reader that knows the schema but not the class
+/// refuses the archive whole at manifest validation, so an older binary can
+/// never acknowledge a snapshot whose authored notes it would drop. The
+/// scope's local rollover control facts are declared only by the declared
+/// same-installation handover, never by a peer snapshot.
 pub const ARCHIVE_SCHEMA: u32 = 6;
 
 /// One replicated table row.

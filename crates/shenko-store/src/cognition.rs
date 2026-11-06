@@ -181,6 +181,12 @@ pub struct CognitionSnapshotOptions {
     /// paused head is a snapshot the receiver is equipped to carry, never a
     /// stranded one. Peer replication must leave this unset — a peer archive
     /// cannot deliver a local boundary safely.
+    ///
+    /// The same opt-in also governs local control facts: only a handover
+    /// snapshot declares and carries `context_rollover_requests`, because a
+    /// pending request belongs to the installation that owns the scope. A
+    /// peer snapshot therefore never carries a fact that could arm or answer
+    /// a local rollover.
     pub local_boundary_preserved: bool,
 }
 
@@ -204,6 +210,14 @@ pub struct CognitionImportOptions {
     pub workspace_root: Option<PathBuf>,
     /// The peer that sent the snapshot.
     pub peer_id: Option<EntityId>,
+    /// The caller declares this archive the same-installation handover (the
+    /// A/B catch-up), not a peer replication. Only then may the archive
+    /// carry and install local control facts (the scope's rollover
+    /// request). The claim is never read from the archive: a peer archive
+    /// cannot make itself authoritative over this installation's context
+    /// boundaries. Peer importers leave this false, so an archive that
+    /// declares the control class is refused whole.
+    pub local_control_handover: bool,
 }
 
 /// What an export produced.
@@ -456,6 +470,20 @@ enum RowKind {
     /// forward along the ladder and never backward; a terminal state is
     /// never rewritten.
     Ladder,
+    /// An append-only fact. A revision this store already holds is never
+    /// rewritten: an archive that carries different bytes for the same
+    /// immutable identity is a divergence to keep on both sides, not a
+    /// newer value (SPEC §12.3.1 authored note revisions, §51.1 immutable
+    /// content: re-reading under a newer definition never rewrites the
+    /// stored bytes, and revision history is never truncated).
+    Immutable,
+    /// A local control projection (the scope's rollover request row). It is
+    /// adopted only by the declared same-installation handover and never by
+    /// peer replication, so a peer cannot arm a rollover, mark one answered
+    /// or rewind an answered one. It is a kernel mechanism fact (SPEC
+    /// §51.3), not an attitude and not a `PendingObligation`; §51.9 renames
+    /// the loop's obligation record, not this context boundary request.
+    RolloverControl,
 }
 
 /// One replicated table.
@@ -916,6 +944,61 @@ const TABLES: &[TableSpec] = &[
         columns: &["window_id", "scope_id", "generation", "body", "commit_seq"],
         local_seq: None,
         kind: RowKind::Verbatim,
+    },
+    // Authored working-note journal (SPEC §12.3.1, §51.1/§51.4): every
+    // revision of one branch scope, including a clearing revision, so a
+    // reset stays a recorded fact and an older note never resurfaces after
+    // recovery. Revisions are append-only and keep their exact numbers; the
+    // recovery closure carries every one of them, because the installed
+    // taste projection may hide old revisions behind a count and latest
+    // modification time, but nothing may delete them. The journal of one
+    // scope is ONE conflict unit (`note/…`): a divergent revision refuses
+    // the whole incoming tail instead of grafting a journal that never
+    // existed on either side. Content/attitude/reason storage itself is
+    // owned by one shared contract: this table is the recovery carrier for
+    // the authored revisions, never a second content store.
+    //
+    // The canonical §51 content contract replaces `body` with an
+    // ObjectRef-or-digest reference to registered content plus a nullable
+    // canonical reason pointer; the (scope_id, revision) identity and the
+    // insert-only rule above do not change. Because a body that already
+    // exists must never be lost, the swap is only admissible together with a
+    // recorded ingest that registers each inline `body` as content before the
+    // column turns into a reference; a name-only column migration that drops
+    // note bytes is refused as blocking (see `migrate_legacy_rows`).
+    //
+    // A later reference/reason backfill must not UPDATE a historical
+    // revision row: this reader treats the whole row as the immutable fact of
+    // that revision, so an in-place backfill would make the same identity
+    // differ across archives and turn every upgraded snapshot into a
+    // conflict. Either the reference is part of the row from its first
+    // write, or it is appended as its own insert-only mapping row; the
+    // recovery claim then stays true that no revision row is rewritten.
+    TableSpec {
+        name: "context_notes",
+        key: &["scope_id", "revision"],
+        columns: &[
+            "scope_id",
+            "revision",
+            "body",
+            "source",
+            "written_at_ms",
+            "visible",
+        ],
+        local_seq: None,
+        kind: RowKind::Immutable,
+    },
+    // The scope's armed/answered rollover request. Local control state, not
+    // peer data: it travels only inside the declared same-installation
+    // handover (`local_boundary_preserved` on export and
+    // `local_control_handover` on import), so peer replication can neither
+    // arm a rollover nor answer one.
+    TableSpec {
+        name: "context_rollover_requests",
+        key: &["scope_id"],
+        columns: &["scope_id", "request_id", "requested_at_ms", "consumed_window"],
+        local_seq: None,
+        kind: RowKind::RolloverControl,
     },
     // Research cognition: one epoch, its candidates, intervention bank
     // entries and reminders form ONE conflict unit (`epoch/…`); tombstones
@@ -1481,7 +1564,7 @@ impl Store {
         let git_history = collected.git_history.clone();
         let manifest = CognitionManifest {
             schema: crate::cognition_archive::ARCHIVE_SCHEMA,
-            fact_classes: local_fact_classes(),
+            fact_classes: local_fact_classes(options.local_boundary_preserved),
             fingerprint,
             source_ledger_id: self.ledger.ledger_id(),
             source_incarnation: self.capabilities.incarnation,
@@ -1565,6 +1648,29 @@ impl Store {
         // The archive's membership is checked against this reader's own
         // classes before a single row is applied.
         check_archive_membership(&manifest)?;
+        // Local control facts belong to the installation that owns the
+        // scope. Only the declared same-installation handover may carry or
+        // adopt them; a peer archive that declares the class is refused
+        // whole before any row, file, baseline or watermark is published.
+        if !options.local_control_handover {
+            let control: Vec<&str> = manifest
+                .fact_classes
+                .iter()
+                .map(String::as_str)
+                .chain(manifest.rows.iter().map(|row| row.table.as_str()))
+                .filter(|name| LOCAL_CONTROL_CLASSES.contains(name))
+                .collect();
+            ensure!(
+                control.is_empty(),
+                "cognition snapshot declares local control fact class {}; only the declared same-installation handover may carry it",
+                {
+                    let mut names = control;
+                    names.sort_unstable();
+                    names.dedup();
+                    names.join(", ")
+                }
+            );
+        }
         // A legacy archive is migrated to the current column layout first:
         // the layout only grew, so the migration is by name and keeps every
         // fact's identity.
@@ -1581,6 +1687,8 @@ impl Store {
         gaps.extend(memory_intent_binding_gaps(&manifest.rows));
         gaps.extend(crate::media::media_recovery_gaps(&manifest.rows));
         gaps.extend(archive_membership_gaps(&manifest.rows));
+        gaps.extend(context_note_journal_gaps(&manifest.rows));
+        gaps.extend(context_rollover_answer_gaps(&manifest.rows));
         gaps.extend(self.verify_manifest_closure(&manifest));
         let blocking: Vec<String> = gaps
             .iter()
@@ -1991,6 +2099,8 @@ impl Store {
         // export must say so instead of shipping an archive that claims
         // recoverability.
         gaps.extend(archive_membership_gaps(&rows));
+        gaps.extend(context_note_journal_gaps(&rows));
+        gaps.extend(context_rollover_answer_gaps(&rows));
         if let Err(error) = self.validate_obligation_rows(&rows) {
             gaps.push(CognitionGap { kind: "obligation_required_fact".into(), detail: error.to_string(), blocking: true });
         }
@@ -2121,6 +2231,11 @@ impl Store {
         };
         let mut rows: Vec<CognitionRow> = Vec::new();
         for spec in TABLES {
+            // Local control state leaves the installation only with the
+            // complete paused boundary the handover installs separately.
+            if !local_boundary_preserved && LOCAL_CONTROL_CLASSES.contains(&spec.name) {
+                continue;
+            }
             rows.extend(read_table(&tx, spec)?);
         }
         let derivatives = read_derivatives(&tx)?;
@@ -2388,11 +2503,33 @@ impl Store {
                 let mut task_owned_rows = HashSet::new();
                 let mut semantic_units_applied = false;
                 let mut unit_owned_rows: HashSet<(&str, &str)> = HashSet::new();
+                let mut rollover_controls_applied = false;
                 for row in &ordered {
                     if matches!(row.table.as_str(), "media_streams" | "media_stream_ends" | "media_segment_revisions"
                         | "media_recordings" | "media_recording_controls" | "media_priority_inputs")
                         || (row.table == "inbox_events" && media_events.contains(row.key.as_str()))
                     {
+                        continue;
+                    }
+                    // Local control state is never a peer fact. The declared
+                    // handover is the only caller allowed to deliver it, and
+                    // the request identity — not arrival order — decides
+                    // whether the local projection may advance.
+                    if row.table == "context_rollover_requests" {
+                        if !rollover_controls_applied {
+                            ensure!(
+                                options.local_control_handover,
+                                "local rollover control facts cannot be installed from a peer archive"
+                            );
+                            let outcome = apply_rollover_controls(
+                                &tx, &ordered, peer_id, seq, manifest,
+                            )?;
+                            inserted += outcome.inserted;
+                            updated += outcome.updated;
+                            unchanged += outcome.unchanged;
+                            conflicts.extend(outcome.conflicts);
+                            rollover_controls_applied = true;
+                        }
                         continue;
                     }
                     if !memory_applied && matches!(row.table.as_str(), "memory_entries" | "memory_intents" | "memory_intent_bindings") {
@@ -3568,12 +3705,27 @@ fn spec_for(table: &str) -> Option<&'static TableSpec> {
 
 /// The fact classes this reader replicates: the membership every archive
 /// this build writes declares.
-fn local_fact_classes() -> Vec<String> {
-    let mut names: Vec<String> = TABLES.iter().map(|spec| spec.name.to_string()).collect();
+///
+/// Local control classes are declared only by the declared same-installation
+/// handover: a peer snapshot must not even claim to have taken them from the
+/// store, because the receiver may not adopt them.
+fn local_fact_classes(local_handover: bool) -> Vec<String> {
+    let mut names: Vec<String> = TABLES
+        .iter()
+        .filter(|spec| {
+            local_handover || !LOCAL_CONTROL_CLASSES.contains(&spec.name)
+        })
+        .map(|spec| spec.name.to_string())
+        .collect();
     names.sort();
     names.dedup();
     names
 }
+
+/// Fact classes that are local control state rather than peer data. They are
+/// carried (and declared) only inside the declared same-installation
+/// handover; peer replication neither exports nor accepts them.
+const LOCAL_CONTROL_CLASSES: &[&str] = &["context_rollover_requests"];
 
 /// The archive's membership must be a membership this reader knows, and
 /// every row must belong to it. An archive naming an unknown class, or
@@ -3614,7 +3766,19 @@ fn check_archive_membership(manifest: &CognitionManifest) -> Result<()> {
 /// ever grew: a legacy row has no value for the columns this schema added,
 /// so the migration is by NAME and every fact keeps its identity. A legacy
 /// column this schema no longer knows is reported as a non-blocking gap
-/// instead of disappearing silently.
+/// instead of disappearing silently — unless the dropped column carried
+/// authored note content. Note bytes are immutable content (SPEC §51.1,
+/// §51.4): a column migration may not shorten the journal, so that case is
+/// refused whole and the bytes must first be imported under the recorded
+/// content-addressed migration instead of being discarded.
+///
+/// The admissible exception is the canonical INSERT-only legacy mapping
+/// (`cognition_legacy_content(source_table, source_key, content_digest, …)`
+/// plus the carried content object): a dropped note content column is only
+/// acceptable when that mapping row names the note key and its digest
+/// resolves inside the same archive. That class is not declared in `TABLES`
+/// yet, so the exception is not implemented here — adding it before the
+/// class exists would silently weaken this guard.
 fn migrate_legacy_rows(manifest: &mut CognitionManifest) -> Vec<CognitionGap> {
     let mut gaps = Vec::new();
     for row in &mut manifest.rows {
@@ -3637,15 +3801,28 @@ fn migrate_legacy_rows(manifest: &mut CognitionManifest) -> Vec<CognitionGap> {
             .map(|(name, _)| name.clone())
             .collect();
         if !dropped.is_empty() {
+            // Identity columns may be reshaped; authored payload may not be
+            // lost. `body` is today's content column of a note revision; any
+            // future content-ref swap has to ingest the legacy bytes first.
+            let lost_content = row.table == "context_notes"
+                && row.values.iter().any(|(name, value)| {
+                    dropped.iter().any(|dropped| dropped == name)
+                        && !matches!(name.as_str(), "scope_id" | "revision")
+                        && value.is_some()
+                });
             gaps.push(CognitionGap {
-                kind: "migrated_legacy_column".into(),
+                kind: if lost_content {
+                    "dropped_note_content".into()
+                } else {
+                    "migrated_legacy_column".into()
+                },
                 detail: format!(
                     "{} {} carried legacy columns {}",
                     row.table,
                     row.key,
                     dropped.join(", ")
                 ),
-                blocking: false,
+                blocking: lost_content,
             });
         }
         row.values = values;
@@ -3706,6 +3883,14 @@ const FACT_CLASS_ANCHORS: &[(&str, &str, &str, &str)] = &[
     ("media_priority_inputs", "media_streams", "stream_key", "stream_key"),
     ("artifact_manifests", "artifact_records", "artifact_id", "artifact_id"),
     ("artifact_runtime_instances", "artifact_records", "artifact_id", "artifact_id"),
+    // An answered rollover request names the committed window that answered
+    // it: the audit cannot travel without the window it points at.
+    (
+        "context_rollover_requests",
+        "context_windows",
+        "consumed_window",
+        "window_id",
+    ),
 ];
 
 /// The REQUIRED-fact closure of an archive: every member row must find its
@@ -3843,6 +4028,119 @@ fn archive_membership_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
             gaps.push(CognitionGap {
                 kind: "missing_origin_event".into(),
                 detail: format!("obligation {} names origin event {}", row.key, origin),
+                blocking: true,
+            });
+        }
+    }
+    gaps
+}
+
+/// The note sources this reader interprets. A journal row carrying any other
+/// label is not a note this build can read, so an archive that carries one
+/// is incomplete rather than partially understood. The label is provenance
+/// of the journal entry (who wrote this revision), not a §51 knowledge-kind
+/// boundary: §51.1/§51.9 keep knowledge kinds as free, learnable hints.
+const CONTEXT_NOTE_SOURCES: &[&str] = &["tool", "reset", "fork", "bootstrap"];
+
+/// The authored note journal is append-only per scope: revisions form a
+/// contiguous chain from 1 to the scope's head, and each revision keeps its
+/// own source label. A hole would let recovery present a journal that never
+/// existed — a later revision number over a missing history, or a clear with
+/// the revisions it superseded absent — and an unknown label would make the
+/// typed reader refuse a row the transfer already acknowledged. Both are
+/// blocking facts of the archive, not annotations on it. Retaining every
+/// revision is the §51.4 contract: a projection may default to "old version
+/// count + latest modification time", but recovery may not drop the
+/// historical revisions that projection counts. Content deduplication and
+/// revision authoring stay with the writer; this reader only refuses a
+/// journal it cannot recover completely.
+fn context_note_journal_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
+    let mut gaps = Vec::new();
+    let mut journals: BTreeMap<&str, Vec<i64>> = BTreeMap::new();
+    for row in rows.iter().filter(|row| row.table == "context_notes") {
+        let scope = row.value("scope_id").unwrap_or_default();
+        let source = row.value("source").unwrap_or_default();
+        if !CONTEXT_NOTE_SOURCES.contains(&source) {
+            gaps.push(CognitionGap {
+                kind: "unknown_note_source".into(),
+                detail: format!(
+                    "note revision {} of scope {} carries source label {:?} this reader does not interpret",
+                    row.value("revision").unwrap_or_default(),
+                    scope,
+                    source
+                ),
+                blocking: true,
+            });
+        }
+        let Some(revision) = row.value("revision").and_then(|value| value.parse::<i64>().ok())
+        else {
+            gaps.push(CognitionGap {
+                kind: "invalid_note_revision".into(),
+                detail: format!(
+                    "note {} of scope {} carries revision {:?}",
+                    row.key,
+                    scope,
+                    row.value("revision")
+                ),
+                blocking: true,
+            });
+            continue;
+        };
+        if revision < 1 {
+            gaps.push(CognitionGap {
+                kind: "invalid_note_revision".into(),
+                detail: format!("note revision {revision} of scope {scope} is not positive"),
+                blocking: true,
+            });
+            continue;
+        }
+        journals.entry(scope).or_default().push(revision);
+    }
+    for (scope, mut revisions) in journals {
+        revisions.sort_unstable();
+        let mut expected = 1i64;
+        for revision in revisions {
+            if revision != expected {
+                gaps.push(CognitionGap {
+                    kind: "missing_note_revision".into(),
+                    detail: format!(
+                        "note journal of scope {scope} jumps from {} to {revision}; expected revision {expected}",
+                        expected.saturating_sub(1)
+                    ),
+                    blocking: true,
+                });
+            }
+            expected = revision.saturating_add(1);
+        }
+    }
+    gaps
+}
+
+/// An answered rollover request names the committed window that answered it,
+/// and that window must belong to the same scope. A window of another scope
+/// would rewrite the audit of a boundary this request never cut, and a
+/// missing window is already a blocking `missing_anchor`.
+fn context_rollover_answer_gaps(rows: &[CognitionRow]) -> Vec<CognitionGap> {
+    let scopes: HashMap<&str, &str> = rows
+        .iter()
+        .filter(|row| row.table == "context_windows")
+        .filter_map(|row| Some((row.value("window_id")?, row.value("scope_id")?)))
+        .collect();
+    let mut gaps = Vec::new();
+    for row in rows.iter().filter(|row| row.table == "context_rollover_requests") {
+        let Some(window) = row.value("consumed_window") else {
+            continue;
+        };
+        let Some(window_scope) = scopes.get(window) else {
+            continue;
+        };
+        if Some(*window_scope) != row.value("scope_id") {
+            gaps.push(CognitionGap {
+                kind: "cross_scope_rollover_answer".into(),
+                detail: format!(
+                    "rollover request of scope {:?} names window {window} of scope {window_scope}",
+                    row.value("scope_id")
+                ),
                 blocking: true,
             });
         }
@@ -4169,6 +4467,20 @@ fn apply_recovery_fact(
     tx: &Transaction<'_>, spec: &TableSpec, row: &CognitionRow, peer_id: EntityId, seq: LedgerSeq,
 ) -> Result<RecoveryFactOutcome> {
     let local = read_existing(tx, spec, row)?;
+    // An append-only identity is never rewritten: the same (scope,
+    // revision) with other bytes is a divergence both sides keep, never a
+    // newer value. This holds even after a baseline: a peer cannot re-author
+    // a revision this store already holds. A newer definition re-reads the
+    // content; it never rewrites the immutable bytes (SPEC §51.1, §51.4).
+    if spec.kind == RowKind::Immutable {
+        if let Some(local) = &local {
+            if !rows_equivalent(spec, local, &row.values) {
+                return Ok(RecoveryFactOutcome::Conflict);
+            }
+            write_baseline(tx, peer_id, spec.name, &row.key, &row.values)?;
+            return Ok(RecoveryFactOutcome::Unchanged);
+        }
+    }
     if matches!(spec.name, "media_streams" | "media_stream_ends" | "media_segment_revisions"
         | "media_recordings" | "media_recording_controls" | "media_priority_inputs" | "inbox_events")
         && local.as_ref().is_some_and(|local| !media_fact_compatible(local, row))
@@ -4716,6 +5028,10 @@ fn unit_key_for<'a>(
         "artifact_manifests" | "artifact_runtime_instances" => row
             .value("artifact_id")
             .map(|artifact| format!("artifact/{artifact}")),
+        // Every revision of one scope is one journal. A divergent revision
+        // refuses the whole incoming tail, so recovery can never splice a
+        // history that neither side authored.
+        "context_notes" => row.value("scope_id").map(|scope| format!("note/{scope}")),
         "owner_grants" => Some(format!("grant/{}", row.key)),
         "config_entries" => Some(format!(
             "config/{}/{}",
@@ -4765,6 +5081,7 @@ fn is_unit_table(table: &str) -> bool {
             | "artifact_records"
             | "artifact_manifests"
             | "artifact_runtime_instances"
+            | "context_notes"
             | "owner_grants"
             | "config_entries"
             | "config_changes"
@@ -4886,6 +5203,119 @@ fn apply_semantic_units<'a>(
         }
     }
     Ok((outcome, owned))
+}
+
+/// Apply the scope's local rollover control projection.
+///
+/// Only the declared same-installation handover reaches this pass; a peer
+/// archive that carries the class is refused before any mutation, so this
+/// function never installs peer control. The request identity decides, never
+/// arrival order: the same request may only gain the committed window that
+/// answered it, a rewind to pending or a second, different answer is a
+/// divergence both sides keep, and a distinct request replaces the row only
+/// after the local request was answered and only with a strictly later
+/// arming time. A locally pending request is never discarded by an archive.
+fn apply_rollover_controls<'a>(
+    tx: &Transaction<'_>,
+    rows: &[&'a CognitionRow],
+    peer_id: EntityId,
+    seq: LedgerSeq,
+    manifest: &CognitionManifest,
+) -> Result<CognitionApplyOutcome> {
+    let spec = spec_for("context_rollover_requests")
+        .expect("rollover control table is registered");
+    let mut outcome = CognitionApplyOutcome::default();
+    let value = |values: &[(String, Option<String>)], name: &str| -> Option<String> {
+        values
+            .iter()
+            .find(|(column, _)| column == name)
+            .and_then(|(_, value)| value.clone())
+    };
+    for row in rows.iter().copied().filter(|row| row.table == spec.name) {
+        let effective = effective_row(row, spec)?;
+        let conflict = |outcome: &mut CognitionApplyOutcome, detail: &str| -> Result<()> {
+            record_conflict(tx, peer_id, spec.name, &effective.key, detail)?;
+            outcome.conflicts.push(CognitionConflict {
+                table: spec.name.to_string(),
+                key: effective.key.clone(),
+                detail: detail.to_string(),
+            });
+            Ok(())
+        };
+        let Some(local) = read_existing(tx, spec, &effective)? else {
+            match insert_row(tx, spec, &effective, seq) {
+                Ok(()) => {
+                    outcome.inserted += 1;
+                    record_origin(
+                        tx,
+                        spec,
+                        &effective,
+                        peer_id,
+                        &manifest.fingerprint,
+                        manifest.source_ledger_id,
+                    )?;
+                }
+                Err(error) if is_constraint_violation(&error) => conflict(
+                    &mut outcome,
+                    "the imported rollover control fact breaks a local uniqueness rule; the local value is kept",
+                )?,
+                Err(error) => return Err(error),
+            }
+            continue;
+        };
+        if rows_equivalent(spec, &local, &effective.values) {
+            write_baseline(tx, peer_id, spec.name, &effective.key, &effective.values)?;
+            outcome.unchanged += 1;
+            continue;
+        }
+        let same_request =
+            value(&local, "request_id") == effective.value("request_id").map(str::to_string);
+        let advance = if same_request {
+            // One request: it may gain its answer once. Losing an answer or
+            // answering the same request with another window rewrites the
+            // audit of a boundary that was already cut.
+            value(&local, "consumed_window").is_none()
+                && effective.value("consumed_window").is_some()
+        } else {
+            // A distinct request identity is a later arming. It may replace
+            // an answered projection, never a pending local request.
+            value(&local, "consumed_window").is_some()
+                && value(&local, "requested_at_ms")
+                    .and_then(|value| value.parse::<i64>().ok())
+                    .zip(
+                        effective
+                            .value("requested_at_ms")
+                            .and_then(|value| value.parse::<i64>().ok()),
+                    )
+                    .is_some_and(|(local_at, incoming_at)| incoming_at > local_at)
+        };
+        if !advance {
+            conflict(
+                &mut outcome,
+                "the local rollover control fact is answered or newer; the archive cannot rewind or rewrite it",
+            )?;
+            continue;
+        }
+        match update_row(tx, spec, &effective, seq) {
+            Ok(()) => {
+                outcome.updated += 1;
+                record_origin(
+                    tx,
+                    spec,
+                    &effective,
+                    peer_id,
+                    &manifest.fingerprint,
+                    manifest.source_ledger_id,
+                )?;
+            }
+            Err(error) if is_constraint_violation(&error) => conflict(
+                &mut outcome,
+                "the imported rollover control fact breaks a local uniqueness rule; the local value is kept",
+            )?,
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(outcome)
 }
 
 /// Every string value and every object key, recursively: window call_states
@@ -5054,7 +5484,9 @@ fn effective_row(row: &CognitionRow, spec: &TableSpec) -> Result<CognitionRow> {
         | RowKind::InboxEvent
         | RowKind::Monotonic
         | RowKind::Revisioned
-        | RowKind::Ladder => {}
+        | RowKind::Ladder
+        | RowKind::Immutable
+        | RowKind::RolloverControl => {}
         RowKind::SubjectIntent => {
             let state = row.value("state").unwrap_or_default().to_string();
             if state == "ready" || state == "claimed" {
@@ -6252,5 +6684,159 @@ mod obligation_merge_tests {
             assert_eq!(read_existing(&tx,spec,&original).unwrap().unwrap(),original.values);
             assert_eq!(read_baseline(&tx,peer,spec.name,&original.key).unwrap().unwrap(),original.values);
         }
+    }
+}
+
+#[cfg(test)]
+mod notebook_admission_tests {
+    use super::*;
+
+    /// An archive whose authored note journal has a hole never describes a
+    /// journal that existed: it is refused before any row is published.
+    #[test]
+    fn note_journal_hole_is_refused_before_publication() {
+        let root = std::env::temp_dir().join(format!("shenko-note-hole-{}", EntityId::new()));
+        fs::create_dir_all(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        let scope = EntityId::new();
+        source.append_context_note(scope, None, "one", "tool", 1_000, true).unwrap();
+        source.append_context_note(scope, Some(1), "two", "tool", 1_001, true).unwrap();
+        source.append_context_note(scope, Some(2), "three", "tool", 1_002, true).unwrap();
+        let mut export = source.export_cognition(&Default::default()).unwrap();
+        export
+            .manifest
+            .rows
+            .retain(|row| !(row.table == "context_notes" && row.value("revision") == Some("2")));
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let error = receiver
+            .import_cognition_archive(&archive[..], &Default::default())
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("missing_note_revision"),
+            "the hole is a blocking archive fact: {error}"
+        );
+        assert!(receiver.context_note_head(scope).unwrap().is_none());
+        assert!(receiver.context_note_page(scope, None, 10).unwrap().is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A source label this reader does not interpret would make the typed
+    /// journal refuse a row the transfer acknowledged: the archive is refused
+    /// whole instead.
+    #[test]
+    fn uninterpreted_note_source_is_refused_instead_of_acknowledged() {
+        let root = std::env::temp_dir().join(format!("shenko-note-source-{}", EntityId::new()));
+        fs::create_dir_all(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        let scope = EntityId::new();
+        source.append_context_note(scope, None, "notebook", "tool", 1_000, true).unwrap();
+        let mut export = source.export_cognition(&Default::default()).unwrap();
+        let row = export
+            .manifest
+            .rows
+            .iter_mut()
+            .find(|row| row.table == "context_notes")
+            .unwrap();
+        set_value(row, "source", Some("manual".into()));
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let error = receiver
+            .import_cognition_archive(&archive[..], &Default::default())
+            .unwrap_err();
+        assert!(error.to_string().contains("unknown_note_source"), "{error}");
+        assert!(receiver.context_note_head(scope).unwrap().is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// A note row outside the archive's own declared membership is refused
+    /// whole, so a note class can never travel hidden inside another class.
+    #[test]
+    fn note_rows_outside_the_declared_membership_are_refused() {
+        let root = std::env::temp_dir().join(format!("shenko-note-class-{}", EntityId::new()));
+        fs::create_dir_all(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        source.append_context_note(EntityId::new(), None, "notebook", "tool", 1_000, true).unwrap();
+        let mut export = source.export_cognition(&Default::default()).unwrap();
+        export.manifest.fact_classes.retain(|class| class != "context_notes");
+        export.manifest.fingerprint = fingerprint_of_manifest(&export.manifest);
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let error = receiver
+            .import_cognition_archive(&archive[..], &Default::default())
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("outside the archive's declared membership"),
+            "{error}"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    /// An answered rollover request must name a committed window of its own
+    /// scope. The store still allows a caller to name any window, so the
+    /// archive closure is where the audit cannot lie.
+    #[test]
+    fn rollover_answer_of_another_scope_is_a_blocking_archive_gap() {
+        let root = std::env::temp_dir().join(format!("shenko-rollover-scope-{}", EntityId::new()));
+        fs::create_dir_all(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        let window_scope = EntityId::new();
+        let window_id = EntityId::new();
+        assert_eq!(
+            source
+                .append_context_window(
+                    window_scope,
+                    None,
+                    Some(0),
+                    &crate::context_windows::StoredContextWindow {
+                        window_id,
+                        generation: 0,
+                        body: "{}".into(),
+                        derivatives: Vec::new(),
+                    },
+                )
+                .unwrap(),
+            crate::context_windows::ContextWindowAppend::Appended
+        );
+        let request_scope = EntityId::new();
+        source.arm_context_rollover(request_scope, 1_760_000_000_000).unwrap();
+        assert!(source.consume_context_rollover(request_scope, window_id).unwrap());
+
+        let export = source
+            .export_cognition(&CognitionSnapshotOptions {
+                local_boundary_preserved: true,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(
+            export.manifest.gaps.iter().any(|gap| gap.kind == "cross_scope_rollover_answer" && gap.blocking),
+            "gaps: {:?}",
+            export.manifest.gaps
+        );
+        let mut archive = Vec::new();
+        let receipt = export.write_archive(&mut archive).unwrap();
+        assert!(!receipt.complete);
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let error = receiver
+            .import_cognition_archive(
+                &archive[..],
+                &CognitionImportOptions {
+                    local_control_handover: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("cross_scope_rollover_answer"), "{error}");
+        assert!(receiver.context_rollover_request(request_scope).unwrap().is_none());
+        let _ = fs::remove_dir_all(root);
     }
 }
