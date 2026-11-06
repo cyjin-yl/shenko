@@ -511,6 +511,20 @@ pub enum ToolCommand {
         /// SPDX license identifier of the upstream project.
         #[arg(long)]
         license: Option<String>,
+        /// Declare a guest filesystem path this package needs, as `PATH` for
+        /// read-only use or `PATH:rw` when it writes. Repeatable. A
+        /// declaration is a requirement, never a permission grant: the
+        /// executor admits it against the mount closure it actually freezes.
+        #[arg(long = "requires-fs")]
+        requires_fs: Vec<String>,
+        /// Declare an environment variable the package needs supplied per
+        /// invocation. Repeatable.
+        #[arg(long = "requires-env")]
+        requires_env: Vec<String>,
+        /// Declare a host facility: `clock`, `random`, `host_import:<module>`
+        /// or `network:<host>:<port>[:connect,listen,accept]`. Repeatable.
+        #[arg(long = "requires-host")]
+        requires_host: Vec<String>,
     },
     /// Inspect a real artifact without installing it: the ABI and the imports
     /// are read from the module's actual bytes, never from its name.
@@ -568,6 +582,54 @@ pub enum ToolCommand {
         /// Directory holding the produced artifacts.
         #[arg(long)]
         artifacts: PathBuf,
+        /// Declare a guest filesystem path every artifact of the set needs, as
+        /// `PATH` (read-only) or `PATH:rw`. Repeatable.
+        #[arg(long = "requires-fs")]
+        requires_fs: Vec<String>,
+        /// Declare an environment variable every artifact of the set needs
+        /// supplied per invocation. Repeatable.
+        #[arg(long = "requires-env")]
+        requires_env: Vec<String>,
+        /// Declare a host facility the set needs: `clock`, `random`,
+        /// `host_import:<module>` or
+        /// `network:<host>:<port>[:connect,listen,accept]`. Repeatable.
+        #[arg(long = "requires-host")]
+        requires_host: Vec<String>,
+    },
+    /// Environment generations: the locked package closure this installation
+    /// executes. Preparation resolves and pins a closure; activation is the
+    /// single linearization point that makes it current; rollback selects the
+    /// previous generation without deleting a version, a generation or any
+    /// other fact.
+    Environment {
+        #[command(subcommand)]
+        command: ToolEnvironmentCommand,
+    },
+    /// Walk a metapackage's declared members, resolve each against installed
+    /// units, check adoption via the content/attitude ledger, and return the
+    /// membership standing of each. Pure read.
+    Metapackage {
+        /// The metapackage unit id.
+        #[arg(long)]
+        unit_id: String,
+    },
+    /// Walk a distribution's preinstalled macros, target-access expectations,
+    /// and capability-provider defaults. Pure read: declarations are facts
+    /// about the distribution version, not grants of local readiness.
+    Distribution {
+        /// The distribution unit id.
+        #[arg(long)]
+        unit_id: String,
+    },
+    /// Resolve one named capability-contract slot across the installed
+    /// providers on this node. Pure read.
+    Slot {
+        /// The metapackage unit id.
+        #[arg(long)]
+        macro_id: String,
+        /// The capability contract, e.g. `cap.taste.projection/1`.
+        #[arg(long)]
+        contract: String,
     },
     /// Execute an installed tool with real argv/env/stdio under the managed
     /// mounts. Exit code is reported exactly; tool names resolve against the
@@ -595,6 +657,38 @@ pub enum ToolCommand {
         /// Host file receiving guest stderr (default: this process's stderr).
         #[arg(long)]
         stderr_file: Option<PathBuf>,
+    },
+}
+
+/// Environment-generation subcommands — the Nix-profile surface of the tool
+/// package closure.
+#[derive(Subcommand, Debug)]
+pub enum ToolEnvironmentCommand {
+    /// Show the selector, the recorded generations, the append-only activation
+    /// log and the closure the current generation pins. Pure read.
+    Status,
+    /// Resolve the closure of these roots and record it as a locked
+    /// generation. Nothing becomes current until it is activated.
+    Prepare {
+        /// `name`, `name@version`, or a `tool.<name>` unit id. Omitted means
+        /// every enabled installed tool — the Nix-profile meaning of "the
+        /// environment".
+        #[arg(long = "root")]
+        root: Vec<String>,
+    },
+    /// Publish a prepared generation as the current environment. The write is
+    /// a compare-and-swap on the selector revision that was read.
+    Activate {
+        #[arg(long)]
+        generation: u64,
+        #[arg(long)]
+        expected_revision: u64,
+    },
+    /// Select the previous generation of the current environment. New facts
+    /// produced after the switch are never rolled back by this.
+    Rollback {
+        #[arg(long)]
+        expected_revision: u64,
     },
 }
 
@@ -2965,6 +3059,130 @@ fn session_id_of(step: &serde_json::Value) -> Result<shenko_types::ids::EntityId
         })
 }
 
+/// The capability declaration the `--requires-*` install flags author.
+///
+/// This is authoring, not admission: nothing here grants anything. The
+/// declaration it produces is stored in the package description, frozen into
+/// every environment generation that pins the version, and admitted by the
+/// executor against the resources a run actually receives.
+fn authored_capabilities(
+    filesystem: &[String],
+    environment: &[String],
+    host: &[String],
+) -> Result<shenko_node::PackageDeclaration> {
+    use shenko_node::{
+        FileRequirement, HostRequirement, NetworkTarget, PackageCapabilities, PackageDeclaration,
+    };
+    if filesystem.is_empty() && environment.is_empty() && host.is_empty() {
+        // No flags means the author recorded no declaration. That is
+        // `unrecorded`, not "needs nothing".
+        return Ok(PackageDeclaration::unrecorded());
+    }
+    let mut capabilities = PackageCapabilities::default();
+    for spec in filesystem {
+        let (guest_path, write) = match spec.rsplit_once(':') {
+            Some((path, "rw")) => (path, true),
+            Some((path, "ro")) => (path, false),
+            Some((_, other)) => anyhow::bail!(
+                "--requires-fs access must be `ro` or `rw`, not {other:?}: {spec:?}"
+            ),
+            None => (spec.as_str(), false),
+        };
+        capabilities.filesystem.push(FileRequirement {
+            guest_path: guest_path.to_string(),
+            write,
+        });
+    }
+    capabilities.environment.extend(environment.iter().cloned());
+    // Repeated `network:` flags are one requirement with one target list, so
+    // the declaration keeps a single canonical form.
+    let mut network_targets: Vec<NetworkTarget> = Vec::new();
+    for spec in host {
+        match parse_host_requirement(spec)? {
+            HostRequirement::Network { targets } => network_targets.extend(targets),
+            requirement => capabilities.host.push(requirement),
+        }
+    }
+    if !network_targets.is_empty() {
+        capabilities.host.push(HostRequirement::Network {
+            targets: network_targets,
+        });
+    }
+    let capabilities = capabilities.normalized();
+    capabilities.validate()?;
+    Ok(PackageDeclaration::declared(capabilities))
+}
+
+/// Parse one `--requires-host` value: `clock`, `random`,
+/// `host_import:<module>` or `network:<host>:<port>[:connect,listen,accept]`.
+fn parse_host_requirement(spec: &str) -> Result<shenko_node::HostRequirement> {
+    use shenko_node::HostRequirement;
+    match spec {
+        "clock" => Ok(HostRequirement::Clock {}),
+        "random" => Ok(HostRequirement::Random {}),
+        other => {
+            if let Some(module) = other.strip_prefix("host_import:") {
+                return Ok(HostRequirement::HostImport {
+                    module: module.to_string(),
+                });
+            }
+            if let Some(target) = other.strip_prefix("network:") {
+                return Ok(HostRequirement::Network {
+                    targets: vec![parse_network_target(target)?],
+                });
+            }
+            anyhow::bail!(
+                "--requires-host expects clock, random, host_import:<module> or \
+                 network:<host>:<port>[:connect,listen,accept]: {spec:?}"
+            )
+        }
+    }
+}
+
+/// Parse `<host>:<port>[:operations]`; a bracketed IPv6 literal is
+/// `[<address>]:<port>[:operations]`. Resolving a name is part of what the
+/// requirement means, so it is derived from the host being a name rather than
+/// an address literal, not from a policy default.
+fn parse_network_target(spec: &str) -> Result<shenko_node::NetworkTarget> {
+    use shenko_node::{NetworkOperation, NetworkTarget};
+    let (host, rest) = if let Some(bracketed) = spec.strip_prefix('[') {
+        let (address, rest) = bracketed.split_once("]:").with_context(|| {
+            format!("a bracketed network target must be [address]:port[:operations]: {spec:?}")
+        })?;
+        (address.to_string(), rest)
+    } else {
+        let (host, rest) = spec
+            .split_once(':')
+            .with_context(|| format!("a network target must be host:port[:operations]: {spec:?}"))?;
+        (host.to_string(), rest)
+    };
+    let (port, operations) = match rest.split_once(':') {
+        Some((port, operations)) => (port, operations),
+        None => (rest, "connect"),
+    };
+    let port: u16 = port
+        .parse()
+        .with_context(|| format!("network target port is not a u16: {spec:?}"))?;
+    let mut parsed = Vec::new();
+    for operation in operations.split(',') {
+        parsed.push(match operation {
+            "connect" => NetworkOperation::Connect {},
+            "listen" => NetworkOperation::Listen {},
+            "accept" => NetworkOperation::Accept {},
+            other => anyhow::bail!(
+                "a network operation must be connect, listen or accept, not {other:?}"
+            ),
+        });
+    }
+    let resolve = host.parse::<std::net::IpAddr>().is_err();
+    Ok(NetworkTarget {
+        host,
+        port,
+        resolve,
+        operations: parsed,
+    })
+}
+
 /// `shenko tool …` — inspect and manage the seed's named WASM tool store.
 /// Install and exec go through the node's installation-unit inventory — the
 /// same authority node_sync replicates — while list is a pure read of that
@@ -2984,17 +3202,109 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // Pure read: never creates or migrates storage, never writes a
             // registry file. An installation that has no node DB simply has
             // no installed tools.
-            let records = match Node::open_inspect(&data_dir.join("node"))? {
-                Some(node) => installed_tools(&node)?,
-                None => Vec::new(),
+            let node = Node::open_inspect(&data_dir.join("node"))?;
+            let (records, environment) = match &node {
+                Some(node) => {
+                    let selector = node.environment_selector()?;
+                    (
+                        installed_tools(node)?,
+                        serde_json::json!({
+                            "pinned": selector.is_some(),
+                            "selector": selector,
+                            "generations": node.environment_generations(16)?,
+                        }),
+                    )
+                }
+                None => (
+                    Vec::new(),
+                    serde_json::json!({
+                        "pinned": false,
+                        "selector": null,
+                        "generations": [],
+                    }),
+                ),
             };
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "tools": records,
                     "named_targets": named_target_report(&records),
+                    "environment": environment,
                 }))?
             );
+        }
+        ToolCommand::Environment { command } => {
+            use shenko_node::UnitRequest;
+            match command {
+                ToolEnvironmentCommand::Status => {
+                    // Reads never create or migrate storage.
+                    let node = Node::open_inspect(&data_dir.join("node"))?;
+                    let status = match &node {
+                        Some(node) => serde_json::json!({
+                            "environment": node.environment_report(64)?,
+                            "tools": installed_tools(node)?,
+                        }),
+                        None => serde_json::json!({
+                            "pinned": false,
+                            "selector": null,
+                            "generations": [],
+                            "activations": [],
+                            "tools": [],
+                            "note": "no node installation at this data directory",
+                        }),
+                    };
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                }
+                ToolEnvironmentCommand::Prepare { root } => {
+                    let store = open_installation_store(&data_dir)?;
+                    let mut node = node_sync::open_node(data_dir, &store)?;
+                    let roots = tool_install::environment_roots(&node, &root)?;
+                    let prepared =
+                        node.handle_unit_request(UnitRequest::PrepareEnvironment { roots })?;
+                    println!("{}", serde_json::to_string_pretty(&prepared)?);
+                }
+                ToolEnvironmentCommand::Activate {
+                    generation,
+                    expected_revision,
+                } => {
+                    let store = open_installation_store(&data_dir)?;
+                    let mut node = node_sync::open_node(data_dir, &store)?;
+                    let activated = node.handle_unit_request(UnitRequest::ActivateEnvironment {
+                        generation,
+                        expected_revision,
+                    })?;
+                    println!("{}", serde_json::to_string_pretty(&activated)?);
+                }
+                ToolEnvironmentCommand::Rollback { expected_revision } => {
+                    let store = open_installation_store(&data_dir)?;
+                    let mut node = node_sync::open_node(data_dir, &store)?;
+                    let rolled = node.handle_unit_request(UnitRequest::RollbackEnvironment {
+                        expected_revision,
+                    })?;
+                    println!("{}", serde_json::to_string_pretty(&rolled)?);
+                }
+            }
+        }
+        ToolCommand::Metapackage { unit_id } => {
+            use shenko_node::UnitRequest;
+            let store = open_installation_store(&data_dir)?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let result = node.handle_unit_request(UnitRequest::QueryMetapackage { unit_id })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        ToolCommand::Distribution { unit_id } => {
+            use shenko_node::UnitRequest;
+            let store = open_installation_store(&data_dir)?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let result = node.handle_unit_request(UnitRequest::QueryDistribution { unit_id })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        ToolCommand::Slot { macro_id, contract } => {
+            use shenko_node::UnitRequest;
+            let store = open_installation_store(&data_dir)?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let result = node.handle_unit_request(UnitRequest::QuerySlot { macro_id, contract })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
         ToolCommand::Install {
             file,
@@ -3008,10 +3318,15 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             expected_digest,
             source_sha256,
             license,
+            requires_fs,
+            requires_env,
+            requires_host,
         } => {
             let abi = ToolAbi::parse(&abi)
                 .ok_or_else(|| anyhow::anyhow!("unknown --abi {abi:?}"))?;
             shenko_wasm::validate_tool_name(&name)?;
+            let capabilities =
+                authored_capabilities(&requires_fs, &requires_env, &requires_host)?;
             // The artifact's identity is computed by streaming the file, so
             // a large module is never accumulated here just to be hashed.
             // The real ABI and the provenance digest are checked by the
@@ -3080,9 +3395,36 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 license,
                 sha256: source_sha256,
                 path: file.clone(),
+                capabilities,
             };
             let installed = tool_install::install_one(&mut node, &store, &tools_root, &request)?;
-            println!("{}", serde_json::to_string_pretty(&installed)?);
+            // Storing verified bytes and selecting them are two facts. Locking
+            // the closure and publishing it is the second one; a closure that
+            // cannot be resolved is reported after the real install instead of
+            // being hidden behind a "pip-installed" success.
+            let environment = tool_install::sync_environment(
+                &mut node,
+                &[(installed.unit_id.clone(), installed.version.clone())],
+            );
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "installed": installed,
+                    "environment": match &environment {
+                        Ok(value) => value.clone(),
+                        Err(error) => serde_json::json!({
+                            "activated": false,
+                            "error": format!("{error:#}"),
+                        }),
+                    },
+                }))?
+            );
+            if let Err(error) = &environment {
+                anyhow::bail!(
+                    "TOOL_ENVIRONMENT_NOT_ACTIVATED: the unit is stored but the environment \
+                     was not updated: {error:#}"
+                );
+            }
         }
         ToolCommand::Inspect { file } => {
             // No installation is touched: the ABI and the imports are read
@@ -3131,10 +3473,18 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 None => println!("{}", String::from_utf8_lossy(&encoded)),
             }
         }
-        ToolCommand::InstallSet { manifest, artifacts } => {
+        ToolCommand::InstallSet {
+            manifest,
+            artifacts,
+            requires_fs,
+            requires_env,
+            requires_host,
+        } => {
             let encoded = std::fs::read(&manifest)
                 .with_context(|| format!("read manifest {}", manifest.display()))?;
             let set = shenko_wasm::ToolSetManifest::parse(&encoded)?;
+            let capabilities =
+                authored_capabilities(&requires_fs, &requires_env, &requires_host)?;
             anyhow::ensure!(
                 data_dir.join("shenko.db").is_file(),
                 "no managed installation at {}; run `shenko start` once",
@@ -3163,9 +3513,41 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 data_dir.join("cas"),
             )?;
             let mut node = node_sync::open_node(data_dir, &store)?;
-            let installed =
-                tool_install::install_set(&mut node, &store, &tools_root, &set, &artifacts)?;
-            println!("{}", serde_json::to_string_pretty(&installed)?);
+            let installed = tool_install::install_set(
+                &mut node,
+                &store,
+                &tools_root,
+                &set,
+                &artifacts,
+                &capabilities,
+            )?;
+            // One generation for the whole set: a tool set is one closure, so
+            // the profile is not advanced 91 times.
+            let members: Vec<(String, String)> = installed
+                .installed
+                .iter()
+                .map(|tool| (tool.unit_id.clone(), tool.version.clone()))
+                .collect();
+            let environment = tool_install::sync_environment(&mut node, &members);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "install": installed,
+                    "environment": match &environment {
+                        Ok(value) => value.clone(),
+                        Err(error) => serde_json::json!({
+                            "activated": false,
+                            "error": format!("{error:#}"),
+                        }),
+                    },
+                }))?
+            );
+            if let Err(error) = &environment {
+                anyhow::bail!(
+                    "TOOL_ENVIRONMENT_NOT_ACTIVATED: the set is stored but the environment \
+                     was not updated: {error:#}"
+                );
+            }
         }
         ToolCommand::Exec {
             tool,
@@ -3221,6 +3603,35 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             );
             let facts = node.tool_unit_facts()?;
             let (record, _) = resolve_tool(&facts, &tool)?;
+            // The package's declared requirements are admitted against the
+            // grant this run actually gives the guest: the resolved mount
+            // profile and the explicit environment. A declared requirement the
+            // run does not grant is a refusal — never a silently weaker guest.
+            let mut guest_env: Vec<(String, String)> = Vec::with_capacity(env.len());
+            for entry in env {
+                let (key, value) = entry
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
+                guest_env.push((key.into(), value.into()));
+            }
+            let profile = if read_only {
+                shenko_wasm::ToolMountProfile::ReadOnly
+            } else {
+                shenko_wasm::ToolMountProfile::ManagedHome
+            };
+            let mounts = profile.resolve(&manifest.mounts);
+            let granted_environment: std::collections::BTreeMap<String, String> =
+                guest_env.iter().cloned().collect();
+            let granted = shenko_wasm::GrantedCapabilities::of_invocation(
+                &mounts,
+                &granted_environment,
+            );
+            let unmet = shenko_wasm::capability_problems(&record.capabilities, &granted);
+            anyhow::ensure!(
+                unmet.is_empty(),
+                "{}",
+                unmet.join("; ")
+            );
             // Every execution re-verifies the sealed bytes and the real ABI;
             // the materialized copy is never trusted. A tool whose bytes live
             // in the installation's content store is reassembled from its
@@ -3263,18 +3674,8 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             arguments.push(record.name.clone());
             arguments.extend(args);
             command.arguments = arguments;
-            for entry in env {
-                let (key, value) = entry
-                    .split_once('=')
-                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
-                command.environment.push((key.into(), value.into()));
-            }
-            let profile = if read_only {
-                shenko_wasm::ToolMountProfile::ReadOnly
-            } else {
-                shenko_wasm::ToolMountProfile::ManagedHome
-            };
-            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(profile.resolve(&manifest.mounts))?;
+            command.environment = guest_env;
+            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(mounts)?;
             let code = runtime.run_wasi_module(&module, command);
             if stdout_file.is_none() {
                 std::io::stdout().write_all(&std::fs::read(&stdout_path).unwrap_or_default())?;
