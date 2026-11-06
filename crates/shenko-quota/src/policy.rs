@@ -408,14 +408,14 @@ impl QuotaPolicy {
                         .is_some_and(|deadline| boundary <= deadline)
                 });
             if !released {
-                hold = hold.checked_add(amount.upper)?;
+                hold += amount.upper; if !hold.is_finite() { return None; }
             }
         }
         if let Some(margin) = self.uncertainty_margin {
             if !margin.is_finite() || !(0.0..=1.0).contains(&margin) {
                 return None;
             }
-            hold = hold.checked_add(available * margin)?;
+            hold += available * margin; if !hold.is_finite() { return None; }
         }
         hold.is_finite().then_some(hold.min(available))
     }
@@ -1238,7 +1238,7 @@ pub fn decide_with(
                     .map(|(index, _)| index)
             });
         let chosen = previous_choice
-            .filter(|(profile, _)| *profile == profile.profile_id.as_str())
+            .filter(|(name, _)| *name == profile.profile_id.as_str())
             .and_then(|(_, effort)| {
                 let previous_level = candidates
                     .iter()
