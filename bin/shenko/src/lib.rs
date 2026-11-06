@@ -356,6 +356,13 @@ pub enum ContextPolicyCommand {
     Enable { id: String },
     /// Disable a strategy: the record stays, the strategy stops running.
     Disable { id: String },
+    /// Replace a strategy's configuration at the same compiled identity. A
+    /// running process installs the new configuration at its next observation.
+    Config {
+        id: String,
+        /// The configuration document, as JSON.
+        config: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -1804,12 +1811,41 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // enabled, with the configuration that unit carries. The
             // preference order follows the installation order of the enabled
             // units until the configuration service carries a value.
+            // The notebook and the explicit rollover request belong to this
+            // branch's context chain, so they share its scope and live in the
+            // store: a restarted process resumes the same journal, and a
+            // request armed before it stopped is still pending afterwards.
+            let context_scope = shenko_types::ids::EntityId(context_head.branch_id.0);
+            let notes_journal: Arc<dyn shenko_context_policy::NotesJournal> =
+                Arc::new(shenko_context_policy::StoreNotesJournal::new(
+                    Arc::clone(&store),
+                    context_scope,
+                ));
+            let rollover_journal: Arc<dyn shenko_context_policy::RolloverJournal> =
+                Arc::new(shenko_context_policy::StoreRolloverJournal::new(
+                    Arc::clone(&store),
+                    context_scope,
+                ));
+            // The reminder answer is store-backed for the same reason: a
+            // process that restarts inside the same committed window must not
+            // repeat prompt material the model already received.
+            let reminder_journal: Arc<dyn shenko_context_policy::ReminderJournal> =
+                Arc::new(shenko_context_policy::StoreReminderJournal::new(
+                    Arc::clone(&store),
+                    context_scope,
+                ));
+            context_registry
+                .attach_rollover_journal(rollover_journal)
+                .map_err(anyhow::Error::msg)?;
+            context_registry
+                .attach_reminder_journal(reminder_journal)
+                .map_err(anyhow::Error::msg)?;
             let mut policy_node = node_sync::open_node(&data_dir, &store)?;
             let installed_policies = context_policy::reconcile_units(
                 &mut policy_node,
                 &data_dir.join("policy-units"),
             )?;
-            drop(policy_node);
+            let policy_node = Arc::new(parking_lot::Mutex::new(policy_node));
             let adopted = context_registry.apply_preference(
                 context_policy::preference_order(&installed_policies),
             );
@@ -1818,22 +1854,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 unknown = ?adopted.unknown,
                 "context strategies installed from the unit records"
             );
-            for policy in context_policy::enabled_policies(&installed_policies) {
-                let runtime = context_policy::runtime_config(policy)
-                    .map_err(anyhow::Error::msg)?;
-                match runtime {
-                    context_policy::PolicyRuntime::Budget(config) => {
-                        let _budget_policy = supervisor
-                            .spawn(shenko_compact_budget::BudgetCompactPlugin, config)
-                            .await?;
-                    }
-                    context_policy::PolicyRuntime::Snap(config) => {
-                        let _snap_policy = supervisor
-                            .spawn(shenko_compact_snap::SnapCompactPlugin, config)
-                            .await?;
-                    }
-                }
-            }
+            // The installation record is observed for the lifetime of this
+            // runtime instead of read once at boot: a strategy enabled,
+            // disabled, replaced or reconfigured by another Node connection
+            // starts or stops here, and the notebook definition a strategy owns
+            // is withdrawn with it. A policy that boots enabled is installed by
+            // the same reconciliation, so there is one installation path.
+            let _installed_policies = context_policy::spawn_installed_policies(
+                &supervisor,
+                context_policy::PolicyHosts {
+                    registry: Arc::clone(&context_registry),
+                    notes: Arc::clone(&notes_journal),
+                    store: Arc::clone(&store),
+                    node: Arc::clone(&policy_node),
+                },
+            )
+            .await?;
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
             inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(&store));
             handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));

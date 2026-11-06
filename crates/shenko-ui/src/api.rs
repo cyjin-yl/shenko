@@ -516,11 +516,18 @@ fn context_window_json(meta: &shenko_context_policy::CommittedWindowMeta) -> Val
         shenko_context_policy::WindowEntry::Pointer { .. } => "pointer",
         shenko_context_policy::WindowEntry::Text { .. } => "text",
         shenko_context_policy::WindowEntry::Image { .. } => "image",
+        shenko_context_policy::WindowEntry::Note { .. } => "note",
     };
     let mut counts = serde_json::Map::new();
+    // The notebook is working state, not a payload: the report names the
+    // revision and provenance the window carries and never the note text.
+    let mut notes = Vec::new();
     for entry in &window.entries {
         let count = counts.entry(kind(entry).to_string()).or_insert(json!(0));
         *count = json!(count.as_u64().unwrap_or(0) + 1);
+        if let shenko_context_policy::WindowEntry::Note { revision, source, .. } = entry {
+            notes.push(json!({"revision": revision, "source": source}));
+        }
     }
     json!({
         "id": window.id.to_string(),
@@ -531,6 +538,7 @@ fn context_window_json(meta: &shenko_context_policy::CommittedWindowMeta) -> Val
         "model_generation": window.model_generation,
         "covers_through": window.covers_through,
         "entry_kinds": Value::Object(counts),
+        "notes": notes,
         "call_states": window.call_states,
         "derivatives": meta
             .derivatives
@@ -722,6 +730,12 @@ mod context_tests {
         window.policy_id = Some("snapcompact".into());
         window.policy_version = Some("test-decoder".into());
         window.entries.push(WindowEntry::Image { from: 1, to: 9, derivative: 0, tokens: 7 });
+        window.entries.push(WindowEntry::Note {
+            revision: 3,
+            source: shenko_context_policy::NoteSource::Tool,
+            text: "working state".into(),
+            tokens: 4,
+        });
         // The stored frame's real identity; the report must show it without
         // the payload ever reaching the reader.
         let stored = Derivative::new("image/png", vec![1, 2, 3]);
@@ -742,6 +756,11 @@ mod context_tests {
         assert_eq!(report["policy_id"], "snapcompact");
         assert_eq!(report["policy_version"], "test-decoder");
         assert_eq!(report["entry_kinds"]["image"], 1);
+        assert_eq!(report["entry_kinds"]["note"], 1);
+        // Revision and provenance are reported; the authored text is not a
+        // payload the report hands out.
+        assert_eq!(report["notes"], json!([{"revision": 3, "source": "tool"}]));
+        assert!(!report.to_string().contains("working state"));
         assert_eq!(report["cost"], json!(window.cost));
         assert_eq!(report["derivatives"][0]["bytes"], 3);
         assert_eq!(report["derivatives"][0]["blake3"], meta.derivatives[0].blake3);
