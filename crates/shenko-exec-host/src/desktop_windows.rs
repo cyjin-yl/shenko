@@ -12,13 +12,23 @@
 //! it is reported `available: false` per session instead of being guessed,
 //! and takeover stays lease-bound (a human holding no lease can always
 //! take over with `takeover`, which releases machine-held inputs).
+//!
+//! That message loop is now real: the provider owns a native thread that
+//! installs `WH_KEYBOARD_LL`/`WH_MOUSE_LL` hooks and pumps the thread
+//! message queue, and the hook procedure only signals a dispatcher thread —
+//! it never touches the display-domain lease lock. The dispatcher performs
+//! the same revoke + held-input release + `HumanInputFanout` dispatch the
+//! X11 watcher does, so one takeover semantic covers every provider.
 
 #![cfg(target_os = "windows")]
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use shenko_store::EntityId;
 
@@ -130,6 +140,63 @@ extern "system" {
     fn IsWindowVisible(hwnd: Hwnd) -> Bool;
     fn EnumWindows(callback: extern "system" fn(Hwnd, isize) -> Bool, lparam: isize) -> Bool;
     fn GetAsyncKeyState(vk: i32) -> i16;
+}
+
+/// A thread message, as `PeekMessageW`/`GetMessageW` fill it. No `lPrivate`
+/// member: that field only exists in the legacy `_MAC` layout.
+#[repr(C)]
+struct Msg {
+    hwnd: Hwnd,
+    message: u32,
+    w_param: usize,
+    l_param: isize,
+    time: u32,
+    pt: Point,
+}
+
+/// `KBDLLHOOKSTRUCT` for `WH_KEYBOARD_LL`.
+#[repr(C)]
+struct KbdLlHookStruct {
+    vk_code: u32,
+    scan_code: u32,
+    flags: u32,
+    time: u32,
+    dw_extra_info: usize,
+}
+
+/// `MSLLHOOKSTRUCT` for `WH_MOUSE_LL`.
+#[repr(C)]
+struct MsllHookStruct {
+    pt: Point,
+    mouse_data: u32,
+    flags: u32,
+    time: u32,
+    dw_extra_info: usize,
+}
+
+type HookProc = extern "system" fn(i32, usize, isize) -> isize;
+
+/// Low-level hook installation, the owning thread's message loop and the
+/// post that ends it. `WH_*_LL` hooks are delivered to the thread that
+/// installed them, so this thread both installs and pumps.
+#[link(name = "user32")]
+extern "system" {
+    fn SetWindowsHookExW(
+        id_hook: i32,
+        procedure: HookProc,
+        module: *mut c_void,
+        thread_id: u32,
+    ) -> *mut c_void;
+    fn UnhookWindowsHookEx(hook: *mut c_void) -> Bool;
+    fn CallNextHookEx(hook: *mut c_void, code: i32, wparam: usize, lparam: isize) -> isize;
+    fn PeekMessageW(msg: *mut Msg, hwnd: Hwnd, min: u32, max: u32, remove: u32) -> Bool;
+    fn PostThreadMessageW(thread_id: u32, msg: u32, wparam: usize, lparam: isize) -> Bool;
+}
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCurrentThreadId() -> u32;
+    fn GetLastError() -> u32;
 }
 
 #[link(name = "gdi32")]
@@ -309,6 +376,9 @@ struct WindowsSession {
     input_desktop: String,
     shared: Arc<Mutex<WindowsSessionShared>>,
     domain: Arc<Mutex<WindowsDomainState>>,
+    /// The provider's hook watcher; its real readiness is the capability
+    /// fact this session reports.
+    watch: Arc<HumanInputWatch>,
     width_px: u32,
     height_px: u32,
     dpi: u32,
@@ -359,6 +429,7 @@ impl DesktopSession for WindowsSession {
 
     fn display(&self) -> DesktopDisplay {
         let capable = unsafe { GetSystemMetrics(SM_CXSCREEN) } > 0;
+        let watch = self.watch.snapshot();
         DesktopDisplay {
             provider: "windows".into(),
             domain_id: self.domain_id(),
@@ -383,10 +454,18 @@ impl DesktopSession for WindowsSession {
                 },
                 DesktopCapabilityFact {
                     capability: DesktopCapability::ExternalInputDetection,
-                    // A real LLMHF hook tap needs this process to own a
-                    // message loop; it is not guessed here.
-                    available: false,
-                    detail: "requires a low-level hook message loop owned by this process; takeover stays lease-bound".into(),
+                    // Real hook readiness, proven at install time; a failed
+                    // install stays false with its own reason.
+                    available: watch.installed,
+                    detail: match (&watch.last_error, watch.thread_id) {
+                        (Some(error), _) => format!(
+                            "Win32 WH_KEYBOARD_LL/WH_MOUSE_LL hooks are not installed: {error}"
+                        ),
+                        (None, Some(thread_id)) => format!(
+                            "Win32 WH_KEYBOARD_LL/WH_MOUSE_LL hooks on message-loop thread {thread_id}; own SendInput events filtered by dwExtraInfo marker"
+                        ),
+                        (None, None) => "low-level hooks are not installed".to_string(),
+                    },
                 },
                 DesktopCapabilityFact {
                     capability: DesktopCapability::LayoutRevision,
@@ -404,6 +483,7 @@ impl DesktopSession for WindowsSession {
                 "width_px": self.width_px,
                 "height_px": self.height_px,
                 "dpi": self.dpi,
+                "external_input_detection": watch,
             }),
         }
     }
@@ -440,16 +520,30 @@ struct WindowsState {
 }
 
 pub struct WindowsDesktopProvider {
-    state: Mutex<WindowsState>,
+    /// Shared with the human-input dispatcher through a `Weak`, so the
+    /// watcher threads never keep the provider (or its sessions) alive.
+    state: Arc<Mutex<WindowsState>>,
+    fanout: Arc<HumanInputFanout>,
+    /// Created lazily on the first session; dropped (and joined) with the
+    /// provider.
+    watch: Mutex<Option<Arc<HumanInputWatch>>>,
 }
 
 impl WindowsDesktopProvider {
     pub fn new() -> Self {
+        Self::with_fanout(Arc::new(HumanInputFanout::new()))
+    }
+
+    /// Share the human-input registry with the product backend so a browser
+    /// or mobile peer bound to the same domain gets the same takeover event.
+    pub fn with_fanout(fanout: Arc<HumanInputFanout>) -> Self {
         Self {
-            state: Mutex::new(WindowsState {
+            state: Arc::new(Mutex::new(WindowsState {
                 sessions: BTreeMap::new(),
                 domains: BTreeMap::new(),
-            }),
+            })),
+            fanout,
+            watch: Mutex::new(None),
         }
     }
 
@@ -468,6 +562,56 @@ impl WindowsDesktopProvider {
         }
     }
 
+    /// Start the hook watcher once, retrying after a failed install. Its own
+    /// readiness — never the mere existence of this call — is what a session
+    /// reports, so a hook that cannot install stays an honest `false`.
+    fn ensure_human_input_watch(&self) -> Arc<HumanInputWatch> {
+        {
+            let guard = match self.watch.lock() {
+                Ok(guard) => guard,
+                Err(_) => return Arc::new(HumanInputWatch::start(
+                    Arc::downgrade(&self.state),
+                    Arc::clone(&self.fanout),
+                )),
+            };
+            if let Some(watch) = guard.as_ref() {
+                if watch.is_ready() {
+                    return Arc::clone(watch);
+                }
+            }
+        }
+        if let Some(previous) = self.watch.lock().ok().and_then(|mut guard| guard.take()) {
+            previous.stop();
+        }
+        let watch = HumanInputWatch::start(Arc::downgrade(&self.state), Arc::clone(&self.fanout));
+        if let Ok(mut guard) = self.watch.lock() {
+            *guard = Some(Arc::clone(&watch));
+        }
+        watch
+    }
+
+    fn watch_facts(&self) -> HumanInputWatchFacts {
+        match self.watch.lock().ok().and_then(|guard| guard.clone()) {
+            Some(watch) => watch.snapshot(),
+            None => HumanInputWatchFacts::default(),
+        }
+    }
+}
+
+impl Default for WindowsDesktopProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for WindowsDesktopProvider {
+    fn drop(&mut self) {
+        // Joins both watcher threads and unhooks before returning, so no
+        // native thread or active callback outlives the provider.
+        if let Some(watch) = self.watch.lock().ok().and_then(|mut guard| guard.take()) {
+            watch.stop();
+        }
+    }
 }
 
 /// Capture the whole desktop (or a region) as BGRA DIB bytes.
@@ -649,7 +793,9 @@ fn key_event(vk: u16, down: bool) -> WinInput {
                 w_scan: unsafe { MapVirtualKeyW(u32::from(vk), 0) } as u16,
                 dw_flags: if down { 0 } else { KEYEVENTF_KEYUP },
                 time: 0,
-                dw_extra_info: 0,
+                // The low-level hook filters our own injections by this
+                // marker; an unmarked injected event is treated as external.
+                dw_extra_info: SELF_INPUT_MARKER,
             },
         },
     }
@@ -672,7 +818,7 @@ fn text_events(ch: char) -> Vec<WinInput> {
                         w_scan: unit,
                         dw_flags: KEYEVENTF_UNICODE | if down { 0 } else { KEYEVENTF_KEYUP },
                         time: 0,
-                        dw_extra_info: 0,
+                        dw_extra_info: SELF_INPUT_MARKER,
                     },
                 },
             });
@@ -692,7 +838,7 @@ fn mouse_event(flags: u32) -> WinInput {
                 mouse_data: 0,
                 dw_flags: flags,
                 time: 0,
-                dw_extra_info: 0,
+                dw_extra_info: SELF_INPUT_MARKER,
             },
         },
     }
@@ -713,12 +859,500 @@ fn release_held(held: &[HeldInput]) {
     let _ = send_inputs(&events);
 }
 
+// ---------------------------------------------------------------------------
+// Human-input observation: process-owned low-level hook message loop
+// ---------------------------------------------------------------------------
+
+const WH_KEYBOARD_LL: i32 = 13;
+const WH_MOUSE_LL: i32 = 14;
+const HC_ACTION: i32 = 0;
+const WM_QUIT: u32 = 0x0012;
+const PM_NOREMOVE: u32 = 0;
+const PM_REMOVE: u32 = 0x0001;
+const LLKHF_INJECTED: u32 = 0x0000_0010;
+const LLMHF_INJECTED: u32 = 0x0000_0001;
+/// `dwExtraInfo` stamp on every event this backend injects. The hook sees
+/// `LLKHF_INJECTED`/`LLMHF_INJECTED` on any synthesized event, so this
+/// marker is what separates our own input from an unmanaged writer's.
+const SELF_INPUT_MARKER: usize = 0x5348_454E_4B4F; // "SHENKO"
+/// How long the provider waits for the hook thread to prove it installed.
+const WATCH_SETUP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// One external input observation, as the hook thread classified it.
+#[derive(Debug, Clone, Copy)]
+struct ExternalInputEvent {
+    kind: &'static str,
+    virtual_key: u32,
+    injected: bool,
+}
+
+/// What the hook thread reports to the provider. `Started` carries the
+/// thread id as soon as its message queue exists, so a stop request can be
+/// delivered even while hook installation is still in progress.
+enum HookReport {
+    Started(u32),
+    Installed(Result<(), String>),
+}
+
+/// The low-level hook procedure receives no user data, so the live signal
+/// sink is process-global. It holds only an `mpsc::Sender` — never the
+/// provider or its state — and is cleared as soon as the watcher stops, so a
+/// late callback cannot reach a retired backend.
+static HOOK_SINK: std::sync::LazyLock<Mutex<Option<mpsc::Sender<ExternalInputEvent>>>> =
+    std::sync::LazyLock::new(|| Mutex::new(None));
+/// Coalescing flag: the hook must return inside the OS LowLevelHooksTimeout,
+/// so at most one signal is queued at a time.
+static HOOK_PENDING: AtomicBool = AtomicBool::new(false);
+/// Events the hook recognised as this backend's own injections.
+static HOOK_OWN_EVENTS: AtomicU64 = AtomicU64::new(0);
+
+/// Runs inside the OS low-level hook: no domain/lease lock, no blocking
+/// send, one atomic test to coalesce a burst of motion events.
+fn signal_external_input(event: ExternalInputEvent) {
+    if HOOK_PENDING.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    let Ok(guard) = HOOK_SINK.lock() else {
+        HOOK_PENDING.store(false, Ordering::Relaxed);
+        return;
+    };
+    let Some(sender) = guard.as_ref() else {
+        HOOK_PENDING.store(false, Ordering::Relaxed);
+        return;
+    };
+    if sender.send(event).is_err() {
+        HOOK_PENDING.store(false, Ordering::Relaxed);
+    }
+}
+
+extern "system" fn keyboard_hook_procedure(code: i32, wparam: usize, lparam: isize) -> isize {
+    if code == HC_ACTION && lparam != 0 {
+        // SAFETY: the OS passes a KBDLLHOOKSTRUCT to WH_KEYBOARD_LL hooks.
+        let info = unsafe { &*(lparam as *const KbdLlHookStruct) };
+        let injected = info.flags & LLKHF_INJECTED != 0;
+        if injected && info.dw_extra_info == SELF_INPUT_MARKER {
+            HOOK_OWN_EVENTS.fetch_add(1, Ordering::Relaxed);
+        } else {
+            signal_external_input(ExternalInputEvent {
+                kind: "keyboard",
+                virtual_key: info.vk_code,
+                injected,
+            });
+        }
+    }
+    // SAFETY: pass-through for every other hook code and every unhandled
+    // event; returning a value other than the chain's would swallow input.
+    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
+
+extern "system" fn mouse_hook_procedure(code: i32, wparam: usize, lparam: isize) -> isize {
+    if code == HC_ACTION && lparam != 0 {
+        // SAFETY: the OS passes an MSLLHOOKSTRUCT to WH_MOUSE_LL hooks.
+        let info = unsafe { &*(lparam as *const MsllHookStruct) };
+        let injected = info.flags & LLMHF_INJECTED != 0;
+        if injected && info.dw_extra_info == SELF_INPUT_MARKER {
+            HOOK_OWN_EVENTS.fetch_add(1, Ordering::Relaxed);
+        } else {
+            signal_external_input(ExternalInputEvent {
+                kind: "mouse",
+                virtual_key: 0,
+                injected,
+            });
+        }
+    }
+    unsafe { CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam) }
+}
+
+/// Real facts about the process-owned hook watcher, reported per session and
+/// in capability discovery instead of a guessed `available: true`.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+struct HumanInputWatchFacts {
+    installed: bool,
+    keyboard_hook: bool,
+    mouse_hook: bool,
+    thread_id: Option<u32>,
+    last_error: Option<String>,
+    external_events: u64,
+    own_events_filtered: u64,
+    last_revoked_domains: usize,
+    last_event_kind: Option<&'static str>,
+    last_event_virtual_key: Option<u32>,
+    last_event_injected: bool,
+}
+
+/// One provider's human-input watcher: a native hook thread (installer +
+/// message pump) and a dispatcher thread that performs the revoke outside
+/// the hook, so a callback never waits on a lease lock and can never outlive
+/// the state it reports into.
+struct HumanInputWatch {
+    domains: Weak<Mutex<WindowsState>>,
+    fanout: Arc<HumanInputFanout>,
+    facts: Mutex<HumanInputWatchFacts>,
+    ready: AtomicBool,
+    stopped: AtomicBool,
+    /// True only when this watcher installed the process-global sink, so a
+    /// second provider can never clear another's signal target.
+    owns_sink: AtomicBool,
+    thread_id: AtomicU32,
+    hook_thread: Mutex<Option<JoinHandle<()>>>,
+    dispatch_thread: Mutex<Option<JoinHandle<()>>>,
+}
+
+impl HumanInputWatch {
+    /// Start the watcher. A failure is recorded as a fact (never a fake
+    /// capability and never a refused session): capture and input keep
+    /// working, human-input observation honestly reports unavailable.
+    fn start(domains: Weak<Mutex<WindowsState>>, fanout: Arc<HumanInputFanout>) -> Arc<Self> {
+        let watch = Arc::new(Self {
+            domains,
+            fanout,
+            facts: Mutex::new(HumanInputWatchFacts::default()),
+            ready: AtomicBool::new(false),
+            stopped: AtomicBool::new(false),
+            owns_sink: AtomicBool::new(false),
+            thread_id: AtomicU32::new(0),
+            hook_thread: Mutex::new(None),
+            dispatch_thread: Mutex::new(None),
+        });
+        let (sender, receiver) = mpsc::channel::<ExternalInputEvent>();
+        let (ready_tx, ready_rx) = mpsc::channel::<HookReport>();
+        // Install the sink BEFORE the hooks exist: a callback that fires
+        // during installation must already have a live target.
+        match HOOK_SINK.lock() {
+            Ok(mut slot) => {
+                if slot.is_some() {
+                    // One low-level hook sink per process: the hook procedure
+                    // has no user data, so a second watcher cannot be
+                    // addressed and would silently steal this one's signals.
+                    drop(slot);
+                    watch.record_error(
+                        "another low-level hook watcher already owns this process",
+                    );
+                    return watch;
+                }
+                *slot = Some(sender);
+                watch.owns_sink.store(true, Ordering::SeqCst);
+            }
+            Err(_) => {
+                watch.record_error("hook sink poisoned");
+                return watch;
+            }
+        }
+        HOOK_PENDING.store(false, Ordering::Relaxed);
+        let weak_hook = Arc::downgrade(&watch);
+        let spawned = std::thread::Builder::new()
+            .name("shenko-win32-hooks".into())
+            .spawn(move || run_hook_thread(weak_hook, ready_tx));
+        let handle = match spawned {
+            Ok(handle) => handle,
+            Err(error) => {
+                watch.record_error(&format!("hook thread spawn failed: {error}"));
+                watch.release_sink();
+                return watch;
+            }
+        };
+        if let Ok(mut guard) = watch.hook_thread.lock() {
+            *guard = Some(handle);
+        }
+        let deadline = std::time::Instant::now() + WATCH_SETUP_TIMEOUT;
+        let mut install_result: Option<Result<(), String>> = None;
+        while install_result.is_none() {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            match ready_rx.recv_timeout(remaining) {
+                Ok(HookReport::Started(thread_id)) => {
+                    watch.thread_id.store(thread_id, Ordering::SeqCst);
+                }
+                Ok(HookReport::Installed(result)) => install_result = Some(result),
+                Err(_) => break,
+            }
+        }
+        match install_result {
+            Some(Ok(())) => {
+                let thread_id = watch.thread_id.load(Ordering::SeqCst);
+                if let Ok(mut facts) = watch.facts.lock() {
+                    facts.installed = true;
+                    facts.keyboard_hook = true;
+                    facts.mouse_hook = true;
+                    facts.thread_id = Some(thread_id);
+                    facts.last_error = None;
+                }
+            }
+            Some(Err(error)) => {
+                watch.record_error(&error);
+                watch.stop();
+                return watch;
+            }
+            None => {
+                watch.record_error(
+                    "hook thread did not report readiness; the watcher is not exposed",
+                );
+                watch.stop();
+                return watch;
+            }
+        }
+        let weak_watch = Arc::downgrade(&watch);
+        let domains = watch.domains.clone();
+        let fanout = Arc::clone(&watch.fanout);
+        let spawned = std::thread::Builder::new()
+            .name("shenko-win32-input-dispatch".into())
+            .spawn(move || run_dispatch_thread(receiver, domains, fanout, weak_watch));
+        match spawned {
+            Ok(handle) => {
+                if let Ok(mut guard) = watch.dispatch_thread.lock() {
+                    *guard = Some(handle);
+                }
+                watch.ready.store(true, Ordering::SeqCst);
+            }
+            Err(error) => {
+                watch.record_error(&format!("input dispatch thread spawn failed: {error}"));
+                watch.stop();
+            }
+        }
+        watch
+    }
+
+    fn record_error(&self, error: &str) {
+        if let Ok(mut facts) = self.facts.lock() {
+            facts.last_error = Some(error.to_string());
+            facts.installed = false;
+            facts.keyboard_hook = false;
+            facts.mouse_hook = false;
+        }
+    }
+
+    fn snapshot(&self) -> HumanInputWatchFacts {
+        let mut facts = self
+            .facts
+            .lock()
+            .map(|facts| facts.clone())
+            .unwrap_or_default();
+        facts.own_events_filtered = HOOK_OWN_EVENTS.load(Ordering::Relaxed);
+        facts
+    }
+
+    fn is_ready(&self) -> bool {
+        self.ready.load(Ordering::Relaxed)
+    }
+
+    /// Clear the process-global sink only when this watcher installed it.
+    fn release_sink(&self) {
+        if self.owns_sink.swap(false, Ordering::SeqCst) {
+            if let Ok(mut slot) = HOOK_SINK.lock() {
+                *slot = None;
+            }
+        }
+    }
+
+    /// Stop the message loop, join the hook thread, drop the global sink
+    /// (which closes the dispatcher's channel) and join the dispatcher. After
+    /// this returns no native thread of this watcher exists and no hook
+    /// callback can run.
+    fn stop(&self) {
+        if self.stopped.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        self.ready.store(false, Ordering::SeqCst);
+        let thread_id = self.thread_id.swap(0, Ordering::SeqCst);
+        if thread_id != 0 {
+            // Wake the pump immediately; the stop flag alone already ends it.
+            unsafe {
+                PostThreadMessageW(thread_id, WM_QUIT, 0, 0);
+            }
+        }
+        if let Some(handle) = self.hook_thread.lock().ok().and_then(|mut guard| guard.take()) {
+            let _ = handle.join();
+        }
+        self.release_sink();
+        HOOK_PENDING.store(false, Ordering::SeqCst);
+        if let Some(handle) = self
+            .dispatch_thread
+            .lock()
+            .ok()
+            .and_then(|mut guard| guard.take())
+        {
+            let _ = handle.join();
+        }
+        if let Ok(mut facts) = self.facts.lock() {
+            facts.installed = false;
+            facts.keyboard_hook = false;
+            facts.mouse_hook = false;
+        }
+    }
+}
+
+impl Drop for HumanInputWatch {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Hook thread: create this thread's message queue, install both low-level
+/// hooks, prove installation to the provider, then pump messages until the
+/// watcher is stopped — unhooking before it exits.
+///
+/// The pump peeks (plus a short sleep) instead of blocking in `GetMessageW`:
+/// low-level hooks are still delivered to this thread on every message check,
+/// and the loop can observe the stop flag even if no `WM_QUIT` ever reached
+/// this thread, so teardown can always join it.
+fn run_hook_thread(watch: Weak<HumanInputWatch>, ready: mpsc::Sender<HookReport>) {
+    let thread_id = unsafe { GetCurrentThreadId() };
+    // A thread message queue exists only after a message-retrieval call;
+    // creating it first means a WM_QUIT posted immediately after readiness
+    // cannot be lost.
+    let mut msg = unsafe { std::mem::zeroed::<Msg>() };
+    unsafe {
+        PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
+    }
+    // Announce the queue before installing: the provider can then always end
+    // this thread, even if installation itself stalls.
+    let _ = ready.send(HookReport::Started(thread_id));
+    let keyboard = unsafe {
+        SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            keyboard_hook_procedure,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if keyboard.is_null() {
+        let error = unsafe { GetLastError() };
+        let _ = ready.send(HookReport::Installed(Err(format!(
+            "SetWindowsHookExW(WH_KEYBOARD_LL) failed: {error}"
+        ))));
+        return;
+    }
+    let mouse = unsafe {
+        SetWindowsHookExW(
+            WH_MOUSE_LL,
+            mouse_hook_procedure,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if mouse.is_null() {
+        let error = unsafe { GetLastError() };
+        unsafe {
+            UnhookWindowsHookEx(keyboard);
+        }
+        let _ = ready.send(HookReport::Installed(Err(format!(
+            "SetWindowsHookExW(WH_MOUSE_LL) failed: {error}"
+        ))));
+        return;
+    }
+    let _ = ready.send(HookReport::Installed(Ok(())));
+    // Low-level hooks are delivered when this thread checks its queue, so the
+    // pump itself is the delivery path; nothing is dispatched elsewhere.
+    loop {
+        let stop_requested = match watch.upgrade() {
+            Some(watch) => watch.stopped.load(Ordering::SeqCst),
+            None => true,
+        };
+        if stop_requested {
+            break;
+        }
+        let has_message = unsafe { PeekMessageW(&mut msg, std::ptr::null_mut(), 0, 0, PM_REMOVE) };
+        if has_message != 0 {
+            if msg.message == WM_QUIT {
+                break;
+            }
+            continue;
+        }
+        // No message: yield briefly. 10 ms keeps a human keypress or click
+        // observation latency negligible while the loop stays cheap.
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    unsafe {
+        UnhookWindowsHookEx(mouse);
+        UnhookWindowsHookEx(keyboard);
+    }
+}
+
+/// Dispatcher: the only place external input mutates a domain, so the hook
+/// procedure stays free of lease locks. Ownership of the provider state is
+/// weak; if the provider is gone the loop ends instead of revoking nothing.
+fn run_dispatch_thread(
+    receiver: mpsc::Receiver<ExternalInputEvent>,
+    domains: Weak<Mutex<WindowsState>>,
+    fanout: Arc<HumanInputFanout>,
+    watch: Weak<HumanInputWatch>,
+) {
+    while let Ok(event) = receiver.recv() {
+        HOOK_PENDING.store(false, Ordering::SeqCst);
+        let Some(state) = domains.upgrade() else {
+            break;
+        };
+        let revoked = revoke_domains_for_external_input(&state, &fanout);
+        if let Some(watch) = watch.upgrade() {
+            if let Ok(mut facts) = watch.facts.lock() {
+                facts.external_events += 1;
+                facts.own_events_filtered = HOOK_OWN_EVENTS.load(Ordering::Relaxed);
+                facts.last_revoked_domains = revoked;
+                facts.last_event_kind = Some(event.kind);
+                facts.last_event_virtual_key = Some(event.virtual_key);
+                facts.last_event_injected = event.injected;
+            }
+        }
+    }
+}
+
+/// Revoke the interactive domain the external event reached. The low-level
+/// hook only observes the current input desktop, so the affected domain is
+/// resolved from the live desktop name; when that query fails, every domain
+/// is revoked (an external event did happen — never a silent miss). Reuses
+/// the provider's single handover fence: epoch bump, held-input release and
+/// fanout dispatch under the domain lock.
+fn revoke_domains_for_external_input(
+    state: &Mutex<WindowsState>,
+    fanout: &HumanInputFanout,
+) -> usize {
+    let current = current_input_desktop_name().ok();
+    let mut targets: Vec<(String, Arc<Mutex<WindowsDomainState>>)> = Vec::new();
+    if let Ok(locked) = state.lock() {
+        for (desktop, domain) in &locked.domains {
+            let affected = match &current {
+                Some(name) => name.eq_ignore_ascii_case(desktop),
+                None => true,
+            };
+            if affected {
+                targets.push((desktop.clone(), Arc::clone(domain)));
+            }
+        }
+    }
+    let mut revoked = 0;
+    for (domain_id, domain) in targets {
+        let notified = if let Ok(mut domain) = domain.lock() {
+            domain.lease_state.holder = None;
+            domain.lease_state.epoch += 1;
+            let held: Vec<HeldInput> = domain.held.iter().copied().collect();
+            domain.held.clear();
+            // Release inside the domain critical section: the next lease
+            // cannot emit input until this handover completes.
+            release_held(&held);
+            Some(domain_id)
+        } else {
+            None
+        };
+        if let Some(domain_id) = notified {
+            revoked += 1;
+            fanout.dispatch(&domain_id);
+        }
+    }
+    revoked
+}
+
 impl DesktopProvider for WindowsDesktopProvider {
     fn provider_id(&self) -> &'static str {
         "windows"
     }
 
     fn capabilities(&self) -> Vec<DesktopCapabilityFact> {
+        // Discovery reports the watcher's REAL state: before the first
+        // session no hook exists, so detection is not yet available and this
+        // says so instead of advertising a message loop that is not running.
+        let watch = self.watch_facts();
         vec![
             DesktopCapabilityFact {
                 capability: DesktopCapability::ScreenRead,
@@ -732,8 +1366,23 @@ impl DesktopProvider for WindowsDesktopProvider {
             },
             DesktopCapabilityFact {
                 capability: DesktopCapability::ExternalInputDetection,
-                available: false,
-                detail: "needs a low-level hook message loop owned by this process".into(),
+                available: watch.installed,
+                detail: if watch.installed {
+                    format!(
+                        "WH_KEYBOARD_LL/WH_MOUSE_LL on an owned message-loop thread ({:?}); installed at first session open",
+                        watch.thread_id
+                    )
+                } else {
+                    match &watch.last_error {
+                        Some(error) => format!(
+                            "low-level hooks are installed per session and failed here: {error}"
+                        ),
+                        None => {
+                            "low-level hooks are installed on the first session open; none is running yet"
+                                .to_string()
+                        }
+                    }
+                },
             },
             DesktopCapabilityFact {
                 capability: DesktopCapability::LayoutRevision,
@@ -750,7 +1399,7 @@ impl DesktopProvider for WindowsDesktopProvider {
 
     fn open(
         &self,
-        _request: &DesktopOpenRequest,
+        request: &DesktopOpenRequest,
         owner_instance: EntityId,
     ) -> Result<DesktopSessionHandle, DesktopError> {
         // Capture must be 1:1 physical pixels; ask the OS once. Failure is
@@ -758,6 +1407,30 @@ impl DesktopProvider for WindowsDesktopProvider {
         // and the fact stays visible in the session detail.
         let dpi_aware = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } != 0;
         let desktop = current_input_desktop_name()?;
+        // This provider captures and injects into exactly one interactive
+        // desktop — the process's input desktop. Opening any other desktop
+        // name or screen index would silently drive a different surface, so
+        // it is refused with the missing capability named.
+        if let Some(requested) = request.display.as_deref().filter(|name| !name.is_empty()) {
+            if !requested.eq_ignore_ascii_case(&desktop) {
+                return Err(DesktopError::unavailable(
+                    "requested_desktop_not_driveable",
+                    format!(
+                        "input desktop `{desktop}` is the only driveable surface in this build; `{requested}` would need a window-station/desktop switch this provider does not perform"
+                    ),
+                ));
+            }
+        }
+        if let Some(screen) = request.screen {
+            if screen != 0 {
+                return Err(DesktopError::unavailable(
+                    "screen_selection_unavailable",
+                    format!(
+                        "monitor {screen} was requested; this provider drives the primary display (screen 0) only"
+                    ),
+                ));
+            }
+        }
         let width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
         let height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
         if width <= 0 || height <= 0 {
@@ -768,6 +1441,11 @@ impl DesktopProvider for WindowsDesktopProvider {
         }
         let dpi = unsafe { GetDpiForSystem() };
         let session_id = EntityId::new();
+        // Human-input observation is a sub-capability: start the hook watcher
+        // (idempotent) and let its probed readiness decide the fact. A hook
+        // that cannot install never refuses the session and never becomes a
+        // fake capability.
+        let watch = self.ensure_human_input_watch();
         let mut state = self.locked()?;
         let domain = state
             .domains
@@ -793,6 +1471,7 @@ impl DesktopProvider for WindowsDesktopProvider {
                     send_log: BTreeMap::new(),
                 })),
                 domain,
+                watch,
                 width_px: width as u32,
                 height_px: height as u32,
                 dpi,
