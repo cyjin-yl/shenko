@@ -1,6 +1,10 @@
 //! Continuous subject loop — SPEC §5.1, §41.5
 //! Real S0/S1 step state machine. Never terminates on empty inbox.
 //! Semantic wait hard-max 600s. Yields inference slot after each step.
+//! A recorded provider-resource wait (capacity wait, 429) schedules a NEW
+//! attempt of the same sealed step after a bounded cancellable delay instead
+//! of ending the subject; unknown/lost dispatches and refusals still stop the
+//! loop for reconciliation.
 use crate::inbox::{Inbox, InboxEvent};
 use crate::context_projection::{ContextPreparer, FrozenContextInput, estimate_payload_tokens, prepare_context, wait_for_context_preparer};
 use crate::outbox::OutboxMessage;
@@ -201,6 +205,95 @@ fn validate_resume(
         }
     }
     frozen_input(store, step).map(Some)
+}
+
+/// The bounded pacing of one new attempt of a retry-pending step. SPEC §5.1,
+/// §41.5.
+///
+/// A recorded retry is a real resource wait: the successor is still the same
+/// sealed step and no model output exists, so the wait must be visible and
+/// cheap rather than a hot re-dispatch loop. The interval is derived from the
+/// durable attempt count of that step, so the pacing follows the real attempt
+/// history instead of treating every attempt as a first failure. It is not a
+/// thought tick: nothing is inferred while waiting, and the semantic wait
+/// deadline plays no part here.
+fn retry_pacing(attempts: usize) -> std::time::Duration {
+    const BASE: std::time::Duration = std::time::Duration::from_millis(500);
+    const CAP: std::time::Duration = std::time::Duration::from_secs(30);
+    let doublings = attempts.saturating_sub(1).min(6) as u32;
+    BASE.saturating_mul(1 << doublings).min(CAP)
+}
+
+/// Read the durable retry state of the step this loop owns.
+///
+/// Returns the pacing and durable attempt count when the step is
+/// `retry_pending` with sealed evidence that permits a new attempt of the
+/// SAME step. The head is never advanced and no successor is created by a
+/// retry. Anything that moved under us — a different step, branch, epoch or
+/// generation — is not a continuation and is left to the caller's
+/// reconciliation. Unknown outcomes are not retry-permitted, so they can
+/// never enter this path.
+fn retry_continuation(
+    state: &mut SubjectLoopState,
+    seal_at_entry: Option<&ObjectRef>,
+) -> Result<Option<(std::time::Duration, usize)>, ShenkoError> {
+    let (head, step) = state.store.load_subject(state.agent_id)?;
+    if step.state != SubjectStepState::RetryPending
+        || step.step_id != state.step.step_id
+        || head.branch_id != state.head.branch_id
+        || head.controller_epoch != state.head.controller_epoch
+        || head.software_generation != state.head.software_generation
+        || head.next_step_id != state.head.next_step_id
+    {
+        return Ok(None);
+    }
+    // A step that was ALREADY retry-pending entered this invocation and came
+    // back with the same evidence did not record a new conclusive failure: the
+    // sealed request cannot even be resumed. That is a persistent fault, not a
+    // resource wait, and it must stop for reconciliation instead of pacing
+    // against a wall that will not move.
+    if seal_at_entry.is_some_and(|seal| step.retry_reason_ref.as_ref() == Some(seal)) {
+        return Ok(None);
+    }
+    // A human pause is a real control fact. A retry boundary is the safest
+    // place to honour it: no model request is in flight and the retry evidence
+    // stays durable, so continuing inference here would ignore the operator.
+    if state.store.open_subject_quiesce(state.agent_id)?.is_some() {
+        info!(
+            step_no = step.step_no,
+            "requested pause met a retry boundary; stopping instead of re-attempting"
+        );
+        return Ok(None);
+    }
+    let object = step
+        .retry_reason_ref
+        .as_ref()
+        .ok_or_else(|| ShenkoError::conflict("retry_pending step has no retry evidence"))?;
+    let evidence: SubjectRetryEvidence = serde_json::from_slice(&read_sealed(&state.store, object)?)?;
+    // Only an explicitly exhausted provider is a resource wait the live loop
+    // may pace and repeat. A lost dispatch is unknown debt and an admission
+    // refusal is a runtime-lifecycle fault: both still stop for explicit
+    // reconciliation instead of being replayed here (SPEC §5.4.2, §10.6,
+    // §41.4 X03).
+    let provider_resource_wait = matches!(
+        evidence.fact,
+        InferenceRetryFact::NeverDispatched
+            | InferenceRetryFact::ProviderRejected { http_status: 429 }
+    );
+    if !provider_resource_wait
+        || step.active_attempt_id.is_some()
+        || !evidence.permits_retry(step.active_request_id)
+    {
+        return Ok(None);
+    }
+    let attempts = state
+        .store
+        .subject_request_attempts_for_step(state.agent_id, step.step_id)?
+        .len();
+    let pacing = retry_pacing(attempts);
+    state.head = head;
+    state.step = step;
+    Ok(Some((pacing, attempts)))
 }
 
 pub struct SubjectLoopState {
@@ -413,6 +506,10 @@ pub async fn run_subject_loop(
 ) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
 
+    // Whether the current run of consecutive retries already wrote its one
+    // durable journal fact. A retry streak is a degradation the subject can
+    // read; each individual pacing interval is not a new fact.
+    let mut retry_journaled = false;
     let result = loop {
         if cancel.is_cancelled() {
             info!("subject loop: shutdown");
@@ -521,8 +618,64 @@ pub async fn run_subject_loop(
             Err(error) => break Err(error),
         };
         // Execute one subject step (S0 → AwaitingModel → Committed)
-        if let Err(error) = execute_step(seq, &events, &mut state, &cancel).await
-        {
+        let retry_seal_at_entry = state.step.retry_reason_ref.clone();
+        let outcome = execute_step(seq, &events, &mut state, &cancel).await;
+        // The DURABLE step state decides continuation, not the error text. A
+        // retry-pending step whose sealed evidence permits another attempt is
+        // a real resource wait: the same serial step is re-attempted under a
+        // new request identity after a bounded, cancellable delay, and the
+        // unique successor/head stay untouched. Any other failure (unknown
+        // outcome, refused provider, unreadable state) still stops the loop
+        // for reconciliation, and no new successor is invented here.
+        let retry = match retry_continuation(&mut state, retry_seal_at_entry.as_ref()) {
+            Ok(retry) => retry,
+            Err(unreadable) => {
+                break Err(match outcome {
+                    Err(primary) => ShenkoError::conflict(format!(
+                        "{primary}; durable retry state unreadable: {unreadable}"
+                    )),
+                    Ok(_) => unreadable,
+                });
+            }
+        };
+        if let Some((pacing, attempts)) = retry {
+            let reason = match &outcome {
+                Err(error) => error.to_string(),
+                Ok(_) => "recorded retry evidence scheduled another attempt".to_string(),
+            };
+            if !retry_journaled {
+                retry_journaled = true;
+                state.store.journal_runtime_error(
+                    state.agent_id,
+                    shenko_store::RuntimeErrorContext {
+                        kind: "subject_retry".into(),
+                        source_module: module_path!().into(),
+                        message: format!("subject step {seq} retry pending: {reason}"),
+                        step_no: Some(seq),
+                        task_id: None,
+                        extra: serde_json::json!({
+                            "step_id": state.step.step_id,
+                            "attempts": attempts,
+                            "pacing_ms": u64::try_from(pacing.as_millis()).unwrap_or(u64::MAX),
+                        }),
+                    },
+                );
+            }
+            info!(
+                seq,
+                attempts,
+                pacing_ms = u64::try_from(pacing.as_millis()).unwrap_or(u64::MAX),
+                reason = %reason,
+                "durable retry pending; continuing the same sealed subject step"
+            );
+            tokio::select! {
+                _ = cancel.cancelled() => break Ok(()),
+                _ = tokio::time::sleep(pacing) => {}
+            }
+            continue;
+        }
+        retry_journaled = false;
+        if let Err(error) = outcome {
             // 失败或结果未知后关闭本运行器；不能在旧内存状态中造一个新步骤。
             warn!(seq, err=%error, "主体恢复阻塞，停止新决定，等待重开和对账");
             break Err(error);
