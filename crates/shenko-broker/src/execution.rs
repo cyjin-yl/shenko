@@ -10,7 +10,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use tracing::warn;
 
-use crate::kv::{KvAllocator, LeaseDemand, LeaseSide};
+use crate::kv::{KvAllocator, LeaseDemand, LeaseSide, ResidencyIdentity};
 use crate::registry::{ProviderRegistry, ProviderRuntime};
 use crate::request::{
     EffectiveInference, InferenceRequest, InferenceResponse, InferenceResult, InferenceStatus,
@@ -22,8 +22,63 @@ use crate::stream::BoundedStreamPublisher;
 
 use crate::broker::{DispatchFence, InferenceReceiptSink, StreamSubmission};
 
+/// The residency context one request executes against.
+///
+/// It is the conversation the request belongs to, so successive turns of one
+/// window renew the same lease and a different window never inherits it.
+fn residency_context(request: &InferenceRequest) -> String {
+    request.conversation_id.to_string()
+}
+
 /// Execute one admitted request and produce its terminal result.
 pub(crate) async fn execute_request(
+    request: &InferenceRequest,
+    receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
+    purpose: RequestPurpose,
+    stream: Option<StreamSubmission>,
+    registry: &Arc<ProviderRegistry>,
+    domain: &Arc<ResourceDomain>,
+    kv: &Arc<KvAllocator>,
+    error_sink: &crate::error_sink::ErrorSinkCell,
+) -> InferenceResult {
+    // A running request is a real reader of its context's residency. While it
+    // runs the context is not an eviction candidate, and a release requested in
+    // the meantime stays pending until this read ends (§13.3 step 6). A first
+    // request for a context has no lease yet, so there is nothing to hold.
+    let context_id = residency_context(request);
+    let reading = {
+        let mut pool = domain.kv_mut();
+        kv.begin_read(&mut pool, &context_id).is_ok()
+    };
+    let result = execute_admitted(
+        request,
+        receipt_sink,
+        purpose,
+        stream,
+        registry,
+        domain,
+        kv,
+        error_sink,
+    )
+    .await;
+    if reading {
+        let mut pool = domain.kv_mut();
+        if result.termination.kind == TerminationKind::Unknown {
+            // The backend may still be reading this context: a dropped
+            // connection, a deadline or an unknown dispatch fence is not proof
+            // that it stopped. The read hold stays charged and off the
+            // eviction list until the original terminal evidence arrives and
+            // the reconciliation path drains it (§13.3 step 6, §41.9).
+            kv.hold_unknown_read(&mut pool, &request.request_id.to_string(), &context_id);
+        } else {
+            let _ = kv.end_read(&mut pool, &context_id);
+        }
+    }
+    result
+}
+
+/// Dispatch one admitted request and settle its terminal result.
+async fn execute_admitted(
     request: &InferenceRequest,
     receipt_sink: Option<&Arc<dyn InferenceReceiptSink>>,
     purpose: RequestPurpose,
@@ -314,6 +369,12 @@ pub(crate) fn failure_result(
 ///
 /// The size comes from what the provider reported, not from an estimate. A
 /// provider that did not report its input tokens leaves the pool unchanged.
+///
+/// The reusable prefix is what this call actually reported as cached, so a
+/// backend that reports nothing keeps zero reuse instead of a guess. One hit is
+/// an observation about this request; it is not proof that the backend still
+/// retains KV after the context was released, and it never raises the lease to
+/// a hard reservation.
 fn observe_kv(
     domain: &Arc<ResourceDomain>,
     kv: &Arc<KvAllocator>,
@@ -327,15 +388,44 @@ fn observe_kv(
         RequestPurpose::Subject | RequestPurpose::External => LeaseSide::Main,
         _ => LeaseSide::Child,
     };
+    // The handle belongs to the backend identity discovery established (engine
+    // identity/incarnation, tokenizer, template, toolset) and to this exact
+    // model. An engine rebuild, a re-rendered template or a model switch
+    // invalidates every older handle instead of letting the new backend inherit
+    // their residency. What was never observed stays unknown, so it neither
+    // proves a match nor invents a change.
+    let reusable_units = usage
+        .cache_read_tokens
+        .map(|cached| cached.min(input_tokens))
+        .unwrap_or(0);
+    let domain_identity = domain.identity();
     let mut pool = domain.kv_mut();
+    let mut identity = pool.identity.clone();
+    identity.adopt(&ResidencyIdentity {
+        engine_identity: Some(domain_identity.engine_identity),
+        engine_incarnation: domain_identity.engine_incarnation,
+        model: Some(request.provider_binding.model().to_string()),
+        tokenizer_fingerprint: None,
+        template_fingerprint: None,
+        toolset_digest: None,
+    });
+    pool.invalidate_stale(&identity);
     let demand = LeaseDemand {
-        context_id: request.conversation_id.to_string(),
+        context_id: residency_context(request),
         side,
         window_units: input_tokens,
-        reusable_units: 0,
-        recompute_units: input_tokens,
+        reusable_units,
+        recompute_units: input_tokens.saturating_sub(reusable_units),
         return_probability: 0.5,
         priority: 0,
+        identity,
+        affinity_options: request
+            .payload
+            .native_options
+            .keys()
+            .filter(|option| crate::capability::is_residency_option(option.as_str()))
+            .cloned()
+            .collect(),
     };
     if let Err(error) = kv.acquire(&mut pool, demand) {
         tracing::debug!(%error, "context residency pool kept its current leases");

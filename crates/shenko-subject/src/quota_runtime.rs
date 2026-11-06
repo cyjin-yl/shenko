@@ -637,6 +637,30 @@ impl QuotaRuntime {
                 _ => (None, None),
             };
             view = view.with_selection(profile, model, Some(choice_reason(&decision.choice)));
+            // Which replaceable routing strategy produced this decision
+            // (SPEC §42.1, §42.6): the subject reads it as a fact about the
+            // numbers it is looking at, not as a second policy source.
+            view = view.with_strategy(decision.strategy.clone());
+            // The effort level the decision selected, when the policy
+            // supports more than the implicit one (SPEC §42.3).
+            let effort = match &decision.choice {
+                Choice::Cloud { effort, .. } => effort.clone(),
+                _ => None,
+            };
+            view = view.with_effort(effort);
+        }
+        // The recorded forecast the decision was planned from: its strategy,
+        // horizon, confidence and per-window planning (SPEC §42.3, §42.6).
+        // Projected read-only; the decision itself is never recomputed here.
+        if let Some(forecast) = self
+            .store
+            .latest_quota_forecast(&snapshot.provider_id, &snapshot.account_scope_ref)
+            .map_err(|error| QuotaRuntimeError::Store(error.to_string()))?
+        {
+            view = view.with_forecast(Some(shenko_quota::QuotaForecastView::of(
+                &forecast,
+                snapshot.snapshot_id,
+            )));
         }
         Ok(view)
     }
@@ -688,8 +712,11 @@ impl QuotaRuntime {
 /// Why the current decision chose what it chose, in the subject's language.
 fn choice_reason(choice: &Choice) -> String {
     match choice {
-        Choice::Cloud { profile_id, rate_per_hour, .. } => {
-            format!("cloud profile {profile_id}, rate_per_hour={rate_per_hour:?}")
+        Choice::Cloud { profile_id, effort, rate_per_hour, .. } => {
+            format!(
+                "cloud profile {profile_id}, effort={}, rate_per_hour={rate_per_hour:?}",
+                effort.as_deref().unwrap_or("implicit"),
+            )
         }
         Choice::Local { profile_id } => format!("local profile {profile_id}"),
         Choice::Wait { until } => format!("quota policy wait, next eligible at {until:?}"),

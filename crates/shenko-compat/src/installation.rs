@@ -31,7 +31,7 @@ pub fn plugin_dependency(unit_id: &str) -> Result<DependencySpec> {
     let package = plugin_package(unit_id)?;
     Ok(DependencySpec { edge_id: "compatibility-plugin".into(), strength: DependencyStrength::Required,
         selector: DependencySelector::Exact { unit_id: package.unit.unit_id, revision_requirement: Some(package.unit.revision),
-            artifact_digest: Some(package.unit.artifact_digest) },
+            artifact_digest: Some(package.unit.artifact_digest), contract_requirement: None },
         purpose: Some("Separately installed compatibility plugin; not the third-party implementation".into()) })
 }
 

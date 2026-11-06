@@ -383,31 +383,6 @@ impl ILinkApi {
         })
     }
 
-    /// Download an encrypted media object from the CDN.
-    pub async fn download_cdn(&self, url: &str) -> Result<Vec<u8>, ILinkError> {
-        let response = self
-            .http
-            .client()
-            .get(url)
-            .send()
-            .await
-            .map_err(|error| {
-                ILinkError::Unknown(crate::common::redact_transport_error(&error.to_string()))
-            })?;
-        let status = response.status().as_u16();
-        if !(200..300).contains(&status) {
-            return Err(ILinkError::Rejected {
-                ret: Some(status as i64),
-                message: "cdn download refused".to_string(),
-            });
-        }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| ILinkError::Unknown(error.to_string()))?;
-        Ok(bytes.to_vec())
-    }
-
     /// The download URL of an encrypted media object.
     pub fn download_url(&self, encrypt_query_param: &str) -> String {
         format!(

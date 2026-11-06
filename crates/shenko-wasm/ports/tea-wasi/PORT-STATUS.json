@@ -1,0 +1,18 @@
+{
+  "name": "tea-wasi",
+  "upstream": "go-gitea/gitea tea",
+  "upstream_url": "https://gitea.com/gitea/tea",
+  "license": "MIT",
+  "language": "Go",
+  "compatibility": "W2",
+  "status": "unresolved",
+  "required_capabilities": [
+    "cap.network.tcp/1",
+    "cap.network.dns/1",
+    "cap.process.deny/1"
+  ],
+  "artifact_sha256": null,
+  "runtime_version": null,
+  "verified_at": null,
+  "notes": "Go wasip1 port stubs out sockets; requires patched net/http transport via admitted preview1 host sockets"
+}

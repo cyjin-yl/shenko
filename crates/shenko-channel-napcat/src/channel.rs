@@ -13,15 +13,15 @@
 use std::sync::Arc;
 
 use serde_json::Value;
-use shenko_store::store::Store;
 use shenko_types::channel::{
-    BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope, ChannelError,
-    ChannelPlugin, ChannelReceipt, ChannelReplyTarget, ChannelRegistry, ReplyKind,
+    AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
+    ChannelError, ChannelPlugin, ChannelReceipt, ChannelReplyTarget, ChannelRegistry, ReplyKind,
+    ResolvedAttachment,
 };
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
 
-use crate::attachments::{parse_message, resolve_attachment, AttachmentError, ResolvedAttachment};
+use crate::attachments::parse_message;
 use crate::client::{NapCatClient, SendError};
 use crate::config::NapCatConfig;
 
@@ -58,7 +58,6 @@ pub const QQ_REPLY_KINDS: &[ReplyKind] = &[
 pub struct NapCatChannel {
     config: Arc<NapCatConfig>,
     client: Arc<NapCatClient>,
-    store: Option<Arc<Store>>,
 }
 
 impl NapCatChannel {
@@ -67,56 +66,12 @@ impl NapCatChannel {
         Self {
             config: Arc::new(config),
             client,
-            store: None,
         }
-    }
-
-    /// Bind the plugin to the Store, so a resolved attachment can be sealed
-    /// into the content-addressed store instead of staying a local path.
-    pub fn with_store(mut self, store: Arc<Store>) -> Self {
-        self.store = Some(store);
-        self
     }
 
     /// The account namespace this connector's conversations belong to.
     pub fn account_scope(&self) -> String {
         self.config.account_scope()
-    }
-
-    /// Read one attachment on the NapCat host and seal its bytes into the
-    /// store. The bytes are then reachable by content digest from every
-    /// node; the remote path itself never becomes a local file.
-    pub fn resolve_attachment_bytes(
-        &self,
-        attachment: &ChannelAttachment,
-    ) -> Result<ResolvedAttachment, String> {
-        let resolved = resolve_attachment(attachment, &self.config).map_err(|error| match error {
-            AttachmentError::Read { detail } => format!("attachment read failed: {detail}"),
-            other => other.to_string(),
-        })?;
-        if let Some(store) = &self.store {
-            let mime = resolved
-                .mime
-                .clone()
-                .unwrap_or_else(|| "application/octet-stream".to_string());
-            let sealed = store
-                .cas
-                .seal_object(
-                    &resolved.bytes,
-                    &mime,
-                    "channel_attachments",
-                    "bytes",
-                    1,
-                )
-                .map_err(|error| format!("attachment seal failed: {error}"))?;
-            return Ok(ResolvedAttachment {
-                attachment_id: resolved.attachment_id,
-                bytes: resolved.bytes,
-                mime: resolved.mime,
-                object: Some(sealed.object),
-            });
-        }
-        Ok(resolved)
     }
 
     /// The QQ number of a platform id, when it is one.
@@ -163,9 +118,15 @@ impl ChannelPlugin for NapCatChannel {
             return serde_json::from_value::<ChannelEnvelope>(raw.clone()).ok();
         }
         let post_type = raw.get("post_type").and_then(Value::as_str)?;
-        if post_type != "message" {
+        // `message_sent` is the NapCat/go-cqhttp extension that reports the
+        // bot's own message, including one sent from another client of the same
+        // account. It is a real conversation fact: the account spoke in that
+        // audience. It is staged as the account's own line (see
+        // `staged_text`), never as a person's message.
+        if !matches!(post_type, "message" | "message_sent") {
             return None;
         }
+        let own_message = post_type == "message_sent";
         let message_type = raw
             .get("message_type")
             .and_then(Value::as_str)
@@ -207,10 +168,16 @@ impl ChannelPlugin for NapCatChannel {
                 )
             }
             "private" | "friend" | "group_temp" => {
-                let peer = raw
-                    .get("user_id")
-                    .and_then(platform_id)
-                    .or_else(|| sender_id.clone())?;
+                // For an own `message_sent` frame the peer is `target_id`; a
+                // frame without it cannot name the audience unambiguously, so
+                // it is left unclassified rather than inventing a conversation.
+                let peer = if own_message {
+                    raw.get("target_id").and_then(platform_id)?
+                } else {
+                    raw.get("user_id")
+                        .and_then(platform_id)
+                        .or_else(|| sender_id.clone())?
+                };
                 (
                     Some(ChannelReplyTarget {
                         kind: "private".to_string(),
@@ -308,6 +275,17 @@ impl ChannelPlugin for NapCatChannel {
             .map(str::trim)
             .filter(|name| !name.is_empty())
             .unwrap_or(envelope.actor.platform_id.as_str());
+        // The account's own line (a `message_sent` event, e.g. sent from
+        // another client) is attributed to the account, never to a person: a
+        // multi-speaker group must not read the bot's own words as somebody
+        // else's message.
+        let own = NapCatChannel::qq_number(&envelope.actor.platform_id)
+            == Some(self.config.bot_qq);
+        let who = if own {
+            format!("{who}（本账号发出）")
+        } else {
+            who.to_string()
+        };
         let body = envelope.content.text.trim();
         let attachments = if envelope.attachments.is_empty() {
             String::new()
@@ -505,11 +483,17 @@ impl ChannelPlugin for NapCatChannel {
     fn resolve_attachment(
         &self,
         attachment: &ChannelAttachment,
-    ) -> Result<ChannelAttachment, String> {
-        let resolved = self.resolve_attachment_bytes(attachment)?;
-        let mut attachment = attachment.clone();
-        attachment.object = resolved.object;
-        Ok(attachment)
+    ) -> BoxFuture<'static, Result<ResolvedAttachment, AttachmentError>> {
+        let attachment = attachment.clone();
+        let config = Arc::clone(&self.config);
+        let client = Arc::clone(&self.client);
+        Box::pin(async move {
+            // The connector is the installed account: its own media actions and
+            // the configured media root are the real mechanisms. Sealing the
+            // bytes into the content-addressed store belongs to the caller that
+            // owns the Store, so the plugin never needs one.
+            crate::attachments::resolve(&attachment, &config, &client).await
+        })
     }
 }
 
@@ -548,4 +532,171 @@ pub fn qq_test_registry() -> ChannelRegistry {
     let (client, _events, _actions) = NapCatClient::open_isolated(config.clone())
         .expect("isolated napcat connector opens");
     qq_registry(config, Arc::new(client))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn channel(config: NapCatConfig) -> NapCatChannel {
+        let (client, _events, _actions) =
+            NapCatClient::open_isolated(config.clone()).expect("isolated connector opens");
+        NapCatChannel::new(config, Arc::new(client))
+    }
+
+    fn group_config() -> NapCatConfig {
+        NapCatConfig {
+            bot_qq: 10000,
+            // The owner names the administrator explicitly; group roles and
+            // familiarity never grant administration.
+            admin_qq: vec![20002],
+            ..Default::default()
+        }
+    }
+
+    /// A message the account itself sent (from another client) is attributed to
+    /// the account, keeps the same conversation identity as the peer's side,
+    /// and never becomes a person's line in the staged text.
+    #[test]
+    fn own_sent_messages_are_the_accounts_own_line() {
+        let plugin = channel(group_config());
+        let group = json!({
+            "post_type": "message_sent",
+            "message_type": "group",
+            "group_id": 7,
+            "user_id": 10000,
+            "self_id": 10000,
+            "message_id": 900,
+            "sender": {"user_id": 10000, "nickname": "深刻", "card": ""},
+            "message": [{"type": "text", "data": {"text": "我先看一下"}}]
+        });
+        let envelope = plugin.classify(QQ_SOURCE, &group).expect("own group message classifies");
+        assert_eq!(envelope.provider, QQ_CHANNEL_ID);
+        assert_eq!(envelope.account, "qq:10000");
+        assert_eq!(envelope.conversation.as_deref(), Some("7"));
+        assert_eq!(envelope.message_id, "900");
+        assert_eq!(envelope.actor.platform_id, "10000");
+        assert_eq!(
+            plugin.staged_text(&envelope),
+            "[深刻（本账号发出） · 群 7] 我先看一下"
+        );
+        // It is not administration: the account is not an owner-set admin.
+        assert_eq!(envelope.actor.role_grant_ref, None);
+        // The peer's own messages keep the original wording.
+        let incoming = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 7,
+            "user_id": 20001,
+            "self_id": 10000,
+            "message_id": 901,
+            "sender": {"user_id": 20001, "nickname": "甲", "role": "owner"},
+            "message": [{"type": "text", "data": {"text": "在吗"}}]
+        });
+        let envelope = plugin.classify(QQ_SOURCE, &incoming).unwrap();
+        assert_eq!(plugin.staged_text(&envelope), "[甲 · 群 7] 在吗");
+        // A platform group role is not an administrative grant either; only
+        // the owner-configured admin list is.
+        assert_eq!(envelope.actor.role_grant_ref, None);
+        assert_eq!(envelope.actor.group_role.as_deref(), Some("owner"));
+        let admin = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "user_id": 20002,
+            "self_id": 10000,
+            "message_id": 902,
+            "sender": {"user_id": 20002, "nickname": "管理员"},
+            "message": [{"type": "text", "data": {"text": "改一下"}}]
+        });
+        let envelope = plugin.classify(QQ_SOURCE, &admin).unwrap();
+        assert_eq!(
+            envelope.actor.role_grant_ref.as_deref(),
+            Some("qq-admin:20002")
+        );
+    }
+
+    /// Rich OneBot content keeps a readable rendering: a shared card, a
+    /// mention, a face and a merged forward are not silently dropped from the
+    /// message the model reads, and the structured segments survive.
+    #[test]
+    fn rich_segments_keep_readable_content() {
+        let plugin = channel(group_config());
+        let event = json!({
+            "post_type": "message",
+            "message_type": "group",
+            "group_id": 7,
+            "user_id": 20001,
+            "self_id": 10000,
+            "message_id": 910,
+            "sender": {"user_id": 20001, "nickname": "甲"},
+            "message": [
+                {"type": "at", "data": {"qq": "10000"}},
+                {"type": "text", "data": {"text": " 看这个 "}},
+                {"type": "json", "data": {"data": "{\"prompt\":\"[分享]标题\",\"meta\":{\"title\":\"标题\"}}"}},
+                {"type": "forward", "data": {"id": "fwd-1"}},
+                {"type": "face", "data": {"id": "14"}},
+                {"type": "share", "data": {"title": "一篇好文章", "url": "https://example.invalid/a"}}
+            ]
+        });
+        let envelope = plugin.classify(QQ_SOURCE, &event).unwrap();
+        assert_eq!(envelope.content.mentions, vec!["10000".to_string()]);
+        let kinds: Vec<&str> = envelope
+            .content
+            .segments
+            .iter()
+            .map(|segment| segment.kind.as_str())
+            .collect();
+        assert_eq!(kinds, ["at", "text", "json", "forward", "face", "share"]);
+        let text = plugin.staged_text(&envelope);
+        assert!(text.contains("@10000"), "{text}");
+        assert!(text.contains("[分享]标题"), "{text}");
+        assert!(text.contains("[合并转发 fwd-1，未展开]"), "{text}");
+        assert!(text.contains("[表情 14]"), "{text}");
+        assert!(text.contains("一篇好文章"), "{text}");
+        // The raw CQ-string form keeps media as attachments, as before.
+        let cq = json!({
+            "post_type": "message",
+            "message_type": "private",
+            "user_id": 9,
+            "self_id": 10000,
+            "message_id": 911,
+            "sender": {"user_id": 9, "nickname": "乙"},
+            "message": "[CQ:image,file=cat.png]在吗"
+        });
+        let envelope = plugin.classify(QQ_SOURCE, &cq).unwrap();
+        assert_eq!(envelope.attachments.len(), 1);
+        assert_eq!(envelope.attachments[0].kind, "image");
+        assert!(plugin.staged_text(&envelope).contains("在吗"));
+    }
+
+    /// A private own message names its peer by `target_id`; without that field
+    /// it is left unclassified instead of inventing a conversation.
+    #[test]
+    fn private_own_messages_need_an_explicit_peer() {
+        let plugin = channel(group_config());
+        let with_target = json!({
+            "post_type": "message_sent",
+            "message_type": "private",
+            "user_id": 10000,
+            "target_id": 20001,
+            "self_id": 10000,
+            "message_id": 903,
+            "sender": {"user_id": 10000, "nickname": "深刻"},
+            "message": "收到"
+        });
+        let envelope = plugin.classify(QQ_SOURCE, &with_target).unwrap();
+        assert_eq!(envelope.conversation.as_deref(), Some("20001"));
+        assert_eq!(
+            plugin.resolve_reply("private", "20001").unwrap().id,
+            "20001"
+        );
+        assert_eq!(
+            plugin.staged_text(&envelope),
+            "[深刻（本账号发出） · 私聊 QQ 20001] 收到"
+        );
+        let mut missing = with_target.clone();
+        missing.as_object_mut().unwrap().remove("target_id");
+        assert!(plugin.classify(QQ_SOURCE, &missing).is_none());
+    }
 }

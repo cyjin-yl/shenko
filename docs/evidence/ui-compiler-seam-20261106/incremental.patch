@@ -1,0 +1,983 @@
+--- a/crates/shenko-ui/web/build.mjs (frozen r1)
++++ b/crates/shenko-ui/web/build.mjs
+@@ -16,11 +16,13 @@
+ import { dirname, join, resolve } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { build } from 'esbuild';
++import { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } from './compiler.mjs';
+ 
+ const webRoot = dirname(fileURLToPath(import.meta.url));
+ const crateRoot = resolve(webRoot, '..');
+ const staticDir = join(crateRoot, 'src', 'static');
+ const pin = JSON.parse(readFileSync(join(webRoot, 'upstream-pin.json'), 'utf8'));
++const prototypesOnly = process.argv.includes('--prototypes-only');
+ const upstreamRoot = process.env.PROTO_UI_SOURCE;
+ if (!upstreamRoot || !existsSync(upstreamRoot)) {
+   throw new Error('PROTO_UI_SOURCE must name the separately checked out pinned upstream source');
+@@ -43,6 +45,10 @@
+   'packages/prototypes/shadcn/dist/scroll-area/index.js',
+   'packages/prototypes/shadcn/dist/collapsible/index.js',
+   'packages/cli/bin/proto-ui.js',
++  // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
++  // re-audits these same inputs before bundling them for the build.
++  'packages/compiler/package.json',
++  'packages/compiler/src/index.ts',
+ ]) {
+   if (!existsSync(join(sourceRoot, relative))) throw new Error(`Missing audited upstream artifact: ${relative}`);
+ }
+@@ -99,6 +105,19 @@
+   }
+ }
+ 
++// Compile Shenko's own Prototypes with the reviewed compiler before the app
++// bundle runs: main.tsx imports the generated React DOM source, never the
++// compiler. `--prototypes-only` is the documented prerequisite for `tsc`.
++const compilerRecord = await compileShenkoPrototypes({ sourceRoot, webRoot, pin });
++console.log(
++  `Shenko prototypes compiled by Proto-UI ${pin.commit} (${compilerRecord.profile}): ` +
++    compilerRecord.prototypes.map((prototype) => prototype.name).join(', '),
++);
++if (prototypesOnly) {
++  console.log(`Prototype sources written under ${PROTOTYPE_OUTPUT_RELATIVE}/; skipped bundling`);
++  process.exit(0);
++}
++
+ mkdirSync(staticDir, { recursive: true });
+ await build({
+   absWorkingDir: webRoot,
+@@ -191,6 +210,8 @@
+       'packages/prototypes/shadcn/dist/scroll-area/index.js',
+       'packages/prototypes/shadcn/dist/collapsible/index.js',
+       'packages/cli/bin/proto-ui.js',
++      'packages/compiler/package.json',
++      'packages/compiler/src/index.ts',
+     ],
+     shadcn_provenance: {
+       rhea_luma: 'shadcn-ui/ui@25af02b1b467fcd53b63e0c6d6d324c57c16ef18',
+@@ -198,7 +219,28 @@
+       api_baseline: 'shadcn-ui/ui@f31ed81983653919dd4fe77aee4b4859f610f1dc',
+     },
+   },
+-  compiler: pin.compiler,
++  // Facts, not intentions: the compiled set, exact inputs and generated
++  // digests above are what this build actually consumed.
++  compiler: {
++    status: compilerRecord.status,
++    runtime_imported: compilerRecord.runtime_imported,
++    profile: compilerRecord.profile,
++    package: compilerRecord.package,
++    package_sha256: compilerRecord.package_sha256,
++    entry: compilerRecord.entry,
++    entry_sha256: compilerRecord.entry_sha256,
++    source_tree_sha256: compilerRecord.source_tree_sha256,
++    typescript: compilerRecord.typescript,
++    bundle: compilerRecord.bundle,
++    resolutions: compilerRecord.resolutions,
++    public_package_selection: {
++      script: 'scripts/build/public-packages.mjs',
++      selected_package_count: upstreamBuild?.selected_package_count ?? null,
++      includes_compiler: pin.compiler.public_package_selection === true,
++      note: 'The compiler exports TypeScript source only and is private, so it is never one of the built public packages; Shenko compiles it at build time instead.',
++    },
++    prototypes: compilerRecord.prototypes,
++  },
+   toolchain: {
+     node: process.version,
+     pnpm: '10.32.1',
+--- a/crates/shenko-ui/web/src/app.css (frozen r1)
++++ b/crates/shenko-ui/web/src/app.css
+@@ -158,14 +158,18 @@
+   font-size: 10px; font-weight: 600; letter-spacing: .03em;
+ }
+ .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+-.transport-badge {
++/* The transport chip is Shenko's own compiled Prototype
++   (web/prototypes/transport-badge.proto.ts). Template nodes carry no class
++   names, so the shell binds the tokens the compiler emits to this palette. */
++[data-pui-style~="shenko-status-chip"] {
+   display: inline-flex; align-items: center; gap: 7px; color: var(--muted);
+   font-size: 12px; white-space: nowrap;
+ }
+-.transport-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 4px color-mix(in oklch, var(--faint) 10%, transparent); }
+-.transport-badge.is-online .transport-dot { background: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-soft); }
+-.transport-badge.is-reconnecting .transport-dot, .transport-badge.is-connecting .transport-dot { background: var(--warning); }
+-.transport-badge.is-local .transport-dot { background: var(--violet); }
++[data-pui-style~="shenko-status-dot"] { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 4px color-mix(in oklch, var(--faint) 10%, transparent); }
++[data-pui-style~="shenko-status-online"] [data-pui-style~="shenko-status-dot"] { background: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-soft); }
++[data-pui-style~="shenko-status-reconnecting"] [data-pui-style~="shenko-status-dot"],
++[data-pui-style~="shenko-status-connecting"] [data-pui-style~="shenko-status-dot"] { background: var(--warning); }
++[data-pui-style~="shenko-status-local"] [data-pui-style~="shenko-status-dot"] { background: var(--violet); }
+ .panel-toggle { gap: 7px; }
+ .status-strip {
+   min-height: 36px; padding: 0 30px; display: flex; align-items: center; gap: 12px;
+@@ -312,6 +316,13 @@
+ .task-row strong { font-size: 12px; font-weight: 550; }
+ .data-row time { color: var(--faint); font-family: var(--font-mono); font-size: 10px; text-align: right; }
+ .memory-row { grid-template-columns: 1fr auto; }
++.memory-kind { margin-left: 8px; color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
++.revision-disclosure { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding-top: 4px; color: var(--muted); font-size: 11px; }
++.revision-digest { color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
++.revision-full { flex-basis: 100%; border-left: 2px solid var(--line); padding: 6px 0 2px 12px; color: var(--ink-soft); }
++.revision-full h4 { margin: 0 0 4px; color: var(--faint); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
++.revision-full p { margin: 0; white-space: pre-wrap; }
++.revision-note { flex-basis: 100%; color: var(--danger); font-size: 10px; }
+ 
+ .playground-row { grid-template-columns: minmax(140px, 1.4fr) auto auto auto auto auto; }
+ .playground-row code { overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+@@ -384,8 +395,8 @@
+   .subject-subline { display: none; }
+   .demo-badge { font-size: 8px; padding: 1px 5px; }
+   .topbar-actions { gap: 7px; }
+-  .transport-badge { font-size: 0; gap: 0; }
+-  .transport-dot { width: 6px; height: 6px; }
++  [data-pui-style~="shenko-status-chip"] { font-size: 0; gap: 0; }
++  [data-pui-style~="shenko-status-dot"] { width: 6px; height: 6px; }
+   .panel-toggle { font-size: 11px !important; padding-left: 10px !important; padding-right: 10px !important; }
+   .panel-toggle svg { display: none; }
+   .status-strip { min-height: 32px; padding: 0 14px; gap: 8px; font-size: 9px; }
+--- a/crates/shenko-ui/web/src/projection.ts (frozen r1)
++++ b/crates/shenko-ui/web/src/projection.ts
+@@ -2,8 +2,9 @@
+  * Shenko's stable application-semantic UI boundary (SPEC §21.2).
+  *
+  * This is deliberately not Proto-UI's private PrototypeIR and is not accepted
+- * by upstream compilePrototype. A future compiler adapter must translate this
+- * semantic document at this boundary; pages and service DTOs never expose IR.
++ * by upstream compilePrototype: the build-time compiler (web/compiler.mjs)
++ * compiles Shenko's own Prototype *source* into React DOM source, while server
++ * projections keep their own schema. Pages and service DTOs never expose IR.
+  */
+ export const UI_PROJECTION_SCHEMA = 'shenko.ui-projection/v1' as const;
+ export const UI_INTENT_SCHEMA = 'shenko.ui-intent/v1' as const;
+@@ -241,7 +242,41 @@
+   upstream: { repository: string; commit: string; lock_sha256: string };
+   packages: string[];
+   adopted_families: string[];
+-  compiler: { status: string; runtime_imported: boolean };
++  compiler: BuildCompilerFacts;
++}
++
++/**
++ * Compiler facts recorded by the build (`web/build.mjs` + `web/compiler.mjs`).
++ * Every field is a measurement of that build; a missing field stays missing and
++ * is never inferred. `runtime_imported` states whether the browser bundle
++ * imports the compiler, not whether a compiler exists.
++ */
++export interface BuildCompilerFacts {
++  status: string;
++  runtime_imported: boolean;
++  profile?: string;
++  package?: string;
++  entry?: string;
++  entry_sha256?: string;
++  source_tree_sha256?: string;
++  typescript?: string;
++  bundle?: { path: string; sha256: string; bytes?: number };
++  public_package_selection?: {
++    script?: string;
++    selected_package_count?: number | null;
++    includes_compiler: boolean;
++    note?: string;
++  };
++  prototypes?: Array<{
++    name: string;
++    entry: string;
++    entry_sha256: string;
++    profile: string;
++    component_name: string;
++    generated_source: string;
++    generated_sha256: string;
++    generated_imports?: string[];
++  }>;
+ }
+ 
+ export interface DisplayState {
+--- a/crates/shenko-ui/web/src/react-renderer.tsx (frozen r1)
++++ b/crates/shenko-ui/web/src/react-renderer.tsx
+@@ -19,6 +19,7 @@
+   intentFor,
+   partState,
+   type ActionReceiptView,
++  type BuildManifest,
+   type ConnectionState,
+   type DegradedDocument,
+   type DocumentErrorView,
+@@ -33,9 +34,18 @@
+   type ViewName,
+ } from './projection';
+ import { resolveAnchor, selectionApplies } from './reading-state';
++import {
++  readContentRevisionDisclosure,
++  readRevisionDisclosure,
++  type ContentRevisionDisclosure,
++  type RevisionDisclosure,
++} from './revision-disclosure';
++import { CompiledTransportBadge } from '../generated/prototypes/transport-badge/Component';
+ 
+ // These are the actual upstream prototypes and official runtime adapter, not
+-// local lookalikes. The compiler package is deliberately absent from this graph.
++// local lookalikes. The Proto-UI compiler is not part of this graph: it runs at
++// build time (web/compiler.mjs) and this bundle only imports the React DOM
++// source it emitted for Shenko's own Prototypes.
+ const adapt = createReactAdapter({ ...React, createPortal });
+ const ProtoButton = adapt(shadcnButton);
+ const ProtoTextarea = adapt(shadcnTextareaRoot);
+@@ -208,15 +218,31 @@
+   });
+ }
+ 
++// The chip is Shenko's own Prototype, compiled at build time into React DOM
++// source by the pinned Proto-UI compiler. This caller keeps the transport facts
++// and decides only the label and tone; the Prototype renders markup and tokens.
+ function TransportBadge({ connection, demo }: { connection: ConnectionState; demo: boolean }) {
+-  if (demo) return <span className="transport-badge is-local"><span className="transport-dot" />本地模拟</span>;
++  if (demo) return <CompiledTransportBadge label="本地模拟" tone="local" />;
+   const labels: Record<ConnectionState, string> = {
+     connecting: '连接中',
+     online: '传输已连接',
+     reconnecting: '正在重连',
+     offline: '传输离线',
+   };
+-  return <span className={`transport-badge is-${connection}`}><span className="transport-dot" />{labels[connection]}</span>;
++  return <CompiledTransportBadge label={labels[connection]} tone={connection} />;
++}
++
++/** Compiler facts exactly as the build recorded them; nothing is inferred. */
++function compilerLabel(compiler: BuildManifest['compiler'] | undefined): string {
++  if (!compiler) return 'Compiler：构建 manifest 未记录。';
++  const runtime = compiler.runtime_imported === true ? '浏览器运行期导入编译器' : '浏览器未导入编译器';
++  if (compiler.status !== 'build_time_compiled') {
++    return `Compiler：${compiler.status}；${runtime}。`;
++  }
++  const names = (compiler.prototypes ?? []).map((prototype) => prototype.name);
++  const profile = compiler.profile ?? 'profile 未记录';
++  if (names.length === 0) return `Compiler：构建期编译，未记录已编译 prototype（${profile}）；${runtime}。`;
++  return `Compiler：构建期编译 ${names.length} 个 Shenko prototype（${names.join('、')}，${profile}）；${runtime}。`;
+ }
+ 
+ function connectionAnnouncement(connection: ConnectionState): string {
+@@ -992,12 +1018,50 @@
+     <SurfaceHeader eyebrow="按需视图" title="记忆" detail="只呈现接口实际返回的条目，不从未持久 profile 生成回忆。" />
+     {node.props.error ? <SurfaceNote text="记忆接口不可用" tone="error" /> : items.length === 0 ? <SurfaceNote text={node.props.data?.note || '暂无记忆条目'} /> : (
+       <div className="data-list">{items.map((memory: Record<string, unknown>, index: number) => <div className="data-row memory-row" key={String(memory.id ?? index)}>
+-        <span>{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? memory.kind ?? '—')}</span><time>{formatStamp(memory.created_at)}</time>
++        {/* `kind` is a learnable hint, never the entry's content. */}
++        <span>{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}{memory.kind ? <small className="memory-kind">{String(memory.kind)}</small> : null}</span><time>{formatStamp(memory.created_at)}</time>
++        <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
++        <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
+       </div>)}</div>
+     )}
+   </section>;
+ }
+ 
++/**
++ * Renders the server's taste disclosure verbatim: retained-version count and
++ * latest modification by default, full text only when the request asked for a
++ * specific revision. A missing projection stays missing (§51.1/§51.4).
++ */
++function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure | null }) {
++  if (!disclosure) return null;
++  const facts: string[] = [];
++  if (disclosure.older_versions !== null) facts.push(`旧版本 ${disclosure.older_versions} 版`);
++  if (disclosure.latest_modified_at_ms !== null) facts.push(`最新修改 ${formatStampMs(disclosure.latest_modified_at_ms)}`);
++  if (disclosure.selected !== null) facts.push(`当前读第 ${disclosure.selected} 版`);
++  if (disclosure.written_at_ms !== null) facts.push(`写于 ${formatStampMs(disclosure.written_at_ms)}`);
++  if (facts.length === 0 && !disclosure.full_text) return null;
++  return <div className="revision-disclosure" data-revision-family={disclosure.family}>
++    {facts.length ? <span className="revision-summary">{facts.join(' · ')}</span> : null}
++    {disclosure.content_digest ? <code className="revision-digest">{disclosure.content_digest.slice(0, 12)}</code> : null}
++    {disclosure.full_text ? <div className="revision-full">
++      <h4>第 {disclosure.full_text.revision} 版全文{disclosure.full_text.written_at_ms !== null ? ` · 写于 ${formatStampMs(disclosure.full_text.written_at_ms)}` : ''}</h4>
++      {disclosure.full_text.text !== null
++        ? <p>{disclosure.full_text.text}</p>
++        : <small className="revision-note">请求的版本全文未解析</small>}
++    </div> : null}
++    {disclosure.full_text_unreadable ? <small className="revision-note">请求的版本全文不可读</small> : null}
++  </div>;
++}
++
++/** Store-level revision summary exactly as projected; no derived chain. */
++function ContentRevisionDisclosureView({ revision }: { revision: ContentRevisionDisclosure | null }) {
++  if (!revision) return null;
++  return <div className="revision-disclosure">
++    <span className="revision-summary">旧版本 {revision.old_version_count} 版 · 最新修改 {formatStampMs(revision.latest_modified_at_ms)}</span>
++    <code className="revision-digest">{revision.latest_digest.slice(0, 12)}</code>
++  </div>;
++}
++
+ function ConfigSurface({ node, projection }: { node?: UiNode; projection: UiProjection }) {
+   if (!node) return null;
+   const config = node.props.config;
+@@ -1031,7 +1095,7 @@
+       {manifest ? <>
+         <code className="commit-sha">{manifest.upstream.commit}</code>
+         <p>{manifest.packages.join(' · ')}</p>
+-        <p>采用 family：{manifest.adopted_families.join('、')}。Compiler：seam only，未上线。</p>
++        <p>采用 family：{manifest.adopted_families.join('、')}。{compilerLabel(manifest.compiler)}</p>
+       </> : <p>构建 manifest 未读取。</p>}
+       <div className="license-links"><a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">Proto-UI 许可</a><a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">shadcn 来源与许可</a><a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">React 许可</a></div>
+     </div>
+@@ -1195,6 +1259,11 @@
+   return `${date.getMonth() + 1}-${date.getDate()} ${formatTime(value)}`;
+ }
+ 
++/** Disclosure timestamps are epoch milliseconds; only presentation changes here. */
++function formatStampMs(value: number): string {
++  return Number.isFinite(value) ? formatStamp(new Date(value).toISOString()) : '—';
++}
++
+ function firstLine(text: string): string {
+   return text.split('\n').find((line) => line.trim())?.trim() ?? '（空）';
+ }
+--- a/crates/shenko-ui/web/upstream-pin.json
++++ b/crates/shenko-ui/web/upstream-pin.json
+@@ -15,8 +15,17 @@
+     "collapsible"
+   ],
+   "compiler": {
+-    "status": "seam_only",
++    "status": "build_time_compiled",
+     "runtime_imported": false,
+-    "upstream_visibility": "private source package; no published compiler profile"
++    "profile": "react-dom-source-v1",
++    "package": "packages/compiler/package.json",
++    "entry": "packages/compiler/src/index.ts",
++    "exports_source_only": true,
++    "public_package_selection": false,
++    "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
++    "prototypes": [
++      "transport-badge"
++    ],
++    "note": "Shenko compiles its own Prototypes with this reviewed compiler at build time (web/compiler.mjs) and ships the generated React DOM source. The browser bundle never imports the compiler, so runtime_imported stays false."
+   }
+ }
+--- a/crates/shenko-ui/web/package.json
++++ b/crates/shenko-ui/web/package.json
+@@ -9,8 +9,9 @@
+     "pnpm": ">=10.32.1 <11"
+   },
+   "scripts": {
++    "proto": "node build.mjs --prototypes-only",
+     "build": "node build.mjs",
+-    "check": "tsc --noEmit",
++    "check": "node build.mjs --prototypes-only && tsc --noEmit",
+     "test": "node --test tests/*.test.mjs"
+   },
+   "dependencies": {
+--- a/crates/shenko-ui/web/tsconfig.json
++++ b/crates/shenko-ui/web/tsconfig.json
+@@ -11,5 +11,5 @@
+     "allowImportingTsExtensions": false,
+     "types": ["react", "react-dom"]
+   },
+-  "include": ["src/**/*.ts", "src/**/*.tsx"]
++  "include": ["src/**/*.ts", "src/**/*.tsx", "generated/prototypes/**/*.ts", "generated/prototypes/**/*.tsx"]
+ }
+--- a/.gitignore
++++ b/.gitignore
+@@ -7,6 +7,7 @@
+ worktrees/
+ target/
+ node_modules/
++crates/shenko-ui/web/generated/
+ __pycache__/
+ *.pyc
+ *.pem
+--- a/docs/specs/web-interface.md
++++ b/docs/specs/web-interface.md
+@@ -103,8 +103,7 @@
+ 
+ `web/upstream-pin.json`：`971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e`
+ （migrated_from `7181a93…`）。上游 `pnpm-lock.yaml` sha256 不变
+-（`3ac437fd…`）；adapter-react 签名、shadcn 导出、compiler seam_only 状态经
+-比对一致。
++（`3ac437fd…`）；adapter-react 签名与 shadcn 导出经比对一致。
+ 
+ 构建时由该提交的 `scripts/build/public-packages.mjs` 解析 pin 中
+ `adapter-react`、`prototypes-shadcn`、`cli` 三个入口的依赖闭包，而不是调用
+@@ -116,6 +115,33 @@
+ 因此资源重建之后还必须重新编译并启动 UI；修改 manifest 或只打开旧二进制
+ 不能证明升级生效。
+ 
++### compiler：构建期编译 Shenko 自己的 Prototype
++
++该 pin 的 `@proto.ui/compiler` 是私有源码包：`exports` 只有
++`./src/index.ts`，没有 `dist`，也不在 42 个公开包的构建选择里。所以它既不能
++当包产物导入，也不能假装存在运行期编译器。现行路径是**构建期编译**
++（`web/compiler.mjs`）：
++
++- 用同一份审查过的源码，审计 `packages/compiler/package.json` 的包身份、私有标记
++  与 `exports` 入口，再对其 `src/` 计算确定性目录摘要；
++- 用工作区锁定的 esbuild 把该 TypeScript 模块图打成一份 Node ESM
++  （`generated/compiler/`），`typescript` 保持外部依赖（compiler 声明 `^5.0.0`，
++  由 web 锁定的 devDependency 满足）；`@floating-ui/dom` 由声明它的
++  `packages/modules/positioning` 安装副本解析并记录版本与摘要；
++- 用 `compileFile` 编译 `web/prototypes/*.proto.ts`（Shenko 自己写的
++  Prototype），profile 为 `react-dom-source-v1`，输出 create-only 写入
++  `web/generated/prototypes/<name>/`，含 compiler 自己的 `provenance.json`；
++- 浏览器 bundle 只导入生成的 React DOM 源码，因此 manifest 记
++  `runtime_imported: false`；compiler 源码摘要、bundle 摘要、每个 Prototype
++  的源字节摘要与生成摘要都写进 `build-manifest.json` 的 `compiler` 事实里。
++
++`web/generated/` 是构建产物、不入库；`tsc` 需要先有这次编译，因此
++`pnpm check` = `node build.mjs --prototypes-only && tsc --noEmit`。
++
++界面上的 transport 状态徽标就是这个编译产物：Prototype 只负责呈现（props
++`label`/`tone` 与 token 样式），连接事实、文案与推理仍留在
++`react-renderer.tsx`，没有搬进 compiler 或 Prototype。
++
+ 界面验收需实际切换页面并对照当前接口与嵌入 manifest；壳层可见、HTTP 200
+ 或构建成功均不足以证明页面可用。独立 UiServer 的只读页面验证不替代真实
+ 主体、provider、持久输入和流式接线验收。
+@@ -127,5 +153,7 @@
+ - `InferenceStreamEvent` 生产者与 part 写入器归 **ArchBroker/ArchSubject**；
+   未接线时 `streaming:false`，全部测试不依赖流。
+ - server.rs 中的 `media_runtime` 字段/`with_media_runtime()` 归 **ArchMedia**。
+-- 父代执行：cargo check/test（shenko-store + shenko-ui）、web `tsc`/构建、
+-  原生浏览器验证、发布前 pin 新鲜度。
++- 父代执行：cargo check/test（shenko-store + shenko-ui）、
++  `node build.mjs --prototypes-only` + `tsc --noEmit`、`node build.mjs`、
++  原生浏览器验证、发布前 pin 新鲜度。构建产物（`src/static/*`）与 Rust 嵌入
++  由父代重建；未重建时不得声称界面已升级。
+--- /dev/null
++++ b/crates/shenko-ui/web/compiler.mjs
+@@ -0,0 +1,306 @@
++/**
++ * Build-time Proto-UI compiler seam.
++ *
++ * The reviewed Proto-UI pin (web/upstream-pin.json) carries a *private*
++ * `@proto.ui/compiler` package that exports only `./src/index.ts`: it has no
++ * built `dist`, it is not part of the pinned `scripts/build/public-packages.mjs`
++ * selection, and no published compiler profile exists. Shenko therefore cannot
++ * import the compiler through a package artifact and must not pretend a
++ * runtime compiler exists.
++ *
++ * What this module does instead:
++ *
++ * 1. audits the pinned compiler sources it is about to consume (existence,
++ *    package identity, exported entry, source-tree digest);
++ * 2. bundles those sources once with the workspace's pinned esbuild into one
++ *    Node ESM file, so the compiler's TypeScript module graph is executable
++ *    without adding a `dist` to the reviewed upstream checkout;
++ * 3. runs `compileFile` on Shenko-authored Prototypes and publishes each
++ *    generation create-only into `generated/prototypes/<name>/` together with
++ *    the compiler's own `provenance.json`;
++ * 4. returns the exact facts to record in the build manifest.
++ *
++ * The browser bundle imports only the generated React DOM source, so the
++ * compiler is build-time only (`runtime_imported: false`).
++ */
++import { createHash } from 'node:crypto';
++import {
++  existsSync,
++  mkdirSync,
++  readFileSync,
++  readdirSync,
++  rmSync,
++  statSync,
++  writeFileSync,
++} from 'node:fs';
++import { dirname, join, relative } from 'node:path';
++import { pathToFileURL } from 'node:url';
++import { build as esbuild } from 'esbuild';
++
++export const COMPILER_PACKAGE = 'packages/compiler';
++export const COMPILER_ENTRY = 'packages/compiler/src/index.ts';
++export const COMPILER_PROFILE = 'react-dom-source-v1';
++export const COMPILER_BUNDLE_RELATIVE = 'generated/compiler/proto-ui-compiler.mjs';
++export const PROTOTYPE_SOURCE_ROOT = 'prototypes';
++export const PROTOTYPE_OUTPUT_RELATIVE = 'generated/prototypes';
++/**
++ * `typescript` stays external: the compiler declares `typescript: ^5.0.0` and
++ * the workspace's reviewed devDependency satisfies it, so the bundle does not
++ * embed a second TypeScript copy. Node resolves it from web/node_modules.
++ */
++export const COMPILER_EXTERNALS = ['typescript'];
++/**
++ * `packages/compiler/src/native-adapter-modules.ts` imports `@floating-ui/dom`
++ * but the compiler manifest does not declare it; the workspace installs it for
++ * `packages/modules/positioning`. The resolution is explicit and recorded
++ * instead of hoisting an unowned copy into the reviewed checkout.
++ */
++export const COMPILER_RESOLUTIONS = [
++  { specifier: '@floating-ui/dom', owner: 'packages/modules/positioning' },
++];
++
++/** Shenko-authored Prototypes actually compiled and consumed by this UI. */
++export const SHENKO_PROTOTYPES = [
++  { name: 'transport-badge', entry: 'transport-badge.proto.ts', componentName: 'CompiledTransportBadge' },
++];
++
++export function sha256File(path) {
++  return createHash('sha256').update(readFileSync(path)).digest('hex');
++}
++
++function listFiles(directory) {
++  const files = [];
++  for (const entry of readdirSync(directory, { withFileTypes: true })) {
++    const path = join(directory, entry.name);
++    if (entry.isDirectory()) files.push(...listFiles(path));
++    else if (entry.isFile()) files.push(path);
++  }
++  return files;
++}
++
++/** Deterministic digest over sorted relative names and their bytes. */
++export function sha256Tree(directory) {
++  const digest = createHash('sha256');
++  for (const file of listFiles(directory).sort()) {
++    digest.update(`${relative(directory, file).split('\\').join('/')}\0${sha256File(file)}\n`);
++  }
++  return digest.digest('hex');
++}
++
++function readJson(path) {
++  return JSON.parse(readFileSync(path, 'utf8'));
++}
++
++/**
++ * Audit the exact reviewed inputs. A drift here is a hard build failure: the
++ * seam is only honest while these files are the ones that were reviewed.
++ */
++export function auditCompilerInputs(sourceRoot) {
++  for (const file of [COMPILER_ENTRY, `${COMPILER_PACKAGE}/package.json`]) {
++    if (!existsSync(join(sourceRoot, file))) {
++      throw new Error(`Missing audited compiler input: ${file}`);
++    }
++  }
++  const manifest = readJson(join(sourceRoot, COMPILER_PACKAGE, 'package.json'));
++  if (manifest.name !== '@proto.ui/compiler') {
++    throw new Error(`Pinned compiler package is ${manifest.name}, expected @proto.ui/compiler`);
++  }
++  const exported = manifest.exports?.['.'];
++  const defaultTarget = typeof exported === 'string' ? exported : exported?.default;
++  if (defaultTarget !== './src/index.ts') {
++    throw new Error(
++      `Pinned compiler no longer exports only ./src/index.ts (found ${defaultTarget}); revisit the build-time seam`,
++    );
++  }
++  if (manifest.private !== true) {
++    throw new Error('Pinned compiler is no longer private; a published artifact must replace this source seam');
++  }
++  const resolutions = COMPILER_RESOLUTIONS.map((resolution) => {
++    const directory = join(sourceRoot, resolution.owner, 'node_modules', resolution.specifier);
++    const path = join(directory, 'package.json');
++    if (!existsSync(path)) {
++      throw new Error(
++        `Cannot resolve ${resolution.specifier} for the compiler; ${resolution.owner} has no installed copy`,
++      );
++    }
++    return {
++      specifier: resolution.specifier,
++      owner: resolution.owner,
++      version: readJson(path).version,
++      package_sha256: sha256File(path),
++    };
++  });
++  return {
++    package: COMPILER_PACKAGE,
++    package_sha256: sha256File(join(sourceRoot, `${COMPILER_PACKAGE}/package.json`)),
++    entry: COMPILER_ENTRY,
++    entry_sha256: sha256File(join(sourceRoot, COMPILER_ENTRY)),
++    source_tree_sha256: sha256Tree(join(sourceRoot, COMPILER_PACKAGE, 'src')),
++    resolutions,
++  };
++}
++
++/**
++ * Bundle the audited compiler sources for Node. This is a build step, not a
++ * substitute implementation: the emitted file contains the pinned TypeScript
++ * modules unchanged apart from bundling.
++ */
++export async function writeCompilerBundle({ sourceRoot, webRoot }) {
++  const outfile = join(webRoot, COMPILER_BUNDLE_RELATIVE);
++  mkdirSync(dirname(outfile), { recursive: true });
++  await esbuild({
++    absWorkingDir: sourceRoot,
++    entryPoints: [join(sourceRoot, COMPILER_ENTRY)],
++    outfile,
++    bundle: true,
++    format: 'esm',
++    platform: 'node',
++    target: ['node22'],
++    external: COMPILER_EXTERNALS,
++    nodePaths: COMPILER_RESOLUTIONS.map((resolution) =>
++      join(sourceRoot, resolution.owner, 'node_modules'),
++    ),
++    legalComments: 'eof',
++    sourcemap: false,
++    logLevel: 'warning',
++  });
++  return {
++    path: COMPILER_BUNDLE_RELATIVE,
++    sha256: sha256File(outfile),
++    bytes: statSync(outfile).size,
++    format: 'esm',
++    entry: COMPILER_ENTRY,
++    external: [...COMPILER_EXTERNALS],
++  };
++}
++
++export async function loadCompiler({ sourceRoot, webRoot }) {
++  const inputs = auditCompilerInputs(sourceRoot);
++  const bundle = await writeCompilerBundle({ sourceRoot, webRoot });
++  const loaded = await import(pathToFileURL(join(webRoot, COMPILER_BUNDLE_RELATIVE)).href);
++  for (const name of ['compileFile', 'writeCompilation', 'formatCompilerDiagnostics']) {
++    if (typeof loaded[name] !== 'function') {
++      throw new Error(`Bundled compiler does not expose ${name}()`);
++    }
++  }
++  const typescriptPath = join(webRoot, 'node_modules', 'typescript', 'package.json');
++  if (!existsSync(typescriptPath)) {
++    throw new Error('web/node_modules/typescript is required by the externalized compiler dependency');
++  }
++  return {
++    compiler: loaded,
++    facts: {
++      ...inputs,
++      typescript: readJson(typescriptPath).version,
++      bundle,
++    },
++  };
++}
++
++function bareSpecifiersIn(source) {
++  const specifiers = new Set();
++  for (const match of source.matchAll(/\bfrom\s+'([^']+)'/g)) {
++    if (!match[1].startsWith('.')) specifiers.add(match[1]);
++  }
++  for (const match of source.matchAll(/\bfrom\s+"([^"]+)"/g)) {
++    if (!match[1].startsWith('.')) specifiers.add(match[1]);
++  }
++  return [...specifiers].sort();
++}
++
++/**
++ * Compile every Shenko-authored Prototype from a closed in-memory source
++ * snapshot (the bytes that were hashed are the bytes the compiler parsed) and
++ * publish each generation create-only.
++ */
++export async function compileShenkoPrototypes({ sourceRoot, webRoot, pin }) {
++  const declared = pin.compiler?.prototypes;
++  const names = SHENKO_PROTOTYPES.map((prototype) => prototype.name);
++  if (JSON.stringify(declared) !== JSON.stringify(names)) {
++    throw new Error(
++      `upstream-pin.json compiler.prototypes ${JSON.stringify(declared)} does not match the compiled set ${JSON.stringify(names)}`,
++    );
++  }
++  if (pin.compiler?.status !== 'build_time_compiled' || pin.compiler?.runtime_imported !== false) {
++    throw new Error('upstream-pin.json must declare compiler.status build_time_compiled and runtime_imported false');
++  }
++  if (pin.compiler?.profile !== COMPILER_PROFILE) {
++    throw new Error(`upstream-pin.json compiler.profile must be ${COMPILER_PROFILE}`);
++  }
++  const { compiler, facts } = await loadCompiler({ sourceRoot, webRoot });
++  const sourceDirectory = join(webRoot, PROTOTYPE_SOURCE_ROOT);
++  const outputRoot = join(webRoot, PROTOTYPE_OUTPUT_RELATIVE);
++  rmSync(outputRoot, { recursive: true, force: true });
++  mkdirSync(outputRoot, { recursive: true });
++
++  const prototypes = [];
++  for (const prototype of SHENKO_PROTOTYPES) {
++    const entryPath = join(sourceDirectory, prototype.entry);
++    if (!existsSync(entryPath)) {
++      throw new Error(`Missing Shenko prototype source: ${relative(webRoot, entryPath)}`);
++    }
++    const source = readFileSync(entryPath, 'utf8');
++    const entrySha256 = createHash('sha256').update(source).digest('hex');
++    const compiled = await compiler.compileFile(prototype.entry, {
++      sourceSnapshot: { entry: prototype.entry, files: { [prototype.entry]: source } },
++      exportName: 'default',
++      profile: COMPILER_PROFILE,
++      componentName: prototype.componentName,
++    });
++    if (!compiled.ok) {
++      throw new Error(
++        `Prototype ${prototype.name} was rejected by the pinned compiler:\n${compiler.formatCompilerDiagnostics(compiled.diagnostics)}`,
++      );
++    }
++    const target = join(outputRoot, prototype.name);
++    const written = await compiler.writeCompilation(compiled.value, target);
++    if (!written.ok) {
++      throw new Error(
++        `Prototype ${prototype.name} output was not published:\n${compiler.formatCompilerDiagnostics(written.diagnostics)}`,
++      );
++    }
++    const generatedSource = join(target, 'Component.tsx');
++    const generated = readFileSync(generatedSource, 'utf8');
++    if (!generated.includes(`export const ${prototype.componentName} =`)) {
++      throw new Error(
++        `Prototype ${prototype.name} did not emit ${prototype.componentName}; consumed source would be stale`,
++      );
++    }
++    const generatedImports = bareSpecifiersIn(generated);
++    const forbidden = generatedImports.filter((specifier) => specifier.startsWith('@proto.ui/'));
++    if (forbidden.length > 0) {
++      throw new Error(
++        `Prototype ${prototype.name} generated code still imports ${forbidden.join(', ')}; the seam is not native-source lowering`,
++      );
++    }
++    const provenancePath = join(target, 'provenance.json');
++    const provenance = readJson(provenancePath);
++    prototypes.push({
++      name: prototype.name,
++      entry: `${PROTOTYPE_SOURCE_ROOT}/${prototype.entry}`,
++      entry_sha256: entrySha256,
++      profile: COMPILER_PROFILE,
++      component_name: prototype.componentName,
++      output_directory: `${PROTOTYPE_OUTPUT_RELATIVE}/${prototype.name}`,
++      generated_source: `${PROTOTYPE_OUTPUT_RELATIVE}/${prototype.name}/Component.tsx`,
++      generated_sha256: createHash('sha256').update(generated).digest('hex'),
++      generated_imports: generatedImports,
++      provenance: `${PROTOTYPE_OUTPUT_RELATIVE}/${prototype.name}/provenance.json`,
++      provenance_sha256: sha256File(provenancePath),
++      compiler_ir_version: provenance.irVersion,
++      compiler_backend: provenance.backend,
++      compiler_source_sha256: provenance.source?.sha256,
++    });
++  }
++  const record = {
++    schema_version: 1,
++    status: 'build_time_compiled',
++    runtime_imported: false,
++    profile: COMPILER_PROFILE,
++    ...facts,
++    prototype_output: PROTOTYPE_OUTPUT_RELATIVE,
++    prototypes,
++  };
++  writeFileSync(join(outputRoot, 'manifest.json'), `${JSON.stringify(record, null, 2)}\n`);
++  return record;
++}
+--- /dev/null
++++ b/crates/shenko-ui/web/prototypes/transport-badge.proto.ts
+@@ -0,0 +1,43 @@
++import { definePrototype, tw } from '@proto.ui/core';
++
++/**
++ * Shenko's transport status chip — a Shenko-authored Prototype, not an upstream
++ * family. It is compiled at build time by the pinned Proto-UI compiler
++ * (`react-dom-source-v1`) into the React DOM source the shell imports; the
++ * browser never imports the compiler or the Proto-UI runtime.
++ *
++ * The Prototype is presentational on purpose: the caller supplies the already
++ * decided label and tone, so stream/receipt semantics stay in the Shenko
++ * projection and are not re-implemented here. Only primitive props are admitted
++ * by the compiler (`string`/`boolean`/`number`), and template nodes may carry
++ * only a static style handle, so the tone styling is expressed as tokens that
++ * `web/src/app.css` binds to Shenko's own palette.
++ */
++export default definePrototype({
++  name: 'shenko-transport-status',
++  setup(def) {
++    def.props.define({
++      label: { type: 'string' },
++      tone: { type: 'string' },
++    });
++    def.props.setDefaults({ label: '', tone: 'offline' });
++    def.feedback.style.use(tw('shenko-status-chip'));
++    def.rule({
++      when: (w) => w.prop('tone').eq('online'),
++      intent: (i) => i.feedback.style.use(tw('shenko-status-online')),
++    });
++    def.rule({
++      when: (w) => w.prop('tone').eq('connecting'),
++      intent: (i) => i.feedback.style.use(tw('shenko-status-connecting')),
++    });
++    def.rule({
++      when: (w) => w.prop('tone').eq('reconnecting'),
++      intent: (i) => i.feedback.style.use(tw('shenko-status-reconnecting')),
++    });
++    def.rule({
++      when: (w) => w.prop('tone').eq('local'),
++      intent: (i) => i.feedback.style.use(tw('shenko-status-local')),
++    });
++    return (r) => r.el('span', [r.el('i', { style: tw('shenko-status-dot') }), r.read.props.get().label]);
++  },
++});
+--- /dev/null
++++ b/crates/shenko-ui/web/src/revision-disclosure.ts
+@@ -0,0 +1,105 @@
++/**
++ * Taste revision disclosure — the *server's* projection of one unit's revision
++ * chain (SPEC §51.1/§51.4). Producer:
++ * `shenko_context_policy::taste::Disclosure::project_json()`, whose flat JSON is
++ *
++ *   family, selected, content_digest, written_at_ms, older_versions,
++ *   latest_modified_at_ms, full_text
++ *
++ * `Selected` reports the default view with `full_text: null`; `Version(n)`
++ * reports an explicitly requested revision and sets `older_versions` /
++ * `latest_modified_at_ms` to null while `full_text` carries
++ * `{revision, written_at_ms, text}`. Any field may be null because the producer
++ * only reports what it actually knows (an unregistered revision has no digest,
++ * an unknown selected revision has no number, unresolved bytes have no text).
++ *
++ * This reader never counts revisions, never derives a chain and never re-reads
++ * old content: an unreadable projection is treated as absent instead of being
++ * reconstructed.
++ */
++export interface RevisionFullText {
++  revision: number;
++  written_at_ms: number | null;
++  text: string | null;
++}
++
++export interface RevisionDisclosure {
++  family: string;
++  /** Revision number the default projection currently reads. */
++  selected: number | null;
++  content_digest: string | null;
++  written_at_ms: number | null;
++  /** Count of retained older versions, as reported by the server. */
++  older_versions: number | null;
++  latest_modified_at_ms: number | null;
++  /** Present only when an explicit revision was requested. */
++  full_text: RevisionFullText | null;
++  /** The server sent a `full_text` record this UI cannot read. */
++  full_text_unreadable: boolean;
++}
++
++function numberOrNull(value: unknown): number | null {
++  return typeof value === 'number' && Number.isFinite(value) ? value : null;
++}
++
++function nonEmptyTextOrNull(value: unknown): string | null {
++  return typeof value === 'string' && value.length > 0 ? value : null;
++}
++
++export function readRevisionDisclosure(value: unknown): RevisionDisclosure | null {
++  if (!value || typeof value !== 'object') return null;
++  const record = value as Record<string, unknown>;
++  const family = nonEmptyTextOrNull(record.family);
++  if (family === null) return null;
++  const raw = record.full_text;
++  let fullText: RevisionFullText | null = null;
++  let fullTextUnreadable = false;
++  if (raw !== undefined && raw !== null) {
++    const entry: Record<string, unknown> | null = typeof raw === 'object' ? raw as Record<string, unknown> : null;
++    const revision = entry ? numberOrNull(entry.revision) : null;
++    if (entry && revision !== null) {
++      fullText = {
++        revision,
++        written_at_ms: numberOrNull(entry.written_at_ms),
++        text: typeof entry.text === 'string' ? entry.text : null,
++      };
++    } else fullTextUnreadable = true;
++  }
++  const disclosure: RevisionDisclosure = {
++    family,
++    selected: numberOrNull(record.selected),
++    content_digest: nonEmptyTextOrNull(record.content_digest),
++    written_at_ms: numberOrNull(record.written_at_ms),
++    older_versions: numberOrNull(record.older_versions),
++    latest_modified_at_ms: numberOrNull(record.latest_modified_at_ms),
++    full_text: fullText,
++    full_text_unreadable: fullTextUnreadable,
++  };
++  const reportsSomething = disclosure.selected !== null || disclosure.content_digest !== null ||
++    disclosure.written_at_ms !== null || disclosure.older_versions !== null ||
++    disclosure.latest_modified_at_ms !== null || disclosure.full_text !== null ||
++    disclosure.full_text_unreadable;
++  return reportsSomething ? disclosure : null;
++}
++
++/**
++ * Store-level revision summary (`shenko_types::cognition::ContentRevisionDisclosure`:
++ * `latest_digest`, `old_version_count`, `latest_modified_at_ms`). A different
++ * producer from the installed taste disclosure: no selection and no full text,
++ * and the count is the server's, not a client tally.
++ */
++export interface ContentRevisionDisclosure {
++  latest_digest: string;
++  old_version_count: number;
++  latest_modified_at_ms: number;
++}
++
++export function readContentRevisionDisclosure(value: unknown): ContentRevisionDisclosure | null {
++  if (!value || typeof value !== 'object') return null;
++  const record = value as Record<string, unknown>;
++  const latestDigest = nonEmptyTextOrNull(record.latest_digest);
++  const oldVersionCount = numberOrNull(record.old_version_count);
++  const latestModified = numberOrNull(record.latest_modified_at_ms);
++  if (latestDigest === null || oldVersionCount === null || latestModified === null) return null;
++  return { latest_digest: latestDigest, old_version_count: oldVersionCount, latest_modified_at_ms: latestModified };
++}
+--- /dev/null
++++ b/crates/shenko-ui/web/tests/prototypes.test.mjs
+@@ -0,0 +1,76 @@
++/**
++ * Consumer of the build-time Proto-UI compiler output.
++ *
++ * This test does not re-run the compiler and does not render: it reads the
++ * generation the build actually published and checks the chain the compiler
++ * itself recorded — authored bytes → parsed source → generated React DOM source
++ * → on-disk artifacts. It fails loudly when the generation is absent instead of
++ * skipping, because a missing generation means the UI's import cannot resolve.
++ */
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { createHash } from 'node:crypto';
++import { existsSync, readFileSync } from 'node:fs';
++import { dirname, join, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
++const generatedRoot = join(webRoot, 'generated', 'prototypes');
++const PREREQUISITE =
++  'generated prototypes are absent: run `node build.mjs --prototypes-only` in crates/shenko-ui/web with PROTO_UI_SOURCE naming the reviewed Proto-UI checkout';
++
++const sha256 = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
++
++function generation() {
++  const manifestPath = join(generatedRoot, 'manifest.json');
++  assert.ok(existsSync(manifestPath), PREREQUISITE);
++  return JSON.parse(readFileSync(manifestPath, 'utf8'));
++}
++
++test('every declared Shenko prototype was compiled from the authored source bytes', () => {
++  const manifest = generation();
++  assert.equal(manifest.status, 'build_time_compiled');
++  assert.equal(manifest.runtime_imported, false);
++  assert.equal(manifest.profile, 'react-dom-source-v1');
++  assert.deepEqual(manifest.prototypes.map((prototype) => prototype.name), ['transport-badge']);
++  for (const prototype of manifest.prototypes) {
++    assert.equal(sha256(join(webRoot, prototype.entry)), prototype.entry_sha256);
++    assert.equal(sha256(join(webRoot, prototype.generated_source)), prototype.generated_sha256);
++  }
++});
++
++test('generated code is native React DOM source, not a Proto-UI runtime or adapter import', () => {
++  for (const prototype of generation().prototypes) {
++    assert.deepEqual(prototype.generated_imports, ['react']);
++    const generated = readFileSync(join(webRoot, prototype.generated_source), 'utf8');
++    assert.ok(generated.includes(`export const ${prototype.component_name} =`));
++    assert.ok(generated.includes('Profile: react-dom-source-v1'));
++  }
++});
++
++test('compiler provenance binds the generation to the parsed source graph and artifacts', () => {
++  for (const prototype of generation().prototypes) {
++    const provenance = JSON.parse(readFileSync(join(webRoot, prototype.provenance), 'utf8'));
++    assert.equal(provenance.backend, prototype.profile);
++    assert.equal(provenance.source.exportName, 'default');
++    assert.deepEqual(provenance.sourceFiles, [
++      { file: prototype.entry.slice('prototypes/'.length), sha256: prototype.entry_sha256 },
++    ]);
++    assert.equal(provenance.generatedSha256, prototype.generated_sha256);
++    const directory = join(webRoot, prototype.output_directory);
++    for (const artifact of provenance.artifacts) {
++      assert.equal(sha256(join(directory, artifact.path)), artifact.sha256, artifact.path);
++    }
++  }
++});
++
++test('the recorded compiler identity is the audited source package, bundled for the build only', () => {
++  const manifest = generation();
++  assert.match(manifest.bundle.sha256, /^[0-9a-f]{64}$/);
++  assert.deepEqual(manifest.bundle.external, ['typescript']);
++  assert.equal(manifest.package, 'packages/compiler');
++  assert.equal(manifest.entry, 'packages/compiler/src/index.ts');
++  assert.match(manifest.source_tree_sha256, /^[0-9a-f]{64}$/);
++  assert.ok(manifest.typescript.length > 0);
++  assert.ok(manifest.resolutions.some((resolution) => resolution.specifier === '@floating-ui/dom'));
++});

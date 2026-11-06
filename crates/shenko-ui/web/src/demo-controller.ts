@@ -19,6 +19,7 @@ function demoPart(step: number, minutesAgo: number, content: string): TimelinePa
     part_id: `demo-part-${step}-0`,
     part_revision: `demo-revision-${step}`,
     next_chunk_seq: 1,
+    committed: true,
     step,
     step_id: stepId,
     commit_ref: `demo/${step}`,
@@ -40,6 +41,7 @@ function demoState(): UiState {
     reading: 'following_latest',
     new_count: 0,
     scroll_request: 0,
+    wrap: false,
   };
   return {
     source: 'demo',
@@ -63,6 +65,7 @@ function demoState(): UiState {
     streaming: false,
     documents: [],
     document_errors: [],
+    action_receipts: [],
     subject_id: 'demo-subject',
     identity: {
       agent_id: 'demo-agent',
@@ -188,6 +191,13 @@ class DemoController implements ProjectionController {
         this.state.display.reading = 'following_latest';
         this.state.display.new_count = 0;
         this.state.display.scroll_request += 1;
+        this.emit();
+        break;
+      case 'timeline.code_wrap':
+        this.state.display.wrap = !this.state.display.wrap;
+        this.state.display.notice = this.state.display.wrap
+          ? '模拟视图：长代码行已软换行'
+          : '模拟视图：长代码行保持原样';
         this.emit();
         break;
       case 'part.copy': {

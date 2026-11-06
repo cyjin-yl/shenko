@@ -39,6 +39,7 @@ impl SourceObservationPolicy {
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use shenko_types::ids::EntityId;
+use shenko_types::commit::CommitRef;
 use shenko_types::object::Digest;
 
 use crate::forecast::{AccountedAttempt, Planning, ProviderExhaustionEvidence, QuotaForecast, SourceValidity, WindowAssumptions};
@@ -92,6 +93,56 @@ pub struct ModelProfile {
     /// Runs on a local backend and draws on no provider quota.
     pub local: bool,
     pub cost_per_request: Vec<WindowCost>,
+    /// Effort levels this profile may actually run at, in order of
+    /// preference for the current task's needs, each priced in its own
+    /// windows (SPEC §42.3 `model_profiles[].effort_bounds`). A policy
+    /// recorded before effort planning has none: it then runs at the single
+    /// implicit level priced by `cost_per_request`, which is exactly what
+    /// every earlier decision did. The levels are configured facts about
+    /// what the backend supports, never a guess at a quality or price order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effort_levels: Vec<EffortLevel>,
+}
+
+/// One supported effort level of a profile and what one request at that
+/// level costs, per window's own unit (SPEC §42.3).
+///
+/// The identifier is the configured level name (for example `low`,
+/// `standard`, `deep`); this crate never ranks levels by the name, so a
+/// policy states its preference by the order of `effort_levels`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffortLevel {
+    pub effort: String,
+    pub cost_per_request: Vec<WindowCost>,
+}
+
+impl ModelProfile {
+    /// The request costs of this profile at one effort level.
+    ///
+    /// `None` names the implicit level every pre-effort policy runs at, which
+    /// is `cost_per_request` itself. A named level must be declared by this
+    /// profile: an unknown name is `None` rather than another level's price,
+    /// so a decision can never be charged at a level it did not select.
+    pub fn costs_at(&self, effort: Option<&str>) -> Option<&[WindowCost]> {
+        match effort {
+            None => Some(self.cost_per_request.as_slice()),
+            Some(effort) => self
+                .effort_levels
+                .iter()
+                .find(|level| level.effort == effort)
+                .map(|level| level.cost_per_request.as_slice()),
+        }
+    }
+
+    /// The effort levels the planner may choose from, in preference order.
+    /// A profile without declared levels has exactly one, unnamed, level.
+    fn plan_levels(&self) -> Vec<Option<&EffortLevel>> {
+        if self.effort_levels.is_empty() {
+            vec![None]
+        } else {
+            self.effort_levels.iter().map(Some).collect()
+        }
+    }
 }
 
 /// What to do when a window a profile needs has no usable forecast.
@@ -102,6 +153,90 @@ pub enum UnknownQuota {
     Block,
     /// Admit without a quota bound; the decision records that it did.
     Admit,
+}
+
+/// What the planner optimizes within the authorized budget (SPEC §42.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PolicyObjective {
+    /// Spread the available budget across the period at its sustainable
+    /// rate, honoring the target utilization range when one is configured.
+    /// This is the behavior every policy had before the field existed.
+    #[default]
+    Balanced,
+    /// Aim at the upper end of the target utilization range: useful work
+    /// early, still bounded by the range. Requires that range.
+    TargetUtilization,
+    /// Aim at the lower end of the target utilization range so the window is
+    /// not exhausted before its reset; without a range it paces at the
+    /// sustainable rate.
+    PreserveUntilReset,
+}
+
+impl PolicyObjective {
+    /// Whether this is the pre-existing, byte-identical default.
+    pub fn is_balanced(&self) -> bool {
+        *self == Self::Balanced
+    }
+}
+
+/// An absolute per-window hold, in that window's own unit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowReserve {
+    pub window: WindowRef,
+    /// The unit the amount is stated in. A reserve stated in another unit
+    /// than the profile's cost cannot be priced, and the window stays unknown
+    /// instead of mixing units (§42.3 rule 2).
+    pub unit: String,
+    pub amount: Range,
+}
+
+/// Allowance to admit above the sustainable pacing rate for a short time.
+/// It never grants budget: the window's held budget still bounds admission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdmissionBurst {
+    pub max_requests: u32,
+    pub within: Duration,
+}
+
+/// When the withheld emergency reserve may be released: inside the last
+/// `release_within` before the window's period end (or bucket refill).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UrgentReserveRelease {
+    pub release_within: Duration,
+}
+
+/// Admission pacing inputs (SPEC §42.3). Every field has a planner or
+/// admission effect; none is recorded for decoration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdmissionPacing {
+    /// Whether the planner emits per-window pacing rates at all. `false`
+    /// admits as fast as each window's held budget allows.
+    pub enabled: bool,
+    /// Short burst allowance above the sustainable rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burst: Option<AdmissionBurst>,
+    /// Minimum spacing between two admissions that charge the same window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum_interval: Option<Duration>,
+    /// When the held emergency reserve may be spent instead of idling to the
+    /// end of the period.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub urgent_reserve: Option<UrgentReserveRelease>,
+}
+
+impl Default for AdmissionPacing {
+    fn default() -> Self {
+        // The pre-existing behavior: pacing on, no extra refinements.
+        Self { enabled: true, burst: None, minimum_interval: None, urgent_reserve: None }
+    }
+}
+
+impl AdmissionPacing {
+    /// Whether this is the pre-existing default, which serializes to no key.
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,6 +265,34 @@ pub struct QuotaPolicy {
     /// admits no observation as forecast evidence; everything stays unknown.
     #[serde(default)]
     pub observation_sources: Vec<SourceObservationPolicy>,
+    /// What the planner optimizes within the authorized budget (SPEC §42.3).
+    /// The default `balanced` is the behavior every earlier policy already
+    /// had, so a legacy policy re-serializes to its recorded bytes.
+    #[serde(default, skip_serializing_if = "PolicyObjective::is_balanced")]
+    pub objective: PolicyObjective,
+    /// Intended share of each window's planning budget to use by the period
+    /// end, as a fraction of that budget. A planning target, never a promise
+    /// that exactly this share is spent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_utilization_range: Option<Range>,
+    /// How far ahead a decision may plan. Caps the decision's validity on top
+    /// of the source lifetime and the window boundary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planning_horizon: Option<Duration>,
+    /// Per-window amount withheld from planning and admission. It stays
+    /// unspent unless the window is inside its urgent release and the policy
+    /// names one. Absolute, in that window's own unit — distinct from the
+    /// per-window `assumptions` reserve/margin, which are planning inputs of
+    /// the forecast and not a guaranteed hold.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emergency_reserve_by_window: Vec<WindowReserve>,
+    /// Extra fraction of each window's planning budget withheld for
+    /// uncertainty (0..=1). Relative, unlike an absolute window reserve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uncertainty_margin: Option<f64>,
+    /// Admission pacing inputs (SPEC §42.3).
+    #[serde(default, skip_serializing_if = "AdmissionPacing::is_default")]
+    pub admission_pacing: AdmissionPacing,
 }
 
 impl QuotaPolicy {
@@ -177,6 +340,85 @@ impl QuotaPolicy {
             .find(|profile| profile.profile_id == profile_id)
             .map(|profile| profile.model_ref.as_str())
     }
+
+    /// Whether the planner emits per-window pacing rates.
+    pub fn pacing_enabled(&self) -> bool {
+        self.admission_pacing.enabled
+    }
+
+    /// The share of each window's sustainable rate this objective plans to
+    /// use. The sustainable rate already spends the held budget evenly over
+    /// the period, so the factor only moves inside the configured target
+    /// utilization range; it is never a claim about the provider's capacity.
+    pub fn pacing_factor(&self) -> f64 {
+        let factor = match (self.objective, self.target_utilization_range) {
+            // Deliberately conservative: use only the guaranteed part of the
+            // target so the window is not exhausted before its reset.
+            (PolicyObjective::PreserveUntilReset, Some(range)) => range.lower,
+            (_, Some(range)) => range.upper,
+            // No utilization target: spend the held budget evenly (the
+            // pre-existing behavior). `TargetUtilization` without a range is
+            // rejected by validation and also lands here.
+            _ => 1.0,
+        };
+        if factor.is_finite() { factor.clamp(0.0, 1.0) } else { 1.0 }
+    }
+
+    /// The amount withheld from one window's planning budget and admission
+    /// ceiling, in that window's unit.
+    ///
+    /// The emergency reserve is held for the whole period and released only
+    /// inside the policy's urgent window, so end-of-period idleness is
+    /// avoided without spending the reserve early. `uncertainty_margin` is a
+    /// relative extra hold against the planning budget. Both are distinct
+    /// from `assumptions` reserve/margin, which are absolute per-window
+    /// inputs the forecast already subtracted: this is a policy-level hold
+    /// that survives whatever assumptions a reading carries.
+    ///
+    /// Returns `None` when the hold cannot be priced (mixing units, an
+    /// unrepresentable amount, or a non-finite budget): the window then stays
+    /// unknown instead of being planned from a guessed number.
+    pub fn window_hold(
+        &self,
+        window: &WindowRef,
+        unit: &str,
+        available: f64,
+        boundary: Option<DateTime<Utc>>,
+        now: DateTime<Utc>,
+    ) -> Option<f64> {
+        if !available.is_finite() || available < 0.0 {
+            return None;
+        }
+        let mut hold = 0.0_f64;
+        for reserve in self
+            .emergency_reserve_by_window
+            .iter()
+            .filter(|reserve| &reserve.window == window)
+        {
+            if reserve.unit != unit {
+                return None;
+            }
+            let amount = Range::new(reserve.amount.lower, reserve.amount.upper)?;
+            let released = self
+                .admission_pacing
+                .urgent_reserve
+                .zip(boundary)
+                .is_some_and(|(urgent, boundary)| {
+                    now.checked_add_signed(urgent.release_within)
+                        .is_some_and(|deadline| boundary <= deadline)
+                });
+            if !released {
+                hold = hold.checked_add(amount.upper)?;
+            }
+        }
+        if let Some(margin) = self.uncertainty_margin {
+            if !margin.is_finite() || !(0.0..=1.0).contains(&margin) {
+                return None;
+            }
+            hold = hold.checked_add(available * margin)?;
+        }
+        hold.is_finite().then_some(hold.min(available))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,7 +426,16 @@ impl QuotaPolicy {
 pub enum Choice {
     /// Use this cloud profile at most `rate_per_hour` admissions per hour.
     /// None means no periodic rate bound; immediate window budgets still apply.
-    Cloud { profile_id: String, rate_per_hour: Option<f64>, unbounded_windows: Vec<WindowRef> },
+    Cloud {
+        profile_id: String,
+        /// The effort level this request runs at (SPEC §42.3, §42.6). A
+        /// decision recorded before effort planning names none and is charged
+        /// at the profile's own `cost_per_request`, exactly as before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        effort: Option<String>,
+        rate_per_hour: Option<f64>,
+        unbounded_windows: Vec<WindowRef>,
+    },
     Local { profile_id: String },
     /// Budget exists only after a reset; wait for it (quota_policy_wait).
     Wait { until: Option<DateTime<Utc>> },
@@ -219,6 +470,12 @@ pub enum PolicyError {
     MissingCloudCost,
     InvalidCost,
     InvalidAssumption,
+    /// A utilization target is missing, out of range, or inverted.
+    InvalidTarget,
+    /// A withheld reserve or uncertainty margin cannot be priced.
+    InvalidReserve,
+    /// A pacing burst, interval or urgent-release input is unusable.
+    InvalidPacing,
     UnsupportedOverage,
     InvalidSerialization,
 }
@@ -249,6 +506,214 @@ pub struct PolicyDecision {
     pub constraints: Vec<WindowConstraint>,
     /// Sustainable rate per considered profile (None: unbounded/unknown).
     pub considered: Vec<(String, Option<f64>)>,
+    /// The routing strategy that chose this decision, as `id@version`. A
+    /// replacement algorithm is therefore attributable during replay instead
+    /// of silently reinterpreting an older period. Decisions recorded before
+    /// the replaceable-strategy seam keep it absent: unknown, never guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    /// How many requests of each profile the *held* planning budget supports
+    /// over the horizon (SPEC §42.3 `subject_round_estimates`). A conservative
+    /// bound derived from recorded evidence, never a promise that exactly
+    /// this many rounds happen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_estimates: Option<RoundEstimates>,
+    /// One row per quota-bearing profile the planner assessed: the planned
+    /// rate, the round estimate and the cost ranges it was priced with
+    /// (SPEC §42.3 `scenarios`). What the planner compared, kept with the
+    /// decision that used it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scenarios: Vec<PlanScenario>,
+}
+
+/// Rounds the held budget supports per profile (SPEC §42.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RoundEstimates {
+    /// The horizon these numbers cover: the policy's planning horizon, else
+    /// the decision's own validity window.
+    pub horizon: Duration,
+    /// The smallest priced cloud profile's estimate, or `None` when no cloud
+    /// profile could be priced from recorded evidence.
+    pub cloud_only: Option<f64>,
+    /// The smallest estimate across every priced profile (cloud or local).
+    pub all_models: Option<f64>,
+    /// One entry per configured profile; `None` when any of its windows is
+    /// unknown, waiting or unbounded.
+    pub per_profile: Vec<(String, Option<f64>)>,
+}
+
+/// One planning scenario the decision compared (SPEC §42.3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlanScenario {
+    pub profile_id: String,
+    /// The effort level this row was priced at (SPEC §42.3 `effort_policy`).
+    /// `None` is the implicit level of a policy recorded before effort
+    /// planning, and is omitted so such a decision keeps its bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// The planned admission rate for this profile, `None` when unbounded or
+    /// not paceable.
+    pub rate_per_hour: Option<f64>,
+    pub rounds: Option<f64>,
+    /// The per-window cost ranges this scenario was priced with.
+    pub cost_per_request: Vec<WindowCost>,
+    /// Useful work this scenario's rounds are expected to produce
+    /// (SPEC §42.3 `expected_useful_work`), when durable evidence supports an
+    /// expectation at all. Absent stays unknown: one request is never
+    /// assumed to equal one useful outcome.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_useful_work: Option<UsefulWorkEstimate>,
+}
+
+/// What one counted useful outcome is. Units are never merged: an estimate
+/// stated in committed subject steps is not a count of child results, and
+/// neither is a quota window's unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkUnit {
+    /// A subject step whose S1 action was durably committed: the subject
+    /// actually advanced instead of only spending a round.
+    CommittedSubjectStep,
+}
+
+impl WorkUnit {
+    /// The stable name written into records and read by the subject.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::CommittedSubjectStep => "committed_subject_step",
+        }
+    }
+}
+
+/// Measured useful work per admitted subject round, read from durable
+/// provenance (SPEC §42.3 `expected_useful_work`, §42.5).
+///
+/// The caller counts what the ledger actually recorded — terminal request
+/// rows as rounds and committed steps as useful outcomes — and points at the
+/// ledger position it counted them at. Nothing here is a model's opinion, a
+/// `knowledge_kind`, a keyword score or a constant: no evidence means no
+/// expectation, and the reading is a mechanism measurement rather than a
+/// cognition attitude (§51.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WorkEvidence {
+    pub unit: WorkUnit,
+    /// Rounds that reached a recorded terminal outcome.
+    pub rounds_observed: u64,
+    /// Of those rounds' steps, how many durably committed their action.
+    pub useful_observed: u64,
+    /// The ledger position the counts were read at: a real, re-readable
+    /// pointer to the evidence rather than a description of it.
+    pub evidence: CommitRef,
+}
+
+impl WorkEvidence {
+    /// Whether this evidence can state a rate at all: it needs observed
+    /// rounds and counts that fit the unit.
+    pub fn is_usable(&self) -> bool {
+        self.rounds_observed > 0 && self.useful_observed <= self.rounds_observed
+    }
+
+    /// Useful outcomes per further round, as a range.
+    ///
+    /// With `u` useful outcomes over `n` rounds the next round is placed in
+    /// the successor interval `[u/(n+1), (u+1)/(n+1)]`: deliberately wide
+    /// while the evidence is thin, narrowing as rounds accumulate, and never
+    /// `1.0` merely because a round happened. `None` for unusable evidence.
+    pub fn per_round(&self) -> Option<Range> {
+        if !self.is_usable() {
+            return None;
+        }
+        let denominator = self.rounds_observed as f64 + 1.0;
+        Range::new(
+            self.useful_observed as f64 / denominator,
+            (self.useful_observed as f64 + 1.0) / denominator,
+        )
+    }
+}
+
+/// Expected useful work over a scenario's horizon, in an explicit unit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UsefulWorkEstimate {
+    pub unit: WorkUnit,
+    /// Expected useful outcomes the held budget buys, as a range.
+    pub expected: Range,
+    /// The measured counts and their provenance, so the expectation can be
+    /// re-derived instead of believed.
+    pub rounds_observed: u64,
+    pub useful_observed: u64,
+    pub evidence: CommitRef,
+}
+
+impl UsefulWorkEstimate {
+    /// The expectation of `rounds` further admitted subject rounds under
+    /// measured evidence, or `None` when either the round estimate or the
+    /// measured rate is unknown.
+    fn of(rounds: Option<f64>, work: Option<&WorkEvidence>) -> Option<Self> {
+        let rounds = rounds?;
+        let work = work?;
+        let per_round = work.per_round()?;
+        if !rounds.is_finite() || rounds < 0.0 {
+            return None;
+        }
+        // Outward rounding: the expectation may not look more certain than
+        // the measured counts it came from.
+        let scale = |value: f64, upward: bool| {
+            let product = rounds * value;
+            if !product.is_finite() {
+                None
+            } else if upward {
+                Some(product.next_up())
+            } else {
+                Some(product.next_down())
+            }
+        };
+        let expected = Range::new(scale(per_round.lower, false)?, scale(per_round.upper, true)?)?;
+        Some(Self {
+            unit: work.unit,
+            expected,
+            rounds_observed: work.rounds_observed,
+            useful_observed: work.useful_observed,
+            evidence: work.evidence,
+        })
+    }
+}
+
+/// Requests one profile's held window budgets support, or `None` when any of
+/// its windows has no usable budget or its cost cannot be represented.
+fn rounds_estimate(profile: &ModelProfile, constraints: &[WindowConstraint]) -> Option<f64> {
+    rounds_estimate_with(profile, profile.costs_at(None)?, constraints)
+}
+
+/// Requests one profile's held window budgets support at one effort level's
+/// priced costs.
+fn rounds_estimate_with(
+    profile: &ModelProfile,
+    costs: &[WindowCost],
+    constraints: &[WindowConstraint],
+) -> Option<f64> {
+    if profile.local {
+        return None;
+    }
+    if costs.is_empty() {
+        return None;
+    }
+    let mut rounds = f64::MAX;
+    for cost in costs {
+        let available = constraints.iter().find(|constraint| constraint.window == cost.window)
+            .and_then(|constraint| constraint.available)?;
+        if !available.is_finite() || !(cost.amount.upper > 0.0) {
+            return None;
+        }
+        rounds = rounds.min(available / cost.amount.upper);
+    }
+    rounds.is_finite().then(|| rounds.max(0.0))
+}
+
+/// The smallest priced estimate; `None` when nothing could be priced.
+fn smallest(entries: impl Iterator<Item = Option<f64>>) -> Option<f64> {
+    entries.flatten().fold(None::<f64>, |acc, value| {
+        Some(acc.map_or(value, |prior| prior.min(value)))
+    })
 }
 
 /// How one window constrains one profile.
@@ -259,7 +724,7 @@ enum Bound {
     Unknown,
 }
 
-fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
+fn bound(policy: &QuotaPolicy, forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
     expected: WindowAssumptions, now: DateTime<Utc>) -> Bound {
     let mut matches = forecasts
         .iter()
@@ -305,27 +770,50 @@ fn bound(forecasts: &[QuotaForecast], window: &WindowRef, cost: &WindowCost,
             if seconds <= 0.0 || *available > remaining.upper || *per_hour > *available / (seconds / 3600.0) {
                 return Bound::Unknown;
             }
-            if *available < cost.amount.upper || *per_hour == 0.0 {
-                return Bound::Short { until: Some(*resets_at), provider_at_limit };
+            // The policy's own hold (emergency reserve, uncertainty margin)
+            // is withheld from both the admission ceiling and the planned
+            // rate: it survives whatever assumptions the reading carries.
+            let Some(hold) = policy.window_hold(window, &cost.unit, *available, Some(*resets_at), now) else {
+                return Bound::Unknown;
+            };
+            let held = (*available - hold).max(0.0);
+            if held < cost.amount.upper || *per_hour == 0.0 {
+                // A short caused only by the policy's hold is a policy wait,
+                // never evidence that the provider reached its limit.
+                return Bound::Short { until: Some(*resets_at), provider_at_limit: provider_at_limit && hold == 0.0 };
             }
-            let rate = per_hour / cost.amount.upper;
-            if !rate.is_finite() || rate <= 0.0 { return Bound::Unknown; }
+            let factor = policy.pacing_factor();
+            let ratio = if *available > 0.0 { held / *available } else { 0.0 };
+            let rate = (per_hour / cost.amount.upper) * factor * ratio;
+            if !rate.is_finite() {
+                return Bound::Unknown;
+            }
+            if rate <= 0.0 {
+                // The plan deliberately spends nothing yet (a zero target or
+                // a full hold): that is a planned wait at the boundary, not
+                // an unknown reading.
+                return Bound::Short { until: Some(*resets_at), provider_at_limit: false };
+            }
             let rate = rate.next_down();
-            Bound::Rate { per_hour: rate, constraint: constraint(*available, Some(rate), Some(*resets_at)) }
+            Bound::Rate { per_hour: rate, constraint: constraint(held, Some(rate), Some(*resets_at)) }
         }
         Planning::Replenishing { remaining, refill_by } => {
             let Some(remaining) = Range::new(remaining.lower, remaining.upper) else { return Bound::Unknown };
             let Some(reported) = w.remaining else { return Bound::Unknown };
             if remaining.upper > reported.upper { return Bound::Unknown; }
-            if remaining.lower < cost.amount.upper {
+            let Some(hold) = policy.window_hold(window, &cost.unit, remaining.lower, *refill_by, now) else {
+                return Bound::Unknown;
+            };
+            let held = (remaining.lower - hold).max(0.0);
+            if held < cost.amount.upper {
                 // The observed zero no longer proves the current provider
                 // limit after its known refill boundary. Do not assume a
                 // replenished balance either; await a new observation.
                 let refill_passed = refill_by.is_some_and(|at| at <= now);
                 Bound::Short { until: if refill_passed { None } else { *refill_by },
-                    provider_at_limit: provider_at_limit && !refill_passed }
+                    provider_at_limit: provider_at_limit && !refill_passed && hold == 0.0 }
             } else {
-                Bound::Bucket { constraint: constraint(remaining.lower, None, *refill_by) }
+                Bound::Bucket { constraint: constraint(held, None, *refill_by) }
             }
         }
         Planning::Unknown { .. } => Bound::Unknown,
@@ -343,7 +831,7 @@ struct Assessment {
     constraints: Vec<WindowConstraint>,
 }
 
-fn assess(profile: &ModelProfile, forecasts: &[QuotaForecast], policy: &QuotaPolicy, now: DateTime<Utc>) -> Assessment {
+fn assess(costs: &[WindowCost], forecasts: &[QuotaForecast], policy: &QuotaPolicy, now: DateTime<Utc>) -> Assessment {
     let mut a = Assessment { rate: None, unknown: Vec::new(), exhausted: Vec::new(), wait_until: None,
         waiting: false, constraints: Vec::new() };
     let later = |t: Option<DateTime<Utc>>, a: &mut Assessment| {
@@ -352,13 +840,22 @@ fn assess(profile: &ModelProfile, forecasts: &[QuotaForecast], policy: &QuotaPol
             (x, y) => x.or(y),
         };
     };
-    for cost in &profile.cost_per_request {
+    // Pacing can be switched off for a policy that prefers to spend each
+    // window's held budget as fast as it allows; the budget ceiling stays.
+    let pacing = policy.pacing_enabled();
+    for cost in costs {
         let window = &cost.window;
         let expected = policy.assumptions.iter().find(|entry| &entry.window == window)
             .map_or(WindowAssumptions::default(), |entry| entry.value);
-        match bound(forecasts, window, cost, expected, now) {
-            Bound::Rate { per_hour, constraint } => {
-                a.rate = Some(a.rate.map_or(per_hour, |r| r.min(per_hour)));
+        match bound(policy, forecasts, window, cost, expected, now) {
+            Bound::Rate { per_hour, mut constraint } => {
+                if pacing {
+                    a.rate = Some(a.rate.map_or(per_hour, |r| r.min(per_hour)));
+                } else {
+                    // No periodic rate: admission is bounded by the held
+                    // window budget and its boundary only.
+                    constraint.rate_per_hour = None;
+                }
                 a.constraints.push(constraint);
             }
             Bound::Bucket { constraint } => a.constraints.push(constraint),
@@ -379,7 +876,62 @@ fn assess(profile: &ModelProfile, forecasts: &[QuotaForecast], policy: &QuotaPol
 
 pub(crate) fn validate(policy: &QuotaPolicy, now: DateTime<Utc>) -> Result<DateTime<Utc>, PolicyError> {
     if policy.decision_ttl <= Duration::zero() { return Err(PolicyError::InvalidTiming); }
-    let valid_until = now.checked_add_signed(policy.decision_ttl).ok_or(PolicyError::InvalidTiming)?;
+    let mut valid_until = now.checked_add_signed(policy.decision_ttl).ok_or(PolicyError::InvalidTiming)?;
+    // A planning horizon bounds how far ahead one decision may plan. It can
+    // only shorten the validity the decision would have had anyway.
+    if let Some(horizon) = policy.planning_horizon {
+        if horizon <= Duration::zero() { return Err(PolicyError::InvalidTiming); }
+        valid_until = valid_until.min(now.checked_add_signed(horizon).ok_or(PolicyError::InvalidTiming)?);
+    }
+    // The utilization target is a planned share of each window's budget: a
+    // fraction of the plan, never a claim about the provider's total. An
+    // objective that aims at a target must name one instead of silently
+    // planning at the sustainable rate.
+    match policy.target_utilization_range {
+        Some(range) => {
+            if Range::new(range.lower, range.upper).is_none()
+                || !range.lower.is_finite() || !range.upper.is_finite()
+                || range.lower < 0.0 || range.upper > 1.0
+            {
+                return Err(PolicyError::InvalidTarget);
+            }
+        }
+        None if policy.objective == PolicyObjective::TargetUtilization => {
+            return Err(PolicyError::InvalidTarget)
+        }
+        None => {}
+    }
+    if let Some(margin) = policy.uncertainty_margin {
+        if !margin.is_finite() || !(0.0..=1.0).contains(&margin) {
+            return Err(PolicyError::InvalidReserve);
+        }
+    }
+    let mut reserved = HashSet::new();
+    for reserve in &policy.emergency_reserve_by_window {
+        if reserve.unit.trim().is_empty()
+            || Range::new(reserve.amount.lower, reserve.amount.upper).is_none()
+            || !reserve.amount.lower.is_finite() || !reserve.amount.upper.is_finite()
+            || reserve.amount.lower < 0.0
+            || !reserved.insert(&reserve.window)
+        {
+            return Err(PolicyError::InvalidReserve);
+        }
+    }
+    if let Some(burst) = policy.admission_pacing.burst {
+        if burst.max_requests == 0 || burst.within <= Duration::zero() {
+            return Err(PolicyError::InvalidPacing);
+        }
+    }
+    if policy.admission_pacing.minimum_interval.is_some_and(|interval| interval <= Duration::zero()) {
+        return Err(PolicyError::InvalidPacing);
+    }
+    if policy
+        .admission_pacing
+        .urgent_reserve
+        .is_some_and(|urgent| urgent.release_within <= Duration::zero())
+    {
+        return Err(PolicyError::InvalidPacing);
+    }
     if !policy.min_progress_per_hour.is_finite() || policy.min_progress_per_hour < 0.0
         || !policy.switching_hysteresis.is_finite() || policy.switching_hysteresis < 0.0
         || !(policy.min_progress_per_hour * (1.0 + policy.switching_hysteresis)).is_finite()
@@ -408,21 +960,38 @@ pub(crate) fn validate(policy: &QuotaPolicy, now: DateTime<Utc>) -> Result<DateT
     let mut windows = HashSet::new();
     for profile in &policy.profiles {
         if profile.profile_id.trim().is_empty() || profile.model_ref.trim().is_empty()
-            || (profile.local && !profile.cost_per_request.is_empty())
+            || (profile.local && (!profile.cost_per_request.is_empty() || !profile.effort_levels.is_empty()))
         {
             return Err(PolicyError::InvalidProfile);
         }
         if !names.insert(&profile.profile_id) { return Err(PolicyError::DuplicateProfile); }
         if !profile.local && profile.cost_per_request.is_empty() { return Err(PolicyError::MissingCloudCost); }
-        windows.clear();
-        for cost in &profile.cost_per_request {
-            let window = &cost.window;
-            if window.provider_id.trim().is_empty() || window.account_scope_ref.trim().is_empty()
-                || window.window_key.trim().is_empty() || cost.unit.trim().is_empty()
-                || Range::new(cost.amount.lower, cost.amount.upper).is_none() || cost.amount.upper <= 0.0
-                || !windows.insert(window)
+        // Every declared effort level is priced like the profile itself: a
+        // level with an unusable price could never be planned or admitted, and
+        // an ambiguous name would let a decision name a level that does not
+        // exist.
+        let mut levels = HashSet::new();
+        let mut priced: Vec<&[WindowCost]> = vec![profile.cost_per_request.as_slice()];
+        for level in &profile.effort_levels {
+            if level.effort.trim().is_empty() || level.effort.trim() != level.effort
+                || !levels.insert(&level.effort)
+                || level.cost_per_request.is_empty()
             {
                 return Err(PolicyError::InvalidCost);
+            }
+            priced.push(level.cost_per_request.as_slice());
+        }
+        for costs in priced {
+            windows.clear();
+            for cost in costs {
+                let window = &cost.window;
+                if window.provider_id.trim().is_empty() || window.account_scope_ref.trim().is_empty()
+                    || window.window_key.trim().is_empty() || cost.unit.trim().is_empty()
+                    || Range::new(cost.amount.lower, cost.amount.upper).is_none() || cost.amount.upper <= 0.0
+                    || !windows.insert(window)
+                {
+                    return Err(PolicyError::InvalidCost);
+                }
             }
         }
     }
@@ -439,6 +1008,9 @@ pub fn policy_digest(policy: &QuotaPolicy) -> Result<Digest, PolicyError> {
 
 struct Candidate {
     profile_id: String,
+    /// The effort level this candidate is priced at; `None` for the implicit
+    /// level of a policy recorded before effort planning.
+    effort: Option<String>,
     rate: Option<f64>,
     unbounded: Vec<WindowRef>,
     constraints: Vec<WindowConstraint>,
@@ -448,13 +1020,63 @@ impl Candidate {
     fn score(&self) -> f64 { self.rate.unwrap_or(f64::MAX) }
 }
 
+/// One profile's supported effort levels and what the evidence says about
+/// each. A level is either priceable now, deliberately waiting, or blocked by
+/// evidence the policy refuses to guess.
+enum LevelState {
+    Candidate(Candidate),
+    Waiting(Assessment),
+    Blocked(Assessment),
+}
+
+fn level_state(
+    policy: &QuotaPolicy,
+    profile_id: &str,
+    effort: Option<String>,
+    assessment: Assessment,
+) -> LevelState {
+    if !assessment.unknown.is_empty() && policy.on_unknown == UnknownQuota::Block {
+        return LevelState::Blocked(assessment);
+    }
+    if assessment.waiting || assessment.rate == Some(0.0) {
+        return LevelState::Waiting(assessment);
+    }
+    let unbounded = assessment.unknown;
+    LevelState::Candidate(Candidate {
+        profile_id: profile_id.to_owned(),
+        effort,
+        rate: assessment.rate,
+        unbounded,
+        constraints: assessment.constraints,
+    })
+}
+
 /// Choose from actual backend observations and bounded quota evidence. A
 /// missing backend observation stays unknown; no profile is assumed present.
+///
+/// This is the entry point for a runtime with no measured useful-work
+/// evidence: every scenario then records its expectation as unknown.
 pub fn decide(
     policy: &QuotaPolicy,
     forecasts: &[QuotaForecast],
     availability: &HashMap<String, BackendState>,
     previous: Option<&PolicyDecision>,
+    now: DateTime<Utc>,
+) -> Result<PolicyDecision, PolicyError> {
+    decide_with(policy, forecasts, availability, previous, None, now)
+}
+
+/// [`decide`] with the measured useful work of an admitted subject round.
+///
+/// `work` is durable provenance the caller read, not an estimate this crate
+/// may invent: without it a scenario states no expectation, and it is never
+/// replaced by "one request is one useful outcome".
+pub fn decide_with(
+    policy: &QuotaPolicy,
+    forecasts: &[QuotaForecast],
+    availability: &HashMap<String, BackendState>,
+    previous: Option<&PolicyDecision>,
+    work: Option<&WorkEvidence>,
     now: DateTime<Utc>,
 ) -> Result<PolicyDecision, PolicyError> {
     let mut valid_until = validate(policy, now)?;
@@ -463,7 +1085,11 @@ pub fn decide(
     // a different window sets a later aggregate wait deadline.
     for profile in &policy.profiles {
         if availability.get(&profile.profile_id) != Some(&BackendState::Available) { continue; }
-        for cost in &profile.cost_per_request {
+        let mut costs: Vec<&WindowCost> = profile.cost_per_request.iter().collect();
+        for level in &profile.effort_levels {
+            costs.extend(level.cost_per_request.iter());
+        }
+        for cost in costs {
             for forecast in forecasts.iter().filter(|f| f.provider_id == cost.window.provider_id
                 && f.account_scope_ref == cost.window.account_scope_ref) {
                 for window in forecast.windows.iter().filter(|w| w.window_key == cost.window.window_key) {
@@ -485,12 +1111,16 @@ pub fn decide(
         }
     }
     let digest = policy_digest(policy)?;
-    let previous_profile = previous.filter(|d| d.policy_id == policy.policy_id && d.policy_revision == policy.revision
+    let previous_choice = previous.filter(|d| d.policy_id == policy.policy_id && d.policy_revision == policy.revision
         && d.policy_digest == digest
         && d.decided_at <= now && now < d.valid_until).and_then(|d| match &d.choice {
-        Choice::Cloud { profile_id, .. } | Choice::Local { profile_id } => Some(profile_id.as_str()),
+        Choice::Cloud { profile_id, effort, .. } => {
+            Some((profile_id.as_str(), effort.as_deref()))
+        }
+        Choice::Local { profile_id } => Some((profile_id.as_str(), None)),
         _ => None,
     });
+    let previous_profile = previous_choice.map(|(profile, _)| profile);
     let mut considered = Vec::new();
     let mut feasible = Vec::<Candidate>::new();
     let mut slow: Option<Candidate> = None;
@@ -502,6 +1132,11 @@ pub fn decide(
     let mut wait_until: Option<DateTime<Utc>> = None;
     let mut local = None;
     let mut unknown_backends = Vec::new();
+    // What the plan can price, per assessed profile. A profile that was never
+    // assessed (unknown or unavailable backend) stays absent, so its estimate
+    // is unknown instead of zero.
+    let mut estimates: Vec<(String, Option<f64>)> = Vec::new();
+    let mut scenarios: Vec<PlanScenario> = Vec::new();
 
     for profile in &policy.profiles {
         match availability.get(&profile.profile_id).copied().unwrap_or(BackendState::Unknown) {
@@ -515,36 +1150,123 @@ pub fn decide(
             }
             continue;
         }
-        let a = assess(profile, forecasts, policy, now);
-        if !a.unknown.is_empty() && policy.on_unknown == UnknownQuota::Block {
-            considered.push((profile.profile_id.clone(), None));
-            blocked.extend(a.unknown);
-            continue;
+        // One assessment per supported effort level, in the profile's own
+        // preference order. A level's own windows decide its own budget: a
+        // deeper level that charges another window is factored in, not
+        // assumed free.
+        let mut levels: Vec<(Option<String>, Assessment)> = Vec::new();
+        for level in profile.plan_levels() {
+            let effort = level.map(|level| level.effort.as_str());
+            let Some(costs) = profile.costs_at(effort) else { continue };
+            levels.push((level.map(|level| level.effort.clone()), assess(costs, forecasts, policy, now)));
         }
-        if a.waiting || a.rate == Some(0.0) {
-            policy_wait |= a.exhausted.is_empty();
-            for window in a.exhausted {
-                if !exhausted.contains(&window) { exhausted.push(window); }
+        // What the planner compared is recorded per profile/effort pair, with
+        // the useful work its rounds are expected to produce when durable
+        // evidence supports an expectation at all.
+        let mut rounds_by_level: Vec<(Option<String>, Option<f64>)> = Vec::new();
+        for (effort, assessment) in &levels {
+            let costs = profile.costs_at(effort.as_deref()).unwrap_or(&[]);
+            let rounds = rounds_estimate_with(profile, costs, &assessment.constraints);
+            rounds_by_level.push((effort.clone(), rounds));
+            scenarios.push(PlanScenario {
+                profile_id: profile.profile_id.clone(),
+                effort: effort.clone(),
+                rate_per_hour: assessment.rate,
+                rounds,
+                cost_per_request: costs.to_vec(),
+                expected_useful_work: UsefulWorkEstimate::of(rounds, work),
+            });
+        }
+        let mut candidates: Vec<Candidate> = Vec::new();
+        let mut waiting: Vec<Assessment> = Vec::new();
+        let mut blocked_levels: Vec<Assessment> = Vec::new();
+        for (effort, assessment) in levels {
+            match level_state(policy, &profile.profile_id, effort, assessment) {
+                LevelState::Candidate(candidate) => candidates.push(candidate),
+                LevelState::Waiting(assessment) => waiting.push(assessment),
+                LevelState::Blocked(assessment) => blocked_levels.push(assessment),
             }
-            wait_until = match (wait_until, a.wait_until) {
-                (Some(x), Some(y)) => Some(x.min(y)),
-                (x, y) => x.or(y),
-            };
-            considered.push((profile.profile_id.clone(), a.rate));
+        }
+        if candidates.is_empty() {
+            // No level of this profile can be planned now: report the
+            // profile's own evidence, exactly as a single-level policy did.
+            let rounds = rounds_by_level.first().and_then(|(_, rounds)| *rounds);
+            estimates.push((profile.profile_id.clone(), rounds));
+            if !blocked_levels.is_empty() {
+                considered.push((profile.profile_id.clone(), None));
+                for assessment in blocked_levels {
+                    blocked.extend(assessment.unknown);
+                }
+                continue;
+            }
+            considered.push((
+                profile.profile_id.clone(),
+                waiting.first().and_then(|assessment| assessment.rate),
+            ));
+            for assessment in waiting {
+                policy_wait |= assessment.exhausted.is_empty();
+                for window in assessment.exhausted {
+                    if !exhausted.contains(&window) { exhausted.push(window); }
+                }
+                wait_until = match (wait_until, assessment.wait_until) {
+                    (Some(x), Some(y)) => Some(x.min(y)),
+                    (x, y) => x.or(y),
+                };
+            }
             continue;
         }
-        let unbounded = if a.unknown.is_empty() {
-            Vec::new()
-        } else {
-            a.unknown
-        };
-        let candidate = Candidate { profile_id: profile.profile_id.clone(), rate: a.rate,
-            unbounded, constraints: a.constraints };
+        // Prefer the most preferred feasible level; keep the level the
+        // previous decision used unless a more preferred one clears the
+        // switching margin, so the same plan is not re-chosen every round.
+        let threshold = policy.min_progress_per_hour;
+        let preferred = candidates
+            .iter()
+            .position(|candidate| candidate.score() >= threshold)
+            .or_else(|| {
+                candidates
+                    .iter()
+                    .enumerate()
+                    .fold(None::<(usize, f64)>, |best, (index, candidate)| {
+                        let score = candidate.score();
+                        Some(match best {
+                            Some((best_index, best_score)) if best_score >= score => {
+                                (best_index, best_score)
+                            }
+                            _ => (index, score),
+                        })
+                    })
+                    .map(|(index, _)| index)
+            });
+        let chosen = previous_choice
+            .filter(|(profile, _)| *profile == profile.profile_id.as_str())
+            .and_then(|(_, effort)| {
+                let previous_level = candidates
+                    .iter()
+                    .position(|candidate| candidate.effort.as_deref() == effort)?;
+                Some(match preferred {
+                    Some(preferred)
+                        if preferred != previous_level
+                            && candidates[preferred].score()
+                                >= threshold * (1.0 + policy.switching_hysteresis) =>
+                    {
+                        preferred
+                    }
+                    _ => previous_level,
+                })
+            })
+            .or(preferred)
+            .and_then(|index| candidates.into_iter().nth(index));
+        let Some(candidate) = chosen else { continue };
+        let rounds = rounds_by_level
+            .iter()
+            .find(|(effort, _)| effort == &candidate.effort)
+            .and_then(|(_, rounds)| *rounds);
+        estimates.push((profile.profile_id.clone(), rounds));
         considered.push((profile.profile_id.clone(), candidate.rate));
         if candidate.score() >= policy.min_progress_per_hour {
             feasible.push(candidate);
-        } else {
-            if slow.as_ref().is_none_or(|other| candidate.score() > other.score()) { slow = Some(candidate); }
+        } else if slow.as_ref().is_none_or(|other| candidate.score() > other.score()) {
+            slow = Some(candidate);
         }
     }
 
@@ -572,8 +1294,9 @@ pub fn decide(
     let selected = if keep_local { None }
         else { pick.or_else(|| if local.is_none() { slow.as_ref() } else { None }) };
     let (choice, constraints) = if let Some(candidate) = selected {
-        (Choice::Cloud { profile_id: candidate.profile_id.clone(), rate_per_hour: candidate.rate,
-            unbounded_windows: candidate.unbounded.clone() }, candidate.constraints.clone())
+        (Choice::Cloud { profile_id: candidate.profile_id.clone(), effort: candidate.effort.clone(),
+            rate_per_hour: candidate.rate, unbounded_windows: candidate.unbounded.clone() },
+            candidate.constraints.clone())
     } else if let Some(id) = local {
         (Choice::Local { profile_id: id }, Vec::new())
     } else if !unknown_backends.is_empty() {
@@ -587,6 +1310,37 @@ pub fn decide(
     } else {
         (Choice::NoBackend, Vec::new())
     };
+    // Rounds the held budget supports over the horizon. `None` where the
+    // evidence cannot price a profile: no zero, no guess. The horizon is the
+    // policy's planning horizon, else the decision's own validity window.
+    let horizon = policy.planning_horizon.unwrap_or(policy.decision_ttl);
+    let per_profile: Vec<(String, Option<f64>)> = policy
+        .profiles
+        .iter()
+        .map(|profile| {
+            (
+                profile.profile_id.clone(),
+                estimates
+                    .iter()
+                    .find(|(id, _)| id == &profile.profile_id)
+                    .and_then(|(_, rounds)| *rounds),
+            )
+        })
+        .collect();
+    let cloud_only = smallest(
+        policy
+            .profiles
+            .iter()
+            .filter(|profile| !profile.local)
+            .map(|profile| per_profile.iter().find(|(id, _)| id == &profile.profile_id).and_then(|(_, rounds)| *rounds)),
+    );
+    let all_models = smallest(per_profile.iter().map(|(_, rounds)| *rounds));
+    let round_estimates = all_models.map(|_| RoundEstimates {
+        horizon,
+        cloud_only,
+        all_models,
+        per_profile,
+    });
     Ok(PolicyDecision {
         decision_id: EntityId::new(),
         policy_id: policy.policy_id,
@@ -602,5 +1356,8 @@ pub fn decide(
         choice,
         constraints,
         considered,
+        strategy: None,
+        round_estimates,
+        scenarios,
     })
 }

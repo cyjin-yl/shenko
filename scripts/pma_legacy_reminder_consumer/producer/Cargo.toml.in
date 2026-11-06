@@ -1,0 +1,31 @@
+# Rendered by scripts/pma_legacy_reminder_consumer.py: @BEFORE_REPO@ is the
+# source tree of the OLD producer. This crate links that tree's crates
+# directly, so the producer runs the pre-fix public PMA/native-handler code and
+# not a copy or a re-implementation of it.
+[package]
+name = "shenko-pma-legacy-reminder-producer"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "pma-legacy-reminder-producer"
+path = "src/main.rs"
+
+[dependencies]
+shenko-store = { path = "@BEFORE_REPO@/crates/shenko-store" }
+shenko-types = { path = "@BEFORE_REPO@/crates/shenko-types" }
+shenko-kernel = { path = "@BEFORE_REPO@/crates/shenko-kernel" }
+shenko-broker = { path = "@BEFORE_REPO@/crates/shenko-broker" }
+shenko-subject = { path = "@BEFORE_REPO@/crates/shenko-subject" }
+shenko-memory = { path = "@BEFORE_REPO@/crates/shenko-memory" }
+shenko-context-policy = { path = "@BEFORE_REPO@/crates/shenko-context-policy", features = ["store"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec", "io"] }
+chrono = { version = "0.4", features = ["serde"] }

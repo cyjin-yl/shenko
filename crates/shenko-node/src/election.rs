@@ -21,7 +21,7 @@
 //! that lost the election cannot keep acting as primary once a newer epoch is
 //! committed locally.
 
-use super::{Event, Identity, Node, ResultReceipt, digest, get, number, set, text};
+use super::{Event, Identity, Manifest, Node, ResultReceipt, digest, get, number, set, text};
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -381,6 +381,37 @@ pub struct BranchFact {
     pub retained_experience: ExperienceCounts,
     pub opened_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Present once this partition branch was merged back into the domain.
+    /// The branch then produces no new decisions and is retained as an
+    /// archived branch with this fact, never reset (SPEC §5.4.2). `kind` keeps
+    /// saying which role the branch played; `global_quorum` still follows the
+    /// committed claim, so an archived branch without a claim stays an
+    /// availability branch rather than becoming an authority.
+    #[serde(default)]
+    pub merged: Option<BranchMerge>,
+    /// The reconciliation journal sequence that already existed when this
+    /// branch last became a partition branch. A merge must be recorded after
+    /// this point: an older reconciliation does not cover the branch.
+    #[serde(default)]
+    pub reconciliation_floor: u64,
+}
+
+/// What ended a partition branch: the reconciliation that merged its
+/// experience and the committed facts that make the domain's authority
+/// explicit again.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BranchMerge {
+    pub reconciliation_id: EntityId,
+    pub peer_node_id: VoterId,
+    /// The peer's event watermark covered by the merge; `None` when the peer
+    /// exported no events.
+    pub peer_high_water: Option<String>,
+    /// The committed primary claim of the domain after the merge. `None` means
+    /// the domain has no committed claim: the merge does not invent a quorum.
+    pub primary: Option<PrimaryClaim>,
+    pub note: String,
+    pub merged_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// Adoption of an existing self: the local independent identity stops
@@ -419,8 +450,26 @@ pub struct PeerExperience {
     pub peer_branch_id: Option<EntityId>,
     pub events: Vec<Event>,
     pub receipts: Vec<ResultReceipt>,
+    /// The peer installation's own Store observation: the snapshot
+    /// fingerprint and the ledger watermark it covered. `None` means the peer
+    /// published no observation, which is unknown — not "unchanged", not
+    /// "empty" and not evidence about the peer's liveness or capacity.
     pub cognition_fingerprint: Option<Digest>,
     pub cognition_high_water: Option<u64>,
+    /// Scope, revision and observation instant of the report above. Required
+    /// whenever `cognition_fingerprint` is present: a fingerprint without the
+    /// coverage it describes is not comparable to anything.
+    #[serde(default)]
+    pub cognition_origin: Option<CognitionOrigin>,
+    /// The peer's event watermark this experience was exported through. It is
+    /// the source's real progress fact, never a claim about its reachability.
+    #[serde(default)]
+    pub peer_high_water: Option<String>,
+    /// The manifest the peer's process actually ran with. A heterogeneous peer
+    /// (another OS/arch/artifact generation) is retained as such instead of
+    /// being adopted as this node's own capability fact (SPEC §5.4.4).
+    #[serde(default)]
+    pub peer_manifest: Option<Manifest>,
     pub note: String,
 }
 
@@ -452,6 +501,35 @@ pub struct ReconciliationRecord {
     pub effects: Vec<EffectReconciliation>,
     pub cognition_fingerprint: Option<Digest>,
     pub cognition_high_water: Option<u64>,
+    /// Scope, revision and observation instant of the merged peer's
+    /// cognition report. `None` when the peer published no observation.
+    #[serde(default)]
+    pub cognition_origin: Option<CognitionOrigin>,
+    /// How the peer's snapshot relates to this node's own published one. The
+    /// comparison says two installations hold the same replicated snapshot or
+    /// not; it is not evidence of liveness, capacity or capability equivalence.
+    /// `None` only for records written before this field existed.
+    #[serde(default)]
+    pub cognition_comparison: Option<CognitionComparison>,
+    /// The peer watermark this merge covered. A later rejoin can state what it
+    /// already merged instead of re-deriving it from the event journal.
+    #[serde(default)]
+    pub peer_high_water: Option<String>,
+    /// The manifest of the process that produced the merged facts.
+    #[serde(default)]
+    pub peer_manifest: Option<Manifest>,
+    /// `Some(true)` when the peer ran a different artifact/OS/arch/schema
+    /// generation than this node; `None` when that was not observable.
+    #[serde(default)]
+    pub heterogeneous: Option<bool>,
+    /// Events the peer offered whose digest did not match their own content.
+    /// They are not merged, and the count is the honest report of that.
+    #[serde(default)]
+    pub rejected_events: u64,
+    /// Parallel facts retained in this node's conflict journal after the
+    /// merge. Conflicting facts are kept side by side, never last-write-wins.
+    #[serde(default)]
+    pub retained_conflicts: u64,
     pub note: String,
     pub reconciled_at: chrono::DateTime<chrono::Utc>,
 }
@@ -574,6 +652,23 @@ impl Node {
             .optional()?;
         raw.map(|value| serde_json::from_str(&value).map_err(anyhow::Error::from))
             .transpose()
+    }
+
+    /// The highest fencing epoch already committed in this node's control log.
+    ///
+    /// A rejoined branch carries the entries it adopted from the other
+    /// branch, so this is the real high-water mark the next claim must exceed.
+    fn logged_max_epoch(conn: &Connection) -> Result<u64> {
+        let mut statement =
+            conn.prepare("SELECT data FROM node_control_log WHERE kind='primary'")?;
+        let rows = statement.query_map([], |r| r.get::<_, String>(0))?;
+        let mut max = 0u64;
+        for row in rows {
+            let entry: ControlEntry = serde_json::from_str(&row?)?;
+            let payload: PrimaryEntry = serde_json::from_value(entry.payload)?;
+            max = max.max(payload.epoch);
+        }
+        Ok(max)
     }
 
     fn votes_for(conn: &Connection, term: u64, scope: &str, candidate: VoterId) -> Result<BTreeSet<VoterId>> {
@@ -768,6 +863,19 @@ impl Node {
         }
         for entry in entries {
             Self::verify_control_entry(entry)?;
+            // An index this node already committed carries one decision. A
+            // different entry at the same index is a diverged branch, not a
+            // newer fact: it is refused instead of silently replacing what
+            // this node already committed (SPEC §5.4.2).
+            if let Some(existing) = Self::control_entry(&tx, entry.index)? {
+                ensure!(
+                    existing.term == entry.term
+                        && existing.kind == entry.kind
+                        && existing.payload == entry.payload,
+                    "control log entry {} differs from the entry this node committed; the branches must be reconciled, not overwritten",
+                    entry.index
+                );
+            }
             tx.execute(
                 "INSERT OR REPLACE INTO node_control_log(idx,term,kind,data) VALUES(?1,?2,?3,?4)",
                 params![
@@ -777,6 +885,10 @@ impl Node {
                     text(entry)?
                 ],
             )?;
+            // The pushed decisions are verified quorum decisions, so the
+            // adopter really learns them: a configuration push that carried a
+            // primary claim must not leave the adopter on an older authority.
+            Self::apply_control_entry(&tx, entry)?;
         }
         tx.execute(
             "INSERT OR REPLACE INTO node_member_configs(revision,term,data) VALUES(?1,?2,?3)",
@@ -786,6 +898,14 @@ impl Node {
                 text(config)?
             ],
         )?;
+        // The pushed log must commit the configuration that was pushed: a log
+        // whose newest configuration row is another one leaves the adopter on
+        // an authority it never verified.
+        let landed = Self::committed_config(&tx)?;
+        ensure!(
+            landed.is_some_and(|committed| committed.digest == config.digest),
+            "the pushed control log commits a different configuration than the one pushed"
+        );
         let commit_index = entries
             .iter()
             .map(|entry| entry.index)
@@ -1057,12 +1177,24 @@ impl Node {
         );
         let config = Self::committed_config(&tx)?
             .context("no committed member configuration; votes cannot be counted")?;
-        if !config.is_member(response.responder_id) {
+        // A membership proposal is decided by the voters of its own sets, so a
+        // node being added may vote on it before it is a member of the
+        // committed configuration. Its vote is recorded in the proposal's
+        // scope and only `tally_member_change` applies the joint arithmetic;
+        // it never counts as an election vote.
+        let allowed_voter = match &request.proposal {
+            Some(proposal) => {
+                proposal.old_members.contains(&response.responder_id)
+                    || proposal.new_members.contains(&response.responder_id)
+            }
+            None => config.is_member(response.responder_id),
+        };
+        if !allowed_voter {
             tx.commit()?;
             return Ok(VoteOutcome {
                 voter: response.responder_id,
                 outcome: "rejected".into(),
-                reason: "voter is not a member of the committed configuration".into(),
+                reason: "voter is not a member of the committed configuration or of this proposal".into(),
             });
         }
         if response.config_digest != config.digest {
@@ -1213,6 +1345,12 @@ impl Node {
             .as_ref()
             .map(|claim| claim.epoch)
             .unwrap_or(0)
+            // A branch that rejoined has adopted the other branch's control
+            // log. The next epoch must dominate every epoch already committed
+            // in this node's log, otherwise two separated branches could both
+            // commit the same epoch under different leaders and the resource
+            // fence could not tell them apart (SPEC §5.4.1/§5.4.3).
+            .max(Self::logged_max_epoch(tx)?)
             .checked_add(1)
             .context("fencing epoch exhausted")?;
         let index = state_number(tx, "commit_index")?
@@ -1710,6 +1848,7 @@ impl Node {
             )
             .optional()?;
         let now = chrono::Utc::now();
+        let floor = Self::last_reconciliation_seq(&tx)?;
         let fact = match existing {
             Some(raw) => {
                 let mut fact: BranchFact = serde_json::from_str(&raw)?;
@@ -1718,6 +1857,11 @@ impl Node {
                 fact.global_quorum = false;
                 fact.retained_experience = retained;
                 fact.updated_at = now;
+                // A new partition of the same branch supersedes an earlier
+                // merge: this branch is partitioned again, so it is not
+                // merged until a newer reconciliation closes it.
+                fact.merged = None;
+                fact.reconciliation_floor = floor;
                 fact
             }
             None => BranchFact {
@@ -1729,6 +1873,8 @@ impl Node {
                 retained_experience: retained,
                 opened_at: now,
                 updated_at: now,
+                merged: None,
+                reconciliation_floor: floor,
             },
         };
         tx.execute(
@@ -1750,6 +1896,111 @@ impl Node {
             facts.push(serde_json::from_str(&row?)?);
         }
         Ok(facts)
+    }
+
+    /// Close a partition branch once its experience was merged.
+    ///
+    /// The merge is bound to a reconciliation that this node actually recorded
+    /// *after* the branch became a partition branch: a stale reconciliation
+    /// does not cover the branch's diverged experience, and a missing one means
+    /// nothing was merged. The branch is archived with the merge fact instead
+    /// of being reset, and it never claims a quorum of its own: `global_quorum`
+    /// follows the committed primary claim exactly.
+    pub fn merge_availability_branch(
+        &mut self,
+        branch_id: EntityId,
+        reconciliation_id: EntityId,
+        note: &str,
+    ) -> Result<BranchFact> {
+        ensure!(
+            !note.trim().is_empty(),
+            "a branch merge requires a note saying what was merged"
+        );
+        let retained = self.experience_counts()?;
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let raw: Option<String> = tx
+            .query_row(
+                "SELECT data FROM node_branches WHERE branch_id=?1",
+                [branch_id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let mut fact: BranchFact = serde_json::from_str(
+            &raw.with_context(|| format!("no branch {branch_id} on this node"))?,
+        )?;
+        ensure!(
+            fact.kind == BranchKind::Availability,
+            "only a partition branch is merged back into the domain"
+        );
+        if let Some(merged) = &fact.merged {
+            ensure!(
+                merged.reconciliation_id == reconciliation_id,
+                "branch {branch_id} was already merged by reconciliation {}; a later merge needs its own branch",
+                merged.reconciliation_id
+            );
+            // Replaying the same rejoin is not a new merge.
+            tx.commit()?;
+            return Ok(fact);
+        }
+        let seq = Self::reconciliation_seq(&tx, reconciliation_id)?.with_context(|| {
+            format!("no reconciliation {reconciliation_id} was recorded by this node")
+        })?;
+        ensure!(
+            seq > i64::try_from(fact.reconciliation_floor).context("branch floor out of range")?,
+            "reconciliation {reconciliation_id} predates the partition branch; it does not cover its experience"
+        );
+        let record: ReconciliationRecord =
+            serde_json::from_str(&tx.query_row(
+                "SELECT data FROM node_reconciliations WHERE seq=?1",
+                [seq],
+                |r| r.get::<_, String>(0),
+            )?)?;
+        let claim = get_state::<PrimaryClaim>(&tx, "primary")?;
+        let now = chrono::Utc::now();
+        fact.reason = note.to_string();
+        fact.retained_experience = retained;
+        fact.updated_at = now;
+        fact.global_quorum = claim.is_some();
+        fact.merged = Some(BranchMerge {
+            reconciliation_id,
+            peer_node_id: record.peer_node_id,
+            peer_high_water: record.peer_high_water.clone(),
+            primary: claim,
+            note: note.to_string(),
+            merged_at: now,
+        });
+        tx.execute(
+            "INSERT INTO node_branches(branch_id,data) VALUES(?1,?2) ON CONFLICT(branch_id) DO UPDATE SET data=excluded.data",
+            params![branch_id.to_string(), text(&fact)?],
+        )?;
+        tx.commit()?;
+        Ok(fact)
+    }
+
+    /// The highest reconciliation journal sequence, or zero when nothing was
+    /// reconciled yet. Journal order is used instead of wall clock time.
+    fn last_reconciliation_seq(tx: &Transaction<'_>) -> Result<u64> {
+        let seq: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(seq),0) FROM node_reconciliations",
+            [],
+            |r| r.get(0),
+        )?;
+        u64::try_from(seq).context("reconciliation sequence out of range")
+    }
+
+    fn reconciliation_seq(tx: &Transaction<'_>, id: EntityId) -> Result<Option<i64>> {
+        let mut statement = tx.prepare("SELECT seq,data FROM node_reconciliations")?;
+        let rows = statement.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        for row in rows {
+            let (seq, data) = row?;
+            let record: ReconciliationRecord = serde_json::from_str(&data)?;
+            if record.reconciliation_id == id {
+                return Ok(Some(seq));
+            }
+        }
+        Ok(None)
     }
 
     fn experience_counts(&self) -> Result<ExperienceCounts> {
@@ -1834,6 +2085,8 @@ impl Node {
             retained_experience: retained,
             opened_at: now,
             updated_at: now,
+            merged: None,
+            reconciliation_floor: Self::last_reconciliation_seq(&tx)?,
         };
         tx.execute(
             "INSERT INTO node_branches(branch_id,data) VALUES(?1,?2) ON CONFLICT(branch_id) DO UPDATE SET data=excluded.data",
@@ -1845,21 +2098,45 @@ impl Node {
 
     /// Merge a peer's verified experience into this node's facts.
     ///
-    /// Events are deduplicated by identity; conflicting events are retained side
-    /// by side as parallel facts. A settled task is never un-settled and an
-    /// unknown external effect is never re-sent (SPEC §5.4.2/§5.4.3).
+    /// Only an event whose digest matches its own content is merged: a peer's
+    /// receipt is evidence about that peer, not a licence to store unverified
+    /// content. Events are deduplicated by identity; conflicting events are
+    /// retained side by side as parallel facts. A settled task is never
+    /// un-settled and an unknown external effect is never re-sent
+    /// (SPEC §5.4.2/§5.4.3).
     pub fn reconcile_peer_experience(
         &mut self,
         peer: &PeerExperience,
     ) -> Result<ReconciliationRecord> {
+        // A cognition report is a fingerprint *of* a scope: an experience that
+        // carries one without the others states nothing observable, so it is
+        // refused instead of being stored as half a report.
+        ensure!(
+            peer.cognition_fingerprint.is_some() == peer.cognition_high_water.is_some()
+                && peer.cognition_fingerprint.is_some() == peer.cognition_origin.is_some(),
+            "a peer cognition report must carry its fingerprint, high water, and the scope/revision provenance together"
+        );
+        // This node's own published observation, if its installation ever
+        // published one. Absence keeps the comparison `unobserved`.
+        let local_cognition = self.cognition_report()?;
+        let cognition_comparison = CognitionComparison::between(
+            peer.cognition_fingerprint.as_ref(),
+            peer.cognition_origin.as_ref().map(|origin| &origin.scope),
+            local_cognition.as_ref(),
+        );
         let mut imported = 0u64;
         let mut duplicates = 0u64;
+        let mut rejected = 0u64;
         let mut parallel = Vec::new();
         let mut effects = Vec::new();
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         for event in &peer.events {
+            if event.raw.schema != super::SCHEMA || digest(&event.raw)? != event.digest {
+                rejected += 1;
+                continue;
+            }
             let outcome = super::append_event(&tx, event)?;
             match outcome {
                 "new" => imported += 1,
@@ -1931,6 +2208,7 @@ impl Node {
                 }
             }
         }
+        let local_manifest = super::running_manifest().ok();
         let record = ReconciliationRecord {
             reconciliation_id: EntityId::new(),
             peer_node_id: peer.peer_node_id,
@@ -1941,6 +2219,24 @@ impl Node {
             effects,
             cognition_fingerprint: peer.cognition_fingerprint.clone(),
             cognition_high_water: peer.cognition_high_water,
+            cognition_origin: peer.cognition_origin.clone(),
+            cognition_comparison: Some(cognition_comparison),
+            // The merge names the peer's real watermark and the artifact it
+            // ran. A heterogeneous peer's own capability facts stay its own:
+            // this record says the generations differ, it does not adopt them.
+            heterogeneous: match (&peer.peer_manifest, &local_manifest) {
+                (Some(peer_manifest), Some(local)) => Some(peer_manifest != local),
+                _ => None,
+            },
+            rejected_events: rejected,
+            peer_high_water: peer.peer_high_water.clone(),
+            peer_manifest: peer.peer_manifest.clone(),
+            retained_conflicts: u64::try_from(tx.query_row(
+                "SELECT count(*) FROM conflicts",
+                [],
+                |r| r.get::<_, i64>(0),
+            )?)
+            .context("retained parallel fact count out of range")?,
             note: peer.note.clone(),
             reconciled_at: chrono::Utc::now(),
         };
@@ -2009,6 +2305,9 @@ impl Node {
             }
         }
         let quorum = config.as_ref().map(|config| config.quorum());
+        let parallel_facts: i64 =
+            self.conn
+                .query_row("SELECT count(*) FROM conflicts", [], |r| r.get(0))?;
         Ok(json!({
             "node_id": self.local_node_id()?,
             "term": term.to_string(),
@@ -2020,6 +2319,8 @@ impl Node {
             "this_node_is_primary": self.is_primary()?,
             "recorded_election_votes": votes,
             "branches": branches,
+            "parallel_facts_retained": parallel_facts.to_string(),
+            "parallel_facts_are_evidence": true,
             "is_election": true,
             "quorum_basis": "committed_member_configuration",
             "visible_nodes_are_not_the_quorum": true,
