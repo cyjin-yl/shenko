@@ -16,8 +16,9 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use shenko_types::channel::{
-    BoxFuture, ChannelAction, ChannelDispatch, ChannelEnvelope, ChannelError, ChannelPlugin,
-    ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
+    AttachmentError, BoxFuture, ChannelAction, ChannelAttachment, ChannelDispatch, ChannelEnvelope,
+    ChannelError, ChannelPlugin, ChannelReceipt, ChannelRegistry, ChannelRegistryError, ReplyKind,
+    ResolvedAttachment,
 };
 use shenko_types::object::Digest;
 use shenko_types::output::PublicationTarget;
@@ -544,6 +545,108 @@ impl ChannelPlugin for QqOfficialChannel {
             }
         })
     }
+
+    /// Fetch one published media locator from the platform's own CDN.
+    ///
+    /// The official platform publishes a temporary download URL per
+    /// attachment. That URL already carries its own authority, so it is
+    /// fetched as published; if the CDN refuses it, the installed account's
+    /// access token is tried exactly once, because a bot-attached resource can
+    /// need the account's credential. Both answers stay the platform's own:
+    /// an aged-out locator is reported as expired, a refused credential as
+    /// unauthenticated, and anything else as unavailable.
+    fn resolve_attachment(
+        &self,
+        attachment: &ChannelAttachment,
+    ) -> BoxFuture<'static, Result<ResolvedAttachment, AttachmentError>> {
+        let attachment = attachment.clone();
+        let api = self.api.clone();
+        Box::pin(async move {
+            let Some(url) = attachment
+                .locator
+                .url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+                .map(str::to_owned)
+            else {
+                return Err(AttachmentError::Refused {
+                    attachment_id: attachment.attachment_id.clone(),
+                    detail: "the platform published no download URL for this attachment".to_string(),
+                });
+            };
+            let answer =
+                crate::common::fetch_media_bounded(api.http(), &url, None, &attachment.attachment_id)
+                    .await?;
+            let (media_type, bytes) = match answer {
+                crate::common::MediaAnswer::Delivered { media_type, bytes } => (media_type, bytes),
+                crate::common::MediaAnswer::Refused { status, detail } => {
+                    if is_expired_statement(&detail) {
+                        return Err(AttachmentError::Expired {
+                            attachment_id: attachment.attachment_id.clone(),
+                            detail,
+                        });
+                    }
+                    if matches!(status, 401 | 403) {
+                        // One authenticated retry with the installed account:
+                        // the same locator, the account's own credential, and
+                        // the platform's answer to that credential.
+                        let token = api.access_token().await.map_err(|error| {
+                            AttachmentError::Unauthenticated {
+                                channel: QQ_OFFICIAL_CHANNEL_ID.to_string(),
+                                attachment_id: attachment.attachment_id.clone(),
+                                detail: format!("no usable access token: {error}"),
+                            }
+                        })?;
+                        match crate::common::fetch_media_bounded(
+                            api.http(),
+                            &url,
+                            Some(&token),
+                            &attachment.attachment_id,
+                        )
+                        .await?
+                        {
+                            crate::common::MediaAnswer::Delivered { media_type, bytes } => {
+                                (media_type, bytes)
+                            }
+                            crate::common::MediaAnswer::Refused { status, detail } => {
+                                if is_expired_statement(&detail) {
+                                    return Err(AttachmentError::Expired {
+                                        attachment_id: attachment.attachment_id.clone(),
+                                        detail,
+                                    });
+                                }
+                                return Err(crate::common::refused_attachment(
+                                    QQ_OFFICIAL_CHANNEL_ID,
+                                    &attachment.attachment_id,
+                                    status,
+                                    detail,
+                                ));
+                            }
+                        }
+                    } else {
+                        return Err(crate::common::refused_attachment(
+                            QQ_OFFICIAL_CHANNEL_ID,
+                            &attachment.attachment_id,
+                            status,
+                            detail,
+                        ));
+                    }
+                }
+            };
+            crate::common::resolved_from_media(&attachment, media_type, bytes)
+        })
+    }
+}
+
+/// Whether the platform's own answer says the signed locator aged out.
+///
+/// This is the provider's protocol vocabulary, not a subject-side judgement:
+/// the CDN answers an expired signature with its own statement, and reporting
+/// it as anything else would misattribute a locator lifetime to a credential.
+fn is_expired_statement(detail: &str) -> bool {
+    let lowered = detail.to_ascii_lowercase();
+    lowered.contains("expired") || lowered.contains("过期")
 }
 
 /// Turn a platform answer into a receipt.
