@@ -6186,6 +6186,21 @@ MCP 与 Agent Skills 是两个**独立**的可选单元与独立 crate：`compat
 - 生命周期沿用 native child：冻结输入 CAS、一次 armed attempt、一个 observation、一个 evidence receipt；reconcile 在同一 attempt 下重新测量；`EffectStatus::None`；卸载后已测观察仍可读。
 - 观察路径由真实 socket 的内联测试覆盖（真实 HTTP 应答的状态码、释放端口的 `connect_failed`、`.invalid` 的 `dns_failed`、URL 边界）。模型是否在被问到通路时真的去观察，属于 awareness 效能测量，不由本定义证明。
 
+=======
+## 50.4 未竟义务的显式结清与复制闭包
+
+本节补充 §41 的 S0/S1 与 §45 的 unfinished-obligations 合同，不修改此前原文。主体在后续 S0 中取得本分支尚未结清的义务完整记录；请求所见与封口所用是同一份向量，描述、来源事件、依赖任务、恢复条件和复查时间均保留。历史窗口压缩不删除这些持久事实；正文仍计入正常上下文预算，不能以静默截断或省略记录假装可容纳。
+
+主体以 `[obligation:terminal]` 后的一份 JSON 提出显式终态变更，字段为 `obligation_id`（原义务 UUID）、`state` 和 `reason`（本次判断依据）。`state` 只能为 `completed`、`cancelled` 之一，目标不得为空 UUID，理由不得为空白，未知字段拒绝。该控制解析为 `ObligationTerminalChange`，经 `PolicyKind::ObligationTerminal` 进入同一步 S1；普通正文、child 完成、时间到期和新建义务均不自行结清旧义务。
+
+接纳时必须同时匹配本步解析控制、policy intent、原始创建决定、本分支持久义务和本步 S0 中的完整目标记录。其他分支、未见于 S0、同一步才创建、重复目标或被替换的正文不能成为有效结清。成功结清与决定、policy 结算及 head 推进在一个事务中提交；失败提交不留下局部终态或成功回执。
+
+`ObligationTerminalReceipt` 保存原始 S0 引用、目标完整记录、请求变更、step/intent 身份、结算结果和提交位置。已完成或取消的状态不被迟到请求、重放原始创建决定或另一终态覆盖；仍有合法旧 S0 的迟到请求保留明确的拒绝结算，其余有效决定可以提交。请求、拒绝回执和独立的 policy 执行标记均不单独证明义务已结清。现代恢复缺少原始结算绑定时拒绝推导成功；既有 schema-3 历史创建投影按原合同恢复，不能借此修补现代终态证据缺口。
+
+认知归档 schema 6 将上述原始创建、控制、policy、S0、投影与终态结算列为必须完整理解的事实。schema 5 及更早 reader 必须拒绝 schema 6；schema 6 reader 继续接纳其能完整解释的旧归档。缺失、矛盾或接收方已有的必需事实冲突应在发布前拒绝，不能发布部分数据库事实、文件、认知基线或复制水位后再报告失败。成功导入、关闭重开、重放和再次导出必须保留相同原始结算身份与正文。
+
+受控验证记录位于共享工作区 `build/obligation-lifecycle-20261105/actual-readers-20261105-112512/receipt.json`：分别编译的真实 schema-5/schema-6 Store reader 验证旧 reader 拒绝实际 schema-6 归档，新 reader 导入、重开、relay 后第二接收方保留同一已完成义务结算。旧 schema-5 导出再由新 reader 导入的来源为空 Store，该项只证明版本接纳，不证明有内容的历史归档恢复。原生回归与该合成 Store/CAS 场景不替代真实模型效能、断电、分区或长期运行验收。
+>>>>>>> 27fd85e1
 # 51 认知元概念：内容、态度与理由
 
 2026-11-05 用户确认的概念合同。本节取代与之矛盾的设计读法，尤其是 §45 与 §48.3 里把 awareness 只当成模型读过就能遵守的文档、以及把 fact 与 conclusion 当成两种储存的读法。§1–47 的用户原话与既有验收字节不改；那些章节里的历史表述保留为来源。本节不宣称运行时已经实现这些原语。修订清单与被取代的旧观点见 [docs/decisions/0002-cognitive-atoms-2026-11-05.md](docs/decisions/0002-cognitive-atoms-2026-11-05.md)。
@@ -6318,3 +6333,122 @@ WASM 线性内存、执行栈和解释器对象图都在这个版本化根里。
 - §10.2.1 的 LayerFS 仍是合格 Linux VM 上的工作区集成。认知状态回滚不用它，只用自有版本化根。
 - 上游或操作系统自己的检查（例如打开 Store 前的文件系统类型、设备上的 su 策略）是外部事实。它们不是本节新加的认知 allowlist 或静态 hard deny。
 - 主体的判断不用关键词表、人工审批、权限门或静态 hard deny 来强制。真实的账户、设备和操作系统限制仍然是事实。§48.1 已写不把这些事实改写成人类审批。
+<<<<<<< HEAD
+# 52 通道协议优先级 / Channel Protocol Priority
+
+来源：用户指示 2026-11-06；与 §4、§45.10 DEP01/DEP02 的渠道绑定一致。
+
+首批支持协议（first-supported protocols）：
+
+1. **NapCat**（OneBot v11 + NapCat 扩展）— QQ 群聊与私聊的主连接。
+2. **SnowLuma** — 轻量 QQ 协议适配。
+3. **QQ Bot 官方 API** — 腾讯开放平台机器人接口。
+4. **Discord** — Discord Bot Gateway + REST。
+
+WebUI 也作为一条 IM 通道，走相同的 `PublicationTarget` 接口和消息流水线，不另造独立交互栈。所有渠道共享统一的 `ChannelPlugin` trait：
+
+```rust
+/// 所有通道协议实现此 trait。
+/// All channel protocols implement this trait.
+pub trait ChannelPlugin: Send + Sync + 'static {
+    /// 协议标识，例如 "napcat", "snowluma", "qqbot-official", "discord", "webui"。
+    fn protocol_id(&self) -> &str;
+
+    /// 连接生命周期：启动、重连、优雅关闭。
+    /// Connection lifecycle: start, reconnect, graceful shutdown.
+    fn start(&mut self, ctx: ChannelContext) -> Result<(), ChannelError>;
+    fn shutdown(&mut self) -> Result<(), ChannelError>;
+
+    /// 发送一条已格式化的出站消息。
+    /// Send a formatted outbound message.
+    fn send(&self, target: &PublicationTarget, message: &OutboundMessage) -> Result<SendReceipt, ChannelError>;
+
+    /// 注册入站消息回调。
+    /// Register an inbound message callback.
+    fn on_message(&mut self, handler: Box<dyn Fn(InboundMessage) + Send + 'static>);
+}
+```
+
+`ChannelPlugin` 是安装边界：每条协议实现一个插件，通过 §45.10 的依赖装配注册，运行时按 `protocol_id` 发现和绑定。协议之间不互相依赖。一条协议断开或卸载不影响其余协议正常工作（与 DEP02 一致）。
+
+WebUI 通道的 `PublicationTarget` 指向浏览器会话而非外部 IM 平台。它复用相同的消息格式化与 receipt 机制，但不依赖外部网络连接。
+
+首批协议的优先级不是路由权重或 fallback 顺序，而是开发与验收的优先顺序。产品运行时同时连接多条协议，由主体决定在哪条通道回复。排序反映实际用户环境与渠道覆盖面：NapCat 作为日常 QQ 主连接排第一；Discord 覆盖非 QQ 场景。后续协议（Telegram、Matrix、微信等）按相同 `ChannelPlugin` trait 接入，不改动已有协议代码。
+
+# 53 子代理命名 / Child Agent Naming
+
+来源：用户指示 2026-11-06；与 §1「框架／产品名与每个 Agent 的姓名分开，实例初始化时由用户命名或让 Agent 自己命名」一致。
+
+Shenko 的子代理（child agents, `ChildIdentity`）由主体自主命名，而非使用随机 UUID 或数字序号。命名规则：
+
+- **有意义**（meaningful）：名字反映任务性质、角色或个性特征，使人和主体在日志、对话和 journal 中能直觉识别。
+- **可记忆**（memorable）：名字简短、可发音，适合在对话和消息中引用。不使用 `child-3f8a-b2c1` 这类标识。
+- **反映任务或个性**（task- or personality-reflective）：执行编码任务的子代理、执行研究的子代理、执行通讯的子代理各有不同名字风格，主体可按自己的 awareness 和 taste 决定命名方案。
+
+```rust
+/// 子代理身份。名字由主体选择，不随机生成。
+/// Child agent identity. Name chosen by the subject, never randomly generated.
+pub struct ChildIdentity {
+    /// 人类可读名字，例如 "Kael"、"笔砚"、"Scout"。
+    pub name: String,
+    /// 可选的角色或任务描述。
+    pub role: Option<String>,
+    /// 内部唯一标识，仍由 CAS 或序列生成，不暴露给用户。
+    pub internal_id: ChildId,
+}
+```
+
+命名不是装饰。`ChildIdentity.name` 出现在 journal 条目、outbox 消息署名、日志输出和主体对话引用中。主体可以修改已有子代理的名字（作为该 identity 的一次 revision），旧名字保留在 journal 历史中。
+
+当用户在实例初始化时选择让 Shenko 命名自己的子代理时，主体按自身 awareness 和 personality 选名，不请求人类逐个批准。如果用户希望自行命名某个子代理，这是一条普通指令，主体执行即可。
+
+# 54 自主设计原则 / Autonomous Design Principles
+
+来源：用户指示 2026-11-06；与 §1 产品定义、§48 主体自主性、§51 认知元概念一致。
+
+## 54.1 从人类心智和认知学角度设计
+
+Shenko 的认知架构从人类心智和认知科学出发设计，不从模型限制或当前技术栈的瓶颈出发。§51 的认知原子——内容、态度与理由——是从人类认知结构提取的，不是为了绕过上下文窗口或 token 限制。遗忘（§51.7）参照 Ebbinghaus 和间隔重复研究；态度参照人类对知识的信心、熟悉度和价值评估。
+
+这不意味着忽视工程约束。模型的上下文窗口、推理速度和准确率是真实的运行环境事实（与 §51.10「上游或操作系统自己的检查是外部事实」同理）。设计从认知需求出发，实现在真实约束中落地。区别在于：约束驱动适配，而非约束驱动设计目标。
+
+## 54.2 不受模型限制约束的设计目标
+
+产品设计不把当前模型的具体限制当作永久边界。上下文窗口会增长、推理能力会提升、多模态会普及——设计应预留这些方向的扩展空间，而不是把「当前模型做不到」当作「不需要设计」的理由。
+
+具体而言：
+- 认知结构（awareness、perception、态度、理由链）的设计不以特定 token 预算为前提。
+- 通道和环境感知不以特定模型的工具调用格式为前提。
+- 子代理委派不以特定模型的并发能力为前提。
+
+当前实现可以在当前模型能力范围内做最优适配（例如用 taste 控制投影长度），但架构本身不因此收窄。
+
+## 54.3 可扩展与插件化
+
+已有的插件化架构——§45.10 的依赖装配、§51.8 的能力契约、§52 的 `ChannelPlugin`——是产品级承诺，不是开发阶段的权宜之计。核心原则：
+
+- **能力可安装、可替换、可学习**（§51.4）。awareness 和 perception 是原子插件，不是硬编码列表。
+- **主体可自修改**（§51.4 版本化根）。core runtime 整体可替换，不需要人工审批。
+- **协议可插拔**（§52 `ChannelPlugin`）。新通道不改动已有通道代码。
+- **宿主能力可插拔**（§46.1 原生执行插件）。编码、部署、远程操作都是可安装的 Skill，不是产品本体。
+
+扩展不等于泛化。每个扩展点有明确的 trait 或能力契约边界。不因「可能有人需要」而预留未使用的抽象。
+
+## 54.4 更好的 Awareness 与 Perception
+
+§51.1–§51.3 把 awareness 从文档降级为能力、把态度从 metadata 升级为一等记录。这是起点，不是终点。目标是让 Shenko 的 awareness 和 perception 持续演进：
+
+- **Awareness 自主习得**（§51.4）：主体可以从经验中学到新的 awareness 原子，不只是安装预写的单元。
+- **Perception 多源融合**：环境感知（§44）、时间感知（§43）、社交感知（§42）、通道状态（§52）、资源压力（§51.7 存储压力）都作为感知输入，主体自主综合判断。
+- **态度驱动行为**：态度不只是标签。态度影响主体的注意力分配、任务优先级、通道选择和遗忘决策。这些影响由主体的推理循环自然产生，不由硬编码规则强制。
+
+## 54.5 同行参考 / Peer Reference
+
+设计参考同行产品的公开方向，但不复制其具体实现或受其限制约束：
+
+- **DeepSeek SuperAgent**：自修改（self-modification）和可逆执行。Shenko 的版本化根（§51.4）和 COW 工作区已覆盖可逆性。不采用其中要人批准浏览器半边的做法（§51.4 已明确）。
+- **Muse**：持续个性和情感状态。Shenko 的持续身份（§5）、态度（§51.2）和 personality awareness 覆盖此方向。不采用情感模拟或角色扮演路线。
+- **Claude Duet**：协作与多代理编排。Shenko 的主体-子代理架构（§6、§53）和 ChildIdentity 覆盖此方向。保留单一主体的设计，不做对等多主体。
+- **OpenAI Dot**：个人助手与记忆持续。Shenko 的 Git 记忆（§7）、原始会话证据（§8.3）和跨设备同步（§5.4）覆盖此方向。不采用云端依赖或厂商锁定。
+
+参考方向是公开可得的设计理念，不引入这些产品的具体 API、数据格式或协议依赖。Shenko 的设计前提是本地拥有、主体自主（§51.5、§48），这与部分同行的云端优先方向不同。
