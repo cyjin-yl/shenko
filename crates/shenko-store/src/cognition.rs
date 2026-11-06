@@ -6086,6 +6086,140 @@ mod archive_admission_tests {
         assert!(receiver.import_cognition_archive(&archive[..], &Default::default()).is_err());
         assert!(receiver.list_memory(10).unwrap().is_empty());
     }
+
+    /// Cognitive atoms are REQUIRED archive facts (SPEC §51.1). They travel
+    /// with the content they name, a receiver restores the exact attitude
+    /// identity/commit/confidence, an archive that names an attitude without
+    /// its content version is refused whole, and a reader that declares a
+    /// lower schema refuses the archive at the version gate instead of
+    /// importing an incomplete closure.
+    #[test]
+    fn cognition_atoms_travel_and_are_required_archive_facts() {
+        use crate::atoms::{AttitudeDraft, ContentWrite};
+        use shenko_types::cognition::{
+            AdoptionTarget, AttitudeConfidence, ReasonPointer,
+        };
+
+        let root = std::env::temp_dir().join(format!("shenko-atoms-archive-{}", EntityId::new()));
+        fs::create_dir(&root).unwrap();
+        let source = Store::open(root.join("source.db"), root.join("source-cas")).unwrap();
+        let agent = EntityId::new();
+        let base = source
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("第一版内容"),
+                AttitudeDraft::assertion(vec![], AttitudeConfidence::unknown()),
+            )
+            .unwrap();
+        let revised = source
+            .record_content_attitude(
+                agent,
+                ContentWrite::text("第二版内容"),
+                AttitudeDraft::revision(
+                    base.content.digest().clone(),
+                    vec![ReasonPointer::content(base.content.digest().clone())],
+                    AttitudeConfidence::unknown(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let adopted = source
+            .record_attitude_for_digest(
+                agent,
+                revised.content.object.clone(),
+                AttitudeDraft::adoption(
+                    AdoptionTarget::unit("humanlike-mind"),
+                    vec![],
+                    AttitudeConfidence::unknown(),
+                ),
+            )
+            .unwrap();
+
+        let mut export = source.export_cognition(&Default::default()).unwrap();
+        assert!(export
+            .manifest
+            .fact_classes
+            .iter()
+            .any(|class| class == "cognition_contents"));
+        assert!(export
+            .manifest
+            .fact_classes
+            .iter()
+            .any(|class| class == "cognition_attitudes"));
+        assert!(export.manifest.rows.iter().any(|row| {
+            row.table == "cognition_attitudes"
+                && row.key == revised.attitude.attitude_id.to_string()
+        }));
+        assert!(export
+            .manifest
+            .objects
+            .iter()
+            .any(|object| object.digest == *revised.content.digest()));
+        let mut archive = Vec::new();
+        export.write_archive(&mut archive).unwrap();
+
+        let receiver = Store::open(root.join("receiver.db"), root.join("receiver-cas")).unwrap();
+        let imported = receiver
+            .import_cognition_archive(&archive[..], &Default::default())
+            .unwrap();
+        assert!(imported.ack(EntityId::new()).verified);
+        let restored = receiver
+            .attitude(revised.attitude.attitude_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(restored.created_commit, revised.attitude.created_commit);
+        assert_eq!(restored.confidence, Some(AttitudeConfidence::Unknown));
+        assert_eq!(
+            receiver.content_bytes(revised.content.digest()).unwrap(),
+            "第二版内容".as_bytes().to_vec()
+        );
+        assert_eq!(
+            receiver
+                .revision_chain(agent, revised.content.digest())
+                .unwrap()
+                .len(),
+            1
+        );
+        // The peer's adoption is preserved as that peer's record; it is not a
+        // local adoption and it never activates anything here.
+        assert!(receiver
+            .attitudes_for(agent, revised.content.digest())
+            .unwrap()
+            .iter()
+            .any(|attitude| attitude.attitude_id == adopted.attitude.attitude_id));
+        assert!(receiver
+            .adoption_for(agent, "humanlike-mind", revised.content.digest())
+            .unwrap()
+            .is_none());
+
+        // An attitude without the content version it names is incomplete.
+        let mut broken = source.export_cognition(&Default::default()).unwrap();
+        broken
+            .manifest
+            .rows
+            .retain(|row| row.table != "cognition_contents");
+        broken.manifest.fingerprint = fingerprint_of_manifest(&broken.manifest);
+        let mut broken_archive = Vec::new();
+        broken.write_archive(&mut broken_archive).unwrap();
+        let second = Store::open(root.join("second.db"), root.join("second-cas")).unwrap();
+        assert!(second
+            .import_cognition_archive(&broken_archive[..], &Default::default())
+            .is_err());
+        assert!(second
+            .attitude(revised.attitude.attitude_id)
+            .unwrap()
+            .is_none());
+
+        // A reader that declares a lower schema refuses this closure whole.
+        let mut future = source.export_cognition(&Default::default()).unwrap();
+        future.manifest.schema = crate::cognition_archive::ARCHIVE_SCHEMA + 1;
+        future.manifest.fingerprint = fingerprint_of_manifest(&future.manifest);
+        let mut future_archive = Vec::new();
+        future.write_archive(&mut future_archive).unwrap();
+        assert!(second
+            .import_cognition_archive(&future_archive[..], &Default::default())
+            .is_err());
+    }
 }
 
 fn apply_media_streams<'a>(

@@ -36,9 +36,6 @@ pub const COGNITION_LEGACY_NAMESPACE: &str = "cognition-legacy";
 pub const COGNITION_CONTENT_CODEC: &str = "shenko.cognition.content";
 pub const COGNITION_CONTENT_CODEC_MAJOR: u32 = 1;
 
-/// 按机制角色筛选态度：`None` 表示不限角色。
-pub type AttitudeKind = ::core::option::Option<&'static str>;
-
 /// 认知原子表。只建自己的表，不改任何已有行（SPEC §51.1 加法迁移）。
 pub const COGNITION_ATOMS_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS cognition_contents (
@@ -455,8 +452,27 @@ impl Store {
                 let content = Self::read_content(&tx, &object.digest)?.ok_or_else(|| {
                     ShenkoError::storage("legacy content registration disappeared")
                 })?;
-                self.ledger
-                    .record_commit(&tx, seq, 1 + inserted + mapped)?;
+                if inserted + mapped == 0 {
+                    // 已经回填过并且核对一致：这是空操作，不新开账本行。
+                    // 交回当初那条映射记录的提交引用，不冒充一条新提交。
+                    let recorded: i64 = tx
+                        .query_row(
+                            "SELECT registered_commit_seq FROM cognition_legacy_content
+                              WHERE source_table=?1 AND source_key=?2",
+                            params![source_table, source_key],
+                            |row| row.get(0),
+                        )
+                        .map_err(db_error)?;
+                    tx.commit().map_err(db_error)?;
+                    return Ok((
+                        content,
+                        CommitRef::new(
+                            self.ledger.ledger_id(),
+                            shenko_types::ids::LedgerSeq(recorded as u64),
+                        ),
+                    ));
+                }
+                self.ledger.record_commit(&tx, seq, inserted + mapped)?;
                 tx.commit().map_err(db_error)?;
                 Ok((content, commit))
             },
@@ -550,7 +566,7 @@ impl Store {
         &self,
         agent_id: EntityId,
         digest: &Digest,
-        role_kind: AttitudeKind,
+        role_kind: Option<&str>,
     ) -> Result<Option<ContentAttitude>, ShenkoError> {
         let conn = self.ledger.conn.lock();
         let sql = format!(
