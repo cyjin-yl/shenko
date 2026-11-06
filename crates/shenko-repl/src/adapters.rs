@@ -185,3 +185,47 @@ fn guest_module_argv0(module: &Path) -> String {
         .map(str::to_owned)
         .unwrap_or_else(|| "kernel.wasm".into())
 }
+
+/// Build the real profile for one of the named §19.1 targets that this build
+/// can actually bind. The target name selects the adapter — never a runtime
+/// substitution: an unavailable target (node-wasm, bun-wasm, pyodide) refuses
+/// instead of borrowing QuickJS or a native host, and `--stdlib` is refused
+/// for kernels that have no stdlib mount.
+///
+/// This is the single mapping shared by the native task surface and the
+/// persistent kernel entries, so both bind exactly the same profile for a
+/// given target name.
+pub fn profile_for_target(
+    target: &str,
+    kernel_id: impl Into<String>,
+    module: PathBuf,
+    stdlib: Option<PathBuf>,
+) -> anyhow::Result<KernelProfile> {
+    let kernel_id = kernel_id.into();
+    let profile = match target {
+        "python-wasi" => python_wasi(kernel_id, module, stdlib),
+        "quickjs-wasm" => {
+            anyhow::ensure!(
+                stdlib.is_none(),
+                "REPL_KERNEL_INVALID: {target} has no stdlib mount"
+            );
+            quickjs_wasi(kernel_id, module)
+        }
+        "python-native-host" | "node-native-host" | "bun-native-host" => {
+            anyhow::ensure!(
+                stdlib.is_none(),
+                "REPL_KERNEL_INVALID: {target} has no stdlib mount"
+            );
+            match target {
+                "python-native-host" => python_native(kernel_id, module),
+                "node-native-host" => node_native(kernel_id, module),
+                _ => bun_native(kernel_id, module),
+            }
+        }
+        other => anyhow::bail!(
+            "REPL_KERNEL_UNAVAILABLE: named target {other:?} is not bound in this installation"
+        ),
+    };
+    crate::kernel::validate_profile(&profile)?;
+    Ok(profile)
+}
