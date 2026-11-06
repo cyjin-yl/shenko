@@ -1,10 +1,22 @@
-//! Capability/authority facts and the §24.5.1 database-fact separation model.
+//! Capability/authority facts and the §24.5.1 database snapshot-dimension
+//! model.
 //!
 //! These types are the durable vocabulary every mobile observation uses.
 //! They deliberately keep dimensions apart that a careless adapter would
 //! merge: OS facts vs app facts vs database facts vs process facts vs key
 //! facts vs format facts; bridge reachability vs actual OS grant; a raw
 //! recovered copy vs a point-in-time consistent snapshot.
+//!
+//! §51.9 reading: [`SnapshotDimension`] and [`DbSnapshot`] record whether the
+//! *dimensions of one snapshot* were reached — they are not cognitive facts.
+//! They carry no content revision, no attitude, no reason pointer and no
+//! confidence, and nothing here may be presented as understanding the
+//! database. Only a later subject that asserts or learns something through the
+//! canonical content/attitude API turns an observation into a reason root.
+//!
+//! `CapabilityState`/`KeyMaterialState` are mechanism facts too: what an
+//! adapter or a piece of key material actually is right now. `Unknown` stays
+//! `Unknown` — no default value is filled in for it.
 
 use serde::{Deserialize, Serialize};
 
@@ -95,17 +107,25 @@ pub enum KeyMaterialState {
     Unknown,
 }
 
-/// One fact dimension of an app-database observation.
+/// Whether one dimension of a database snapshot was reached, and what proved
+/// it (§51.9: `SnapshotDimension`, *not* a cognitive fact).
+///
+/// A reached dimension is evidence about our own copy, never about the whole
+/// database: it says nothing about plaintext, schema or meaning on its own.
+/// Nothing here is content, an attitude or a reason pointer, and no confidence
+/// is attached — a dimension either was established with evidence or it was
+/// not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Fact {
+pub struct SnapshotDimension {
     pub reached: bool,
-    /// What proved the fact (e.g. "sqlite_header", "readonly_open_sqlite_master").
+    /// What proved the dimension (e.g. "sqlite_header",
+    /// "readonly_open_sqlite_master").
     pub evidence: Option<String>,
     /// Honest qualification (e.g. "concurrent writes may be missing").
     pub note: Option<String>,
 }
 
-impl Fact {
+impl SnapshotDimension {
     pub fn reached(evidence: impl Into<String>) -> Self {
         Self {
             reached: true,
@@ -123,7 +143,8 @@ impl Fact {
     }
 }
 
-/// §24.5.1 fact separation for one app-database snapshot.
+/// §24.5.1 dimension separation for one app-database snapshot (§51.9:
+/// `DbSnapshot`, a snapshot result — not a cognitive fact).
 ///
 /// No total order is implied: `plaintext_verified` and
 /// `structure_interpretable` are independent dimensions, `snapshot_*` speaks
@@ -131,42 +152,42 @@ impl Fact {
 /// plugin — understanding content is a subject judgment over actually
 /// recovered plaintext, not a property of a snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DbFacts {
+pub struct DbSnapshot {
     /// The database path for the package was located.
-    pub file_located: Fact,
+    pub file_located: SnapshotDimension,
     /// The bytes were readable through some granted authority.
-    pub file_readable: Fact,
+    pub file_readable: SnapshotDimension,
     /// The complete byte set (main file plus WAL/SHM/journal companions) was
     /// copied and the copy recovered when opened. This is NOT a point-in-time
     /// consistent snapshot; concurrent writes may be missing or torn.
-    pub snapshot_recovered_copy: Fact,
+    pub snapshot_recovered_copy: SnapshotDimension,
     /// A point-in-time consistent snapshot: SQLite Online Backup API over a
     /// directly readable source, or a verified quiesced/filesystem snapshot.
-    pub snapshot_consistent: Fact,
+    pub snapshot_consistent: SnapshotDimension,
     /// Content verified plaintext for the claimed format/version (e.g. the
     /// `SQLite format 3\0` header). Absent means encrypted or a foreign
     /// format — which one stays unknown without key material.
-    pub plaintext_verified: Fact,
+    pub plaintext_verified: SnapshotDimension,
     /// The schema was parsed on the snapshot (e.g. `sqlite_master` readable).
-    pub structure_interpretable: Fact,
+    pub structure_interpretable: SnapshotDimension,
     /// Never reached by this plugin; kept explicit so no caller can read a
     /// default `true`.
-    pub semantic_complete: Fact,
+    pub semantic_complete: SnapshotDimension,
     /// Key material state, an independent dimension.
     pub key_material: KeyMaterialState,
 }
 
-impl DbFacts {
+impl DbSnapshot {
     /// Initial state for a snapshot attempt that located nothing yet.
     pub fn none() -> Self {
         Self {
-            file_located: Fact::missed("database path not located"),
-            file_readable: Fact::missed("not attempted"),
-            snapshot_recovered_copy: Fact::missed("not attempted"),
-            snapshot_consistent: Fact::missed("not attempted"),
-            plaintext_verified: Fact::missed("not attempted"),
-            structure_interpretable: Fact::missed("not attempted"),
-            semantic_complete: Fact::missed(
+            file_located: SnapshotDimension::missed("database path not located"),
+            file_readable: SnapshotDimension::missed("not attempted"),
+            snapshot_recovered_copy: SnapshotDimension::missed("not attempted"),
+            snapshot_consistent: SnapshotDimension::missed("not attempted"),
+            plaintext_verified: SnapshotDimension::missed("not attempted"),
+            structure_interpretable: SnapshotDimension::missed("not attempted"),
+            semantic_complete: SnapshotDimension::missed(
                 "semantic completeness is never claimed by the snapshot plugin",
             ),
             key_material: KeyMaterialState::NoneAvailable {
