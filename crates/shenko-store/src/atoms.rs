@@ -36,11 +36,8 @@ pub const COGNITION_LEGACY_NAMESPACE: &str = "cognition-legacy";
 pub const COGNITION_CONTENT_CODEC: &str = "shenko.cognition.content";
 pub const COGNITION_CONTENT_CODEC_MAJOR: u32 = 1;
 
-=======
 /// 按机制角色筛选态度：`None` 表示不限角色。
 pub type AttitudeKind = ::core::option::Option<&'static str>;
-
->>>>>>> fd032e59
 /// 认知原子表。只建自己的表，不改任何已有行（SPEC §51.1 加法迁移）。
 pub const COGNITION_ATOMS_SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS cognition_contents (
@@ -313,10 +310,10 @@ impl Store {
         self.ledger.with_mutation(
             || {
                 let mut conn = self.ledger.conn.lock();
-<<<<<<< HEAD
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(db_error)?;                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;                let seq = self.ledger.allocate_seq(&tx)?;
+                    .map_err(db_error)?;
+                let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let (content, attitude, inserted) =
                     self.insert_attitude(&tx, commit, agent_id, &object, &draft)?;
@@ -369,7 +366,8 @@ impl Store {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(db_error)?;                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;                let seq = self.ledger.allocate_seq(&tx)?;
+                    .map_err(db_error)?;
+                let seq = self.ledger.allocate_seq(&tx)?;
                 let inserted = Self::insert_content_row(&tx, object, now_ms())?;
                 let content = Self::read_content(&tx, &object.digest)?.ok_or_else(|| {
                     ShenkoError::storage("cognition content registration disappeared")
@@ -418,7 +416,8 @@ impl Store {
                 let mut conn = self.ledger.conn.lock();
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
-                    .map_err(db_error)?;                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;                let seq = self.ledger.allocate_seq(&tx)?;
+                    .map_err(db_error)?;
+                let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 let previous: Option<String> = tx
                     .query_row(
@@ -589,7 +588,7 @@ impl Store {
     ///
     /// 只看**本机账本**写下的采纳（`created_commit.ledger_id` 是本机的）。从别的节点
     /// 导入的采纳保留为那个节点的记录：复制成功不等于本机已采纳，更不等于本机已启用
-    /// 该单元或执行过它的试验（SPEC §51.8）。>>>>>>> fd032e59
+    /// 该单元或执行过它的试验（SPEC §51.8）。
     pub fn adoption_for(
         &self,
         agent_id: EntityId,
@@ -665,12 +664,10 @@ impl Store {
         );
         let mut chain = Vec::new();
         let mut current = digest.clone();
-<<<<<<< HEAD
         // A corrupt chain that names a cycle must not hang a reader; the walk
         // stops at a bounded depth and reports only what it actually walked.
         for _ in 0..4096 {
-=======
-        loop {            let raw: Option<RawAttitude> = conn
+            let raw: Option<RawAttitude> = conn
                 .query_row(&sql, params![agent_id.to_string(), current.0], raw_attitude)
                 .optional()
                 .map_err(|error| ShenkoError::storage(error.to_string()))?;
@@ -1199,14 +1196,11 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-<<<<<<< HEAD
 /// SQLite 失败在这里仍是存储失败，不升级成协议事实。
 fn db_error(error: rusqlite::Error) -> ShenkoError {
     ShenkoError::storage(error.to_string())
 }
 
-=======
->>>>>>> fd032e59
 #[cfg(test)]
 mod tests {
     use super::*;
