@@ -17,10 +17,16 @@ import {
 } from '@proto.ui/prototypes-shadcn/collapsible';
 import {
   intentFor,
+  partState,
+  type ActionReceiptView,
+  type BuildManifest,
   type ConnectionState,
   type DegradedDocument,
+  type DocumentErrorView,
   type Dispatch,
   type PlaygroundView,
+  type ReadingAnchor,
+  type ReadingSelection,
   type Submission,
   type TimelinePart,
   type UiNode,
@@ -28,9 +34,19 @@ import {
   type ViewName,
 } from './projection';
 import { ConfigEntries } from './config-panel';
+import { resolveAnchor, selectionApplies } from './reading-state';
+import {
+  readContentRevisionDisclosure,
+  readRevisionDisclosure,
+  type ContentRevisionDisclosure,
+  type RevisionDisclosure,
+} from './revision-disclosure';
+import { CompiledTransportBadge } from '../generated/prototypes/transport-badge/Component';
 
 // These are the actual upstream prototypes and official runtime adapter, not
-// local lookalikes. The compiler package is deliberately absent from this graph.
+// local lookalikes. The Proto-UI compiler is not part of this graph: it runs at
+// build time (web/compiler.mjs) and this bundle only imports the React DOM
+// source it emitted for Shenko's own Prototypes.
 const adapt = createReactAdapter({ ...React, createPortal });
 const ProtoButton = adapt(shadcnButton);
 const ProtoTextarea = adapt(shadcnTextareaRoot);
@@ -85,20 +101,6 @@ function ProjectionView({ projection, dispatch }: { projection: UiProjection; di
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
   }, [navigation.props.theme]);
-
-  React.useEffect(() => {
-    const onSelection = () => {
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
-      const anchor = selection.getRangeAt(0).commonAncestorContainer;
-      const element = anchor instanceof Element ? anchor : anchor.parentElement;
-      if (element?.closest('.timeline-entries')) {
-        emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
-      }
-    };
-    document.addEventListener('selectionchange', onSelection);
-    return () => document.removeEventListener('selectionchange', onSelection);
-  }, [emit]);
 
   const identityName = projection.identity?.display_name || '未命名主体';
   const mark = projection.identity?.display_name
@@ -217,15 +219,31 @@ function NavigationItems({ node, emit, mobile = false }: { node: UiNode; emit: E
   });
 }
 
+// The chip is Shenko's own Prototype, compiled at build time into React DOM
+// source by the pinned Proto-UI compiler. This caller keeps the transport facts
+// and decides only the label and tone; the Prototype renders markup and tokens.
 function TransportBadge({ connection, demo }: { connection: ConnectionState; demo: boolean }) {
-  if (demo) return <span className="transport-badge is-local"><span className="transport-dot" />本地模拟</span>;
+  if (demo) return <CompiledTransportBadge label="本地模拟" tone="local" />;
   const labels: Record<ConnectionState, string> = {
     connecting: '连接中',
     online: '传输已连接',
     reconnecting: '正在重连',
     offline: '传输离线',
   };
-  return <span className={`transport-badge is-${connection}`}><span className="transport-dot" />{labels[connection]}</span>;
+  return <CompiledTransportBadge label={labels[connection]} tone={connection} />;
+}
+
+/** Compiler facts exactly as the build recorded them; nothing is inferred. */
+function compilerLabel(compiler: BuildManifest['compiler'] | undefined): string {
+  if (!compiler) return 'Compiler：构建 manifest 未记录。';
+  const runtime = compiler.runtime_imported === true ? '浏览器运行期导入编译器' : '浏览器未导入编译器';
+  if (compiler.status !== 'build_time_compiled') {
+    return `Compiler：${compiler.status}；${runtime}。`;
+  }
+  const names = (compiler.prototypes ?? []).map((prototype) => prototype.name);
+  const profile = compiler.profile ?? 'profile 未记录';
+  if (names.length === 0) return `Compiler：构建期编译，未记录已编译 prototype（${profile}）；${runtime}。`;
+  return `Compiler：构建期编译 ${names.length} 个 Shenko prototype（${names.join('、')}，${profile}）；${runtime}。`;
 }
 
 function connectionAnnouncement(connection: ConnectionState): string {
@@ -242,6 +260,8 @@ interface AnchorSnapshot {
   key?: string;
   offset?: number;
   scrollTop: number;
+  index?: number;
+  previousKey?: string;
 }
 
 interface TimelineSurfaceProps {
@@ -255,19 +275,28 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
   private scrollElement: HTMLElement | null = null;
   private lastAnchor: AnchorSnapshot | null = null;
   private resizeFrame = 0;
+  private anchorFrame = 0;
+  private selectionTimer: number | undefined;
+  private restoredSelection: ReadingSelection | undefined;
 
   componentDidMount() {
     this.scrollElement = this.findScrollElement();
     if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
+    else this.restoreSavedAnchor(this.props.node.props.anchor as ReadingAnchor | undefined);
     this.rememberAnchor();
+    this.restoreSavedSelection();
     window.addEventListener('resize', this.onResize);
     window.visualViewport?.addEventListener('resize', this.onResize);
+    document.addEventListener('selectionchange', this.onSelectionChange);
   }
 
   componentWillUnmount() {
     window.removeEventListener('resize', this.onResize);
     window.visualViewport?.removeEventListener('resize', this.onResize);
+    document.removeEventListener('selectionchange', this.onSelectionChange);
     if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);
+    if (this.anchorFrame) cancelAnimationFrame(this.anchorFrame);
+    clearTimeout(this.selectionTimer);
   }
 
   getSnapshotBeforeUpdate(): AnchorSnapshot | null {
@@ -279,6 +308,7 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
     if (this.props.node.props.reading === 'following_latest') this.scrollToEnd();
     else if (snapshot) this.restoreAnchor(snapshot);
     this.rememberAnchor();
+    this.restoreSavedSelection();
   }
 
   private onResize = () => {
@@ -307,12 +337,15 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
     this.scrollElement = scroller;
     const container = scroller.getBoundingClientRect();
     const entries = Array.from(scroller.querySelectorAll<HTMLElement>('[data-entry-key]'));
-    const anchor = entries.find((entry) => entry.getBoundingClientRect().bottom > container.top + 8);
-    if (!anchor) return { scrollTop: scroller.scrollTop };
+    const index = entries.findIndex((entry) => entry.getBoundingClientRect().bottom > container.top + 8);
+    if (index < 0) return { scrollTop: scroller.scrollTop };
+    const anchor = entries[index];
     return {
       key: anchor.dataset.entryKey,
       offset: anchor.getBoundingClientRect().top - container.top,
       scrollTop: scroller.scrollTop,
+      index,
+      previousKey: index > 0 ? entries[index - 1].dataset.entryKey : undefined,
     };
   }
 
@@ -331,8 +364,124 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
     scroller.scrollTop = snapshot.scrollTop;
   }
 
+  /// Restore the saved place against the entries rendered now. An entry that
+  /// no longer exists falls back to its saved predecessor; only then does the
+  /// absolute offset stand in, so history above the place never silently
+  /// scrolls the reader.
+  private restoreSavedAnchor(anchor: ReadingAnchor | undefined) {
+    if (!anchor) return;
+    const scroller = this.scrollElement ?? this.findScrollElement();
+    if (!scroller) return;
+    this.scrollElement = scroller;
+    const entries = Array.from(scroller.querySelectorAll<HTMLElement>('[data-entry-key]'))
+      .map((entry) => ({ element: entry, entry_key: entry.dataset.entryKey ?? '' }))
+      .filter((entry) => entry.entry_key);
+    const resolved = resolveAnchor(anchor, entries);
+    if (resolved) {
+      const target = entries[resolved.index].element;
+      const nextOffset = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      scroller.scrollTop += nextOffset - anchor.offset;
+      return;
+    }
+    scroller.scrollTop = anchor.scroll_top;
+  }
+
+  private emitAnchor() {
+    if (this.anchorFrame) return;
+    this.anchorFrame = requestAnimationFrame(() => {
+      this.anchorFrame = 0;
+      const snapshot = this.captureAnchor();
+      const anchor: ReadingAnchor | undefined = snapshot?.key
+        ? {
+          entry_key: snapshot.key,
+          entry_index: snapshot.index ?? 0,
+          ...(snapshot.previousKey ? { prev_entry_key: snapshot.previousKey } : {}),
+          offset: snapshot.offset ?? 0,
+          scroll_top: snapshot.scrollTop,
+        }
+        : undefined;
+      this.props.emit('timeline', 'timeline.reading', {
+        state: 'reading_history',
+        at_end: false,
+        ...(anchor ? { anchor } : {}),
+      });
+    });
+  }
+
   private rememberAnchor() {
     this.lastAnchor = this.captureAnchor();
+  }
+
+  private entryElements(): HTMLElement[] {
+    const scroller = this.scrollElement ?? this.findScrollElement();
+    if (!scroller) return [];
+    return Array.from(scroller.querySelectorAll<HTMLElement>('[data-entry-key]'));
+  }
+
+  /// A selection is recorded only inside one entry and only from text-node
+  /// endpoints; an element-level boundary has no content offset the view can
+  /// replay honestly, so nothing is stored for it.
+  private onSelectionChange = () => {
+    clearTimeout(this.selectionTimer);
+    this.selectionTimer = window.setTimeout(() => {
+      this.selectionTimer = undefined;
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        this.props.emit('timeline', 'timeline.selection', { clear: true });
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (range.startContainer.nodeType !== Node.TEXT_NODE
+        || range.endContainer.nodeType !== Node.TEXT_NODE) return;
+      const entries = this.entryElements();
+      const startEntry = entries.find((entry) => entry.contains(range.startContainer));
+      const endEntry = entries.find((entry) => entry.contains(range.endContainer));
+      if (!startEntry || startEntry !== endEntry) return;
+      // Selecting committed text is interaction, not "follow the tail": new
+      // content must not scroll the reader away from the span they are
+      // holding (§21.11).
+      this.props.emit('timeline', 'timeline.reading', { state: 'selecting_or_interacting' });
+      const entryKey = startEntry.dataset.entryKey;
+      if (!entryKey) return;
+      const root = textRoot(startEntry);
+      const nodes = textNodes(root);
+      const start = textOffset(nodes, range.startContainer, range.startOffset);
+      const end = textOffset(nodes, range.endContainer, range.endOffset);
+      if (start === null || end === null || end <= start) return;
+      this.props.emit('timeline', 'timeline.selection', {
+        entry_key: entryKey,
+        text: root.textContent ?? '',
+        start,
+        end,
+      });
+    }, 160);
+  };
+
+  /// Replay a stored selection only while the same characters still start the
+  /// entry, and never over a live selection the reader is making right now.
+  private restoreSavedSelection() {
+    // Follow mode means the tail is the place: restoring a highlight there
+    // would drag the viewport away from the newest committed text.
+    if (this.props.node.props.reading === 'following_latest') return;
+    const saved = this.props.node.props.selection as ReadingSelection | undefined;
+    if (!saved || saved === this.restoredSelection) return;
+    const selection = window.getSelection();
+    if (!selection || !selection.isCollapsed) return;
+    const entry = this.entryElements().find((row) => row.dataset.entryKey === saved.entry_key);
+    if (!entry) return;
+    const root = textRoot(entry);
+    const text = root.textContent ?? '';
+    if (!selectionApplies(saved, text)) return;
+    const nodes = textNodes(root);
+    const start = pointAt(nodes, saved.start);
+    const end = pointAt(nodes, saved.end);
+    if (!start || !end) return;
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    this.restoredSelection = saved;
   }
 
   private scrollToEnd() {
@@ -348,10 +497,16 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
     if (target !== this.scrollElement) return;
     this.rememberAnchor();
     const atEnd = target.scrollHeight - target.scrollTop - target.clientHeight <= 24;
-    this.props.emit('timeline', 'timeline.reading', {
-      state: atEnd ? 'following_latest' : 'reading_history',
-      at_end: atEnd,
-    });
+    if (atEnd) {
+      this.props.emit('timeline', 'timeline.reading', {
+        state: 'following_latest',
+        at_end: true,
+      });
+      return;
+    }
+    // Reading upward records a real place: the entry at the viewport top plus
+    // its offset, so backfilled history above it does not move the reader.
+    this.emitAnchor();
   };
 
   render() {
@@ -363,9 +518,10 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
           className="timeline-scroll-capture"
           ref={this.capture}
           data-reading={node.props.reading}
+          data-wrap={node.props.wrap === true ? 'on' : 'off'}
           onScrollCapture={this.onScroll}
           onWheel={(event) => {
-            if (event.deltaY < 0) emit('timeline', 'timeline.reading', { state: 'reading_history' });
+            if (event.deltaY < 0) this.emitAnchor();
           }}
           onPointerDown={(event) => {
             if ((event.target as Element).closest('pre,button,details,input,textarea')) {
@@ -385,6 +541,16 @@ class TimelineSurface extends React.Component<TimelineSurfaceProps> {
               <ScrollThumb className="timeline-thumb" />
             </ScrollScrollbar>
           </ScrollRoot>
+          <div className="timeline-tools">
+            <ProtoButton
+              styleProfile="rhea"
+              variant="ghost"
+              size="sm"
+              onClick={() => emit('timeline', 'timeline.code_wrap')}
+            >
+              {node.props.wrap === true ? '取消软换行' : '软换行长代码'}
+            </ProtoButton>
+          </div>
           {node.props.reading !== 'following_latest' && (
             <div className="jump-latest">
               <ProtoButton
@@ -417,6 +583,11 @@ function EmptyTimeline({ connection, demo }: { connection: ConnectionState; demo
 function TimelineEntries({ entries, emit }: { entries: UiNode[]; emit: Emit }) {
   let lastDay = '';
   return <div className="timeline-entries">{entries.map((entry) => {
+    // A document (or its failure) rides the day of the committed step that
+    // carried it; it never opens a "时间未知" group of its own.
+    if (entry.kind === 'semantic_document' || entry.kind === 'document_error') {
+      return <EntryView node={entry} emit={emit} key={entry.node_id} />;
+    }
     const value = entry.kind === 'subject_part'
       ? entry.props.part.observed_at
       : entry.kind === 'user_submission'
@@ -434,18 +605,66 @@ function EntryView({ node, emit }: { node: UiNode; emit: Emit }) {
     ? <SubjectPart node={node} emit={emit} />
     : node.kind === 'semantic_document'
       ? <SemanticDocumentView node={node} emit={emit} />
+      : node.kind === 'document_error'
+        ? <DocumentErrorEntry node={node} />
       : <UserSubmission node={node} emit={emit} />;
+}
+
+// The rich layer is gone; the committed text beside it stays the record and
+// the reason is readable instead of only flashing as a notice (§3).
+function DocumentErrorEntry({ node }: { node: UiNode }) {
+  const error = node.props.error as DocumentErrorView;
+  return (
+    <article
+      className="timeline-entry document-error-entry"
+      data-entry-key={node.node_id}
+      data-source-step={error.source_step_id}
+      role="note"
+    >
+      <div className="entry-gutter"><span className="step-label">界面降级</span></div>
+      <div className="entry-content">
+        <p className="document-error-reason">这段已提交正文里的界面块未能呈现，富层已丢弃；正文仍按原文显示。</p>
+        <p className="document-error-detail">{error.reason}</p>
+        {error.source_commit && (
+          <span className="document-error-commit">commit {error.source_commit}</span>
+        )}
+      </div>
+    </article>
+  );
 }
 
 // A degraded semantic document: the mode decides how much structure renders,
 // but the numbered options are always the same action identities (§21.8).
 // Execution authority comes from the subject's disposition of the admitted
 // input; this view only submits that input.
+const ACTION_STAGE_LABELS: Record<ActionReceiptView['stage'], string> = {
+  sending: '动作提交中',
+  accepted: '已持久接纳 · 处置待主体',
+  selected: '已选入封口输入计划',
+  committed: '主体已提交处置',
+  rejected: '未接纳',
+  unavailable: '回执暂不可用',
+  conflict: '动作键冲突',
+};
+
 function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
   const document = node.props.document as DegradedDocument;
+  const receipts = (node.props.receipts ?? []) as ActionReceiptView[];
+  const latest = (actionId: string): ActionReceiptView | undefined => receipts
+    .filter((row) => row.action_id === actionId)
+    .at(-1);
+  // An admitted decision awaiting disposition must not be admitted twice by a
+  // second click; the option stays visible with its durable stage shown.
+  const admitted = (row: ActionReceiptView | undefined): boolean =>
+    row !== undefined && ['sending', 'accepted', 'selected'].includes(row.stage);
   return (
     <article className="timeline-entry document-entry" data-entry-key={node.node_id} data-document-id={document.document_id}>
-      <div className="entry-gutter"><span className="step-label">界面</span></div>
+      <div className="entry-gutter">
+        <span className="step-label">界面</span>
+        <span className="document-mode" data-mode={document.mode}>
+          {document.mode === 'rich' ? '完整' : document.mode === 'card' ? '卡片' : '文本'}
+        </span>
+      </div>
       <div className="entry-content">
         <div className={`semantic-document is-${document.mode}`}>
           <p className="document-summary">{document.summary}</p>
@@ -454,16 +673,27 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
           )}
           {document.options.length > 0 && (
             <ol className="document-options">
-              {document.options.map((option, index) => (
-                <li key={`${option.action_id}:${option.nonce}`}>
-                  <ProtoButton
-                    styleProfile="rhea"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => emit(node.node_id, node.action_refs[index])}
-                  >{index + 1}. {option.label}</ProtoButton>
-                </li>
-              ))}
+              {document.options.map((option, index) => {
+                const receipt = latest(option.action_id);
+                const pending = admitted(receipt);
+                return (
+                  <li key={`${option.action_id}:${option.nonce}`} data-action-id={option.action_id}>
+                    <ProtoButton
+                      styleProfile="rhea"
+                      variant="outline"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => emit(node.node_id, node.action_refs[index])}
+                    >{index + 1}. {option.label}</ProtoButton>
+                    {receipt && (
+                      <span className={`action-receipt is-${receipt.stage}`} data-stage={receipt.stage}>
+                        {ACTION_STAGE_LABELS[receipt.stage]}
+                        {receipt.detail ? ` · ${receipt.detail}` : ''}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           )}
         </div>
@@ -474,6 +704,19 @@ function SemanticDocumentView({ node, emit }: { node: UiNode; emit: Emit }) {
 
 function SubjectPart({ node, emit }: { node: UiNode; emit: Emit }) {
   const part = node.props.part as TimelinePart;
+  const state = partState(part);
+  // Only committed text carries a step number. A durable streamed prefix is
+  // real ledger content, but labelling it "第 N 轮" would claim an S1 step the
+  // part does not have yet (§21.11).
+  const gutterLabel = state.committed
+    ? `第 ${part.step} 轮`
+    : part.terminal
+      ? '流式 · 已完成'
+      : '流式接收中';
+  const footerLabel = state.committed ? '已提交' : '未提交 · 持久流式';
+  const announcement = state.committed
+    ? `第 ${part.step} 轮已提交内容`
+    : '主体正在输出、尚未提交的持久流式内容';
   return (
     <article
       className="timeline-entry subject-entry"
@@ -483,16 +726,19 @@ function SubjectPart({ node, emit }: { node: UiNode; emit: Emit }) {
       data-part-revision={part.part_revision}
       data-next-chunk-seq={part.next_chunk_seq}
       data-commit-ref={part.commit_ref}
-      aria-label={`第 ${part.step} 轮已提交内容`}
+      data-committed={state.committed ? 'true' : 'false'}
+      data-streaming={state.streaming ? 'true' : 'false'}
+      aria-label={announcement}
+      aria-busy={state.streaming && !part.terminal ? true : undefined}
     >
       <div className="entry-gutter">
-        <span className="step-label">第 {part.step} 轮</span>
+        <span className="step-label">{gutterLabel}</span>
         <time dateTime={part.observed_at} title="UI 接收时间，不是持久 commit 墙钟时间">{formatTime(part.observed_at)}</time>
       </div>
       <div className="entry-content">
         <PartErrorBoundary text={part.content}><Markdown text={part.content} /></PartErrorBoundary>
         <footer className="entry-footer">
-          <span className="commit-label"><Icon name="commit" />已提交</span>
+          <span className="commit-label"><Icon name="commit" />{footerLabel}</span>
           {part.gap && <span className="gap-label">序号空洞 · 等待补读</span>}
           <details className="identity-details">
             <summary>part identity</summary>
@@ -773,10 +1019,48 @@ function MemorySurface({ node }: { node?: UiNode }) {
     <SurfaceHeader eyebrow="按需视图" title="记忆" detail="只呈现接口实际返回的条目，不从未持久 profile 生成回忆。" />
     {node.props.error ? <SurfaceNote text="记忆接口不可用" tone="error" /> : items.length === 0 ? <SurfaceNote text={node.props.data?.note || '暂无记忆条目'} /> : (
       <div className="data-list">{items.map((memory: Record<string, unknown>, index: number) => <div className="data-row memory-row" key={String(memory.id ?? index)}>
-        <span>{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? memory.kind ?? '—')}</span><time>{formatStamp(memory.created_at)}</time>
+        {/* `kind` is a learnable hint, never the entry's content. */}
+        <span>{String(memory.content ?? memory.text ?? memory.summary ?? memory.title ?? '—')}{memory.kind ? <small className="memory-kind">{String(memory.kind)}</small> : null}</span><time>{formatStamp(memory.created_at)}</time>
+        <RevisionDisclosureView disclosure={readRevisionDisclosure(memory.disclosure)} />
+        <ContentRevisionDisclosureView revision={readContentRevisionDisclosure(memory.revision_disclosure)} />
       </div>)}</div>
     )}
   </section>;
+}
+
+/**
+ * Renders the server's taste disclosure verbatim: retained-version count and
+ * latest modification by default, full text only when the request asked for a
+ * specific revision. A missing projection stays missing (§51.1/§51.4).
+ */
+function RevisionDisclosureView({ disclosure }: { disclosure: RevisionDisclosure | null }) {
+  if (!disclosure) return null;
+  const facts: string[] = [];
+  if (disclosure.older_versions !== null) facts.push(`旧版本 ${disclosure.older_versions} 版`);
+  if (disclosure.latest_modified_at_ms !== null) facts.push(`最新修改 ${formatStampMs(disclosure.latest_modified_at_ms)}`);
+  if (disclosure.selected !== null) facts.push(`当前读第 ${disclosure.selected} 版`);
+  if (disclosure.written_at_ms !== null) facts.push(`写于 ${formatStampMs(disclosure.written_at_ms)}`);
+  if (facts.length === 0 && !disclosure.full_text) return null;
+  return <div className="revision-disclosure" data-revision-family={disclosure.family}>
+    {facts.length ? <span className="revision-summary">{facts.join(' · ')}</span> : null}
+    {disclosure.content_digest ? <code className="revision-digest">{disclosure.content_digest.slice(0, 12)}</code> : null}
+    {disclosure.full_text ? <div className="revision-full">
+      <h4>第 {disclosure.full_text.revision} 版全文{disclosure.full_text.written_at_ms !== null ? ` · 写于 ${formatStampMs(disclosure.full_text.written_at_ms)}` : ''}</h4>
+      {disclosure.full_text.text !== null
+        ? <p>{disclosure.full_text.text}</p>
+        : <small className="revision-note">请求的版本全文未解析</small>}
+    </div> : null}
+    {disclosure.full_text_unreadable ? <small className="revision-note">请求的版本全文不可读</small> : null}
+  </div>;
+}
+
+/** Store-level revision summary exactly as projected; no derived chain. */
+function ContentRevisionDisclosureView({ revision }: { revision: ContentRevisionDisclosure | null }) {
+  if (!revision) return null;
+  return <div className="revision-disclosure">
+    <span className="revision-summary">旧版本 {revision.old_version_count} 版 · 最新修改 {formatStampMs(revision.latest_modified_at_ms)}</span>
+    <code className="revision-digest">{revision.latest_digest.slice(0, 12)}</code>
+  </div>;
 }
 
 function ConfigSurface({ node, projection, emit }: { node?: UiNode; projection: UiProjection; emit: Emit }) {
@@ -802,9 +1086,10 @@ function ConfigSurface({ node, projection, emit }: { node?: UiNode; projection: 
     <ConfigEntries node={node} emit={emit} />
     <div className="capability-block">
       <h3>输入与时间线能力</h3>
-      <div className="capability-row"><span>Append</span><strong>{projection.capabilities.append ? '可用 · volatile 回执' : '不可用'}</strong></div>
-      <div className="capability-row"><span>Steer</span><strong>尚未接入 · 不提供伪动作</strong></div>
-      <div className="capability-row"><span>Durable accepted / selected</span><strong>尚未接入</strong></div>
+      <div className="capability-row"><span>Append</span><strong>{projection.capabilities.append ? projection.capabilities.durable_input_receipts ? '可用 · 持久回执' : '可用 · 传输回执' : '不可用'}</strong></div>
+      <div className="capability-row"><span>Steer</span><strong>{projection.capabilities.steer ? '可用 · 下一边界处置' : '未提供 · 不显示伪动作'}</strong></div>
+      <div className="capability-row"><span>Durable accepted / selected</span><strong>{projection.capabilities.durable_input_receipts ? '已接入 · 由 Store 回执' : '不可用'}</strong></div>
+      <div className="capability-row"><span>Streaming</span><strong>{projection.capabilities.streaming ? '生产者已接线 · 仅已提交 chunk' : '无生产者 · 仅已提交内容'}</strong></div>
       <div className="capability-row"><span>Committed replay</span><strong>{projection.capabilities.committed_replay ? '已接入' : '未知'}</strong></div>
     </div>
     <div className="build-block">
@@ -812,7 +1097,7 @@ function ConfigSurface({ node, projection, emit }: { node?: UiNode; projection: 
       {manifest ? <>
         <code className="commit-sha">{manifest.upstream.commit}</code>
         <p>{manifest.packages.join(' · ')}</p>
-        <p>采用 family：{manifest.adopted_families.join('、')}。Compiler：seam only，未上线。</p>
+        <p>采用 family：{manifest.adopted_families.join('、')}。{compilerLabel(manifest.compiler)}</p>
       </> : <p>构建 manifest 未读取。</p>}
       <div className="license-links"><a href="/assets/licenses/PROTO-UI-LICENSE" target="_blank" rel="noreferrer">Proto-UI 许可</a><a href="/assets/licenses/SHADCN-NOTICES.md" target="_blank" rel="noreferrer">shadcn 来源与许可</a><a href="/assets/licenses/REACT-LICENSE" target="_blank" rel="noreferrer">React 许可</a></div>
     </div>
@@ -976,6 +1261,11 @@ function formatStamp(value: unknown): string {
   return `${date.getMonth() + 1}-${date.getDate()} ${formatTime(value)}`;
 }
 
+/** Disclosure timestamps are epoch milliseconds; only presentation changes here. */
+function formatStampMs(value: number): string {
+  return Number.isFinite(value) ? formatStamp(new Date(value).toISOString()) : '—';
+}
+
 function firstLine(text: string): string {
   return text.split('\n').find((line) => line.trim())?.trim() ?? '（空）';
 }
@@ -983,6 +1273,41 @@ function firstLine(text: string): string {
 function wsUrl(): string {
   if (!location.host) return '不可用';
   return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
+}
+
+/// The rendered text of one entry, excluding its chrome (step label, receipt
+/// footer): a selection replay must address the content the reader saw.
+function textRoot(entry: HTMLElement): HTMLElement {
+  return entry.querySelector<HTMLElement>('.entry-content') ?? entry;
+}
+
+function textNodes(root: HTMLElement): Text[] {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === Node.TEXT_NODE) nodes.push(node as Text);
+  }
+  return nodes;
+}
+
+function textOffset(nodes: Text[], container: Node, offset: number): number | null {
+  let total = 0;
+  for (const node of nodes) {
+    if (node === container) return total + offset;
+    total += node.data.length;
+  }
+  return null;
+}
+
+function pointAt(nodes: Text[], offset: number): { node: Text; offset: number } | null {
+  let remaining = offset;
+  for (const node of nodes) {
+    const length = node.data.length;
+    if (remaining <= length) return { node, offset: remaining };
+    remaining -= length;
+  }
+  const last = nodes[nodes.length - 1];
+  return last ? { node: last, offset: last.data.length } : null;
 }
 
 function Icon({ name }: { name: string }) {

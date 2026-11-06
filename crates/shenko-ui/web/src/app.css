@@ -158,14 +158,18 @@ button { color: inherit; }
   font-size: 10px; font-weight: 600; letter-spacing: .03em;
 }
 .topbar-actions { margin-left: auto; display: flex; align-items: center; gap: 12px; }
-.transport-badge {
+/* The transport chip is Shenko's own compiled Prototype
+   (web/prototypes/transport-badge.proto.ts). Template nodes carry no class
+   names, so the shell binds the tokens the compiler emits to this palette. */
+[data-pui-style~="shenko-status-chip"] {
   display: inline-flex; align-items: center; gap: 7px; color: var(--muted);
   font-size: 12px; white-space: nowrap;
 }
-.transport-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 4px color-mix(in oklch, var(--faint) 10%, transparent); }
-.transport-badge.is-online .transport-dot { background: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-soft); }
-.transport-badge.is-reconnecting .transport-dot, .transport-badge.is-connecting .transport-dot { background: var(--warning); }
-.transport-badge.is-local .transport-dot { background: var(--violet); }
+[data-pui-style~="shenko-status-dot"] { width: 6px; height: 6px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 4px color-mix(in oklch, var(--faint) 10%, transparent); }
+[data-pui-style~="shenko-status-online"] [data-pui-style~="shenko-status-dot"] { background: var(--accent-color); box-shadow: 0 0 0 4px var(--accent-soft); }
+[data-pui-style~="shenko-status-reconnecting"] [data-pui-style~="shenko-status-dot"],
+[data-pui-style~="shenko-status-connecting"] [data-pui-style~="shenko-status-dot"] { background: var(--warning); }
+[data-pui-style~="shenko-status-local"] [data-pui-style~="shenko-status-dot"] { background: var(--violet); }
 .panel-toggle { gap: 7px; }
 .status-strip {
   min-height: 36px; padding: 0 30px; display: flex; align-items: center; gap: 12px;
@@ -218,6 +222,43 @@ button { color: inherit; }
 .commit-label { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); }
 .commit-label svg { width: 13px; height: 13px; color: var(--accent-color); }
 .gap-label { color: var(--warning); }
+/* A durable streamed prefix is real ledger content but has no S1 step yet:
+   it is drawn as in-progress, never with the committed marker above. */
+.subject-entry[data-committed="false"] .commit-label { color: var(--accent-color); }
+.subject-entry[data-streaming="true"] .entry-content { position: relative; }
+.subject-entry[data-streaming="true"] .entry-content::after {
+  content: ""; position: absolute; left: 0; bottom: -6px; width: 34px; height: 1px;
+  background: linear-gradient(90deg, var(--accent-color), transparent);
+}
+/* Long code lines only soft-wrap when the reader asked for it; the default
+   keeps the produced formatting and scrolls horizontally. */
+.timeline-scroll-capture[data-wrap="on"] .code-block pre { overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.timeline-scroll-capture[data-wrap="on"] .code-block code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.timeline-tools { position: absolute; z-index: 9; right: 12px; top: 8px; opacity: .62; transition: opacity 140ms ease; }
+.timeline-tools:hover, .timeline-tools:focus-within { opacity: 1; }
+.timeline-tools button { font-size: 10px; }
+/* Degraded semantic documents (§21.5–§21.9): the mode decides how much
+   structure is drawn, the numbered options stay identical at every rung. */
+.document-entry .entry-gutter { gap: 7px; }
+.document-mode { padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; font-size: 9px; letter-spacing: .03em; color: var(--muted); }
+.document-mode[data-mode="rich"] { border-color: color-mix(in oklch, var(--accent-color) 45%, transparent); color: var(--accent-color); }
+.semantic-document { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.semantic-document.is-text { background: var(--canvas-soft); }
+.document-summary { margin: 0 0 12px; font-size: 14.5px; line-height: 1.8; color: var(--ink); }
+.document-tree { max-height: 260px; margin: 0 0 12px; padding: 10px 12px; overflow: auto; border-radius: 9px; background: var(--canvas-soft); font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-soft); }
+.document-options { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.document-options li { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.document-options button:disabled { opacity: .72; cursor: default; }
+.action-receipt { font-size: 10px; color: var(--muted); }
+.action-receipt.is-accepted, .action-receipt.is-selected { color: var(--accent-color); }
+.action-receipt.is-rejected, .action-receipt.is-conflict { color: var(--danger); }
+.action-receipt.is-unavailable { color: var(--warning); }
+/* A block that could not become a surface: the text beside it is still the
+   committed record, and the reason stays readable instead of only flashing. */
+.document-error-entry .entry-gutter .step-label { color: var(--warning); }
+.document-error-reason { margin: 0 0 6px; font-size: 13.5px; line-height: 1.75; color: var(--ink-soft); }
+.document-error-detail { margin: 0; padding: 8px 11px; border-left: 2px solid var(--warning); background: var(--canvas-soft); font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; color: var(--muted); }
+.document-error-commit { display: block; margin-top: 6px; color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
 .entry-action { margin-left: auto; opacity: .56; transition: opacity 140ms ease; }
 .timeline-entry:hover .entry-action, .entry-action:focus-within { opacity: 1; }
 .entry-action svg, .receipt svg { width: 13px; height: 13px; }
@@ -275,6 +316,13 @@ button { color: inherit; }
 .task-row strong { font-size: 12px; font-weight: 550; }
 .data-row time { color: var(--faint); font-family: var(--font-mono); font-size: 10px; text-align: right; }
 .memory-row { grid-template-columns: 1fr auto; }
+.memory-kind { margin-left: 8px; color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
+.revision-disclosure { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding-top: 4px; color: var(--muted); font-size: 11px; }
+.revision-digest { color: var(--faint); font-family: var(--font-mono); font-size: 10px; }
+.revision-full { flex-basis: 100%; border-left: 2px solid var(--line); padding: 6px 0 2px 12px; color: var(--ink-soft); }
+.revision-full h4 { margin: 0 0 4px; color: var(--faint); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+.revision-full p { margin: 0; white-space: pre-wrap; }
+.revision-note { flex-basis: 100%; color: var(--danger); font-size: 10px; }
 
 .playground-row { grid-template-columns: minmax(140px, 1.4fr) auto auto auto auto auto; }
 .playground-row code { overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
@@ -347,8 +395,8 @@ button { color: inherit; }
   .subject-subline { display: none; }
   .demo-badge { font-size: 8px; padding: 1px 5px; }
   .topbar-actions { gap: 7px; }
-  .transport-badge { font-size: 0; gap: 0; }
-  .transport-dot { width: 6px; height: 6px; }
+  [data-pui-style~="shenko-status-chip"] { font-size: 0; gap: 0; }
+  [data-pui-style~="shenko-status-dot"] { width: 6px; height: 6px; }
   .panel-toggle { font-size: 11px !important; padding-left: 10px !important; padding-right: 10px !important; }
   .panel-toggle svg { display: none; }
   .status-strip { min-height: 32px; padding: 0 14px; gap: 8px; font-size: 9px; }

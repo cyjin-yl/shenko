@@ -15,8 +15,17 @@
     "collapsible"
   ],
   "compiler": {
-    "status": "seam_only",
+    "status": "build_time_compiled",
     "runtime_imported": false,
-    "upstream_visibility": "private source package; no published compiler profile"
+    "profile": "react-dom-source-v1",
+    "package": "packages/compiler/package.json",
+    "entry": "packages/compiler/src/index.ts",
+    "exports_source_only": true,
+    "public_package_selection": false,
+    "upstream_visibility": "private source package; exports ./src/index.ts only; no dist, no published compiler profile, and outside scripts/build/public-packages.mjs",
+    "prototypes": [
+      "transport-badge"
+    ],
+    "note": "Shenko compiles its own Prototypes with this reviewed compiler at build time (web/compiler.mjs) and ships the generated React DOM source. The browser bundle never imports the compiler, so runtime_imported stays false."
   }
 }
