@@ -37,6 +37,8 @@ child 是多步有界运行：可用所授 tools 调用已注册能力；有 rep
 对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个已存在的 child task。\n\
 免打扰用 [dnd] {\"state\":\"off|active\",\"sources\":[\"来源…\"],\"reason\":\"理由\",\"review_after\":\"RFC3339\"}；state=off 必须列出静默的来源并给回顾时间，不是无限期静默开关。\n\
 采用一条实时插入用 [steer] {\"submission_id\":\"提交键\"}；只能采用本轮输入里真实存在的那条插入，其他键会被拒绝。\n\
+外部效果仍未知时，接受这份不确定性继续别的工作用 [reconcile] {\"case_id\":\"本轮上下文里真实出现过的 case id\",\"reason_refs\":[\"该 case 已有的 evidence 收据 id\"],\"remaining_impact\":\"剩余影响与还需什么证据\"}；\
+它只记录你的判断，不会把效果改成成功、不会重发，也不删除原始回执；以后收到确定证据会重新评估。没有出现在本轮上下文里的 case 会被拒绝。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\
 普通正文是自己的想法和观察，可显示在系统时间线，但不会作为外部消息送给对方；想让对方收到的内容必须使用回复控制行。未列出的方括号标签会被判为错误；\n\
 即使本步在调整身份或保存记忆，也要写下此刻的想法，不要只有控制行。\n\
@@ -381,6 +383,11 @@ pub fn parse_output(
                     "[steer" => {
                         OutputAction::Steer {
                             spec: crate::authored_controls::parse_steer(value, line_no)?,
+                        }
+                    }
+                    "[reconcile" => {
+                        OutputAction::Reconcile {
+                            spec: crate::authored_controls::parse_reconcile(value, line_no)?,
                         }
                     }
                     "[delegate" => {

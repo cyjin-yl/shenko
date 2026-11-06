@@ -377,6 +377,12 @@ pub struct StepDecision {
     pub policy_intents: Vec<PolicyIntent>,
     pub publication_intents: Vec<PublicationIntent>,
     pub pending_obligations: Vec<PendingObligation>,
+    /// The subject's explicit decisions about external effects whose
+    /// outcome is unknown (SPEC §41.4 X11). Each one names a case that was
+    /// carried into this step's S0; the Store refuses a case the step never
+    /// saw. Absent in decisions committed before schema 9.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unknown_acknowledgements: Vec<crate::evidence::ReconciliationAcknowledgement>,
     /// The subject's own attention decision (免打扰). SPEC §13.8: off →
     /// active → off, with the applicable sources and the end/review
     /// condition kept durable. It changes selection, not history.
