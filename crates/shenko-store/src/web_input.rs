@@ -498,7 +498,9 @@ impl Store {
                 return Err(ShenkoError::ObjectClosureIncomplete { missing_count: 1 });
             }
             let plan: serde_json::Value = serde_json::from_slice(&bytes)?;
-            if plan.get("schema_version").and_then(serde_json::Value::as_u64) != Some(12)
+            if !crate::store::admitted_input_plan_schema(
+                plan.get("schema_version").and_then(serde_json::Value::as_u64),
+            )
                 || plan.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
                 || plan.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
             {

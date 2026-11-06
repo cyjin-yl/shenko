@@ -107,6 +107,14 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // obligations it is still carrying and its own attention decision.
     // Additive, own tables only.
     conn.execute_batch(crate::subject_state::SCHEMA)?;
+    // Durable reconciliation cases for unknown external effects (SPEC §41.4
+    // X11). Additive, own table only: it records which immutable receipts a
+    // reconciling operation already has and which explicit S1 decision (if
+    // any) accepted the remaining uncertainty. No operation, attempt or
+    // receipt row is rewritten by it.
+    conn.execute_batch(crate::reconcile::SCHEMA)?;
+    // Cognitive atoms: immutable content + append-only attitudes (SPEC §51.1).
+    conn.execute_batch(crate::atoms::COGNITION_ATOMS_SCHEMA)?;
     // Durable ordered public-text output parts (SPEC §21.11). Append-only;
     // no row is ever updated or deleted by a migration.
     conn.execute_batch(crate::output_parts::OUTPUT_PARTS_SCHEMA)?;

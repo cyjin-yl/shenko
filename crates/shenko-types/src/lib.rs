@@ -5,6 +5,7 @@ pub mod agent;
 pub mod activation;
 pub mod channel;
 pub mod commit;
+pub mod cognition;
 pub mod effect;
 pub mod contacts;
 pub mod error;

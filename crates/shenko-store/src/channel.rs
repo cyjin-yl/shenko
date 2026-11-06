@@ -17,26 +17,47 @@
 //!   It stays unknown until a receipt or a reconciliation settles it, and it
 //!   is never repeated automatically.
 use anyhow::{Context as _, Result, ensure};
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use shenko_types::channel::{ChannelDispatch, ChannelReceipt};
 use shenko_types::commit::CommitRef;
-use shenko_types::ids::{EntityId, LedgerSeq, RecordRevision};
+use shenko_types::ids::{ControllerEpoch, EntityId, LedgerSeq, RecordRevision};
 use shenko_types::object::{ArtifactRef, Digest, ObjectRef, SchemaRef, VersionedRef};
 use shenko_types::operation::{
     AttemptDispatchStage, AttemptRecord, AuthorityRef, EffectStatus, OperationContractRef,
     OperationOutcome, OperationRecord, OperationState, ResourceBindings,
 };
-use shenko_types::subject::PublicationIntent;
+use shenko_types::subject::{PublicationIntent, SubjectBranchHead, SubjectMode, SubjectStep};
+use shenko_types::task::{DispatchEligibility, RunMode, TaskRecord, TaskState};
 
-use crate::external::TaskInvocation;
 use crate::store::Store;
 
 /// The version of the sealed publication-target record this Store accepts.
 pub const PUBLICATION_TARGET_VERSION: u32 = 2;
 
-/// The version of the sealed decision record this Store accepts.
-pub const DECISION_SCHEMA_VERSION: u32 = 8;
+/// The version of the sealed decision record this Store WRITES.
+///
+/// 9 adds the subject's acknowledgements of unknown external effects
+/// (SPEC §41.4 X11). Decisions sealed at 8 are still admitted verbatim: they
+/// simply could not carry an acknowledgement, and their meaning does not
+/// change (SPEC §51.1: old bytes are not rewritten, old readings stay).
+pub const DECISION_SCHEMA_VERSION: u32 = 9;
+
+/// Every committed decision schema this build still admits as a decision.
+pub const ADMITTED_DECISION_SCHEMA_VERSIONS: [u32; 2] = [8, DECISION_SCHEMA_VERSION];
+
+/// The first decision schema that can carry a reconciliation
+/// acknowledgement. A schema-8 decision never can: admitting one would make
+/// older readers silently drop a decision the subject actually took.
+pub const RECONCILIATION_DECISION_SCHEMA_VERSION: u32 = 9;
+
+/// The decision schema the ONE publication-target rewrite produces.
+///
+/// That cutover rewrote version-1 publication targets inside already sealed
+/// decisions; it never added acknowledgements. Its migration record must keep
+/// naming the version it actually produced (8), not the schema this build
+/// writes today, or the ledger would claim a rewrite that never happened.
+pub const PUBLICATION_TARGET_DECISION_VERSION: u32 = 8;
 
 /// The version of the sealed parsed-output record this Store accepts.
 pub const OUTPUT_SCHEMA_VERSION: u32 = 5;
@@ -119,6 +140,37 @@ pub struct ArmedPublication {
     pub task_id: EntityId,
     pub account: String,
     pub armed_commit: CommitRef,
+}
+
+/// What the committed facts allow for one publication intent.
+///
+/// Only `Arm` authorizes the caller to touch the network. `Deferred` changes
+/// nothing: the subject is paused, or the record is in a state this admission
+/// cannot decide about.
+/// `Undispatchable` is a committed fact that can never make this intent
+/// dispatchable again; it is settled durably instead of being retried.
+enum PublicationAdmission {
+    NotReady,
+    Deferred(&'static str),
+    Undispatchable {
+        kind: &'static str,
+        reason: String,
+    },
+    Arm {
+        task: TaskRecord,
+        authoring_step: EntityId,
+        epoch: ControllerEpoch,
+    },
+}
+
+/// The result of one T1 attempt, after its transaction settled.
+enum PublicationArm {
+    Armed(ArmedPublication),
+    Idle,
+    Undispatchable {
+        kind: &'static str,
+        reason: String,
+    },
 }
 
 impl Store {
@@ -225,32 +277,114 @@ impl Store {
             .collect()
     }
 
-    /// T1: claim the publication intent and arm its operation.
+    /// T1: claim the publication intent and arm its operation and attempt.
     ///
-    /// The durable intent and the armed attempt are committed before the
-    /// caller may touch the network. A repeated admission returns `None`: it
-    /// never authorizes a second send.
+    /// The intent claim, the armed operation/attempt and the task projection
+    /// commit in ONE transaction (SPEC §41.4 X07). A crash can therefore never
+    /// leave an intent claimed without the attempt that approves a send, so
+    /// the outbox has no durable state that is neither dispatchable nor
+    /// reconcilable. A repeated admission — or any intent that is not `ready`
+    /// — returns `None` and never authorizes a second send.
+    ///
+    /// A `ready` intent that committed facts can never dispatch again (its
+    /// task was cancelled, is terminal or parked, or its authoring step
+    /// belongs to a superseded controller epoch) is settled durably as never
+    /// dispatched with effect `none`. It is not a transport failure and it
+    /// never stops the caller's dispatch loop; the subject can read the
+    /// settled intent and decide again.
     pub fn arm_publication(
         &self,
         intent_id: EntityId,
         dispatch: &ChannelDispatch,
     ) -> Result<Option<ArmedPublication>> {
-        let Some(context) = self.claim_subject_publication(intent_id)? else {
-            return Ok(None);
+        let outcome = self.ledger.with_mutation(
+            || self.try_arm_publication(intent_id, dispatch),
+            |error| {
+                error.is::<rusqlite::Error>()
+                    || error.is::<serde_json::Error>()
+                    || error
+                        .downcast_ref::<shenko_types::error::ShenkoError>()
+                        .is_some_and(|error| {
+                            matches!(error, shenko_types::error::ShenkoError::Storage(_))
+                        })
+            },
+        )?;
+        match outcome {
+            PublicationArm::Armed(armed) => Ok(Some(armed)),
+            PublicationArm::Idle => Ok(None),
+            PublicationArm::Undispatchable { kind, reason } => {
+                // No claim was committed, so this intent is still `ready` and
+                // no dispatcher can ever have sent it: settling it describes
+                // the intent, not an external effect.
+                self.refuse_publication_detail(
+                    intent_id,
+                    serde_json::json!({
+                        "kind": "publication_never_dispatched",
+                        "reason_kind": kind,
+                        "reason": reason,
+                        "dispatched": false,
+                        "effect_status": "none",
+                    }),
+                    false,
+                )?;
+                Ok(None)
+            }
+        }
+    }
+
+    fn try_arm_publication(
+        &self,
+        intent_id: EntityId,
+        dispatch: &ChannelDispatch,
+    ) -> Result<PublicationArm> {
+        let mut conn = self.ledger.conn.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        self.check_dispatch_owner(&tx)?;
+        let (task, authoring_step, epoch) = match self.publication_admission(&tx, intent_id)? {
+            PublicationAdmission::NotReady | PublicationAdmission::Deferred(_) => {
+                return Ok(PublicationArm::Idle);
+            }
+            PublicationAdmission::Undispatchable { kind, reason } => {
+                return Ok(PublicationArm::Undispatchable { kind, reason });
+            }
+            PublicationAdmission::Arm {
+                task,
+                authoring_step,
+                epoch,
+            } => (task, authoring_step, epoch),
         };
-        let mut record = self.publication_operation(intent_id, dispatch, &context)?;
-        let mut attempt = AttemptRecord {
+        let armed = self.arm_publication_tx(&tx, intent_id, dispatch, &task, authoring_step, epoch)?;
+        tx.commit()?;
+        Ok(PublicationArm::Armed(armed))
+    }
+
+    fn arm_publication_tx(
+        &self,
+        tx: &Transaction<'_>,
+        intent_id: EntityId,
+        dispatch: &ChannelDispatch,
+        task: &TaskRecord,
+        authoring_step: EntityId,
+        epoch: ControllerEpoch,
+    ) -> Result<ArmedPublication> {
+        let mut record = self.publication_operation(intent_id, dispatch, authoring_step)?;
+        let seq = self.ledger.allocate_seq(tx)?;
+        let commit = CommitRef::new(self.ledger.ledger_id(), seq);
+        record.prepared_commit = commit;
+        let attempt_id = EntityId::new();
+        let invocation_id = EntityId::new();
+        let attempt = AttemptRecord {
             record_schema_version: 1,
-            attempt_id: EntityId::new(),
+            attempt_id,
             operation_id: intent_id,
             attempt_no: 1,
-            invocation_id: context.invocation_id,
-            worker_id: context.worker_id,
-            node_id: context.node_id,
-            epoch: context.epoch,
+            invocation_id,
+            worker_id: self.capabilities.incarnation,
+            node_id: self.ledger.ledger_id(),
+            epoch,
             implementation_ref: record.contract_ref.receipt_reader_ref.clone(),
             dispatch_stage: AttemptDispatchStage::Armed,
-            armed_commit: record.prepared_commit,
+            armed_commit: commit,
             provider_handle: None,
             provider_idempotency: None,
             transport_ref: Some(record.resource_bindings_ref.clone()),
@@ -258,19 +392,187 @@ impl Store {
             last_observed_at: None,
             final_receipt_id: None,
         };
-        if self
-            .arm_external_operation(&context, &mut record, &mut attempt)?
-            .is_some()
-        {
-            return Ok(None);
-        }
-        Ok(Some(ArmedPublication {
+        let mut task = task.clone();
+        task.state = TaskState::Running {
+            checkpoint_ref: None,
+            invocation_id,
+            mode: RunMode::Run,
+            epoch,
+        };
+        task.record_revision = task.record_revision.next();
+        task.updated_commit = commit;
+        task.memos.insert(
+            "external:last_operation".into(),
+            serde_json::json!({
+                "operation_id": intent_id,
+                "attempt_id": attempt_id,
+            }),
+        );
+        tx.execute(
+            "INSERT INTO operations(operation_id,record_revision,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![
+                intent_id.to_string(),
+                record.record_revision.0 as i64,
+                serde_json::to_string(&record)?,
+                seq.0 as i64
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO attempts(attempt_id,operation_id,data,updated_commit_seq) VALUES(?1,?2,?3,?4)",
+            params![
+                attempt_id.to_string(),
+                intent_id.to_string(),
+                serde_json::to_string(&attempt)?,
+                seq.0 as i64
+            ],
+        )?;
+        tx.execute(
+            "UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE task_id=?1",
+            params![
+                intent_id.to_string(),
+                task.record_revision.0 as i64,
+                serde_json::to_string(&task)?,
+                seq.0 as i64
+            ],
+        )?;
+        let claimed = tx.execute(
+            "UPDATE subject_intents SET state='claimed',owner=?2,revision=revision+1,updated_seq=?3 WHERE intent_id=?1 AND state='ready'",
+            params![
+                intent_id.to_string(),
+                self.capabilities.incarnation.to_string(),
+                seq.0 as i64
+            ],
+        )?;
+        ensure!(claimed == 1, "publication intent left the ready index inside T1");
+        tx.execute(
+            "INSERT INTO commit_log(ledger_id,seq,incarnation,entity_count) VALUES(?1,?2,?3,4)",
+            params![
+                commit.ledger_id.to_string(),
+                seq.0 as i64,
+                self.capabilities.incarnation.to_string()
+            ],
+        )?;
+        Ok(ArmedPublication {
             operation_id: intent_id,
-            attempt_id: attempt.attempt_id,
-            task_id: context.task_id,
+            attempt_id,
+            task_id: intent_id,
             account: dispatch.account.clone(),
-            armed_commit: attempt.armed_commit,
-        }))
+            armed_commit: commit,
+        })
+    }
+
+    /// Classify one publication intent from its committed facts.
+    ///
+    /// The admission is read inside the T1 transaction that acts on it, so a
+    /// cancellation, a park or an epoch advance cannot be observed stale.
+    fn publication_admission(
+        &self,
+        tx: &Transaction<'_>,
+        intent_id: EntityId,
+    ) -> Result<PublicationAdmission> {
+        let state: Option<String> = tx
+            .query_row(
+                "SELECT state FROM subject_intents WHERE intent_id=?1 AND kind='publication'",
+                [intent_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if state.as_deref() != Some("ready") {
+            return Ok(PublicationAdmission::NotReady);
+        }
+        // A `ready` intent that already owns an operation cannot come out of
+        // T1 (claim and operation commit together). If some legacy or restored
+        // record produced it, an armed attempt may exist: settling it as never
+        // dispatched would be a false statement about an external effect, and
+        // arming again would be a second send. Leave it untouched for
+        // reconciliation instead.
+        let owns_operation: Option<i64> = tx
+            .query_row(
+                "SELECT 1 FROM operations WHERE operation_id=?1",
+                [intent_id.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if owns_operation.is_some() {
+            return Ok(PublicationAdmission::Deferred(
+                "a ready publication already owns an operation",
+            ));
+        }
+        let data: String = tx.query_row(
+            "SELECT data FROM tasks WHERE task_id=?1",
+            [intent_id.to_string()],
+            |row| row.get(0),
+        )?;
+        let task: TaskRecord = serde_json::from_str(&data)?;
+        if let Some(abort) = &task.abort_request {
+            return Ok(PublicationAdmission::Undispatchable {
+                kind: "cancelled",
+                reason: format!("publication was cancelled before T1: {}", abort.reason),
+            });
+        }
+        if task.is_terminal() {
+            return Ok(PublicationAdmission::Undispatchable {
+                kind: "task_terminal",
+                reason: "publication task is already terminal".into(),
+            });
+        }
+        match &task.dispatch_eligibility {
+            DispatchEligibility::Ready => {}
+            DispatchEligibility::Blocked { reason_ref } => {
+                return Ok(PublicationAdmission::Undispatchable {
+                    kind: "blocked",
+                    reason: format!("publication dispatch is blocked: {reason_ref}"),
+                });
+            }
+            DispatchEligibility::Parked { reason_ref, .. } => {
+                return Ok(PublicationAdmission::Undispatchable {
+                    kind: "parked",
+                    reason: format!("publication dispatch is parked: {reason_ref}"),
+                });
+            }
+        }
+        if task.memos.contains_key("native_settlement_only") {
+            return Ok(PublicationAdmission::Undispatchable {
+                kind: "settlement_invocation",
+                reason: "a settlement-only invocation never arms an external send".into(),
+            });
+        }
+        let authoring_step = task
+            .created_by_step_id
+            .context("publication task has no authoring step")?;
+        let step: SubjectStep = {
+            let data: String = tx.query_row(
+                "SELECT data FROM subject_steps WHERE step_id=?1",
+                [authoring_step.to_string()],
+                |row| row.get(0),
+            )?;
+            serde_json::from_str(&data)?
+        };
+        let head: SubjectBranchHead = {
+            let data: String = tx.query_row(
+                "SELECT data FROM subject_branch_heads WHERE branch_id=?1",
+                [step.branch_id.0.to_string()],
+                |row| row.get(0),
+            )?;
+            serde_json::from_str(&data)?
+        };
+        if head.mode != SubjectMode::Active {
+            return Ok(PublicationAdmission::Deferred("subject is not active"));
+        }
+        if head.controller_epoch != step.controller_epoch {
+            return Ok(PublicationAdmission::Undispatchable {
+                kind: "authority_superseded",
+                reason: format!(
+                    "controller epoch advanced from {:?} to {:?} after this step committed",
+                    step.controller_epoch, head.controller_epoch
+                ),
+            });
+        }
+        Ok(PublicationAdmission::Arm {
+            task,
+            authoring_step,
+            epoch: head.controller_epoch,
+        })
     }
 
     /// E1: the provider answered. The receipt is the evidence.
@@ -338,12 +640,33 @@ impl Store {
     /// durable. The intent stays visible as blocked instead of spinning in
     /// the ready index, and the runtime keeps running.
     pub fn refuse_publication(&self, intent_id: EntityId, reason: &str) -> Result<()> {
-        let detail = serde_json::json!({
-            "kind": "publication_refused",
-            "reason": reason,
-            "dispatched": false,
-            "effect_status": "none",
-        });
+        self.refuse_publication_detail(
+            intent_id,
+            serde_json::json!({
+                "kind": "publication_refused",
+                "reason": reason,
+                "dispatched": false,
+                "effect_status": "none",
+            }),
+            true,
+        )?;
+        Ok(())
+    }
+
+    /// Settle one publication that was never dispatched.
+    ///
+    /// `strict` is the caller's contract, not a tuning knob: the plugin
+    /// refusal path requires the intent to still be `ready`, because a caller
+    /// that lost a race must not overwrite another dispatcher's claim. An
+    /// admission that read committed facts saying "never dispatch" passes
+    /// `false`: a claim committed in between is left alone and answers
+    /// `false`.
+    fn refuse_publication_detail(
+        &self,
+        intent_id: EntityId,
+        detail: serde_json::Value,
+        strict: bool,
+    ) -> Result<bool> {
         let object = self
             .cas
             .seal_object(
@@ -366,10 +689,11 @@ impl Store {
                         |row| row.get(0),
                     )
                     .optional()?;
-                ensure!(
-                    state.as_deref() == Some("ready"),
-                    "publication is not ready: {state:?}"
-                );
+                if state.as_deref() != Some("ready") {
+                    ensure!(!strict, "publication is not ready: {state:?}");
+                    tx.commit()?;
+                    return Ok(false);
+                }
                 let seq = self.ledger.allocate_seq(&tx)?;
                 let commit = CommitRef::new(self.ledger.ledger_id(), seq);
                 tx.execute(
@@ -391,7 +715,10 @@ impl Store {
                     .optional()?;
                 if let Some(data) = task {
                     let mut task: shenko_types::task::TaskRecord = serde_json::from_str(&data)?;
-                    if !task.is_terminal() && task.abort_request.is_none() {
+                    // A publication that never armed has no send to fence and no
+                    // abort handler of its own: the settlement is the only writer
+                    // that can retire its lifetime, cancelled or not.
+                    if !task.is_terminal() {
                         task.state = shenko_types::task::TaskState::Terminal {
                             outcome_ref: object.clone(),
                         };
@@ -410,7 +737,7 @@ impl Store {
                     }
                 }
                 tx.commit()?;
-                Ok(())
+                Ok(true)
             },
             |error| {
                 error.is::<rusqlite::Error>()
@@ -425,7 +752,7 @@ impl Store {
         &self,
         operation_id: EntityId,
         dispatch: &ChannelDispatch,
-        context: &TaskInvocation,
+        authoring_step: EntityId,
     ) -> Result<OperationRecord> {
         let input = self.seal_channel_json(
             "channel_publication_input",
@@ -468,15 +795,11 @@ impl Store {
                 "blind_resend": false,
             }),
         )?;
-        let decision_ref = self
-            .external_task(context.task_id)?
-            .created_by_step_id
-            .unwrap_or_else(EntityId::nil);
         Ok(OperationRecord {
             record_schema_version: 1,
             operation_id,
             record_revision: RecordRevision(0),
-            task_id: context.task_id,
+            task_id: operation_id,
             logical_key: format!(
                 "channel.{}:{}:{}",
                 dispatch.channel, dispatch.platform_action, operation_id
@@ -505,9 +828,9 @@ impl Store {
             },
             resource_bindings_ref: bindings,
             authority_ref: AuthorityRef {
-                delegation_id: context.task_id,
+                delegation_id: operation_id,
                 delegation_revision: RecordRevision(0),
-                decision_ref,
+                decision_ref: authoring_step,
             },
             acceptance_predicate_ref: acceptance,
             retry_contract_ref: retry,
@@ -586,7 +909,11 @@ impl Store {
         let mut outcomes = std::collections::HashMap::new();
         let changed = {
                 let conn = self.ledger.conn.lock();
-            let mut statement = conn.prepare("SELECT i.intent_id FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown') AND (i.result_ref IS NULL OR i.result_ref!=o.data) AND (json_extract(o.data,'$.state') IN ('resolved','reconciling') OR (i.state='unknown' AND i.owner IS NULL)) ORDER BY i.updated_seq LIMIT 32")?;
+            // `acknowledged` belongs here: a subject that accepted this
+            // unknown effect still settles it the moment definite evidence
+            // arrives, and the case it acknowledged turns `resolved` with
+            // it. It is never re-armed and never silently resent.
+            let mut statement = conn.prepare("SELECT i.intent_id FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown','acknowledged') AND (i.result_ref IS NULL OR i.result_ref!=o.data) AND (json_extract(o.data,'$.state') IN ('resolved','reconciling') OR (i.state='unknown' AND i.owner IS NULL)) ORDER BY i.updated_seq LIMIT 32")?;
                     statement
                 .query_map([], |row| row.get::<_, String>(0))?
                         .collect::<rusqlite::Result<Vec<_>>>()?
@@ -600,7 +927,7 @@ impl Store {
                     |row| Ok((row.get(0)?, row.get(1)?)),
                                     )?
                                 };
-            if !matches!(state.as_str(), "claimed" | "unknown") {
+            if !matches!(state.as_str(), "claimed" | "unknown" | "acknowledged") {
                 continue;
                 }
             let intent_id: EntityId = id.parse()?;
@@ -659,7 +986,11 @@ impl Store {
                 let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
                 self.check_dispatch_owner(&tx)?;
                 let rows: Vec<(String, String)> = {
-                    let mut statement = tx.prepare("SELECT i.intent_id,o.data FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown') AND json_extract(o.data,'$.state') IN ('resolved','reconciling') AND (i.result_ref IS NULL OR i.result_ref!=o.data) LIMIT 32")?;
+                    // An acknowledged intent is only revisited when the
+                    // operation reached a definite result: while it is still
+                    // reconciling the subject's decision stands and must not
+                    // be overwritten back to `unknown` on every pass.
+                    let mut statement = tx.prepare("SELECT i.intent_id,o.data FROM subject_intents i JOIN operations o ON o.operation_id=i.intent_id WHERE i.kind='publication' AND i.state IN ('claimed','unknown','acknowledged') AND (json_extract(o.data,'$.state')='resolved' OR (json_extract(o.data,'$.state')='reconciling' AND i.state IN ('claimed','unknown'))) AND (i.result_ref IS NULL OR i.result_ref!=o.data) LIMIT 32")?;
                     statement
                         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
                         .collect::<rusqlite::Result<Vec<_>>>()?
@@ -872,7 +1203,7 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
             "application/json",
             "decisions",
             "StepDecision",
-            DECISION_SCHEMA_VERSION,
+            PUBLICATION_TARGET_DECISION_VERSION,
         )?;
         store.ledger.with_mutation(
             || {
@@ -899,7 +1230,7 @@ fn migrate_decision_objects(store: &Store) -> Result<usize> {
                      VALUES('subject_step',?1,7,?2,?3,?4,?5)",
                     params![
                         step_id,
-                        DECISION_SCHEMA_VERSION,
+                        PUBLICATION_TARGET_DECISION_VERSION,
                         decision_ref.digest.to_string(),
                         sealed.object.digest.to_string(),
                         seq.0 as i64,

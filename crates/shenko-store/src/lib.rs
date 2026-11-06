@@ -22,6 +22,11 @@ pub mod runtime_boundary;
 pub mod web_input;
 pub mod subject_request;
 pub mod subject_state;
+/// Durable reconciliation cases for unknown external effects — SPEC §41.4 X11.
+pub mod reconcile;
+/// Cognitive atoms: content registration, attitudes, reason pointers — SPEC §51.1, §51.3.
+pub mod atoms;
+pub use reconcile::{ReconciliationDocketEntry, REASON_EFFECT_UNKNOWN};
 pub use subject_request::{
     SubjectRequestAttempt, SubjectRequestState, SubjectRequestTerminal,
 };
