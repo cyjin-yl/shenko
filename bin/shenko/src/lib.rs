@@ -292,6 +292,22 @@ pub enum UpdateCli {
     },
     /// Deterministic recovery read. No model is required.
     Recover,
+    /// §51.4 append-node rollback: restore the subject's state root to a
+    /// historical node. This appends a new node, never rewinding or
+    /// truncating the chain. Distinct from `rollback` which switches the
+    /// software generation.
+    RootRollback {
+        /// The canonical `blake3:<64 hex>` digest of the historical root
+        /// node to restore.
+        #[arg(long)]
+        target_node: String,
+        /// The chain head digest at selection time; omit for an empty chain.
+        #[arg(long)]
+        expected_head: Option<String>,
+        /// Activation this rollback accompanies, if any.
+        #[arg(long)]
+        activation: Option<shenko_types::ids::EntityId>,
+    },
 }
 
 impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
@@ -329,6 +345,15 @@ impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
                 expected_selector_revision,
             },
             UpdateCli::Recover => UpdateCommand::Recover,
+            UpdateCli::RootRollback {
+                target_node,
+                expected_head,
+                activation,
+            } => UpdateCommand::RootRollback {
+                target_node,
+                expected_head,
+                activation,
+            },
         }
     }
 }
