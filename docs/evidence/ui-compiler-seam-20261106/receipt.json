@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "slice": "ui-compiler-seam",
+  "owner_alias": "RefillCompilerSeam1106",
+  "state": "SOURCE_ONLY_UNVERIFIED",
+  "worktree": "/tank/shared/projects/shenko/worktrees/deepseek-ui-stream-20261105",
+  "base_commit": "d6eb9fb6e13539a6e2e99b767202129e35ebd928",
+  "spec_reading": {
+    "files": [
+      "/tank/shared/projects/shenko/worktrees/pr180-reference-20261106/SPEC.md §51.1-§51.10",
+      "/tank/shared/projects/shenko/worktrees/pr180-reference-20261106/docs/decisions/0002-cognitive-atoms-2026-11-05.md (all lines)",
+      "/tank/shared/projects/shenko/worktrees/pr180-reference-20261106/docs/decisions/0003-spec-governance-2026-11-06.md (all lines)"
+    ],
+    "merge_commit": "2cb17172cfd65291997df5953f54d0ab5abe4c38"
+  },
+  "precondition_frozen_r1": {
+    "manifest": "local://shenko-ui-stream-frozen-20261105-r1.json",
+    "patch_sha256": "022f57cdd1982bad577980bcb92040cd14fba0d192f9ea0af469307d32988aff",
+    "verified": "all ten frozen file hashes recomputed at session start and matched exactly; the four frozen files edited below were reconstructed from HEAD + that patch and re-hashed to the same values before diffing"
+  },
+  "unchanged_frozen_files": {
+    "crates/shenko-ui/src/ws.rs": "55fa74eb67c21c413df5bd0365a928d772c852d49503eb63bfd76b22871f620d",
+    "crates/shenko-ui/web/src/live-controller.ts": "736cc880b32950aad652b42ac37cfb7cfcba9aca7e27925e49bb7a6ffde2b49c",
+    "crates/shenko-ui/web/src/reading-state.ts": "c04e9f557d84bd400385fe21ea72a7c63044d88dc6a5e73c8efee89d0d5c1fb5",
+    "crates/shenko-ui/web/src/demo-controller.ts": "faaadebfb7e12b9b82b9ad4d628e8ee45d50365e4a193fad25827a96b184125d",
+    "crates/shenko-ui/web/tests/live-controller.test.mjs": "152d15fda1c6d4964eaf7c1d882d0c61bc4494dfda4344a91fd18fac377a5e38",
+    "crates/shenko-ui/web/tests/timeline-state.test.mjs": "ecef30d0ae98ea8e421d1d9ab168423f1fb1b7d872e982e6a54aea001ac10f1e"
+  },
+  "modified_files": [
+    {
+      "path": "crates/shenko-ui/web/build.mjs",
+      "before_frozen_sha256": "c7924e048b16ea12955cff9b2041dc32ff00e841418fd6892c94d83fc7426fd6",
+      "after_sha256": "34fd09a450532a8ba792fe35adbc5dc18fffbc4e53d43b93937a14aad5d46495"
+    },
+    {
+      "path": "crates/shenko-ui/web/src/app.css",
+      "before_frozen_sha256": "ab5d48cc72f77d0f76f40e06bc879785e6b7c850ea92f638dc79ea6dc3276e07",
+      "after_sha256": "a34330b829690a0f8c9d7825a3aa849ac1e759a10b2930f47bb102230c27183d"
+    },
+    {
+      "path": "crates/shenko-ui/web/src/projection.ts",
+      "before_frozen_sha256": "f5973b8acd2da0e1a3719cc9f640c88c1ca5a5b64ee1882b90a18329b21318c8",
+      "after_sha256": "93a4f977dfdea26579dff27376ac8fb1dae695ece8bfdab160c60b5751d70b1e"
+    },
+    {
+      "path": "crates/shenko-ui/web/src/react-renderer.tsx",
+      "before_frozen_sha256": "24c555904d31b1afbab7eb8c539b3fc24f1be6f426931708835e6e69172afb20",
+      "after_sha256": "5ecc0b43c19806eb866e96b199c96f990612dc6e1de6604d835c3629553f4b5d"
+    }
+  ],
+  "new_files": [
+    {
+      "path": "crates/shenko-ui/web/compiler.mjs",
+      "sha256": "d6be4fc1c56c32721e01db3376a6f70fae3e2f538cbf46aef1c1edb1bcf037ac",
+      "role": "build-time compiler seam: audits the pinned @proto.ui/compiler source package, bundles it once with the workspace esbuild, runs compileFile on Shenko Prototypes, publishes each generation create-only, returns manifest facts"
+    },
+    {
+      "path": "crates/shenko-ui/web/prototypes/transport-badge.proto.ts",
+      "sha256": "e19b9465bbef1099e59145c049089d40702bd81087530c5f18983c499aec36c3",
+      "role": "Shenko-authored presentational Prototype (props label/tone, four tone rules, static dot style handle)"
+    },
+    {
+      "path": "crates/shenko-ui/web/src/revision-disclosure.ts",
+      "sha256": "1459547f92709bb5573e8e7b99369250c7a5cc5de89198a9c84237411fecf8ee",
+      "role": "readers for the two server projections: taste Disclosure::project_json() and store ContentRevisionDisclosure; no client counting"
+    },
+    {
+      "path": "crates/shenko-ui/web/tests/prototypes.test.mjs",
+      "sha256": "85835e73df33229cffa1c19282ddfe8ceb16c0f536da74554ec7a4749dfa0200",
+      "role": "consumer of the published generation: digest chain, native-source imports, provenance/artifact agreement, compiler identity facts"
+    }
+  ],
+  "other_modified_files_relative_to_HEAD": [
+    {
+      "path": "crates/shenko-ui/web/upstream-pin.json",
+      "before": "HEAD",
+      "after_sha256": "8b065dc79bfe96d66dbaee3182d4409e7ebdfb94b03e9f1faf36e2a9c513faa0"
+    },
+    {
+      "path": "crates/shenko-ui/web/package.json",
+      "before": "HEAD",
+      "after_sha256": "9262375bb689864644fd8dec91824569c6e467cfe155e284c9ea6c56ab9c419a"
+    },
+    {
+      "path": "crates/shenko-ui/web/tsconfig.json",
+      "before": "HEAD",
+      "after_sha256": "94cf01b1b56aff05648327d50cb8e92b8ff80caa358f37f6eab4e55c7ad517e1"
+    },
+    {
+      "path": ".gitignore",
+      "before": "HEAD",
+      "after_sha256": "4221cabd61a3aaee7009a47a5a9b3170e800773e705a8c70c09174cca2a038d7"
+    },
+    {
+      "path": "docs/specs/web-interface.md",
+      "before": "HEAD",
+      "after_sha256": "8c6d7f9a25f6e1e8cd64f546cf15806a84b5e39d1ce057e820c963e7452b33ec"
+    }
+  ],
+  "incremental_patch": {
+    "path": "docs/evidence/ui-compiler-seam-20261106/incremental.patch",
+    "sha256": "963b76d2b79ea10d7b9cb898acf37c4f90a86640aed1c4ed48bce39952b9a894",
+    "bytes": 46492,
+    "basis": "frozen r1 bytes for the four frozen files; HEAD bytes for the five non-frozen files; /dev/null for the four new files"
+  },
+  "compiler_consumption": {
+    "upstream_package": "@proto.ui/compiler (private)",
+    "exports": "./src/index.ts only; no dist; outside scripts/build/public-packages.mjs (42-package selection unchanged)",
+    "profile": "react-dom-source-v1",
+    "runtime_imported": false,
+    "bundle": {
+      "path": "generated/compiler/proto-ui-compiler.mjs",
+      "format": "esm",
+      "external": [
+        "typescript"
+      ],
+      "resolutions": [
+        {
+          "specifier": "@floating-ui/dom",
+          "owner": "packages/modules/positioning"
+        }
+      ]
+    },
+    "pinned_inputs_measured_by_this_worker": {
+      "checkout": "/tank/shared/projects/shenko/build/spec-architecture-20261101/ui-pinned-inputs-971cd35-20261102/upstream",
+      "head": "971cd35a4604ef19ecd3b6ffe3cbd01cf3e6633e",
+      "compiler_package_json_sha256": "4d81f10128f809c79a3f7730d1f936171f9bff2713846333c88c56524483258e",
+      "compiler_entry_sha256": "20121a358784ba6a6777a01f54addba823c2b662b68be0f48251e7524338e241",
+      "compiler_source_tree_sha256": "499fa3b1984f13948f2d68791570efde76c9490bb6b0d8b0fe2d41cc3cb1c56c",
+      "compiler_source_file_count": 99,
+      "typescript_web_version": "5.9.3",
+      "floating_ui_dom_version": "1.8.0"
+    },
+    "note": "these digests are read-only measurements made by this worker with the same rule web/compiler.mjs uses; the build recomputes and records them in src/static/build-manifest.json"
+  },
+  "consumer_chain": [
+    "crates/shenko-ui/web/prototypes/transport-badge.proto.ts (authored source)",
+    "node build.mjs --prototypes-only -> generated/prototypes/transport-badge/{Component.tsx,.proto-ui/**,provenance.json}",
+    "src/react-renderer.tsx imports CompiledTransportBadge from ../generated/prototypes/transport-badge/Component and renders it in the top bar for live (4 connection tones) and demo (local tone)",
+    "esbuild bundles src/main.tsx with the generated module; the compiler bundle never enters the browser graph"
+  ],
+  "pr180_alignment": [
+    "§51.5/§51.10: seam checks are mechanism/integrity facts only (pinned identity, exports, digests). No keyword table, product allowlist, manual approval or static hard deny is introduced.",
+    "§51.1/§51.6: no revision/attitude/taste renderer is invented; UI renders only server-projected fields. Absent projection renders nothing (unknown), full text only when the server sent it.",
+    "§51.9: knowledge_kind is displayed as a hint beside content, never substituted for content.",
+    "Compiler status text is derived from build facts; the stale 'seam only, not shipped' claim is removed from code and docs."
+  ],
+  "unproved_properties": [
+    "The generated Prototype has never been compiled or executed: no build, tsc, esbuild, browser or native run was performed by this worker.",
+    "Whether `compileFile` admits the authored Prototype at this pin (parser dialect, rule eq on a string prop, template-props style handle, two children) is asserted only by source reading of the pinned compiler.",
+    "The React DOM source emitted for profile react-dom-source-v1 declares react/react-dom 19.2.6 as its target dependency; the web workspace bundles 19.3.1. Compatibility is unverified.",
+    "Visual parity of the chip (palette/geometry, mobile collapse rule) is unverified in a real browser.",
+    "tsc over generated sources (included by tsconfig) has never run.",
+    "src/static/* (app.js, app.css, build-manifest.json) are still the previous build outputs; they were deliberately not hand-edited."
+  ],
+  "parent_commands": [
+    "PROTO_UI_SOURCE=/tank/shared/projects/shenko/build/spec-architecture-20261101/ui-pinned-inputs-971cd35-20261102/upstream PROTO_UI_BUILD_RECEIPT=<receipt with selectedCount=42 and results[42]> node build.mjs --prototypes-only  (cwd crates/shenko-ui/web)  -> writes generated/compiler + generated/prototypes + generated/prototypes/manifest.json",
+    "node build.mjs  (same env, cwd crates/shenko-ui/web)  -> regenerates src/static/{app.js,app.css,proto-ui-*.css,licenses,build-manifest.json}",
+    "npx tsc --noEmit  (cwd crates/shenko-ui/web, after the prototype step)",
+    "node --test tests/*.test.mjs  (cwd crates/shenko-ui/web, after the prototype step; tests/prototypes.test.mjs fails loudly if the generation is absent)",
+    "cargo check/test -p shenko-ui (Rust re-embeds src/static/*; rebuild and relaunch before any UI acceptance claim)",
+    "browser acceptance: demo and live modes, all four connection states plus demo badge, mobile width collapse, config page compiler facts text"
+  ],
+  "cross_owner_needs": [
+    "AlignAtoms180/AlignTaste180: the memory projection item must carry the taste disclosure under key `disclosure` (Disclosure::project_json() fields family/selected/content_digest/written_at_ms/older_versions/latest_modified_at_ms/full_text) and/or the store summary under key `revision_disclosure` (ContentRevisionDisclosure fields latest_digest/old_version_count/latest_modified_at_ms). This UI consumes exactly those two keys and computes no counts.",
+    "RefillPlaygroundOps1106: their ConfigEntries mount inside react-renderer.tsx is preserved by parent integration; I did not edit their worktree.",
+    "Parent: static regeneration, Rust embed rebuild, browser acceptance, and any decision to track generated/prototypes in git (currently gitignored)."
+  ],
+  "commits": [
+    {
+      "sha": "6a2a734",
+      "subject": "chore(ui-stream): preserve frozen r1 streaming/reading baseline unchanged",
+      "content": "the six frozen r1 paths this slice never edited"
+    },
+    {
+      "subject": "feat(ui-compiler-seam): compile Shenko's own Prototype at build time and consume it",
+      "content": "this slice; sha recorded in the final handoff message because the commit is amended until the tree is final"
+    }
+  ],
+  "canonical_producer_fields_verified": {
+    "taste": "crates/shenko-context-policy/src/taste.rs Disclosure::project_json(): flat family/selected/content_digest/written_at_ms/older_versions/latest_modified_at_ms/full_text; Option fields serialize as null; Version variant nulls older_versions+latest_modified_at_ms (verified in worktrees/deepseek-compact-20261105)",
+    "store": "crates/shenko-types/src/cognition.rs ContentRevisionDisclosure{latest_digest,old_version_count,latest_modified_at_ms} (verified in worktrees/align180-atoms-20261106)"
+  }
+}
