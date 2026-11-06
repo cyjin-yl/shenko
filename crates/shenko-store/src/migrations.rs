@@ -130,6 +130,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     // regardless of which module first asked for them.
     conn.execute_batch(AGGREGATE_DOMAIN_SCHEMA)?;
     conn.execute_batch(crate::activation::SCHEMA)?;
+    conn.execute_batch(crate::cognitive_root::COGNITIVE_ROOT_SCHEMA)?;
     // Seat schema v1 → v2 cutover (SPEC §17.1, §41.11): ONE explicit step.
     //   * `seat_answer_decisions` v1 carried `UNIQUE(question_id)`, which
     //     forbids a second decision for the same question even when the
