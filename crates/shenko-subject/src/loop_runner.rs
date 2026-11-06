@@ -1361,8 +1361,31 @@ async fn execute_step(
                         "line": control.spans.first().map(|span| span.line),
                         "reason": "reconcile cites evidence this case does not carry",
                     })),
-                ));
-            }
+                ));        // A durable obligation may only answer an input this step actually
+        // selected: an origin the subject was never shown cannot become a
+        // frozen fact of its commitment. Naming any other event is a
+        // correctable authored control, exactly like an unselected
+        // disposition, so the loop returns a sourced replacement instead of
+        // rejecting the whole step after its result is already recorded.
+        for control in &output.controls {
+            if let OutputAction::Obligation { spec } = &control.action {
+                let Some(origin) = spec.origin_event_id else {
+                    continue;
+                };
+                if !input.events.iter().any(|event| event.event_id == origin) {
+                    return Err(ShenkoError::Protocol(
+                        shenko_types::error::ProtocolError::new(
+                            "CONTROL_PROTOCOL_INVALID",
+                            shenko_types::error::ErrorScope::Request,
+                            shenko_types::error::RetryStrategy::NewRevision,
+                        )
+                        .with_details(serde_json::json!({
+                            "line": control.spans.first().map(|span| span.line),
+                            "reason": "obligation names an input event that was not selected into this step",
+                            "origin_event_id": origin,
+                        })),
+                    ));
+                }            }
         }
         let mut delegations = Vec::new();
         for control in &output.controls {

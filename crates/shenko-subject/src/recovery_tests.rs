@@ -17,6 +17,9 @@ mod model_child_tests;
 #[path = "obligation_tests.rs"]
 mod obligation_tests;
 
+#[path = "obligation_partition_tests.rs"]
+mod obligation_partition_tests;
+
 #[path = "request_recovery_tests.rs"]
 mod request_recovery_tests;
 

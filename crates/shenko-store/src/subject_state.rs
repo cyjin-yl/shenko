@@ -324,15 +324,41 @@ impl Store {
             let body = obligation_row_body(row)?;
             ensure!(body.obligation_id != EntityId::nil() && body.obligation_id.to_string() == row.key,
                 "invalid obligation projection identity");
+            if let Some(origin) = body.origin_event_id {
+                ensure!(rows.iter().any(|event| event.table == "inbox_events" && event.key == origin.to_string()),
+                    "obligation origin event is missing");
+            }
             let creator_row = steps.get(row.value("step_id").context("obligation creation step missing")?)
                 .context("obligation creation step is absent")?;
             let creator: SubjectStep = serde_json::from_str(creator_row.value("data").context("creation step body missing")?)?;
             let decision_ref: ObjectRef = serde_json::from_str(row.value("decision_ref").context("creation decision missing")?)?;
-            ensure!(creator.state == SubjectStepState::Committed && creator.decision_ref.as_ref() == Some(&decision_ref)
+            ensure!(creator.state == SubjectStepState::Committed
                 && creator.step_id.to_string() == creator_row.key
                 && creator.commit_ref.context("creation commit missing")?.seq.0.to_string() == row.value("created_seq").unwrap_or_default(),
                 "obligation creation provenance differs from its committed step");
-            let decision: StepDecision = serde_json::from_slice(&self.obligation_object_bytes(&decision_ref)?)?;
+            let original = self.obligation_object_bytes(&decision_ref)?;
+            let decision: StepDecision = if creator.decision_ref.as_ref() == Some(&decision_ref) {
+                serde_json::from_slice(&original)?
+            } else {
+                let current = creator.decision_ref.as_ref().context("migrated creation decision missing")?;
+                ensure!(rows.iter().any(|migration| migration.table == "channel_record_migrations"
+                    && migration.value("record_kind") == Some("subject_step")
+                    && migration.value("record_id") == Some(creator_row.key.as_str())
+                    && migration.value("from_version").and_then(|version| version.parse::<u32>().ok())
+                        == Some(crate::channel::LEGACY_DECISION_SCHEMA_VERSION)
+                    && migration.value("to_version").and_then(|version| version.parse::<u32>().ok())
+                        == Some(crate::channel::DECISION_SCHEMA_VERSION)
+                    && migration.value("source_digest") == Some(decision_ref.digest.0.as_str())
+                    && migration.value("target_digest") == Some(current.digest.0.as_str())),
+                    "obligation creation has no recorded publication migration");
+                let mut migrated: serde_json::Value = serde_json::from_slice(&original)?;
+                ensure!(crate::channel::decision_has_legacy_target(&migrated),
+                    "obligation creation migration has no legacy publication target");
+                crate::channel::rewrite_legacy_targets(&mut migrated);
+                let actual: serde_json::Value = serde_json::from_slice(&self.obligation_object_bytes(current)?)?;
+                ensure!(actual == migrated, "obligation creation migration changes non-publication facts");
+                serde_json::from_value(migrated)?
+            };
             ensure!(decision.step_id == creator.step_id
                 && Some(&decision.input_plan_ref) == creator.input_plan_ref.as_ref()
                 && decision.model_result_ref == creator.model_result_ref
@@ -358,7 +384,16 @@ impl Store {
             };
             if step.state != SubjectStepState::Committed { continue; }
             let Some(decision_ref) = &step.decision_ref else { continue };
-            let bytes = self.obligation_object_bytes(decision_ref)?;
+            // A historical step may still hold a decision this store cannot
+            // read: the object was never retained, and recovery keeps that
+            // step degraded with its own blocked marker. That absence cannot
+            // silently waive a present obligation fact either: creations are
+            // bound from their projection above (a mandatory read), terminal
+            // projections require an applied fact below, and every terminal
+            // settlement intent must be bound by an actual request. So an
+            // unreadable decision is skipped here instead of aborting the
+            // whole dispatcher and rolling back those retained markers.
+            let Ok(bytes) = self.obligation_object_bytes(decision_ref) else { continue };
             let value: serde_json::Value = match serde_json::from_slice(&bytes) { Ok(value) => value, Err(_) => continue };
             let has_creation = value.get("pending_obligations").and_then(serde_json::Value::as_array)
                 .is_some_and(|items| items.iter().any(|item| item.get("obligation_id")
@@ -449,7 +484,11 @@ impl Store {
         Ok(())
     }
 
-    fn obligation_object_bytes(&self, object: &shenko_types::object::ObjectRef) -> anyhow::Result<Vec<u8>> {
+    /// Read a sealed object only when its bytes authenticate the reference
+    /// that names them. Obligation validation must never decide membership,
+    /// binding or terminal facts from bytes a swapped pathname supplied under
+    /// an unrelated digest.
+    pub(crate) fn obligation_object_bytes(&self, object: &shenko_types::object::ObjectRef) -> anyhow::Result<Vec<u8>> {
         let bytes = self.cas.read_object(&object.digest)?;
         anyhow::ensure!(bytes.len() as u64 == object.bytes && shenko_types::object::Digest::blake3(&bytes) == object.digest,
             "obligation recovery object does not match its sealed reference");
