@@ -283,6 +283,23 @@ pub fn acquire_launch_owner(data_dir: &Path) -> Result<crate::runtime_owner::Run
         if let Some(agent) = store.get_existing_agent_id()? {
             let (recovery, _) = service(data_dir, store, Arc::new(HandoffParticipantRegistry::for_exclusively_owned_stopped_installation()))?;
             recovery.finish_committed_handoff(agent)?;
+            // We hold the RuntimeOwner here, so no other local writer and no
+            // still-waiting helper exists. A hand-over that died before its
+            // selector CAS left a paused subject nobody on the old side could
+            // resume; the same controller generation takes it back now, and a
+            // committed selection is fenced instead of revived.
+            match recovery.reconcile_interrupted_handoff(agent)? {
+                reconciliation if reconciliation.resumed => tracing::warn!(
+                    activation_id = ?reconciliation.activation_id,
+                    generation = ?reconciliation.generation,
+                    "interrupted process hand-over resumed by the same controller generation"
+                ),
+                reconciliation => tracing::debug!(
+                    state = ?reconciliation.state,
+                    reason = %reconciliation.reason,
+                    "no interrupted hand-over boundary to reconcile"
+                ),
+            }
         }
     }
     if let Ok(expected) = std::env::var("SHENKO_SELECTED_LAUNCH_REVISION") {

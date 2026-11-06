@@ -344,6 +344,11 @@ impl Store {
     /// CAS on `record_revision` and `next_step_id` so a concurrent step
     /// commit or a second handoff loses the race. Callers resume with
     /// `resume_subject`.
+    ///
+    /// The head is normally **paused** at the hand-over boundary, so this
+    /// accepts an active or paused controller. An already fenced (`handoff`)
+    /// writer is refused: fencing it again would advance the epoch of a copy
+    /// that has no authority left.
     pub fn fence_head_for_handoff(
         &self,
         head: &SubjectBranchHead,
@@ -356,7 +361,12 @@ impl Store {
                 let tx = conn
                     .transaction_with_behavior(TransactionBehavior::Immediate)
                     .map_err(storage_error)?;
-                let fresh = checked_head(&tx, head)?;
+                let fresh = checked_head_mode(&tx, head, false)?;
+                if !matches!(fresh.mode, SubjectMode::Active | SubjectMode::Paused) {
+                    return Err(ShenkoError::conflict(
+                        "branch head is not a fenceable controller",
+                    ));
+                }
                 let mut fenced = fresh.clone();
                 fenced.mode = SubjectMode::Handoff;
                 fenced.controller_epoch = ControllerEpoch(fresh.controller_epoch.0.checked_add(1)

@@ -9,9 +9,10 @@
 //! The module owns: the build provider (`build`), candidate slot layout
 //! (`slots`), diff-based migration (`migration`), the smoke launch
 //! (`smoke`), the orchestration of quiesce → catch-up → CAS → fence →
-//! route → resume (`handoff`), the `update.control` native handler
-//! (`native`) and the deterministic CLI (`cli`). The concrete participants
-//! (playground, wasm home, node) register through the
+//! route → resume (`handoff`), the cold-start reconciliation of a hand-over
+//! that died before its selector CAS (`handoff`), the `update.control` native
+//! handler (`native`) and the deterministic CLI (`cli`). The concrete
+//! participants (playground, wasm home, node) register through the
 //! [`handoff::HandoffParticipantRegistry`] seam.
 
 pub mod build;

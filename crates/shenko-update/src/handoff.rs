@@ -36,6 +36,7 @@ use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use shenko_store::Store;
+use shenko_store::runtime_boundary::{SubjectQuiesce, SubjectQuiesceState};
 use shenko_types::activation::{
     ActivationOrigin, ActivationPhase, ActivationRecord, ActivationSelector, PrimaryClaim,
     RouteAuthority,
@@ -125,6 +126,12 @@ impl HandoffParticipantRegistry {
     /// loop. Lack of a model is not evidence of a fictional running loop.
     pub fn bind_subject_driver(&self, running: bool) {
         self.subject_driver_running.store(running, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Whether the caller really holds the installation's exclusive runtime
+    /// owner. Connection failure is not proof, and neither is a name.
+    pub fn exclusive_owner_proven(&self) -> bool {
+        self.inactive_owner_proven
     }
 
     pub fn register(&self, participant: Arc<dyn HandoffParticipant>) {
@@ -222,6 +229,57 @@ pub struct RecoveryReport {
     /// What a recovery cannot explain yet. Each entry names the exact
     /// missing prerequisite.
     pub missing: Vec<String>,
+}
+
+/// What a cold-start reconciliation of an interrupted hand-over found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HandoffReconciliationState {
+    /// The subject has no paused boundary, or the pause is not an open
+    /// hand-over. Nothing was changed.
+    NothingToDo,
+    /// The candidate selector already committed. The retired writer's
+    /// mirror/fence publication was completed; it must never run again.
+    SelectionCommitted,
+    /// The selection never committed. This process is the same controller
+    /// generation and resumed its own boundary: no new epoch, generation or
+    /// second primary was created.
+    ResumedSameController,
+}
+
+/// The durable answer to "was this pause an interrupted hand-over, and which
+/// side owns it now?".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandoffReconciliation {
+    pub state: HandoffReconciliationState,
+    pub agent_id: EntityId,
+    /// The concrete observation behind the decision.
+    pub reason: String,
+    pub selector: Option<ActivationSelector>,
+    pub activation_id: Option<EntityId>,
+    pub activation_phase: Option<ActivationPhase>,
+    pub request_id: Option<EntityId>,
+    pub mode_before: SubjectMode,
+    pub mode_after: Option<SubjectMode>,
+    pub epoch: Option<ControllerEpoch>,
+    pub generation: Option<RuntimeGeneration>,
+    /// Whether the same controller really took its boundary back.
+    pub resumed: bool,
+    /// The sealed copy of this answer in the shared CAS.
+    pub receipt_ref: Option<ObjectRef>,
+}
+
+/// The part of the live control transport's frozen request that a cold
+/// reconciliation can verify. The exact command and helper digest belong to
+/// the helper that was going to execute it.
+#[derive(Debug, Deserialize)]
+struct FrozenProcessHandoff {
+    schema_version: u32,
+    request_id: EntityId,
+    agent_id: EntityId,
+    installation_id: EntityId,
+    source_selector: ActivationSelector,
+    source_slot: PathBuf,
 }
 
 /// The outcome of an activate() or rollback() call.
@@ -340,6 +398,259 @@ impl UpdateService {
         let subject = self.store.resume_subject_quiesce(agent, request_id);
         ensure!(resources.is_ok() && subject.is_ok(), "process handoff abort incomplete: resources={resources:?},subject={subject:?}");
         Ok(())
+    }
+
+    /// Whether this process really owns the installation's exclusive runtime
+    /// lease. Only that proves no other local writer exists.
+    pub fn exclusive_owner_proven(&self) -> bool {
+        self.participants.exclusive_owner_proven()
+    }
+
+    /// Reconcile a subject boundary left behind by an interrupted hand-over.
+    ///
+    /// A live activate/rollback freezes its request, quiesces the subject and
+    /// hands the final catch-up and the selector CAS to a finite helper. If
+    /// that helper dies before the CAS — killed, crashed, or refused at spawn —
+    /// the installation is left with a paused head, its open quiesce request
+    /// and an open activation record, and the old side cannot take the boundary
+    /// back on its own: the private request id only ever existed in the dead
+    /// process and in its frozen file. The next owner of the installation
+    /// therefore reconciles deterministically:
+    ///
+    /// * the caller must hold the exclusive `RuntimeOwner`, so no second local
+    ///   writer and no still-waiting helper exists;
+    /// * a committed selection is never undone: the retired writer is mirrored
+    ///   and fenced instead, and the new generation owns the subject;
+    /// * a paused head without its own durable boundary record is refused, not
+    ///   guessed;
+    /// * a pause that is not an open hand-over (an operator's `runtime pause`)
+    ///   is left exactly as it is;
+    /// * the resumed boundary keeps the same controller epoch and generation,
+    ///   so no second primary and no duplicated dispatch appears;
+    /// * the abandoned activation keeps its identity, its stopped-resource
+    ///   receipts and the sealed reason it was abandoned.
+    pub fn reconcile_interrupted_handoff(&self, agent_id: EntityId) -> UpdateResult<HandoffReconciliation> {
+        ensure!(self.participants.exclusive_owner_proven(),
+            "HANDOFF_OWNER_UNPROVEN: reconciling an interrupted hand-over needs the installation's exclusive runtime owner");
+        let (head, _) = self.store.load_subject(agent_id).map_err(UpdateError::CandidateStore)?;
+        let selector = self.store.activation_selector(agent_id).map_err(UpdateError::CandidateStore)?;
+        let mut answer = HandoffReconciliation {
+            state: HandoffReconciliationState::NothingToDo,
+            agent_id,
+            reason: String::new(),
+            selector: selector.clone(),
+            activation_id: None,
+            activation_phase: None,
+            request_id: None,
+            mode_before: head.mode,
+            mode_after: None,
+            epoch: Some(head.controller_epoch),
+            generation: Some(head.software_generation.clone()),
+            resumed: false,
+            receipt_ref: None,
+        };
+        if head.mode == SubjectMode::Active {
+            answer.reason = "the subject has no paused boundary".to_string();
+            return Ok(answer);
+        }
+        if head.mode != SubjectMode::Paused {
+            // A `handoff` head is the retired, already-fenced writer of a
+            // committed selection: reviving it would create a second primary.
+            bail!("HANDOFF_NOT_RESUMABLE: the subject mode is {:?}; this copy is not the resumable controller", head.mode);
+        }
+        let request = self.store.open_subject_quiesce(agent_id)
+            .map_err(UpdateError::CandidateStore)?
+            .ok_or_else(|| anyhow!("PAUSED_BOUNDARY_UNBOUND: the paused head has no local quiesce record; explicit reconciliation required"))?;
+        answer.request_id = Some(request.request_id);
+        let Some(activation) = self.store.open_activation(agent_id).map_err(UpdateError::CandidateStore)? else {
+            // An explicit operator pause is a control state, not an
+            // interrupted hand-over: only an explicit resume may end it.
+            answer.reason = "the paused boundary is not an open hand-over".to_string();
+            return Ok(answer);
+        };
+        answer.activation_id = Some(activation.activation_id);
+        answer.activation_phase = Some(activation.phase);
+        let selected = selector.clone().ok_or(UpdateError::SelectorMissing)?;
+        ensure!(request.generation == head.software_generation && request.epoch == head.controller_epoch,
+            "the paused boundary does not bind this head's generation/epoch");
+        ensure!(activation.agent_id == agent_id && activation.from_generation == head.software_generation,
+            "the open hand-over does not start from the paused generation");
+        // The recorded source slot must be this installation's live slot. A
+        // pre-slot installation is its own slot, so the data directory is the
+        // same answer; a foreign slot is refused rather than resumed.
+        let recorded_slot = self.state_slot(&activation.from_state_ref)?;
+        ensure!(same_slot_path(&recorded_slot, &self.live_slot)
+                || same_slot_path(&recorded_slot, &self.data_dir),
+            "the open hand-over names another source slot; explicit reconciliation required");
+        if selected.selector_revision > activation.expected_selector_revision {
+            // The candidate CAS committed. Completion (mirror, fence, pointer)
+            // is deterministic; the old writer is never resumed.
+            self.finish_committed_handoff(agent_id)?;
+            let (head, _) = self.store.load_subject(agent_id).map_err(UpdateError::CandidateStore)?;
+            ensure!(head.mode != SubjectMode::Paused,
+                "the committed selection was completed but the retired writer is still paused");
+            answer.state = HandoffReconciliationState::SelectionCommitted;
+            answer.reason = "the selector committed before retirement; the retired writer is fenced and must not run".to_string();
+            answer.mode_after = Some(head.mode);
+            answer.epoch = Some(head.controller_epoch);
+            answer.generation = Some(head.software_generation.clone());
+            answer.activation_phase = self.store
+                .activation_record(activation.activation_id)
+                .map_err(UpdateError::CandidateStore)?
+                .map(|record| record.phase);
+            answer.selector = self.store.activation_selector(agent_id)
+                .map_err(UpdateError::CandidateStore)?;
+            let sealed = self.seal_json(&answer, "activation", "handoff-reconciliation")?;
+            answer.receipt_ref = Some(sealed);
+            return Ok(answer);
+        }
+        ensure!(selected.selector_revision == activation.expected_selector_revision,
+            "the selector moved without committing this activation; explicit reconciliation required");
+        ensure!(selected.generation == head.software_generation,
+            "the selected generation does not own the paused head");
+        self.verify_frozen_process_handoff(&activation, &selected, &request)?;
+
+        // The same controller takes its own boundary back. `resume_subject_quiesce`
+        // re-reads the head, the epoch, the generation and the planned successor
+        // inside one transaction, so a boundary that moved in the meantime is
+        // refused instead of resumed.
+        let resumed = self.store.resume_subject_quiesce(agent_id, request.request_id)
+            .map_err(UpdateError::CandidateStore)?;
+        ensure!(resumed.state == SubjectQuiesceState::Resumed,
+            "the boundary resume did not commit; the paused subject must not be treated as active");
+        let (head, _) = self.store.load_subject(agent_id).map_err(UpdateError::CandidateStore)?;
+        ensure!(head.mode == SubjectMode::Active && head.controller_epoch == request.epoch
+            && head.software_generation == request.generation,
+            "the resumed controller is not the same generation/epoch");
+        let abandoned = self.abandon_interrupted_handoff(&activation, &request)?;
+        answer.state = HandoffReconciliationState::ResumedSameController;
+        answer.reason = "the selection never committed; the same controller generation resumed its boundary".to_string();
+        answer.mode_after = Some(head.mode);
+        answer.epoch = Some(head.controller_epoch);
+        answer.generation = Some(head.software_generation.clone());
+        answer.activation_phase = Some(abandoned.phase);
+        answer.resumed = true;
+        let sealed = self.seal_json(&answer, "activation", "handoff-reconciliation")?;
+        answer.receipt_ref = Some(sealed);
+        tracing::warn!(
+            activation_id = %activation.activation_id,
+            request_id = %request.request_id,
+            generation = %request.generation.0,
+            "interrupted hand-over boundary resumed by the same controller generation"
+        );
+        Ok(answer)
+    }
+
+    /// Reconcile only when this process really owns the installation. A live
+    /// runtime that still holds its participants must not decide this.
+    pub fn reconcile_if_exclusive(&self, agent_id: EntityId) -> UpdateResult<Option<HandoffReconciliation>> {
+        if !self.exclusive_owner_proven() {
+            return Ok(None);
+        }
+        Ok(Some(self.reconcile_interrupted_handoff(agent_id)?))
+    }
+
+    /// Verify the frozen live-control request of an interrupted hand-over.
+    ///
+    /// The request is the only proof that this pause was this installation's
+    /// own update and not some other control state. An offline activation has
+    /// no frozen live request; its activation record, selector revision and
+    /// boundary commit are the whole binding.
+    fn verify_frozen_process_handoff(
+        &self,
+        activation: &ActivationRecord,
+        selected: &ActivationSelector,
+        request: &SubjectQuiesce,
+    ) -> UpdateResult<()> {
+        let closure_bytes = self.store.cas.read_object(&activation.recovery_closure_ref.digest)
+            .map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&closure_bytes) == activation.recovery_closure_ref.digest
+                && closure_bytes.len() as u64 == activation.recovery_closure_ref.bytes,
+            "the activation recovery closure does not match its reference");
+        let closure: serde_json::Value = serde_json::from_slice(&closure_bytes)
+            .map_err(anyhow::Error::from)?;
+        let Some(reference) = closure.get("process_handoff_request_ref") else {
+            return Ok(());
+        };
+        let object: ObjectRef = serde_json::from_value(reference.clone())
+            .map_err(anyhow::Error::from)?;
+        let bytes = self.store.cas.read_object(&object.digest).map_err(anyhow::Error::from)?;
+        ensure!(Digest::blake3(&bytes) == object.digest && bytes.len() as u64 == object.bytes,
+            "the frozen process hand-off request does not match its reference");
+        let frozen: FrozenProcessHandoff = serde_json::from_slice(&bytes)
+            .map_err(anyhow::Error::from)?;
+        ensure!(frozen.schema_version == 1, "unsupported frozen process hand-off request");
+        ensure!(frozen.request_id == request.request_id && frozen.agent_id == activation.agent_id,
+            "the frozen process hand-off request is not this boundary");
+        ensure!(frozen.installation_id
+                == self.store.installation_id_for_subject(activation.agent_id)
+                    .map_err(UpdateError::CandidateStore)?,
+            "the frozen process hand-off request belongs to another installation");
+        ensure!(&frozen.source_selector == selected,
+            "the frozen process hand-off source selector is not the current selection");
+        let live = slots::resolve_live_slot(&self.data_dir).ok().flatten()
+            .unwrap_or_else(|| self.data_dir.clone());
+        ensure!(same_slot_path(&frozen.source_slot, &live),
+            "the frozen process hand-off source slot is not the live slot");
+        Ok(())
+    }
+
+    /// Abandon an interrupted activation without destroying its history: the
+    /// stopped-resource receipts, the cursors and the original identity stay.
+    fn abandon_interrupted_handoff(
+        &self,
+        activation: &ActivationRecord,
+        request: &SubjectQuiesce,
+    ) -> UpdateResult<ActivationRecord> {
+        ensure!(!activation.phase.is_terminal(),
+            "the interrupted hand-over is already terminal in phase {:?}", activation.phase);
+        let mut abandoned = activation.clone();
+        abandoned.last_error_ref = Some(self.seal_json(
+            &serde_json::json!({
+                "state": "abandoned_before_selection",
+                "reason": "the process hand-over never committed its selection; the same controller resumed its boundary",
+                "activation_id": activation.activation_id,
+                "request_id": request.request_id,
+                "epoch": request.epoch,
+                "generation": request.generation.0,
+                "observed_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+                "retained": {
+                    "pending_operations_ref": activation.pending_operations_ref,
+                    "inference_allocations_ref": activation.inference_allocations_ref,
+                    "ingress_cursors_ref": activation.ingress_cursors_ref,
+                    "evidence_cursors_ref": activation.evidence_cursors_ref,
+                    "imported_through": activation.imported_through,
+                },
+            }),
+            "activation",
+            "handoff-reconciliation-failure",
+        )?);
+        abandoned.phase = ActivationPhase::Abandoned;
+        self.store
+            .update_activation_record(&abandoned, RecordRevision(abandoned.record_revision))
+            .map_err(UpdateError::CandidateStore)
+    }
+
+    /// The candidate program this activation will select, re-verified against
+    /// its prepared artifact digest.
+    ///
+    /// It is checked before anything is quiesced and again immediately before
+    /// the selector CAS: a candidate whose bytes changed or vanished between
+    /// its smoke launch and its selection must never become the committed
+    /// authority while the working runtime has already stopped.
+    fn verified_candidate_program(&self, record: &ActivationRecord) -> UpdateResult<(PathBuf, Digest)> {
+        let slot_dir = self.layout().slot_dir(&record.to_generation);
+        let manifest = slots::read_slot_manifest(&slot_dir).map_err(anyhow::Error::from)?;
+        ensure!(manifest.generation == record.to_generation.0,
+            "the candidate slot manifest names generation {}, not this activation's target {}",
+            manifest.generation, record.to_generation.0);
+        let executable = manifest.artifact_path.context("candidate artifact path missing")?;
+        let digest = manifest.artifact_digest.context("candidate artifact digest missing")?;
+        let bytes = std::fs::read(&executable)
+            .with_context(|| format!("candidate executable {executable} is unreadable"))?;
+        ensure!(Digest::blake3(&bytes) == digest,
+            "candidate executable {executable} does not match its prepared artifact digest");
+        Ok((PathBuf::from(executable), digest))
     }
 
     fn authority_snapshot(&self) -> UpdateResult<serde_json::Value> {
@@ -837,6 +1148,11 @@ impl UpdateService {
         //     is an error").
         self.verify_smoke_evidence(&record)?;
 
+        // 0c. The program that would become the selection must still be the
+        //     one its smoke ran against. Refusing here — before any resource
+        //     is quiesced — keeps the working runtime untouched.
+        self.verified_candidate_program(&record)?;
+
         // 1. The subject pauses at a boundary; a running primary is fenced
         //    here, a stopped one has already stopped admitting decisions.
         let quiesce_request = self.quiesce_subject(record.agent_id, activation_id).await?;
@@ -895,9 +1211,11 @@ impl UpdateService {
             },
             route_authority_ref: record.to_state_ref.clone(),
         };
-        let manifest = slots::read_slot_manifest(slot.parent().unwrap()).map_err(anyhow::Error::from)?;
-        let executable = manifest.artifact_path.context("candidate artifact path missing")?;
-        let artifact_digest = manifest.artifact_digest.context("candidate artifact digest missing")?;
+        // The program verified before quiescing is the one this CAS selects.
+        // Re-reading it here refuses a swap that happened in between instead
+        // of committing authority to bytes nobody smoked.
+        let (executable, artifact_digest) = self.verified_candidate_program(&record)?;
+        let executable = executable.to_string_lossy().into_owned();
         let route = RouteAuthority {
             schema_version: RouteAuthority::SCHEMA_VERSION,
             agent_id: record.agent_id,
@@ -1066,7 +1384,13 @@ impl UpdateService {
         let from_slot = self.live_slot.join(SLOT_DB_FILENAME);
         let previous_slot = self.state_slot(&record.from_state_ref)?;
         let to_slot = previous_slot.join(SLOT_DB_FILENAME);
-        let import = migration::import_delta(&from_slot, &to_slot, &self.cas_dir)
+        // Rollback is the one direction where the destination becomes the
+        // selected generation immediately after the import, so a source commit
+        // that the export did not cover is unrecoverable. The strict importer
+        // refuses that instead of reporting a caught-up copy. Prepare and
+        // activate keep the ordinary importer: the live subject is still
+        // committing while they catch up.
+        let import = migration::import_rollback_delta(&from_slot, &to_slot, &self.cas_dir)
             .map_err(anyhow::Error::from)?;
         if !import.blocked_units.is_empty() {
             return Err(UpdateError::MigrationBlocked(import.blocked_units));
@@ -1100,7 +1424,9 @@ impl UpdateService {
             recovery_closure_ref: rollback_recovery,
             contract_revision: record.contract_revision.clone(),
             phase: ActivationPhase::Handoff,
-            w0: record.w1,
+            // The forward activation's watermark is not where this rollback
+            // starts: the live generation kept committing after it.
+            w0: import.source_watermark_before.or(record.w1),
             w1: import.watermark,
             imported_through: import.watermark,
             ingress_cursors_ref: record.ingress_cursors_ref.clone(),
@@ -1349,6 +1675,13 @@ impl UpdateService {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
     }
+}
+
+/// Whether two slot paths name the same directory. Canonicalization tolerates
+/// symlinked data directories; an unreadable path is compared as written.
+fn same_slot_path(left: &Path, right: &Path) -> bool {
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    canonical(left) == canonical(right)
 }
 
 /// The generation directories of an installation, oldest first.
