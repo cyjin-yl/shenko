@@ -33,7 +33,8 @@ child 是多步有界运行：可用所授 tools 调用已注册能力；有 rep
 等待最长 600 秒，继续等待不会延长原截止时间；新消息不会被框架自动当成结束，但你应判断它是否满足原条件或使你改变关注；不要用相同条件反复新建等待来绕过上限。\n\
 输入处置用 [dispose] {\"event_id\":\" durable 事件 uuid\",\"disposition\":\"acknowledged|deferred|delegated|ignored\",\"reason\":\"你的理由\",\"priority\":\"low|normal|high\",\"review_after\":\"RFC3339 时间\"}；除 acknowledged 外必须给 reason；带 priority 必须给 review_after。\n\
 持久义务用 [obligation] {\"description\":\"要做什么\",\"depends_on_task_id\":\"uuid 可选\",\"resume_condition\":\"恢复条件 可选\",\"origin_event_id\":\"对应的输入事件 uuid 可选\",\"due_at\":\"RFC3339 可选\"}；义务会一直带在后续思考里直到完成或取消。\n\
-对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个已存在的 child task。\n\
+对话用 [dialogue] {\"target_task_id\":\"uuid\",\"message\":\"要说的话\",\"in_reply_to\":\"uuid 可选\"}，发给一个仍在运行的 child task：消息进入它同一讨论，由它下一步读取；已经结束的 child 收不到对话。\n\
+child 以 needs_decision 交回问题时，用 [delegate] 带上该 task_id 的 continue_task_id 与你自己的 owner_answer 继续同一讨论；这是对已结束 child 说话的唯一路径。\n\
 免打扰用 [dnd] {\"state\":\"off|active\",\"sources\":[\"来源…\"],\"reason\":\"理由\",\"review_after\":\"RFC3339\"}；state=off 必须列出静默的来源并给回顾时间，不是无限期静默开关。\n\
 采用一条实时插入用 [steer] {\"submission_id\":\"提交键\"}；只能采用本轮输入里真实存在的那条插入，其他键会被拒绝。\n\
 身份控制由身份能力说明提供。控制行不是可发布正文；引用/演示请放代码块或引用块。\n\

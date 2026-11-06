@@ -188,7 +188,7 @@ impl Store {
                 for intent_id in intent_ids {
                     tx.execute(
                         "UPDATE subject_intents SET state='settled',updated_seq=?2 \
-                         WHERE intent_id=?1 AND kind='dialogue' AND state='claimed'",
+                         WHERE intent_id=?1 AND kind='dialogue' AND state IN ('claimed','ready')",
                         params![intent_id.to_string(), seq.0 as i64],
                     )?;
                 }
