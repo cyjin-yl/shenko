@@ -26,7 +26,7 @@ use anyhow::{Context, Result, bail, ensure};
 use serde::{Deserialize, Serialize};
 use shenko_node::{Node, ToolUnitFact, UnitKind};
 use shenko_types::object::Digest;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use wasmtime::{Engine, Extern, ExternType, FuncType, Linker, Module, Store};
 use wasmtime_wasi::p1;
 use wasmtime_wasi::{WasiCtxBuilder, p1::WasiP1Ctx};
@@ -156,6 +156,15 @@ pub struct ToolDescriptor {
     /// by definition.
     #[serde(default)]
     pub artifact: Option<crate::artifact::ToolArtifactRef>,
+    /// The capability requirements this package declares — SPEC §9
+    /// "权限需求". They are requirements, never grants: they are admitted
+    /// against what the executor actually hands the guest (the frozen mount
+    /// closure and the explicit invocation environment), and a version
+    /// written before declarations existed stays
+    /// [`shenko_node::PackageDeclaration::unrecorded`] rather than inheriting
+    /// a fabricated empty or blanket declaration.
+    #[serde(default)]
+    pub capabilities: shenko_node::PackageDeclaration,
 }
 
 /// Result of inspecting the actual module bytes: what the artifact really is
@@ -380,14 +389,20 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "git/git",
         license: "GPL-2.0-only",
         compatibility: "W2",
-        required_capabilities: &["wasi-sockets", "no-process-spawn"],
+        required_capabilities: &["cap.network.tcp/1", "cap.process.deny/1"],
         unresolved_reason: Some(
-            "no verified wasm32-wasip1 Git client artifact exists yet; \
-             clone/pull/push need sockets (the wasi-sdk 34 wasip1 sysroot \
-             declares no socket() at all) and the credential helper chain \
-             needs a process spawn (wasip1 has no fork/exec), so a working \
-             private-remote Git needs a WASIX runtime or dedicated host \
-             imports. This target stays open until a real artifact exists",
+            "no verified wasm32-wasip1 Git client artifact exists yet. This \
+             runtime now supplies the missing transport — admitted, \
+             target-bound stream sockets (shenko_wasm::NetworkAdmission; guest \
+             shim in crates/shenko-wasm/ports/wasi-net/) — so clone/pull/push \
+             over http(s) no longer lack sockets. What is still missing is the \
+             port: the wasip1 sysroot has no fork/exec, so the credential \
+             helper chain and the dashed builtin dispatch must run in-module, \
+             and https needs a wasm-built crypto backend. The acquisition and \
+             build recipe, with the upstream pin resolved from the project's \
+             own repository at acquisition time, is \
+             crates/shenko-wasm/ports/git-wasi/. This target stays open until \
+             a real artifact exists",
         ),
     },
     NamedToolTarget {
@@ -396,13 +411,17 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "cli/cli",
         license: "MIT",
         compatibility: "W2",
-        required_capabilities: &["wasi-sockets", "host-http", "no-process-spawn"],
+        required_capabilities: &["cap.network.tcp/1", "cap.network.dns/1", "cap.process.deny/1"],
         unresolved_reason: Some(
-            "no verified artifact exists yet: wasi-gh needs dedicated host \
-             HTTP/exec imports this runtime does not provide (SPEC §8.2 W2), \
-             and a Go GOOS=wasip1 build links without sockets and therefore \
-             cannot talk to an API. This target stays open until a real \
-             artifact exists",
+            "no verified artifact exists yet: cli/cli is Go, and a \
+             GOOS=wasip1 build links without socket support, so its API calls \
+             cannot work as built. The preview1 transport now exists \
+             (crates/shenko-wasm/ports/wasi-net/), so gh needs a wasip1 build \
+             that actually uses admitted sockets, and it still has no \
+             substitute for its browser, keyring, editor and aggregation \
+             helpers. Acquisition and the open port work are described in \
+             crates/shenko-wasm/ports/gh-wasi/. This target stays open until a \
+             real artifact exists",
         ),
     },
     NamedToolTarget {
@@ -411,11 +430,16 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "go-gitea/gitea tea",
         license: "MIT",
         compatibility: "W2",
-        required_capabilities: &["wasi-sockets", "host-http", "no-process-spawn"],
+        required_capabilities: &["cap.network.tcp/1", "cap.network.dns/1", "cap.process.deny/1"],
         unresolved_reason: Some(
-            "no verified Gitea CLI WASM artifact exists yet; like gh it needs \
-             sockets for its API calls, so preview1 alone cannot make it \
-             work. This target stays open until a real artifact exists",
+            "no verified Gitea CLI WASM artifact exists yet: go-gitea/gitea's \
+             tea is Go, and a GOOS=wasip1 build links without sockets, so its \
+             API calls cannot work as built; it needs a wasip1 build over the \
+             admitted preview1 transport \
+             (crates/shenko-wasm/ports/wasi-net/). Acquisition and the open \
+             port work are described in \
+             crates/shenko-wasm/ports/tea-wasi/. This target stays open until \
+             a real artifact exists",
         ),
     },
     NamedToolTarget {
@@ -424,14 +448,18 @@ pub const NAMED_TARGETS: &[NamedToolTarget] = &[
         upstream: "openssh/openssh (WASIX port) / ssh WASM client",
         license: "BSD-3-Clause (OpenSSH)",
         compatibility: "W1",
-        required_capabilities: &["wasi-sockets", "wasi-random", "wasi-clock"],
+        required_capabilities: &["cap.network.tcp/1", "cap.random/1", "cap.clock/1"],
         unresolved_reason: Some(
-            "OpenSSH WASIX ports need a WASIX runtime and socket imports; \
-             wasmtime-45 preview1 provides neither; the host ssh client is not \
-             a WASM SSH (SPEC §8.2/R019). A real SSH client must run the \
-             protocol and authentication inside the module, with the host \
-             only supplying sockets, entropy and clock. No such artifact \
-             exists yet; this target stays open until one does",
+            "no wasm32-wasip1 OpenSSH artifact exists yet. The WASIX ports \
+             need a WASIX-capable engine, and this runtime is wasmtime-45 \
+             preview1 (SPEC §8.2 W1, R019); the host ssh client is not a WASM \
+             SSH. A real SSH client must run the protocol and authentication \
+             inside the module with the host supplying only admitted sockets, \
+             getrandom entropy and clock_time_get — all three exist now — so \
+             what remains is the port itself, not host capability. Acquisition \
+             and the open port work are described in \
+             crates/shenko-wasm/ports/openssh-wasi/. This target stays open \
+             until a real artifact exists",
         ),
     },
 ];
@@ -465,7 +493,25 @@ pub struct ToolRecord {
     pub digest: Digest,
     pub imports: Vec<String>,
     pub enabled: bool,
+    /// The unit inventory's current version for this tool name. It is a fact
+    /// about the inventory, not about any environment generation.
     pub current: bool,
+    /// True when this version is what a name-only lookup resolves. With an
+    /// active environment generation that is the generation's pin; an
+    /// installation that never activated one is honestly unpinned and this
+    /// mirrors `current`.
+    pub selected: bool,
+    /// The active environment generation that pins this version, if any.
+    pub environment: Option<ToolEnvironment>,
+    /// The capability requirements that apply to this version.
+    ///
+    /// When the version is pinned by an active generation this is the
+    /// declaration that generation froze, so a reimport of the same artifact
+    /// identity cannot change the permission surface of a selected
+    /// environment. Otherwise it is what the retained unit version authored;
+    /// a version outside the environment has no immutable authority and is
+    /// reported as such by `environment: None`.
+    pub capabilities: shenko_node::PackageDeclaration,
     pub unit_id: String,
     /// Where the artifact bytes live. The digest here is the blake3 identity
     /// of the module bytes; the upstream receipt's sha256 is provenance and
@@ -477,6 +523,23 @@ pub struct ToolRecord {
     /// materialization completed; informational — execution reads the
     /// verified object bytes, never this copy.
     pub materialized_path: Option<String>,
+}
+
+/// The active environment generation that pins one tool version.
+///
+/// It is recorded in every execution receipt, so a later activation or
+/// rollback cannot rewrite what an already-running invocation resolved.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolEnvironment {
+    /// Monotonic generation number of the locking closure.
+    pub generation: u64,
+    /// blake3 identity of the locked closure document.
+    pub digest: Digest,
+    /// The selector revision that published this generation.
+    pub selector_revision: u64,
+    /// `root` or `dependency` inside that closure.
+    pub role: String,
 }
 
 fn record_from_fact(fact: &ToolUnitFact) -> Result<ToolRecord> {
@@ -499,6 +562,14 @@ fn record_from_fact(fact: &ToolUnitFact) -> Result<ToolRecord> {
     let artifact = descriptor.artifact.clone().unwrap_or_else(|| {
         crate::artifact::ToolArtifactRef::node_inline(fact.artifact_digest.clone(), 0, None)
     });
+    // The declaration that applies to this version: the copy the active
+    // generation froze when it pins this version, otherwise the declaration
+    // the retained version authored. A version outside the environment has no
+    // immutable authority, and an absent declaration stays unrecorded.
+    let capabilities = match &fact.environment {
+        Some(pin) => pin.declarations.clone(),
+        None => descriptor.capabilities.normalized(),
+    };
     Ok(ToolRecord {
         name: descriptor.name,
         version: descriptor.version,
@@ -509,6 +580,14 @@ fn record_from_fact(fact: &ToolUnitFact) -> Result<ToolRecord> {
         imports: descriptor.imports,
         enabled: fact.enabled,
         current: fact.current,
+        selected: fact.selected,
+        environment: fact.environment.as_ref().map(|pin| ToolEnvironment {
+            generation: pin.generation,
+            digest: pin.generation_digest.clone(),
+            selector_revision: pin.selector_revision,
+            role: pin.role.as_str().to_string(),
+        }),
+        capabilities,
         unit_id: fact.unit_id.clone(),
         artifact,
         license: descriptor.license.clone(),
@@ -580,7 +659,10 @@ pub fn named_target_status(records: &[ToolRecord]) -> Vec<NamedTargetStatus> {
         .map(|target| {
             let installed: Vec<String> = records
                 .iter()
-                .filter(|record| target.matches.accepts(&record.name))
+                // Only a version the installation actually selects counts as
+                // present. A retained version outside the active generation is
+                // installed storage, not a working target here.
+                .filter(|record| record.selected && target.matches.accepts(&record.name))
                 .map(|record| {
                     format!(
                         "{}@{} {} ({}, {})",
@@ -624,10 +706,20 @@ pub fn named_target_status(records: &[ToolRecord]) -> Vec<NamedTargetStatus> {
 /// - `TOOL_UNSUPPORTED:<name>`  — a declared named target with no
 ///   installed artifact; detail carries the honest reason.
 /// - `TOOL_UNAVAILABLE:<name>`  — unknown or uninstalled name.
+/// - `TOOL_NOT_SELECTED:<name>` — versions of this name are installed but the
+///   active environment generation selects none of them; the caller can name
+///   one explicitly or activate a generation that pins it.
 /// - `TOOL_AMBIGUOUS:<name>`    — several versions installed; the caller
 ///   must pass an explicit version.
 /// - `TOOL_ABI_UNSUPPORTED:<name>` — installed but not executable under this
 ///   runtime (catalogued foreign-ABI records stay honest metadata).
+///
+/// A name-only lookup follows the environment: with an active generation the
+/// selected version is its pin, so an upgrade happens by activating a
+/// generation that pins the new version and a rollback happens by activating
+/// the older one. A deliberate `name@version` still reaches any retained
+/// version and reports `environment: None` in its record, so the receipt says
+/// the run was outside the generation.
 pub fn resolve_tool<'f>(
     facts: &'f [ToolUnitFact],
     spec: &str,
@@ -643,7 +735,7 @@ pub fn resolve_tool<'f>(
             continue;
         }
         let record = record_from_fact(fact)?;
-        if record.name == name && version.map_or(record.current, |v| record.version == v) {
+        if record.name == name && version.map_or(record.selected, |v| record.version == v) {
             matched.push((record, fact));
         }
     }
@@ -676,6 +768,19 @@ pub fn resolve_tool<'f>(
                     target.unresolved_reason.unwrap_or("unresolved")
                 );
             }
+            let installed: Vec<String> = facts
+                .iter()
+                .filter_map(|fact| record_from_fact(fact).ok())
+                .filter(|record| record.name == name)
+                .map(|record| format!("{}@{}", record.name, record.version))
+                .collect();
+            ensure!(
+                installed.is_empty(),
+                "TOOL_NOT_SELECTED:{name}: {} is installed on this node but the active \
+                 environment generation does not select it; name it explicitly as \
+                 name@version, or prepare and activate a generation that pins it",
+                installed.join(", ")
+            );
             bail!("TOOL_UNAVAILABLE:{spec}: no installed WASI tool by that name")
         }
         1 => matched.remove(0),
@@ -760,6 +865,207 @@ pub fn tool_module_with_store(
         actual
     );
     Ok((bytes, inspection))
+}
+
+// -------------------------------------------------- capability admission ---
+
+/// What this runtime actually hands a guest for one invocation: the frozen
+/// mount closure, the explicit environment entries and the fixed facilities
+/// the preview1 host provides. It is built from the grant, never from the
+/// package's claims.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GrantedCapabilities {
+    /// `(guest_path, writable)` for every preopened mount, exactly as admitted.
+    pub mounts: Vec<(String, bool)>,
+    /// Environment variable names supplied for this invocation.
+    pub environment: BTreeSet<String>,
+    /// Wall/monotonic clock functions — part of the preview1 host.
+    pub clock: bool,
+    /// Entropy — part of the preview1 host.
+    pub random: bool,
+    /// Network targets this invocation actually admitted. `None` means the
+    /// network transport is not registered for this run; a package that
+    /// requires network is then unsupported rather than run under an invented
+    /// empty admission.
+    pub network: Option<Vec<shenko_node::NetworkTarget>>,
+    /// Host import modules other than `wasi_snapshot_preview1` this run links.
+    pub host_imports: BTreeSet<String>,
+}
+
+impl GrantedCapabilities {
+    /// The grant implied by one execution: the resolved mount profile and the
+    /// explicit environment. Clock and entropy are always provided by the
+    /// preview1 host; sockets and foreign host imports are not part of this
+    /// linker unless a caller explicitly admits them.
+    pub fn of_invocation(
+        mounts: &[crate::MountSpec],
+        environment: &BTreeMap<String, String>,
+    ) -> Self {
+        Self {
+            mounts: mounts
+                .iter()
+                .map(|mount| (mount.guest_path.clone(), mount.writable))
+                .collect(),
+            environment: environment.keys().cloned().collect(),
+            clock: true,
+            random: true,
+            network: None,
+            host_imports: BTreeSet::new(),
+        }
+    }
+
+    /// Same grant with the network targets this invocation admitted.
+    pub fn with_network(mut self, targets: Vec<shenko_node::NetworkTarget>) -> Self {
+        self.network = Some(targets);
+        self
+    }
+}
+
+/// Admit one package declaration against the grant the guest actually gets.
+///
+/// Returns one message per unmet requirement, sorted. An `unrecorded`
+/// declaration produces none: absence is not a claim, and the run keeps
+/// exactly the profile's grant — neither more nor less. Every message is
+/// derived from a typed declaration field and a real resource, never from a
+/// tool name, a keyword list or a model judgement.
+pub fn capability_problems(
+    declaration: &shenko_node::PackageDeclaration,
+    granted: &GrantedCapabilities,
+) -> Vec<String> {
+    let Some(capabilities) = declaration.capabilities() else {
+        return Vec::new();
+    };
+    let mut problems = Vec::new();
+    for requirement in &capabilities.filesystem {
+        match writable_cover(granted, &requirement.guest_path) {
+            Some(writable) if requirement.write && !writable => problems.push(format!(
+                "TOOL_MOUNT_READ_ONLY:{}",
+                requirement.guest_path
+            )),
+            Some(_) => {}
+            None => problems.push(format!("TOOL_MOUNT_MISSING:{}", requirement.guest_path)),
+        }
+    }
+    for name in &capabilities.environment {
+        if !granted.environment.contains(name) {
+            problems.push(format!("TOOL_ENV_MISSING:{name}"));
+        }
+    }
+    for requirement in &capabilities.host {
+        match requirement {
+            shenko_node::HostRequirement::Clock {} if !granted.clock => {
+                problems.push("TOOL_CAPABILITY_UNSUPPORTED:host:clock".into())
+            }
+            shenko_node::HostRequirement::Random {} if !granted.random => {
+                problems.push("TOOL_CAPABILITY_UNSUPPORTED:host:random".into())
+            }
+            shenko_node::HostRequirement::HostImport { module }
+                if !granted.host_imports.contains(module) =>
+            {
+                problems.push(format!("TOOL_CAPABILITY_UNSUPPORTED:host_import:{module}"))
+            }
+            shenko_node::HostRequirement::Network { targets } => {
+                match &granted.network {
+                    None => problems.push(
+                        "TOOL_CAPABILITY_UNSUPPORTED:network: this run has no network \
+                         transport registered"
+                            .into(),
+                    ),
+                    Some(admitted) => {
+                        for target in targets {
+                            if !network_target_admitted(admitted, target) {
+                                problems.push(format!(
+                                    "TOOL_NETWORK_NOT_ADMITTED:{}:{}",
+                                    target.host, target.port
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    problems.sort();
+    problems.dedup();
+    problems
+}
+
+/// Whether a preopened guest path covers the required path, and whether that
+/// cover is writable. `/home` covers `/home` and `/home/work`, never
+/// `/homework`; a writable cover outranks a read-only one.
+fn writable_cover(granted: &GrantedCapabilities, required: &str) -> Option<bool> {
+    granted
+        .mounts
+        .iter()
+        .filter(|(guest_path, _)| {
+            required == guest_path
+                || required
+                    .strip_prefix(guest_path.as_str())
+                    .is_some_and(|suffix| guest_path == "/" || suffix.starts_with('/'))
+        })
+        .map(|(_, writable)| *writable)
+        .max()
+}
+
+/// Whether one admitted target covers a required target: same host, same port,
+/// same resolution mode, and every required operation admitted. A broader
+/// admission never stands in for a narrower requirement, and nothing is
+/// defaulted.
+fn network_target_admitted(
+    admitted: &[shenko_node::NetworkTarget],
+    required: &shenko_node::NetworkTarget,
+) -> bool {
+    admitted.iter().any(|target| {
+        target.host == required.host
+            && target.port == required.port
+            && target.resolve == required.resolve
+            && required
+                .operations
+                .iter()
+                .all(|operation| target.operations.contains(operation))
+    })
+}
+
+/// The host import modules the artifact's real bytes name beyond
+/// `wasi_snapshot_preview1`, read out of the observed `module.function`
+/// import list.
+pub fn foreign_import_modules(imports: &[String]) -> BTreeSet<String> {
+    imports
+        .iter()
+        .filter_map(|import| import.split_once('.').map(|(module, _)| module.to_string()))
+        .filter(|module| module != "wasi_snapshot_preview1")
+        .collect()
+}
+
+/// Admit a declaration against the artifact's *actual* imports.
+///
+/// Only provable facts are checked: a declared host import module must be one
+/// the bytes really import, so a manifest cannot claim a host facility the
+/// artifact never reaches. An `unrecorded` declaration makes no claim and is
+/// not checked.
+pub fn declaration_import_problems(
+    declaration: &shenko_node::PackageDeclaration,
+    imports: &[String],
+) -> Vec<String> {
+    let Some(capabilities) = declaration.capabilities() else {
+        return Vec::new();
+    };
+    let mut problems = Vec::new();
+    for requirement in &capabilities.host {
+        if let shenko_node::HostRequirement::HostImport { module } = requirement {
+            let prefix = format!("{module}.");
+            if !imports.iter().any(|import| import.starts_with(&prefix)) {
+                problems.push(format!(
+                    "TOOL_CAPABILITY_MISMATCH: declared host import module {module} is \
+                     not imported by the artifact"
+                ));
+            }
+        }
+    }
+    problems.sort();
+    problems.dedup();
+    problems
 }
 
 /// The authored import list and the module's actual imports must agree.
@@ -942,6 +1248,389 @@ mod tests {
 
         std::fs::remove_dir_all(&root).ok();
         std::fs::remove_dir_all(&home).ok();
+        Ok(())
+    }
+
+    /// A real preview1 command module whose bytes differ per tag, so two
+    /// versions of the same tool are genuinely different artifacts.
+    fn tagged_command(tag: &str) -> Vec<u8> {
+        let wat = format!(
+            r#"
+            (module
+              (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+              (import "wasi_snapshot_preview1" "proc_exit" (func $exit (param i32)))
+              (memory (export "memory") 1)
+              (data (i32.const 100) "{tag}\n")
+              (func (export "_start")
+                (i32.store (i32.const 0) (i32.const 100))
+                (i32.store (i32.const 4) (i32.const {len}))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 8)))
+                (call $exit (i32.const 0))))
+            "#,
+            tag = tag,
+            len = tag.len() + 1
+        );
+        wat::parse_str(wat).expect("fixture module must assemble")
+    }
+
+    fn exact_dependency(
+        edge_id: &str,
+        unit_id: &str,
+        requirement: &str,
+    ) -> shenko_node::DependencySpec {
+        shenko_node::DependencySpec {
+            edge_id: edge_id.to_string(),
+            strength: shenko_node::DependencyStrength::Required,
+            selector: shenko_node::DependencySelector::Exact {
+                unit_id: unit_id.to_string(),
+                revision_requirement: Some(requirement.to_string()),
+                artifact_digest: None,
+                contract_requirement: None,
+            },
+        }
+    }
+
+    fn tool_export(
+        name: &str,
+        version: &str,
+        module: &[u8],
+        dependencies: Vec<shenko_node::DependencySpec>,
+    ) -> UnitExport {
+        let digest = Digest::blake3(module);
+        let unit_id = format!("tool.{name}");
+        let entrypoint = format!("/tools/{name}");
+        UnitExport {
+            schema: shenko_node::UNIT_SCHEMA,
+            root_unit_id: unit_id.clone(),
+            root_revision: Some(version.to_string()),
+            root_artifact_digest: Some(digest.clone()),
+            origin_node: None,
+            enabled: true,
+            packages: vec![UnitPackage {
+                unit: UnitDescriptor {
+                    unit_id,
+                    kind: UnitKind::Code,
+                    revision: version.to_string(),
+                    artifact_digest: digest,
+                    provides: vec![format!("tool:{name}")],
+                    dependencies,
+                    config: serde_json::json!({"tool": {
+                        "name": name,
+                        "version": version,
+                        "abi": "wasi_preview1",
+                        "entrypoint": entrypoint,
+                        "source": {
+                            "uri": "builtin:test",
+                            "release": version,
+                            "provenance": "test_fixture"
+                        },
+                        "imports": [
+                            "wasi_snapshot_preview1.fd_write",
+                            "wasi_snapshot_preview1.proc_exit"
+                        ],
+                    }}),
+                    applicability: None,
+                },
+                artifact_base64: B64_STD.encode(module),
+                evidence: vec![],
+                resolved_dependencies: None,
+            }],
+        }
+    }
+
+    fn generation_number(prepared: &serde_json::Value) -> Result<u64> {
+        prepared
+            .get("generation")
+            .and_then(|record| record.get("generation"))
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| anyhow::anyhow!("prepared environment is missing its generation number"))
+    }
+
+    fn import_tool(node: &mut Node, tools_root: &str, export: UnitExport) -> Result<()> {
+        node.handle_unit_request(UnitRequest::Import {
+            export,
+            package_root: tools_root.to_string(),
+            enable: Some(true),
+        })?;
+        Ok(())
+    }
+
+    /// The real generation lifecycle against the real node store: a closure is
+    /// locked with its dependency, published once, a newer version is stored
+    /// without silently replacing the selection, an explicit pin upgrades it,
+    /// and a rollback selects the earlier generation again — every pinned
+    /// version, generation and activation staying durable.
+    #[test]
+    fn environment_generation_pins_closure_and_rolls_back() -> Result<()> {
+        let root = temp_dir("env-generation");
+        let tools_root = root.join(TOOL_DIR_NAME).to_string_lossy().into_owned();
+        let mut node = Node::open(&root.join("node"))?;
+        node.handle(shenko_node::Request::Initialize {
+            node_id: shenko_types::ids::EntityId::new(),
+            identity: None,
+        })?;
+        let dep_v1 = tagged_command("dep-one");
+        let dep_v2 = tagged_command("dep-two");
+        let user = tagged_command("user-one");
+        import_tool(&mut node, &tools_root, tool_export("dep", "1.0.0", &dep_v1, vec![]))?;
+        import_tool(&mut node, &tools_root, tool_export(
+            "user",
+            "1.0.0",
+            &user,
+            vec![exact_dependency("needs-dep", "tool.dep", ">=1.0.0")],
+        ))?;
+
+        // Preparation locks the retained, resolved closure. It selects nothing:
+        // an installation keeps its current pointers until an activation.
+        let prepared = node.handle_unit_request(UnitRequest::PrepareEnvironment {
+            roots: vec![shenko_node::EnvironmentRoot {
+                unit_id: "tool.user".to_string(),
+                revision: None,
+                artifact_digest: None,
+            }],
+        })?;
+        let first = generation_number(&prepared)?;
+        assert!(
+            node.environment_selector()?.is_none(),
+            "preparing a generation must not select it"
+        );
+        let locked = node
+            .environment_generation(first)?
+            .ok_or_else(|| anyhow::anyhow!("prepared generation was not recorded"))?;
+        assert_eq!(locked.roots, vec!["tool.user".to_string()]);
+        assert_eq!(
+            locked
+                .members
+                .iter()
+                .map(|member| (member.unit_id.as_str(), member.role.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("tool.dep", "dependency"), ("tool.user", "root")]
+        );
+
+        // Activation is the one linearization point.
+        let activated =
+            node.handle_unit_request(UnitRequest::ActivateEnvironment {
+                generation: first,
+                expected_revision: 0,
+            })?;
+        assert_eq!(activated["selector"]["revision"].as_u64(), Some(1));
+        let facts = node.tool_unit_facts()?;
+        let (user_record, _) = resolve_tool(&facts, "user")?;
+        assert_eq!(user_record.environment.as_ref().map(|pin| pin.generation), Some(first));
+        assert_eq!(user_record.environment.as_ref().map(|pin| pin.role.as_str()), Some("root"));
+        let (dep_record, _) = resolve_tool(&facts, "dep")?;
+        assert_eq!(dep_record.version, "1.0.0");
+        assert_eq!(
+            dep_record.environment.as_ref().map(|pin| pin.role.as_str()),
+            Some("dependency")
+        );
+
+        // Storing another version changes no selection: the environment is the
+        // authority, and an explicit version outside it is reported as such.
+        import_tool(&mut node, &tools_root, tool_export("dep", "2.0.0", &dep_v2, vec![]))?;
+        let facts = node.tool_unit_facts()?;
+        assert_eq!(
+            resolve_tool(&facts, "dep")?.0.version,
+            "1.0.0",
+            "an import must not silently upgrade the active environment"
+        );
+        assert_eq!(
+            resolve_tool(&facts, "dep@2.0.0")?.0.environment,
+            None,
+            "a version outside the generation must be reported as outside it"
+        );
+
+        // Upgrade: pin both roots explicitly. The retained root's recorded
+        // selection is re-solved onto the pinned dependency because that
+        // version still satisfies the declaration.
+        let upgraded = node.handle_unit_request(UnitRequest::PrepareEnvironment {
+            roots: vec![
+                shenko_node::EnvironmentRoot {
+                    unit_id: "tool.dep".to_string(),
+                    revision: Some("2.0.0".to_string()),
+                    artifact_digest: None,
+                },
+                shenko_node::EnvironmentRoot {
+                    unit_id: "tool.user".to_string(),
+                    revision: None,
+                    artifact_digest: None,
+                },
+            ],
+        })?;
+        let second = generation_number(&upgraded)?;
+        assert_ne!(second, first);
+        node.handle_unit_request(UnitRequest::ActivateEnvironment {
+            generation: second,
+            expected_revision: 1,
+        })?;
+        let facts = node.tool_unit_facts()?;
+        assert_eq!(resolve_tool(&facts, "dep")?.0.version, "2.0.0");
+
+        // Rollback re-selects the earlier generation; nothing is deleted.
+        let rolled = node.handle_unit_request(UnitRequest::RollbackEnvironment {
+            expected_revision: 2,
+        })?;
+        assert_eq!(rolled["selector"]["revision"].as_u64(), Some(3));
+        assert_eq!(rolled["rolled_back_from"].as_u64(), Some(second));
+        let facts = node.tool_unit_facts()?;
+        assert_eq!(resolve_tool(&facts, "dep")?.0.version, "1.0.0");
+        assert_eq!(
+            node.environment_generations(8)?.len(),
+            2,
+            "a rollback must not delete either generation"
+        );
+        assert_eq!(node.environment_activations(8)?.len(), 3);
+        assert_eq!(
+            node.retained_unit_facts("tool.dep")?.len(),
+            2,
+            "both versions stay retained after upgrading and rolling back"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+        Ok(())
+    }
+
+    /// The refusals that make the generation contract real: an unresolved
+    /// required dependency, bytes this installation does not hold, a stale
+    /// selector revision, and a tool version the active environment does not
+    /// select.
+    #[test]
+    fn environment_refuses_incomplete_closure_bytes_and_stale_selector() -> Result<()> {
+        let root = temp_dir("env-refusals");
+        let tools_root = root.join(TOOL_DIR_NAME).to_string_lossy().into_owned();
+        let mut node = Node::open(&root.join("node"))?;
+        node.handle(shenko_node::Request::Initialize {
+            node_id: shenko_types::ids::EntityId::new(),
+            identity: None,
+        })?;
+        let orphan = tagged_command("orphan");
+        node.handle_unit_request(UnitRequest::Import {
+            export: tool_export(
+                "orphan",
+                "1.0.0",
+                &orphan,
+                vec![exact_dependency("needs-absent", "tool.absent", "=1.0.0")],
+            ),
+            package_root: tools_root.clone(),
+            enable: Some(true),
+        })?;
+        let refused = node
+            .handle_unit_request(UnitRequest::PrepareEnvironment {
+                roots: vec![shenko_node::EnvironmentRoot {
+                    unit_id: "tool.orphan".to_string(),
+                    revision: None,
+                    artifact_digest: None,
+                }],
+            })
+            .expect_err("an unresolved required dependency must refuse the closure");
+        assert!(
+            format!("{refused:#}").contains("TOOL_DEPENDENCY_MISSING"),
+            "{refused:#}"
+        );
+        assert!(
+            node.environment_generations(8)?.is_empty(),
+            "a refused preparation records no generation"
+        );
+
+        // Bytes the installation does not hold can be registered out of line,
+        // but a generation that pins them is never published.
+        let external = Digest::blake3(b"bytes this installation does not hold");
+        node.handle_unit_request(UnitRequest::ImportExternal {
+            unit: UnitDescriptor {
+                unit_id: "code.external".to_string(),
+                kind: UnitKind::Code,
+                revision: "1.0.0".to_string(),
+                artifact_digest: external.clone(),
+                provides: vec![],
+                dependencies: vec![],
+                config: serde_json::json!({}),
+                applicability: None,
+            },
+            artifact: shenko_node::ExternalArtifact {
+                digest: external,
+                bytes: 32,
+                store: "cas".to_string(),
+                locator: "objects/absent".to_string(),
+            },
+            package_root: tools_root.clone(),
+            enable: Some(true),
+        })?;
+        let prepared = node.handle_unit_request(UnitRequest::PrepareEnvironment {
+            roots: vec![shenko_node::EnvironmentRoot {
+                unit_id: "code.external".to_string(),
+                revision: None,
+                artifact_digest: None,
+            }],
+        })?;
+        let external_generation = generation_number(&prepared)?;
+        let unpublished = node
+            .handle_unit_request(UnitRequest::ActivateEnvironment {
+                generation: external_generation,
+                expected_revision: 0,
+            })
+            .expect_err("a generation over absent bytes must not be published");
+        assert!(
+            format!("{unpublished:#}").contains("TOOL_ARTIFACT_UNAVAILABLE"),
+            "{unpublished:#}"
+        );
+        assert!(
+            node.environment_selector()?.is_none(),
+            "a refused activation publishes no selector"
+        );
+
+        // A complete closure publishes; a stale expected revision does not.
+        let dep = tagged_command("dep");
+        node.handle_unit_request(UnitRequest::Import {
+            export: tool_export("dep", "1.0.0", &dep, vec![]),
+            package_root: tools_root.clone(),
+            enable: Some(true),
+        })?;
+        let prepared = node.handle_unit_request(UnitRequest::PrepareEnvironment {
+            roots: vec![shenko_node::EnvironmentRoot {
+                unit_id: "tool.dep".to_string(),
+                revision: None,
+                artifact_digest: None,
+            }],
+        })?;
+        let generation = generation_number(&prepared)?;
+        node.handle_unit_request(UnitRequest::ActivateEnvironment {
+            generation,
+            expected_revision: 0,
+        })?;
+        let stale = node
+            .handle_unit_request(UnitRequest::ActivateEnvironment {
+                generation: external_generation,
+                expected_revision: 7,
+            })
+            .expect_err("a stale selector revision must be refused");
+        assert!(
+            format!("{stale:#}").contains("UNIT_ENVIRONMENT_CONFLICT"),
+            "{stale:#}"
+        );
+
+        // A tool imported after the generation exists is not silently usable
+        // by name: the environment selects, the inventory only stores.
+        let late = tagged_command("late");
+        node.handle_unit_request(UnitRequest::Import {
+            export: tool_export("late", "1.0.0", &late, vec![]),
+            package_root: tools_root.clone(),
+            enable: Some(true),
+        })?;
+        let facts = node.tool_unit_facts()?;
+        let not_selected = resolve_tool(&facts, "late")
+            .expect_err("a version outside the active generation must not resolve by name");
+        assert!(
+            format!("{not_selected:#}").contains("TOOL_NOT_SELECTED"),
+            "{not_selected:#}"
+        );
+        assert_eq!(
+            resolve_tool(&facts, "late@1.0.0")?.0.environment,
+            None,
+            "an explicit version stays reachable and says it is outside the generation"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
         Ok(())
     }
 

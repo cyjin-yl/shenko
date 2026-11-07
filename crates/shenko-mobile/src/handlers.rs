@@ -20,9 +20,9 @@ use shenko_types::{
 
 use crate::backend::{AndroidBackend, DriveCtx, DriveOutcome, reconcile_mobile};
 use crate::bridge::{
-    BridgeAuthority, BridgeError, BridgeErrorKind, BridgeOp, BridgeSnapshotMethod, DeviceBridge,
+    BridgeAuthority, BridgeOp, BridgeSnapshotMethod, DeviceBridge,
 };
-use crate::facts::{DbFacts, Fact, KeyMaterialState};
+use crate::facts::{DbSnapshot, KeyMaterialState, SnapshotDimension};
 
 /// Kinds this plugin set installs, in deterministic registration order.
 pub const MOBILE_NATIVE_KINDS: [&str; 6] = [
@@ -33,6 +33,13 @@ pub const MOBILE_NATIVE_KINDS: [&str; 6] = [
     "android.shell.exec",
     "android.appdb.snapshot",
 ];
+
+/// Input bounds, validated before any event can leave the process.
+const MAX_ACTIONS: usize = 64;
+const MAX_TEXT_CHARS: usize = 4096;
+/// The device sleeps through waits and swipe durations on one bridge
+/// connection, so the whole batch is bounded rather than each action alone.
+const MAX_BATCH_MS: u64 = 120_000;
 
 fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescriptor {
     NativeTaskDescriptor {
@@ -50,11 +57,11 @@ fn descriptor_for(kind: &str, authority: &str, prompt: &str) -> NativeTaskDescri
 }
 
 const PROBE_PROMPT: &str = "android.device.probe reads on-device facts {\"refresh\":bool?}: OS version/security patch/fingerprint digest, per-mechanism adapter states (root_su, shizuku binder incl. ADB-vs-root identity, dhizuku device-owner, accessibility, normal permissions), the salted device-binding digest, and display metrics. Each mechanism reports its own grant state; availability is probed, never inferred from labels.";
-const OBSERVE_PROMPT: &str = "android.screen.observe {\"session_id\":uuid?,\"display_id\":int?,\"region\":[x,y,w,h]?} opens a session if needed and captures the real display through a granted mechanism (Shizuku/root screencap). Returns observation_id (blake3 of the sealed observation), per-session monotonic revision, viewport/density/rotation, frame fingerprint (accessibility node-tree hash when enabled, else pixels), pixel hash and the sealed PNG. Coordinates are only valid while that observation re-verifies.";
-const LEASE_PROMPT: &str = "android.control.lease {\"session_id\":uuid,\"op\":\"acquire\"|\"release\"|\"takeover\",\"lease_token\":uuid?} manages the single writer epoch of the device display domain. One domain has one writer; takeover revokes the old epoch so late machine input is rejected; a held shell-injected key cannot be retracted and stays unknown. Read-only observation never needs a lease.";
-const INPUT_PROMPT: &str = "android.control.input {\"session_id\":uuid,\"lease_token\":uuid,\"observation_id\":\"blake3:…\",\"actions\":[tap|swipe|key|text|wait],\"require_pixel_fresh\":bool?} injects through the real mechanism chosen from granted capabilities (accessibility gestures, Shizuku/root `input`). The observation re-verifies and the lease epoch must be live before any event; accessibility human gestures revoke the lease like a takeover. ACK is transport, never an app effect; nothing replays.";
+const OBSERVE_PROMPT: &str = "android.screen.observe {\"session_id\":uuid?,\"display_id\":int?,\"region\":[x,y,w,h]?} opens a session if needed and captures the real display through a granted mechanism (Shizuku/root screencap), then asks the enabled accessibility service to fingerprint the node hierarchy it can actually see in that same rectangle. Returns observation_id (blake3 of the sealed observation), per-session monotonic revision, viewport/density/rotation, the pixel hash and the sealed PNG, plus a frame fingerprint with its honest kind: accessibility_node_tree (device-attested digest of every node of every reported window, complete within the declared traversal bounds), accessibility_node_tree_prefix (the traversal stopped at a declared node/depth/window bound, so the digest covers only that declared prefix), or pixels_only (no hierarchy evidence: fingerprint_absent records why, e.g. the service is not enabled or the window content is not retrievable). The hierarchy digest travels with its display/region scope, the traversal bounds applied, the covered windows/packages and its sampling time; node text never leaves the device. Coordinates are only valid while that observation re-verifies.";
+const LEASE_PROMPT: &str = "android.control.lease {\"session_id\":uuid,\"op\":\"acquire\"|\"release\"|\"takeover\"|\"close\",\"lease_token\":uuid?} manages the single writer epoch of the device display domain. One domain has one writer; takeover revokes the old epoch so late machine input is rejected, and input re-checks the epoch and the human-activity feed after it re-verifies the bound observation. These mechanisms deliver complete key presses only, so no held key or button state is ever left by this plugin. `close` ends the session (it stops accepting capture and input and releases only its own writer lease, without bumping the epoch), so a long-lived node does not accumulate observation sessions. Read-only observation never needs a lease.";
+const INPUT_PROMPT: &str = "android.control.input {\"session_id\":uuid,\"lease_token\":uuid,\"observation_id\":\"blake3:…\",\"actions\":[tap|swipe|key|text|wait],\"require_pixel_fresh\":bool?} injects through the real mechanism chosen from granted capabilities (accessibility gestures, Shizuku/root `input`). Every tap and swipe point must lie inside the rectangle the bound observation actually saw, batches are bounded at 64 actions and 120s of waits/swipes, and the lease epoch and human-activity feed are checked again after the observation re-verifies and before the batch leaves, so a takeover during verification rejects the batch. Re-verification compares the evidence the observation actually bound inside the same declared scope: a re-observed hierarchy digest must match, so a semantic change with identical pixels rejects the batch (stale_observation_hierarchy), while hierarchy evidence that vanished, changed kind or came back over another display/region/bound is rejected as unverifiable (stale_observation_fingerprint_unavailable / _kind / _scope) instead of being treated as unchanged; a pixels_only observation compares pixels only and never claims the hierarchy was unchanged. A `key` action is a complete press: these mechanisms cannot hold a key down, so a key requested with down=true is rejected instead of being reported as delivered (release held modifiers yourself by prompting a press). ACK is transport, never an app effect: refused or unanswered actions are reported per index and make the batch partial; nothing replays.";
 const SHELL_PROMPT: &str = "android.shell.exec {\"authority\":\"auto\"|\"root_su\"|\"shizuku\"|\"dhizuku\",\"argv\":[\"…\"],\"env\":[\"KEY=VALUE\"],\"timeout_secs\":1..=60} runs frozen argv verbatim (no shell string is ever constructed) through the requested mechanism with its own live grant. Returns exit code, bounded base64 stdout/stderr with truncation flags, timeout state, and which authority actually ran. Command side effects stay Unknown until observed.";
-const APPDB_PROMPT: &str = "android.appdb.snapshot {\"authority\":\"auto\"|\"root_su\"|\"shizuku\",\"package\":\"…\",\"db_name\":\"…\",\"method\":\"auto\"|\"raw_file_set_copy\"|\"direct_readable\"|\"app_export\"} copies an app's database file set into app-private storage and reports SEPARATE facts: file located/readable, recovered-copy vs point-in-time-consistent snapshot, plaintext-verified (SQLite header), schema interpretable, key-material state, and semantic completeness (never claimed). A raw db+wal copy is not a consistent snapshot and is never reported as one; decrypted content is never fabricated.";
+const APPDB_PROMPT: &str = "android.appdb.snapshot {\"authority\":\"auto\"|\"root_su\"|\"shizuku\",\"package\":\"…\",\"db_name\":\"…\",\"method\":\"auto\"|\"raw_file_set_copy\"|\"direct_readable\"|\"app_export\"} copies an app's database file set into app-private storage and reports SEPARATE snapshot dimensions (reached or not, with what proved it; these are not cognitive facts and no knowledge is asserted): file located/readable, recovered-copy vs point-in-time-consistent snapshot, plaintext-verified (SQLite header), schema interpretable, key-material state, and semantic completeness (never claimed). A raw db+wal copy is not a consistent snapshot and is never reported as one; decrypted content is never fabricated, and understanding what the rows mean stays a later subject judgment over actually recovered plaintext.";
 
 // ---------------------------------------------------------------------------
 // android.device.probe
@@ -246,6 +253,10 @@ pub enum LeaseOp {
     Acquire,
     Release,
     Takeover,
+    /// End the session: it stops accepting capture and input, and its own
+    /// writer lease (if it holds one) is released. Not a takeover, so the
+    /// domain epoch is untouched for any other writer.
+    Close,
 }
 
 #[derive(Debug, Deserialize)]
@@ -346,21 +357,7 @@ impl AndroidControlInputHandler {
 
     async fn exec(&self, invocation: NativeTaskInvocation) -> Result<OperationRecord> {
         let input: InjectInput = serde_json::from_value(invocation.input.clone())?;
-        ensure!(
-            !input.actions.is_empty() && input.actions.len() <= 64,
-            "actions must be 1..=64"
-        );
-        for action in &input.actions {
-            if let MobileActionInput::Text { text } = action {
-                ensure!(
-                    !text.is_empty() && text.chars().count() <= 4096,
-                    "text must be 1..=4096 chars"
-                );
-            }
-            if let MobileActionInput::Swipe { duration_ms, .. } = action {
-                ensure!(*duration_ms <= 60_000, "swipe duration must be <= 60s");
-            }
-        }
+        validate_actions(&input.actions)?;
         ensure!(
             input.observation_id.starts_with("blake3:"),
             "observation_id must be a blake3 digest reference"
@@ -413,6 +410,42 @@ impl AndroidControlInputHandler {
             )
             .await
     }
+}
+
+/// Every rule an input batch must satisfy before any event can leave the
+/// process, checked on the action list alone.
+fn validate_actions(actions: &[MobileActionInput]) -> Result<()> {
+    ensure!(
+        !actions.is_empty() && actions.len() <= MAX_ACTIONS,
+        "actions must be 1..={MAX_ACTIONS}"
+    );
+    let mut batch_ms: u64 = 0;
+    for action in actions {
+        if let MobileActionInput::Text { text } = action {
+            ensure!(
+                !text.is_empty() && text.chars().count() <= MAX_TEXT_CHARS,
+                "text must be 1..={MAX_TEXT_CHARS} chars"
+            );
+            // `input text` passes the text as one argv entry; a NUL would
+            // truncate it inside the device process instead of typing it.
+            ensure!(!text.contains('\0'), "text must not contain NUL");
+        }
+        if let MobileActionInput::Swipe { duration_ms, .. } = action {
+            ensure!(*duration_ms <= 60_000, "swipe duration must be <= 60s");
+            batch_ms = batch_ms.saturating_add(*duration_ms);
+        }
+        if let MobileActionInput::Wait { ms } = action {
+            batch_ms = batch_ms.saturating_add(*ms);
+        }
+    }
+    // The device sleeps through waits and swipe durations on one bridge
+    // connection; an unbounded total would hold that connection (and this
+    // blocking worker) for as long as the caller asked.
+    ensure!(
+        batch_ms <= MAX_BATCH_MS,
+        "total wait and swipe duration must be <= {MAX_BATCH_MS}ms"
+    );
+    Ok(())
 }
 
 /// Load a previously sealed observation back by its content digest. The
@@ -673,7 +706,10 @@ fn appdb_work(
             format!("package {package} is not installed on this device"),
         );
     }
-    let mut facts = DbFacts::none();
+    // A snapshot's dimensions, not cognitive facts (§51.9): the payload keeps
+    // its historical `facts` field name so already sealed records stay
+    // readable, while the Rust type is `DbSnapshot`/`SnapshotDimension`.
+    let mut facts = DbSnapshot::none();
     let mut notes: Vec<String> = result
         .get("notes")
         .and_then(|v| v.as_array())
@@ -691,7 +727,7 @@ fn appdb_work(
         .unwrap_or("")
         .to_string();
     if !source_path.is_empty() {
-        facts.file_located = Fact::reached("source_path_resolved");
+        facts.file_located = SnapshotDimension::reached("source_path_resolved");
     }
 
     // Preferred path: the source is directly readable by this uid, so the
@@ -710,11 +746,12 @@ fn appdb_work(
         "app_version": result.get("app_version").cloned().unwrap_or(serde_json::Value::Null),
     });
 
+    let mut backup_failure: Option<String> = None;
     if let Some(source) = direct_readable {
-        facts.file_readable = Fact::reached("directly_readable_by_node_uid");
-        match run_sqlite_backup(backend, &source, snapshot_dir.join("direct")) {
+        facts.file_readable = SnapshotDimension::reached("directly_readable_by_node_uid");
+        match run_sqlite_backup(&source, snapshot_dir.join("direct")) {
             Ok(backup_path) => {
-                facts.snapshot_consistent = Fact {
+                facts.snapshot_consistent = SnapshotDimension {
                     reached: true,
                     evidence: Some("sqlite_online_backup_api".to_string()),
                     note: Some("backup taken by the node over a directly readable source".to_string()),
@@ -728,7 +765,13 @@ fn appdb_work(
                 snapshot_meta["backup_path"] = serde_json::json!(backup_path.display().to_string());
             }
             Err(reason) => {
-                notes.push(format!("sqlite backup api failed: {reason}; falling back to copied bytes with explicit consistency facts"));
+                facts.snapshot_consistent = SnapshotDimension::missed(format!(
+                    "the SQLite backup API failed on the directly readable source: {reason}"
+                ));
+                notes.push(format!(
+                    "sqlite backup api failed: {reason}; no consistent snapshot was produced"
+                ));
+                backup_failure = Some(reason);
             }
         }
     }
@@ -742,11 +785,23 @@ fn appdb_work(
             .and_then(|v| v.as_str())
             .map(std::path::PathBuf::from)
         else {
-            return DriveOutcome::bridge_failure(&BridgeError {
-                kind: BridgeErrorKind::Internal,
-                message: "bridge snapshot result missing snapshot_dir".to_string(),
-                retryable: false,
-            });
+            // No consistent backup and no copied byte set: the operation did
+            // not reach a snapshot. Report the device's real reason together
+            // with the facts that were established, instead of replacing
+            // them with an internal "missing field" error.
+            notes.push(
+                "the bridge returned neither a consistent backup nor a copied file set"
+                    .to_string(),
+            );
+            return DriveOutcome::incomplete(serde_json::json!({
+                "result": "snapshot_unavailable",
+                "snapshot": snapshot_meta,
+                "facts": facts,
+                "key_material_note": key_material_note(&facts.key_material),
+                "missing_and_uncertainty": notes,
+                "backup_failure": backup_failure,
+                "collected_at_ms": chrono::Utc::now().timestamp_millis(),
+            }));
         };
         let main_path = copied_dir.join(&db_name);
         let analysis = analyze_copied_set(&main_path, &result);
@@ -754,7 +809,11 @@ fn appdb_work(
         facts.plaintext_verified = analysis.plaintext_verified;
         facts.structure_interpretable = analysis.structure_interpretable;
         facts.snapshot_recovered_copy = analysis.snapshot_recovered_copy;
-        facts.snapshot_consistent = analysis.snapshot_consistent;
+        // A failed backup keeps its own reason; the copy analysis cannot
+        // upgrade it to consistency, only restate why it is missing.
+        if backup_failure.is_none() {
+            facts.snapshot_consistent = analysis.snapshot_consistent;
+        }
         notes.extend(analysis.notes);
         match seal_snapshot_file(backend, &main_path) {
             Ok(reference) => {
@@ -787,21 +846,25 @@ fn appdb_work(
 }
 
 struct CopyAnalysis {
-    file_readable: Fact,
-    plaintext_verified: Fact,
-    structure_interpretable: Fact,
-    snapshot_recovered_copy: Fact,
-    snapshot_consistent: Fact,
+    file_readable: SnapshotDimension,
+    plaintext_verified: SnapshotDimension,
+    structure_interpretable: SnapshotDimension,
+    snapshot_recovered_copy: SnapshotDimension,
+    snapshot_consistent: SnapshotDimension,
     notes: Vec<String>,
 }
 
 fn analyze_copied_set(main_path: &std::path::Path, result: &serde_json::Value) -> CopyAnalysis {
     let mut out = CopyAnalysis {
-        file_readable: Fact::missed("main database file not copied or unreadable"),
-        plaintext_verified: Fact::missed("not attempted"),
-        structure_interpretable: Fact::missed("not attempted"),
-        snapshot_recovered_copy: Fact::missed("not attempted"),
-        snapshot_consistent: Fact::missed("raw byte copy cannot prove point-in-time consistency"),
+        file_readable: SnapshotDimension::missed("main database file not copied or unreadable"),
+        plaintext_verified: SnapshotDimension::missed("not attempted"),
+        structure_interpretable: SnapshotDimension::missed("not attempted"),
+        snapshot_recovered_copy: SnapshotDimension::missed("not attempted"),
+        snapshot_consistent: SnapshotDimension::missed(
+            "a byte copy taken while the source application may be writing cannot prove \
+             point-in-time consistency; only the SQLite backup API over a directly readable \
+             source can",
+        ),
         notes: Vec::new(),
     };
     let Ok(bytes) = std::fs::read(main_path) else {
@@ -811,13 +874,24 @@ fn analyze_copied_set(main_path: &std::path::Path, result: &serde_json::Value) -
         out.notes.push("copied main file is empty".to_string());
         return out;
     }
-    out.file_readable = Fact::reached("copied_bytes_read");
+    out.file_readable = SnapshotDimension::reached("copied_bytes_read");
+    // The copy exists as bytes; that is exactly what `recovered_copy` claims
+    // and nothing more — recovery of a *copy* says nothing about consistency.
+    out.snapshot_recovered_copy = SnapshotDimension {
+        reached: true,
+        evidence: Some("copied_file_set_read_back".to_string()),
+        note: Some(
+            "the copied byte set was read back; concurrent writes during the copy may be \
+             missing or torn, so this is a recovered copy, not a snapshot"
+                .to_string(),
+        ),
+    };
 
     const SQLITE_HEADER: &[u8; 16] = b"SQLite format 3\0";
     if bytes.len() >= 16 && &bytes[..16] == SQLITE_HEADER {
-        out.plaintext_verified = Fact::reached("sqlite_header");
+        out.plaintext_verified = SnapshotDimension::reached("sqlite_header");
     } else {
-        out.plaintext_verified = Fact::missed(
+        out.plaintext_verified = SnapshotDimension::missed(
             "first 16 bytes are not the SQLite header: encrypted container or foreign format; which one stays unknown without key material",
         );
         out.notes.push(
@@ -828,7 +902,9 @@ fn analyze_copied_set(main_path: &std::path::Path, result: &serde_json::Value) -
         return out;
     }
 
-    // WAL/companion handling decides the consistency fact.
+    // Companion presence is concurrency *evidence*, never a consistency
+    // proof: a rollback journal can be created and removed between two file
+    // copies, and a WAL-mode main file copied alone loses committed frames.
     let wal_present = result.get("wal_present").and_then(|v| v.as_bool()) == Some(true);
     let wal_size = result
         .get("wal_size")
@@ -839,49 +915,50 @@ fn analyze_copied_set(main_path: &std::path::Path, result: &serde_json::Value) -
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if wal_present || wal_size > 0 || journal_copied {
-        out.snapshot_recovered_copy = Fact {
-            reached: true,
-            evidence: Some("companion_files_copied_recovered_on_open".to_string()),
-            note: Some(
-                "the byte set was recovered by opening the copy read-only; concurrent writes during copy may be missing or torn"
-                    .to_string(),
-            ),
-        };
         out.notes.push(
-            "raw db+wal copy is NOT a point-in-time snapshot; snapshot_consistent stays false"
+            "companion files were copied; the copy is NOT a point-in-time snapshot and \
+             snapshot_consistent stays false"
                 .to_string(),
         );
     } else {
-        // Rollback-journal mode with no companion present: the main file is
-        // a committed single-file image.
-        out.snapshot_consistent = Fact {
-            reached: true,
-            evidence: Some("no_companion_files_present".to_string()),
-            note: Some(
-                "no WAL/journal companions were present at copy time; treated as a committed rollback-mode image"
-                    .to_string(),
-            ),
-        };
+        out.notes.push(
+            "no companion files were observed at copy time, but absence of a journal/WAL is \
+             not proof that the copy is consistent: a write in flight during the copy is \
+             invisible here"
+                .to_string(),
+        );
     }
 
     // Structure on the copy, read-only.
     match std::panic::catch_unwind(|| structure_probe(main_path)) {
-        Ok(Ok(())) => {
-            out.structure_interpretable = Fact::reached("readonly_open_sqlite_master");
+        Ok(Ok(probe)) => {
+            out.structure_interpretable = SnapshotDimension {
+                reached: true,
+                evidence: Some("readonly_open_sqlite_master".to_string()),
+                note: Some(probe.integrity_note),
+            };
         }
         Ok(Err(_)) => {
-            out.structure_interpretable = Fact::missed("sqlite open or sqlite_master query failed on the copy");
+            out.structure_interpretable =
+                SnapshotDimension::missed("sqlite open or sqlite_master query failed on the copy");
         }
         Err(_) => {
-            out.structure_interpretable = Fact::missed("structure probe panicked");
+            out.structure_interpretable = SnapshotDimension::missed("structure probe panicked");
         }
     }
     out
 }
 
-/// Open the copied database read-only and prove the schema is queryable.
-/// Never runs against a live source path — only against our own copy.
-fn structure_probe(path: &std::path::Path) -> std::result::Result<(), ()> {
+struct StructureProbe {
+    /// What `PRAGMA quick_check` said; recorded verbatim so a torn copy shows
+    /// up as data instead of being rounded into "queryable".
+    integrity_note: String,
+}
+
+/// Open the copied database read-only, prove the schema is queryable and run
+/// SQLite's own bounded integrity check on the copy. Never runs against a live
+/// source path — only against our own copy.
+fn structure_probe(path: &std::path::Path) -> std::result::Result<StructureProbe, ()> {
     let flags = rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
     let connection = rusqlite::Connection::open_with_flags(path, flags).map_err(|_| ())?;
     connection
@@ -889,13 +966,24 @@ fn structure_probe(path: &std::path::Path) -> std::result::Result<(), ()> {
             row.get::<_, i64>(0)
         })
         .map_err(|_| ())?;
-    Ok(())
+    let integrity_note = match connection.query_row("PRAGMA quick_check(1)", [], |row| {
+        row.get::<_, String>(0)
+    }) {
+        Ok(report) if report == "ok" => "quick_check reported no corruption on the copy".to_string(),
+        Ok(report) => format!("quick_check reported a problem on the copy: {report}"),
+        Err(error) => format!("quick_check could not run on the copy: {error}"),
+    };
+    Ok(StructureProbe { integrity_note })
 }
 
 /// SQLite Online Backup API over a directly readable source — the only
-/// paths that earn `snapshot_consistent`.
+/// path that earns `snapshot_consistent`.
+///
+/// The source is opened READ-ONLY: this handler must never create, truncate
+/// or journal an application's live database just because the device side
+/// named a path. An unreadable or absent source therefore fails instead of
+/// being materialised as a fresh empty database.
 fn run_sqlite_backup(
-    backend: &AndroidBackend,
     source: &std::path::Path,
     into_dir: std::path::PathBuf,
 ) -> std::result::Result<std::path::PathBuf, String> {
@@ -904,12 +992,13 @@ fn run_sqlite_backup(
     if target.exists() {
         std::fs::remove_file(&target).map_err(|e| e.to_string())?;
     }
-    let source_connection =
-        rusqlite::Connection::open(source).map_err(|e| format!("open source: {e}"))?;
+    let source_flags =
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let source_connection = rusqlite::Connection::open_with_flags(source, source_flags)
+        .map_err(|e| format!("open source read-only: {e}"))?;
     source_connection
         .backup(rusqlite::DatabaseName::Main, &target, None)
         .map_err(|e| format!("backup: {e}"))?;
-    let _ = backend;
     Ok(target)
 }
 
@@ -920,9 +1009,9 @@ fn seal_snapshot_file(
     const MAX_SNAPSHOT_FILE_BYTES_LOCAL: u64 = 64 * 1024 * 1024;
     let meta = std::fs::metadata(path).map_err(|e| format!("snapshot stat: {e}"))?;
     if meta.len() > MAX_SNAPSHOT_FILE_BYTES_LOCAL {
-        let sha = sha256_file(path)?;
+        let digest = blake3_file(path)?;
         return Err(format!(
-            "snapshot file {} bytes exceeds the 64MiB bounded CAS route (sha256 {sha}); local path retained: {}",
+            "snapshot file {} bytes exceeds the 64MiB bounded CAS route (blake3 {digest}); local path retained: {}",
             meta.len(),
             path.display()
         ));
@@ -933,7 +1022,7 @@ fn seal_snapshot_file(
         .map_err(|e| format!("snapshot seal: {e}"))
 }
 
-fn sha256_file(path: &std::path::Path) -> std::result::Result<String, String> {
+fn blake3_file(path: &std::path::Path) -> std::result::Result<String, String> {
     use std::io::Read as _;
     let mut file = std::fs::File::open(path).map_err(|e| e.to_string())?;
     let mut hasher = blake3::Hasher::new();
@@ -994,5 +1083,142 @@ mod types {
 
     pub(crate) fn level_postcondition() -> ObservationLevel {
         ObservationLevel::PostconditionVerified
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("shenko-mobile-{name}-{}", EntityId::new()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A batch whose waits would hold the device's single bridge connection
+    /// (and this blocking worker) for as long as it likes is rejected before
+    /// anything is sent.
+    #[test]
+    fn unbounded_batch_duration_and_count_are_rejected() {
+        let long_wait = vec![MobileActionInput::Wait { ms: 600_000 }];
+        assert!(validate_actions(&long_wait).is_err());
+
+        let mut many = Vec::new();
+        for _ in 0..=64 {
+            many.push(MobileActionInput::Wait { ms: 1 });
+        }
+        assert!(validate_actions(&many).is_err());
+
+        // Spread over separate short waits the total is still bounded.
+        let mut spread = Vec::new();
+        for _ in 0..3 {
+            spread.push(MobileActionInput::Swipe {
+                x1: 0.0,
+                y1: 0.0,
+                x2: 1.0,
+                y2: 1.0,
+                duration_ms: 60_000,
+            });
+        }
+        assert!(validate_actions(&spread).is_err());
+
+        assert!(
+            validate_actions(&[MobileActionInput::Tap { x: 1.0, y: 2.0 }]).is_ok(),
+            "an ordinary short batch stays valid"
+        );
+    }
+
+    #[test]
+    fn text_actions_reject_nul_and_oversized_payloads() {
+        assert!(validate_actions(&[MobileActionInput::Text {
+            text: "hello\0world".into()
+        }])
+        .is_err());
+        assert!(validate_actions(&[MobileActionInput::Text {
+            text: "x".repeat(MAX_TEXT_CHARS + 1)
+        }])
+        .is_err());
+        assert!(validate_actions(&[MobileActionInput::Text {
+            text: "普通 text".into()
+        }])
+        .is_ok());
+    }
+
+    /// The device names a path it claims is directly readable. Opening it
+    /// read-write would create or journal an application's database on the
+    /// device, so a missing source must fail without being materialised.
+    #[test]
+    fn direct_readable_backup_never_creates_the_source() {
+        let dir = scratch_dir("appdb-absent");
+        let absent = dir.join("absent.db");
+        let result = run_sqlite_backup(&absent, dir.join("backup"));
+        assert!(result.is_err(), "a missing source cannot be backed up");
+        assert!(!absent.exists(), "opening the source must never create it");
+        assert!(
+            !dir.join("backup").join("backup.sqlite3").exists(),
+            "no empty backup is left behind"
+        );
+    }
+
+    /// A byte copy while the source application may be writing can never be
+    /// reported as a point-in-time consistent snapshot, with or without
+    /// companion files.
+    #[test]
+    fn copied_set_never_claims_consistency() {
+        let dir = scratch_dir("appdb-copy");
+        let path = dir.join("app.db");
+        {
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection
+                .execute_batch(
+                    "CREATE TABLE message(id INTEGER PRIMARY KEY, body TEXT);\
+                     INSERT INTO message(body) VALUES('hello');",
+                )
+                .unwrap();
+        }
+
+        let companion_shapes = [
+            serde_json::json!({"wal_present": false, "wal_size": 0, "journal_copied": false}),
+            serde_json::json!({"wal_present": true, "wal_size": 4096, "journal_copied": false}),
+            serde_json::json!({"wal_present": false, "wal_size": 0, "journal_copied": true}),
+        ];
+        for companions in companion_shapes {
+            let analysis = analyze_copied_set(&path, &companions);
+            assert!(
+                analysis.snapshot_recovered_copy.reached,
+                "a read-back copy is a recovered copy: {companions}"
+            );
+            assert!(
+                !analysis.snapshot_consistent.reached,
+                "a raw copy is never a consistent snapshot: {companions}"
+            );
+            assert!(analysis.file_readable.reached);
+            assert!(analysis.plaintext_verified.reached);
+            assert!(
+                analysis.structure_interpretable.reached,
+                "schema probe on the copy"
+            );
+            let note = analysis
+                .structure_interpretable
+                .note
+                .as_deref()
+                .unwrap_or_default();
+            assert!(note.contains("quick_check"), "integrity note: {note}");
+        }
+    }
+
+    /// A foreign or encrypted container stays a separate fact: not plaintext,
+    /// so no schema claim follows.
+    #[test]
+    fn non_sqlite_copy_reports_no_plaintext_and_no_schema() {
+        let dir = scratch_dir("appdb-foreign");
+        let path = dir.join("app.db");
+        std::fs::write(&path, b"not a sqlite database at all").unwrap();
+        let analysis = analyze_copied_set(&path, &serde_json::json!({}));
+        assert!(analysis.snapshot_recovered_copy.reached);
+        assert!(!analysis.snapshot_consistent.reached);
+        assert!(!analysis.plaintext_verified.reached);
+        assert!(!analysis.structure_interpretable.reached);
     }
 }

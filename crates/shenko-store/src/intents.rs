@@ -1,6 +1,6 @@
 //! Recoverable consumption of S1, on the existing ledger mutation line.
 //! Dispatch is a projection of committed records, never of a broadcast.
-use crate::{Store, external::TaskInvocation, memory::MemoryEntry};
+use crate::{Store, memory::MemoryEntry};
 use anyhow::{Context as _, Result, ensure};
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -243,6 +243,7 @@ impl Store {
                 shenko_types::subject::PolicyKind::SemanticWait { .. } => {
                     crate::semantic_wait::SEMANTIC_WAIT_CONTRACT
                 }
+                PolicyKind::ObligationTerminal { .. } => crate::subject_state::OBLIGATION_TERMINAL_CONTRACT,
                 _ => "unbound/policy/1",
             };
             insert(
@@ -264,6 +265,28 @@ impl Store {
                     continue;
                 }
                 return Err(ShenkoError::conflict("obligation without an identity"));
+            }
+            if historical {
+                let existing: Option<(String, String, Option<String>, String, Option<String>, String, Option<String>, String, u64, String)> = tx.query_row(
+                    "SELECT agent_id,step_id,origin_event_id,description,depends_on_task_id,resume_condition,due_at,decision_ref,created_seq,state
+                     FROM subject_obligations WHERE obligation_id=?1", [obligation.obligation_id.to_string()],
+                    |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?,row.get(6)?,row.get(7)?,row.get(8)?,row.get(9)?)),
+                ).optional().map_err(crate::store::storage_error)?;
+                if let Some(row) = existing {
+                    if row.0 != head.agent_id.to_string() || row.1 != step.step_id.to_string()
+                        || row.2 != obligation.origin_event_id.map(|id| id.to_string())
+                        || row.3 != obligation.description
+                        || row.4 != obligation.depends_on_task_id.map(|id| id.to_string())
+                        || row.5 != obligation.resume_condition || row.6 != obligation.due_at.map(|due| due.to_rfc3339())
+                        || serde_json::from_str::<ObjectRef>(&row.7)? != *decision_ref || row.8 != commit.seq.0
+                        || !matches!(row.9.as_str(), "open" | "completed" | "cancelled")
+                    {
+                        return Err(ShenkoError::conflict("historical obligation creation identity diverges"));
+                    }
+                    // Reconstruct the materialization marker without reopening
+                    // an exact creation that a later S1 already retired.
+                    continue;
+                }
             }
             tx.execute(
                 "INSERT INTO subject_obligations
@@ -307,7 +330,26 @@ impl Store {
             .map_err(|e| ShenkoError::storage(e.to_string()))?;
         }
         if !historical {
-            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
+            tx.execute("UPDATE subject_intents SET state='blocked',result_ref='no installed dispatcher for frozen contract; explicit migration required' WHERE step_id=?1 AND ((kind IN ('dialogue','policy') AND contract NOT IN (?2,?3,?4)) OR (kind='memory' AND json_extract(payload,'$.kind')!='save'))",params![step.step_id.to_string(),crate::semantic_wait::SEMANTIC_WAIT_CONTRACT,crate::child::CHILD_DIALOGUE_CONTRACT,crate::subject_state::OBLIGATION_TERMINAL_CONTRACT]).map_err(|e|ShenkoError::storage(e.to_string()))?;
+        }
+        // The subject's explicit acceptance of an unknown external effect is
+        // committed with the decision itself (SPEC §41.4 X11): it turns the
+        // durable case to `acknowledged_unknown` and points it at THIS
+        // sealed decision, so the actor, the reading and its reason pointers
+        // are one immutable fact. It never marks the operation resolved, and
+        // an imported historical decision never acknowledges on a peer's
+        // behalf: the case rows are local reconciliation coordination, and
+        // imported provenance grants no authority here.
+        if !historical {
+            for acknowledgement in &decision.unknown_acknowledgements {
+                self.acknowledge_unknown_effect(
+                    tx,
+                    head.agent_id,
+                    acknowledgement,
+                    decision_ref,
+                    commit,
+                )?;
+            }
         }
         tx.execute(
             "INSERT INTO subject_intent_steps(step_id,migration) VALUES(?1,?2)",
@@ -468,7 +510,9 @@ impl Store {
         let granted_value = serde_json::to_value(granted)?;
         // The FrozenStepInput plan reader follows the Subject's coordinated
         // schema cutover (11 -> 12). This line moves with it.
-        if plan.get("schema_version").and_then(|value| value.as_u64()) != Some(12)
+        if !crate::store::admitted_input_plan_schema(
+            plan.get("schema_version").and_then(|value| value.as_u64()),
+        )
             || plan.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || definition.definition_version != 1
             || input.get("task_id") != Some(&serde_json::to_value(intent.intent_id)?)
@@ -623,11 +667,20 @@ impl Store {
                     tx.execute("INSERT INTO subject_intent_steps VALUES(?1,'blocked: unreadable historical decision; preserve source and install migrator')",[step.step_id.to_string()])?;
                 }
             }
+            self.validate_obligation_recovery(&tx)?;
             let seq=self.ledger.allocate_seq(&tx)?;
             tx.execute("INSERT INTO subject_dispatch_owner VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET owner=excluded.owner",[self.capabilities.incarnation.to_string()])?;
-            // No T1 means safe to re-admit; any armed operation is UNKNOWN until
-            // its existing E1 proves otherwise. Never infer 'not sent' from crash.
-            tx.execute("UPDATE subject_intents SET state=CASE WHEN EXISTS(SELECT 1 FROM operations o WHERE o.operation_id=subject_intents.intent_id) THEN 'unknown' ELSE 'ready' END, owner=NULL,revision=revision+1,updated_seq=?1 WHERE state='claimed'",[seq.0 as i64])?;
+            // Publication T1 commits the claim WITH its armed operation and
+            // attempt, so `claimed` now implies an armed send: it becomes
+            // UNKNOWN until its existing E1 proves otherwise, and a crash never
+            // implies "not sent". A claimed row without an operation is a
+            // legacy record of the old split admission (claim committed, arm
+            // not): no attempt ever existed, so re-admitting it is safe.
+            // A dialogue claim is not dispatcher ownership: it records that
+            // the message reached a live endpoint's own durable inbox. The
+            // endpoint releases it, so a restart must not re-admit the same
+            // created message as an undelivered intent.
+            tx.execute("UPDATE subject_intents SET state=CASE WHEN EXISTS(SELECT 1 FROM operations o WHERE o.operation_id=subject_intents.intent_id) THEN 'unknown' ELSE 'ready' END, owner=NULL,revision=revision+1,updated_seq=?1 WHERE state='claimed' AND NOT (kind='dialogue' AND contract=?2)",params![seq.0 as i64, crate::child::CHILD_DIALOGUE_CONTRACT])?;
             self.intent_log(&tx,CommitRef::new(self.ledger.ledger_id(),seq))?;
             tx.commit()?; Ok(())
         },storage_failure)
@@ -659,20 +712,50 @@ impl Store {
         rows.into_iter()
             .map(
                 |(id, step, kind, contract, payload, state, owner, revision, result_ref)| {
-                    Ok(CommittedIntent {
-                        intent_id: id.parse()?,
-                        step_id: step.parse()?,
-                        kind,
-                        contract,
-                        payload: serde_json::from_str(&payload)?,
-                        state,
-                        owner,
-                        revision,
-                        result_ref,
-                    })
+                    decode_committed_intent(
+                        id, step, kind, contract, payload, state, owner, revision, result_ref,
+                    )
                 },
             )
             .collect()
+    }
+
+    /// Read one intent by identity.
+    ///
+    /// `committed_intents` pages by creation order, so it cannot answer "what
+    /// happened to THIS intent" for a ledger larger than one page. A consumer
+    /// that just observed a dispatch refusal (for example `arm_publication`
+    /// answering `None`) needs exactly one identity's committed `state` and
+    /// `result_ref`.
+    pub fn committed_intent(&self, intent_id: EntityId) -> Result<Option<CommittedIntent>> {
+        let conn = self.ledger.conn.lock();
+        let row: Option<(String, String, String, String, String, String, Option<String>, u64, Option<String>)> =
+            conn.query_row(
+                "SELECT intent_id,step_id,kind,contract,payload,state,owner,revision,result_ref FROM subject_intents WHERE intent_id=?1",
+                [intent_id.to_string()],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                    ))
+                },
+            )
+            .optional()?;
+        row.map(
+            |(id, step, kind, contract, payload, state, owner, revision, result_ref)| {
+                decode_committed_intent(
+                    id, step, kind, contract, payload, state, owner, revision, result_ref,
+                )
+            },
+        )
+        .transpose()
     }
 
     /// Deterministic memory worker: same DB transaction as its progress/result.
@@ -715,32 +798,6 @@ impl Store {
             |r| r.get(0),
         )?;
         Ok(serde_json::from_str(&payload)?)
-    }
-
-    /// Claim creates the normal TaskInvocation used by the shared T1 service.
-    /// A repeated admission returns None; that NEVER grants a second send.
-    pub fn claim_subject_publication(&self, id: EntityId) -> Result<Option<TaskInvocation>> {
-        self.ledger.with_mutation(|| {
-            let mut c=self.ledger.conn.lock();let tx=c.transaction_with_behavior(TransactionBehavior::Immediate)?;self.check_dispatch_owner(&tx)?;
-            // The claim gate is channel-agnostic: the Store admits a
-            // publication intent whatever platform it names. The plugin
-            // decides whether it can serve the target, and a target no
-            // installed plugin serves is refused as not dispatched.
-            let state:Option<String>=tx.query_row("SELECT state FROM subject_intents WHERE intent_id=?1 AND kind='publication'",[id.to_string()],|r|r.get(0)).optional()?;
-            if state.as_deref()!=Some("ready"){return Ok(None)}
-            let data:String=tx.query_row("SELECT data FROM tasks WHERE task_id=?1",[id.to_string()],|r|r.get(0))?;let mut task:TaskRecord=serde_json::from_str(&data)?;
-            ensure!(task.abort_request.is_none()&&!task.is_terminal(),"publication_cancelled");
-            let step:SubjectStep={let data:String=tx.query_row("SELECT s.data FROM subject_steps s WHERE s.step_id=?1",[task.created_by_step_id.unwrap().to_string()],|r|r.get(0))?;serde_json::from_str(&data)?};
-            let head:SubjectBranchHead={let data:String=tx.query_row("SELECT data FROM subject_branch_heads WHERE branch_id=?1",[step.branch_id.0.to_string()],|r|r.get(0))?;serde_json::from_str(&data)?};
-            if head.mode != SubjectMode::Active { return Ok(None); }
-            ensure!(head.controller_epoch==step.controller_epoch,"publication_authority_changed: reconcile");
-            let seq=self.ledger.allocate_seq(&tx)?;let commit=CommitRef::new(self.ledger.ledger_id(),seq);let invocation_id=EntityId::new();
-            task.state=TaskState::Running{checkpoint_ref:None,invocation_id,mode:RunMode::Run,epoch:head.controller_epoch};task.record_revision=task.record_revision.next();task.updated_commit=commit;
-            tx.execute("UPDATE tasks SET record_revision=?2,data=?3,updated_commit_seq=?4 WHERE task_id=?1",params![id.to_string(),task.record_revision.0 as i64,serde_json::to_string(&task)?,seq.0 as i64])?;
-            tx.execute("UPDATE subject_intents SET state='claimed',owner=?2,revision=revision+1,updated_seq=?3 WHERE intent_id=?1 AND state='ready'",params![id.to_string(),self.capabilities.incarnation.to_string(),seq.0 as i64])?;
-            self.intent_log(&tx,commit)?;tx.commit()?;
-            Ok(Some(TaskInvocation{task_id:id,task_revision:task.task_revision,record_revision:task.record_revision,invocation_id,epoch:head.controller_epoch,software_generation:head.software_generation,worker_id:self.capabilities.incarnation,node_id:self.ledger.ledger_id()}))
-        },storage_failure)
     }
 
     pub(crate) fn check_dispatch_owner(&self, tx: &Transaction<'_>) -> Result<()> {
@@ -810,6 +867,33 @@ impl Store {
         Ok(())
     }
 }
+
+/// One `subject_intents` row as the reader sees it.
+#[allow(clippy::too_many_arguments)]
+fn decode_committed_intent(
+    intent_id: String,
+    step_id: String,
+    kind: String,
+    contract: String,
+    payload: String,
+    state: String,
+    owner: Option<String>,
+    revision: u64,
+    result_ref: Option<String>,
+) -> Result<CommittedIntent> {
+    Ok(CommittedIntent {
+        intent_id: intent_id.parse()?,
+        step_id: step_id.parse()?,
+        kind,
+        contract,
+        payload: serde_json::from_str(&payload)?,
+        state,
+        owner,
+        revision,
+        result_ref,
+    })
+}
+
 pub(crate) fn insert_task(
     tx: &Transaction<'_>,
     task: &TaskRecord,
@@ -864,6 +948,16 @@ fn deliver_child_dialogue(
 ) -> Result<DialogueOutcome, shenko_types::error::ShenkoError> {
     use crate::child::{DIALOGUE_INBOX, DialogueDelivery, read_task, write_task};
     use shenko_types::error::ShenkoError;
+    // The direction of a message is part of its meaning, not decoration. The
+    // subject loop authors turns that address a child; a `to_subject` intent
+    // is the child's own answer to its parent and is never delivered into a
+    // child's inbox as if the child had written to itself.
+    if intent.direction != shenko_types::subject::DialogueDirection::ToChild {
+        return Ok(DialogueOutcome::Late(
+            "a to_subject dialogue turn is authored by a child endpoint, not by the subject loop; it was not delivered"
+                .into(),
+        ));
+    }
     let Some(mut target) = read_task(tx, intent.target_task_id)
         .map_err(crate::store::storage_error)? else {
         return Ok(DialogueOutcome::Late(

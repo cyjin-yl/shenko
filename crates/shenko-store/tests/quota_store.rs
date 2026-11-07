@@ -45,6 +45,7 @@ fn policy() -> QuotaPolicy {
                 unit: "requests".into(),
                 amount: Range::point(1.0).unwrap(),
             }],
+            effort_levels: Vec::new(),
         }],
         assumptions: Vec::new(),
         min_progress_per_hour: 0.0,
@@ -61,6 +62,12 @@ fn policy() -> QuotaPolicy {
             ttl: chrono::Duration::minutes(5),
             stale: StaleUse::Refuse,
         }],
+        objective: shenko_quota::PolicyObjective::Balanced,
+        target_utilization_range: None,
+        planning_horizon: None,
+        emergency_reserve_by_window: Vec::new(),
+        uncertainty_margin: None,
+        admission_pacing: shenko_quota::AdmissionPacing::default(),
     }
 }
 
@@ -558,4 +565,83 @@ fn preparing_step(
         .upsert_step(&step, head, RecordRevision(0))
         .unwrap();
     step
+}
+
+/// A replaceable admission cadence (SPEC §42.1) may withhold a fresh
+/// admission on the durable path: the pacer keeps the deferral, no budget is
+/// reserved, and the same send still admits once the strategy stops holding
+/// it. The deferral is a `quota_policy_wait`, never a capacity or exhaustion
+/// claim.
+#[test]
+fn cadence_strategy_withholds_admission_without_spending_budget() {
+    struct Deferring(chrono::DateTime<chrono::Utc>);
+    impl shenko_quota::QuotaCadence for Deferring {
+        fn descriptor(&self) -> shenko_quota::StrategyDescriptor {
+            shenko_quota::StrategyDescriptor {
+                protocol_version: shenko_quota::QUOTA_STRATEGY_PROTOCOL_VERSION,
+                strategy_id: "test.deferring_cadence".into(),
+                version: "1".into(),
+                kind: shenko_quota::StrategyKind::Cadence,
+            }
+        }
+        fn plan(
+            &self,
+            _request: shenko_quota::CadenceRequest<'_>,
+        ) -> Result<shenko_quota::CadencePlan, shenko_quota::StrategyError> {
+            Ok(shenko_quota::CadencePlan::Defer {
+                until: Some(self.0),
+                reason: "protect the period reserve".into(),
+            })
+        }
+    }
+    let dir = tmp_dir();
+    let store = Store::open(dir.join("quota.db"), dir.join("cas")).unwrap();
+    let policy = policy();
+    store.record_quota_policy(&policy, now()).unwrap();
+    let decision = decide_fixture(&store, &policy, 6);
+    let mut registry = shenko_quota::QuotaStrategyRegistry::new();
+    registry
+        .register_cadence(Box::new(Deferring(now() + chrono::Duration::minutes(4))))
+        .unwrap();
+    registry
+        .select(shenko_quota::StrategyKind::Cadence, "test.deferring_cadence")
+        .unwrap();
+    let strategies = shenko_quota::QuotaStrategies::from_registry(registry);
+    let request_id = EntityId::new();
+    let send_id = EntityId::new();
+    let receipt = store
+        .admit_quota_send_with(
+            &strategies,
+            request_id,
+            &policy,
+            &decision,
+            send_id,
+            &availability(),
+            now(),
+        )
+        .unwrap();
+    let AdmissionOutcome::Quota(held) = receipt.outcome else {
+        panic!("expected a withheld admission record");
+    };
+    assert_eq!(held.state, AdmissionState::QuotaPolicyWait);
+    assert!(held.reason.contains("cadence deferred"));
+    assert!(held.estimated_cost.is_empty());
+    let reservation = pacer_reservation(&store, send_id);
+    assert!(
+        reservation.outstanding.is_empty(),
+        "a deferral must not reserve budget"
+    );
+    assert!(reservation.dispatch.is_none());
+    assert!(reservation.attempts.is_empty());
+
+    // Nothing was spent: the same send admits under the built-in baseline.
+    let receipt = store
+        .admit_quota_send(request_id, &policy, &decision, send_id, &availability(), now())
+        .unwrap();
+    let AdmissionOutcome::Quota(admitted) = receipt.outcome else {
+        panic!("expected the baseline admission");
+    };
+    assert_eq!(admitted.state, AdmissionState::Admitted);
+    assert_eq!(admitted.estimated_cost.len(), 1);
+    let _ = std::fs::remove_dir_all(dir);
 }

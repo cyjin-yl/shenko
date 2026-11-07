@@ -20,10 +20,21 @@ pub(crate) async fn quota_dispatch_gate(store: &shenko_store::store::Store,
 binding: &shenko_broker::request::ProviderBinding,
 request_id: EntityId,
 cancel: &tokio_util::sync::CancellationToken,
-native: Option<&shenko_store::TaskInvocation>,) -> Result<QuotaGate, ShenkoError> { use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
+strategies: &shenko_quota::QuotaStrategies,
+native: Option<&shenko_store::TaskInvocation>,
+subject_agent: Option<EntityId>,) -> Result<QuotaGate, ShenkoError> { use shenko_quota::{AdmissionOutcome, AdmissionState, DispatchEvidence};
 
 let Some(policy) = store.latest_quota_policy()? else {
     return Ok(QuotaGate::Ready(None));
+};
+// Measured useful work of this subject's admitted rounds (SPEC §42.3
+// `expected_useful_work`), read from the ledger's own record. Only a caller
+// that IS the subject passes its identity: a finite model child or an
+// intervention worker spends rounds in a different unit, so its expectation
+// stays unknown rather than borrowing the subject's measurement.
+let work = match subject_agent {
+    Some(agent_id) => store.quota_work_evidence(agent_id)?,
+    None => None,
 };
 // A profile is usable only if its declared model runs on the actual
 // sealed backend: the bound model name plus the local/cloud split.
@@ -69,7 +80,7 @@ let send_id = sends
 // fact, not a spin. The counter covers only CONSECUTIVE recompute
 // rounds: a genuine quota wait resets it, so a long-lived wait can
 // never run the runner out of budget and kill the subject.
-let mut work = 0_u32;
+let mut recompute_rounds = 0_u32;
 loop {
     if cancel.is_cancelled() || native.map(|ctx| store.native_invocation_current(ctx))
         .transpose().map_err(|error| ShenkoError::other(error.to_string()))? == Some(false)
@@ -91,8 +102,8 @@ loop {
             (policy_in_use.clone(), decision.clone())
         }
         _ => {
-            work += 1;
-            if work > 32 {
+            recompute_rounds += 1;
+            if recompute_rounds > 32 {
                 return Err(ShenkoError::conflict(
                     "quota decision still requires recompute; reconcile snapshot evidence",
                 ));
@@ -148,33 +159,49 @@ loop {
                         })
                         .map(|entry| (entry.window.window_key.clone(), entry.value))
                         .collect();
-                    let forecast = shenko_quota::forecast(
-                        &snapshot,
-                        &attempts,
-                        &assumptions,
-                        now,
-                        options,
-                    );
+                    // The forecast algorithm is a replaceable strategy
+                    // (SPEC §42.1). Its refusal is a reconciliation fact,
+                    // never a guessed or empty forecast: nothing about the
+                    // account is assumed when the strategy declines.
+                    let forecast = strategies
+                        .forecast(shenko_quota::ForecastRequest {
+                            snapshot: &snapshot,
+                            attempts: &attempts,
+                            assumptions: &assumptions,
+                            now,
+                            options,
+                        })
+                        .map_err(|error| {
+                            ShenkoError::conflict(&format!(
+                                "quota forecast strategy refused: {error}"
+                            ))
+                        })?;
                     store.record_quota_forecast(&forecast)?;
                     forecasts.push(forecast);
                 }
             }
             let previous = latest.as_ref().map(|(_, decision)| decision);
-            let decision = shenko_quota::decide(
-                &policy,
-                &forecasts,
-                &availability,
-                previous,
-                now,
-            )
-            .map_err(|error| {
-                ShenkoError::conflict(&format!("quota policy cannot decide: {error}"))
-            })?;
+            // The router is a replaceable strategy too; the recorded
+            // decision it produces is still validated against the recorded
+            // policy and forecasts by the durable admission path.
+            let decision = strategies
+                .route(shenko_quota::RouteRequest {
+                    policy: &policy,
+                    forecasts: &forecasts,
+                    availability: &availability,
+                    previous,
+                    work: work.as_ref(),
+                    now,
+                })
+                .map_err(|error| {
+                    ShenkoError::conflict(&format!("quota policy cannot decide: {error}"))
+                })?;
             store.record_quota_decision(&decision)?;
             (policy.clone(), decision)
         }
     };
-    let receipt = store.admit_quota_send(
+    let receipt = store.admit_quota_send_with(
+        strategies,
         request_id,
         &policy_in_use,
         &decision,
@@ -221,8 +248,8 @@ loop {
             use shenko_quota::AdmissionState::*;
             match admission.state {
                 Eligible => {
-                    work += 1;
-                    if work > 32 {
+                    recompute_rounds += 1;
+                    if recompute_rounds > 32 {
                         return Err(ShenkoError::conflict(
                             "quota admission cannot settle; reconcile evidence",
                         ));
@@ -248,7 +275,7 @@ loop {
                     }
                     // A real wait made progress of its own kind: the
                     // immediate-recompute budget is not a lifetime cap.
-                    work = 0;
+                    recompute_rounds = 0;
                     continue;
                 }
                 Cancelled => {

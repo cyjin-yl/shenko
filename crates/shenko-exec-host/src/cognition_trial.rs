@@ -397,7 +397,11 @@ async fn recorded_judgement<C: Serialize + ?Sized>(
         payload: InferencePayload {
             system_prompt,
             messages: vec![InferenceMessage::text("user", message)],
-            max_tokens: Some(512),
+            // A reasoning model spends completion budget on its thinking
+            // before the verdict line; 512 was exhausted by thinking alone on
+            // NVFP4-served models, producing empty verdicts. 8192 matches the
+            // default broker request budget so the verdict fits after reasoning.
+            max_tokens: Some(8192),
             tools: Vec::new(),
             native_options: Default::default(),
         },

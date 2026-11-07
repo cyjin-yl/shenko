@@ -696,7 +696,9 @@ impl Store {
         let object = step.input_plan_ref.as_ref()
             .ok_or_else(|| ShenkoError::conflict("S0 input plan missing"))?;
         let input: serde_json::Value = serde_json::from_slice(&self.cas.read_object(&object.digest)?)?;
-        if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(12)
+        if !crate::store::admitted_input_plan_schema(
+            input.get("schema_version").and_then(serde_json::Value::as_u64),
+        )
             || input.get("step_id") != Some(&serde_json::to_value(step.step_id)?)
             || input.get("step_no").and_then(serde_json::Value::as_u64) != Some(step.step_no)
         {
@@ -787,20 +789,28 @@ impl Store {
 
     /// Bounded recovery of complete subject-input originals, read directly by
     /// the normal Planned loop when a volatile wake was lost or backpressured.
-    /// Web, Playground and media use the durable staging flag. Native E1
-    /// observations remain ready until a nonDeferred S1, as native-child T2
-    /// results do in their own delivery path. Filter disposition before LIMIT
-    /// so acknowledged observations cannot starve newer input.
+    /// Web, Playground and media ingress share this lane and its staging
+    /// transaction; native-child task_result rows retain their existing T2
+    /// delivery path.
+    ///
+    /// Each row carries its stable event identity next to the original bytes:
+    /// a caller that cannot decode one admitted input must be able to name the
+    /// fact it left untouched instead of dropping an anonymous row.
+    ///
+    /// Native E1 observations remain ready until a nonDeferred S1, as
+    /// native-child T2 results do in their own delivery path. Filter
+    /// disposition before LIMIT so acknowledged observations cannot starve
+    /// newer input.
     pub fn pending_inbox_events(
         &self,
         agent_id: EntityId,
         limit: usize,
-    ) -> Result<Vec<String>, ShenkoError> {
+    ) -> Result<Vec<(EntityId, String)>, ShenkoError> {
         let limit = i64::try_from(limit)
             .map_err(|_| ShenkoError::conflict("pending input limit is too large"))?;
         let conn = self.ledger.conn.lock();
         let mut stmt = conn.prepare_cached(
-            "SELECT i.data FROM inbox_events i
+            "SELECT i.event_id, i.data FROM inbox_events i
              LEFT JOIN subject_branch_heads h ON h.agent_id=i.agent_id
              LEFT JOIN subject_event_dispositions d
                ON d.branch_id=h.branch_id AND d.event_id=i.event_id
@@ -812,11 +822,18 @@ impl Store {
         ).map_err(storage_error)?;
         let rows = stmt.query_map(params![agent_id.to_string(), crate::web_input::WEB_INPUT_SOURCE,
             shenko_types::task::NATIVE_EVIDENCE_OBSERVATION_SOURCE, limit],
-            |row| row.get::<_, String>(0))
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
             .map_err(storage_error)?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(storage_error)?;
-        Ok(rows)
+        rows.into_iter()
+            .map(|(event_id, data)| {
+                let event_id = event_id
+                    .parse::<EntityId>()
+                    .map_err(|error| ShenkoError::storage(error.to_string()))?;
+                Ok((event_id, data))
+            })
+            .collect()
     }
 
     /// Stage the real input facts of one planned subject step.

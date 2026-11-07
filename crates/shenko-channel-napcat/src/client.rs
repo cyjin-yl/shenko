@@ -633,6 +633,10 @@ impl NapCatClient {
 
                                         if value.get("post_type").is_some() {
                                             // 原文先落盘，再解析和交付。解析失败仍可从接收库恢复。
+                                            // Connectivity frames stay out of the
+                                            // subject inbox: a heartbeat is
+                                            // evidence the socket is alive, not a
+                                            // message a person wrote.
                                             spool.ingest(value)?;
                                         } else if let Some(echo) = value.get("echo").and_then(|v| v.as_str()) {
                                             // Action response — route to its waiter.
@@ -757,7 +761,7 @@ mod tests {
             "user_id":8, "message_id":id, "raw_message":"original", "sender":{"nickname":"before"}});
         let mut first = None;
         for id in 1..=600 {
-            let event = client.spool.ingest(raw(id)).unwrap().unwrap();
+            let event = client.spool.ingest(raw(id)).unwrap().event().unwrap();
             if id == 1 { first = Some(event.spool_id); }
         }
         let (stop_tx, stop_rx) = oneshot::channel();

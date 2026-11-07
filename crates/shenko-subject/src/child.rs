@@ -764,7 +764,8 @@ impl NativeChildService {
     }
 
     /// Deterministic guidance from currently installed handlers, ordered by
-    /// frozen kind/version. No registry entry means no advertised capability.
+    /// frozen kind/version. The registry supplies the callable address even
+    /// when the handler's usage text omits it.
     pub fn installed_prompt_sections(&self) -> Vec<String> {
         self.registry
             .read()
@@ -773,7 +774,10 @@ impl NativeChildService {
             .filter_map(|registered| {
                 let descriptor = &registered.descriptor;
                 descriptor.prompt_section.as_ref().map(|section| {
-                    format!("[delegate:{}:{}] {section}", descriptor.kind, descriptor.definition_version)
+                    format!(
+                        "[delegate:{}:{}] 后接该定义的 JSON 输入。\n{section}",
+                        descriptor.kind, descriptor.definition_version
+                    )
                 })
             })
             .collect()
@@ -1278,11 +1282,15 @@ impl NativeChildService {
             Some("subject_decision") => {
                 let decision: StepDecision = serde_json::from_slice(&bytes)?;
                 // Existing finite children can still hold an immutable schema-4
-                // S1 decision. Waits use schema 6, model children schema 7 and
-                // the current committed decision schema 8; all bind the same
-                // native delegation field without rewriting the historical
-                // CAS object.
-                ensure!(matches!(decision.schema_version, 4 | 6 | 7 | 8), "unsupported_decision_schema");
+                // S1 decision. Waits use schema 6, model children schema 7,
+                // versioned publication targets schema 8 and reconciliation
+                // acknowledgements schema 9; all bind the same native
+                // delegation field without rewriting the historical CAS
+                // object.
+                ensure!(
+                    matches!(decision.schema_version, 4 | 6 | 7 | 8 | 9),
+                    "unsupported_decision_schema"
+                );
                 let intent = decision
                     .delegated_task_intents
                     .iter()
