@@ -153,7 +153,7 @@ impl AdapterIngress {
     }
 
     fn initialize(
-        connection: Connection,
+        mut connection: Connection,
         channel: &str,
         account: &str,
         persistent: bool,
