@@ -1232,3 +1232,16 @@ fn legacy_home_capabilities() -> BTreeMap<String, Capability> {
     );
     legacy
 }
+
+/// Build the initial home content snapshot from the prepared home's manifest.
+///
+/// The returned bytes are the canonical `shenko.home.content/1` form of
+/// the manifest JSON, and the `HomeContentRef` points to its blake3 digest.
+/// The caller is responsible for sealing the bytes in CAS before creating
+/// the initial cognitive root node.
+pub fn seed_home_content(manifest: &HomeManifest) -> Result<(Vec<u8>, shenko_types::cognitive_root::HomeContentRef)> {
+    let bytes = serde_json::to_vec(manifest)
+        .with_context(|| "serialize home manifest for initial cognitive root")?;
+    let digest = shenko_types::object::Digest::blake3(&bytes);
+    Ok((bytes, shenko_types::cognitive_root::HomeContentRef { manifest: digest }))
+}

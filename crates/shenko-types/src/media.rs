@@ -113,6 +113,75 @@ pub struct MediaSpeakerClaim {
     pub source: Option<String>,
 }
 
+/// The instrument that produced one observation result — SPEC §51.2
+/// 「记录谁的 perception」.
+///
+/// A media observation is never the subject's own unaided reading: an ASR or
+/// speaker-identity engine read the capture. Recording which binding and
+/// which engine reported the claim keeps the result attributable to that
+/// perception, so a later reader can tell Shenko's own configured instrument
+/// apart from another party's engine and can see exactly which model produced
+/// a claim. It stays provenance: a perception that a voice belongs to someone
+/// never becomes an identity binding (§15.2, §51.2).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaPerceptionRef {
+    /// Provider identity of the binding that was actually used.
+    pub provider: String,
+    /// Account/tenant scope of that binding.
+    pub account: String,
+    /// Engine/model identity the binding declares, when it declares one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Model identity the engine itself reported WITH this claim, when it
+    /// reported one. Kept separate from `model` so a silently swapped engine
+    /// is visible instead of being attributed to the configured name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reported_source: Option<String>,
+}
+
+/// Immutable, content-addressed bytes of ONE identification observation
+/// (SPEC §51.1 内容不可变，按内容寻址保存；§51.2 结果的理由停在那次观察上).
+///
+/// This is the observation result as content: the engine's claim, the sealed
+/// original audio it listened to (the experience), the revision that sealed
+/// that audio, and the perception that read it. The same bytes always carry
+/// the same digest, so a repeated claim is recognised by content instead of
+/// minting another revision. The attitude a reader holds about it — applied,
+/// correcting, superseded, and the claim's own confidence — stays on the
+/// ledger revision row, not in these bytes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaIdentificationContent {
+    pub schema_version: u32,
+    pub stream: MediaStreamDescriptor,
+    pub segment: u64,
+    /// The sealed original audio this observation read. Re-identified as the
+    /// sealed reference, never as a provider-local handle.
+    pub observed_audio: ObjectRef,
+    /// The revision that sealed that audio: the reason stops at this
+    /// observation, not at an earlier or later interpretation of it.
+    pub observed_revision_id: String,
+    pub perception: MediaPerceptionRef,
+    pub claim: MediaSpeakerClaim,
+}
+
+/// Identification provenance recorded on the admitted revision's facts:
+/// which content the claim is, which perception produced it and which
+/// observation it reasons from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaIdentification {
+    pub schema_version: u32,
+    pub perception: MediaPerceptionRef,
+    /// The sealed original audio reference the perception observed.
+    pub observed_audio: ObjectRef,
+    /// The revision whose original capture this observation reasons from.
+    pub observed_revision_id: String,
+    /// Immutable content object of [`MediaIdentificationContent`].
+    pub content: ObjectRef,
+}
+
 /// One typed transcript revision (partial or final) as provided by a real
 /// recognizer or session provider. Durable admission is idempotent on
 /// `(stream, revision_id)`: a replay resends the same identity and receives
@@ -143,7 +212,13 @@ pub struct MediaRevisionInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<MediaAudioRef>,
     /// Structured provider facts (VAD marks, language, model id…). Stored
-    /// verbatim for the subject; never interpreted by the kernel.
+    /// verbatim for the subject; never interpreted by the kernel. A revision
+    /// this ledger's own runtime produced records its mechanism provenance
+    /// here as one typed value — the speaker-identity pipeline writes
+    /// [`MediaIdentification`] under `identification`, naming the perception,
+    /// the sealed observation it reasons from and the claim's content object
+    /// (§51.2). The revision row stays a mechanism record: it is not a
+    /// cognition content/attitude row.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub provider_facts: serde_json::Map<String, serde_json::Value>,
 }
@@ -162,8 +237,10 @@ pub enum MediaRevisionDisposition {
     /// silently.
     FinalCorrection,
     /// Retained raw but NOT effective: arrived after a newer revision was
-    /// already applied for this segment. Out-of-order evidence stays
-    /// readable; it never retroactively rewrites the effective observation.
+    /// already applied for this segment, or arrived as an interim claim for a
+    /// segment that had already finalized. Out-of-order evidence stays
+    /// readable; it never retroactively rewrites the effective observation
+    /// and a partial never displaces a final claim.
     Superseded,
 }
 
@@ -585,9 +662,13 @@ pub struct StoredMediaRecording {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaRecordingUsage {
     /// Bytes of original audio sealed in this ledger's CAS for this
-    /// recording's revisions.
+    /// recording's revisions. Distinct content is counted once: a revision
+    /// that repeats an earlier sealed reference (a correction, or an
+    /// identification claim on the same segment) stores no new byte and is
+    /// never billed twice.
     pub audio_bytes: u64,
-    /// Number of retained revisions that carry a sealed audio reference.
+    /// Number of retained revisions that carry a sealed audio reference —
+    /// including corrections that carry the original reference forward.
     pub audio_segments: u64,
     /// Number of retained transcript revisions of this recording's stream.
     pub revisions: u64,
@@ -830,6 +911,12 @@ pub struct MediaTranscriptEvent {
     pub text: String,
     /// True for an interim/partial claim, false for the engine's final text.
     pub partial: bool,
+    /// The engine's own segment/utterance index, when it reports one. A
+    /// provider that knows its own sentence boundaries owns them; when it
+    /// does not report one the runtime derives the boundary from the final
+    /// revisions (only a final opens the next segment).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment: Option<u64>,
     /// The engine's speaker claim, when it reported one. It keeps the
     /// engine's confidence and stays a claim, never an identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]

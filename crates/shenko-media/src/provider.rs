@@ -148,10 +148,21 @@ async fn run_funasr_engine(
                         ("mode".into(), mode.into()),
                         ("is_final".into(), value.get("is_final").cloned().unwrap_or(serde_json::Value::Null)),
                         ("wav_name".into(), value.get("wav_name").cloned().unwrap_or(serde_json::Value::Null)),
+                        // The engine's own sentence clock/segment marks are
+                        // recorded verbatim; this adapter never invents a
+                        // segment index or an epoch capture time the engine
+                        // did not report.
+                        ("timestamp".into(), value.get("timestamp").cloned().unwrap_or(serde_json::Value::Null)),
+                        ("stamp_sents".into(), value.get("stamp_sents").cloned().unwrap_or(serde_json::Value::Null)),
                     ]);
                     sink.on_transcript(&descriptor, MediaTranscriptEvent {
                         text: text_out.to_owned(),
                         partial: !matches!(mode, "offline" | "2pass-offline"),
+                        // FunASR's 2pass stream re-decodes the same utterance;
+                        // this adapter leaves the boundary to the runtime's
+                        // final-derived index, which is what the protocol's
+                        // online/offline interleaving actually describes.
+                        segment: None,
                         speaker,
                         captured_at_ms: None,
                         provider_facts,

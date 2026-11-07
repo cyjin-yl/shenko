@@ -16,11 +16,13 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { compileShenkoPrototypes, PROTOTYPE_OUTPUT_RELATIVE } from './compiler.mjs';
 
 const webRoot = dirname(fileURLToPath(import.meta.url));
 const crateRoot = resolve(webRoot, '..');
 const staticDir = join(crateRoot, 'src', 'static');
 const pin = JSON.parse(readFileSync(join(webRoot, 'upstream-pin.json'), 'utf8'));
+const prototypesOnly = process.argv.includes('--prototypes-only');
 const upstreamRoot = process.env.PROTO_UI_SOURCE;
 if (!upstreamRoot || !existsSync(upstreamRoot)) {
   throw new Error('PROTO_UI_SOURCE must name the separately checked out pinned upstream source');
@@ -43,6 +45,10 @@ for (const relative of [
   'packages/prototypes/shadcn/dist/scroll-area/index.js',
   'packages/prototypes/shadcn/dist/collapsible/index.js',
   'packages/cli/bin/proto-ui.js',
+  // The compiler ships as reviewed TypeScript source only; ./compiler.mjs
+  // re-audits these same inputs before bundling them for the build.
+  'packages/compiler/package.json',
+  'packages/compiler/src/index.ts',
 ]) {
   if (!existsSync(join(sourceRoot, relative))) throw new Error(`Missing audited upstream artifact: ${relative}`);
 }
@@ -82,6 +88,34 @@ for (const [name, directory] of packageDirectories) {
   } else {
     symlinkSync(directory, link, 'dir');
   }
+}
+
+// The UI prints `pin.packages` verbatim in its build panel, so the pin must
+// name versions the checked-out commit actually carries; a stale pin would
+// make the interface claim a package revision that is not installed.
+for (const entry of pin.packages) {
+  const split = entry.lastIndexOf('@');
+  const name = entry.slice(0, split);
+  const version = entry.slice(split + 1);
+  const directory = packageDirectories.get(name);
+  if (!directory) throw new Error(`Pinned package ${name} is absent from the Proto-UI checkout`);
+  const manifest = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'));
+  if (manifest.version !== version) {
+    throw new Error(`${name} is ${manifest.version}, pinned as ${version}`);
+  }
+}
+
+// Compile Shenko's own Prototypes with the reviewed compiler before the app
+// bundle runs: main.tsx imports the generated React DOM source, never the
+// compiler. `--prototypes-only` is the documented prerequisite for `tsc`.
+const compilerRecord = await compileShenkoPrototypes({ sourceRoot, webRoot, pin });
+console.log(
+  `Shenko prototypes compiled by Proto-UI ${pin.commit} (${compilerRecord.profile}): ` +
+    compilerRecord.prototypes.map((prototype) => prototype.name).join(', '),
+);
+if (prototypesOnly) {
+  console.log(`Prototype sources written under ${PROTOTYPE_OUTPUT_RELATIVE}/; skipped bundling`);
+  process.exit(0);
 }
 
 mkdirSync(staticDir, { recursive: true });
@@ -176,6 +210,8 @@ const manifest = {
       'packages/prototypes/shadcn/dist/scroll-area/index.js',
       'packages/prototypes/shadcn/dist/collapsible/index.js',
       'packages/cli/bin/proto-ui.js',
+      'packages/compiler/package.json',
+      'packages/compiler/src/index.ts',
     ],
     shadcn_provenance: {
       rhea_luma: 'shadcn-ui/ui@25af02b1b467fcd53b63e0c6d6d324c57c16ef18',
@@ -183,7 +219,28 @@ const manifest = {
       api_baseline: 'shadcn-ui/ui@f31ed81983653919dd4fe77aee4b4859f610f1dc',
     },
   },
-  compiler: pin.compiler,
+  // Facts, not intentions: the compiled set, exact inputs and generated
+  // digests above are what this build actually consumed.
+  compiler: {
+    status: compilerRecord.status,
+    runtime_imported: compilerRecord.runtime_imported,
+    profile: compilerRecord.profile,
+    package: compilerRecord.package,
+    package_sha256: compilerRecord.package_sha256,
+    entry: compilerRecord.entry,
+    entry_sha256: compilerRecord.entry_sha256,
+    source_tree_sha256: compilerRecord.source_tree_sha256,
+    typescript: compilerRecord.typescript,
+    bundle: compilerRecord.bundle,
+    resolutions: compilerRecord.resolutions,
+    public_package_selection: {
+      script: 'scripts/build/public-packages.mjs',
+      selected_package_count: upstreamBuild?.selected_package_count ?? null,
+      includes_compiler: pin.compiler.public_package_selection === true,
+      note: 'The compiler exports TypeScript source only and is private, so it is never one of the built public packages; Shenko compiles it at build time instead.',
+    },
+    prototypes: compilerRecord.prototypes,
+  },
   toolchain: {
     node: process.version,
     pnpm: '10.32.1',

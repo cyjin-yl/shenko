@@ -47,7 +47,7 @@ pub const DEFAULT_INTENTS: u32 =
     INTENT_GUILDS | INTENT_DIRECT_MESSAGE | INTENT_GROUP_AND_C2C | INTENT_PUBLIC_GUILD_MESSAGES;
 
 /// One official QQ bot connector's configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct QqOfficialConfig {
     /// The bot's AppID.
     pub app_id: String,
@@ -72,6 +72,28 @@ pub struct QqOfficialConfig {
     pub reply_window_seconds: u64,
     /// How many conversations keep a remembered reply context.
     pub reply_context_capacity: usize,
+}
+
+impl std::fmt::Debug for QqOfficialConfig {
+    /// The app ticket is a credential: a debug line names the account and the
+    /// hosts, never the secret that buys the access token.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QqOfficialConfig")
+            .field("app_id", &self.app_id)
+            .field(
+                "app_secret",
+                &self.app_secret.as_ref().map(|_| "<redacted>"),
+            )
+            .field("api_base", &self.api_base)
+            .field("token_base", &self.token_base)
+            .field("gateway_url", &self.gateway_url)
+            .field("intents", &self.intents)
+            .field("shard", &self.shard)
+            .field("admin_openids", &self.admin_openids)
+            .field("reply_window_seconds", &self.reply_window_seconds)
+            .field("reply_context_capacity", &self.reply_context_capacity)
+            .finish()
+    }
 }
 
 impl QqOfficialConfig {

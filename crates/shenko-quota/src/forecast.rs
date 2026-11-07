@@ -165,6 +165,34 @@ pub struct WindowForecast {
     pub planning: Planning,
 }
 
+/// How far the produced plan can be trusted (SPEC §42.3 `confidence`).
+///
+/// It is derived from the recorded reading only — never from the model's own
+/// opinion of the numbers, and never promoted by an attempt to spend more.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    /// No plan could be made (no reading, stale refused, unknown window):
+    /// nothing is claimed.
+    #[default]
+    Unknown,
+    /// Last-known or shared evidence: usable for planning, but it cannot
+    /// establish the current balance.
+    Low,
+    /// Fresh provider figures with a partly shared or partly estimated
+    /// account.
+    Medium,
+    /// Fresh, provider-reported figures for an exclusively used account.
+    High,
+}
+
+impl Confidence {
+    /// Whether this is the unknown default, which serializes to no key.
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuotaForecast {
     pub forecast_id: EntityId,
@@ -180,6 +208,24 @@ pub struct QuotaForecast {
     /// Legacy rows without it deserialize to the conservative default.
     #[serde(default)]
     pub options: ForecastOptions,
+    /// The forecast strategy that produced these numbers, as `id@version`
+    /// (SPEC §42.3 `cost_model_version`). A forecast recorded before the
+    /// replaceable-strategy seam keeps it absent: unknown, never guessed as
+    /// the built-in baseline.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_model_version: Option<String>,
+    /// How far ahead this forecast's own evidence reaches: the nearest period
+    /// end or bucket refill after `computed_at` (SPEC §42.3 `horizon`).
+    /// `None` when no window states a boundary, which is unknown rather than
+    /// infinite.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub horizon: Option<chrono::Duration>,
+    /// How much the produced plan can be trusted, derived only from the
+    /// recorded reading: fresh provider-reported figures for an exclusive
+    /// account support more than a last-known or shared one. A legacy
+    /// forecast keeps `unknown`.
+    #[serde(default, skip_serializing_if = "Confidence::is_unknown")]
+    pub confidence: Confidence,
     pub windows: Vec<WindowForecast>,
     /// Expected windows with no usable reading: unknown, never full or exhausted.
     pub unobserved: Vec<AbsentWindow>,
@@ -211,11 +257,19 @@ pub fn forecast_material(forecast: &QuotaForecast) -> String {
         .collect::<Vec<_>>()
         .join(";");
     format!(
- "{:?}|{:?}|{}|{:?}",
+ "{:?}|{:?}|{}|{:?}|{:?}|{:?}|{:?}",
         forecast.freshness,
         forecast.source_validity,
         windows,
         forecast.unobserved,
+        // How much the plan can be trusted is something the subject notices,
+        // so a confidence change is a material change of the same numbers.
+        forecast.confidence,
+        // So is a plan produced by a different algorithm, or one that now
+        // reaches a different horizon: the same numbers from a changed
+        // strategy are not the same fact (SPEC §42.1, §42.3).
+        forecast.cost_model_version,
+        forecast.horizon,
     )
 }
 
@@ -272,7 +326,7 @@ pub fn forecast(
         Freshness::Stale if options.stale == StaleUse::LastKnown => SourceValidity::LastKnown,
         _ => SourceValidity::Unknown,
     };
-    let windows = snapshot
+    let windows: Vec<WindowForecast> = snapshot
         .windows
         .iter()
         .map(|window| {
@@ -331,6 +385,18 @@ pub fn forecast(
             }
         })
         .collect();
+    // How far the recorded evidence itself reaches: the nearest period end or
+    // bucket refill still ahead. Nothing is claimed past it.
+    let horizon = snapshot
+        .windows
+        .iter()
+        .flat_map(|window| [window.resets_at, window.replenishes_by].into_iter().flatten())
+        .filter_map(|boundary| {
+            let remaining = boundary - now;
+            (remaining > chrono::Duration::zero()).then_some(remaining)
+        })
+        .min();
+    let confidence = confidence_of(snapshot, freshness, &windows);
     QuotaForecast {
         forecast_id: EntityId::new(),
         based_on_snapshot: snapshot.snapshot_id,
@@ -340,8 +406,49 @@ pub fn forecast(
         freshness,
         source_validity,
         options,
+        cost_model_version: None,
+        horizon,
+        confidence,
         windows,
         unobserved: snapshot.absent_windows.clone(),
+    }
+}
+
+/// Derive the plan's confidence from the recorded reading only: how the
+/// figures were obtained, how fresh they are, and who else shares the account.
+fn confidence_of(snapshot: &QuotaSnapshot, freshness: Freshness, windows: &[WindowForecast]) -> Confidence {
+    if windows.is_empty()
+        || snapshot.observation_status != ObservationStatus::Available
+        || freshness == Freshness::Unknown
+        || windows
+            .iter()
+            .any(|window| matches!(&window.planning, Planning::Unknown { .. }))
+    {
+        return Confidence::Unknown;
+    }
+    let provider_reported = snapshot.windows.iter().all(|window| {
+        let remaining = window
+            .remaining
+            .is_some_and(|reading| reading.basis == Basis::ProviderReported);
+        let capacity_and_usage = window
+            .capacity
+            .is_some_and(|capacity| capacity.basis == Basis::ProviderReported)
+            && window
+                .used
+                .is_some_and(|used| used.basis == Basis::ProviderReported);
+        remaining || capacity_and_usage
+    });
+    match freshness {
+        Freshness::Fresh
+            if provider_reported && snapshot.attribution == Attribution::Exclusive =>
+        {
+            Confidence::High
+        }
+        Freshness::Fresh => Confidence::Medium,
+        // Last-known evidence can still plan, but it cannot establish the
+        // current balance; it is never reported as high confidence.
+        Freshness::Stale => Confidence::Low,
+        Freshness::Unknown => Confidence::Unknown,
     }
 }
 

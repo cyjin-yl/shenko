@@ -122,6 +122,12 @@ pub fn classify(config: &ILinkConfig, raw: &Value) -> Option<ChannelEnvelope> {
                             .and_then(Value::as_str)
                             .filter(|url| !url.is_empty())
                             .map(str::to_owned),
+                        // The CDN descriptor travels with the message: the
+                        // download parameter and the symmetric key are the
+                        // provider's own facts, captured verbatim here so the
+                        // owning plugin can resolve the object later without
+                        // guessing a location.
+                        params: (!media.is_null()).then(|| media.clone()),
                     },
                     object: None,
                     expires_at: None,

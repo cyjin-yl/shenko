@@ -169,6 +169,9 @@ impl EvidenceInventory {
                     "full_cases_passed": entry.record.full_cases_passed,
                     "cases_reference_only": entry.record.cases_reference_only,
                     "native_receipt": entry.record.native_receipt,
+                    "withdrawn": entry.record.withdrawn,
+                    "withdraws": entry.record.withdraws,
+                    "withdraws_sha256": entry.record.withdraws_sha256,
                 })
             })
             .collect();

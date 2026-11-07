@@ -29,7 +29,10 @@ pub const DEFAULT_BASE_URL: &str = "https://open.feishu.cn";
 pub const LARK_BASE_URL: &str = "https://open.larksuite.com";
 
 /// One Feishu/Lark connector's configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is implemented by hand so the app secret can never be printed by a
+/// tracing field or a configuration dump.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct FeishuConfig {
     /// The open-API host.
     pub base_url: String,
@@ -48,6 +51,20 @@ pub struct FeishuConfig {
     pub reply_context_capacity: usize,
     /// How long a remembered reply context stays usable.
     pub reply_window_seconds: u64,
+}
+
+impl std::fmt::Debug for FeishuConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FeishuConfig")
+            .field("base_url", &self.base_url)
+            .field("app_id", &self.app_id)
+            .field("app_secret", &self.app_secret.as_ref().map(|_| "<redacted>"))
+            .field("bot_open_id", &self.bot_open_id)
+            .field("admin_open_ids", &self.admin_open_ids)
+            .field("reply_context_capacity", &self.reply_context_capacity)
+            .field("reply_window_seconds", &self.reply_window_seconds)
+            .finish()
+    }
 }
 
 impl Default for FeishuConfig {

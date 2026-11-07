@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "tool": "ssh",
+  "upstream": "https://github.com/openssh/openssh-portable",
+  "license": "BSD-3-Clause (OpenSSH licence family)",
+  "abi": "wasi_preview1",
+  "state": "unported",
+  "requires": ["cap.network.tcp/1"],
+  "pin": null,
+  "pin_tool": "../resolve-pin.sh",
+  "missing": [
+    "wasip1 client port (no process spawn, no getpwuid, no termios)",
+    "authentication without a unix-domain agent socket (this transport is TCP only)",
+    "wasm-built crypto provider; the host never signs or decrypts for the module",
+    "single-threaded pre-auth readiness instead of thread-based select loops",
+    "measured artifact manifest only after a real build"
+  ],
+  "artifact": null
+}

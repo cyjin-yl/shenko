@@ -10,7 +10,9 @@ provenance and dependencies have exactly one owner.
 
 Pure text units install no daemon, register no Cordis service and add no
 kernel hook. A unit that ships an executable helper keeps using the existing
-plugin contracts; the awareness path itself stays text.
+plugin contracts. The awareness bytes in this store are still text. That is
+the current harness, not the capability (SPEC §51). The text grants no
+authority and dispatches nothing.
 
 Awareness bodies express observations and principles; they do not contain
 prescribed passing replies or the judge's expected actions. Positive `cues`
@@ -30,6 +32,13 @@ index ≤ 4 KiB, one read body ≤ 16 KiB, one discovery page ≤ 32 cards.
 
 Kinds: `awareness`, `perception`, `skill`, `code` — one storage and install
 path, distinguished only by the kind field.
+
+2026-11-05 conceptual contract ([SPEC §51](../../SPEC.md#51-认知元概念内容态度与理由)):
+awareness is a capability, not a document the model can be assumed to follow.
+Text units and an external watcher are the present harness. fact and conclusion
+are not extra kinds; they are one content type whose justification stops at an
+observation or at other content. This file still describes the installed-unit
+mechanism. It does not implement attitudes, justification pointers, or metapackages.
 
 ## Disclosure: bounded cards, paged discovery, bodies read on demand
 

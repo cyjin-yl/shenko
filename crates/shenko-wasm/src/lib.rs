@@ -1,6 +1,7 @@
 pub mod runtime;
 pub mod replay_io;
 pub mod p1;
+pub mod net;
 pub mod mount;
 pub mod checkpoint;
 pub mod cow;
@@ -16,6 +17,7 @@ pub use mount::*;
 pub use cow::*;
 pub use revoke::*;
 pub use p1::{P1Host, StdioStreams};
+pub use net::*;
 pub use tool::*;
 pub use artifact::*;
 pub use manifest::*;
