@@ -37,7 +37,11 @@ pub const DEFAULT_APP_ID: &str = "bot";
 pub const DEFAULT_CHANNEL_VERSION: &str = "2.4.8";
 
 /// One iLink connector's configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Debug` is implemented by hand: the bot token is a credential, so a debug
+/// line names the account and the hosts and says `<redacted>` instead of the
+/// token value.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ILinkConfig {
     /// The API host.
     pub base_url: String,
@@ -67,6 +71,25 @@ pub struct ILinkConfig {
     pub reply_context_capacity: usize,
     /// How long a remembered reply context stays usable.
     pub reply_window_seconds: u64,
+}
+
+impl std::fmt::Debug for ILinkConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ILinkConfig")
+            .field("base_url", &self.base_url)
+            .field("cdn_base_url", &self.cdn_base_url)
+            .field("app_id", &self.app_id)
+            .field("bot_token", &self.bot_token.as_ref().map(|_| "<redacted>"))
+            .field("ilink_bot_id", &self.ilink_bot_id)
+            .field("ilink_user_id", &self.ilink_user_id)
+            .field("channel_version", &self.channel_version)
+            .field("bot_agent", &self.bot_agent)
+            .field("admin_user_ids", &self.admin_user_ids)
+            .field("long_poll_timeout_ms", &self.long_poll_timeout_ms)
+            .field("reply_context_capacity", &self.reply_context_capacity)
+            .field("reply_window_seconds", &self.reply_window_seconds)
+            .finish()
+    }
 }
 
 impl Default for ILinkConfig {

@@ -18,5 +18,6 @@ uuid = { workspace = true }
 chrono = { workspace = true }
 async-trait = { workspace = true }
 parking_lot = { workspace = true }
+cordis-core = { workspace = true }
 [lints.rust]
 edition_2024_expr_fragment_specifier = "allow"

@@ -65,6 +65,14 @@ struct FrozenStepInput {
     /// The durable obligations the subject is still carrying. They are read
     /// back into every later S0 until they are completed or cancelled.
     obligations: Vec<PendingObligation>,
+    /// External effects whose outcome is still unknown, each with the case
+    /// the subject may explicitly accept for now (SPEC §41.4 X11).
+    ///
+    /// It is read at S0 and sealed with the request, so an acknowledgement at
+    /// S1 can only name a case this step was actually shown. Absent in
+    /// schema-12 plans, which simply carried no docket.
+    #[serde(default)]
+    reconciliation_docket: Vec<shenko_store::ReconciliationDocketEntry>,
     /// The subject's own attention (免打扰) decision in force for this step.
     attention: Option<AttentionPolicy>,
 }
@@ -148,7 +156,14 @@ fn frozen_input(
         .ok_or_else(|| ShenkoError::conflict("recovery_blocked: missing frozen input"))?;
     let input: FrozenStepInput = serde_json::from_slice(&read_sealed(store, object)?)
         .map_err(|_| ShenkoError::conflict("recovery_blocked: obsolete/incomplete S0 protocol: explicit reconciliation/migration required"))?;
-    if input.schema_version != 12 || input.step_id != step.step_id || input.step_no != step.step_no {
+    // 13 adds the reconciliation docket. A schema-12 plan is still the same
+    // sealed request; it simply carried no case the subject could accept, so
+    // an acknowledgement naming a case at 12 is refused (SPEC §51.1: old
+    // bytes keep their old meaning).
+    if !matches!(input.schema_version, 12 | 13)
+        || input.step_id != step.step_id
+        || input.step_no != step.step_no
+    {
         return Err(ShenkoError::conflict(
             "recovery_blocked: frozen input identity mismatch",
         ));
@@ -231,6 +246,10 @@ pub struct SubjectLoopState {
     native_capability_sections: Vec<String>,
     /// Rolling goals the subject is pursuing.
     pub goals: Vec<String>,
+    /// External effects whose outcome is still unknown, as read at this
+    /// step's S0. They are shown to the model and sealed with the request;
+    /// nothing here resolves an effect or resends one (SPEC §41.4 X11).
+    pub reconciliation_docket: Vec<shenko_store::ReconciliationDocketEntry>,
     /// Outbound path for completed model output — SPEC §5.1, §21.12.
     pub outbox_tx: Option<tokio::sync::broadcast::Sender<OutboxMessage>>,
     /// Identity revision fixed for the current step — SPEC §6. Reloaded only
@@ -245,6 +264,10 @@ pub struct SubjectLoopState {
     /// discloses; its bodies are advisory material for the model, never a
     /// dispatch table.
     pub(super) awareness: Option<Arc<shenko_awareness_core::CognitionCatalog>>,
+    /// The installed quota strategy set (SPEC §42.1).
+    pub(super) quota_strategies: shenko_quota::QuotaStrategies,
+    /// The notebook reminder this step's assembled request carries.
+    pub(super) pending_reminder: Option<shenko_context_policy::RolloverReminder>,
 }
 
 impl SubjectLoopState {
@@ -309,6 +332,7 @@ impl SubjectLoopState {
             .map(|id| store.semantic_wait_receipt(id))
             .transpose()?
             .flatten();
+        let quota_strategies = crate::quota_strategies::installed(&plugin_context);
         let mut state = Self {
             agent_id,
             head,
@@ -330,12 +354,15 @@ impl SubjectLoopState {
             contribution_registry: None,
             native_capability_sections: vec![],
             goals: vec![],
+            reconciliation_docket: vec![],
             outbox_tx: None,
             identity,
             identity_receipt,
             plugin_context,
             identity_service,
             awareness: None,
+            quota_strategies,
+            pending_reminder: None,
         };
         state.refresh_contributions()?;
         Ok(state)
@@ -412,6 +439,11 @@ pub async fn run_subject_loop(
     cancel: tokio_util::sync::CancellationToken,
 ) -> Result<(), ShenkoError> {
     info!(agent_id=%state.agent_id, "subject loop started");
+    // Admitted inputs this process could not decode. They stay durable and
+    // unconsumed; this only remembers them so one bad row is journaled once
+    // per open instead of on every step.
+    let mut undecodable_inputs: std::collections::HashSet<shenko_types::ids::EntityId> =
+        std::collections::HashSet::new();
 
     let result = loop {
         if cancel.is_cancelled() {
@@ -460,7 +492,7 @@ pub async fn run_subject_loop(
             // The whole per-step budget (§41.6: at most 64 events) is read
             // from the wake channel in one drain, so a burst never leaves
             // the dispatcher blocked on this consumer's bounded buffer.
-            state.inbox.recv_batch(64, 80).await
+            state.inbox.recv_batch(MAX_STEP_EVENTS, 80).await
         } else {
             // Never consume new input into a recovered, already frozen step.
             vec![]
@@ -470,26 +502,61 @@ pub async fn run_subject_loop(
         if state.step.state == SubjectStepState::Planned {
             // §41.6: at most 64 events are selected into one step; the durable
             // drain only fills the remainder after the live batch.
-            let drain_limit = 64usize.saturating_sub(events.len());
+            let drain_limit = MAX_STEP_EVENTS.saturating_sub(events.len());
+            // Rows this process already proved undecodable keep their position
+            // in the bounded page; ask past them so they cannot starve readable
+            // inputs. The bound keeps one pathological queue from widening the
+            // read without limit.
+            let durable_limit = drain_limit
+                .saturating_add(undecodable_inputs.len())
+                .min(MAX_STEP_EVENTS * 16);
             match if drain_limit == 0 {
                 Ok(vec![])
             } else {
                 state
                     .store
-                    .pending_inbox_events(state.agent_id, drain_limit)
+                    .pending_inbox_events(state.agent_id, durable_limit)
             } {
                 Ok(rows) => {
                     if !rows.is_empty() {
                         debug!(count = rows.len(), "draining durable web inputs");
                     }
-                    let pending = rows.into_iter().map(|data| {
-                        serde_json::from_str::<InboxEvent>(&data).map_err(ShenkoError::from)
-                    }).collect::<Result<Vec<_>, _>>();
-                    let pending = match pending {
-                        Ok(pending) => pending,
-                        Err(error) => break Err(error),
-                    };
-                    for event in pending {
+                    for (event_id, data) in rows {
+                        // The widened read exists to see past undecodable rows;
+                        // the selection budget itself is unchanged.
+                        if events.len() >= MAX_STEP_EVENTS {
+                            break;
+                        }
+                        // One admitted row this binary cannot decode — a newer
+                        // event kind after a downgrade, or a damaged payload —
+                        // is an undecodable FACT, not a licence to stop the
+                        // subject (SPEC §41.4 X11). The original bytes stay
+                        // durable and unconsumed, the skip is journaled as a
+                        // bounded runtime fact, and unrelated work continues; a
+                        // repaired reader picks the row up after the next open.
+                        let event = match serde_json::from_str::<InboxEvent>(&data) {
+                            Ok(event) => event,
+                            Err(error) => {
+                                if undecodable_inputs.insert(event_id) {
+                                    state.store.journal_runtime_error(
+                                        state.agent_id,
+                                        shenko_store::RuntimeErrorContext {
+                                            kind: "undecodable_inbox_input".into(),
+                                            source_module: module_path!().into(),
+                                            message: format!(
+                                                "admitted inbox row {event_id} is not an InboxEvent this build reads: {error}"
+                                            ),
+                                            step_no: Some(seq),
+                                            task_id: None,
+                                            extra: serde_json::json!({
+                                                "event_id": event_id.to_string(),
+                                            }),
+                                        },
+                                    );
+                                }
+                                continue;
+                            }
+                        };
                         // A live wake may carry the same event. The persisted
                         // original owns its identity and payload, never the
                         // duplicate copy delivered by the volatile channel.
@@ -554,6 +621,10 @@ pub async fn run_subject_loop(
     result
 }
 
+/// The engineering default of §41.6: one subject step selects at most this
+/// many input events (live wake and durable drain together).
+const MAX_STEP_EVENTS: usize = 64;
+
 /// Role and output contract of the subject. It names the framework, never the
 /// instance, and does not vary with identity revisions (R054). SPEC §5.1, §6.
 pub(crate) const SUBJECT_CONTRACT: &str = "你是一个持续运行的个人 agent，运行在 Shenko 框架上。\n\
@@ -591,6 +662,7 @@ pub(super) fn stable_system_prompt(state: &SubjectLoopState) -> String {
 pub(super) fn system_prompt_suffix(
     state: &SubjectLoopState,
     awareness: &[String],
+    obligations: &[PendingObligation],
 ) -> String {
     let mut prompt = String::new();
 
@@ -604,6 +676,12 @@ pub(super) fn system_prompt_suffix(
             prompt.push_str(body.trim());
             prompt.push('\n');
         }
+    }
+
+    if !obligations.is_empty() {
+        prompt.push_str("\n\n当前仍未结束的持久义务（本轮冻结事实；完成或取消须显式给出终态和理由）：\n");
+        prompt.push_str(&serde_json::to_string(obligations).expect("obligation projection serializes"));
+        prompt.push(char::from(10));
     }
 
     if !state.goals.is_empty() {
@@ -651,15 +729,48 @@ pub(super) fn system_prompt_suffix(
         }
     }
 
+    // Once per committed window, when the observed pressure crosses the
+    // installed notes strategy's own threshold. This is a capability
+    // reminder, not a required procedure: it never cuts a window by itself.
+    // It is the reminder the S0 projection read for THIS request, so the
+    // prompt and the answer recorded at commit name the same fact.
+    if state.pending_reminder.is_some() {
+        prompt.push_str("\n\n");
+        prompt.push_str(shenko_context_policy::ROLLOVER_REMINDER);
+        prompt.push('\n');    if !state.reconciliation_docket.is_empty() {
+        // These are durable facts about effects nobody has proven either way.
+        // They are not a queue and not a suggestion: the subject may accept
+        // one, or leave it open.
+        prompt.push_str(
+            "\n\n外部效果仍然未知的持久事实（既不是成功也不是失败；不会自动重发）：\n",
+        );
+        for entry in &state.reconciliation_docket {
+            let view = serde_json::json!({
+                "case_id": entry.case.case_id,
+                "operation": entry.operation_name,
+                "operation_state": entry.operation_state,
+                "effect_status": entry.effect_status,
+                "reason": entry.case.reason,
+                "evidence_refs": entry.case.evidence_refs,
+            });
+            prompt.push_str("- ");
+            prompt.push_str(&serde_json::to_string(&view).expect("docket view serializes"));
+            prompt.push('\n');
+        }
+        prompt.push_str(
+            "若你判断可以带着这份不确定性继续别的工作，用 [reconcile] {\"case_id\":\"上面某个 case_id\",\"reason_refs\":[\"该 case 的 evidence_refs 之一\"],\"remaining_impact\":\"剩下的影响与还需什么证据\"} 明确接受。它只记录你的判断，不会把效果改成成功，也不会重发；以后收到确定证据会重新评估。\n",
+        );    }
+
     prompt
 }
 
 pub(super) fn build_system_prompt(
     state: &SubjectLoopState,
     awareness: &[String],
+    obligations: &[PendingObligation],
 ) -> String {
     let mut prompt = stable_system_prompt(state);
-    prompt.push_str(&system_prompt_suffix(state, awareness));
+    prompt.push_str(&system_prompt_suffix(state, awareness, obligations));
     prompt
 }
 
@@ -700,7 +811,10 @@ fn sealed_previous_projection(
 ) -> Result<(Option<shenko_broker::request::ProviderBinding>, Option<u32>), ShenkoError> {
     let Some(object) = &step.input_plan_ref else { return Ok((None, None)) };
     let input: serde_json::Value = serde_json::from_slice(&read_sealed(store, object)?)?;
-    if input.get("schema_version").and_then(serde_json::Value::as_u64) != Some(12) {
+    if !matches!(
+        input.get("schema_version").and_then(serde_json::Value::as_u64),
+        Some(12) | Some(13)
+    ) {
         // Older committed history can still be read, but its prior usage is
         // not silently bound to this new projection.
         return Ok((None, None));
@@ -785,8 +899,14 @@ async fn execute_step(
         // Durable obligations and the attention decision travel with the
         // request: a commitment the subject already took is part of what it
         // is thinking about, not a note in a later prompt.
-        let obligations = store.open_subject_obligations(state.agent_id)?;
         let attention = store.current_subject_attention(state.agent_id)?;
+        // External effects whose outcome is still unknown travel with the
+        // request too: the subject cannot accept an uncertainty it was never
+        // shown, and the sealed docket is what S1 checks the acceptance
+        // against. The read is bounded; nothing here resends or resolves an
+        // effect.
+        let reconciliation_docket = store.open_reconciliation_docket(state.agent_id, 8)?;
+        state.reconciliation_docket = reconciliation_docket.clone();
         let prepared = match prepare_context(state, events) {
             Ok(Some(prepared)) => prepared,
             Ok(None) => {
@@ -802,7 +922,7 @@ async fn execute_step(
             Err(error) => return Err(error),
         };
         let input = FrozenStepInput {
-            schema_version: 12,
+            schema_version: 13,
             step_id,
             step_no: seq,
             events: prepared.events,
@@ -818,8 +938,8 @@ async fn execute_step(
             contributions: prepared.contributions,
             contribution_omissions: prepared.contribution_omissions,
             contribution_tokens: prepared.contribution_tokens,
-            obligations,
-            attention,
+            obligations: prepared.obligations,            obligations,
+            reconciliation_docket,            attention,
         };
         step.input_plan_ref = Some(seal_step_object(
             &store,
@@ -828,7 +948,7 @@ async fn execute_step(
             "application/json",
             "input_plans",
             "subject_step_input",
-            12,
+            13,
         )?);
         step.context_revision = Some(seq);
         step.state = SubjectStepState::Preparing;
@@ -995,7 +1115,9 @@ async fn execute_step(
             broker.binding(),
             request_id,
             cancel,
+            &state.quota_strategies,
             None,
+            Some(state.agent_id),
         )
         .await
         {
@@ -1199,6 +1321,72 @@ async fn execute_step(
                 }
             }
         }
+        // Accepting an unknown effect may only name a case this step was
+        // actually shown, and may only cite evidence that case carries
+        // (SPEC §41.4 X11, §51.1). Anything else is an invalid control, not a
+        // runtime failure.
+        for control in &output.controls {
+            let OutputAction::Reconcile { spec } = &control.action else {
+                continue;
+            };
+            let Some(entry) = input
+                .reconciliation_docket
+                .iter()
+                .find(|entry| entry.case.case_id == spec.case_id)
+            else {
+                return Err(ShenkoError::Protocol(
+                    shenko_types::error::ProtocolError::new(
+                        "CONTROL_PROTOCOL_INVALID",
+                        shenko_types::error::ErrorScope::Request,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    )
+                    .with_details(serde_json::json!({
+                        "line": control.spans.first().map(|span| span.line),
+                        "reason": "reconcile names a case that was not carried into this step",
+                    })),
+                ));
+            };
+            if spec
+                .reason_refs
+                .iter()
+                .any(|reason| !entry.case.evidence_refs.contains(reason))
+            {
+                return Err(ShenkoError::Protocol(
+                    shenko_types::error::ProtocolError::new(
+                        "CONTROL_PROTOCOL_INVALID",
+                        shenko_types::error::ErrorScope::Request,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    )
+                    .with_details(serde_json::json!({
+                        "line": control.spans.first().map(|span| span.line),
+                        "reason": "reconcile cites evidence this case does not carry",
+                    })),
+                ));        // A durable obligation may only answer an input this step actually
+        // selected: an origin the subject was never shown cannot become a
+        // frozen fact of its commitment. Naming any other event is a
+        // correctable authored control, exactly like an unselected
+        // disposition, so the loop returns a sourced replacement instead of
+        // rejecting the whole step after its result is already recorded.
+        for control in &output.controls {
+            if let OutputAction::Obligation { spec } = &control.action {
+                let Some(origin) = spec.origin_event_id else {
+                    continue;
+                };
+                if !input.events.iter().any(|event| event.event_id == origin) {
+                    return Err(ShenkoError::Protocol(
+                        shenko_types::error::ProtocolError::new(
+                            "CONTROL_PROTOCOL_INVALID",
+                            shenko_types::error::ErrorScope::Request,
+                            shenko_types::error::RetryStrategy::NewRevision,
+                        )
+                        .with_details(serde_json::json!({
+                            "line": control.spans.first().map(|span| span.line),
+                            "reason": "obligation names an input event that was not selected into this step",
+                            "origin_event_id": origin,
+                        })),
+                    ));
+                }            }
+        }
         let mut delegations = Vec::new();
         for control in &output.controls {
             let intent = match &control.action {
@@ -1240,6 +1428,28 @@ async fn execute_step(
         }
         Err(error) => return Err(error),
     };
+    // P1: validate terminal targets against S0 membership before constructing
+    // the decision. An invalid target must route through the correction path,
+    // not abort the loop after the step is already ResultRecorded.
+    if output.controls.iter().any(|control| matches!(control.action, OutputAction::ObligationTerminal { .. })) {
+        for control in &output.controls {
+            if let OutputAction::ObligationTerminal { change } = &control.action {
+                if !input.obligations.iter().any(|item| item.obligation_id == change.obligation_id) {
+                    let error = shenko_types::error::ProtocolError::new(
+                        "CONTROL_PROTOCOL_INVALID",
+                        shenko_types::error::ErrorScope::Request,
+                        shenko_types::error::RetryStrategy::NewRevision,
+                    )
+                    .with_details(serde_json::json!({
+                        "reason": "obligation terminal target was not shown in this step's S0",
+                        "obligation_id": change.obligation_id,
+                    }));
+                    replace_rejected_output(state, input, model_output.as_deref().unwrap_or(""), error)?;
+                    return Ok(None);
+                }
+            }
+        }
+    }
     // ResultRecorded (including real CAS bytes) is already durable before hooks/S1.
     step.state = SubjectStepState::Committed;
     step.record_revision = RecordRevision(step.record_revision.0 + 1);
@@ -1271,6 +1481,9 @@ async fn execute_step(
     let mut disposition_specs = vec![];
     let mut obligation_intents: Vec<PendingObligation> = vec![];
     let mut dialogue_intents: Vec<DialogueIntent> = vec![];
+    let mut unknown_acknowledgements: Vec<
+        shenko_types::evidence::ReconciliationAcknowledgement,
+    > = vec![];
     let mut attention_policy: Option<AttentionPolicy> = None;
     let mut steer_specs = vec![];
     for control in &output.controls {
@@ -1315,6 +1528,14 @@ async fn execute_step(
                     target_revision: None,
                 });
             }
+            OutputAction::ObligationTerminal { change } => {
+                policy_intents.push(PolicyIntent {
+                    intent_id: control.action_id,
+                    kind: PolicyKind::ObligationTerminal { change: change.clone() },
+                    description: "subject obligation terminal change".into(),
+                    target_revision: None,
+                });
+            }
             OutputAction::Dispose { spec } => {
                 disposition_specs.push((control.action_id, spec.clone()));
             }
@@ -1349,6 +1570,16 @@ async fn execute_step(
             }
             OutputAction::Steer { spec } => {
                 steer_specs.push((control.action_id, spec.clone()));
+            }
+            OutputAction::Reconcile { spec } => {
+                unknown_acknowledgements.push(
+                    shenko_types::evidence::ReconciliationAcknowledgement {
+                        case_id: spec.case_id,
+                        acknowledgement_id: control.action_id,
+                        reason_refs: spec.reason_refs.clone(),
+                        remaining_impact: spec.remaining_impact.clone(),
+                    },
+                );
             }
             _ => {}
         }
@@ -1454,12 +1685,13 @@ async fn execute_step(
     }
 
     // 决定对象没有自引用；后继身份在 CAS 决定与数据库事务中保持一致。
-    // schema_version 8: the sealed decision now carries the versioned
-    // PublicationTarget (v2: opaque String id + explicit account, optional
-    // tenant/conversation) inside its publication intents. See
+    // schema_version 9: the sealed decision can also carry the subject's
+    // explicit acceptance of an unknown external effect (SPEC §41.4 X11).
+    // Schema 8 (versioned PublicationTarget only) is still admitted by the
+    // Store, so already sealed decisions keep their meaning. See
     // shenko_store::channel::DECISION_SCHEMA_VERSION.
     let decision = StepDecision {
-        schema_version: 8,
+        schema_version: shenko_store::channel::DECISION_SCHEMA_VERSION,
         step_id,
         output: output.clone(),
         identity_intent,
@@ -1476,6 +1708,7 @@ async fn execute_step(
         policy_intents,
         publication_intents: publication_intents.clone(),
         pending_obligations: obligation_intents,
+        unknown_acknowledgements,
         attention_policy,
         evidence_refs: vec![],
         successor_step_id: next_step_id,
@@ -1488,7 +1721,7 @@ async fn execute_step(
         "application/json",
         "decisions",
         "StepDecision",
-        8,
+        shenko_store::channel::DECISION_SCHEMA_VERSION,
     )?);
 
     match store.commit_step_and_advance_head(&step, &state.head, next_step_id) {
@@ -1497,6 +1730,18 @@ async fn execute_step(
             let (head, successor) = store.load_subject(state.agent_id)?;
             state.head = head;
             state.step = successor;
+            // The reminder this step's request carried is answered here, and
+            // only here: the committed step is the evidence that the assembled
+            // context was dispatched. A refused, aborted or restarted assembly
+            // never reaches this line, so the reminder stays available; the
+            // durable answer keeps a successful retry inside the same window
+            // from repeating it. The commit is already durable, so a journal
+            // that cannot record the answer is reported, not rolled back.
+            if let Some(reminder) = state.pending_reminder.take() {
+                if let Err(error) = state.context_registry.acknowledge_rollover_reminder(&reminder) {
+                    warn!(%error, window=%reminder.window, "committed request could not record its notebook reminder");
+                }
+            }
             state.previous_input_tokens = observed_input_tokens(&store.recorded_model_outcome(&step)?, input.provider_binding.as_ref());
             state.previous_input_binding = input.provider_binding.clone();
             state.previous_estimated_input_tokens = input.context.estimated_input_tokens;
@@ -1760,10 +2005,20 @@ fn contribution_usage(
     input: &FrozenStepInput,
     seal: &ObjectRef,
 ) -> Result<Option<shenko_context_policy::ContributionUsage>, ShenkoError> {
+    // Records sealed before the SPEC §51.9 cutover spell the sourced-content
+    // kind `fact`. The sealed bytes stay exactly as they were; this reader
+    // migrates its own parsed copy through the one named migration.
+    let read = |value: &serde_json::Value| {
+        let mut value = value.clone();
+        shenko_types::plugin_runtime::migrate_legacy_contribution_kinds(&mut value);
+        value
+    };
     let sent: Vec<shenko_context_policy::ContextContribution> = input.contributions.iter()
-        .map(serde::Deserialize::deserialize).collect::<Result<_, _>>()?;
+        .map(|value| serde::Deserialize::deserialize(read(value)))
+        .collect::<Result<_, _>>()?;
     let omitted: Vec<shenko_context_policy::ContributionOmission> = input.contribution_omissions.iter()
-        .map(serde::Deserialize::deserialize).collect::<Result<_, _>>()?;
+        .map(|value| serde::Deserialize::deserialize(read(value)))
+        .collect::<Result<_, _>>()?;
     let total = sent.iter().try_fold(0u64, |total, item| total.checked_add(item.tokens));
     if total != Some(input.contribution_tokens)
         || sent.iter().any(|item| item.scope.scope_id != input.context.source.scope_id || item.scope.task_id.is_some())

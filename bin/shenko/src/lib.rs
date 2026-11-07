@@ -84,6 +84,14 @@ pub enum Command {
         /// one plugin personality. Requires --napcat-account.
         #[arg(long, env = "NAPCAT_CLI_URL", requires = "napcat_account")]
         napcat_cli_url: Option<String>,
+        /// JSON file naming the additional channel connectors this runtime
+        /// installs: official QQ (`qq_official`), WeChat iLink (`ilink`) and
+        /// Feishu/Lark (`feishu`). A platform absent from the file is not
+        /// registered, not advertised in the reply grammar and never
+        /// contacted. Credentials come from the file's own fields and never
+        /// appear in logs, facts or receipts.
+        #[arg(long, env = "SHENKO_CHANNELS_CONFIG")]
+        channels_config: Option<PathBuf>,
         /// Explicit native SSH target installation; no ambient identity discovery.
         #[arg(long)]
         ssh_targets: Option<PathBuf>,
@@ -176,6 +184,12 @@ pub enum Command {
     Update {
         #[command(subcommand)]
         command: UpdateCli,
+    },
+    /// Cognitive root version chain — SPEC §51.4. Capture, reinstate,
+    /// inspect the owned versioned root.
+    Root {
+        #[command(subcommand)]
+        command: RootCli,
     },
 }
 
@@ -334,6 +348,29 @@ impl From<UpdateCli> for shenko_update::cli::UpdateCommand {
 }
 
 #[derive(Subcommand, Debug)]
+pub enum RootCli {
+    /// Show the current cognitive root head.
+    Head,
+    /// Show the version chain (newest first).
+    Chain {
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
+    /// Show a specific root node by revision.
+    Node {
+        #[arg(long)]
+        revision: u64,
+    },
+    /// Capture the current state into a new root node.
+    Capture,
+    /// Reinstate a historical root node.
+    Reinstate {
+        #[arg(long)]
+        target_revision: u64,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 pub enum ContextCommand {
     /// The installed context strategies and their installation record.
     Policy {
@@ -356,6 +393,13 @@ pub enum ContextPolicyCommand {
     Enable { id: String },
     /// Disable a strategy: the record stays, the strategy stops running.
     Disable { id: String },
+    /// Replace a strategy's configuration at the same compiled identity. A
+    /// running process installs the new configuration at its next observation.
+    Config {
+        id: String,
+        /// The configuration document, as JSON.
+        config: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -503,6 +547,20 @@ pub enum ToolCommand {
         /// SPDX license identifier of the upstream project.
         #[arg(long)]
         license: Option<String>,
+        /// Declare a guest filesystem path this package needs, as `PATH` for
+        /// read-only use or `PATH:rw` when it writes. Repeatable. A
+        /// declaration is a requirement, never a permission grant: the
+        /// executor admits it against the mount closure it actually freezes.
+        #[arg(long = "requires-fs")]
+        requires_fs: Vec<String>,
+        /// Declare an environment variable the package needs supplied per
+        /// invocation. Repeatable.
+        #[arg(long = "requires-env")]
+        requires_env: Vec<String>,
+        /// Declare a host facility: `clock`, `random`, `host_import:<module>`
+        /// or `network:<host>:<port>[:connect,listen,accept]`. Repeatable.
+        #[arg(long = "requires-host")]
+        requires_host: Vec<String>,
     },
     /// Inspect a real artifact without installing it: the ABI and the imports
     /// are read from the module's actual bytes, never from its name.
@@ -560,6 +618,54 @@ pub enum ToolCommand {
         /// Directory holding the produced artifacts.
         #[arg(long)]
         artifacts: PathBuf,
+        /// Declare a guest filesystem path every artifact of the set needs, as
+        /// `PATH` (read-only) or `PATH:rw`. Repeatable.
+        #[arg(long = "requires-fs")]
+        requires_fs: Vec<String>,
+        /// Declare an environment variable every artifact of the set needs
+        /// supplied per invocation. Repeatable.
+        #[arg(long = "requires-env")]
+        requires_env: Vec<String>,
+        /// Declare a host facility the set needs: `clock`, `random`,
+        /// `host_import:<module>` or
+        /// `network:<host>:<port>[:connect,listen,accept]`. Repeatable.
+        #[arg(long = "requires-host")]
+        requires_host: Vec<String>,
+    },
+    /// Environment generations: the locked package closure this installation
+    /// executes. Preparation resolves and pins a closure; activation is the
+    /// single linearization point that makes it current; rollback selects the
+    /// previous generation without deleting a version, a generation or any
+    /// other fact.
+    Environment {
+        #[command(subcommand)]
+        command: ToolEnvironmentCommand,
+    },
+    /// Walk a metapackage's declared members, resolve each against installed
+    /// units, check adoption via the content/attitude ledger, and return the
+    /// membership standing of each. Pure read.
+    Metapackage {
+        /// The metapackage unit id.
+        #[arg(long)]
+        unit_id: String,
+    },
+    /// Walk a distribution's preinstalled macros, target-access expectations,
+    /// and capability-provider defaults. Pure read: declarations are facts
+    /// about the distribution version, not grants of local readiness.
+    Distribution {
+        /// The distribution unit id.
+        #[arg(long)]
+        unit_id: String,
+    },
+    /// Resolve one named capability-contract slot across the installed
+    /// providers on this node. Pure read.
+    Slot {
+        /// The metapackage unit id.
+        #[arg(long)]
+        macro_id: String,
+        /// The capability contract, e.g. `cap.taste.projection/1`.
+        #[arg(long)]
+        contract: String,
     },
     /// Execute an installed tool with real argv/env/stdio under the managed
     /// mounts. Exit code is reported exactly; tool names resolve against the
@@ -590,6 +696,38 @@ pub enum ToolCommand {
     },
 }
 
+/// Environment-generation subcommands — the Nix-profile surface of the tool
+/// package closure.
+#[derive(Subcommand, Debug)]
+pub enum ToolEnvironmentCommand {
+    /// Show the selector, the recorded generations, the append-only activation
+    /// log and the closure the current generation pins. Pure read.
+    Status,
+    /// Resolve the closure of these roots and record it as a locked
+    /// generation. Nothing becomes current until it is activated.
+    Prepare {
+        /// `name`, `name@version`, or a `tool.<name>` unit id. Omitted means
+        /// every enabled installed tool — the Nix-profile meaning of "the
+        /// environment".
+        #[arg(long = "root")]
+        root: Vec<String>,
+    },
+    /// Publish a prepared generation as the current environment. The write is
+    /// a compare-and-swap on the selector revision that was read.
+    Activate {
+        #[arg(long)]
+        generation: u64,
+        #[arg(long)]
+        expected_revision: u64,
+    },
+    /// Select the previous generation of the current environment. New facts
+    /// produced after the switch are never rolled back by this.
+    Rollback {
+        #[arg(long)]
+        expected_revision: u64,
+    },
+}
+
 #[derive(Subcommand, Debug)]
 pub enum RuntimeCommand {
     /// Ask the current subject to pause after a finite step.
@@ -611,6 +749,68 @@ struct InstalledDefinitions {
     self_knowledge: Arc<shenko_awareness_core::SelfKnowledgeProvider>,
     handoff_participants: Arc<shenko_update::handoff::HandoffParticipantRegistry>,
     artifact_services: Arc<shenko_ui::playground_backend::ArtifactServiceController>,
+    /// The one configuration service: the panel routes and the subject's
+    /// `config.manage` tool share it, so a change made one way is the state
+    /// the other observes. SPEC §43.1.
+    config_service: Arc<shenko_ui::config_service::ConfigService>,
+}
+
+/// The media services one process publishes: the typed ingress every provider
+/// (and the `/api/media` routes) admits through, and the live runtime the
+/// session, recording, speech and speaker-identity engines hang off.
+struct MediaServices {
+    ingress: Arc<shenko_media::MediaIngress>,
+    runtime: Arc<shenko_media::runtime::MediaRuntime>,
+}
+
+/// Construct and publish the real media services on the shared Cordis root —
+/// SPEC §15.2, §20.
+///
+/// This is the single construction path, and it runs before the native
+/// definitions that bind to it. The running agent passes its live subject
+/// inbox so an admitted media fact wakes the same subject; capability
+/// discovery publishes the same pair so a definition it reports as installed
+/// really has the service behind it. Nothing here is a stub: the runtime holds
+/// the engine bindings loaded from `<data_dir>/media/providers.json`, and an
+/// absent file means no engine is configured — which the handlers report as a
+/// typed refusal at call time rather than as a fake capability.
+async fn spawn_media_services(
+    supervisor: &shenko_kernel::Supervisor,
+    store: &Arc<shenko_store::store::Store>,
+    data_dir: &std::path::Path,
+    agent_id: shenko_types::ids::EntityId,
+    inbox: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+) -> Result<MediaServices> {
+    let _media_ingress_plugin = supervisor
+        .spawn(
+            shenko_media::MediaIngressPlugin,
+            (Arc::clone(store), agent_id, inbox),
+        )
+        .await?;
+    // Engine bindings are configuration, not model input: a malformed binding
+    // is a typed error here instead of a silently engine-less runtime.
+    let media_providers =
+        shenko_media::runtime::MediaProviders::load(data_dir, Arc::clone(&store.cas))?;
+    let _media_runtime_plugin = supervisor
+        .spawn(
+            shenko_media::MediaRuntimePlugin,
+            (
+                supervisor
+                    .context()
+                    .try_service::<shenko_media::MediaIngress>()?,
+                Arc::clone(store),
+                media_providers,
+            ),
+        )
+        .await?;
+    Ok(MediaServices {
+        ingress: supervisor
+            .context()
+            .try_service::<shenko_media::MediaIngress>()?,
+        runtime: supervisor
+            .context()
+            .try_service::<shenko_media::runtime::MediaRuntime>()?,
+    })
 }
 
 /// Install the native task definitions of this runtime.
@@ -626,6 +826,7 @@ async fn install_native_definitions(
     store: &Arc<shenko_store::store::Store>,
     data_dir: &std::path::Path,
     wasi_mounts: Vec<shenko_wasm::MountSpec>,
+    media: &MediaServices,
 ) -> Result<InstalledDefinitions> {
     let handoff_participants = Arc::new(
         shenko_update::handoff::HandoffParticipantRegistry::new(),
@@ -697,6 +898,18 @@ async fn install_native_definitions(
     let _media_read_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, media_read_handler)
         .await?;
+    // Speaker identification of one already-sealed segment. The handler binds
+    // to the SAME live media runtime the UI routes and provider plugins use,
+    // which is why the media services are constructed before this install.
+    let media_identify_handler: Arc<dyn shenko_subject::NativeTaskHandler> = Arc::new(
+        shenko_media::MediaIdentifyHandler::new(
+            Arc::clone(store),
+            Arc::clone(&media.runtime),
+        ),
+    );
+    let _media_identify_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, media_identify_handler)
+        .await?;
     // Built-in, replaceable self-explanation — SPEC §38, R124. The
     // provider is seeded from compiled-in material now; the real
     // `self://runtime/capabilities` snapshot is installed below once
@@ -731,6 +944,22 @@ async fn install_native_definitions(
     );
     let _native_playground_plugin = supervisor
         .spawn(shenko_subject::NativeTaskHandlerPlugin, playground_handler)
+        .await?;
+    // Configuration through conversation — SPEC §43.1, R133. The handler runs
+    // the same ConfigService the panel routes expose: one durable change
+    // ledger, one set of consumer adoptions, no approval gate and no second
+    // configuration store. Its built-in namespaces are registered by the
+    // service itself, and every plugin may add its own.
+    let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(
+        Arc::clone(store),
+    ));
+    let config_handler: Arc<dyn shenko_subject::NativeTaskHandler> =
+        Arc::new(shenko_ui::ConfigHandler::new(
+            Arc::clone(store),
+            Arc::clone(&config_service),
+        ));
+    let _native_config_plugin = supervisor
+        .spawn(shenko_subject::NativeTaskHandlerPlugin, config_handler)
         .await?;
     // Desktop and VM handlers share one provider registry, lease authority
     // and session state across tasks.
@@ -914,6 +1143,7 @@ async fn install_native_definitions(
         self_knowledge,
         handoff_participants,
         artifact_services,
+        config_service,
     })
 }
 
@@ -1031,6 +1261,20 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         .await?;
     let identity_context = supervisor.context().clone();
     let identity_service = identity_context.try_service::<IdentityService>()?;
+    // Replaceable quota strategies (SPEC §42.1): the runtime publishes the
+    // installed forecaster/router/cadence set so the subject, its finite
+    // model children and the intervention worker all decide with one set.
+    // The configured default is the replayable §42.5 baseline; installing
+    // another strategy is a library/assembly decision and is reported here
+    // rather than silently assumed.
+    let quota_strategies = shenko_quota::QuotaStrategies::baseline();
+    tracing::info!(
+        strategies = ?quota_strategies.describe(),
+        "quota strategies installed"
+    );
+    let _quota_strategy_plugin = supervisor
+        .spawn(shenko_subject::QuotaStrategyPlugin, quota_strategies)
+        .await?;
     let result: Result<()> = async {
     match command {
         Command::SshPublicIdentity { .. } => {
@@ -1063,11 +1307,28 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             let prepared_home = bootstrap.prepare(store.installation_id_for_subject(agent_id)?)?;
             let wasi_mounts = prepared_home.manifest.mounts.clone();
             drop(prepared_home);
+            // The same media services the running agent publishes, so a
+            // definition reported here is bound to the real runtime instead of
+            // a name. No subject loop drains a discovery process, so the wake
+            // channel has no receiver: an admission would honestly report
+            // `pending` (its durable row already carries the fact) instead of
+            // claiming a live queue.
+            let (discovery_wake, discovery_wake_receiver) = tokio::sync::mpsc::channel(1024);
+            drop(discovery_wake_receiver);
+            let media = spawn_media_services(
+                &supervisor,
+                &store,
+                &data_dir,
+                agent_id,
+                discovery_wake,
+            )
+            .await?;
             let installed = install_native_definitions(
                 &supervisor,
                 &store,
                 &data_dir,
                 wasi_mounts,
+                &media,
             )
             .await?;
             // Discovery runs the same installation path as the agent: an
@@ -1273,6 +1534,9 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
         Command::Update { command } => {
             update_control::run_cli(command.into(), data_dir.clone()).await?;
         }
+        Command::Root { command } => {
+            root_command(&data_dir, command)?;
+        }
         Command::Version => {
             let model = shenko_seed::ModelProfile::from_env();
             println!("Shenko（深刻）0.1.0  SPEC v0.6.2");
@@ -1384,6 +1648,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             napcat_file_root,
             napcat_file_host,
             napcat_cli_url,
+            channels_config,
             ssh_targets,
         } => {
             if napcat.is_some() {
@@ -1503,6 +1768,24 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             store.start_subject_dispatcher()?;
             store.settle_subject_memory()?;
             store.reconcile_subject_publications()?;
+            // Typed continuous-media services first: one durable revision
+            // admission + the bound subject inbox event, plus the live runtime
+            // behind the reserved slots (realtime sessions against configured
+            // engine bindings in data_dir/media/providers.json, recording
+            // capture with CAS closure, barge-in, speech playback and speaker
+            // identification). SPEC §15.2, §20. They are published before the
+            // native definitions that bind to them, and the /api/media routes
+            // share the same instances. No engine configured stays honest: the
+            // ingress path still admits external provider facts, and an engine
+            // call reports a typed refusal.
+            let media = spawn_media_services(
+                &supervisor,
+                &store,
+                &data_dir,
+                agent_id,
+                subject_inbox.sender(),
+            )
+            .await?;
             // Native finite children use the same Cordis root and persistent
             // ledger. Fixed native definitions retain their original handlers;
             // the finite model handler is installed with the shared broker below.
@@ -1511,6 +1794,7 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 &store,
                 &data_dir,
                 wasi_mounts.clone(),
+                &media,
             )
             .await?;
             if let Some(path) = ssh_targets {
@@ -1535,16 +1819,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 cancel.clone(),
             )
             .await?;
-            // Typed continuous-media ingress: one durable revision admission +
-            // the bound subject inbox event, published on the same Cordis root
-            // so real providers inject it (and the /api/media routes share it).
-            // SPEC §15.2, §20. Transcript text still comes only from providers.
-            let _media_ingress_plugin = supervisor
-                .spawn(
-                    shenko_media::MediaIngressPlugin,
-                    (Arc::clone(&store), agent_id, subject_inbox.sender()),
-                )
-                .await?;
             // Resident memory worker — SPEC §12.2: accepted ≠ remembered.
             // It drains the durable memory intent queue and keeps the Git
             // text knowledge repository (data_dir/memory) in sync. The
@@ -1560,26 +1834,6 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         agent_id,
                         Arc::clone(&store),
                         Some(memory_knowledge),
-                    ),
-                )
-                .await?;
-            let media_ingress = supervisor
-                .context()
-                .try_service::<shenko_media::MediaIngress>()?;
-            // Media runtime behind the reserved slots: realtime sessions
-            // against configured engine bindings (data_dir/media/
-            // providers.json), recording capture with CAS closure, barge-in
-            // and speech playback. SPEC §20. No engine configured is honest:
-            // the ingress path still admits external provider facts.
-            let media_providers =
-                shenko_media::runtime::MediaProviders::load(&data_dir, Arc::clone(&store.cas))?;
-            let _media_runtime_plugin = supervisor
-                .spawn(
-                    shenko_media::MediaRuntimePlugin,
-                    (
-                        Arc::clone(&media_ingress),
-                        Arc::clone(&store),
-                        media_providers,
                     ),
                 )
                 .await?;
@@ -1626,6 +1880,32 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     info!(unit = %unit, "legacy awareness unit installed");
                 }
             }
+            // Perception units are definitions; the facts come from sources
+            // bound to the exact installed revisions. Bind the shipped ones
+            // before the first request so it has an archived observation
+            // instead of a pending state. A source that cannot observe is
+            // reported as unavailable in the cards — it is not a reason to
+            // refuse to open the node.
+            match shenko_awareness_core::bind_builtin_perception_sources(
+                Arc::clone(&cognition_node),
+                cognition.perception(),
+            ) {
+                Ok(bound) => info!(units = ?bound, "cognition perception sources bound"),
+                Err(error) => tracing::warn!(
+                    %error,
+                    "perception sources not bound; their cards stay unknown on this node"
+                ),
+            }
+            // Publish the one catalog so any plugin — including a finite
+            // child's handler — discloses the same installed units. Publishing
+            // grants nothing: a reader still has to be able to make the call
+            // the index names, and the index says so when it cannot.
+            let _cognition_catalog_plugin = supervisor
+                .spawn(
+                    shenko_awareness_core::CognitionCatalogHost,
+                    Arc::clone(&cognition),
+                )
+                .await?;
             // Optional ecosystem adapters. MCP and Agent Skills are two
             // independent units over the same installation authority: each is
             // resident only while its own unit is enabled, and neither brings
@@ -1820,12 +2100,41 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             // enabled, with the configuration that unit carries. The
             // preference order follows the installation order of the enabled
             // units until the configuration service carries a value.
+            // The notebook and the explicit rollover request belong to this
+            // branch's context chain, so they share its scope and live in the
+            // store: a restarted process resumes the same journal, and a
+            // request armed before it stopped is still pending afterwards.
+            let context_scope = shenko_types::ids::EntityId(context_head.branch_id.0);
+            let notes_journal: Arc<dyn shenko_context_policy::NotesJournal> =
+                Arc::new(shenko_context_policy::StoreNotesJournal::new(
+                    Arc::clone(&store),
+                    context_scope,
+                ));
+            let rollover_journal: Arc<dyn shenko_context_policy::RolloverJournal> =
+                Arc::new(shenko_context_policy::StoreRolloverJournal::new(
+                    Arc::clone(&store),
+                    context_scope,
+                ));
+            // The reminder answer is store-backed for the same reason: a
+            // process that restarts inside the same committed window must not
+            // repeat prompt material the model already received.
+            let reminder_journal: Arc<dyn shenko_context_policy::ReminderJournal> =
+                Arc::new(shenko_context_policy::StoreReminderJournal::new(
+                    Arc::clone(&store),
+                    context_scope,
+                ));
+            context_registry
+                .attach_rollover_journal(rollover_journal)
+                .map_err(anyhow::Error::msg)?;
+            context_registry
+                .attach_reminder_journal(reminder_journal)
+                .map_err(anyhow::Error::msg)?;
             let mut policy_node = node_sync::open_node(&data_dir, &store)?;
             let installed_policies = context_policy::reconcile_units(
                 &mut policy_node,
                 &data_dir.join("policy-units"),
             )?;
-            drop(policy_node);
+            let policy_node = Arc::new(parking_lot::Mutex::new(policy_node));
             let adopted = context_registry.apply_preference(
                 context_policy::preference_order(&installed_policies),
             );
@@ -1834,22 +2143,22 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 unknown = ?adopted.unknown,
                 "context strategies installed from the unit records"
             );
-            for policy in context_policy::enabled_policies(&installed_policies) {
-                let runtime = context_policy::runtime_config(policy)
-                    .map_err(anyhow::Error::msg)?;
-                match runtime {
-                    context_policy::PolicyRuntime::Budget(config) => {
-                        let _budget_policy = supervisor
-                            .spawn(shenko_compact_budget::BudgetCompactPlugin, config)
-                            .await?;
-                    }
-                    context_policy::PolicyRuntime::Snap(config) => {
-                        let _snap_policy = supervisor
-                            .spawn(shenko_compact_snap::SnapCompactPlugin, config)
-                            .await?;
-                    }
-                }
-            }
+            // The installation record is observed for the lifetime of this
+            // runtime instead of read once at boot: a strategy enabled,
+            // disabled, replaced or reconfigured by another Node connection
+            // starts or stops here, and the notebook definition a strategy owns
+            // is withdrawn with it. A policy that boots enabled is installed by
+            // the same reconciliation, so there is one installation path.
+            let _installed_policies = context_policy::spawn_installed_policies(
+                &supervisor,
+                context_policy::PolicyHosts {
+                    registry: Arc::clone(&context_registry),
+                    notes: Arc::clone(&notes_journal),
+                    store: Arc::clone(&store),
+                    node: Arc::clone(&policy_node),
+                },
+            )
+            .await?;
             let (broker, broker_handle) = shenko_broker::broker::Broker::new()?;
             inference_runtime::install_runtime_error_sink(&broker_handle, Arc::clone(&store));
             handoff_participants.register(Arc::new(update_runtime::InferenceDomain(broker_handle.clone())));
@@ -1987,17 +2296,14 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 );
 
                 // The QQ plugin owns classification, reply resolution,
-                // description and dispatch; the Store owns the durable intent,
-                // attempt and receipt. Binding the Store also installs the
-                // host file capability: inbound attachment locators resolve
-                // inside the configured NapCat-host media root and are sealed
-                // by content digest.
+                // description, dispatch and attachment resolution; the Store
+                // owns the durable intent, attempt, receipt and the sealing of
+                // resolved attachment bytes. The plugin never holds a Store.
                 let qq_plugin: Arc<shenko_channel_napcat::NapCatChannel> = Arc::new(
                     shenko_channel_napcat::NapCatChannel::new(
                         napcat_config.clone(),
                         Arc::clone(&client),
-                    )
-                    .with_store(Arc::clone(&store)),
+                    ),
                 );
                 channel_registry.register(qq_plugin.clone()).context("register qq channel plugin")?;
                 // Administration is an owner-set fact, recorded at startup and
@@ -2023,6 +2329,60 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                         "cli_source_configured": napcat_cli_url.is_some(),
                     }),
                 })?;
+
+                // Connectivity is an observation, not a message: lifecycle and
+                // heartbeat frames land in the spool's bounded meta ledger, and
+                // a new frame is mirrored as a subject-readable fact. Staleness
+                // stays visible because the fact carries the observation time.
+                let connectivity_spool = Arc::clone(&spool);
+                let connectivity_store = Arc::clone(&store);
+                let connectivity_account = napcat_config.account_scope();
+                let connectivity_cancel = cancel_napcat.clone();
+                tokio::spawn(async move {
+                    let mut last: Option<(String, Option<String>)> = None;
+                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                    loop {
+                        tokio::select! { biased;
+                            _ = connectivity_cancel.cancelled() => break,
+                            _ = tick.tick() => {}
+                        }
+                        let meta = match connectivity_spool.last_meta() {
+                            Ok(Some(meta)) => meta,
+                            Ok(None) => continue,
+                            Err(error) => {
+                                tracing::warn!(err=%error, "NapCat connectivity observation unreadable");
+                                break;
+                            }
+                        };
+                        let signature = (meta.meta_event_type.clone(), meta.sub_type.clone());
+                        if last.as_ref() == Some(&signature) {
+                            continue;
+                        }
+                        last = Some(signature);
+                        let state = match (meta.meta_event_type.as_str(), meta.sub_type.as_deref()) {
+                            ("lifecycle", Some("enable" | "connect")) => "ready",
+                            ("lifecycle", Some("disable")) => "stopped",
+                            ("heartbeat", _) => "ready",
+                            _ => "observed",
+                        };
+                        if let Err(error) = connectivity_store.record_channel_fact(
+                            &shenko_store::channel::NewChannelFact {
+                                channel: shenko_channel_napcat::QQ_CHANNEL_ID.to_string(),
+                                account: connectivity_account.clone(),
+                                kind: "connectivity".to_string(),
+                                state: state.to_string(),
+                                subject_ref: None,
+                                detail: serde_json::json!({
+                                    "meta_event_type": meta.meta_event_type,
+                                    "sub_type": meta.sub_type,
+                                    "observed_at": meta.observed_at,
+                                }),
+                            },
+                        ) {
+                            tracing::warn!(err=%error, "NapCat connectivity fact not recorded");
+                        }
+                    }
+                });
 
                 // A storage failure closes the connector and stops this runtime;
                 // silently leaving an apparently healthy UI would hide lost reception.
@@ -2125,40 +2485,23 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                                 shenko_channel_napcat::QQ_SOURCE,
                                 &inbox_ev.payload,
                             ) {
-                                // Resolve attachment locators on the NapCat
-                                // host through the file capability: bytes are
-                                // sealed into the store and reachable by
-                                // digest. A locator that cannot be resolved
-                                // stays a locator and is recorded as a
-                                // subject-readable gap; the message itself
-                                // is never dropped.
-                                for index in 0..envelope.attachments.len() {
-                                    let attachment = envelope.attachments[index].clone();
-                                    match admission_plugin.resolve_attachment(&attachment) {
-                                        Ok(resolved) => {
-                                            if let Some(object) = resolved.object {
-                                                envelope.attachments[index].object =
-                                                    Some(object);
-                                            }
-                                        }
-                                        Err(detail) => {
-                                            admission_facts.record_channel_fact(
-                                                &shenko_store::channel::NewChannelFact {
-                                                    channel: shenko_channel_napcat::QQ_CHANNEL_ID
-                                                        .to_string(),
-                                                    account: envelope.account.clone(),
-                                                    kind: "attachment_locator".to_string(),
-                                                    state: "pending".to_string(),
-                                                    subject_ref: Some(event_id.to_string()),
-                                                    detail: serde_json::json!({
-                                                        "attachment_id": attachment.attachment_id,
-                                                        "detail": detail,
-                                                    }),
-                                                },
-                                            )?;
-                                        }
-                                    }
-                                }
+                                // Resolve attachment locators through the
+                                // plugin and seal the delivered bytes into the
+                                // content-addressed store. This is the same
+                                // path the adapter sources use, so one locator
+                                // has exactly one resolution mechanism. A
+                                // locator that cannot be resolved stays a
+                                // locator and is recorded as a subject-readable
+                                // typed gap; the message itself is never lost.
+                                let plugin: Arc<dyn shenko_types::channel::ChannelPlugin> =
+                                    admission_plugin.clone();
+                                envelope = prepare_channel_envelope(
+                                    &plugin,
+                                    &admission_facts,
+                                    event_id,
+                                    envelope,
+                                )
+                                .await?;
                                 inbox_ev.payload = serde_json::to_value(&envelope)?;
                             }
                             tokio::select! { biased;
@@ -2234,122 +2577,308 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                     }
                 });
 
-                // Outbound publications across every registered channel: the
-                // model emits an explicit target so we never guess who to
-                // answer. T1 (arm_publication) claims the intent and arms the
-                // durable operation before the network is touched; the
-                // provider's answer is E1 evidence. A target no installed
-                // plugin serves is refused as never dispatched — durable,
-                // effect none, and it never cancels the runtime.
-                // SPEC §35.6, §41.4 X03, §41.6.
-                let reply_registry = channel_registry.clone();
-                let reply_store = Arc::clone(&store);
-                let reply_agent = agent_id;
-                let cancel_replies = consumer_cancel.clone();
-                let reply_failure = cancel.clone();
-                tokio::spawn(async move {
-                    let result: Result<()> = async {
-                    let mut tick=tokio::time::interval(std::time::Duration::from_millis(250));
-                    loop {
-                        tokio::select! { biased;
-                            _ = cancel_replies.cancelled() => break,
-                            _ = tick.tick() => {}
-                        }
-                        // The ready index owns the work.
-                        for publication in reply_store.ready_publications(32)? {
-                            let intent_id = publication.intent_id;
-                            let Some(plugin) = reply_registry.channel(&publication.target.channel) else {
-                                // Never dispatched: durable refusal, runtime
-                                // keeps running.
-                                if let Err(error) = reply_store.refuse_publication(
-                                    intent_id,
-                                    "no installed channel serves target.channel",
-                                ) {
-                                    tracing::warn!(err=%error, %intent_id, "publication refusal not committed");
-                                }
-                                continue;
-                            };
-                            let dispatch = match plugin.describe(&publication.target) {
-                                Ok(dispatch) => dispatch,
-                                Err(error) => {
-                                    if let Err(refusal_error) =
-                                        reply_store.refuse_publication(intent_id, &error.to_string())
-                                    {
-                                        tracing::warn!(err=%refusal_error, %intent_id, "publication refusal not committed");
-                                    }
-                                    continue;
-                                }
-                            };
-                            // T1: claim + arm before the network. None means
-                            // another dispatcher owns it — never a second send.
-                            let Some(armed) = reply_store.arm_publication(intent_id, &dispatch)? else {
-                                continue;
-                            };
-                            let mut dispatch = dispatch;
-                            dispatch.echo = Some(armed.operation_id.to_string());
-                            let outcome = match plugin.dispatch(&dispatch, &publication.content).await {
-                                Ok(receipt) => {
-                                    reply_store.record_publication_receipt(&armed, &receipt)?;
-                                    if receipt.accepted { "accepted" } else { "rejected" }
-                                }
-                                Err(
-                                    error @ (shenko_types::channel::ChannelError::Transport { .. }
-                                    | shenko_types::channel::ChannelError::Unknown { .. }),
-                                ) => {
-                                    // The request may have been executed. The
-                                    // effect is unknown; reconciliation
-                                    // settles it and never blind-resends.
-                                    let detail = error.to_string();
-                                    reply_store.record_publication_unknown(&armed, &detail)?;
-                                    "unknown"
-                                }
-                                Err(error) => {
-                                    // Deterministic refusal after arming
-                                    // (unsupported/unresolved/rejected): the
-                                    // effect is none and the operation is
-                                    // resolved failed.
-                                    let receipt = shenko_types::channel::ChannelReceipt {
-                                        status: "rejected".to_string(),
-                                        retcode: -1,
-                                        accepted: false,
-                                        provider_message_id: None,
-                                        raw: serde_json::json!({"error": error.to_string()}),
-                                        observed_at: chrono::Utc::now(),
-                                    };
-                                    reply_store.record_publication_receipt(&armed, &receipt)?;
-                                    "refused"
-                                }
-                            };
-                            reply_store.record_channel_fact(&shenko_store::channel::NewChannelFact {
-                                channel: publication.target.channel.clone(),
-                                account: armed.account.clone(),
-                                kind: "publication_outcome".to_string(),
-                                state: outcome.to_string(),
-                                subject_ref: Some(intent_id.to_string()),
-                                detail: serde_json::json!({
-                                    "operation_id": armed.operation_id.to_string(),
-                                    "kind": publication.target.kind,
-                                }),
-                            })?;
-                        }
-                    }
-                    Ok(())
-                    }.await;
-                    if let Err(error) = result {
-                        journal_channel_error(
-                            &reply_store,
-                            reply_agent,
-                            "channel_publication_consumer_failed",
-                            "shenko::channel_publication_consumer",
-                            error.to_string(),
-                            serde_json::json!({}),
-                        );
-                        tracing::error!(err=%error, "publication consumer stopped; reopen writer and reconcile");
-                        reply_failure.cancel();
-                    }
-                });
                 info!("NapCat connector started");
             }
+
+            // Additional channel connectors (official QQ, WeChat iLink,
+            // Feishu/Lark) are installed only when the operator names their
+            // accounts in one configuration file. An absent platform is not
+            // registered, not advertised in the reply grammar and never
+            // contacted. Capability discovery and health are recorded as
+            // subject-readable facts, and administration stays an owner-set
+            // fact per platform. SPEC §15.3, §16.
+            if let Some(config_path) = channels_config.clone() {
+                let file = shenko_channel_adapters::AdapterConfigFile::load(&config_path)
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                let adapters = shenko_channel_adapters::register_adapters(
+                    &mut channel_registry,
+                    file.into_deps(data_dir.clone()),
+                )
+                .map_err(|error| anyhow::anyhow!(error))?;
+                for observation in adapters.observations() {
+                    store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                        channel: observation.channel.clone(),
+                        account: observation.account.clone(),
+                        kind: "capabilities".to_string(),
+                        state: "declared".to_string(),
+                        subject_ref: None,
+                        detail: serde_json::to_value(&observation.capabilities)?,
+                    })?;
+                    let health = observation.health.snapshot().await;
+                    store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                        channel: observation.channel.clone(),
+                        account: observation.account.clone(),
+                        kind: "health".to_string(),
+                        state: health.state.clone(),
+                        subject_ref: None,
+                        detail: serde_json::json!({
+                            "source": observation.source,
+                            "detail": health.detail,
+                        }),
+                    })?;
+                }
+                if let Some(plugin) = &adapters.qq {
+                    record_owner_set_admins(
+                        &store,
+                        shenko_channel_adapters::qq_official::events::QQ_OFFICIAL_CHANNEL_ID,
+                        &plugin.config().account_scope(),
+                        &plugin.config().admin_openids,
+                        "qq-official-admin",
+                        "open_id",
+                    )?;
+                }
+                if let Some(plugin) = &adapters.ilink {
+                    record_owner_set_admins(
+                        &store,
+                        shenko_channel_adapters::ilink::events::ILINK_CHANNEL_ID,
+                        &plugin.config().account_scope(),
+                        &plugin.config().admin_user_ids,
+                        "ilink-admin",
+                        "user_id",
+                    )?;
+                }
+                if let Some(plugin) = &adapters.feishu {
+                    record_owner_set_admins(
+                        &store,
+                        shenko_channel_adapters::feishu::events::FEISHU_CHANNEL_ID,
+                        &plugin.config().account_scope(),
+                        &plugin.config().admin_open_ids,
+                        "feishu-admin",
+                        "open_id",
+                    )?;
+                }
+
+                // Every monitor records into its own durable ledger before it
+                // advances the platform cursor; these loops admit what the
+                // ledger holds and acknowledge only after the subject's
+                // disposition commit. One platform's connector failing never
+                // stops the subject loop.
+                let adapter_cancel = consumer_cancel.clone();
+                let adapter_agent = agent_id;
+                for handle in adapters.run_ingress(adapter_cancel.clone()).await {
+                    let failure_store = Arc::clone(&store);
+                    tokio::spawn(async move {
+                        if let Ok(Err(error)) = handle.await {
+                            journal_channel_error(
+                                &failure_store,
+                                adapter_agent,
+                                "channel_ingress_failed",
+                                "shenko_channel_adapters",
+                                error,
+                                serde_json::json!({}),
+                            );
+                            tracing::error!("channel monitor stopped; its durable ingress stays pending");
+                        }
+                    });
+                }
+                for ledger in adapters.ingress().iter().cloned() {
+                    let delivery_store = Arc::clone(&store);
+                    let failure_store = Arc::clone(&store);
+                    let delivery_registry = channel_registry.clone();
+                    let delivery_inbox = subject_inbox.sender();
+                    let delivery_cancel = adapter_cancel.clone();
+                    tokio::spawn(async move {
+                        if let Err(error) = run_adapter_ingress(
+                            ledger,
+                            delivery_registry,
+                            delivery_store,
+                            adapter_agent,
+                            delivery_inbox,
+                            delivery_cancel,
+                        )
+                        .await
+                        {
+                            journal_channel_error(
+                                &failure_store,
+                                adapter_agent,
+                                "channel_ingress_admission_failed",
+                                "shenko::channel_admission",
+                                error.to_string(),
+                                serde_json::json!({}),
+                            );
+                            tracing::error!(err=%error, "adapter ingress delivery stopped; events stay pending");
+                        }
+                    });
+                }
+                // Health is a live observation, so a state change is written
+                // as a new fact. The startup fact above already names the
+                // initial state; this loop only records real transitions.
+                let health_observations = adapters.observations().to_vec();
+                let health_store = Arc::clone(&store);
+                let health_cancel = adapter_cancel.clone();
+                tokio::spawn(async move {
+                    let mut seen: Vec<Option<(String, Option<String>, Option<chrono::DateTime<chrono::Utc>>)>> =
+                        vec![None; health_observations.len()];
+                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+                    loop {
+                        tokio::select! { biased;
+                            _ = health_cancel.cancelled() => break,
+                            _ = tick.tick() => {}
+                        }
+                        for (index, observation) in health_observations.iter().enumerate() {
+                            let health = observation.health.snapshot().await;
+                            let signature =
+                                (health.state.clone(), health.detail.clone(), health.last_event_at);
+                            if seen[index].as_ref() == Some(&signature) {
+                                continue;
+                            }
+                            let first = seen[index].is_none();
+                            seen[index] = Some(signature);
+                            if first {
+                                // The startup fact already recorded this state.
+                                continue;
+                            }
+                            if let Err(error) = health_store.record_channel_fact(
+                                &shenko_store::channel::NewChannelFact {
+                                    channel: observation.channel.clone(),
+                                    account: observation.account.clone(),
+                                    kind: "health".to_string(),
+                                    state: health.state.clone(),
+                                    subject_ref: None,
+                                    detail: serde_json::json!({
+                                        "source": observation.source,
+                                        "detail": health.detail,
+                                    }),
+                                },
+                            ) {
+                                tracing::warn!(err=%error, channel=%observation.channel, "channel health fact not recorded");
+                            }
+                        }
+                    }
+                });
+                info!(
+                    adapters = adapters.observations().len(),
+                    "channel adapters installed"
+                );
+            }
+
+            // Outbound publications across every registered channel: the
+            // model emits an explicit target so we never guess who to
+            // answer. T1 (arm_publication) claims the intent and arms the
+            // durable operation before the network is touched; the
+            // provider's answer is E1 evidence. A target no installed
+            // plugin serves is refused as never dispatched — durable,
+            // effect none, and it never cancels the runtime.
+            // SPEC §35.6, §41.4 X03, §41.6.
+            let reply_registry = channel_registry.clone();
+            let reply_store = Arc::clone(&store);
+            let reply_agent = agent_id;
+            let cancel_replies = consumer_cancel.clone();
+            let reply_failure = cancel.clone();
+            tokio::spawn(async move {
+                let result: Result<()> = async {
+                let mut tick=tokio::time::interval(std::time::Duration::from_millis(250));
+                loop {
+                    tokio::select! { biased;
+                        _ = cancel_replies.cancelled() => break,
+                        _ = tick.tick() => {}
+                    }
+                    // The ready index owns the work.
+                    for publication in reply_store.ready_publications(32)? {
+                        let intent_id = publication.intent_id;
+                        let Some(plugin) = reply_registry.channel(&publication.target.channel) else {
+                            // Never dispatched: durable refusal, runtime
+                            // keeps running.
+                            if let Err(error) = reply_store.refuse_publication(
+                                intent_id,
+                                "no installed channel serves target.channel",
+                            ) {
+                                tracing::warn!(err=%error, %intent_id, "publication refusal not committed");
+                            }
+                            continue;
+                        };
+                        let dispatch = match plugin.describe(&publication.target) {
+                            Ok(dispatch) => dispatch,
+                            Err(error) => {
+                                if let Err(refusal_error) =
+                                    reply_store.refuse_publication(intent_id, &error.to_string())
+                                {
+                                    tracing::warn!(err=%refusal_error, %intent_id, "publication refusal not committed");
+                                }
+                                continue;
+                            }
+                        };
+                        // T1: claim + arm before the network. None means
+                        // another dispatcher owns it — never a second send.
+                        let Some(armed) = reply_store.arm_publication(intent_id, &dispatch)? else {
+                            // Not an error and not a send: either another
+                            // writer owns the intent, or T1 committed that this
+                            // reply can never be dispatched (cancelled reply,
+                            // epoch advance, blocked authority). The committed
+                            // task outcome distinguishes them; a never-dispatched
+                            // reply becomes a subject-readable fact instead of a
+                            // silent no-op, and the consumer keeps running.
+                            project_never_dispatched_publication(
+                                &reply_store,
+                                intent_id,
+                                &publication.target.channel,
+                                &publication.target.account,
+                            );
+                            continue;
+                        };
+                        let mut dispatch = dispatch;
+                        dispatch.echo = Some(armed.operation_id.to_string());
+                        let outcome = match plugin.dispatch(&dispatch, &publication.content).await {
+                            Ok(receipt) => {
+                                reply_store.record_publication_receipt(&armed, &receipt)?;
+                                if receipt.accepted { "accepted" } else { "rejected" }
+                            }
+                            Err(
+                                error @ (shenko_types::channel::ChannelError::Transport { .. }
+                                | shenko_types::channel::ChannelError::Unknown { .. }),
+                            ) => {
+                                // The request may have been executed. The
+                                // effect is unknown; reconciliation
+                                // settles it and never blind-resends.
+                                let detail = error.to_string();
+                                reply_store.record_publication_unknown(&armed, &detail)?;
+                                "unknown"
+                            }
+                            Err(error) => {
+                                // Deterministic refusal after arming
+                                // (unsupported/unresolved/rejected): the
+                                // effect is none and the operation is
+                                // resolved failed.
+                                let receipt = shenko_types::channel::ChannelReceipt {
+                                    status: "rejected".to_string(),
+                                    retcode: -1,
+                                    accepted: false,
+                                    provider_message_id: None,
+                                    raw: serde_json::json!({"error": error.to_string()}),
+                                    observed_at: chrono::Utc::now(),
+                                };
+                                reply_store.record_publication_receipt(&armed, &receipt)?;
+                                "refused"
+                            }
+                        };
+                        reply_store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+                            channel: publication.target.channel.clone(),
+                            account: armed.account.clone(),
+                            kind: "publication_outcome".to_string(),
+                            state: outcome.to_string(),
+                            subject_ref: Some(intent_id.to_string()),
+                            detail: serde_json::json!({
+                                "operation_id": armed.operation_id.to_string(),
+                                "kind": publication.target.kind,
+                            }),
+                        })?;
+                    }
+                }
+                Ok(())
+                }.await;
+                if let Err(error) = result {
+                    journal_channel_error(
+                        &reply_store,
+                        reply_agent,
+                        "channel_publication_consumer_failed",
+                        "shenko::channel_publication_consumer",
+                        error.to_string(),
+                        serde_json::json!({}),
+                    );
+                    tracing::error!(err=%error, "publication consumer stopped; reopen writer and reconcile");
+                    reply_failure.cancel();
+                }
+            });
 
             // Built after any connector-scoped handler install so the sealed
             // tool contract advertises exactly the installed definitions.
@@ -2391,10 +2920,12 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
             node_sync::observe(&data_dir, &store, runtime_instance, primary_fence.as_ref())?;
             info!("subject loop started");
 
-            // The configuration service: discover/read/preview/apply over the
-            // durable config tables. Namespaces register their handlers on
-            // this service; without a handler a namespace is not advertised.
-            let config_service = Arc::new(shenko_ui::config_service::ConfigService::new(Arc::clone(&store)));
+            // The configuration service installed with the native definitions:
+            // discover/read/preview/apply over the durable config tables, the
+            // very same instance the subject's `config.manage` tool drives.
+            // Namespaces register their handlers on this service; without a
+            // handler a namespace is not advertised.
+            let config_service = Arc::clone(&installed.config_service);
 
             // 7. Start WebUI
             let ui = shenko_ui::server::UiServer::new(port)
@@ -2402,12 +2933,8 @@ async fn run(command: Command, data_dir: PathBuf) -> Result<()> {
                 .with_inbox(subject_inbox.sender())
                 .with_outbox(outbox_tx)
                 .with_store(Arc::clone(&store))
-                .with_media_ingress(Arc::clone(&media_ingress))
-                .with_media_runtime(
-                    supervisor
-                        .context()
-                        .try_service::<shenko_media::runtime::MediaRuntime>()?,
-                )
+                .with_media_ingress(Arc::clone(&media.ingress))
+                .with_media_runtime(Arc::clone(&media.runtime))
                 .with_context(Arc::clone(&context_registry), capabilities)
                 .with_data_dir(data_dir.clone())
                 .with_owner(owner_state)
@@ -2642,6 +3169,130 @@ fn session_id_of(step: &serde_json::Value) -> Result<shenko_types::ids::EntityId
         })
 }
 
+/// The capability declaration the `--requires-*` install flags author.
+///
+/// This is authoring, not admission: nothing here grants anything. The
+/// declaration it produces is stored in the package description, frozen into
+/// every environment generation that pins the version, and admitted by the
+/// executor against the resources a run actually receives.
+fn authored_capabilities(
+    filesystem: &[String],
+    environment: &[String],
+    host: &[String],
+) -> Result<shenko_node::PackageDeclaration> {
+    use shenko_node::{
+        FileRequirement, HostRequirement, NetworkTarget, PackageCapabilities, PackageDeclaration,
+    };
+    if filesystem.is_empty() && environment.is_empty() && host.is_empty() {
+        // No flags means the author recorded no declaration. That is
+        // `unrecorded`, not "needs nothing".
+        return Ok(PackageDeclaration::unrecorded());
+    }
+    let mut capabilities = PackageCapabilities::default();
+    for spec in filesystem {
+        let (guest_path, write) = match spec.rsplit_once(':') {
+            Some((path, "rw")) => (path, true),
+            Some((path, "ro")) => (path, false),
+            Some((_, other)) => anyhow::bail!(
+                "--requires-fs access must be `ro` or `rw`, not {other:?}: {spec:?}"
+            ),
+            None => (spec.as_str(), false),
+        };
+        capabilities.filesystem.push(FileRequirement {
+            guest_path: guest_path.to_string(),
+            write,
+        });
+    }
+    capabilities.environment.extend(environment.iter().cloned());
+    // Repeated `network:` flags are one requirement with one target list, so
+    // the declaration keeps a single canonical form.
+    let mut network_targets: Vec<NetworkTarget> = Vec::new();
+    for spec in host {
+        match parse_host_requirement(spec)? {
+            HostRequirement::Network { targets } => network_targets.extend(targets),
+            requirement => capabilities.host.push(requirement),
+        }
+    }
+    if !network_targets.is_empty() {
+        capabilities.host.push(HostRequirement::Network {
+            targets: network_targets,
+        });
+    }
+    let capabilities = capabilities.normalized();
+    capabilities.validate()?;
+    Ok(PackageDeclaration::declared(capabilities))
+}
+
+/// Parse one `--requires-host` value: `clock`, `random`,
+/// `host_import:<module>` or `network:<host>:<port>[:connect,listen,accept]`.
+fn parse_host_requirement(spec: &str) -> Result<shenko_node::HostRequirement> {
+    use shenko_node::HostRequirement;
+    match spec {
+        "clock" => Ok(HostRequirement::Clock {}),
+        "random" => Ok(HostRequirement::Random {}),
+        other => {
+            if let Some(module) = other.strip_prefix("host_import:") {
+                return Ok(HostRequirement::HostImport {
+                    module: module.to_string(),
+                });
+            }
+            if let Some(target) = other.strip_prefix("network:") {
+                return Ok(HostRequirement::Network {
+                    targets: vec![parse_network_target(target)?],
+                });
+            }
+            anyhow::bail!(
+                "--requires-host expects clock, random, host_import:<module> or \
+                 network:<host>:<port>[:connect,listen,accept]: {spec:?}"
+            )
+        }
+    }
+}
+
+/// Parse `<host>:<port>[:operations]`; a bracketed IPv6 literal is
+/// `[<address>]:<port>[:operations]`. Resolving a name is part of what the
+/// requirement means, so it is derived from the host being a name rather than
+/// an address literal, not from a policy default.
+fn parse_network_target(spec: &str) -> Result<shenko_node::NetworkTarget> {
+    use shenko_node::{NetworkOperation, NetworkTarget};
+    let (host, rest) = if let Some(bracketed) = spec.strip_prefix('[') {
+        let (address, rest) = bracketed.split_once("]:").with_context(|| {
+            format!("a bracketed network target must be [address]:port[:operations]: {spec:?}")
+        })?;
+        (address.to_string(), rest)
+    } else {
+        let (host, rest) = spec
+            .split_once(':')
+            .with_context(|| format!("a network target must be host:port[:operations]: {spec:?}"))?;
+        (host.to_string(), rest)
+    };
+    let (port, operations) = match rest.split_once(':') {
+        Some((port, operations)) => (port, operations),
+        None => (rest, "connect"),
+    };
+    let port: u16 = port
+        .parse()
+        .with_context(|| format!("network target port is not a u16: {spec:?}"))?;
+    let mut parsed = Vec::new();
+    for operation in operations.split(',') {
+        parsed.push(match operation {
+            "connect" => NetworkOperation::Connect {},
+            "listen" => NetworkOperation::Listen {},
+            "accept" => NetworkOperation::Accept {},
+            other => anyhow::bail!(
+                "a network operation must be connect, listen or accept, not {other:?}"
+            ),
+        });
+    }
+    let resolve = host.parse::<std::net::IpAddr>().is_err();
+    Ok(NetworkTarget {
+        host,
+        port,
+        resolve,
+        operations: parsed,
+    })
+}
+
 /// `shenko tool …` — inspect and manage the seed's named WASM tool store.
 /// Install and exec go through the node's installation-unit inventory — the
 /// same authority node_sync replicates — while list is a pure read of that
@@ -2661,17 +3312,109 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             // Pure read: never creates or migrates storage, never writes a
             // registry file. An installation that has no node DB simply has
             // no installed tools.
-            let records = match Node::open_inspect(&data_dir.join("node"))? {
-                Some(node) => installed_tools(&node)?,
-                None => Vec::new(),
+            let node = Node::open_inspect(&data_dir.join("node"))?;
+            let (records, environment) = match &node {
+                Some(node) => {
+                    let selector = node.environment_selector()?;
+                    (
+                        installed_tools(node)?,
+                        serde_json::json!({
+                            "pinned": selector.is_some(),
+                            "selector": selector,
+                            "generations": node.environment_generations(16)?,
+                        }),
+                    )
+                }
+                None => (
+                    Vec::new(),
+                    serde_json::json!({
+                        "pinned": false,
+                        "selector": null,
+                        "generations": [],
+                    }),
+                ),
             };
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "tools": records,
                     "named_targets": named_target_report(&records),
+                    "environment": environment,
                 }))?
             );
+        }
+        ToolCommand::Environment { command } => {
+            use shenko_node::UnitRequest;
+            match command {
+                ToolEnvironmentCommand::Status => {
+                    // Reads never create or migrate storage.
+                    let node = Node::open_inspect(&data_dir.join("node"))?;
+                    let status = match &node {
+                        Some(node) => serde_json::json!({
+                            "environment": node.environment_report(64)?,
+                            "tools": installed_tools(node)?,
+                        }),
+                        None => serde_json::json!({
+                            "pinned": false,
+                            "selector": null,
+                            "generations": [],
+                            "activations": [],
+                            "tools": [],
+                            "note": "no node installation at this data directory",
+                        }),
+                    };
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                }
+                ToolEnvironmentCommand::Prepare { root } => {
+                    let store = open_installation_store(&data_dir)?;
+                    let mut node = node_sync::open_node(data_dir, &store)?;
+                    let roots = tool_install::environment_roots(&node, &root)?;
+                    let prepared =
+                        node.handle_unit_request(UnitRequest::PrepareEnvironment { roots })?;
+                    println!("{}", serde_json::to_string_pretty(&prepared)?);
+                }
+                ToolEnvironmentCommand::Activate {
+                    generation,
+                    expected_revision,
+                } => {
+                    let store = open_installation_store(&data_dir)?;
+                    let mut node = node_sync::open_node(data_dir, &store)?;
+                    let activated = node.handle_unit_request(UnitRequest::ActivateEnvironment {
+                        generation,
+                        expected_revision,
+                    })?;
+                    println!("{}", serde_json::to_string_pretty(&activated)?);
+                }
+                ToolEnvironmentCommand::Rollback { expected_revision } => {
+                    let store = open_installation_store(&data_dir)?;
+                    let mut node = node_sync::open_node(data_dir, &store)?;
+                    let rolled = node.handle_unit_request(UnitRequest::RollbackEnvironment {
+                        expected_revision,
+                    })?;
+                    println!("{}", serde_json::to_string_pretty(&rolled)?);
+                }
+            }
+        }
+        ToolCommand::Metapackage { unit_id } => {
+            use shenko_node::UnitRequest;
+            let store = open_installation_store(&data_dir)?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let result = node.handle_unit_request(UnitRequest::QueryMetapackage { unit_id })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        ToolCommand::Distribution { unit_id } => {
+            use shenko_node::UnitRequest;
+            let store = open_installation_store(&data_dir)?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let result = node.handle_unit_request(UnitRequest::QueryDistribution { unit_id })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        ToolCommand::Slot { macro_id, contract } => {
+            use shenko_node::UnitRequest;
+            let store = open_installation_store(&data_dir)?;
+            let mut node = node_sync::open_node(data_dir, &store)?;
+            let result = node.handle_unit_request(UnitRequest::QuerySlot { macro_id, contract })?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
         ToolCommand::Install {
             file,
@@ -2685,10 +3428,15 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             expected_digest,
             source_sha256,
             license,
+            requires_fs,
+            requires_env,
+            requires_host,
         } => {
             let abi = ToolAbi::parse(&abi)
                 .ok_or_else(|| anyhow::anyhow!("unknown --abi {abi:?}"))?;
             shenko_wasm::validate_tool_name(&name)?;
+            let capabilities =
+                authored_capabilities(&requires_fs, &requires_env, &requires_host)?;
             // The artifact's identity is computed by streaming the file, so
             // a large module is never accumulated here just to be hashed.
             // The real ABI and the provenance digest are checked by the
@@ -2757,9 +3505,36 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 license,
                 sha256: source_sha256,
                 path: file.clone(),
+                capabilities,
             };
             let installed = tool_install::install_one(&mut node, &store, &tools_root, &request)?;
-            println!("{}", serde_json::to_string_pretty(&installed)?);
+            // Storing verified bytes and selecting them are two facts. Locking
+            // the closure and publishing it is the second one; a closure that
+            // cannot be resolved is reported after the real install instead of
+            // being hidden behind a "pip-installed" success.
+            let environment = tool_install::sync_environment(
+                &mut node,
+                &[(installed.unit_id.clone(), installed.version.clone())],
+            );
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "installed": installed,
+                    "environment": match &environment {
+                        Ok(value) => value.clone(),
+                        Err(error) => serde_json::json!({
+                            "activated": false,
+                            "error": format!("{error:#}"),
+                        }),
+                    },
+                }))?
+            );
+            if let Err(error) = &environment {
+                anyhow::bail!(
+                    "TOOL_ENVIRONMENT_NOT_ACTIVATED: the unit is stored but the environment \
+                     was not updated: {error:#}"
+                );
+            }
         }
         ToolCommand::Inspect { file } => {
             // No installation is touched: the ABI and the imports are read
@@ -2808,10 +3583,18 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 None => println!("{}", String::from_utf8_lossy(&encoded)),
             }
         }
-        ToolCommand::InstallSet { manifest, artifacts } => {
+        ToolCommand::InstallSet {
+            manifest,
+            artifacts,
+            requires_fs,
+            requires_env,
+            requires_host,
+        } => {
             let encoded = std::fs::read(&manifest)
                 .with_context(|| format!("read manifest {}", manifest.display()))?;
             let set = shenko_wasm::ToolSetManifest::parse(&encoded)?;
+            let capabilities =
+                authored_capabilities(&requires_fs, &requires_env, &requires_host)?;
             anyhow::ensure!(
                 data_dir.join("shenko.db").is_file(),
                 "no managed installation at {}; run `shenko start` once",
@@ -2840,9 +3623,41 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                 data_dir.join("cas"),
             )?;
             let mut node = node_sync::open_node(data_dir, &store)?;
-            let installed =
-                tool_install::install_set(&mut node, &store, &tools_root, &set, &artifacts)?;
-            println!("{}", serde_json::to_string_pretty(&installed)?);
+            let installed = tool_install::install_set(
+                &mut node,
+                &store,
+                &tools_root,
+                &set,
+                &artifacts,
+                &capabilities,
+            )?;
+            // One generation for the whole set: a tool set is one closure, so
+            // the profile is not advanced 91 times.
+            let members: Vec<(String, String)> = installed
+                .installed
+                .iter()
+                .map(|tool| (tool.unit_id.clone(), tool.version.clone()))
+                .collect();
+            let environment = tool_install::sync_environment(&mut node, &members);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "install": installed,
+                    "environment": match &environment {
+                        Ok(value) => value.clone(),
+                        Err(error) => serde_json::json!({
+                            "activated": false,
+                            "error": format!("{error:#}"),
+                        }),
+                    },
+                }))?
+            );
+            if let Err(error) = &environment {
+                anyhow::bail!(
+                    "TOOL_ENVIRONMENT_NOT_ACTIVATED: the set is stored but the environment \
+                     was not updated: {error:#}"
+                );
+            }
         }
         ToolCommand::Exec {
             tool,
@@ -2898,6 +3713,35 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             );
             let facts = node.tool_unit_facts()?;
             let (record, _) = resolve_tool(&facts, &tool)?;
+            // The package's declared requirements are admitted against the
+            // grant this run actually gives the guest: the resolved mount
+            // profile and the explicit environment. A declared requirement the
+            // run does not grant is a refusal — never a silently weaker guest.
+            let mut guest_env: Vec<(String, String)> = Vec::with_capacity(env.len());
+            for entry in env {
+                let (key, value) = entry
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
+                guest_env.push((key.into(), value.into()));
+            }
+            let profile = if read_only {
+                shenko_wasm::ToolMountProfile::ReadOnly
+            } else {
+                shenko_wasm::ToolMountProfile::ManagedHome
+            };
+            let mounts = profile.resolve(&manifest.mounts);
+            let granted_environment: std::collections::BTreeMap<String, String> =
+                guest_env.iter().cloned().collect();
+            let granted = shenko_wasm::GrantedCapabilities::of_invocation(
+                &mounts,
+                &granted_environment,
+            );
+            let unmet = shenko_wasm::capability_problems(&record.capabilities, &granted);
+            anyhow::ensure!(
+                unmet.is_empty(),
+                "{}",
+                unmet.join("; ")
+            );
             // Every execution re-verifies the sealed bytes and the real ABI;
             // the materialized copy is never trusted. A tool whose bytes live
             // in the installation's content store is reassembled from its
@@ -2940,18 +3784,8 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
             arguments.push(record.name.clone());
             arguments.extend(args);
             command.arguments = arguments;
-            for entry in env {
-                let (key, value) = entry
-                    .split_once('=')
-                    .ok_or_else(|| anyhow::anyhow!("--env requires KEY=VALUE: {entry:?}"))?;
-                command.environment.push((key.into(), value.into()));
-            }
-            let profile = if read_only {
-                shenko_wasm::ToolMountProfile::ReadOnly
-            } else {
-                shenko_wasm::ToolMountProfile::ManagedHome
-            };
-            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(profile.resolve(&manifest.mounts))?;
+            command.environment = guest_env;
+            let mut runtime = shenko_wasm::WasmRuntime::with_mounts(mounts)?;
             let code = runtime.run_wasi_module(&module, command);
             if stdout_file.is_none() {
                 std::io::stdout().write_all(&std::fs::read(&stdout_path).unwrap_or_default())?;
@@ -2971,6 +3805,152 @@ fn tool_command(data_dir: &PathBuf, command: ToolCommand) -> Result<()> {
                     std::process::exit(2);
                 }
             }
+        }
+    }
+    Ok(())
+}
+
+/// Cognitive root CLI commands — SPEC §51.4.
+fn root_command(data_dir: &Path, command: RootCli) -> Result<()> {
+    let store = open_installation_store(data_dir)?;
+    let agent_id = store
+        .get_existing_agent_id()?
+        .ok_or_else(|| anyhow::anyhow!("no initialized subject"))?;
+
+    match command {
+        RootCli::Head => {
+            let head = store.cognitive_root_head(agent_id)?;
+            match head {
+                Some(head) => println!("{}", serde_json::to_string_pretty(&head)?),
+                None => println!("{{\"status\":\"no cognitive root\"}}"),
+            }
+        }
+        RootCli::Chain { limit } => {
+            let chain = store.cognitive_root_chain(agent_id, limit)?;
+            println!("{}", serde_json::to_string_pretty(&chain)?);
+        }
+        RootCli::Node { revision } => {
+            let node = store.cognitive_root_node(revision)?;
+            match node {
+                Some(node) => println!("{}", serde_json::to_string_pretty(&node)?),
+                None => anyhow::bail!("root revision {} not found", revision),
+            }
+        }
+        RootCli::Capture => {
+            use shenko_types::cognitive_root::*;
+            use shenko_types::cognition::*;
+
+            // Read current state from store + seed.
+            let bootstrap = shenko_seed::Bootstrap::new(shenko_seed::SeedConfig {
+                data_dir: data_dir.to_owned(),
+                ..Default::default()
+            });
+            let installation_id = store.installation_id_for_subject(agent_id)?;
+            let prepared = bootstrap.prepare(installation_id)?;
+            let (home_bytes, home_ref) = shenko_seed::bootstrap::seed_home_content(&prepared.manifest)?;
+
+            // Seal home content in CAS.
+            let home_sealed = store.cas.seal_object(
+                &home_bytes,
+                "application/json",
+                HOME_CONTENT_NAMESPACE,
+                HOME_CONTENT_CODEC,
+                HOME_CONTENT_CODEC_MAJOR,
+            )?;
+            let _ = home_sealed; // content registered inside capture_cognitive_root
+
+            // Read selector + head for fence.
+            let (head, _step) = store.load_subject(agent_id)?;
+            let selector = store
+                .activation_selector(agent_id)?
+                .map(|s| s.selector_revision)
+                .unwrap_or(0);
+
+            // Build unit selector snapshot.
+            let unit_snapshot = UnitSelectorSnapshot::ok(Vec::new());
+            let unit_bytes = unit_snapshot.canonical_bytes()?;
+            let unit_sealed = store.cas.seal_object(
+                &unit_bytes,
+                "application/json",
+                UNIT_SELECTOR_NAMESPACE,
+                UNIT_SELECTOR_CODEC,
+                UNIT_SELECTOR_CODEC_MAJOR,
+            )?;
+
+            // Build software slot ref using current generation.
+            let slot_manifest = serde_json::json!({
+                "generation": head.software_generation.0,
+            });
+            let slot_bytes = serde_json::to_vec(&slot_manifest)?;
+            let slot_sealed = store.cas.seal_object(
+                &slot_bytes,
+                "application/json",
+                SOFTWARE_SLOT_NAMESPACE,
+                SOFTWARE_SLOT_CODEC,
+                SOFTWARE_SLOT_CODEC_MAJOR,
+            )?;
+
+            let content = CognitiveRootContent {
+                schema_version: CognitiveRootContent::SCHEMA_VERSION,
+                home: home_ref,
+                software: SoftwareSlotRef {
+                    manifest: slot_sealed.object.digest.clone(),
+                    generation: head.software_generation.clone(),
+                    artifact_digest: None,
+                },
+                units: CognitionSelectorRef {
+                    snapshot: unit_sealed.object.digest.clone(),
+                },
+                runtime: RuntimeStateParticipant::NotCaptured(RuntimeStateGap::new(
+                    "CLI capture: WASM state backend not available offline",
+                )),
+            };
+
+            let capture = CognitiveRootCapture {
+                request_id: shenko_types::ids::EntityId::new(),
+                fence: RootFence {
+                    generation: head.software_generation.clone(),
+                    epoch: head.controller_epoch,
+                    selector_revision: selector,
+                },
+                content,
+                reasons: Vec::new(),
+                confidence: AttitudeConfidence::Unknown,
+                effects: Vec::new(),
+            };
+
+            let node = store.capture_cognitive_root(capture)?;
+            println!("{}", serde_json::to_string_pretty(&node)?);
+        }
+        RootCli::Reinstate { target_revision } => {
+            use shenko_types::cognitive_root::*;
+            use shenko_types::cognition::*;
+
+            let target_node = store
+                .cognitive_root_node(target_revision)?
+                .ok_or_else(|| anyhow::anyhow!("target root revision {} not found", target_revision))?;
+
+            let (head, _step) = store.load_subject(agent_id)?;
+            let selector = store
+                .activation_selector(agent_id)?
+                .map(|s| s.selector_revision)
+                .unwrap_or(0);
+
+            let reinstatement = CognitiveRootReinstatement {
+                request_id: shenko_types::ids::EntityId::new(),
+                fence: RootFence {
+                    generation: head.software_generation.clone(),
+                    epoch: head.controller_epoch,
+                    selector_revision: selector,
+                },
+                target: RootRef::of(&target_node),
+                reasons: Vec::new(),
+                confidence: AttitudeConfidence::Unknown,
+                effects: Vec::new(),
+            };
+
+            let node = store.reinstate_cognitive_root(reinstatement)?;
+            println!("{}", serde_json::to_string_pretty(&node)?);
         }
     }
     Ok(())
@@ -3026,11 +4006,23 @@ fn napcat_inbox_event(
 }
 
 /// Resolve one classified envelope's attachment locators through the owning
-/// plugin's file capability. A locator that cannot be resolved stays a
-/// locator and is recorded as a subject-readable `attachment_locator` gap;
-/// the message itself is never dropped. Shared by the napcat spool admission
-/// and the adapter-source admission.
-fn prepare_channel_envelope(
+/// plugin, then seal the delivered bytes as immutable content.
+///
+/// The plugin owns the platform mechanism: an installed account's
+/// authenticated media call, or a read inside the media root of the host that
+/// owns the bytes. The Store owns content addressing, so the caller seals
+/// exactly the bytes the provider delivered and points the attachment at the
+/// content digest; the provider identity (`attachment_id`, `kind`, `name`,
+/// `locator`) is preserved as classified.
+///
+/// A locator that cannot be resolved keeps its locator — the bytes are still
+/// where the platform said — and the failure is recorded as a typed,
+/// subject-readable `attachment_locator` fact: the reason token says whether
+/// the credential, the platform's lifetime, the byte bound or the transport
+/// was responsible. The message itself is never dropped, and no accepted fact
+/// is rewritten. Shared by the napcat spool admission and the adapter-source
+/// admission.
+async fn prepare_channel_envelope(
     plugin: &Arc<dyn shenko_types::channel::ChannelPlugin>,
     store: &shenko_store::store::Store,
     event_id: shenko_types::ids::EntityId,
@@ -3038,9 +4030,21 @@ fn prepare_channel_envelope(
 ) -> Result<shenko_types::channel::ChannelEnvelope> {
     for index in 0..envelope.attachments.len() {
         let attachment = envelope.attachments[index].clone();
-        match plugin.resolve_attachment(&attachment) {
-            Ok(resolved) => envelope.attachments[index] = resolved,
-            Err(detail) => {
+        match plugin.resolve_attachment(&attachment).await {
+            Ok(resolved) => {
+                let mut attachment = resolved.attachment;
+                let media_type = attachment
+                    .mime
+                    .clone()
+                    .unwrap_or_else(|| "application/octet-stream".to_string());
+                let sealed = store
+                    .cas
+                    .seal_object(&resolved.bytes, &media_type, "channel_attachments", "bytes", 1)
+                    .context("seal resolved channel attachment bytes")?;
+                attachment.object = Some(sealed.object);
+                envelope.attachments[index] = attachment;
+            }
+            Err(error) => {
                 store.record_channel_fact(&shenko_store::channel::NewChannelFact {
                     channel: envelope.provider.clone(),
                     account: envelope.account.clone(),
@@ -3049,7 +4053,8 @@ fn prepare_channel_envelope(
                     subject_ref: Some(event_id.to_string()),
                     detail: serde_json::json!({
                         "attachment_id": attachment.attachment_id,
-                        "detail": detail,
+                        "reason": error.token(),
+                        "detail": error.to_string(),
                     }),
                 })?;
             }
@@ -3072,22 +4077,9 @@ async fn admit_channel_event(
     mut envelope: shenko_types::channel::ChannelEnvelope,
     raw: &serde_json::Value,
 ) -> Result<()> {
-    let key = format!(
-        "{}|{}|{}|{}|{}",
-        source,
-        envelope.provider,
-        envelope.account,
-        envelope.message_id,
-        envelope.source_event_revision.as_deref().unwrap_or(""),
-    );
-    let digest = shenko_types::object::Digest::blake3(key.as_bytes());
-    let hex_text = digest.0.strip_prefix("blake3:").unwrap_or(&digest.0);
-    let mut bytes = [0u8; 32];
-    for (index, chunk) in hex_text.as_bytes().chunks(2).take(32).enumerate() {
-        let hex_pair = std::str::from_utf8(chunk).unwrap_or("00");
-        bytes[index] = u8::from_str_radix(hex_pair, 16).unwrap_or(0);
-    }
-    let event_id = shenko_types::ids::EntityId::from_digest(&bytes);
+    // The connector's own durable ingress ledger derived this same id from
+    // the same replay-stable key, so a redelivery meets this check.
+    let event_id = shenko_types::channel::envelope_event_id(source, &envelope);
     if store
         .event_disposition_commit(agent_id, event_id)?
         .is_some()
@@ -3097,7 +4089,7 @@ async fn admit_channel_event(
     let Some(plugin) = registry.channel_for_source(source) else {
         anyhow::bail!("no registered channel plugin owns source {source}");
     };
-    envelope = prepare_channel_envelope(plugin, store, event_id, envelope)?;
+    envelope = prepare_channel_envelope(plugin, store, event_id, envelope).await?;
     let inbox_ev = shenko_subject::inbox::InboxEvent {
         event_id,
         kind: shenko_subject::inbox::InboxEventKind::Message,
@@ -3111,6 +4103,177 @@ async fn admit_channel_event(
         .await
         .map_err(|_| anyhow::anyhow!("subject inbox closed; ingress remains pending"))?;
     Ok(())
+}
+
+/// Drain one adapter's durable ingress ledger into subject admission.
+///
+/// The ledger is the connector's own durable record: a monitor wrote the event
+/// before it advanced the platform cursor, so this loop may replay after a
+/// restart. Admission is idempotent on the shared envelope identity, and the
+/// row is acknowledged only once the subject's disposition commit exists — a
+/// delivery is never an acknowledgement.
+async fn run_adapter_ingress(
+    ingress: shenko_channel_adapters::SharedAdapterIngress,
+    registry: shenko_types::channel::ChannelRegistry,
+    store: Arc<shenko_store::store::Store>,
+    agent_id: shenko_types::ids::EntityId,
+    inbox_tx: tokio::sync::mpsc::Sender<shenko_subject::inbox::InboxEvent>,
+    cancel: tokio_util::sync::CancellationToken,
+) -> Result<()> {
+    // Two independent watermarks, mirroring the shipped NapCat ingress: the
+    // delivery scan only moves forward in this process (a restart replays what
+    // is still unacknowledged exactly once), and the acknowledgement mirror
+    // re-reads from the beginning because a disposition may commit long after
+    // the event was delivered.
+    let mut deliver_after = 0;
+    let mut ack_after = 0;
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(250));
+    loop {
+        tokio::select! { biased;
+            _ = cancel.cancelled() => return Ok(()),
+            _ = tick.tick() => {}
+        }
+        for event in ingress
+            .unacked(deliver_after, 64)
+            .map_err(|error| anyhow::anyhow!(error))?
+        {
+            deliver_after = event.seq;
+            if store.event_disposition_commit(agent_id, event.event_id)?.is_some() {
+                continue;
+            }
+            admit_channel_event(
+                &registry,
+                &store,
+                agent_id,
+                &inbox_tx,
+                &event.source,
+                event.envelope,
+                &event.raw,
+            )
+            .await?;
+            ingress
+                .mark_delivered(event.event_id)
+                .map_err(|error| anyhow::anyhow!(error))?;
+        }
+        let mirror = ingress
+            .unacked(ack_after, 64)
+            .map_err(|error| anyhow::anyhow!(error))?;
+        if mirror.is_empty() {
+            ack_after = 0;
+            continue;
+        }
+        for event in mirror {
+            ack_after = event.seq;
+            if let Some(commit) = store.event_disposition_commit(agent_id, event.event_id)? {
+                ingress
+                    .mark_delivered(event.event_id)
+                    .map_err(|error| anyhow::anyhow!(error))?;
+                ingress
+                    .ack(event.event_id, &commit.to_string())
+                    .map_err(|error| anyhow::anyhow!(error))?;
+            }
+        }
+    }
+}
+
+/// Record owner-set administrators as channel facts.
+///
+/// Administration is never derived from a platform role, an app ticket or
+/// familiarity: it exists only because the owner named the account in the
+/// channel configuration, and the fact says so.
+fn record_owner_set_admins(
+    store: &shenko_store::store::Store,
+    channel: &str,
+    account: &str,
+    admins: &[String],
+    grant_prefix: &str,
+    id_field: &str,
+) -> Result<()> {
+    for admin in admins {
+        if admin.trim().is_empty() {
+            anyhow::bail!("{channel} administrator id must not be empty");
+        }
+        store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+            channel: channel.to_string(),
+            account: account.to_string(),
+            kind: "admin_grant".to_string(),
+            state: "active".to_string(),
+            subject_ref: Some(format!("{grant_prefix}:{admin}")),
+            detail: serde_json::json!({ id_field: admin, "source": "owner_config" }),
+        })?;
+    }
+    Ok(())
+}
+
+/// Project "this ready reply will never be dispatched" as a channel fact.
+///
+/// `Store::arm_publication` answers `Ok(None)` for two very different cases:
+/// another writer already owns the intent, or T1 committed a terminal
+/// `publication_never_dispatched` outcome because no attempt can exist
+/// (cancelled reply, epoch advance, blocked authority). The second case is a
+/// committed fact, not a transport failure: the subject may author a new reply
+/// later. Reading the task's sealed outcome is the discriminator; every failure
+/// here is only a missing projection, never a reason to stop the consumer or
+/// retry the send.
+fn project_never_dispatched_publication(
+    store: &shenko_store::store::Store,
+    intent_id: shenko_types::ids::EntityId,
+    channel: &str,
+    account: &str,
+) {
+    let task = match store.external_task(intent_id) {
+        Ok(task) => task,
+        Err(_) => return, // no task row: another writer owns it
+    };
+    let shenko_types::task::TaskState::Terminal { outcome_ref } = task.state else {
+        return;
+    };
+    let bytes = match store.cas.read_object(&outcome_ref.digest) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(err=%error, %intent_id, "never-dispatched outcome unreadable");
+            return;
+        }
+    };
+    // The typed `ObjectRef` on the task outcome is the read authority: check the
+    // length it declares before decoding. `subject_intents.result_ref` is opaque
+    // per-writer text (a `file://` locator on this path) and is never parsed.
+    if bytes.len() as u64 != outcome_ref.bytes {
+        tracing::warn!(
+            %intent_id,
+            declared = outcome_ref.bytes,
+            actual = bytes.len(),
+            "never-dispatched outcome length mismatch"
+        );
+        return;
+    }
+    let outcome: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            tracing::warn!(err=%error, %intent_id, "never-dispatched outcome is not JSON");
+            return;
+        }
+    };
+    if outcome.get("kind").and_then(serde_json::Value::as_str)
+        != Some("publication_never_dispatched")
+    {
+        return; // a settled/other terminal outcome is already its own fact
+    }
+    if let Err(error) = store.record_channel_fact(&shenko_store::channel::NewChannelFact {
+        channel: channel.to_string(),
+        account: account.to_string(),
+        kind: "publication_outcome".to_string(),
+        state: "never_dispatched".to_string(),
+        subject_ref: Some(intent_id.to_string()),
+        detail: serde_json::json!({
+            "reason_kind": outcome.get("reason_kind"),
+            "reason": outcome.get("reason"),
+            "dispatched": outcome.get("dispatched"),
+            "effect_status": outcome.get("effect_status"),
+        }),
+    }) {
+        tracing::warn!(err=%error, %intent_id, "never-dispatched fact not recorded");
+    }
 }
 
 /// Journal one channel-runtime error as a durable fact of the subject's
@@ -3553,6 +4716,7 @@ mod recovery_integration_tests {
     include!("native_ssh_installation_tests.rs");
     include!("ssh_public_identity_tests.rs");
     include!("native_ssh_memory_helper_tests.rs");
+    include!("node_cognition_report_tests.rs");
     use super::*;
     use shenko_channel_napcat::{NapCatClient, NapCatConfig, spool::IngressSpool};
     use shenko_types::{
@@ -3676,6 +4840,7 @@ mod recovery_integration_tests {
                 "self_id":9, "user_id":8, "message_id":42, "raw_message":"continue"
             }))
             .unwrap()
+            .event()
             .unwrap();
         drop(spool);
 
@@ -3862,7 +5027,7 @@ mod recovery_integration_tests {
         spool.ack(pending[0].spool_id, &commit.to_string()).unwrap();
         assert_eq!(spool.pending_count().unwrap(), 0);
         assert_eq!(spool.event(received.spool_id).unwrap().raw, received.raw);
-        assert!(spool.ingest(received.raw).unwrap().is_none());
+        assert!(spool.ingest(received.raw).unwrap().event().is_none());
         // Temporary evidence files are deliberately retained for inspection.
     }
 

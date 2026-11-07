@@ -1,15 +1,19 @@
 //! Authored input controls: `[dispose]`, `[obligation]`, `[dialogue]`,
-//! `[dnd]`. These are the subject's own durable decisions about its inputs
-//! and attention — dispositions with reasons/priority/review times, durable
-//! obligations, dialogue turns to children, and bounded do-not-disturb
-//! switches. Parsing rejects malformed or unbounded controls at the model
-//! boundary; the store re-validates the sealed decision at S1.
+//! `[dnd]`, `[steer]`, `[reconcile]`. These are the subject's own durable
+//! decisions about its inputs, attention and unfinished external effects —
+//! dispositions with reasons/priority/review times, durable obligations,
+//! dialogue turns to children, bounded do-not-disturb switches, adopted
+//! steers and explicit acceptance of an unknown effect. Parsing rejects
+//! malformed or unbounded controls at the model boundary; the store
+//! re-validates the sealed decision at S1.
 
 use shenko_types::error::{ErrorScope, ProtocolError, RetryStrategy, ShenkoError};
 use shenko_types::ids::EntityId;
 use shenko_types::output::{AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, SteerSpec};
+use shenko_types::subject::{AttentionState, Disposition, ObligationTerminalChange};use shenko_types::output::{
+    AttentionSpec, DialogueSpec, DispositionSpec, ObligationSpec, ReconcileSpec, SteerSpec,
+};
 use shenko_types::subject::{AttentionState, Disposition};
-
 fn invalid(line: u64, reason: &str) -> ShenkoError {
     ProtocolError::new(
         "CONTROL_PROTOCOL_INVALID",
@@ -59,6 +63,19 @@ pub(super) fn parse_obligation(value: &str, line_no: u64) -> Result<ObligationSp
     Ok(spec)
 }
 
+/// Explicit terminal change of one obligation shown in this step’s S0.
+pub(super) fn parse_obligation_terminal(
+    value: &str,
+    line_no: u64,
+) -> Result<ObligationTerminalChange, ShenkoError> {
+    let change: ObligationTerminalChange = serde_json::from_str(value)
+        .map_err(|_| invalid(line_no, "obligation:terminal requires target, terminal state and reason JSON"))?;
+    if change.obligation_id == EntityId::nil() || change.reason.trim().is_empty() {
+        return Err(invalid(line_no, "obligation:terminal requires a durable target and nonblank reason"));
+    }
+    Ok(change)
+}
+
 /// `[dialogue] {...}` — an authored turn to a durable task.
 pub(super) fn parse_dialogue(value: &str, line_no: u64) -> Result<DialogueSpec, ShenkoError> {
     let spec: DialogueSpec = serde_json::from_str(value)
@@ -104,6 +121,36 @@ pub(super) fn parse_steer(value: &str, line_no: u64) -> Result<SteerSpec, Shenko
         .map_err(|_| invalid(line_no, "steer requires one JSON object"))?;
     if spec.submission_id.trim().is_empty() {
         return Err(invalid(line_no, "steer requires the submission key"));
+    }
+    Ok(spec)
+}
+
+/// `[reconcile] {...}` — the subject accepts one unknown external effect for
+/// now. It names a case that was carried into this step's S0 and the receipts
+/// its reading rests on; it never claims the effect did not happen.
+pub(super) fn parse_reconcile(value: &str, line_no: u64) -> Result<ReconcileSpec, ShenkoError> {
+    let spec: ReconcileSpec = serde_json::from_str(value)
+        .map_err(|_| invalid(line_no, "reconcile requires one JSON object"))?;
+    if spec.case_id == EntityId::nil() {
+        return Err(invalid(line_no, "reconcile requires the case id"));
+    }
+    if spec.reason_refs.is_empty() {
+        return Err(invalid(
+            line_no,
+            "reconcile requires the evidence its reading rests on",
+        ));
+    }
+    if spec.reason_refs.iter().any(|id| *id == EntityId::nil()) {
+        return Err(invalid(line_no, "reconcile reason refs must be identities"));
+    }
+    if spec.remaining_impact.trim().is_empty() {
+        return Err(invalid(
+            line_no,
+            "reconcile requires the remaining impact",
+        ));
+    }
+    if spec.remaining_impact.len() > 64 * 1024 {
+        return Err(invalid(line_no, "reconcile remaining impact too large"));
     }
     Ok(spec)
 }

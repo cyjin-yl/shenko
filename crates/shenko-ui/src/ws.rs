@@ -29,7 +29,9 @@ use crate::input::{
     ActionSubmission, InputReceipt, SubmissionStage, SubmissionView, UserSubmission,
     WebInputService, WithdrawRequest,
 };
-use crate::presentation::{ClientSurfaceFacts, DegradedDocument, PresentationService, degrade};
+use crate::presentation::{
+    ClientSurfaceFacts, DegradedDocument, PresentationService, SurfaceCapabilities, degrade,
+};
 use crate::stream::StreamSink;
 
 /// One committed part on the subject timeline. `observed_at` is the transport
@@ -138,6 +140,28 @@ struct DocumentMessage {
     source_step_id: String,
     source_commit: String,
     degraded: DegradedDocument,
+}
+
+/// Serialize one committed output's documents for a specific capability
+/// surface. Used both for the live projection and for re-degrading the newest
+/// surface after a `client_hello` renegotiation.
+fn degraded_document_messages(
+    documents: Vec<crate::presentation::ExtractedDocument>,
+    caps: &SurfaceCapabilities,
+) -> Vec<String> {
+    documents
+        .into_iter()
+        .map(|extracted| {
+            serde_json::to_string(&DocumentMessage {
+                schema_version: 1,
+                kind: "document",
+                source_step_id: extracted.source_step_id.to_string(),
+                source_commit: extracted.source_commit.to_string(),
+                degraded: degrade(&extracted.document, caps),
+            })
+        })
+        .filter_map(Result::ok)
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -389,6 +413,10 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
     let mut identity_revision: Option<u64> = None;
     let mut committed_cursor = (0u64, None);
     let mut committed_history = std::collections::VecDeque::new();
+    // Newest committed output observed by this connection. A later
+    // `client_hello` re-degrades its documents for the renegotiated surface,
+    // so a richer client is not left holding the baseline fallback.
+    let mut last_committed: Option<OutboxMessage> = None;
     let mut stream_cursor = 0u64;
     let mut stream_history = std::collections::VecDeque::new();
     loop {
@@ -419,6 +447,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                         // Documents derive from the same committed text and
                         // follow the part message; degradation uses this
                         // connection's current capability facts.
+                        last_committed = Some(out.clone());
                         let text = out.text.clone();
                         let step_id = out.step_id;
                         let commit_ref = out.commit_ref;
@@ -436,15 +465,7 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                     }).expect("document error serialization"));
                                 }
                                 if let Some(caps) = &caps {
-                                    for extracted in documents {
-                                        payloads.push(serde_json::to_string(&DocumentMessage {
-                                            schema_version: 1,
-                                            kind: "document",
-                                            source_step_id: extracted.source_step_id.to_string(),
-                                            source_commit: extracted.source_commit.to_string(),
-                                            degraded: degrade(&extracted.document, caps),
-                                        }).expect("document serialization"));
-                                    }
+                                    payloads.extend(degraded_document_messages(documents, caps));
                                 }
                                 payloads
                             }
@@ -553,6 +574,25 @@ async fn handle_socket(mut socket: WebSocket, state: WsState) {
                                         "surface": next,
                                     });
                                     if socket.send(Message::Text(note.to_string().into())).await.is_err() { break; }
+                                    // Renegotiation changes how documents may be
+                                    // presented, so the newest committed surface
+                                    // is re-degraded instead of leaving the client
+                                    // with the baseline fallback it already got.
+                                    // The client replaces by document_id; no
+                                    // timeline part is resent and older surfaces
+                                    // keep the degradation they were admitted with.
+                                    if let Some(out) = &last_committed {
+                                        let (documents, _) = presentation.project(
+                                            &out.text,
+                                            out.step_id,
+                                            out.commit_ref,
+                                        );
+                                        for payload in degraded_document_messages(documents, &next) {
+                                            if socket.send(Message::Text(payload.into())).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {

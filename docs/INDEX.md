@@ -4,7 +4,7 @@
 
 ## 权威关系
 
-现行产品规格只有根目录 [SPEC.md](../SPEC.md)。§1–47 与所有 R/B/Ref/验收条目保持不变；§48 是 2026-11-01 追加的自主主体与文档分层章节。
+现行产品规格只有根目录 [SPEC.md](../SPEC.md)。§1–47 与所有用户原话的字节保持不变。追加部分必须以 §48 标题开头，其后可以有 §49 及以后的章节。认知的现行读法是 [§51](../SPEC.md#51-认知元概念内容态度与理由)、[决策 0002](decisions/0002-cognitive-atoms-2026-11-05.md) 与 [决策 0003](decisions/0003-spec-governance-2026-11-06.md)。与它们冲突的旧句保留原文，按 0003 的读法理解。
 
 - [SPEC.md](../SPEC.md) — 产品行为依据：147 项需求、56 组行为、59 条来源、216 条具名验收，保留 U01–U63 用户原话。行号只用于本次导入定位，变更后按标题检索。
 - [docs/specs/architecture.md](../docs/specs/architecture.md) — 当前功能边界与各层事实归属（父级拥有）。
@@ -22,7 +22,7 @@
 
 | 文档 | 内容 | 所有者 | 状态 |
 | --- | --- | --- | --- |
-| [SPEC.md](../SPEC.md) | v0.6.2 + §48 完整规格 | 父级（§1–47 字节不变） | 现行行为依据 |
+| [SPEC.md](../SPEC.md) | v0.6.2，§1–47 字节不变，其后为 §48 及以后的追加章节 | 父级（前缀字节不变） | 现行行为依据 |
 | [docs/specs/architecture.md](../docs/specs/architecture.md) | 自主主体与可替换能力架构 | 父级 | 现行 |
 | [docs/specs/](specs/) | 27 份领域功能合同 | 各领域代码拥有者 | 逐份撰写中 |
 | [WHY.md](../WHY.md) | 设计为什么成立 | 父级 | 现行 |
@@ -43,7 +43,7 @@
 | [docs/evidence/](evidence/) | 真实运行证据 | 各切片 | 逐项保存 |
 | [docs/state/coverage.json](state/coverage.json) | 需求级实现与证据状态 | 父级 | 逐项推进 |
 | [docs/development/](development/) | 局部开发合同与验收 recipe | 各切片作者 | 现行 |
-| [docs/decisions/](decisions/) | 已采用的决定记录 | 父级 | 现行 |
+| [docs/decisions/](decisions/) | 已采用的决定记录；认知原子见 [0002](decisions/0002-cognitive-atoms-2026-11-05.md)，2026-11-06 读法治理见 [0003](decisions/0003-spec-governance-2026-11-06.md) | 父级 | 现行 |
 | [scripts/check_docs.py](../scripts/check_docs.py) | 文档与归档完整性检查 | 父级 | 现行 |
 
 ## 领域功能合同（docs/specs/）
@@ -135,6 +135,9 @@
 | [46 完整产品的自主开发与仓库交接](../SPEC.md#46-完整产品的自主开发与仓库交接) | 5545 |
 | [47 Provider 协议版本、SDK 演进与自主迁移](../SPEC.md#47-provider-协议版本sdk-演进与自主迁移) | 5602 |
 | [48 自主主体、运行时能力闭环与正式文档分层](../SPEC.md#48-自主主体运行时能力闭环与正式文档分层) | 6070 |
+| [49 第三方生态兼容](../SPEC.md#49-第三方生态兼容可选的-mcp-与-agent-skills-适配器) | 6112 |
+| [50 追加事实](../SPEC.md#50-追加事实) | 6158 |
+| [51 认知元概念：内容、态度与理由](../SPEC.md#51-认知元概念内容态度与理由) | 6189 |
 
 ## 历史与归档
 
