@@ -246,15 +246,65 @@ enum JudgeVerdict {
 
 /// The two verdict tokens the judge is asked to answer with.
 const EFFECTIVE_TOKEN: &str = "EFFECTIVE";
-const NOT_EFFECTIVE_TOKEN: &str = "NOT_EFFECTIVE";
-const NOT_EFFECTIVE_SPACED_TOKEN: &str = "NOT EFFECTIVE";
 
-/// The first place `needle` occurs in `haystack`, ASCII case-insensitively.
-fn first_token(haystack: &str, needle: &str) -> Option<usize> {
-    haystack.char_indices().map(|(index, _)| index).find(|&index| {
-        haystack[index..].get(..needle.len())
-            .is_some_and(|part| part.eq_ignore_ascii_case(needle))
-    })
+/// The first verdict token in the judge's words and whether it is negated.
+///
+/// A verdict token is the standalone word `EFFECTIVE` or `INEFFECTIVE`, or a
+/// separate `NOT` directly in front of it (`NOT_EFFECTIVE`, `NOT EFFECTIVE`,
+/// `not_effective`). Any other text containing those letters
+/// (`effectiveness`, `within EFFECTIVE`) is prose, not the verdict, and the
+/// scan moves on to the next occurrence.
+fn verdict_token(text: &str) -> Option<bool> {
+    let token = EFFECTIVE_TOKEN.as_bytes();
+    for index in 0..=text.len().saturating_sub(token.len()) {
+        let Some(window) = text.get(index..index + token.len()) else { continue };
+        if !window.eq_ignore_ascii_case(EFFECTIVE_TOKEN) {
+            continue;
+        }
+        if text[index + token.len()..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            continue;
+        }
+        let word_start = text[..index]
+            .char_indices()
+            .rev()
+            .take_while(|&(_, c)| c.is_ascii_alphanumeric())
+            .last()
+            .map(|(start, _)| start)
+            .unwrap_or(index);
+        // The ASCII letters directly in front of the token are its negation
+        // prefix; a separator (`-`, `_`, space) between them stays a
+        // separator.
+        match text[word_start..index]
+            .trim_end_matches(|c: char| !c.is_ascii_alphanumeric())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "in" | "not" => return Some(true),
+            "" => {
+                // A separate `not` word across a non-alphanumeric gap.
+                let gap_end = text[..word_start]
+                    .char_indices()
+                    .rev()
+                    .take_while(|&(_, c)| !c.is_ascii_alphanumeric())
+                    .last()
+                    .map(|(start, _)| start)
+                    .unwrap_or(word_start);
+                let preceding = text[..gap_end]
+                    .char_indices()
+                    .rev()
+                    .take_while(|&(_, c)| c.is_ascii_alphanumeric())
+                    .last()
+                    .map(|(start, _)| &text[start..gap_end]);
+                Some(preceding.is_some_and(|word| word.eq_ignore_ascii_case("not")))
+            }
+            _ => {} // prose; keep scanning
+        };
+    }
+    None
 }
 
 /// Read the judge's verdict out of its own words.
@@ -262,29 +312,20 @@ fn first_token(haystack: &str, needle: &str) -> Option<usize> {
 /// The judge is asked for a single line beginning with one of the two
 /// tokens, and real models still wrap it ("判定：EFFECTIVE", "**NOT_EFFECTIVE**").
 /// The first verdict token in the text wins, so a prefix never silently flips
-/// the verdict. A text that states neither token is a judge-protocol failure,
-/// not a negative verdict: scoring it `ineffective` would turn a judge defect
-/// into evidence against the candidate.
+/// the verdict. A text that states neither token is a judge-protocol failure:
+/// scoring it either way would turn a judge defect into evidence for or
+/// against the candidate.
 fn judge_verdict(text: &str) -> Result<JudgeVerdict> {
     let trimmed = text.trim();
     ensure!(!trimmed.is_empty(), "judge returned an empty verdict");
-    let negative = first_token(trimmed, NOT_EFFECTIVE_TOKEN)
-        .or_else(|| first_token(trimmed, NOT_EFFECTIVE_SPACED_TOKEN));
-    let positive = first_token(trimmed, EFFECTIVE_TOKEN);
-    let ineffective = match (negative, positive) {
-        (Some(negative), Some(positive)) => negative <= positive,
-        (Some(_), None) => true,
-        (None, Some(_)) => false,
-        (None, None) => bail!(
+    match verdict_token(trimmed) {
+        Some(true) => Ok(JudgeVerdict::Ineffective(trimmed.to_string())),
+        Some(false) => Ok(JudgeVerdict::Effective(trimmed.to_string())),
+        None => bail!(
             "judge verdict stated neither EFFECTIVE nor NOT_EFFECTIVE: {}",
             trimmed.chars().take(160).collect::<String>()
         ),
-    };
-    Ok(if ineffective {
-        JudgeVerdict::Ineffective(trimmed.to_string())
-    } else {
-        JudgeVerdict::Effective(trimmed.to_string())
-    })
+    }
 }
 
 fn seal_trial_object<T: Serialize + ?Sized>(store: &Store, value: &T, schema: &str) -> Result<ObjectRef> {
@@ -766,12 +807,13 @@ const MIN_SAMPLE_WINDOW_MS: u64 = 1_000;
 
 /// The window each planned attempt of one comparison gets.
 ///
-/// A comparison runs its candidate and its control sequentially under one
-/// pair budget. Handing that whole budget to the first attempt lets a stalled
-/// candidate consume the control's time, so the two conditions are measured
-/// under different budgets and a later attempt may never start at all. Every
-/// planned slot therefore gets the same window; the pair budget remains the
-/// outer bound and unused time is never carried into a longer window.
+/// The trial budget is the outer bound for the whole run, every scenario's
+/// candidate/control pairs included. Handing that whole budget to the first
+/// attempt lets a stalled candidate consume the control's time, so the two
+/// conditions are measured under different budgets and a later attempt may
+/// never start at all. Every planned slot of every scenario therefore gets
+/// the same window; the trial budget remains the outer bound and unused time
+/// is never carried into a longer window.
 fn sample_window(deadline_ms: u64, planned: usize) -> Duration {
     let slots = u64::try_from(planned.max(1)).unwrap_or(u64::MAX);
     Duration::from_millis((deadline_ms / slots).max(MIN_SAMPLE_WINDOW_MS))
@@ -788,7 +830,7 @@ async fn run_prepared_trial(
     let deadline_ms = spec.deadline_ms.clamp(1_000, MAX_TRIAL_DEADLINE_MS);
     let started_at = chrono::Utc::now().to_rfc3339();
     let stop = tokio::time::Instant::now() + Duration::from_millis(deadline_ms);
-    let window = sample_window(deadline_ms, trials * 2);
+    let window = sample_window(deadline_ms, trials * 2 * spec.scenarios.len().max(1));
     std::fs::create_dir_all(&sandbox_root)?;
     let binding = broker.binding().clone();
     let binding_digest = Digest::blake3(&serde_json::to_vec(&binding)?).0;
@@ -801,9 +843,8 @@ async fn run_prepared_trial(
         let mut scenario_samples: Vec<TrialSample> = Vec::new();
         for trial in 0..trials {
             for condition in [Condition::Candidate, Condition::Control] {
-                let sample_stop = (tokio::time::Instant::now() + window).min(stop);
                 scenario_samples.push(run_trial_sample(&store, &broker, &prepared,
-                    &sandbox_root, scenario, condition, trial, sample_stop, window).await);
+                    &sandbox_root, scenario, condition, trial, stop, window).await);
             }
         }
         let candidate_totals = totals_of(&scenario_samples, Condition::Candidate);
@@ -867,9 +908,18 @@ async fn run_trial_sample(
     stop: tokio::time::Instant,
     window: Duration,
 ) -> TrialSample {
+    // The attempt's window is the smaller of its even share and what the
+    // outer trial budget still has left, so the sample states the window it
+    // was actually held to.
+    let sample_stop = tokio::time::Instant::now() + window;
+    let sample_stop = sample_stop.min(stop);
+    let sample_window_ms = sample_stop
+        .checked_duration_since(tokio::time::Instant::now())
+        .map(|remaining| u64::try_from(remaining.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
     let mut sample = TrialSample {
         scenario: scenario.name.clone(), condition, trial, started: false,
-        deadline_ms: u64::try_from(window.as_millis()).unwrap_or(u64::MAX),
+        deadline_ms: sample_window_ms,
         verdict: "failed".into(),
         judge_text: String::new(), failure: None, receipt_digest: None,
         installation_ref: None, judge_receipt: None, output_excerpt: None,

@@ -715,11 +715,19 @@ fn the_judge_verdict_is_read_from_the_judges_own_words() {
     for text in ["EFFECTIVE 理由是它先做了观察", "判定：EFFECTIVE，因为它先核实了", "EFFECTIVE"] {
         assert!(matches!(judge_verdict(text).unwrap(), JudgeVerdict::Effective(_)), "{text}");
     }
-    for text in ["NOT_EFFECTIVE 理由是直接下结论", "**not_effective** 没有核实", "Not Effective: it asserted"] {
+    for text in ["NOT_EFFECTIVE 理由是直接下结论", "**not_effective** 没有核实",
+        "Not Effective: it asserted", "INEFFECTIVE 直接下结论没有核实",
+        "判定：INEFFECTIVE，因为它直接断言"] {
         assert!(matches!(judge_verdict(text).unwrap(), JudgeVerdict::Ineffective(_)), "{text}");
     }
     // The first verdict token wins, so a prefix cannot flip a stated negative.
     assert!(matches!(judge_verdict("NOT_EFFECTIVE；它不是 EFFECTIVE 的核实").unwrap(),
+        JudgeVerdict::Ineffective(_)));
+    // `EFFECTIVE` inside a longer word is prose, not the verdict token.
+    let prose = judge_verdict("这回答的 effectiveness 很高，它确实核实了").unwrap_err().to_string();
+    assert!(prose.contains("neither EFFECTIVE nor NOT_EFFECTIVE"), "{prose}");
+    // The underscore-joined negative is still the negative token.
+    assert!(matches!(judge_verdict("not_effective：直接下结论").unwrap(),
         JudgeVerdict::Ineffective(_)));
     let empty = judge_verdict("   ").unwrap_err().to_string();
     assert!(empty.contains("empty verdict"), "{empty}");
