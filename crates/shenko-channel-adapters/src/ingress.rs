@@ -686,8 +686,8 @@ mod tests {
     #[test]
     fn an_event_without_platform_identity_is_refused() {
         let ledger = AdapterIngress::in_memory("qq-official", "qq:app").unwrap();
-        let envelope = envelope("qq-official", "qq:app", "");
-        assert!(ledger.record("qqofficial", &envelope, &json!({})).is_err());
+        let base = envelope("qq-official", "qq:app", "");
+        assert!(ledger.record("qqofficial", &base, &json!({})).is_err());
         assert_eq!(ledger.pending_count().unwrap(), 0);
         // A different account or provider cannot be smuggled into this ledger.
         assert!(
