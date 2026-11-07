@@ -311,7 +311,7 @@ fn verdict_token(text: &str) -> Option<bool> {
                     .take_while(|&(_, c)| c.is_ascii_alphanumeric())
                     .last()
                     .map(|(start, _)| &text[start..gap_end]);
-                Some(preceding.is_some_and(|word| word.eq_ignore_ascii_case("not")))
+                return Some(preceding.is_some_and(|word| word.eq_ignore_ascii_case("not")));
             }
             _ => {} // prose; keep scanning
         };
