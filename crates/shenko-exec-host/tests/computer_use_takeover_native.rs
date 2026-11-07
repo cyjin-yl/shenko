@@ -558,7 +558,7 @@ fn run(ev: &mut Evidence, run_dir: &Path) -> Result<(), Stop> {
 
     let xorg_dir = run_dir.join("xorg");
     let binary = Some(binary_path.as_path());
-    let server = match owned_xorg::Server::spawn(&node.devnode, &xorg_dir, binary) {
+    let server = match owned_xorg::spawn(&node.devnode, &xorg_dir, binary) {
         Ok(server) => server,
         Err(fault) => {
             ev.artifacts.push(format!("{}/", xorg_dir.display()));
@@ -658,7 +658,7 @@ fn run(ev: &mut Evidence, run_dir: &Path) -> Result<(), Stop> {
     // triggers or fakes a revocation.
     let fanout = Arc::new(HumanInputFanout::new());
     let dispatch = Arc::new(DispatchRecorder::default());
-    let observer: Arc<dyn HumanInputObserver> = Arc::clone(&dispatch);
+    let observer: Arc<dyn HumanInputObserver> = dispatch.clone();
     fanout.register(observer);
     let provider = X11Provider::with_fanout(Arc::clone(&fanout));
     ev.provider = Some(ProviderFacts {
