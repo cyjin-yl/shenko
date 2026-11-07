@@ -446,7 +446,7 @@ pub fn append_rollback(
         head_after: appended.node.clone(),
         agent_id: agent_before,
         classes: class_names(&target.classes),
-        missing_classes: missing_classes.iter().map(|class| class.as_str().to_owned()).collect(),
+        missing_classes: missing_classes.iter().map(|class| class.as_str()).collect(),
         reused_objects: target.objects.len() as u64,
         reused_bytes,
         external_effects: &external_effects,
