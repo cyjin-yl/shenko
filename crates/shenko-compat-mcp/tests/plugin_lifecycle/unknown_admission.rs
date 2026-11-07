@@ -122,7 +122,7 @@ async fn interrupted_unknown_admission_recovers_original_e1_without_replay() -> 
     ensure!(store.native_task_result(task_id)?.is_none(), "repair fabricated T2");
     let pending = store.pending_inbox_events(task.agent_id, 64)?;
     ensure!(pending.len() == 1, "original unknown observation was not admitted exactly once: {}", pending.len());
-    let event: Value = serde_json::from_str(&pending[0])?;
+    let event: Value = serde_json::from_str(&pending[0].1)?;
     let expected_id = serde_json::to_value(evidence.receipt_id)?;
     ensure!(event["event_id"] == expected_id && event["kind"] == "system_event"
         && event["source"] == "native-observation" && event["created_at"] == serde_json::to_value(evidence.observed_at)?
