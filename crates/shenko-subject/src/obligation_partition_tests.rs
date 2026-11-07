@@ -1299,7 +1299,7 @@ fn archive_settlements(manifest: &serde_json::Value) -> serde_json::Value {
             continue;
         }
         let receipt = field("result_ref")
-            .and_then(|text| text.as_str().and_then(|text| serde_json::from_str(text).ok()));
+            .and_then(|text| text.as_str().and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok()));
         out.push(serde_json::json!({
             "intent": {
                 "intent_id": row["key"],
